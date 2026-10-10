@@ -38,13 +38,18 @@ impl Count {
         // frozen as shared references, so a narrow next delta never has to
         // copy the absolute height built before it.
         let mut recent_height_change = Accumulator::new();
-        let mut answer = Accumulator::new();
-        let mut height_references = minima::HeightReferences::new(first_height);
+        let mut height_references = minima::HeightReferences::new();
         let mut subtree_minima = minima::SubtreeMinima::new();
 
+        // Every leaf height and every subtree minimum is the first leaf's
+        // height plus a signed offset from it. The identity adds each leaf and
+        // subtracts each internal node's minimum, and a binary tree has one
+        // more leaf than internal nodes, so the first leaf's height counts
+        // exactly once. The references measure only the offsets.
+        let mut answer = Accumulator::from(first_height);
+
         // The first leaf lies inside one open subtree for each ancestor on its
-        // path. Its live offset is zero because its absolute height opened the
-        // first reference.
+        // path. Its live offset is zero.
         subtree_minima.open_subtrees(leaves.depth());
         let first_leaf =
             height_references.add_leaf(&mut recent_height_change, &BigInt::ZERO, &mut answer);
@@ -79,7 +84,7 @@ impl Count {
             {
                 #[cfg(test)]
                 FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
-                height_references.freeze(&mut recent_height_change);
+                height_references.freeze(&mut recent_height_change, &mut answer);
             }
 
             let leaf =
@@ -88,8 +93,8 @@ impl Count {
         }
 
         // The final leaf closes every remaining subtree. Their minimum records
-        // and the references' deferred heights complete the identity stated in
-        // the module documentation.
+        // and the last reference's deferred height complete the identity
+        // stated in the module documentation.
         subtree_minima.close_all(&mut answer, &mut height_references);
         height_references.settle(&mut answer);
         Count(

@@ -1,9 +1,10 @@
 //! Frozen references for the running leaf height.
 //!
 //! The surrounding fold keeps recent height changes in one live accumulator
-//! `L`. Freezing moves `L` into a new *reference*: the height `F_j` reached
-//! when it froze. A leaf is then recorded as an offset from the newest
-//! reference, and a subtree minimum keeps that offset until it is settled.
+//! `L`. Freezing moves `L` into a new *reference*: the height `F_j`, measured
+//! from the first leaf's height, that the leaves had reached when it froze. A
+//! leaf is then recorded as an offset from the newest reference, and a
+//! subtree minimum keeps that offset until it is settled.
 //!
 //! # Two jobs, two rules
 //!
@@ -22,29 +23,43 @@
 //!   are monotone along the record stack. Settling the last record at the
 //!   top reference only marks it unreferenced. Settling the last record at a
 //!   reference below the top releases it: it is then the second-highest
-//!   reference, and it merges into the top.
+//!   reference, and it merges into the top. A freeze that finds the top
+//!   reference unreferenced merges it into the new top at once.
 //!
-//! Each reference `j` stores its *chunk* `F_j - F_{j-1}` and a coefficient:
-//! the number of leaves recorded at it minus the subtree closes charged to
-//! it. The fold's answer owes `Σ_j coefficient_j · F_j`. Removing reference
-//! `j`, between an older neighbour `i` and the top `t`, keeps both
-//! neighbours' heights and transfers its coefficient using either identity
+//! Each reference `j` stores its *chunk* `F_j - F_{j-1}` (with `F_{-1} = 0`)
+//! and a coefficient: the leaves recorded at it, less the subtree closes
+//! charged to it, plus coefficients moved to it by merges. The fold owes
+//! `Σ_j coefficient_j · F_j`. Removing reference `j`, between an older
+//! neighbour `i` and the top `t`, keeps both neighbours' heights and moves
+//! its coefficient using either identity
 //!
 //! `c_j · F_j = c_j · F_i + c_j · chunk_j = c_j · F_t − c_j · chunk_t`.
 //!
 //! A removed reference's coefficient is final, because no record refers to
-//! it and it receives no further leaves.
+//! it and it receives no further leaves. Below the oldest reference the
+//! height is zero, so a coefficient moved there is settled outright.
+//!
+//! # The first leaf's height
+//!
+//! Every coefficient counts leaves and subtree closes, and a binary tree has
+//! one more leaf than internal nodes, so the coefficients sum to one when the
+//! fold ends. The first leaf's height `h_0` lies under every reference, so it
+//! contributes exactly `h_0` to the answer. The fold adds it once at the
+//! start, and the references measure only the height above it.
 //!
 //! # Why the cost stays linear
 //!
-//! A merge adds the narrower chunk into the wider one's storage and charges
-//! the coefficient through whichever chunk is narrower, so it reads only the
-//! narrower operand. The sum's width is at most one digit more than the
-//! wider operand's, so the total stored width of live chunks falls by at
-//! least the width read, less one digit. Freezes add only drifts that the
-//! input paid for. Total merge work is therefore linear in the input. Moving
-//! a reference between the explicit top and the stack never reads a wide
-//! chunk: a chunk whose working width exceeds 64 bits moves whole.
+//! A merge adds the narrower chunk into the wider one's storage and moves the
+//! coefficient through whichever chunk is narrower, so it reads only the
+//! narrower operand. The sum is at most one digit wider than the wider
+//! operand, so the total stored width of live chunks falls by at least the
+//! width read, less one digit. Freezes add only drifts the input paid for.
+//! Total merge work is therefore linear in the input. Burying the top
+//! reference and exposing it again cost a constant: a chunk is copied only
+//! when its working width is at most 64 bits, and wider chunks move whole
+//! without being read.
+
+use core::cmp::Ordering;
 
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
@@ -63,9 +78,9 @@ pub const RECORD_SLACK_BITS: u64 = 4;
 thread_local! {
     /// Record-trigger freezes on this test thread.
     pub static RECORD_FREEZES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-    /// Reference removals that charged the coefficient to the newer neighbour.
+    /// Reference removals that moved the coefficient to the newer neighbour.
     pub static MERGES_TO_NEWER: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-    /// Reference removals that charged the coefficient to the older neighbour.
+    /// Reference removals that moved the coefficient to the older neighbour.
     pub static MERGES_TO_OLDER: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// References buried with a chunk wider than one inline word.
     pub static WIDE_CHUNKS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
@@ -94,9 +109,9 @@ impl LeafHeight {
 
 /// The newest reference, which receives every new leaf.
 struct Top {
-    /// `F_t - F_{t-1}`, or the whole height when no reference lies below.
+    /// `F_t - F_{t-1}`, or `F_t` when no reference lies below.
     chunk: Accumulator,
-    /// Leaves recorded here, less closes settled here, plus transfers.
+    /// Leaves recorded here, less closes settled here, plus moved coefficients.
     coefficient: i128,
     /// Whether a live record refers to this reference.
     referenced: bool,
@@ -111,26 +126,25 @@ pub struct HeightReferences {
     second_coefficient: Option<i128>,
     /// Chunks of every reference below the top, oldest first.
     chunks: ChunkStack,
-    /// Coefficients of the references below the second, oldest first.
+    /// Coefficients of the references below the second, oldest first, as
+    /// zigzag codes split into two words.
     coefficients: PackedU64Stack,
     /// References below the top.
     buried: u64,
-    /// Products owed by removed references, added at settlement.
-    settled: Accumulator,
     /// Coefficients settled against the zero below the oldest reference.
-    /// With the top's coefficient they sum to one at the end: a binary tree
-    /// has one more leaf than internal nodes.
+    /// With the top's coefficient they sum to one when the fold ends.
     resolved: i128,
 }
 
 impl HeightReferences {
-    /// Begin with the absolute height of the first leaf as the only reference.
-    pub fn new(first: BigUint) -> Self {
-        let mut chunk = Accumulator::new();
-        chunk += &first;
+    /// Begin with one reference at the first leaf's height.
+    ///
+    /// The caller adds the first leaf's height to the answer itself; every
+    /// reference measures height above it.
+    pub fn new() -> Self {
         Self {
             top: Top {
-                chunk,
+                chunk: Accumulator::new(),
                 coefficient: 0,
                 referenced: false,
             },
@@ -138,14 +152,12 @@ impl HeightReferences {
             chunks: ChunkStack::new(),
             coefficients: PackedU64Stack::new(),
             buried: 0,
-            settled: Accumulator::new(),
             resolved: 0,
         }
     }
 
-    /// Add one leaf height to `total` and return its offset from the newest
-    /// reference, freezing first if the offset would exceed the record
-    /// allowance.
+    /// Add one leaf's offset to `total` and return it, freezing first if the
+    /// offset would exceed the record allowance.
     ///
     /// `change` is the height change that reached this leaf; the first leaf
     /// passes zero.
@@ -159,7 +171,7 @@ impl HeightReferences {
         if offset.bits() > change.bits() + RECORD_SLACK_BITS {
             #[cfg(test)]
             bump(&RECORD_FREEZES);
-            self.freeze(live);
+            self.freeze(live, total);
             offset = BigInt::ZERO;
         }
         *total += &offset;
@@ -169,9 +181,10 @@ impl HeightReferences {
 
     /// Move the live height change into a new top reference, then clear it.
     ///
-    /// An unreferenced previous top merges into the new one at once, so
-    /// every reference below the top stays referenced.
-    pub fn freeze(&mut self, live: &mut Accumulator) {
+    /// A referenced top is buried beneath the new one. An unreferenced top
+    /// instead absorbs the change, so every reference below the top stays
+    /// referenced.
+    pub fn freeze(&mut self, live: &mut Accumulator, total: &mut Accumulator) {
         let drift = core::mem::take(live);
         let previous = core::mem::replace(
             &mut self.top,
@@ -181,7 +194,12 @@ impl HeightReferences {
                 referenced: false,
             },
         );
-        let referenced = previous.referenced;
+        if !previous.referenced {
+            // The previous top is released at once: the new top absorbs it,
+            // and the reference below it, if any, stays the second.
+            self.merge_into_top(previous.chunk, previous.coefficient, total);
+            return;
+        }
         if let Some(coefficient) = self.second_coefficient.take() {
             push_i128(&mut self.coefficients, coefficient);
         }
@@ -190,9 +208,6 @@ impl HeightReferences {
         self.buried += 1;
         #[cfg(test)]
         MAX_BURIED.with(|most| most.set(most.get().max(self.buried)));
-        if !referenced {
-            self.remove_second();
-        }
     }
 
     /// Note a new minimum record at the top reference, returning whether it
@@ -234,7 +249,7 @@ impl HeightReferences {
             if self.top.referenced {
                 self.top.referenced = false;
             } else {
-                self.remove_second();
+                self.remove_second(total);
             }
         }
     }
@@ -244,48 +259,79 @@ impl HeightReferences {
     /// The top's chunk absorbs the removed chunk, and the removed
     /// coefficient moves to whichever neighbour lets the product read the
     /// narrower chunk. Both neighbours keep their heights.
-    fn remove_second(&mut self) {
+    fn remove_second(&mut self, total: &mut Accumulator) {
         let coefficient = self
             .second_coefficient
             .take()
             .expect("a removed reference lies below the top");
         let removed = self.chunks.pop();
         self.buried -= 1;
-        let mut older = (self.buried > 0).then(|| pop_i128(&mut self.coefficients));
-        if coefficient != 0 {
-            if self.top.chunk.stored_bits() < removed.stored_bits() {
-                #[cfg(test)]
-                bump(&MERGES_TO_NEWER);
-                self.top.coefficient += coefficient;
-                fold_signed(&mut self.settled, &self.top.chunk, -coefficient);
-            } else {
-                #[cfg(test)]
-                bump(&MERGES_TO_OLDER);
-                fold_signed(&mut self.settled, &removed, coefficient);
-                match older.as_mut() {
-                    Some(older) => *older += coefficient,
-                    None => self.resolved += coefficient,
-                }
-            }
+        if self.buried > 0 {
+            self.second_coefficient = Some(pop_i128(&mut self.coefficients));
         }
-        self.second_coefficient = older;
-        self.top.chunk += removed;
+        self.merge_into_top(removed, coefficient, total);
     }
 
-    /// Add every remaining reference's contribution to `total`.
+    /// Fold a released reference's chunk and coefficient into the top.
     ///
-    /// Every record has been settled, so every reference below the top has
-    /// merged into it, and the top's chunk is the whole frozen height.
-    pub fn settle(mut self, total: &mut Accumulator) {
+    /// The released reference lies directly below the top, so the top's
+    /// chunk becomes the sum of both chunks and every live record keeps its
+    /// height. The coefficient moves to the top or to the reference below,
+    /// whichever lets its product read the narrower chunk; that chunk's limbs
+    /// are read once and serve both the product and the sum, which lands in
+    /// the wider chunk's storage.
+    fn merge_into_top(
+        &mut self,
+        released: Accumulator,
+        coefficient: i128,
+        total: &mut Accumulator,
+    ) {
+        let top = core::mem::take(&mut self.top.chunk);
+        let top_is_narrower = top.stored_bits() < released.stored_bits();
+        let (narrower, mut wider) = if top_is_narrower {
+            (top, released)
+        } else {
+            (released, top)
+        };
+        let (sign, magnitude) = narrower.signed_magnitude();
+        let magnitude = magnitude.as_ref();
+        if top_is_narrower {
+            #[cfg(test)]
+            bump(&MERGES_TO_NEWER);
+            self.top.coefficient += coefficient;
+            add_product(total, sign, magnitude, -coefficient);
+        } else {
+            #[cfg(test)]
+            bump(&MERGES_TO_OLDER);
+            add_product(total, sign, magnitude, coefficient);
+            self.charge_older(coefficient);
+        }
+        add_signed_limbs(&mut wider, sign, magnitude);
+        self.top.chunk = wider;
+    }
+
+    /// Move `coefficient` to the reference below the top, or settle it
+    /// against the zero below the oldest reference.
+    fn charge_older(&mut self, coefficient: i128) {
+        match self.second_coefficient.as_mut() {
+            Some(older) => *older += coefficient,
+            None => self.resolved += coefficient,
+        }
+    }
+
+    /// Add the remaining reference's contribution to `total`.
+    ///
+    /// Every record has been settled, so every buried reference has merged
+    /// into the top, whose chunk is the whole height above the first leaf.
+    pub fn settle(self, total: &mut Accumulator) {
         debug_assert_eq!(self.buried, 0, "settled records release every reference");
         debug_assert_eq!(
             self.top.coefficient + self.resolved,
             1,
             "a nonempty binary tree has one more leaf than internal nodes"
         );
-        let coefficient = self.top.coefficient;
-        fold_signed(&mut self.settled, &self.top.chunk, coefficient);
-        *total += self.settled;
+        let (sign, magnitude) = self.top.chunk.signed_magnitude();
+        add_product(total, sign, magnitude.as_ref(), self.top.coefficient);
     }
 }
 
@@ -306,14 +352,74 @@ fn fold_repeated(total: &mut Accumulator, factor: &BigUint, count: u128, subtrac
     }
 }
 
-/// Add `coefficient · chunk` to `total`, reading `chunk` once.
-fn fold_signed(total: &mut Accumulator, chunk: &Accumulator, coefficient: i128) {
-    if coefficient == 0 {
+/// Little-endian limbs multiplied by a word, produced lazily.
+///
+/// Feeding a product straight into an accumulator this way builds no
+/// temporary as wide as the product.
+struct Scaled<'a> {
+    /// The remaining limbs of the multiplicand.
+    limbs: core::slice::Iter<'a, u64>,
+    /// The multiplier.
+    factor: u64,
+    /// The carry into the next limb.
+    carry: u64,
+}
+
+impl<'a> Scaled<'a> {
+    /// The limbs of `limbs · factor`.
+    fn new(limbs: &'a [u64], factor: u64) -> Self {
+        Self {
+            limbs: limbs.iter(),
+            factor,
+            carry: 0,
+        }
+    }
+}
+
+impl Iterator for Scaled<'_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        match self.limbs.next() {
+            Some(&limb) => {
+                let wide = u128::from(limb) * u128::from(self.factor) + u128::from(self.carry);
+                self.carry = (wide >> 64) as u64;
+                Some(wide as u64)
+            }
+            None => Some(core::mem::take(&mut self.carry)).filter(|&carry| carry != 0),
+        }
+    }
+}
+
+/// Add `±magnitude` to `target`, the sign given as the value's comparison
+/// with zero.
+fn add_signed_limbs(target: &mut Accumulator, sign: Ordering, magnitude: &[u64]) {
+    let limbs = magnitude.iter().copied();
+    if sign == Ordering::Less {
+        target.sub_shifted_limbs(0, limbs);
+    } else {
+        target.add_shifted_limbs(0, limbs);
+    }
+}
+
+/// Add `coefficient · (±magnitude)` to `total`.
+fn add_product(total: &mut Accumulator, sign: Ordering, magnitude: &[u64], coefficient: i128) {
+    if coefficient == 0 || magnitude.is_empty() {
         return;
     }
-    let chunk = BigInt::from(chunk);
-    let product = chunk * BigInt::from(coefficient);
-    *total += &product;
+    let sign = if coefficient < 0 {
+        sign.reverse()
+    } else {
+        sign
+    };
+    let count = u64::try_from(coefficient.unsigned_abs())
+        .expect("a coefficient counts leaves and closes of a version held in memory");
+    let limbs = Scaled::new(magnitude, count);
+    if sign == Ordering::Less {
+        total.sub_shifted_limbs(0, limbs);
+    } else {
+        total.add_shifted_limbs(0, limbs);
+    }
 }
 
 /// Push a signed 128-bit value as its zigzag code, low word below.

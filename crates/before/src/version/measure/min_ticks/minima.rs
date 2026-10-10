@@ -13,11 +13,12 @@
 //!
 //! # Frozen height references
 //!
-//! [`HeightReferences`] writes the current height as `F + L`: `F` is the newest
-//! frozen reference and `L` the recent change. Leaves and minima keep only
+//! [`HeightReferences`] writes the current height as `h_0 + F + L`: `h_0` is
+//! the first leaf's height, which the fold counts once, `F` the newest frozen
+//! reference above it, and `L` the recent change. Leaves and minima keep only
 //! their offset from the reference current when they were observed, and the
 //! reference's coefficient defers the `F` part. Its module documentation
-//! explains when references freeze and merge.
+//! explains when references freeze and merge, and why `h_0` counts once.
 //!
 //! # Tracking subtree minima
 //!
