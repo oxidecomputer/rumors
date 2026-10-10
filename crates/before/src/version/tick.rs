@@ -82,11 +82,15 @@ pub enum StoredAccumulator {
 const _: () = assert!(core::mem::size_of::<StoredAccumulator>() <= 2 * core::mem::size_of::<u64>());
 
 impl StoredAccumulator {
-    /// Retain a narrow value inline, without normalizing a wide accumulator.
+    /// Retain a narrow value inline, and box a wide one without reading it.
+    ///
+    /// A value whose working width is at most 64 bits converts at constant
+    /// cost. A wider one stays boxed even if its value would fit: converting
+    /// it would read its top through the accumulator's stability query,
+    /// compacting the top only to learn that it does not fit, on every value
+    /// the traversal retains.
     fn new(value: Accumulator) -> Self {
-        // At most two held digits make exact conversion constant-width.
-        // A wider representation stays boxed even if its digits might cancel.
-        if value.stored_digit_count() > 2 {
+        if value.stored_bits() > 64 {
             return Self::Wide(Box::new(value));
         }
         match i64::try_from(value) {

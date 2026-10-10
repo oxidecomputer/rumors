@@ -61,12 +61,16 @@ pub(super) enum Remainder {
 
 /// Arithmetic that preserves compact boundaries and moves wide buffers.
 impl Boundary {
-    /// Use a word when the stored width permits a constant-cost conversion.
+    /// Use a word when the difference's working width is at most 64 bits.
     ///
-    /// A `u64` uses at most two base-2^32 digits. Materializing at most two
-    /// digits has constant cost; a wider accumulator is retained directly.
+    /// The minimum tracker's cost argument rests on moving boundaries on push
+    /// and pop without reading them: a wide boundary is read only when a drop
+    /// crosses and consumes it. A wider difference therefore stays `Wide` even
+    /// if its value would fit a word. Converting it would read its top through
+    /// the accumulator's stability query, compacting the top only to learn
+    /// that it does not fit, once for every boundary pushed.
     pub(super) fn from_positive(Positive(difference): Positive) -> Self {
-        if difference.stored_digit_count() > 2 {
+        if difference.stored_bits() > 64 {
             return Self::Wide(difference);
         }
         match u64::try_from(difference) {
