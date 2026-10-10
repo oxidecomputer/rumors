@@ -38,10 +38,12 @@ fuelscape boards and test suite to confirm.
    that hands crossings back to its callers. It should be stated as an
    instance of the same law, and checked against it by a committed
    differential test.
-5. **Party-with-party operations use two paradigms.** `join`, `sync`,
-   `is_disjoint`, and `covers` descend both trees together; `without` walks
-   region boundaries through `overlay::advance`. Whether that split is
-   justified is an open question.
+5. **The party operations' two walk styles are justified, but one party
+   region reader is duplicated.** `without` is not a different paradigm so
+   much as a co-descent that must sometimes walk one operand alone, which the
+   overlay handles; the others never need to. Separately, `without`'s
+   `DifferenceReader` re-implements `PartyRegionReader`'s traversal state, and
+   the two decode tags differently. Recommendation 5 below.
 6. **Smaller items:** projection holds two copies of one subtree skip; the
    law is restated in many module docs, and one restatement is inaccurate
    crate-wide; and the drivers-and-folds plan needs `advance` to return the
@@ -122,19 +124,91 @@ priority iteration on the comparison and lattice paths, which I judge the
 hottest (not measured). Keeping it is reasonable. Two independent implementations of one
 law without a committed check that they agree is the gap to close.
 
-### 4. Party-with-party operations use two paradigms
+### 4. Party operations: the split is earned, the region readers are not
 
-`join`, `sync`, `is_disjoint`, and `covers` descend both party trees
-together through `PartyReader` nodes, skipping the other side's subtree when
-an owned or unowned region decides the pair. `without` instead builds a
-`DifferenceReader` that implements `RegionReader`
-([`without/reader.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/without/reader.rs#L145))
-and walks region boundaries through `overlay::advance`, with its own subtree
-dispositions. Both paradigms are linear. Tree co-descent fits operations that
-emit structure (`join` copies subtrees) or decide early (`is_disjoint`).
-Whether `without` should join them, or the others could share its machinery,
-needs a closer reading of `join.rs`, `sync.rs`, and `without/` than this
-audit made. It is recorded as an open question, not a finding.
+Settled by a second, closer reading of `party/join.rs`, `join/frames.rs`,
+`sync.rs`, `compare.rs`, `without.rs`, `without/reader.rs`,
+`without/difference.rs`, `party/io/reader.rs`, and `party/io/writer.rs`, and of
+the history of the difference walk.
+
+**The framing was half wrong.** `without` is not a region walk in place of a
+tree walk. Its decisions are structural: [`descend_pair`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/without/difference.rs#L106-L126)
+reads the two operands' tags in lockstep exactly as `join` does, and
+[`skip_subtree`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/without/reader.rs#L115-L124) settles a whole subtree
+at once, either retaining it verbatim for the output or discarding it. It
+calls [`overlay::advance`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/without/difference.rs#L66-L74) only to
+cross from one settled region to the next boundary, the job that `join`'s
+[`Frames`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/join/frames.rs) and `compare`'s pending stack do by hand.
+
+**What each operation needs from its walk:**
+
+| Operation | Output | When the operands' depths differ | Early exit |
+|---|---|---|---|
+| `is_disjoint`, `covers` | none | always decided as a block: the other side's subtree is skipped ([`holds`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/compare.rs#L80-L109)) | yes, at the first failing pair |
+| `join` | a party whose tags are final when first written: a child of a disjoint union is nonempty exactly when either input child is present ([`join.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/join.rs#L50-L54)) | always decided as a block: copy the other subtree, or reject when an owned region meets a nonempty one ([`join.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/join.rs#L44)) | yes, on overlap |
+| `sync` | two parties, built from `join` plus subtree handles; it falls back to joining and then forking whenever separating children would rescan a subtree ([`sync.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/sync.rs#L70-L84)) | as `join` | yes, on overlap |
+| `without` | a party whose tags are *not* known when first reached | three of the four cases are blocks; when `self` owns a region covering a subtree of `other`, the output there is `other`'s complement, produced region by region while `self`'s cursor stands still ([`resolve_b`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/without/difference.rs#L87-L93)) | no; the difference is total |
+
+The complement case is the requirement that earns `without`'s design. It is
+the only case in any party operation where one cursor walks many regions
+while the other holds one, and the only one where a node's output tag
+depends on children not yet read: whether the right child of a node in the
+complement is present depends on whether `other`'s right child is an owned
+terminal, which the reader reaches only after the left subtree. `without`
+meets both needs with a region writer,
+[`PartyRegionWriter`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/io/writer.rs#L240-L252), which derives every
+tag from the sequence of region depths and normalizes as branches close,
+fed by the overlay, which resynchronizes the cursors after the complement.
+The history agrees. The difference walk was a recursive tree walk with a
+two-pass complement retagging until `7b11b3ead` ("Id diff as a
+boolean-skyline sweep: the recursive both-internal walk dissolves"), whose
+message states that every tag of either operand is now read once and that
+the recursion and the retagging pass both dissolve. Its predecessor's docs
+(`party/ops/diff.rs` at `aed7d6b82^`) named the complement as "not a block".
+Two days earlier, `da0f6a937` had made `sum` (now `join`), `covers`, and
+`is_disjoint` iterate as lockstep tree walks on bit-stack frames, and its
+message leaves the difference's both-internal walk as "the one recursive id
+traversal": the complement is what kept it apart.
+
+**Neither direction of consolidation is earned.** Both rewrites are
+possible, and I constructed each in outline:
+
+- *`join` as an overlay walk* is `without`'s machinery with a different truth
+  table (`a ∨ b`, rejecting an owned region that meets anything nonempty),
+  retaining an uncovered subtree as `without` does. It would delete
+  `join/frames.rs`, about 60 lines, and replace `join`'s eager tags and its
+  two or three bits per open branch with two per-operand traversal stacks and
+  the region writer's reserve-then-patch tags. The bounds stay linear; the
+  constants get worse (inferred, not measured).
+- *`without` as a lockstep tree walk* needs a separate routine for the
+  complement, writing deferred tags through `PartyWriter::open_branch` and
+  `close_branch` ([`writer.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/io/writer.rs#L118), already used by
+  `party/fork/remove.rs`), so a single pass is possible today, which it was not
+  when the walk was recursive. But it reintroduces a special-case walk with
+  its own frame stack, which the overlay currently absorbs into the general
+  rule. The code would be about the same size (inferred).
+
+So the split stands, with a stated reason: an operation whose depth
+mismatches are always settled as blocks walks both trees in lockstep with a
+joint frame stack; an operation that must walk one operand alone under the
+other's covering region uses the overlay and a region writer.
+
+**The real duplication is between the two party region readers.**
+`DifferenceReader` ([`without/reader.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/without/reader.rs#L31-L42))
+keeps a path of directions, one pending-right bit per open left branch, and a
+count of open left branches. That is the traversal state of
+`PartyRegionReader` ([`party/io/regions.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/io/regions.rs#L12-L23)),
+used by projection and the shape iterators. The only additions are a pause at
+each subtree boundary (`Boundary::Subtree`), so the caller can descend,
+discard, or retain, and the retained-subtree item. The two also decode tags
+differently. `PartyRegionReader` reads each tag through the general bit
+reader ([`descend`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/io/regions.rs#L81-L97)). `DifferenceReader` wraps
+`PartyReader`, which decodes a tag directly from its byte. `PartyReader`'s
+docs call that "substantially cheaper than invoking the general-purpose
+buffered bit reader" ([`reader.rs`](https://github.com/oxidecomputer/rumors/blob/4bcf274add9d959ddc9239267211960e3b36bc7d/crates/before/src/party/io/reader.rs#L241-L260)). One
+party region reader built on `PartyReader`, descending by default and
+pausing at subtree boundaries when asked, would serve projection, the shape
+iterators, and `without`.
 
 ### 5. Projection skips unowned subtrees twice
 
@@ -191,9 +265,15 @@ Ordered so that fixed-sign, low-risk steps come first.
 4. **Make `overlay.rs` the law's single statement**, with the other docs
    linking to it, and correct the "one implementation" sentence if `Refine`
    survives.
-5. **Open questions:** whether `without` and the tree co-descent operations
-   should share one paradigm, and whether projection's two subtree skips
-   should share a helper.
+5. **Merge the two party region readers.** Build `PartyRegionReader` on
+   `PartyReader`'s direct tag decode, with an optional pause at subtree
+   boundaries, and let `without` use it in place of `DifferenceReader`.
+   Construct, then measure: `party_without`, `party_shape`, `clock_shape`,
+   the `own_version_*` and `own_span_*` fuel panels, and the amplification
+   board's `party_without` worst-case families (`copy-hole`, `id-pair`). Keep
+   the two walk styles for the party operations; finding 4 gives the reason.
+6. **Open question:** whether projection's two subtree skips should share a
+   helper.
 
 The `tick` walk is out of scope. It is a tree walk shaped by the paper's
 recursive `fill` and `grow`, with its own prescan and `RangeMinima`
