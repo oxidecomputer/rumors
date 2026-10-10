@@ -387,7 +387,7 @@ fn skyline_rank_lone_freeze_tail_is_flat_per_unit() {
 ///
 /// Flat per encoded byte across the doubling: `Θ(k)` frozen references merge
 /// at one funded-width read each.
-const MIN_TICKS_FREEZE_POSITION_CEILINGS: [u64; 2] = [129_988, 259_988];
+const MIN_TICKS_FREEZE_POSITION_CEILINGS: [u64; 2] = [87_500, 175_000];
 
 /// min_ticks is linear on the freeze-position family: per-byte
 /// touch work stays flat (×1.25) across a block-count
@@ -432,7 +432,7 @@ fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
 ///
 /// Flat per encoded byte across the doubling: `Θ(p)` wide-drift
 /// references in both directions merge at one funded-width read each.
-const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [525_079, 1_050_079];
+const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [500_697, 1_001_322];
 
 /// `min_ticks` is linear on the deferral re-arm spine: per-byte
 /// touch work stays flat (×1.25) across a block-count

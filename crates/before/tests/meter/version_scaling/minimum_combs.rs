@@ -13,12 +13,12 @@ const MIN_TICKS_COMB_SMALL: usize = 1_000;
 /// The range-minimum tracker fold reads flat per encoded byte across the
 /// doubling; an accounting that circulates the full plateau width
 /// per closing node reads superlinear and exceeds these ceilings.
-const MIN_TICKS_PURE_COMB_CEILINGS: [u64; 2] = [2_785, 5_558];
+const MIN_TICKS_PURE_COMB_CEILINGS: [u64; 2] = [2_712, 5_408];
 
 /// Absolute touch ceilings at two scales for min_ticks on the
 /// reveal comb, measured ×1.25 (the record and every re-pin's
 /// movement live in the pin commits).
-const MIN_TICKS_REVEAL_COMB_CEILINGS: [u64; 2] = [12_958, 25_907];
+const MIN_TICKS_REVEAL_COMB_CEILINGS: [u64; 2] = [12_924, 25_834];
 
 /// min_ticks is linear on the pure comb: per-byte touch work stays flat
 /// (×1.25) across a joint `(k, b)` doubling, under
