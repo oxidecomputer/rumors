@@ -1,12 +1,10 @@
 //! Allocation traffic for a divergent local join, including metadata preparation.
 
-#[path = "support/allocation.rs"]
-mod allocation;
 use rumors_testkit::common;
 
 use std::collections::BTreeSet;
 
-use allocation::measure;
+use alloc_meter::measure;
 use rumors::Peer;
 
 /// A broad root fan, with enough leaves for internal branches below it.

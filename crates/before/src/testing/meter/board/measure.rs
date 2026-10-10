@@ -11,16 +11,19 @@ use super::currency::{ByCurrency, Floors};
 ///
 /// A counting global allocator is per-binary state the library cannot own, so
 /// the runner (the `amp_board` example, the smoke test) installs one and passes
-/// readers in. All three read the runner's allocator: `reset_peak` clears the
-/// peak high-water mark, `peak` reads it, `current` reads live bytes (the
-/// baseline subtracted from the peak).
+/// readers in. The board calls `reset_peak` before each cell's body and reads
+/// `peak` once the body has produced its result, so a cell's heap reading is
+/// the most its body raised live bytes above their level at the reset.
+///
+/// The readers need only agree with each other: a runner may count
+/// process-wide, provided no other thread allocates while a cell is measured,
+/// or count the measuring thread alone.
 pub struct HeapMeter {
-    /// Clear the peak high-water mark down to current usage.
+    /// Begin a fresh peak reading at the current live level.
     pub reset_peak: fn(),
-    /// The peak live bytes since the last reset.
+    /// Return the most that live bytes have risen above their level at the
+    /// last `reset_peak`, or zero if they never rose above it.
     pub peak: fn() -> usize,
-    /// The currently live bytes.
-    pub current: fn() -> usize,
 }
 
 /// A resource model resolved to this sample's concrete units.
@@ -65,16 +68,15 @@ pub(super) struct Sample {
 /// is dropped: an I/O-denominated cell's output side comes from the actual
 /// result rather than a prediction. The peak includes result allocations as
 /// well as scratch; releasing an input during the operation can reduce the
-/// extra live heap relative to its starting baseline.
+/// extra live heap relative to its level at the reset.
 pub(super) fn measure(heap: &HeapMeter, mut cell: Cell, content: Option<usize>) -> Sample {
     reset_scan();
     reset_touch();
     (heap.reset_peak)();
-    let baseline = (heap.current)();
     let mut observation = None;
     (cell.body)(&mut |result| {
         let readings = ByCurrency {
-            heap: Some((heap.peak)().saturating_sub(baseline) as u64),
+            heap: Some((heap.peak)() as u64),
             scan: read_scan(),
             touch: read_touch(),
         };

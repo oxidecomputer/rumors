@@ -11,22 +11,14 @@ use before::testing::meter;
 use before::testing::meter::registry::Shape;
 use before::{Count, Party, Version};
 use num_bigint::BigUint;
-use peak_alloc::PeakAlloc;
-
-/// Counts live and peak heap bytes for the focused heap checks.
-///
-/// The gate runs this suite through nextest, which isolates each test in its
-/// own process; a process-global allocator therefore observes only one check.
-#[global_allocator]
-static HEAP: PeakAlloc = PeakAlloc;
 
 /// Measure peak heap above the storage already live at entry.
+///
+/// The reading counts only this thread's allocator requests, so allocations
+/// the test harness makes on its own threads cannot enter it.
 fn peak_heap<T>(f: impl FnOnce() -> T) -> (usize, T) {
-    HEAP.reset_peak_usage();
-    let baseline = HEAP.current_usage();
-    let value = f();
-    let peak = HEAP.peak_usage().saturating_sub(baseline);
-    (peak, value)
+    let (stats, value) = alloc_meter::measure(f);
+    (stats.peak_bytes, value)
 }
 
 /// Decode a generated party.
