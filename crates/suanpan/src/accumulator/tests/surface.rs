@@ -3,9 +3,10 @@
 //! One generated program updates an [`Accumulator`] and an independent
 //! [`BigInt`] in lockstep. After every instruction, the observer checks every
 //! public query and primitive conversion, reading clones so that observing
-//! never changes the tested history. Instructions cover the standard
-//! arithmetic traits, shifted limb and accumulator inputs, sums, reservation,
-//! reset, in-place reads, and both owned and borrowed operands.
+//! never changes the tested history; cancellation therefore builds up across
+//! steps until an instruction reads in place. Instructions cover the standard
+//! arithmetic traits with owned and borrowed operands on either side, shifted
+//! limb and accumulator inputs, sums, reservation, reset, and in-place reads.
 //!
 //! The generators put explicit weight on the representation's boundaries:
 //! 30-bit small-path shifts, 32-bit digits, 64-bit limbs, the `2^96` small
@@ -52,7 +53,7 @@ enum Primitive {
     Usize(usize),
 }
 
-/// The four arithmetic forms supported for every primitive.
+/// The arithmetic forms supported for every primitive.
 #[derive(Clone, Copy, Debug)]
 enum PrimitiveArithmetic {
     /// `accumulator += value`.
@@ -63,6 +64,42 @@ enum PrimitiveArithmetic {
     Add,
     /// `accumulator - value`.
     Subtract,
+    /// `&accumulator + value`.
+    BorrowedAdd,
+    /// `&accumulator - value`.
+    BorrowedSubtract,
+}
+
+impl PrimitiveArithmetic {
+    /// Every form, for generation.
+    const ALL: [Self; 6] = [
+        Self::AddAssign,
+        Self::SubAssign,
+        Self::Add,
+        Self::Subtract,
+        Self::BorrowedAdd,
+        Self::BorrowedSubtract,
+    ];
+
+    /// Whether the form subtracts the primitive from the accumulator.
+    fn subtracts(self) -> bool {
+        matches!(
+            self,
+            Self::SubAssign | Self::Subtract | Self::BorrowedSubtract
+        )
+    }
+}
+
+/// Replace `actual` by the result of `operation` on a borrow of it, checking
+/// that the borrowed operand keeps its value, `oracle`.
+fn replace_borrowed(
+    actual: &mut Accumulator,
+    oracle: &BigInt,
+    operation: impl FnOnce(&Accumulator) -> Accumulator,
+) {
+    let result = operation(actual);
+    assert_value(actual, oracle);
+    *actual = result;
 }
 
 /// Dispatch primitive traits without erasing the concrete integer type.
@@ -81,13 +118,18 @@ impl Primitive {
                     PrimitiveArithmetic::Subtract => {
                         *actual = core::mem::take(actual) - value;
                     }
+                    PrimitiveArithmetic::BorrowedAdd => {
+                        replace_borrowed(actual, oracle, |left| left + value);
+                    }
+                    PrimitiveArithmetic::BorrowedSubtract => {
+                        replace_borrowed(actual, oracle, |left| left - value);
+                    }
                 }
                 let value = BigInt::from(value);
-                match operation {
-                    PrimitiveArithmetic::AddAssign | PrimitiveArithmetic::Add => *oracle += value,
-                    PrimitiveArithmetic::SubAssign | PrimitiveArithmetic::Subtract => {
-                        *oracle -= value;
-                    }
+                if operation.subtracts() {
+                    *oracle -= value;
+                } else {
+                    *oracle += value;
                 }
             }};
         }
@@ -226,17 +268,33 @@ enum Shift {
     Usize(usize),
 }
 
-/// Exercise either the assignment or consuming shift operator.
+/// The shift operator forms.
+#[derive(Clone, Copy, Debug)]
+enum ShiftForm {
+    /// `accumulator <<= count`.
+    Assign,
+    /// `accumulator << count`.
+    Owned,
+    /// `&accumulator << count`.
+    Borrowed,
+}
+
+impl ShiftForm {
+    /// Every form, for generation.
+    const ALL: [Self; 3] = [Self::Assign, Self::Owned, Self::Borrowed];
+}
+
+/// Exercise every shift operator form.
 impl Shift {
     /// Multiply both values by this power of two.
-    fn apply(&self, owned: bool, actual: &mut Accumulator, oracle: &mut BigInt) {
+    fn apply(&self, form: ShiftForm, actual: &mut Accumulator, oracle: &mut BigInt) {
         macro_rules! shift {
             ($count:expr) => {{
                 let count = *$count;
-                if owned {
-                    *actual = core::mem::take(actual) << count;
-                } else {
-                    *actual <<= count;
+                match form {
+                    ShiftForm::Assign => *actual <<= count,
+                    ShiftForm::Owned => *actual = core::mem::take(actual) << count,
+                    ShiftForm::Borrowed => replace_borrowed(actual, oracle, |left| left << count),
                 }
                 *oracle <<= usize::try_from(count).expect("generated shifts are nonnegative");
             }};
@@ -376,10 +434,34 @@ enum AccumulatorArithmetic {
     AddOwned,
     /// `accumulator - operand`.
     SubOwned,
+    /// `&accumulator + &operand`.
+    BorrowedAddBorrowed,
+    /// `&accumulator - &operand`.
+    BorrowedSubBorrowed,
+    /// `&accumulator + operand`.
+    BorrowedAddOwned,
+    /// `&accumulator - operand`.
+    BorrowedSubOwned,
 }
 
 /// Distinguish the forms that leave the operand with the caller.
 impl AccumulatorArithmetic {
+    /// Every form, for generation.
+    const ALL: [Self; 12] = [
+        Self::AddAssignBorrowed,
+        Self::SubAssignBorrowed,
+        Self::AddAssignOwned,
+        Self::SubAssignOwned,
+        Self::AddBorrowed,
+        Self::SubBorrowed,
+        Self::AddOwned,
+        Self::SubOwned,
+        Self::BorrowedAddBorrowed,
+        Self::BorrowedSubBorrowed,
+        Self::BorrowedAddOwned,
+        Self::BorrowedSubOwned,
+    ];
+
     /// Whether the operand is borrowed rather than consumed.
     fn borrows(self) -> bool {
         matches!(
@@ -388,6 +470,21 @@ impl AccumulatorArithmetic {
                 | Self::SubAssignBorrowed
                 | Self::AddBorrowed
                 | Self::SubBorrowed
+                | Self::BorrowedAddBorrowed
+                | Self::BorrowedSubBorrowed
+        )
+    }
+
+    /// Whether the form subtracts the operand from the accumulator.
+    fn subtracts(self) -> bool {
+        matches!(
+            self,
+            Self::SubAssignBorrowed
+                | Self::SubAssignOwned
+                | Self::SubBorrowed
+                | Self::SubOwned
+                | Self::BorrowedSubBorrowed
+                | Self::BorrowedSubOwned
         )
     }
 }
@@ -427,15 +524,18 @@ enum Operation {
         /// Power-of-two scale.
         shift: u64,
     },
-    /// Assignment or consuming left shift.
+    /// A left shift in one operator form.
     Shift {
-        /// Whether to use the consuming operator.
-        owned: bool,
+        /// The operator form.
+        form: ShiftForm,
         /// Typed shift count.
         shift: Shift,
     },
-    /// Unary negation.
-    Negate,
+    /// Unary negation of the owned or a borrowed accumulator.
+    Negate {
+        /// Whether to negate a borrow, `-&accumulator`.
+        borrowed: bool,
+    },
     /// Reset to zero while retaining reusable storage.
     Reset,
     /// Reserve storage for a working width in bits, which may be
@@ -448,6 +548,8 @@ enum Operation {
         /// Values and representations to sum.
         operands: Vec<Operand>,
     },
+    /// Compare with zero in place, keeping the compacted top for later steps.
+    Sign,
     /// Read the magnitude in place, keeping the normalized form for later
     /// steps.
     ///
@@ -524,21 +626,30 @@ impl Operation {
                     AccumulatorArithmetic::SubOwned => {
                         *actual = core::mem::take(actual) - core::mem::take(&mut operand);
                     }
+                    AccumulatorArithmetic::BorrowedAddBorrowed => {
+                        replace_borrowed(actual, oracle, |left| left + &operand);
+                    }
+                    AccumulatorArithmetic::BorrowedSubBorrowed => {
+                        replace_borrowed(actual, oracle, |left| left - &operand);
+                    }
+                    AccumulatorArithmetic::BorrowedAddOwned => {
+                        let operand = core::mem::take(&mut operand);
+                        replace_borrowed(actual, oracle, |left| left + operand);
+                    }
+                    AccumulatorArithmetic::BorrowedSubOwned => {
+                        let operand = core::mem::take(&mut operand);
+                        replace_borrowed(actual, oracle, |left| left - operand);
+                    }
                 }
                 if arithmetic.borrows() {
                     // The operation may compact its operand, but never changes
                     // its value.
                     assert_value(&operand, &operand_oracle);
                 }
-                match arithmetic {
-                    AccumulatorArithmetic::AddAssignBorrowed
-                    | AccumulatorArithmetic::AddAssignOwned
-                    | AccumulatorArithmetic::AddBorrowed
-                    | AccumulatorArithmetic::AddOwned => *oracle += operand_oracle,
-                    AccumulatorArithmetic::SubAssignBorrowed
-                    | AccumulatorArithmetic::SubAssignOwned
-                    | AccumulatorArithmetic::SubBorrowed
-                    | AccumulatorArithmetic::SubOwned => *oracle -= operand_oracle,
+                if arithmetic.subtracts() {
+                    *oracle -= operand_oracle;
+                } else {
+                    *oracle += operand_oracle;
                 }
             }
             Operation::ShiftedAccumulator {
@@ -558,9 +669,13 @@ impl Operation {
                 // The merge may compact its operand, but never changes its value.
                 assert_value(&operand, &operand_oracle);
             }
-            Operation::Shift { owned, shift } => shift.apply(*owned, actual, oracle),
-            Operation::Negate => {
-                *actual = -core::mem::take(actual);
+            Operation::Shift { form, shift } => shift.apply(*form, actual, oracle),
+            Operation::Negate { borrowed } => {
+                if *borrowed {
+                    replace_borrowed(actual, oracle, |value| -value);
+                } else {
+                    *actual = -core::mem::take(actual);
+                }
                 *oracle = -core::mem::take(oracle);
             }
             Operation::Reset => {
@@ -582,6 +697,9 @@ impl Operation {
                 } else {
                     *actual = values.into_iter().sum();
                 }
+            }
+            Operation::Sign => {
+                assert_eq!(actual.sign(), oracle_sign(oracle), "in-place sign");
             }
             Operation::Read { scaled } => {
                 let previous_digits = actual.stored_digit_count();
@@ -611,11 +729,12 @@ impl Operation {
             Operation::Accumulator { .. } => 2,
             Operation::ShiftedAccumulator { .. } => 3,
             Operation::Shift { .. } => 4,
-            Operation::Negate => 5,
+            Operation::Negate { .. } => 5,
             Operation::Reset => 6,
             Operation::Reserve(_) => 7,
             Operation::Sum { .. } => 8,
             Operation::Read { .. } => 9,
+            Operation::Sign => 10,
         }
     }
 }
@@ -697,13 +816,9 @@ fn plain_form(oracle: &BigInt) -> Accumulator {
     plain
 }
 
-/// Check every public observation against the exact modeled value.
-fn assert_observations(
-    actual: &mut Accumulator,
-    oracle: &BigInt,
-    comparison_bits: u64,
-    trace: &[u8],
-) {
+/// Check every public observation against the exact modeled value, on
+/// clones so that observing never changes the tested history.
+fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u64, trace: &[u8]) {
     assert_value(actual, oracle);
     assert_value(&actual.clone(), oracle);
 
@@ -724,7 +839,7 @@ fn assert_observations(
         "stored width bounds the redundant value after {trace:?}"
     );
 
-    if let Some(reported) = actual.cmp_zero_stable_under(comparison_bits) {
+    if let Some(reported) = actual.clone().cmp_zero_stable_under(comparison_bits) {
         assert_eq!(
             reported,
             oracle_sign(oracle),
@@ -741,14 +856,15 @@ fn assert_observations(
         );
     }
 
+    let compared = actual.clone();
     assert_eq!(
-        actual.sign(),
+        compared.sign(),
         oracle_sign(oracle),
         "exact order after {trace:?}"
     );
     if oracle == &BigInt::ZERO {
         assert!(
-            actual.is_known_zero(),
+            compared.is_known_zero(),
             "an exact zero comparison compacts cancellation after {trace:?}"
         );
     }
@@ -899,15 +1015,8 @@ fn arb_operand() -> BoxedStrategy<Operand> {
 /// Generate all arithmetic instructions over the public API.
 fn arb_operation() -> BoxedStrategy<Operation> {
     prop_oneof![
-        5 => (0u8..4, arb_primitive()).prop_map(|(operation, operand)| {
-            let arithmetic = match operation {
-                0 => PrimitiveArithmetic::AddAssign,
-                1 => PrimitiveArithmetic::SubAssign,
-                2 => PrimitiveArithmetic::Add,
-                _ => PrimitiveArithmetic::Subtract,
-            };
-            Operation::Primitive { arithmetic, operand }
-        }),
+        5 => (proptest::sample::select(&PrimitiveArithmetic::ALL[..]), arb_primitive())
+            .prop_map(|(arithmetic, operand)| Operation::Primitive { arithmetic, operand }),
         4 => (any::<bool>(), arb_limbs(), arb_shift_value(1024)).prop_map(
             |(subtract, limbs, shift)| Operation::Limbs {
                 subtract,
@@ -915,19 +1024,8 @@ fn arb_operation() -> BoxedStrategy<Operation> {
                 shift,
             }
         ),
-        5 => (0u8..8, arb_operand()).prop_map(|(operation, operand)| {
-            let arithmetic = match operation {
-                0 => AccumulatorArithmetic::AddAssignBorrowed,
-                1 => AccumulatorArithmetic::SubAssignBorrowed,
-                2 => AccumulatorArithmetic::AddAssignOwned,
-                3 => AccumulatorArithmetic::SubAssignOwned,
-                4 => AccumulatorArithmetic::AddBorrowed,
-                5 => AccumulatorArithmetic::SubBorrowed,
-                6 => AccumulatorArithmetic::AddOwned,
-                _ => AccumulatorArithmetic::SubOwned,
-            };
-            Operation::Accumulator { arithmetic, operand }
-        }),
+        5 => (proptest::sample::select(&AccumulatorArithmetic::ALL[..]), arb_operand())
+            .prop_map(|(arithmetic, operand)| Operation::Accumulator { arithmetic, operand }),
         3 => (any::<bool>(), arb_operand(), arb_shift_value(1024)).prop_map(
             |(subtract, operand, shift)| Operation::ShiftedAccumulator {
                 subtract,
@@ -935,11 +1033,9 @@ fn arb_operation() -> BoxedStrategy<Operation> {
                 shift,
             }
         ),
-        2 => (any::<bool>(), arb_shift()).prop_map(|(owned, shift)| Operation::Shift {
-            owned,
-            shift,
-        }),
-        1 => Just(Operation::Negate),
+        2 => (proptest::sample::select(&ShiftForm::ALL[..]), arb_shift())
+            .prop_map(|(form, shift)| Operation::Shift { form, shift }),
+        1 => any::<bool>().prop_map(|borrowed| Operation::Negate { borrowed }),
         1 => Just(Operation::Reset),
         1 => prop_oneof![
             0u64..=4_096,
@@ -952,6 +1048,7 @@ fn arb_operation() -> BoxedStrategy<Operation> {
             |(borrowed, operands)| Operation::Sum { borrowed, operands }
         ),
         2 => any::<bool>().prop_map(|scaled| Operation::Read { scaled }),
+        1 => Just(Operation::Sign),
     ]
     .boxed()
 }
@@ -988,18 +1085,13 @@ proptest! {
         let mut actual = Accumulator::default();
         let mut oracle = BigInt::ZERO;
         let mut trace = Vec::with_capacity(steps.len());
-        assert_observations(&mut actual, &oracle, 0, &trace);
+        assert_observations(&actual, &oracle, 0, &trace);
 
         for step in steps {
             step.operation.apply(&mut actual, &mut oracle);
             trace.push(step.operation.tag());
             assert_standard_traits(&actual, &oracle, &step, &trace);
-            assert_observations(
-                &mut actual,
-                &oracle,
-                step.comparison_bits,
-                &trace,
-            );
+            assert_observations(&actual, &oracle, step.comparison_bits, &trace);
         }
     }
 }

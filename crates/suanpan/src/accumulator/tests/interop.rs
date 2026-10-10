@@ -18,9 +18,23 @@ fn arb_bigint() -> impl Strategy<Value = BigInt> {
         })
 }
 
+/// Generate a big integer and an accumulator holding it, either as its limbs
+/// alone or under a top that cancels above them.
+fn arb_stored() -> impl Strategy<Value = (Accumulator, BigInt)> {
+    (arb_bigint(), proptest::option::of(7u64..=20)).prop_map(|(value, cancelled)| {
+        let mut acc = cancelled.map_or_else(Accumulator::new, cancelled_top);
+        acc += &value;
+        (acc, value)
+    })
+}
+
 proptest! {
     /// Adding and subtracting signed big integers, borrowed and owned, agrees
-    /// with exact arithmetic, and the result converts back to the same value.
+    /// with exact arithmetic after every step, and the result converts back to
+    /// the same value.
+    ///
+    /// Each step reads a copy, so redundant digits from earlier operands stay
+    /// in the stored form the next operand lands on.
     #[test]
     fn bigint_operands_match_the_oracle(
         ops in proptest::collection::vec((any::<bool>(), any::<bool>(), arb_bigint()), 1..100),
@@ -39,7 +53,8 @@ proptest! {
             } else {
                 oracle += value;
             }
-            prop_assert_eq!(BigInt::from(&acc), oracle.clone());
+            // Reading a copy leaves the history's redundant digits in place.
+            prop_assert_eq!(BigInt::from(&acc.clone()), oracle.clone());
         }
         assert_value(&acc, &oracle);
     }
@@ -59,18 +74,20 @@ proptest! {
         acc += magnitude;
         assert_value(&acc, &value);
     }
-}
 
-/// Converting to `BigUint` reads a nonnegative value, including one under a
-/// cancelled top, and refuses a negative one.
-#[test]
-fn biguint_conversion_refuses_negative_values() {
-    let mut positive = cancelled_top(10);
-    positive += 7;
-    assert_eq!(BigUint::try_from(&positive), Ok(BigUint::from(7u8)));
-    assert_eq!(BigUint::try_from(&cancelled_top(10)), Ok(BigUint::ZERO));
-    let mut negative = cancelled_top(10);
-    negative -= 7;
-    assert_eq!(BigUint::try_from(&negative), Err(NegativeValueError));
-    assert_eq!(BigInt::from(&negative), BigInt::from(-7));
+    /// Converting to `BigInt` returns the exact value, and converting to
+    /// `BigUint` returns the magnitude of every nonnegative value and refuses
+    /// every negative one, in either stored form, at every width through six
+    /// digits.
+    #[test]
+    fn conversions_to_bigints_are_exact((acc, value) in arb_stored()) {
+        prop_assert_eq!(BigInt::from(&acc.clone()), value.clone());
+        let unsigned = BigUint::try_from(&acc);
+        if value.sign() == Sign::Minus {
+            prop_assert_eq!(unsigned, Err(NegativeValueError));
+        } else {
+            prop_assert_eq!(unsigned, Ok(value.magnitude().clone()));
+        }
+        assert_value(&acc, &value);
+    }
 }

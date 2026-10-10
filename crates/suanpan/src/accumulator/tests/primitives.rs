@@ -143,28 +143,36 @@ proptest! {
     }
 }
 
-/// Every primitive count type agrees on valid shifts. A negative count, or a
-/// count beyond `u64::MAX` applied to a nonzero value, panics before changing
-/// the receiver, while zero shifts by any nonnegative count.
+/// Every primitive count type agrees on valid shifts, by `<<` on an owned or
+/// a borrowed value.
+///
+/// A negative count, or a count beyond `u64::MAX` applied to a nonzero value,
+/// panics before changing the receiver or the borrowed value, while zero,
+/// known or cancelled, shifts by any nonnegative count.
 #[test]
 fn primitive_shift_counts_are_checked() {
     /// Cover every supported count type at identity and register/digit transitions.
     macro_rules! valid_counts {
         ($($integer:ty),* $(,)?) => {$(
             for shift in [0, 1, 30, 31, 64, 127] {
+                let expected = IBig::from(-7) << shift as usize;
                 let operand = Accumulator::from(-7);
-                let shifted = operand << shift as $integer;
-                assert_value(&shifted, &(IBig::from(-7) << shift as usize));
+                assert_value(&(&operand << shift as $integer), &expected);
+                assert_value(&(operand << shift as $integer), &expected);
             }
         )*};
     }
     valid_counts!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-    /// Invalid counts must not partially mutate a nonzero receiver.
+    /// Invalid counts must not partially mutate a nonzero receiver or borrow.
     macro_rules! invalid_counts {
         ($($count:expr),* $(,)?) => {$(
             let mut value = Accumulator::from(7);
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| value <<= $count));
+            assert!(result.is_err());
+            assert_eq!(i64::try_from(value).unwrap(), 7);
+            let value = Accumulator::from(7);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| &value << $count));
             assert!(result.is_err());
             assert_eq!(i64::try_from(value).unwrap(), 7);
         )*};
@@ -184,6 +192,7 @@ fn primitive_shift_counts_are_checked() {
     // or stored as digits that cancel.
     for count in [u128::from(u64::MAX) + 1, u128::MAX] {
         let mut known = Accumulator::new();
+        assert!((&known << count).is_known_zero());
         known <<= count;
         assert!(known.is_known_zero());
 
@@ -191,6 +200,7 @@ fn primitive_shift_counts_are_checked() {
         cancelled.add_shifted_limbs(32, [1, 0]);
         cancelled.sub_shifted_limbs(0, [1 << 32]);
         assert!(!cancelled.is_known_zero());
+        assert_eq!((&cancelled.clone() << count).sign(), Ordering::Equal);
         cancelled <<= count;
         assert_eq!(cancelled.sign(), Ordering::Equal);
     }

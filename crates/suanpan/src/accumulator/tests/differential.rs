@@ -17,6 +17,7 @@ use super::{
     assert_value, fresh, from_limbs, oracle_sign, park_extreme_negative_digit, Accumulator,
     TestBig as _,
 };
+use crate::accumulator::compare::CLOSE_LEAD;
 use crate::accumulator::operand::Update;
 use crate::accumulator::small::SMALL_SHIFT_MAX;
 
@@ -451,14 +452,17 @@ proptest! {
         }
     }
 
-    /// Alternating stability refusals converge to a cheap exact comparison.
+    /// Alternating stability refusals converge to a cheap exact comparison,
+    /// and `Ord`, which runs that protocol, agrees with exact order.
     ///
     /// Both operands range across the scalar and signed-digit representations,
     /// including shifted updates, cancellation, and extreme coefficients. The
-    /// test follows the comparison protocol used by clients: inspect the wider
-    /// operand, reverse roles whenever compaction exposes the other as wider,
-    /// and subtract only once their stored widths differ by at most two digits.
-    /// Every refusal must strictly reduce the combined retained width.
+    /// test follows the comparison protocol: inspect the wider operand,
+    /// reverse roles whenever compaction exposes the other as wider, and
+    /// subtract only once their stored widths differ by at most
+    /// [`CLOSE_LEAD`] digits. Every refusal must strictly reduce the combined
+    /// retained width. `cmp` on fresh copies of the same stored forms, in both
+    /// orders, must return the exact order.
     #[test]
     fn two_sided_stability_converges_to_exact_comparison(
         (left_value, left_floor) in arb_stability_value(),
@@ -467,8 +471,10 @@ proptest! {
         let (left, left_oracle) = build_stability_value(&left_value, left_floor);
         let (right, right_oracle) = build_stability_value(&right_value, right_floor);
         let expected = left_oracle.cmp(&right_oracle);
+        prop_assert_eq!(left.clone().cmp(&right.clone()), expected);
+        prop_assert_eq!(right.clone().cmp(&left.clone()), expected.reverse());
         let close = |left: &Accumulator, right: &Accumulator| {
-            left.stored_digit_count().abs_diff(right.stored_digit_count()) <= 2
+            left.stored_digit_count().abs_diff(right.stored_digit_count()) <= CLOSE_LEAD
         };
 
         let initial_width = left.stored_digit_count() + right.stored_digit_count();
@@ -770,5 +776,25 @@ fn new_and_default_hold_zero() {
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Equal);
         assert_eq!(magnitude, UBig::from(0u8));
+    }
+}
+
+/// Comparing `2·2^(32(n + 1))` with an `n`-digit value terminates and is exact
+/// in both orders, for `n` from 1 through 5.
+///
+/// The wide side leads by two digits. Its top digit 2 does not decide, and
+/// compacting it into the digit below carries the same 2 back up, so a
+/// comparison that asked the wide side's stability query at this lead would
+/// never narrow it. The comparison must subtract instead.
+#[test]
+fn comparison_terminates_when_a_refusal_recarries() {
+    for narrow_digits in 1u64..=5 {
+        let mut wide = Accumulator::new();
+        wide.add_shifted_limbs(32 * (narrow_digits + 1) + 1, [1]);
+        let mut narrow = Accumulator::new();
+        narrow.add_shifted_limbs(32 * (narrow_digits - 1), [1, 0]);
+        assert_eq!(wide.stored_digit_count(), narrow.stored_digit_count() + 2);
+        assert_eq!(wide.cmp(&narrow), Ordering::Greater);
+        assert_eq!(narrow.cmp(&wide), Ordering::Less);
     }
 }

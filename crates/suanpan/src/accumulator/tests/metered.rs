@@ -874,3 +874,45 @@ fn far_wider_comparisons_read_only_the_wider_top() {
         }
     }
 }
+
+/// A comparison asks the wider side's stability query exactly when that side
+/// leads by more than two digits, and otherwise subtracts.
+///
+/// `5·2^(32(n + 2))` against `n` digits of `2^32 − 1` leads by three digits:
+/// its top digit 5 decides at once, one touch at any `n`. `5·2^(32(n + 1))`
+/// leads by two, so the comparison subtracts into a temporary. The wide
+/// operand's sign decides on its top digit (1), then its `n + 2` stored digits
+/// are read and the one nonzero deposited (`n + 3`); the narrow operand's sign
+/// decides (1), then its `n` digits are read and deposited (`2n`); and the
+/// difference's top decides (1): `3n + 6`. Both totals hold in either operand
+/// order at two widths.
+#[test]
+fn comparison_queries_only_past_a_two_digit_lead() {
+    for digits in [4u64, 40] {
+        let mut narrow = Accumulator::new();
+        narrow.add_shifted_limbs(
+            0,
+            core::iter::repeat_n(u64::MAX, usize::try_from(digits / 2).unwrap()),
+        );
+        for (lead, expected) in [(3, 1), (2, 3 * digits + 6)] {
+            let mut wide = Accumulator::new();
+            wide.add_shifted_limbs(32 * (digits + lead - 1), [5]);
+            assert_eq!(
+                wide.stored_digit_count(),
+                narrow.stored_digit_count() + usize::try_from(lead).unwrap()
+            );
+            for (left, right, order) in [
+                (&wide, &narrow, Ordering::Greater),
+                (&narrow, &wide, Ordering::Less),
+            ] {
+                touch_meter::reset();
+                assert_eq!(left.cmp(right), order);
+                assert_eq!(
+                    touch_meter::touches(),
+                    expected,
+                    "a lead of {lead} digits over {digits} digits, {order:?}"
+                );
+            }
+        }
+    }
+}

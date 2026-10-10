@@ -26,7 +26,7 @@ use super::Accumulator;
 /// A refused stability query leaves the side it asked at most this many digits
 /// wider than the other. A side is asked only when it leads by more, so each
 /// refusal strictly narrows it, and the loop in [`compare`] ends.
-const CLOSE_LEAD: usize = 2;
+pub(super) const CLOSE_LEAD: usize = 2;
 
 /// Compare by value.
 ///

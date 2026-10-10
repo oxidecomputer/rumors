@@ -13,7 +13,9 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 use proptest::prelude::*;
 
-use super::{assert_value, fresh, from_limbs, oracle_sign, Accumulator, TestBig as _};
+use super::{
+    assert_value, cancelled_top, fresh, from_limbs, oracle_sign, Accumulator, TestBig as _,
+};
 
 /// Fixed operands that create carries, cancellations, and separated writes.
 struct Operands {
@@ -492,5 +494,33 @@ proptest! {
             "{} zero operands at the buffer's top leave the buffer's length",
             landings.len()
         );
+    }
+}
+
+/// Copying an accumulator with `From<&Accumulator>` compacts its source's
+/// cancelled top, so both the copy and the source end at the value's own
+/// working width, unlike a copy of the stored form.
+#[test]
+fn copies_carry_no_cancelled_width() {
+    for position in [3u64, 30] {
+        for tail in [5i64, -5, 1 << 40] {
+            let mut source = cancelled_top(position);
+            source += tail;
+            let own_width = if tail.unsigned_abs() < 1 << 32 { 1 } else { 2 };
+            assert!(source.stored_digit_count() > own_width);
+            let copy = Accumulator::from(&source);
+            assert_eq!(
+                copy.stored_digit_count(),
+                own_width,
+                "copy of {tail} at {position}"
+            );
+            assert_eq!(
+                source.stored_digit_count(),
+                own_width,
+                "source of {tail} at {position}"
+            );
+            assert_value(&copy, &IBig::from(tail));
+            assert_value(&source, &IBig::from(tail));
+        }
     }
 }
