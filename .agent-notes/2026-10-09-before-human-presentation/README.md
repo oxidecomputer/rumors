@@ -266,7 +266,11 @@ Recorded here, not done:
 4. **The partial-order view** (`git log --graph` over a collection of
    versions): type, ordering, parent selection, and legend labels are
    sketched in [03-views.md](03-views.md#the-partial-order-view).
-5. **The knowledge matrix** (owners' regions against each peer's version),
+5. **Implementation structure.** `rank` and `min_ticks` are two corners of
+   one brick formula, but their kernels should stay separate; the reusable
+   split is drivers (one version, or an oriented pair) against folds. See
+   [02-measures.md](02-measures.md#computing-the-measures).
+6. **The knowledge matrix** (owners' regions against each peer's version),
    and its conjecture that each owner's own cell is its row's maximum: see
    [03-views.md](03-views.md#the-knowledge-matrix).
 

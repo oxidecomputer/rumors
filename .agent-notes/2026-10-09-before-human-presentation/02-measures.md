@@ -131,6 +131,19 @@ identity.
 
 ### `min_ticks` is submodular and not monotone
 
+A function `f` on a lattice is *modular* when `f(a | b) + f(a & b) =
+f(a) + f(b)`, the inclusion–exclusion identity `|A ∪ B| + |A ∩ B| =
+|A| + |B|` of set sizes, and *submodular* when the left side is at most the
+right. Read for `min_ticks`: the cheapest explanation of the merged history,
+plus the cheapest explanation of the shared history, never costs more than
+explaining each version separately. The saving comes from bricks fusing. With
+`a = Version { 0..0.1 => 1, 0.1..1 => 0 }` (one tick by the left half) and
+`b = Version { 0..0.1 => 0, 0.1..1 => 1 }` (one by the right half), the join
+is one seed tick and the meet is empty, so `1 + 0 < 1 + 1`. Joint entropy is
+the familiar submodular function: for sets `A` and `B` of random variables,
+`H(A ∪ B) + H(A ∩ B) ≤ H(A) + H(B)`. `min_ticks`, a description length,
+behaves the same way.
+
 **Submodular (proved; probed over 60,000 pairs, strict in 8,395, never
 violated):**
 
@@ -157,8 +170,12 @@ shorter.
 
 This is why `min_ticks` looked like the odd one out. The other single-version
 measures are sizes, monotone in the causal order. `min_ticks` is a minimum
-description length, in bricks. It also induces no lattice metric:
-`min_ticks(a | b) − min_ticks(a & b)` is negative for the pair above.
+description length, in bricks. It also induces no lattice metric. `distance`
+is `rank(a | b) − rank(a & b)`, a metric because `rank` is a strictly
+monotone modular function; the same construction from `min_ticks` is
+negative for the pair above, and so is the entropy-style
+`2 f(a | b) − f(a) − f(b)` (variation of information), which needs a monotone
+`f`.
 
 ## Pairwise measures
 
@@ -193,6 +210,45 @@ that `rank` induces as a strictly monotone valuation. Width's induced
 `width(a | b) − width(a & b)` is only a pseudometric: it vanishes between
 distinct versions with the same support. None of the symmetric forms says who
 leads; the asymmetric pair does.
+
+### Counted pairwise measures
+
+The brick count of the gap, `lag_bricks(a, b) = min_ticks((b − a)⁺)`, is the
+counted counterpart of `lag`: the fewest ticks that would build the gap on top
+of nothing. It is zero exactly when `b <= a` and does not depend on depth, but
+it lacks the properties that make `lag_height` and `lag_width` useful:
+
+- **It can grow as `a` learns.** Take `b = flat(1)`. Against the empty
+  version the gap is one brick; after `a` learns
+  `Version { 0..0.01 => 0, 0.01..0.1 => 1, 0.1..1 => 0 }`, a middle quarter
+  that `b`'s history can contain, the gap
+  `Version { 0..0.01 => 1, 0.01..0.1 => 0, 0.1..1 => 1 }` is two bricks.
+- **It breaks the triangle inequality (probed).** With `c` equal to
+  `flat(1)` less a depth-5 hole, `lag_bricks(empty, c)` is 5, while
+  `lag_bricks(empty, flat(1))` is 1 and `lag_bricks(flat(1), c)` is 0. The
+  same three versions break it for the symmetric brick count of `|a − b|`:
+  5 against 1 + 1.
+- **It is not causal**, as `lag_height` is not: the one-missing-tick example
+  below has a 10-brick gap.
+
+**A depth-independent distance does exist, from signed bricks.** Let
+`‖f‖_B` be the fewest unit bricks, each added or subtracted, that sum to a
+signed step function `f`. Concatenating decompositions gives
+`‖f + g‖_B ≤ ‖f‖_B + ‖g‖_B`, and `‖−f‖_B = ‖f‖_B`, so
+`brick_distance(a, b) = ‖a − b‖_B` is a metric (proved): `a − c` is exactly
+`(a − b) + (b − c)`. It is the counted counterpart of `distance` in a precise
+sense. `distance` is the least total *width* of a signed decomposition of
+`a − b`, because width is additive and the leaf decomposition attains
+`∫ |a − b|`; `brick_distance` is the least *count*. Signs matter: `c` above
+has 5 positive bricks but `‖c‖_B = 2` (`flat(1)` less the hole).
+
+Computing it means choosing a base for every node of the two versions' common
+refinement, minimizing `Σ |base|` subject to each leaf's path sum: a tree L1
+problem, solvable by dynamic programming over convex piecewise-linear costs.
+That is a third algorithm, unlike either `rank`'s or `min_ticks`'s. In the
+positive-only problem the optimal bases are the canonical minima; in the
+signed problem they are median-like. `brick_distance` is a structural edit
+distance with no causal reading, since no operation lowers heights.
 
 ## Causal content
 
@@ -252,6 +308,105 @@ lower bound on `missing` is computable is open.
   fills its half to 5, the minimum of the other half, and the rest grow it
   underneath 14, which never moves.
 
+## Computing the measures
+
+Read against `fix/suanpan-uniform-amortization` (for `rank`, `lag`, and
+`distance`) and `fix/min-ticks-transient-heap` (for `min_ticks`).
+
+### One formula, two degenerate corners
+
+Give each dyadic interval a weight `w` that depends only on its depth, and
+define the brick measure `μ_w(v) = Σ_N base(N) · w(N)`. Expanding `base`
+gives (proved)
+
+```
+μ_w(v) = Σ_leaves h(L) · w(L)  +  Σ_internal m(I) · δ(I),    δ(I) = w(I) − w(left) − w(right)
+```
+
+where `δ` is the weight's *defect*, how far it is from additive. The formula
+holds on any refinement of the canonical tree: splitting a constant leaf adds
+and removes equal amounts. So it also holds on the common refinement of two
+versions.
+
+- `rank` has `w = 2^−depth`, which is additive: `δ = 0`. The internal term
+  vanishes, and `rank` is a weighted sum over leaves, with no tree structure
+  beyond leaf widths.
+- `min_ticks` has `w = 1`: `δ = −1`. The leaf term is a plain sum of leaf
+  heights, and the internal term subtracts every internal minimum, matching
+  its documented formula.
+
+Each corner removes the other's hard part. `rank`'s `Integrator` exists to
+multiply wide heights by wide sparse widths (`live`, `parked`, and
+`deferred` components, sparse base-2^32 widths, a balanced deferred
+reduction), for `O(M(n))`. The multiplication cost is necessary, since exact
+integration can encode an integer product. `min_ticks` needs no width
+products. Its hard part is tracking nested subtree minima of wide heights
+(`RangeMinima`, a record stack with close counts) and summing leaf heights
+without copying them (frozen references with small integer coefficients,
+merges that read only the narrower chunk), for `O(n)`.
+
+A single kernel for general `w` would need both machineries at once. Minimum
+records would settle against weighted close sums, which for width-like
+weights are the same sparse wide integers `rank` handles. No meaningful
+member of the family needs both, so such a kernel would either charge
+`min_ticks` the `M(n)` class or specialize back into the two existing
+implementations. The kernels should stay separate.
+
+### Shared drivers, separate folds
+
+The clean generalization lives one layer up. Each measure has two parts:
+
+1. **A driver** turns input into a stream of leaves: depth, the turn depth
+   to the next leaf, the height change, and the input bits that funded it.
+   There are two: one version (`VersionRegionReader`), or two versions'
+   common refinement with an orientation over the sign of their difference
+   (`pair.rs`'s overlay walk).
+2. **A fold** consumes the stream: `Integrator` (width-weighted), the
+   `min_ticks` fold (counted, with minima), and potentially a running
+   maximum, or the integral of a 0/1 indicator.
+
+Today `pair.rs` couples the pair driver to `Integrator` (giving `lag`,
+`distance`, and rank comparison through the orientation closure), and
+`min_ticks` couples the single driver to its fold. Separating driver from fold
+yields the pairwise measures without new kernels:
+
+| Fold | Single driver | Pair driver, orientation `(b − a)⁺` | Pair driver, `|a − b|` |
+|---|---|---|---|
+| width-weighted integral | `rank` | `lag` | `distance` |
+| brick count | `min_ticks` | `lag_bricks` | brick count of `|a − b|` |
+| running maximum | max height | `lag_height` | distance-height |
+| indicator integral | width | `lag_width` | distance-width |
+
+Floor-truncated measures need no new code either: the pair driver with
+`flat(K)` as one operand gives the part above height `K`.
+
+### What could interfere
+
+- **Funding.** Both folds freeze a wide live change when it outgrows the
+  delta that reached the leaf. With an orientation, the derived delta is
+  bounded by the input deltas: the sign-change correction obeys
+  `|D'| ≤ |D' − D|`, the argument `Integrator::jump` relies on. But a fold's
+  triggers should compare against the *input* bits, as `pair.rs` does, not
+  the derived delta's width. The `min_ticks` fold today reads
+  `digit_len(height_change.magnitude())` from the delta it is handed, which
+  under the single driver is the input delta.
+- **Turn depths.** The `min_ticks` fold opens and closes subtrees from turn
+  depths. The common refinement has them: a boundary between consecutive
+  refinement leaves is a boundary of whichever version advanced, and the
+  lowest common ancestor of two adjacent dyadic intervals depends only on
+  their shared boundary, so both versions agree when both advance. The pair
+  driver does not currently expose them.
+- **Running maxima are not free.** A wide maximum compared against every
+  later narrow height is the quadratic pattern the crate avoids. The global
+  maximum is the root case of what `RangeMinima` tracks (negated), which
+  `tick` and `min_ticks` already share.
+- **Cost of a measure** follows its fold: counted and maximum folds over the
+  pair driver should stay linear, and width-weighted ones `O(M(n))`. Each is
+  a claim for the fuelscape boards to confirm, not an inference to rely on.
+
+Only the folds with consumers should be built: today, the running maximum and
+indicator integral over the pair driver, for the diff's summary line.
+
 ## Names and uses
 
 - **Names.** The candidates are `lag_height` and `lag_width` beside `lag`.
@@ -284,11 +439,14 @@ lower bound on `missing` is computable is open.
 ## Open
 
 - Is the greatest lower bound on `missing(a, b)` computable?
-- Is the brick count of `|a − b|` a metric? It is zero only at equality and
-  symmetric, but the brick count is not monotone pointwise, so the triangle
-  inequality does not follow from the pointwise one.
 - Does the support's piece count, the depth-independent breadth measure,
   serve any consumer?
+- Does `brick_distance` serve any consumer worth a third algorithm?
+- Not a question about measures, but noted because the probe first assumed
+  otherwise: `Party::forks(k)` creates `k` new parties and leaves the
+  receiver a share, as `fork` does. From the seed, `forks(32)` makes 33
+  parties, two of width 2⁻⁶ and the rest 2⁻⁵. As far as I can tell this is
+  the intended design.
 
 ## The probe
 
@@ -306,7 +464,9 @@ quadratic running-sum hazard. Run it from its directory:
 - `cargo run --bin fillgap`: one missing tick with a lag-height of 10;
 - `cargo run --bin bricks`: `min_ticks` as the floors' piece count,
   modularity of `rank` and width, submodularity and non-monotonicity of
-  `min_ticks`.
+  `min_ticks`;
+- `cargo run --bin triangle`: brick counts of absolute differences breaking
+  the triangle inequality.
 
 Its histories fork up to 8 parties from the seed and mix ticks with joins
 from a pool of versions, from a fixed seed.
