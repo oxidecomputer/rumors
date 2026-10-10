@@ -162,6 +162,31 @@ its two fields; this replaces that with a hand-written impl.
 
 ### Clock
 
+Proposal under discussion (Finch): render a clock as its version with the
+owned arms tagged, instead of a party and a version side by side. A clock's
+first debugging question is "what does it know, and where can it tick?", and
+two separate listings make the reader cross-reference two sets of binary
+fractions. Co-locating them answers it in one line.
+
+- **Lossless.** The version is the arms' heights; the party is the union of
+  the tagged ranges.
+- **Arms.** Arms split at ownership boundaries as well as height changes,
+  and adjacent arms merge only when both height and ownership agree.
+  `Clock::shape`'s `Overlay` already walks exactly this refinement.
+- **Never untagged.** A `Party` is never empty, so every clock has at least
+  one tagged arm.
+
+The spelling is open. Candidates, for a clock owning `0.1..1`:
+
+| Spelling | Example | Notes |
+|---|---|---|
+| brackets on the height (Finch's sketch) | `Clock { 0..0.1 => 1, 0.1..1 => [2] }`; seed `Clock { 0..1 => [0] }` | compact and easy to spot; but ownership belongs to ids, not heights, and `[2]` reads as an array in Rust-flavored text |
+| brackets around the arm | `Clock { 0..0.1 => 1, [0.1..1 => 2] }` | marks the whole arm; noisy inside braces |
+| a tag on the range | `Clock { 0..0.1 => 1, own @ 0.1..1 => 2 }` | puts ownership on the ids; Rust's binding-pattern syntax |
+| the legend's annotation slot | `Clock { 0..0.1 => 1, 0.1..1 => 2 (own) }`, pretty `// own`, aligned | a clock renders as its version annotated by a one-party legend; under a real legend its own arms show its name |
+
+The struct form, kept until the spelling is settled:
+
 ```
 Clock { party: Party(0..0.1), version: Version { 0..0.1 => 3, 0.1..0.11 => 2, 0.11..1 => 1 } }
 ```
