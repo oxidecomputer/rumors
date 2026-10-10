@@ -154,3 +154,20 @@ comparisons ambiguous for inference in every crate that links `suanpan`,
 so code such as `(a..b).contains(&arc_u64)` stops compiling downstream.
 Public rustdoc states what a user of the crate needs to use the API
 effectively; mechanism belongs in private docs.
+
+## Owner's rulings (#122 fixes, 2026-10-09)
+
+`Accumulator::normalize` is removed: every read compacts what it touches.
+`stored_digit_count` stays; its only production callers after #122 are the
+measure folds' freeze and weight policies, which use stored width as the
+work a value costs, and whether to restate them in bits is a separate
+question. `before` reads `ScaledWidth`'s limbs directly from
+`scaled_signed_magnitude`, so its private big-integer converter goes, and
+`digit_len` moves into `version::measure`, leaving no accumulator-helper
+module in `before`. `Debug` honors hex flags only if that is small and
+clean. Two `before` simplifications join #122: the conversion guards in
+`tick.rs` and `boundary.rs` go, because primitive `TryFrom` is now
+amortized, and `place/filter.rs` and `boundary.rs` use `suanpan`'s `Ord`
+instead of their own copies of its comparison protocol. Release panics
+reachable only by programmer error stand in place of the `debug_assert`s
+they replace.
