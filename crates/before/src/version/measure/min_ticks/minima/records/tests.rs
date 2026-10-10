@@ -3,7 +3,7 @@
 use num_bigint::BigInt;
 use proptest::prelude::*;
 
-use super::super::integers::tests::value_of;
+use super::super::integers::tests::{sign_of, value_of};
 use super::{Popped, Records};
 
 /// The signed offset a popped record carries.
@@ -28,7 +28,7 @@ fn records_round_trip_every_width_in_stack_order() {
         for (push, sign, bits, closes, first) in ops {
             if push || model.is_empty() {
                 let offset = BigInt::from(sign) * ((BigInt::from(1) << bits) - 1);
-                records.push(&offset, first);
+                records.push(sign_of(&offset), &offset.to_u64_digits().1, first);
                 model.push((offset, 0, first));
             }
             for _ in 0..closes {

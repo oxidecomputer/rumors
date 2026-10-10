@@ -64,9 +64,9 @@
 use core::cmp::Ordering;
 
 use num_bigint::BigInt;
-use suanpan::Accumulator;
+use suanpan::{Accumulator, Limbs};
 
-use super::integers::IntegerStack;
+use super::integers::{bit_length, IntegerStack};
 use super::records::Popped;
 use crate::bits::stack::{BitStack, PackedU64Stack};
 
@@ -137,14 +137,30 @@ fn bump(counter: &'static std::thread::LocalKey<core::cell::Cell<u64>>) {
 
 /// One leaf height expressed relative to the newest reference.
 pub struct LeafHeight {
-    /// Signed height change since the newest reference froze.
-    offset: BigInt,
+    /// The offset's comparison with zero.
+    sign: Ordering,
+    /// The offset's magnitude, or `None` when the leaf froze the live change
+    /// and so sits exactly at the new reference.
+    magnitude: Option<Limbs>,
 }
 
 impl LeafHeight {
-    /// Signed height change since the newest reference froze.
-    pub fn offset(&self) -> &BigInt {
-        &self.offset
+    /// The offset's comparison with zero.
+    pub fn sign(&self) -> Ordering {
+        self.sign
+    }
+
+    /// The offset's magnitude as little-endian limbs with no high zero limb.
+    pub fn limbs(&self) -> &[u64] {
+        self.magnitude.as_deref().unwrap_or(&[])
+    }
+
+    /// A leaf at offset zero from the reference it just froze.
+    fn at_new_reference() -> Self {
+        Self {
+            sign: Ordering::Equal,
+            magnitude: None,
+        }
     }
 }
 
@@ -209,11 +225,11 @@ impl HeightReferences {
         total: &mut Accumulator,
     ) -> LeafHeight {
         let change_bits = change.bits();
-        let offset = if live.stored_bits() > change_bits + UNREAD_FREEZE_BITS {
+        let leaf = if live.stored_bits() > change_bits + UNREAD_FREEZE_BITS {
             #[cfg(test)]
             bump(&UNREAD_FREEZES);
             self.freeze(live, total);
-            BigInt::ZERO
+            LeafHeight::at_new_reference()
         } else {
             #[cfg(test)]
             MAX_READ_EXCESS.with(|most| {
@@ -222,19 +238,22 @@ impl HeightReferences {
                         .max(live.stored_bits().saturating_sub(change_bits)),
                 )
             });
-            let offset = BigInt::from(&*live);
-            if offset.bits() > change_bits + RECORD_SLACK_BITS {
+            let (sign, magnitude) = live.signed_magnitude();
+            if bit_length(&magnitude) > change_bits + RECORD_SLACK_BITS {
                 #[cfg(test)]
                 bump(&RECORD_FREEZES);
                 self.freeze(live, total);
-                BigInt::ZERO
+                LeafHeight::at_new_reference()
             } else {
-                offset
+                add_signed_limbs(total, sign, &magnitude);
+                LeafHeight {
+                    sign,
+                    magnitude: Some(magnitude),
+                }
             }
         };
-        *total += &offset;
         self.top.coefficient += 1;
-        LeafHeight { offset }
+        leaf
     }
 
     /// Move the live height change into a new top reference, then clear it.

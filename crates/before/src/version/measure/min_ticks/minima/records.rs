@@ -12,8 +12,6 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, Sign};
-
 use super::integers::{IntegerStack, Magnitude};
 use crate::bits::stack::{BitStack, PackedU64Stack};
 
@@ -55,18 +53,14 @@ impl Records {
         }
     }
 
-    /// Push a new current minimum with no closes yet.
-    pub fn push(&mut self, offset: &BigInt, first: bool) {
+    /// Push a new current minimum with no closes yet, its offset given as a
+    /// comparison with zero and little-endian limbs with no high zero limb.
+    pub fn push(&mut self, sign: Ordering, magnitude: &[u64], first: bool) {
         if self.first.len() != 0 {
             self.closes.push(self.top_closes);
         }
         self.top_closes = 0;
-        let sign = match offset.sign() {
-            Sign::Minus => Ordering::Less,
-            Sign::NoSign => Ordering::Equal,
-            Sign::Plus => Ordering::Greater,
-        };
-        self.offsets.push(sign, offset.iter_u64_digits());
+        self.offsets.push(sign, magnitude.iter().copied());
         self.first.push(first);
     }
 

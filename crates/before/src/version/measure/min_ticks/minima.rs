@@ -151,7 +151,7 @@ impl SubtreeMinima {
         };
         if begins {
             let first = references.reference_top();
-            self.records.push(leaf.offset(), first);
+            self.records.push(leaf.sign(), leaf.limbs(), first);
         }
     }
 

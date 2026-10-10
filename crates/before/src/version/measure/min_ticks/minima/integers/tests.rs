@@ -39,7 +39,7 @@ pub(in super::super) fn value_of(sign: Ordering, magnitude: &Magnitude) -> BigIn
 }
 
 /// The comparison with zero of `value`.
-fn sign_of(value: &BigInt) -> Ordering {
+pub(in super::super) fn sign_of(value: &BigInt) -> Ordering {
     value.sign().cmp(&Sign::NoSign)
 }
 

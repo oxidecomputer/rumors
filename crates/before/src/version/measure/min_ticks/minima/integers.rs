@@ -144,7 +144,7 @@ impl IntegerStack {
 }
 
 /// The bit length of little-endian limbs with no high zero limb.
-fn bit_length(limbs: &[u64]) -> u64 {
+pub fn bit_length(limbs: &[u64]) -> u64 {
     debug_assert!(
         limbs.last() != Some(&0),
         "a magnitude has no high zero limb"
