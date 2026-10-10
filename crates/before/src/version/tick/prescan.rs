@@ -59,7 +59,7 @@ pub struct PreScan<'a, 'm> {
     /// A forward cursor independent of the main tick cursor.
     cursor: VersionTreeReader<'a>,
     /// Minima of the simplified ranges simulated by this scan.
-    pub minima: RangeMinima<()>,
+    pub minima: RangeMinima,
     /// Current input height minus scan-entry height, retained until the first
     /// reported value establishes a minimum.
     entry_net: Option<Accumulator>,

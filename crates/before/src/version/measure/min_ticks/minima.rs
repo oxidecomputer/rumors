@@ -25,12 +25,11 @@
 //! Open subtrees are properly nested. [`SubtreeMinima`] uses [`RangeMinima`] to
 //! maintain their minima as differences between adjacent nesting levels, and
 //! keeps one record per distinct minimum in a [`Records`] stack: the supplying
-//! leaf's offset and the number of subtrees closed at that value. The
-//! range tracker only reports when a minimum is suspended, resumed, or
-//! retired, and those events arrive in stack order: a suspension pushes the
-//! new minimum above the current one, and every retirement or resumption
-//! settles the top record. Most closes merely increment the top record's
-//! count; one multiplication settles a whole record.
+//! leaf's offset and the number of subtrees closed at that value. The range
+//! tracker reports when each distinct minimum begins and ends, in stack order,
+//! so a beginning pushes a record and an ending settles the top one. Most
+//! closes merely increment the top record's count; one multiplication settles
+//! a whole record.
 //!
 //! # Why the cost remains bounded
 //!
@@ -65,13 +64,10 @@ struct Events<'a> {
     references: &'a mut HeightReferences,
     /// Running min-ticks total.
     total: &'a mut Accumulator,
-    /// Whether arming suspended or replaced the current minimum, so the
-    /// arming leaf becomes the new top record.
-    new_minimum: bool,
 }
 
 impl Events<'_> {
-    /// Settle and remove the current minimum's record.
+    /// Settle and remove the innermost distinct minimum's record.
     fn settle_top(&mut self) {
         let popped = self.records.pop();
         self.references.settle_record(
@@ -86,8 +82,8 @@ impl Events<'_> {
 
 /// Tracks the minimum of every open subtree and the record that settles it.
 pub struct SubtreeMinima {
-    /// Nested minima; the range tracker carries no client payload.
-    ranges: RangeMinima<()>,
+    /// Nested minima, reporting when each distinct minimum begins and ends.
+    ranges: RangeMinima,
     /// One record per distinct live minimum, the current minimum on top.
     records: Records,
 }
@@ -123,7 +119,7 @@ impl SubtreeMinima {
         self.records.increment();
         match self.ranges.close() {
             Close::Equal => {}
-            Close::Retired | Close::Lower(()) => {
+            Close::Retired | Close::Lower => {
                 let popped = self.records.pop();
                 references.settle_record(
                     popped.negative,
@@ -138,71 +134,36 @@ impl SubtreeMinima {
 
     /// Let one leaf update the minima of every subtree containing it.
     ///
-    /// Arms any pending ranges at the leaf; otherwise an amortized sign read
-    /// decides whether the leaf undercuts the innermost minimum, and only a
-    /// true undercut does more than O(1) work. It consumes each crossed
-    /// boundary and settles that boundary's record once.
+    /// The range tracker settles the record of every distinct minimum the leaf
+    /// ends, innermost first, and the leaf's own record goes on top if it
+    /// begins a new innermost minimum. Only a leaf that arms ranges or truly
+    /// undercuts the innermost minimum, which an amortized sign read decides,
+    /// does more than O(1) work.
     pub fn observe_leaf(
         &mut self,
         leaf: &LeafHeight,
         total: &mut Accumulator,
         references: &mut HeightReferences,
     ) {
-        if self.ranges.has_pending() {
-            if !self.ranges.armed() {
-                // The first leaf establishes both the minimum and its record;
-                // first arming invokes no callback.
-                self.push(leaf, references);
-                self.ranges.arm_at_height(&mut (), |_| (), |(), _| {});
-                return;
-            }
-            // A higher inner minimum suspends the current record beneath a
-            // new one. An equal minimum keeps it current. A lower minimum
-            // settles every record it displaces, current first, before the
-            // leaf's own record is pushed.
-            let mut events = Events {
-                records: &mut self.records,
-                references: &mut *references,
-                total,
-                new_minimum: false,
-            };
-            self.ranges.arm_at_height(
-                &mut events,
-                |events| events.new_minimum = true,
-                |(), events| events.settle_top(),
-            );
-            let new_minimum = events.new_minimum;
-            if new_minimum {
-                self.push(leaf, references);
-            }
-            return;
-        }
-        if !self.ranges.armed() {
-            // A single-leaf stream: no node will ever fold a minimum.
-            return;
-        }
-        if !self.ranges.undercuts_here() {
-            return;
-        }
-        // The new leaf supplies the minimum. Settle the displaced record,
-        // then every outer record whose boundary the drop crosses, then
-        // push the leaf's record.
         let mut events = Events {
             records: &mut self.records,
             references: &mut *references,
             total,
-            new_minimum: true,
         };
-        events.settle_top();
-        self.ranges
-            .undercut(&mut events, |(), events| events.settle_top());
-        self.push(leaf, references);
-    }
-
-    /// Push the leaf's record as the current minimum.
-    fn push(&mut self, leaf: &LeafHeight, references: &mut HeightReferences) {
-        let first = references.reference_top();
-        self.records.push(leaf.offset(), first);
+        let begins = if self.ranges.has_pending() {
+            self.ranges.arm_at_height(&mut events, Events::settle_top)
+        } else if self.ranges.armed() && self.ranges.undercuts_here() {
+            self.ranges.undercut(&mut events, Events::settle_top);
+            true
+        } else {
+            // The leaf lies at or above the innermost minimum, or the stream
+            // is a single leaf with no subtree.
+            false
+        };
+        if begins {
+            let first = references.reference_top();
+            self.records.push(leaf.offset(), first);
+        }
     }
 
     /// Close every remaining range at the stream's end.

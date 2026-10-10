@@ -3,7 +3,7 @@
 //! Exact cases distinguish comparisons on either side of a deferred minimum,
 //! and drive `tick` and `min_ticks` through exact boundary remainders that the
 //! recursive oracle checks. Properties vary widths, nesting, nearness to open
-//! minima, payload lifetimes, and follower transitions.
+//! minima, distinct-minimum events, and follower transitions.
 
 use core::cmp::Ordering;
 
@@ -30,7 +30,7 @@ fn below_magnitude(distance: &BigUint) -> BigInt {
 }
 
 /// Probe a claimed minimum and its immediate neighbors without emitting values.
-fn around_minimum(minima: &mut RangeMinima<()>, minimum_offset: &BigInt) -> [Ordering; 3] {
+fn around_minimum(minima: &mut RangeMinima, minimum_offset: &BigInt) -> [Ordering; 3] {
     [
         minima.compare_above(minimum_offset),
         minima.compare_above(&(minimum_offset + 1)),
@@ -45,13 +45,25 @@ fn accumulated(value: &BigInt) -> Accumulator {
     result
 }
 
-/// Observable payload construction and retirement during one emission.
+/// A client keeping one value per distinct minimum, as `min_ticks` keeps one
+/// record, driven only by the tracker's begin and end events.
 #[derive(Default)]
-struct PayloadEvents {
-    /// Number of times the lazy payload factory ran.
-    created: usize,
-    /// Outer minima whose suspended payloads were retired, in callback order.
-    retired: Vec<BigInt>,
+struct DistinctMinima {
+    /// The value of each live distinct minimum, the innermost on top.
+    stack: Vec<BigInt>,
+    /// Values whose minima ended during the current step, in callback order.
+    ended: Vec<BigInt>,
+}
+
+impl DistinctMinima {
+    /// End the innermost live minimum, logging its value.
+    fn end(&mut self) {
+        let value = self
+            .stack
+            .pop()
+            .expect("a minimum ends only after it begins");
+        self.ended.push(value);
+    }
 }
 
 /// How one step of the nested-operations property chooses its value.
@@ -123,18 +135,36 @@ fn step_value() -> impl Strategy<Value = StepValue> {
     ]
 }
 
-/// Close one range and compare its result with an absolute-minimum model.
-fn close_against_model(minima: &mut RangeMinima<BigInt>, model: &mut Vec<BigInt>) {
+/// Close one range, compare its result with an absolute-minimum model, and end
+/// the client's innermost minimum when the close reports one ended.
+fn close_against_model(
+    minima: &mut RangeMinima,
+    model: &mut Vec<BigInt>,
+    client: &mut DistinctMinima,
+) {
     let inner = model.pop().expect("the model has an open range");
     match (minima.close(), model.last()) {
-        (Close::Retired, None) => {}
+        (Close::Retired, None) => {
+            assert_eq!(client.stack.pop(), Some(inner), "the last minimum ends");
+        }
         (Close::Equal, Some(outer)) => assert_eq!(&inner, outer),
-        (Close::Lower(payload), Some(outer)) => {
+        (Close::Lower, Some(outer)) => {
             assert!(outer < &inner);
-            assert_eq!(&payload, outer, "the parent's exact payload resumes");
+            assert_eq!(
+                client.stack.pop(),
+                Some(inner),
+                "the closed range's minimum ends"
+            );
         }
         _ => panic!("close outcome disagrees with the absolute minima"),
     }
+}
+
+/// The distinct values of nested minima, outermost first.
+fn distinct(model: &[BigInt]) -> Vec<BigInt> {
+    let mut values = model.to_vec();
+    values.dedup();
+    values
 }
 
 /// A value's signed coefficient: a small pool that makes repeated values
@@ -416,28 +446,31 @@ proptest! {
         for _ in 1..count {
             prop_assert!(matches!(minima.close(), Close::Equal));
         }
-        prop_assert!(matches!(minima.close(), Close::Lower(())));
+        prop_assert!(matches!(minima.close(), Close::Lower));
         prop_assert!(!minima.has_pending());
         prop_assert!(minima.armed(), "the outer range survives");
         prop_assert_eq!(around_minimum(&mut minima, &below(7)), AROUND_MINIMUM);
     }
 
-    /// Mixed arming, undercuts, and closes match absolute range minima. Payload
-    /// factories run only for distinct minima, retire crossed boundaries in
-    /// nesting order, and return the exact parent payload on a positive close.
+    /// Mixed arming, undercuts, and closes match absolute range minima, and a
+    /// client stack driven only by the begin and end events holds exactly the
+    /// distinct open minima, innermost on top, after every step.
     ///
-    /// Values repeat often, so the steps reach equal minima, which need no
-    /// payload, and exact cancellations, which retire the outer payload, at
-    /// word and wide widths alike.
+    /// An emission ends the minima it displaces, innermost first, and a close
+    /// ends the closed range's minimum when the parent's is lower. Values
+    /// repeat often, so the steps reach equal minima, which begin nothing, and
+    /// exact cancellations, which end the outer minimum, at word and wide
+    /// widths alike.
     ///
     /// Values near open minima let the exact remainder of a crossed or lowered
     /// boundary decide a later retirement or undercut.
     #[test]
-    fn nested_operations_preserve_minima_and_payload_lifetimes(
+    fn nested_operations_preserve_minima_and_report_distinct_minima_in_stack_order(
         steps in prop::collection::vec((step_value(), 0u64..4, 0usize..5), 1..60),
     ) {
-        let mut minima = RangeMinima::<BigInt>::new();
+        let mut minima = RangeMinima::new();
         let mut model = Vec::<BigInt>::new();
+        let mut client = DistinctMinima::default();
         let mut height = BigInt::from(0);
         for (step_value, open_count, close_count) in steps {
             let value = step_value.resolve(&model);
@@ -446,51 +479,51 @@ proptest! {
             // An empty tracker needs a new range before it can observe a value.
             let open_count = if model.is_empty() { open_count.max(1) } else { open_count };
             let previous = model.last().cloned();
-            let mut expected_retired = Vec::new();
-            if open_count > 0 && previous.as_ref().is_some_and(|minimum| &value < minimum) {
-                expected_retired.push(previous.clone().unwrap());
+            let mut expected_ended = Vec::new();
+            if previous.as_ref().is_some_and(|minimum| &value < minimum) {
+                expected_ended.push(previous.clone().unwrap());
             }
             for adjacent in model.windows(2).rev() {
                 if adjacent[0] < adjacent[1] && adjacent[0] >= value {
-                    expected_retired.push(adjacent[0].clone());
+                    expected_ended.push(adjacent[0].clone());
                 }
             }
 
-            let mut events = PayloadEvents::default();
+            client.ended.clear();
             if open_count > 0 {
                 minima.open(open_count);
-                minima.arm_at_height(
-                    &mut events,
-                    |events| {
-                        events.created += 1;
-                        previous.clone().expect("first arming never constructs a payload")
-                    },
-                    |payload, events| events.retired.push(payload),
-                );
-                let distinct = previous.as_ref().is_some_and(|minimum| minimum != &value);
-                prop_assert_eq!(events.created, usize::from(distinct));
+                let begins = minima.arm_at_height(&mut client, DistinctMinima::end);
+                let new_value = previous.as_ref().is_none_or(|minimum| minimum != &value);
+                prop_assert_eq!(begins, new_value);
+                if begins {
+                    client.stack.push(value.clone());
+                }
             } else {
                 let undercuts = value < *model.last().unwrap();
                 prop_assert_eq!(minima.undercuts_here(), undercuts);
                 if undercuts {
-                    minima.undercut(&mut events, |payload, events| events.retired.push(payload));
+                    minima.undercut(&mut client, DistinctMinima::end);
+                    client.stack.push(value.clone());
                 }
             }
-            prop_assert_eq!(events.retired, expected_retired);
+            prop_assert_eq!(&client.ended, &expected_ended);
 
             for minimum in &mut model {
                 *minimum = minimum.clone().min(value.clone());
             }
             model.extend(core::iter::repeat_n(value, open_count as usize));
+            prop_assert_eq!(&client.stack, &distinct(&model));
             for _ in 0..close_count.min(model.len()) {
-                close_against_model(&mut minima, &mut model);
+                close_against_model(&mut minima, &mut model, &mut client);
+                prop_assert_eq!(&client.stack, &distinct(&model));
             }
             prop_assert_eq!(minima.armed(), !model.is_empty());
             prop_assert!(!minima.has_pending());
         }
         while !model.is_empty() {
-            close_against_model(&mut minima, &mut model);
+            close_against_model(&mut minima, &mut model, &mut client);
         }
+        prop_assert!(client.stack.is_empty(), "every minimum that began has ended");
     }
 
     /// Followers attached before and after deferred closes keep one shared
