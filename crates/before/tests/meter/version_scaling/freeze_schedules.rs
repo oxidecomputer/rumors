@@ -385,22 +385,21 @@ fn skyline_rank_lone_freeze_tail_is_flat_per_unit() {
 /// freeze-position spine, measured ×1.25 (the record lives in the
 /// pin commit).
 ///
-/// Flat per encoded byte across the doubling: `Θ(k)` frozen components settle
-/// at one funded-width product each.
+/// Flat per encoded byte across the doubling: `Θ(k)` frozen references merge
+/// at one funded-width read each.
 const MIN_TICKS_FREEZE_POSITION_CEILINGS: [u64; 2] = [129_988, 259_988];
 
 /// min_ticks is linear on the freeze-position family: per-byte
 /// touch work stays flat (×1.25) across a block-count
 /// doubling, under absolute two-scale ceilings.
 ///
-/// `FP(k)` freezes one height component per block. Prefix-height accounting
-/// settles each component once using the suffix of its recorded coefficients.
-/// Re-reading all prior components at every freeze, or rebasing each recorded
-/// offset across a freeze, would go quadratic. Each component instead pays one
-/// product at its own funded width with a word-sized suffix count. The rank-side
-/// band prices the same schedule through the anchored-segment
-/// integral; this one prices the prefix-height accounting, min_ticks' own
-/// frozen-component accounting.
+/// `FP(k)` freezes one height reference per block. Each released reference
+/// merges into its neighbour once, reading the narrower chunk for one product
+/// by a word-sized coefficient and one sum. Re-reading all prior references at
+/// every freeze, or rebasing each recorded offset across a freeze, would go
+/// quadratic. The rank-side band prices the same schedule through the
+/// anchored-segment integral; this one prices min_ticks' own frozen-reference
+/// accounting.
 #[test]
 fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
     let expected = |k: usize| {
@@ -432,8 +431,7 @@ fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
 /// pin commit).
 ///
 /// Flat per encoded byte across the doubling: `Θ(p)` wide-drift
-/// components in both directions settle at one funded-width product
-/// each.
+/// references in both directions merge at one funded-width read each.
 const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [525_079, 1_050_079];
 
 /// `min_ticks` is linear on the deferral re-arm spine: per-byte
@@ -442,12 +440,12 @@ const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [525_079, 1_050_079];
 ///
 /// `PR(p)` alternates 20-digit and 10-digit climbs through its
 /// blocks — `Θ(p)` freezes whose evicted drifts are wide in both
-/// directions. Leaves and subtree minima retain the frozen prefix current when
-/// they were observed, so settlement charges every wide component once at its
-/// funded width. Re-reading the whole prefix history for each component would
-/// go quadratic.
+/// directions. Leaves and subtree minima keep their offset from the frozen
+/// reference current when they were observed, and every wide reference merges
+/// once, at the width of the narrower side. Re-reading the whole reference
+/// history for each freeze would go quadratic.
 /// Rank handles this schedule through its deferred reduction. `min_ticks` uses
-/// different prefix-height accounting, so this separate band checks the same
+/// different reference accounting, so this separate band checks the same
 /// many-freeze schedule directly.
 #[test]
 fn skyline_min_ticks_promotion_rearm_is_flat_per_unit() {

@@ -29,7 +29,7 @@ const MIN_TICKS_REVEAL_COMB_CEILINGS: [u64; 2] = [12_958, 25_907];
 /// the fold must subtract the same value `k` times. An accounting
 /// that folds the minimum's width per closing node pays the plateau
 /// width `k` times from one funding code and reads superlinear;
-/// one contribution counts every subtree using the floor and settles it once, so
+/// one minimum record counts every subtree using the floor and settles once, so
 /// the flatness bound holds with the closed form
 /// `min_ticks = k·2^b` exact at both scales.
 #[test]
