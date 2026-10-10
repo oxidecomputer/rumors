@@ -242,6 +242,24 @@ sense. `distance` is the least total *width* of a signed decomposition of
 `∫ |a − b|`; `brick_distance` is the least *count*. Signs matter: `c` above
 has 5 positive bricks but `‖c‖_B = 2` (`flat(1)` less the hole).
 
+**What a signed brick means.** A positive brick raises one dyadic interval by
+one, and a negative brick lowers it by one. A signed decomposition of
+`a − b` is then the shortest recipe of such strokes turning `b`'s skyline
+into `a`'s. Its advantage over positive bricks is exceptions. "Raise
+everything by one, except this hole" takes two strokes, while listing only
+raises takes one per maximal piece around the hole: 5 for a depth-5 hole.
+Floor by floor, positive bricks list a floor's maximal pieces, and signed
+bricks may write it as a coarse piece minus holes. Routing tables work the
+same way. A default route plus one more-specific override is two entries;
+the same table without overrides needs every aggregate around the
+override's prefix.
+
+So `brick_distance` is the length of the shortest description of the
+difference in a language with overrides. It is not an event count, and it
+has no causal reading, since no operation lowers heights. Its only plausible
+consumer would be sizing a compact delta encoding between versions, which
+nothing needs today.
+
 Computing it means choosing a base for every node of the two versions' common
 refinement, minimizing `Σ |base|` subject to each leaf's path sum: a tree L1
 problem, solvable by dynamic programming over convex piecewise-linear costs.

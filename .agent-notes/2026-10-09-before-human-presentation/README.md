@@ -12,7 +12,9 @@ supersedes the other sections wherever they differ:
    problems.
 3. [03-views.md](03-views.md): notation alternatives, the skyline drawing,
    the partial-order and knowledge-matrix views, and prior art.
-4. [probe/](probe/): the throwaway crate behind 02's evidence.
+4. [04-forking-api.md](04-forking-api.md): a tangent: `into_forks(n)` and a
+   lazy `forking()` API whose fork count is chosen during iteration.
+5. [probe/](probe/): the throwaway crate behind 02's evidence.
 
 ## The question
 
@@ -44,7 +46,10 @@ evidence that two versions are concurrent.
   version is an opaque token, like a UUID.
 - **`Debug` becomes the readable notation below.** It makes no stability
   promise, and it is what assertion failures, `dbg!`, and `tracing`'s `?v`
-  show.
+  show. A probe assertion during this discussion failed with
+  `left: Version(0b0000001110111111111111)`, `right: Version(0b1010)`; the
+  readable form, `Version { 0..0.00001 => 0, 0.00001..1 => 1 }`, diagnosed it
+  at a glance.
 - **`{:#?}` spreads the notation over lines like a match statement.** The
   alternate flag propagates through nested derived `Debug`, so it must look
   like ordinary pretty-printing.
@@ -233,6 +238,8 @@ Recorded here, not done:
   each `Ranked` comparison repeats the rank traversal, so a sort pays it on
   every comparison. `Ranked`'s own docs already recommend materialized keys
   for large sorts; the same hazard belongs at `Version::ranked`.
+- **`into_forks(n)` and `forking()`** for `Party` and `Clock`; see
+  [04-forking-api.md](04-forking-api.md).
 - **Laws about measures, none of which a test states today.**
   [02-measures.md](02-measures.md) gives each one's status (proved, probed, or
   conjectured); the probe found no counterexample to any probed law, and none
