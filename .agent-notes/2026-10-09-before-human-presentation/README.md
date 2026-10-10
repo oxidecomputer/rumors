@@ -222,6 +222,24 @@ Recorded here, not done:
   each `Ranked` comparison repeats the rank traversal, so a sort pays it on
   every comparison. `Ranked`'s own docs already recommend materialized keys
   for large sorts; the same hazard belongs at `Version::ranked`.
+- **Laws about global heights, none of which a test states today.** A
+  scratch probe (randomized histories of up to 8 parties, 24,000 versions)
+  found no counterexample to any of them; none is committed.
+  - A tick raises a version's global maximum height by at most one (Finch
+    confirms), so `ticks(k)` raises it by at most `k`.
+  - `ticks(k)` raises it by at least `k − 1` when the party is a single dyadic
+    interval containing a point of maximal height: the first tick may fill
+    that interval up to the maximum, and every later tick grows it by one. The
+    seed is such a party. For any other party the lower bound is 0. The probe
+    shows a party owning `0..0.1` tick four times from
+    `Version { 0..0.1 => 0, 0.1..0.11 => 5, 0.11..1 => 14 }` without moving
+    the maximum: the first tick fills its half to 5, and later ticks grow it
+    below 14.
+  - `min_ticks(v) >= max height of v`.
+  - The maximum height preserves joins, and the minimum height preserves
+    meets.
+  - `width <= rank <= max height × width`, where width is the measure of the
+    ids with nonzero height.
 
 ## Open questions
 
@@ -251,16 +269,66 @@ Recorded here, not done:
      consumer appears. Height is computable today through `shape::combine` by
      summing rises (with the documented quadratic hazard for running `Count`
      sums); width cannot be built exactly as a `Rank` from the public API.
+   - **Symmetric forms.** Since `|a − b| = (a | b) − (a & b)` pointwise, every
+     symmetric measure is the matching lag measure from the meet to the join,
+     as `distance` is the lag from meet to join. Distance-height is
+     `max |a − b|`, the Chebyshev distance, equal to the larger of the two
+     lag-heights. Distance-width is the width of `{a ≠ b}`, equal to the sum
+     of the two lag-widths, because the sets where each side leads are
+     disjoint. Heights combine by maximum, widths and areas by sum, and the
+     bracketing inequality holds again. All three are metrics. None says who
+     leads; the asymmetric pair does. Each is two calls to the asymmetric
+     forms, so a method is worth adding only for a consumer that needs one
+     pass.
+   - **Single-version forms.** Measured from the empty version, a version has
+     a maximum height, a width (the measure of its *support*, the ids with
+     nonzero height), and an area (its rank); its minimum height, the
+     canonical tree's root base, adds a fourth.
+     - Flat versions `Version { 0..1 => k }` form a chain: scalar,
+       single-writer time. Writing `flat(k)` for them, `v <= flat(k)` exactly
+       when `max(v) <= k`, and `flat(k) <= v` exactly when `k <= min(v)`. The
+       maximum and minimum are the left and right adjoints of the embedding
+       `flat`, the best scalar approximations of `v` from above and below.
+       Hence the maximum preserves joins and the minimum preserves meets.
+     - The maximum is causal depth. Each tick raises it by at most one and
+       joins take maxima, so every history producing `v` contains a chain of
+       at least `max(v)` causally ordered ticks. The bound is exact: fork the
+       seed into one party per plateau of `v`, tick each up to its plateau's
+       height concurrently, and join them. So `max(v)` is the least possible
+       longest causal chain over all histories of `v`, where `min_ticks` is
+       the least possible event count, and `min_ticks >= max`.
+     - Width is breadth across identity space: how much of it carries any
+       history, not how many events (one seed tick has width 1). Under static,
+       equal-share membership of N parties, width × N counts the parties that
+       have ticked. The support preserves both joins and meets (union and
+       intersection) and is the right adjoint of the indicator embedding
+       (the version at height 1 over a set of ids, 0 elsewhere). The floors
+       `{v ≥ k}` generalize it: each is the right adjoint of the embedding at
+       height `k`, which is why the floors notation determines the version.
+     - A support or floor is a set of ids with no identity attached, so if one
+       is ever exposed it needs its own type, not `Party`, which would create
+       identity.
+   - **Pairwise height carries no causal bound, but the global difference
+     does.** From the empty version, `grow` built every height, so the
+     maximum bounds causal depth. Between two versions, a `fill` can copy a
+     height `a` already holds elsewhere, so `a.lag_height(&b)` can be 10 while
+     `b` has seen one tick `a` has not (party P forks into quarters, the right
+     quarter ticks ten times, P rejoins, and P's next tick fills the left
+     quarter to 10; the probe confirms it, from
+     `a = Version { 0..0.01 => 0, 0.01..0.1 => 10, 0.1..1 => 0 }` to
+     `b = Version { 0..0.1 => 10, 0.1..1 => 0 }`). `max(a | b) − max(a)` is at most both `a.lag_height(&b)`
+     and the number of missing ticks; those two are incomparable.
 2. **A lower bound on missing ticks.** Is the fewest ticks `b`'s history must
    hold beyond `a`'s computable? It is finite even though the true count is
    unbounded above; from the empty version it is exactly `min_ticks`.
    `min_ticks(a | b) − min_ticks(a)` is not a valid bound, because `a`'s real
    history may hold more than `min_ticks(a)` events. `max(b) − max(a)` (global
-   maximum heights) is a valid bound if a tick raises a version's global
-   maximum by at most one: `fill` raises points only to heights already
-   present, and `grow` adds one. Induction over the execution then gives
-   `max(b) ≤ max(a) + |events b has seen that a has not|`. The premise is
-   unverified against this crate's tick; a proptest can check it.
+   maximum heights) is a valid bound: a tick raises a version's global maximum
+   by at most one (Finch confirms; the probe agrees), joins take maxima, and
+   any version built entirely from events `a` has seen lies below `a`.
+   Induction over the execution gives
+   `max(b) ≤ max(a) + |events b has seen that a has not|`. Whether the
+   greatest lower bound is computable is open.
 3. **The legend and assertion APIs** need development before they are
    specified: the `Diff` and `Legend` types, the macros, and how a legend
    attaches to `Debug`-style output.
