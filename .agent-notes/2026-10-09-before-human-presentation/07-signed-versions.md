@@ -69,10 +69,9 @@ and meet: `O(|a| + |b|)` output.
 
 The pairwise vocabulary of 02 collapses into one vocabulary of
 single-version measures (`rank` and `min_ticks` exist; peak and width are
-proposed) applied to three views of one object. The candidate names
-`lag_height` and `lag_width` become compositions: `b.saturating_sub(&a)`
-followed by the peak or the width. `lag` and `distance` remain as fused,
-allocation-free paths whose docs can say what they compose.
+proposed) applied to three views of one object. Under the rulings below, the
+candidate names `lag_height` and `lag_width` become measures of a `Lag`:
+`a.lag(&b).peak()` and `a.lag(&b).width()`.
 
 ### Difference measures and level measures
 
@@ -140,41 +139,140 @@ variation. A decomposition minimizing brick count may use overlapping parts:
 as its positive part's five pieces. So the oddity of counting bricks is
 exactly that the `Diff`'s canonical pair is not brick-optimal.
 
-## Representations
+## Rulings
 
-Three options, which are interconvertible in linear time:
+- **`Lag` replaces the bare number** (ruled in direction): `a.lag(&b)`
+  returns a lazy view `Lag` denoting `b ∸ a`, the history `b` records beyond
+  `a`, and the number is `a.lag(&b).rank()`. Peak, width, and brick count
+  become the view's other measures. `saturating_sub` does not appear on
+  `Version`: the measurement lives in its own type, apart from states.
+- **`Diff`** (ruled): `&a - &b` produces it, with the named form
+  `a.diff(&b)`.
+- **A signed rank** (ruled in direction): either a separate signed type, or a
+  type parameter on `Rank` marking signedness. The crate already has the
+  parameterized idiom in `Query<'_, P: Polarity>`. A signed rank needs its
+  own order-preserving encoding (for example, negative values with their
+  magnitude bits complemented) and a `Display` with a sign.
+- **Addition belongs to `Lag` and `Diff`** (ruled): pointwise sums of lags or
+  diffs mean something (quantities of disagreement add), while sums of
+  versions do not. A version lifts to a lag or diff with the empty version as
+  its low end: `Lag` from `v` is `v ∸ empty`, `Diff` from `v` is `v − empty`.
+  `Lag + Lag` is a `Lag` (nonnegative functions are closed under addition),
+  `Diff + Diff` a `Diff`, and a `Lag` lifts to a `Diff`. `Diff::positive()`
+  and `Diff::negative()` return `Lag`s, and `|a − b|` is the `Lag`
+  `a.lag(&b) + b.lag(&a)`, so `distance` is that sum's rank.
 
-1. **A lazy view over `(a, b)`**, as `OwnVersion` is for projections.
-   Construction is `O(1)`; measures and `Debug` stream through the pair
-   driver without materializing anything; equality walks. It serves every
-   use in these notes and needs no new codec. By the views ruling, its
-   `Debug` renders the signed function it denotes.
-2. **The canonical pair `(a ∸ b, b ∸ a)`**, with the invariant that the two
-   parts' meet is empty. It reuses `Version`'s codec, `Debug`, and measures,
-   at the linear materialization cost shown above. It is the natural form for
-   a `Diff` that must outlive its operands, or be stored or sent.
-3. **A signed stream.** The skyline encoding already stores signed deltas;
-   only its opening height is unsigned. A `Diff` encoding would be the
-   `Version` encoding with a signed opening payload and its own validation:
-   the smallest single representation, and a new format.
+## Representation
 
-Recommendation: start with the lazy view, materialize to the canonical pair
-when a `Diff` must outlive its operands, and consider the signed stream only
-if the pair's overhead is measured to matter.
+The ruling on addition settles most of it. Hold both operands **by value**:
+`Lag { low, high }` denotes `high ∸ low`, and `Diff { plus, minus }` denotes
+`plus − minus`. A `Version` clone is a refcount increment, so neither type
+needs a lifetime, as with spans by value.
+
+- **Lazy by default.** `a.lag(&b)` is `Lag { low: a, high: b }`;
+  `&a - &b` is `Diff { plus: a, minus: b }`. Measures and `Debug` stream
+  through the pair driver; nothing is materialized.
+- **Materialized through the lift.** A materialized lag is
+  `Lag { low: empty, high: b ∸ a }`, the same struct. The canonical form of a
+  `Diff` is the maximally cancelled pair `(a ∸ b, b ∸ a)`, again the same
+  struct. One representation covers both, and the only difference is
+  whether the pair is canonical.
+- **Addition materializes.** `Diff + Diff` can add componentwise,
+  `(a₁ + a₂) − (b₁ + b₂)`, using an internal pointwise-sum kernel on
+  versions that is never exposed. Saturation does not distribute, so
+  `Lag + Lag` must canonicalize each term first: `(empty, (b₁ ∸ a₁) + (b₂ ∸ a₂))`.
+  The pointwise sum is linear in output size, by the same argument as `∸`:
+  its nodes are among the inputs' and its deltas are sums of input deltas.
+- **Equality and hashing** compare canonical forms, so two `Diff`s built
+  from different operands but denoting the same function are equal. Equality
+  walks; hashing must canonicalize, or `Diff` should not be `Hash`.
+- A dedicated signed encoding remains possible later, if a `Diff` must be
+  stored or sent and the canonical pair's overhead is measured to matter.
+
+## Which walks the `Diff` view absorbs
+
+The question: how much of the crate's custom walking (inventoried in
+[the lockstep walk audit](../2026-10-10-before-lockstep-walk-audit/README.md))
+could be rewritten as traversals of the lazy `Diff` view, with no loss of
+performance? The constraint behind every verdict below: a traversal must not
+hand out absolute heights or differences per region. Copying a wide height
+at every narrow boundary is the quadratic pattern the crate avoids, so the
+traversal folds over deltas and borrowed accumulator state, as
+`advance_diff` already does. A public iterator over a `Diff` would yield
+rises, as `shape` does for versions.
+
+**Absorbed as is.** These already traverse `a − b` in all but name, through
+`OpenedPair` and `advance_diff`, so naming the abstraction costs nothing:
+
+| Walk | As a `Diff` traversal |
+|---|---|
+| order comparison (`order.rs`) | fold each region's sign into the emptiness of the two parts, stopping early |
+| join and meet (`lattice.rs`) | fold the sign together with each side's own step, emitting through `VersionWriter` |
+| `lag`, `distance`, rank comparison (`measure/integral/pair.rs`) | fold an orientation of the difference (which part or view) into `Integrator` |
+
+**Absorbed through views of views, if the masking moves into the stream.**
+Lazy projected comparison (`projection.rs`'s `Comparison`) is the `Diff` of
+two masked operands, `(a / p) − (b / q)`. Its speed comes from `block_skip`:
+inside an unowned region, it folds a version's deeper regions in bulk
+instead of stepping each through the four-slot overlay. If a masked operand
+is itself a stream whose unowned regions arrive as one coarse region (the
+version's subregions consumed inside the stream, as materialization already
+does), the comparison becomes an ordinary `Diff` traversal over two such
+streams. The bulk skip is preserved, only relocated. Parity is plausible
+but not shown: today the skip interleaves with the slot priority loop, and
+moving it changes the walk's structure, so this is one for the fuelscape
+boards. Projection materialization is not a `Diff`. It is the writer fold
+over one masked stream, and the same relocation applies.
+
+**Not a single `Diff`: one probe against many bounds.** Span placement
+(`place.rs`) wants the signs of `v − lo` and `hi − v`, and the query filter
+(`place/filter.rs`, `MemberCursors` and `SpanCursors`) the signs of `k`
+differences against one probe. Running independent `Diff` traversals would
+decode the probe once per bound, which is exactly what both were built to
+avoid. What they share is a *fan-out* traversal: one probe, many bounds, the
+probe's deltas folded into every live difference, and bounds dropped once
+decided. The filter adds a memory policy that keeps absolute heights and
+discards a bound's private difference when the probe grows much wider. Place
+and filter could share one fan-out driver; folding them into the single-pair
+`Diff` would cost a decode per bound.
+
+**Not differences at all.** The shape iterators refine `N` streams into one
+partition of rises (`shape::combine`, `Clock::shape`); they are many-way
+overlays, not differences. `tick` is a tree walk shaped by `fill` and
+`grow`. Both stay as they are.
+
+**Party operations are `Lag` and `Diff` operations on 0/1 functions, but
+their walks should stay.** A party is the indicator function of its region,
+so:
+
+- `p.is_disjoint(&q)` holds exactly when `p & q` is empty;
+- `p.covers(&q)` holds exactly when `q ∸ p` is empty;
+- `p.without(q)` is `p ∸ q`;
+- `p.join(q)` is `p + q`, defined exactly when the parts are disjoint (where
+  the sum equals the join).
+
+That correspondence belongs in their docs. Their implementations should
+stay structural. They settle whole subtrees at once without per-region work,
+and [the audit's party finding](../2026-10-10-before-lockstep-walk-audit/README.md)
+shows a region walk would make `join`'s constants worse. The correspondence
+is semantic, not a reason to share the walk.
+
+**Tally.** Of the overlay walks, three consumers (order, the lattice, the
+pair integrals) are `Diff` traversals today. Projected comparison and
+materialization can become views of views, with parity to be measured.
+Placement and the two filter walks share a fan-out driver instead. The shape
+iterators, `tick`, and the party operations are not differences. So the
+`Diff` view absorbs the hottest paths at no cost. It absorbs projection
+probably at no cost. And it clarifies the rest without absorbing them.
 
 ## Open questions
 
-- **Should `saturating_sub` live on `Version`?** `a ∸ b` is a measurement,
-  not a state any replica holds. As a `Version` it can be compared, joined,
-  or ticked, which type-checks and means nothing. Keeping it behind the
-  `Diff` (`(&a - &b).positive()`, returning a view type) keeps measurements
-  and states in separate types, at some cost in convenience.
-- **The operator.** `&a - &b` producing a `Diff`, with a named form such as
-  `a.diff(&b)`.
-- **The signed rank's type.** `Rank` is nonnegative; a `Diff`'s rank needs a
-  sign, either as an `(Ordering, Rank)` pair or a signed type.
-- **Pointwise addition of versions** appears in the identities but has no
-  causal meaning (a join, not a sum, combines histories). The identities can
-  stay in docs and tests without exposing it.
-- The universe rule applies unchanged: a `Diff` of versions from different
-  seeds is meaningless.
+- **A separate signed type, or a parameter on `Rank`?**
+- **Hashing a `Diff`.** Equality compares the denoted functions, so hashing
+  must canonicalize first, or `Diff` should not implement `Hash`.
+- **`distance`.** It could stay as a fused method, or become the rank of
+  `a.lag(&b) + b.lag(&a)` (or of `(&a - &b).abs()`).
+- **The fan-out driver.** Whether place and filter consolidate onto one is a
+  question for a follow-up audit.
+- The universe rule applies unchanged: a `Lag` or `Diff` of versions from
+  different seeds is meaningless.

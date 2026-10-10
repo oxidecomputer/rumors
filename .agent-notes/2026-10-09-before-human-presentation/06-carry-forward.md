@@ -69,6 +69,11 @@ detail lives.
   `Query`'s bounds and `Ranked` follow, and rumors' tree code migrates (README,
   Spans by value). It precedes the diff, which builds on `Crossed`.
 - **`into_forks(n)`** for `Party` and `Clock` ([04](04-forking-api.md)).
+- **`Lag`, `Diff`, and a signed rank** ([07](07-signed-versions.md)):
+  `a.lag(&b)` returns a lazy `Lag` whose `rank()` is today's number, `&a - &b`
+  and `a.diff(&b)` return a `Diff`, and addition lives on both. This
+  reshapes `lag` and `distance`, so it is a public API change. It also
+  gives the causal diff display its type, and it follows spans by value.
 
 ## 5. Diagnostics built on the notation
 
