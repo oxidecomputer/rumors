@@ -62,7 +62,7 @@ pub mod version {
 }
 
 use crate::bits::{BitsReader, BitsWriter};
-use crate::version::instrument::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
+use crate::version::instrument::HEIGHT_FREEZE_ALLOWANCE_BITS;
 
 /// A generator's output: canonical encoded bytes plus the exact bit length.
 ///
@@ -1603,19 +1603,19 @@ fn ascend_spine(k: usize, b: usize, ascend: bool) -> Encoding {
 /// The exponent of every drift that must fire a freeze at a following unit
 /// code.
 ///
-/// A numeric fold freezes its accumulated height change when that change holds
-/// more stored digits than the newest code's digits plus the fold's freeze
-/// allowance, `HEIGHT_FREEZE_ALLOWANCE_DIGITS`. Stored digits are signed, base `B =
-/// 2^32`, and below `2B` in magnitude, so a value has many stored forms, and a
-/// comparison with zero can shorten one. The drift must therefore trip the
-/// trigger in its shortest form. `n` such digits hold magnitudes below
-/// `(2 + 1/(B − 1))·B^n`, so a magnitude of at least `4·B^(n − 1)` needs `n`
-/// digits in every form. Tripping the trigger over a one-digit code takes
-/// `n = 1 + HEIGHT_FREEZE_ALLOWANCE_DIGITS + 1` digits, and the least such
-/// power of two is `2^(32(n − 1) + 2)`. A drift of
-/// `B^(n − 1)` would not do: it fits `n − 1` digits as `B·B^(n − 2)`, and it
-/// trips the trigger only while its stored form keeps a redundant top digit.
-pub const FREEZE_DRIFT_BITS: usize = 32 * (1 + HEIGHT_FREEZE_ALLOWANCE_DIGITS) + 2;
+/// A numeric fold freezes its accumulated height change when the change's
+/// working width exceeds the newest code's bit length plus the fold's freeze
+/// allowance, `HEIGHT_FREEZE_ALLOWANCE_BITS` (`a`). A value has many stored
+/// forms, and a comparison with zero can shorten one, so the drift must trip
+/// the trigger in its shortest form: over a one-bit code, more than `a + 1`
+/// working bits in every form. `suanpan` keeps every value below
+/// `2^(stored_bits + 2)`, so a drift of `2^P` holds at least `P − 1` working
+/// bits in any form, and `P = a + 3` is the least exponent that bound
+/// guarantees. The families use `P = a + 34`, 31 bits more, so they trip
+/// however coarsely the accumulator rounds its working width; a drift that
+/// tripped only while its stored form kept a redundant top digit would make a
+/// family's freeze count depend on compaction.
+pub const FREEZE_DRIFT_BITS: usize = HEIGHT_FREEZE_ALLOWANCE_BITS as usize + 34;
 
 /// The freeze-position spine `FP(k)`: a right spine of `2k` descending wide
 /// left leaves whose consecutive drops alternate `2^P` and one, over a
@@ -1674,9 +1674,11 @@ fn bitlen(k: usize) -> usize {
 ///
 /// The arming families park a wide climb `2^(32m)` at one freeze, then climb
 /// `2^P`, where `P` is [`FREEZE_DRIFT_BITS`], and freeze again. That second
-/// freeze defers the parked component when it holds more stored digits than the
-/// incoming drift plus the freeze allowance `a`,
-/// `HEIGHT_FREEZE_ALLOWANCE_DIGITS`. The incoming drift holds `a + 2` digits
+/// freeze defers the parked component when its working width exceeds the
+/// incoming drift's by more than the freeze allowance,
+/// `HEIGHT_FREEZE_ALLOWANCE_BITS`, which is `a` digits of `suanpan`'s current
+/// base-`2^32` representation; this white-box family counts in those digits.
+/// The incoming drift holds `a + 2` digits
 /// once the freeze's comparison has compacted it, so the parked component needs
 /// `2a + 3` digits in its shortest form. Stored digits are signed and below
 /// `2B` in magnitude, so a magnitude of at least `4·B^(m − 1)` needs `m` digits
@@ -1686,7 +1688,7 @@ fn bitlen(k: usize) -> usize {
 /// One digit fewer defers only while the parked component keeps a redundant top
 /// digit, so every family that promises a deferral builds its armings at least
 /// this wide.
-pub const MIN_DEFERRED_ARMING_DIGITS: usize = 2 * HEIGHT_FREEZE_ALLOWANCE_DIGITS + 3;
+pub const MIN_DEFERRED_ARMING_DIGITS: usize = 2 * (HEIGHT_FREEZE_ALLOWANCE_BITS as usize / 32) + 3;
 
 /// The wide-height exponent of the deferral re-arm families `PR(p)` and
 /// `DS(p, d)`: the narrowest arming that [`MIN_DEFERRED_ARMING_DIGITS`]

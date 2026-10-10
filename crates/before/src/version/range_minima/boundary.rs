@@ -117,14 +117,18 @@ impl Boundary {
         }
     }
 
-    /// Compare wide values before choosing which one to subtract from the other.
+    /// Subtract the smaller of two wide values from the larger, deciding which
+    /// is smaller along the way.
     ///
-    /// Two base-2^32 digits are the first separation at which Accumulator's
-    /// redundant representation can prove domination. If that comparison
-    /// cannot decide, the values are close enough in stored width that subtracting
-    /// once costs no more than processing comparable operands.
+    /// This fuses the comparison with the subtraction, which `Ord` does not:
+    /// for close values, one in-place subtraction followed by a sign read both
+    /// decides the order and leaves the difference, where `Ord` would first
+    /// subtract into a temporary. When one value's working width leads by at
+    /// least 64 bits, its stability query is asked first, since it can prove
+    /// the order without reading the narrower value, and a refusal compacts
+    /// the wider one before the subtraction.
     fn lower_wide(mut boundary: Accumulator, Positive(mut decrease): Positive) -> Remainder {
-        if decrease.stored_digit_count() >= boundary.stored_digit_count() + 2 {
+        if decrease.stored_bits() >= boundary.stored_bits() + 64 {
             match decrease.cmp_zero_stable_under(boundary.stored_bits()) {
                 Some(Ordering::Greater) => {
                     decrease -= &boundary;
@@ -134,7 +138,7 @@ impl Boundary {
                 None => {}
             }
         }
-        if boundary.stored_digit_count() >= decrease.stored_digit_count() + 2 {
+        if boundary.stored_bits() >= decrease.stored_bits() + 64 {
             match boundary.cmp_zero_stable_under(decrease.stored_bits()) {
                 Some(Ordering::Greater) => {
                     boundary -= &decrease;

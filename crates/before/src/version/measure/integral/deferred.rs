@@ -104,9 +104,10 @@ impl Aggregate {
         }
     }
 
-    /// Data read when this group participates in a merge; even empty groups cost one.
+    /// Bits read when this group participates in a merge; even empty groups
+    /// cost one.
     fn weight(&self) -> u64 {
-        (self.heights.stored_digit_count() + self.widths.stored_digit_count()).max(1) as u64
+        (self.heights.stored_bits() + self.widths.stored_bits()).max(1)
     }
 
     /// Merge a newer right group into this older left group.

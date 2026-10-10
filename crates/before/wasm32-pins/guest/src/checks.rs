@@ -391,14 +391,15 @@ fn suanpan_zero_shift(case: u64) -> Result<(), Failure> {
 fn suanpan_stability_width(bits: u64) -> Result<(), Failure> {
     // The value 5 * 2^64 at digit 2, below a cancelling top: digit 10 holds 1
     // and digit 9 holds -2^32. The one-limb subtraction deposits -2^32 at digit
-    // 9 without carrying into digit 10, so eleven digits stay stored.
+    // 9 without carrying into digit 10, so eleven 32-bit digits, 352 working
+    // bits, stay stored.
     let mut accumulator = Accumulator::new();
     accumulator.add_shifted_limbs(64, [5]);
     accumulator.add_shifted_limbs(32 * 10, [1, 0]);
     accumulator.sub_shifted_limbs(32 * 9, [1 << 32]);
     // Without the cancelling top there is nothing to compact, and the length
     // check below would pass vacuously.
-    if accumulator.stored_digit_count() != 11 {
+    if accumulator.stored_bits() != 352 {
         return Err(Failure::Synthesis);
     }
 
@@ -408,8 +409,9 @@ fn suanpan_stability_width(bits: u64) -> Result<(), Failure> {
         return Err(Failure::WrongValue);
     }
     // The scan folds digits 10 and 9 into a zero partial, descends through the
-    // zero digits to digit 2, and decides there, leaving three stored digits.
-    if accumulator.stored_digit_count() != 3 {
+    // zero digits to digit 2, and decides there, leaving three stored digits,
+    // 96 working bits.
+    if accumulator.stored_bits() != 96 {
         return Err(Failure::WrongLength);
     }
     if !matches!(i128::try_from(accumulator), Ok(value) if value == 5 << 64) {

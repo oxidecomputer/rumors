@@ -17,7 +17,7 @@ use suanpan::Accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::{Count, Version};
 
-use super::{digit_len, HEIGHT_FREEZE_ALLOWANCE_DIGITS};
+use super::HEIGHT_FREEZE_ALLOWANCE_BITS;
 
 mod minima;
 
@@ -70,8 +70,8 @@ impl Count {
             // that exposed the imbalance can cause later work to revisit it.
             // The allowance absorbs small width fluctuations without changing
             // the asymptotic rule.
-            if recent_height_change.stored_digit_count()
-                > digit_len(height_change.magnitude()) + HEIGHT_FREEZE_ALLOWANCE_DIGITS
+            if recent_height_change.stored_bits()
+                > height_change.magnitude().bits() + HEIGHT_FREEZE_ALLOWANCE_BITS
             {
                 #[cfg(test)]
                 FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));

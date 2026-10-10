@@ -6,7 +6,6 @@ use num_bigint::BigUint;
 use suanpan::Accumulator;
 
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
-use crate::version::measure::digit_len;
 use crate::version::overlay::{advance_diff, OpenedPair, Side};
 use crate::{Rank, Version};
 
@@ -86,13 +85,13 @@ impl Integrator {
 
             // At least one stream advances at every boundary. Its widest decoded
             // delta pays for the recent arithmetic retained until the next region.
-            let funded_digits = step_a
+            let funded_bits = step_a
                 .iter()
                 .chain(step_b.iter())
-                .map(|step| digit_len(step.magnitude()))
+                .map(|step| step.magnitude().bits())
                 .max()
                 .expect("the overlay advances at least one Version per boundary");
-            integral.boundary(funded_digits);
+            integral.boundary(funded_bits);
         }
 
         (integral.finish(scale), scale)

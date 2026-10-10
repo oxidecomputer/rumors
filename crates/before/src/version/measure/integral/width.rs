@@ -11,8 +11,6 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::{Accumulator, Limbs};
 
-use crate::version::measure::digit_len;
-
 /// A nonnegative interval width `limbs * 2^shift`, with a digit-aligned shift.
 pub struct ScaledWidth {
     /// Little-endian 64-bit limbs of the accumulator's written span, excluding
@@ -82,9 +80,10 @@ impl SparseWidth {
         width
     }
 
-    /// Number of stored digits: the work needed to merge this width.
-    pub fn stored_digit_count(&self) -> usize {
-        self.digits.len()
+    /// The bits its stored digits span, 32 per digit: the work needed to
+    /// merge this width.
+    pub fn stored_bits(&self) -> u64 {
+        32 * self.digits.len() as u64
     }
 
     /// Add another width in one pass over both sparse digit sequences.
@@ -175,7 +174,8 @@ impl SparseWidth {
     pub fn add_product(&self, total: &mut Accumulator, height: &BigInt) {
         let sign = height.sign();
         let height = height.magnitude();
-        let gap_limit = digit_len(height) as u64;
+        // The height's width in this module's 32-bit digits, at least one.
+        let gap_limit = height.bits().div_ceil(32).max(1);
         for cluster in self.clusters(gap_limit) {
             if let [(index, digit)] = *cluster {
                 // One digit needs only multiplication by a word, with no

@@ -8,7 +8,6 @@ use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::version::overlay::Side;
 use crate::{Rank, Version};
 
-use super::digit_len;
 use super::integral::Integrator;
 
 impl Rank {
@@ -29,7 +28,7 @@ impl Rank {
             }
             let (_, step) = cursor.step();
             Side::A.fold(&mut integral.live, &step);
-            integral.boundary(digit_len(step.magnitude()));
+            integral.boundary(step.magnitude().bits());
         }
 
         let numerator = BigUint::try_from(&integral.finish(max_depth))

@@ -277,20 +277,20 @@ fn spine_of(heights: &[BigUint]) -> Version {
 /// `2^(32q)`; it settles a segment against the zero-valued parked component.
 /// The final height `s` leaves the newly parked climb a closing segment.
 ///
-/// Each freeze fires at a unit delta, after a drift whose stored digits must
-/// exceed that delta's one digit plus the freeze allowance `a`. A power
-/// `2^(32m)` fits no fewer than `m` digits, as `2^32·2^(32(m−1))`, so the
-/// smallest drifts, `2^(32(p−1))` and `2^(32q)`, cross the trigger in every
-/// stored form when `p − 1` and `q` are at least `a + 2`. No compaction can
-/// then keep a freeze from firing.
+/// Each freeze fires at a unit delta, after a drift whose working width must
+/// exceed that delta's one bit plus the freeze allowance `a` bits. `suanpan`
+/// keeps every value below `2^(stored_bits + 2)`, so a power `2^(32m)` holds at
+/// least `32m − 1` working bits in every stored form, and the smallest drifts,
+/// `2^(32(p−1))` and `2^(32q)`, cross the trigger in every form when `32(p − 1)`
+/// and `32q` exceed `a + 2`. No compaction can then keep a freeze from firing.
 ///
 /// # Panics
 ///
-/// Panics if `p − 1` or `q` is below `a + 2`.
+/// Panics if `32(p − 1)` or `32q` is at most `a + 2`.
 fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
-    let crossing = super::HEIGHT_FREEZE_ALLOWANCE_DIGITS + 2;
+    let crosses = |m: u32| 32 * u64::from(m) > super::HEIGHT_FREEZE_ALLOWANCE_BITS + 2;
     assert!(
-        p as usize > crossing && q as usize >= crossing,
+        p >= 1 && crosses(p - 1) && crosses(q),
         "every drift must cross the freeze trigger in its shortest form"
     );
     let x = BigUint::from(1u8) << (32 * p);

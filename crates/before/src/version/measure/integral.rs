@@ -26,8 +26,9 @@
 //!   the end, together with the other deferred heights.
 //!
 //! A **freeze** transfers `live` into `parked`. After each boundary, the driver
-//! compares the width of `live` with the widest delta just read. If `live`
-//! exceeds it by more than [`HEIGHT_FREEZE_ALLOWANCE_DIGITS`], it freezes before
+//! compares the working width of `live` with the bit length of the widest
+//! delta just read. If `live` exceeds it by more than
+//! [`HEIGHT_FREEZE_ALLOWANCE_BITS`], it freezes before
 //! processing the next region. Thus a wide change can pay for one wide region
 //! addition, but later tiny changes cannot keep provoking that same wide work.
 //! Oscillations made of wide deltas remain live: their own input already pays
@@ -106,7 +107,7 @@ use suanpan::Accumulator;
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
 
-use super::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
+use super::HEIGHT_FREEZE_ALLOWANCE_BITS;
 
 mod deferred;
 mod pair;
@@ -227,9 +228,10 @@ impl Integrator {
         }
     }
 
-    /// Finish a boundary, bounding the live width by the widest delta read there.
-    pub fn boundary(&mut self, delta_digits: usize) {
-        if self.live.stored_digit_count() > delta_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
+    /// Finish a boundary, bounding the live width by the bit length of the
+    /// widest delta read there.
+    pub fn boundary(&mut self, delta_bits: u64) {
+        if self.live.stored_bits() > delta_bits + HEIGHT_FREEZE_ALLOWANCE_BITS {
             self.freeze();
         }
     }
@@ -243,7 +245,7 @@ impl Integrator {
     fn freeze(&mut self) {
         // Compact the drift so that its width measures its value.
         self.live.sign();
-        let drift_digits = self.live.stored_digit_count();
+        let drift_bits = self.live.stored_bits();
         self.tracks_width = true;
         #[cfg(test)]
         FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
@@ -255,7 +257,7 @@ impl Integrator {
         // region, so it is deferred rather than multiplied at each narrow
         // freeze. Reading it left its working width at its value's width.
         if let Some(parked) = self.close_segment() {
-            if self.parked.stored_digit_count() > drift_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
+            if self.parked.stored_bits() > drift_bits + HEIGHT_FREEZE_ALLOWANCE_BITS {
                 #[cfg(test)]
                 DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
                 self.deferred.push(parked);
