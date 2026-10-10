@@ -141,3 +141,16 @@ methods made redundant are removed after the owner approves each.
 Added the same day: `Display` and a value bit length in the style of
 `BigUint::bits` are in #122 too.
 
+
+## Owner's rulings (#122 review, 2026-10-09)
+
+The value bit length leaves #122: nothing calls it, and its first form
+re-paid the whole width near powers of two. An amortized version comes back
+with its own design if a caller needs one. Primitive-left arithmetic
+(`5 + acc`) and borrowed primitive operands (`acc + &5`, `Sum<&u64>`) are
+in, as `num-bigint` offers them. Primitive-left comparisons stay out: an
+impl of `PartialOrd` or `PartialEq` on a primitive makes the primitive's
+comparisons ambiguous for inference in every crate that links `suanpan`,
+so code such as `(a..b).contains(&arc_u64)` stops compiling downstream.
+Public rustdoc states what a user of the crate needs to use the API
+effectively; mechanism belongs in private docs.
