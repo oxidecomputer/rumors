@@ -171,3 +171,18 @@ amortized, and `place/filter.rs` and `boundary.rs` use `suanpan`'s `Ord`
 instead of their own copies of its comparison protocol. Release panics
 reachable only by programmer error stand in place of the `debug_assert`s
 they replace.
+
+## Owner's rulings (#122 base independence, 2026-10-09)
+
+`suanpan`'s public API promises nothing about its numeric base and exposes
+nothing tied to it: users see only `u64` limbs, which are independent of
+the representation. `stored_digit_count` leaves the public API, and
+`stored_bits` is the working-width measure. The scaled readout reports
+its factored zero span as a count of 64-bit limbs, so a misaligned scale
+is unrepresentable. `before` states its width policies in bits: the
+conversion guards, the 256-bit freeze allowance, and the deferred merge
+weight. Both conversion guards stay, because each skips a constant-cost
+stability query on a wide value it keeps without reading;
+`RangeMinima` moves boundary buffers and never reads them on push or pop.
+`suanpan` names its limb readout as a public type that derefs to
+`[u64]`, so `before` can keep it without copying.
