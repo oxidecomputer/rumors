@@ -87,14 +87,12 @@ detail lives.
   pair with an orientation) from the folds (width-weighted integral, brick
   count, running maximum, indicator integral). The pair driver must expose
   turn depths and funding bits ([02](02-measures.md#computing-the-measures)).
-- **An audit of simultaneous walks.** The crate walks two structures in
-  lockstep in at least three places: `version/overlay.rs`
-  (`OpenedPair`, `advance_diff`; used by the lattice, order comparisons, and
-  the pair integral), `version/shape.rs` (`Refine`, `advance_refinement`; used
-  by the shape iterators), and `version/projection.rs`'s party-and-version
-  walk. Whether one driver abstraction serves all three, or each difference
-  is justified (running differences of wide heights, emitted rises, party
-  ownership), is a scaffolding-audit question, not a finding.
+- **Lockstep walks.** [The audit](../2026-10-10-before-lockstep-walk-audit/README.md)
+  finds one boundary-advance rule implemented three times (`overlay::advance`,
+  `overlay::advance_set`, `shape::advance_refinement`) behind three cursor
+  traits. It recommends a differential test of the rule, dissolving `Refine`
+  and `advance_refinement` into `advance_set`, and returning the flip level
+  from `advance`, which the drivers-and-folds separation needs.
 
 ## 7. Deferred until a consumer appears
 
