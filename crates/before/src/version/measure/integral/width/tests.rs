@@ -27,6 +27,14 @@ fn five_positions_split_at_the_selected_gap_limits() {
     assert_eq!(split(11), vec![vec![0, 3, 4, 8, 20]]);
 }
 
+/// An accumulator holding `bytes` as a little-endian magnitude scaled by
+/// `2^(32 · digits)`, written above an unwritten low prefix.
+fn width(bytes: &[u8], digits: u64) -> Accumulator {
+    let mut width = Accumulator::new();
+    width.add_shifted_limbs(32 * digits, BigUint::from_bytes_le(bytes).iter_u64_digits());
+    width
+}
+
 /// Evaluate sparse digits directly, without the production clustering or carry merge.
 fn dense_value(width: &SparseWidth) -> BigInt {
     width
@@ -73,10 +81,13 @@ proptest! {
         prop_assert_eq!(BigInt::from(&actual), expected);
     }
 
-    /// Converting and adding scaled widths preserves their sum and sparse invariants.
+    /// Reading, converting, and adding scaled widths preserves their sum and
+    /// sparse invariants.
     ///
-    /// Independent scales exercise empty prefixes, overlapping digits, carries,
-    /// and disjoint spans; ordinary integer addition supplies the reference value.
+    /// Each width is read from an accumulator written above an unwritten low
+    /// prefix. Independent scales exercise empty prefixes, overlapping digits,
+    /// carries, and disjoint spans; ordinary integer addition supplies the
+    /// reference value.
     #[test]
     fn scaled_width_addition_preserves_values_and_balanced_digits(
         left_bytes in proptest::collection::vec(any::<u8>(), 0..160),
@@ -84,9 +95,11 @@ proptest! {
         left_digits in 0u64..80,
         right_digits in 0u64..80,
     ) {
-        let left = ScaledWidth { magnitude: BigUint::from_bytes_le(&left_bytes), shift: 32 * left_digits };
-        let right = ScaledWidth { magnitude: BigUint::from_bytes_le(&right_bytes), shift: 32 * right_digits };
-        let expected = (&left.magnitude << left.shift as usize) + (&right.magnitude << right.shift as usize);
+        let left_value = BigUint::from_bytes_le(&left_bytes) << (32 * left_digits) as usize;
+        let right_value = BigUint::from_bytes_le(&right_bytes) << (32 * right_digits) as usize;
+        let left = ScaledWidth::read(&width(&left_bytes, left_digits));
+        let right = ScaledWidth::read(&width(&right_bytes, right_digits));
+        let expected = &left_value + &right_value;
         let mut sum = SparseWidth::from_scaled(&left);
         sum.add(SparseWidth::from_scaled(&right));
 

@@ -18,12 +18,26 @@
 //! retains only its cursor paths and the arithmetic state needed for its
 //! result; none constructs a recursive tree or an intermediate Version.
 
+use num_bigint::BigUint;
+
 /// Extra base-2^32 digits tolerated before an old height change is frozen.
 ///
 /// Eight digits give a 256-bit cushion. This avoids moving arithmetic state for
 /// small width fluctuations; the fixed cushion does not affect the
 /// input-proportional bound.
 pub(super) const HEIGHT_FREEZE_ALLOWANCE_DIGITS: usize = 8;
+
+/// A magnitude's width in `suanpan`'s base-2^32 digits, at least one.
+///
+/// This is the unit [`Accumulator::stored_digit_count`] reports, so the two
+/// compare directly, as the measures' freeze triggers and cluster limits do.
+///
+/// [`Accumulator::stored_digit_count`]: suanpan::Accumulator::stored_digit_count
+fn digit_len(magnitude: &BigUint) -> usize {
+    usize::try_from(magnitude.bits().div_ceil(32))
+        .expect("digit counts fit usize")
+        .max(1)
+}
 
 mod distance;
 pub mod integral;

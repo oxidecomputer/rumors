@@ -5,8 +5,8 @@ use core::cmp::Ordering;
 use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
+use crate::version::measure::digit_len;
 use crate::version::overlay::{advance_diff, OpenedPair, Side};
 use crate::{Rank, Version};
 
@@ -89,7 +89,7 @@ impl Integrator {
             let funded_digits = step_a
                 .iter()
                 .chain(step_b.iter())
-                .map(|step| accumulator::digit_len(step.magnitude()))
+                .map(|step| digit_len(step.magnitude()))
                 .max()
                 .expect("the overlay advances at least one Version per boundary");
             integral.boundary(funded_digits);

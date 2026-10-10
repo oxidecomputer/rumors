@@ -14,11 +14,10 @@
 use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::{Count, Version};
 
-use super::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
+use super::{digit_len, HEIGHT_FREEZE_ALLOWANCE_DIGITS};
 
 mod minima;
 
@@ -72,7 +71,7 @@ impl Count {
             // The allowance absorbs small width fluctuations without changing
             // the asymptotic rule.
             if recent_height_change.stored_digit_count()
-                > accumulator::digit_len(height_change.magnitude()) + HEIGHT_FREEZE_ALLOWANCE_DIGITS
+                > digit_len(height_change.magnitude()) + HEIGHT_FREEZE_ALLOWANCE_DIGITS
             {
                 #[cfg(test)]
                 FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));

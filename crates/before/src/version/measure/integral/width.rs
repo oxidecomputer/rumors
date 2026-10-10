@@ -9,14 +9,15 @@
 use core::cmp::Ordering;
 
 use num_bigint::{BigInt, BigUint, Sign};
-use suanpan::Accumulator;
+use suanpan::{Accumulator, Limbs};
 
-use crate::accumulator;
+use crate::version::measure::digit_len;
 
-/// A nonnegative interval width `magnitude * 2^shift`, with a digit-aligned shift.
+/// A nonnegative interval width `limbs * 2^shift`, with a digit-aligned shift.
 pub struct ScaledWidth {
-    /// Only the accumulator's written span, excluding its unwritten low prefix.
-    magnitude: BigUint,
+    /// Little-endian 64-bit limbs of the accumulator's written span, excluding
+    /// its unwritten low prefix; empty for zero.
+    limbs: Limbs,
     /// Power-of-two scale, always a multiple of 32.
     shift: u64,
 }
@@ -25,19 +26,19 @@ pub struct ScaledWidth {
 impl ScaledWidth {
     /// Read a sum of interval widths without materializing its zero prefix.
     pub fn read(width: &Accumulator) -> Self {
-        let (sign, magnitude, shift) = accumulator::scaled_biguint_parts(width);
+        let (sign, limbs, shift) = width.scaled_signed_magnitude();
         debug_assert_ne!(sign, Ordering::Less, "interval widths only accumulate");
-        Self { magnitude, shift }
+        Self { limbs, shift }
     }
 
     /// Whether no regions have contributed a width.
     pub fn is_zero(&self) -> bool {
-        self.magnitude == BigUint::ZERO
+        self.limbs.is_empty()
     }
 
     /// Add this relative width to another sum, retaining its scale.
     pub fn add_to(&self, total: &mut Accumulator) {
-        total.add_shifted_limbs(self.shift, self.magnitude.iter_u64_digits());
+        total.add_shifted_limbs(self.shift, self.limbs.iter().copied());
     }
 
     /// Convert the width to balanced digits before multiplying by a height.
@@ -63,10 +64,10 @@ impl SparseWidth {
         debug_assert_eq!(width.shift % 32, 0, "interval widths are digit-aligned");
         let start_index = width.shift / 32;
         let digits = width
-            .magnitude
-            .iter_u64_digits()
+            .limbs
+            .iter()
             .enumerate()
-            .flat_map(|(limb_index, limb)| {
+            .flat_map(|(limb_index, &limb)| {
                 [
                     (
                         start_index + 2 * limb_index as u64,
@@ -174,7 +175,7 @@ impl SparseWidth {
     pub fn add_product(&self, total: &mut Accumulator, height: &BigInt) {
         let sign = height.sign();
         let height = height.magnitude();
-        let gap_limit = accumulator::digit_len(height) as u64;
+        let gap_limit = digit_len(height) as u64;
         for cluster in self.clusters(gap_limit) {
             if let [(index, digit)] = *cluster {
                 // One digit needs only multiplication by a word, with no
