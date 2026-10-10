@@ -1,3 +1,13 @@
+# Presenting `before`'s values to humans
+
+A living design note: how `Party`, `Version`, `Clock`, `Span`, and their
+relations should read in `Debug` output, assertion failures, and visual tools.
+It records what Finch has ruled, what remains open, and why. The round-one
+brainstorm is kept verbatim in [01-brainstorm.md](01-brainstorm.md); this
+README supersedes it wherever they differ.
+
+## The question
+
 **Question (Finch):**
 
 > One difficulty with `before` is that it is tricky to present its various types in a way that is meaningfully comprehensible to humans. `Rank` and `Count` are exceptions because they are scalar values, but `Version`, `Party`, and composite types like `Span`, `Clock`, and `Query` are trickier because, per the @crates/before/reference/itc2008.md fundamental data structure, versions and parties are tree structures (or in our case, a "skyline" representation which is isomorphic). We have the "shape" iterator already implemented which yields the skyline shape of a party or version, but it's not hooked into any textual representation, and it's not clear whether showing the skyline is the best meaningful way to present such a thing to someone during debugging. Can you brainstorm about textual and/or visual ways to present these data types to humans so that they can meaningfully understand the identity-space and causality information, without loss of precision? Don't limit yourself to what could be implemented for Display/Debug (though those would be useful). Think outside the box: what context could be provided to make more meaningful visualization or textual display? What prior art exists in this space for more typical version vectors, and could it be adapted? What else am I missing?
@@ -6,174 +16,242 @@
 
 > The text representation in the paper does not seem worth replicating, because imo it is not easy to read it and understand ownership or causality.
 
-**Response (Claude):**
+## Framing
 
----
+A version carries three kinds of information, and only the first lives in the
+value: *geometry* (which heights over which ids), *attribution* (who caused
+them, which ITC discards when id space is recycled), and *relation* (order
+against other versions). Positions in `[0, 1)` are arbitrary labels; what
+means something is measure (width, area) and cross-reference (the same range
+in a party and a version). Displays therefore treat ranges as keys and must
+never let a narrow range vanish, since a 2⁻²⁰-wide range can be the only
+evidence that two versions are concurrent.
 
-I agree about the paper's notation. Its event trees store each height as a base plus offsets down the path, so reading the height at any id means adding along a branch, and position is only implied by nesting depth. Neither ownership nor causality is visible without doing arithmetic in your head. I've left it out below.
+## Decided
 
-**What I checked in the tree:**
-- `Party` and `Version` print as their raw bit stream in `Debug` (`Version(0b…)`). Their `Display` is canonical hex, and `FromStr` parses it back.
-- `Clock`, `Span`, and `Query` build their `Debug` output from those, so they show the bit stream too.
-- `shape` already provides `Plateaus`, `Regions`, `Overlay` and `combine`, but nothing renders them.
-- `error::Overlap` is a unit struct, so it says nothing about where two parties overlap.
-- The only `Debug` text a test expects is three strings in `causally/tests.rs`. No rumors `.snap` file contains `Debug` output.
+### Formatting traits
 
-The prior art in §5 comes from memory. I haven't checked it on the web.
+- **`Display` stays canonical hex.** It is the `FromStr` round trip and the
+  `serde` human-readable form (`collect_str`), and to a program's end user a
+  version is an opaque token, like a UUID.
+- **`Debug` becomes the readable notation below.** It makes no stability
+  promise, and it is what assertion failures, `dbg!`, and `tracing`'s `?v`
+  show.
+- **`{:#?}` spreads the notation over lines like a match statement.** The
+  alternate flag propagates through nested derived `Debug`, so it must look
+  like ordinary pretty-printing.
+- **`fmt::Binary` (`{:b}`) shows the canonical bit stream**, today's `Debug`
+  output, for codec work.
+- **The multi-line skyline drawing is a named adapter** (working name
+  `skyline()`), not `{:#?}`.
 
-## 1. What a value can tell a human, and what it can't
+### Spelling numbers
 
-A version carries three kinds of information, and only the first is in the value itself:
+- Heights are decimal integers: they are event counts, and `Count`'s
+  `Display` is decimal.
+- Positions and widths are binary fractions, `0.101`: everything is dyadic,
+  and binary shows the structure (each digit picks a half).
+- Ranks: open; see [Open questions](#open-questions).
 
-- **Geometry:** the step function, meaning which heights sit over which ids. It is exact and complete in the value.
-- **Attribution:** who did those events. ITC throws this away on purpose. When alice retires into bob, her region and its heights become bob's. A lone version can never say "alice's events". At most it can say "events recorded in the region alice owns now".
-- **Relation:** whether it is ordered or concurrent with other versions. That needs the other versions.
+### Party
 
-So positions in `[0, 1)` are arbitrary labels: nothing about "0.3" means anything. Two things do mean something:
-- **Measures:** how much of the id space a region covers, and the area under the function, which is the rank.
-- **Cross-reference:** the same region showing up in a party and in a version.
-
-A good display uses coordinates as keys (a name, a column, a color) and spends the reader's attention on measures and relations. A linear x-axis is actively misleading here. A region of width 2⁻²⁰ is invisible on it, yet it can be the only evidence that two versions are concurrent.
-
-## 2. Exact notations from the value alone
-
-**Listing maximal runs loses nothing.** Canonical form keeps a tree node only where the function is non-constant on that node's interval (normalization collapses `(n, m, m)`, `(0, 0)` and `(1, 1)`). So the function alone determines the tree. That means you can merge adjacent equal plateaus, which the dyadic partition keeps apart, without losing anything. Every endpoint is dyadic, so it has a finite exact spelling. A round-trip proptest, `parse(fmt(v)) == v`, would turn this argument into a tested fact.
-
-**Running example:** alice owns `[0, ½)`, bob `[½, ¾)`, carol `[¾, 1)`.
-- In version `a`, alice's region is at 3, bob's at 2 and carol's at 1.
-- In version `b`, part of bob's region is at 1 and carol's is at 2.
-
-A compact `{:?}`, read left to right as "3 until 0.1, then 2 until 0.11, then 1":
-
-```
-Version(3 @0.1 2 @0.11 1)                rank 10.01
-Version(3 @0.1 1 @0.101 2)               rank 10.011
-Party[0, 0.1)                            owns 50%, 1 run
-Party[0.001, 0.01) ∪ [0.1101, 0.111)     owns 18.75%, 2 runs
-Clock { party: [0, 0.1), version: 3 @0.1 2 @0.11 1 }
-```
-
-The breakpoint marker is `@` rather than `|` because `|` already means join. `{:#?}` could print the same runs as a multi-line table with a width column.
-
-**Binary or decimal coordinates:** both are exact, because `k/2^d` has exactly `d` digits after the point in either base.
-- Binary shows structure: the digits name which halves a region sits in, siblings share a prefix, and it matches `Rank`'s binary `Display`.
-- Decimal shows size: `0.625` is easier to judge than `0.101`.
-
-I'd use binary for positions and decimal or percent for measures. "Owns 18.75%" is an exact statement. Very deep positions can shorten repeated digits, e.g. `0.0{19}1`.
-
-**One-line summaries** lose information, so they belong in a separately named method:
-- For a version: rank, height range, number of runs, depth and byte size.
-- For a party: share of the id space, number of runs and depth. The number of runs and the depth are exactly what grows under churn.
-
-`Rank`'s `Display` already honours precision (`{:.N}`). `Version`'s `Debug` could do the same with `{:.N?}`: print the first N runs, then `… (k more runs)`. Truncation would then be something the caller asks for and the output announces.
-
-## 3. Views that take extra context
-
-**3a. A legend of names for live parties.** I think this is the most valuable single piece. A `Legend` maps names to parties, supplied by test fixtures (`nth_party(i)` becomes `p{i}`), by rumors peers, or by a simulation. It gives two diagnostics for free:
-- If two named parties overlap, identity linearity was violated. That diagnosis is definitive.
-- If the named parties cover less than 100% of the id space, either a live party is missing from the legend or identity leaked through a dropped `Party`. In a test that knows every peer, full coverage is itself an assertion.
-
-It also lets a version print as a pseudo version vector. Each column is the projection `v / party`, which the API already has:
+Owned ranges in Rust's half-open range notation, maximal (adjacent owned
+regions merge):
 
 ```
-          alice   bob      carol
-share     50%     25%      25%
-a         3       2        1
-b         3       1..=2    2
+Party(0.001..0.01, 0.1101..0.111)
+Party(0..1)                          // the seed
 ```
 
-`1..=2` marks a region with more than one height; expanding it shows the exact runs, so nothing is lost. The column header should mean "heights in the region X owns now", never "X's events". Internally, `advance_refinement` already steps through party and version walks together through `Refine`. A public `combine` that mixes parties and versions would be an API addition.
+### Version
 
-**3b. A second version: a causal diff.** This is where better output pays off most, in assertion failures. When `a <= b` fails:
-
-```
-a ≰ b and b ≰ a: concurrent
-  ids                owner   a  b
-  [0,     0.1)       alice   3  3
-  [0.1,   0.101)     bob     2  1   a ahead
-  [0.101, 0.11)      bob     2  2
-  [0.11,  1)         carol   1  2   b ahead
-  a.lag(b) = 0.01    b.lag(a) = 0.001
-```
-
-The two "ahead" rows are the smallest complete evidence of concurrency. By default the diff should show only the rows that differ. Without a legend, the owner column just disappears. This is `pretty_assertions` applied to causality, and `Crossed` from `Span::new` could carry the same rows.
-
-**3c. A baseline.** Heights grow without limit, and the interesting part is usually a difference. Possible references:
-- the meet of all known versions ("everyone knows at least this")
-- a span's `lo`
-- a peer's previous version
-
-Versions shown relative to the meet never go negative.
-
-**3d. A set of versions: the partial order.** Examples are the message versions in a rumors `Snapshot`, or every peer's current version. You'd draw the covering edges only, like `git log --graph`:
-- Nodes are labelled with a short hash of the canonical bytes, as git abbreviates commit IDs.
-- Edges are labelled with their delta, named through the legend. If `a < b` differ only inside bob's current region, then the events between them happened in that region, so "bob +1" is a fair label for that edge.
-- The maximal elements are the concurrent heads, like Automerge's `heads`.
+Match arms over maximal runs: adjacent ranges of equal height merge, so the
+output is as small as the function allows. It reads as the version's
+definition, `match id { … }`.
 
 ```
-* 7c1e  carol +1
-| * 2a90  bob +1     (concurrent with 7c1e)
-|/
-* f03b  alice +3
+Version(0..0.1 => 3, 0.1..0.101 => 1, 0.101..1 => 2)
 ```
 
-**3e. Peers against regions: a knowledge matrix.** Project N peers' versions onto N peers' regions and you get something like a matrix clock:
-- The diagonal is each peer's own region.
-- A column's minimum is what everyone knows in that region.
-- A row's lag to the join of all versions says how far behind that peer is.
+Pretty form, one arm per line:
 
-It answers "who is behind on whom" directly.
+```
+Version {
+    0..0.1 => 3,
+    0.1..0.101 => 1,
+    0.101..1 => 2,
+}
+```
 
-**3f. A trace: a shadow version vector.** Only history gives true attribution. A test or simulation wrapper would record each fork, tick and join under stable names, and keep a classic version vector of name→count alongside the ITC. Printed as a run diagram, this is the paper's own §5.1 figure, made live.
+**Why merging loses nothing.** Canonical form keeps a tree node exactly where
+the function is non-constant on that node's interval (normalization collapses
+`(n, m, m)`, `(0, 0)`, and `(1, 1)`), so the function determines the tree, and
+the maximal runs determine the function. A parser that lives only in tests,
+plus a round-trip proptest, commits this as a tested fact; there is no public
+parser.
 
-I'd justify this as a display aid only. The crate's existing oracles already check the ordering semantics, so a new oracle would need to name a failure they miss.
+### Span
 
-**3g. Time series.** `lag` and `distance` already measure convergence in rank units. Each peer's lag to the network-wide join, plotted over time as a sparkline, would make a tokio-console-style dashboard for rumors.
+A band: each arm gives the range of heights the span allows over that range of
+ids, with a single height where the endpoints agree. A version lies in the
+span exactly when, over every arm's range, its heights fall within the arm's
+band.
 
-## 4. Visual media
+```
+Span(0..0.11 => 2..=3, 0.11..1 => 1..=2)
+```
 
-- **Waveform viewers** such as GTKWave and Surfer (which is written in Rust) are built to show many aligned step functions, with values printed inside segments, plus zoom and cursors. You'd put the id space on the x-axis instead of time and export VCD, with each version or party as one signal. That gives a real visualizer with no viewer code to write. The limit is that VCD times are integers, so the scale is 2^maxdepth. Tools with 64-bit timestamps fail beyond roughly depth 63.
-- **Genome browsers** such as IGV solve the same problem: one coordinate axis spanning nine orders of magnitude, many aligned tracks, summaries when zoomed out and exact features when zoomed in. The rule to copy for summaries is min and max per pixel bucket, so a counterexample region can never vanish.
-- **Icicle or flame graphs** of the dyadic tree, zoomable in the style of inferno or speedscope. Width shows share, rows show depth, color shows height, and a band shows ownership.
-- **Terminals** should use an ordinal axis: one equal-width column per refined cell, with its true width written in. Never use a linear axis without a guaranteed minimum width.
-- **A wasm playground in rustdoc.** The crate already ships interactive HTML in its docs (the fuelscapes). Forking, ticking and joining named clocks while watching the stamps change would teach ITC better than any static format.
-- **Smaller options:** DOT export for the partial order and for party lineage, and `#[debugger_visualizer]` scripts that decode the bit stream inside a debugger.
+### Clock
 
-## 5. Prior art and how it would adapt
+```
+Clock { party: Party(0..0.1), version: Version(0..0.1 => 3, 0.1..0.11 => 2, 0.11..1 => 1) }
+```
 
-| Prior art | Adaptation |
-|---|---|
-| Dynamo and Riak vector clocks; Yjs state vectors `{client: clock}` | Legend projection table (3a), worded as regions rather than participants |
-| ShiViz with ShiVector/GoVector (logs carrying vector clocks become space-time diagrams) | Logs already carry hex versions, so a tool can compute `<=` directly. Exporting legend projections as vector clocks would let ShiViz itself run unchanged, at a loss of detail. |
-| Lamport space-time diagrams; the ITC paper's run figure | Trace view (3f) |
-| `git log --graph`; Automerge heads | Partial-order view (3d) |
-| Matrix clocks | Knowledge matrix (3e) |
-| CIDR allocation and route aggregation | Parties as address prefixes: fork is subnetting, join is aggregation. This also supports binary coordinates. |
-| `pretty_assertions`, `insta` diffs | Causal diff (3b) |
-| Jepsen's Elle | Explaining an anomaly by its smallest counterexample: show only the regions that differ |
+### Legend
 
-## 6. What you might be missing
+A `Legend` names live parties so that renderings can say whose region a range
+lies in.
 
-1. **Attribution isn't in a lone version.** After churn, any label claiming "X's events" from the version alone is wrong.
-2. **Every visual needs a guarantee that counterexample regions stay visible,** because a linear axis hides the very regions that decide concurrency.
-3. **The legend's overlap and coverage checks come free,** and catch linearity violations and identity leaks.
-4. **A readable syntax that also parses would double as test-fixture literals** (`"3 @0.1 2 @0.11 1"`), replacing tick sequences like rumors' `version_for`. Versions copy freely, so this is safe for them. A `Party` literal creates identity out of nothing. That is the same hole `decode` already has, but much easier to reach, so it should stay test-only or carry a `dangerously_` name.
-5. **`Debug` is the text people actually see,** in assertion failures and inside `Query`'s `Debug`. Changing it moves the three expected strings in `causally/tests.rs`.
-6. **`Overlap` carries no location.** I believe the disjointness check already finds the first overlapping region, though I haven't verified it. Returning that region would make the definitive diagnosis actionable: which stale copy is it? This changes the API.
-7. **Keep hex for `Display`.** It's the form in logs that any after-the-fact tool can recover exactly.
+- Names are any `N: Display`.
+- It is built from `(N, &Party)` pairs. Name-first matches `enumerate()`, so
+  unnamed parties need no convenience method:
+  `parties.iter().enumerate().collect::<Legend<_>>()` numbers them from 0.
+- Construction is infallible: a debugging aid must render the broken state it
+  is debugging. Overlapping parties and uncovered ranges appear as marked rows.
+  Overlap means identity linearity was violated. Incomplete coverage means a
+  live party is missing from the legend or identity leaked through a dropped
+  `Party`.
+- With a legend, a version's arms split at ownership boundaries and each arm
+  names its owner (annotation style is open):
 
-## 7. Recommendation
+```
+Version {
+    0..0.1 => 3,        // alice
+    0.1..0.101 => 1,    // bob
+    0.101..0.11 => 2,   // bob
+    0.11..1 => 2,       // carol
+}
+```
 
-In order of increasing cost:
-1. Lossless run-based `Debug` for `Version`, `Party` and `Clock` (`Span` and `Query` inherit it), plus the round-trip proptest.
-2. The causal diff helper, with the legend optional, starting in `rumors-testkit`.
-3. A `Legend` type with the overlap and coverage checks and the projection table.
-4. VCD export as the cheapest real visualizer. A partial-order tool over logged hex can come later.
+Owner labels mean "the region this party owns now", never "this party's
+events": after a retirement, the survivor's region carries the retiree's
+history.
 
-Decisions for you:
-1. **Coordinate spelling:** binary for positions and decimal for measures (my recommendation), or decimal or fractions throughout?
-2. **May `Debug` change?** I'd say yes, since nothing outside one test module expects its exact text, but whether `Debug` output counts as stable API is your call.
-3. **Where does `Legend` live?** I'd start in `rumors-testkit` and promote it into `before`'s public API only once it has proved useful.
-4. **A parseable version-literal syntax:** I'd add it. It needs its own entry point, because `FromStr` already means hex, so it's an API addition.
+### Causal diff for assertions
 
-I can write this up as a page with rendered mockups, or save it to `.agent-notes/`, if either would help.
+Exported from the library; the legend is optional, and the predominant use has
+none. Rows are the common refinement of both versions' runs (plus legend
+boundaries when there is a legend):
+
+```
+assertion failed: a <= b
+a and b are concurrent:
+  ids            a  b
+  0..0.1         3  3
+  0.1..0.101     2  1   a ahead
+  0.101..0.11    2  2
+  0.11..1        1  2   b ahead
+a is ahead by at most 1 over 0.001 of the id space; b by at most 1 over 0.01
+```
+
+Agreeing rows collapse to `(k agreeing ranges)` when there are many. The
+assertion macros must be named (`assert_le!(a, b)`, `assert_lt!`,
+`assert_concurrent!`): a `macro_rules` `$a:expr` may only be followed by `=>`,
+`,`, or `;`, so `assert_causal!(a <= b)` cannot parse. The single-version case
+of this layout, without owners, is the pretty `Debug` above.
+
+The summary line uses depth-independent measures. `lag` and `distance` measure
+area, so missing one event over a range 2⁻²⁰ wide counts as 2⁻²⁰. *Maximum
+deficit* (the largest height difference at any id) and *extent* (the width of
+the ids where one version is behind) do not depend on depth.
+
+### Dropped
+
+- The paper's tuple notation: reading a height means summing along a branch,
+  and positions are implicit in nesting depth.
+- A public parser for the readable notation: in practice no one would write
+  it.
+- Trace views and shadow version vectors: the library does not preserve that
+  information.
+- Locating the overlap in `Overlap` or join errors: `Overlap` stays opaque for
+  now.
+
+## Open questions
+
+1. **Rank spelling.** Should the integer part be decimal and the fraction
+   binary? That gives one rule for the whole crate ("integer digits are
+   decimal, digits after the point are binary") covering heights, positions,
+   widths, and ranks, and `Version(0..1 => 5)` then has rank `5`, not `101`.
+   Costs: `5.1` reads as decimal to anyone who has not met the rule; `Rank`'s
+   `Display` is also its `FromStr` and `serde` human-readable form, so this
+   changes a text format; and the integer part inherits `Count`'s decimal
+   conversion cost ("superlinear but subquadratic") where today's binary
+   spelling is linear.
+2. **Brackets.** Should `Version` and `Span` use braces in both modes
+   (`Version { 0..0.1 => 3, … }`), matching match-arm syntax, or parentheses
+   single-line and braces pretty?
+3. **Owner annotation.** Parenthetical single-line (`0..0.1 => 3 (alice)`)
+   and trailing comment in pretty form?
+4. **Spans by value.** `Version`'s clone is a refcount increment (storage is
+   `Bytes::from(Vec<u8>)`; I believe `bytes` makes such a buffer's first clone
+   allocate a small shared header, unverified), so `Span`
+   could hold versions by value instead of `Cow`, and `Crossed` could carry
+   them back for the diff. `Query`, its bounds, and `Ranked` would follow.
+   Lifetimes remain wherever a `Party` is borrowed (`OwnVersion`, `OwnSpan`,
+   `Legend`), since `Party` is not `Clone`. rumors' tree code returns
+   `Span<'_>` from nodes and caches `Span<'static>`; the migration there is
+   mechanical. This is a public API change.
+5. **`Version::ranked`'s docs.** They advise preferring `Ranked` "when you
+   … merely need a causal ordering", which steers sorts toward repeating the
+   rank traversal on every comparison. `Ranked`'s own docs already recommend
+   materialized keys for large sorts; the same hazard belongs on
+   `Version::ranked`.
+6. **Maximum deficit and extent.** Deficit is computable through
+   `shape::combine` by summing rises, with the documented hazard that running
+   `Count` sums can be quadratic in the worst case. Extent cannot be built
+   exactly as a `Rank` from the public API (the only constructor besides
+   `ZERO` is parsing text). Proposal: implement both privately for the diff's
+   summary line, and expose them only when a use beyond display appears. A
+   related, unexamined question: is "a is missing at least k ticks" (a
+   `min_ticks`-like bound on the difference) computable? `fill` makes a tick's
+   effect depend on the surrounding heights, so `min_ticks` of the difference
+   function need not be the answer.
+7. **The partial-order view** (`git log --graph` over a collection). It is a
+   newtype over `C` where `for<'a> &'a C: IntoIterator<Item = &'a T>`,
+   `T: Borrow<Version>`, optionally with labels. It sorts by rank computed
+   once per version (`sort_by_cached_key`), not by comparing `Ranked` views.
+   A version's parents are the earlier versions below it that lie below no
+   parent already chosen, found by walking down in rank: O(n³) comparisons at
+   worst, fine for debugging. With a legend, edges read `+1 bob`, an edge
+   spanning several owners lists each, and merges read `merge of v2, v3` or
+   `merge of v2, v3, +1 carol`.
+8. **The knowledge matrix.** Rows are owners' regions, columns are each peer's
+   current version, and brackets mark a peer's view of its own region; `meet`
+   and `join` columns give what everyone knows and the newest anyone has seen.
+   Conjecture to check before relying on it: if every tick goes through its
+   owner's `Clock`, each bracketed cell is its row's maximum, so a violation
+   points at broken linearity.
+9. **Visualizer direction.** An in-browser editable pane that accepts only a
+   Rust-like subset would confuse users who expect Rust. The alternative under
+   discussion is record-and-replay, as Python Tutor does it. A `trace` feature
+   records each public operation (call site via `#[track_caller]`, inputs and
+   outputs as canonical bytes) while ordinary Rust runs locally. A viewer built
+   on `before-viz`'s renderer then steps through the recording beside the
+   source. Doc examples could ship pre-recorded, which sets no expectation of
+   editing.
+
+## Corrections to round one
+
+- `crates/before-viz` already exists: a gesture-driven wasm visualizer
+  (fork, tick, join, send) that draws each clock as a skyline over an
+  ownership strip and history as a graph, with undo/redo, URL-fragment
+  sharing, and a GitHub Pages deploy. Round one's playground bullet (§4) and
+  part of §3d describe it as new. Its glyph uses a linear axis with a width
+  cap (`min(maxWidth, max(minWidth, 7px · 2^maxDepth))`), so past the cap
+  ranges narrower than 7px stop being legible.
+- §3a's pseudo-version-vector table is the single-version case of the diff
+  layout, transposed; the legend-annotated `Debug` above replaces it.
+- §3g's lag time series measured area, which depends on depth; see the
+  diff's summary measures above.
+- Prior art in round one comes from memory and has not been checked on the
+  web.
