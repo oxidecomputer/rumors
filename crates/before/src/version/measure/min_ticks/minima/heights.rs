@@ -45,11 +45,12 @@
 //!
 //! Every coefficient counts leaves and subtree closes, and a binary tree has
 //! one more leaf than internal nodes, so the coefficients sum to one when the
-//! fold ends. The first leaf's height `h_0` lies under every reference, so it
-//! contributes exactly `h_0` to the answer. The fold adds it once at the
-//! start, and the references measure only the height above it.
+//! fold ends. The first leaf's height `h_0` is a term of every leaf height and
+//! every minimum, so it contributes exactly `h_0` to the answer. The fold adds
+//! it once at the start, and the references measure only the signed height
+//! relative to it.
 //!
-//! # Why the cost stays linear
+//! # Why merges cost linear time
 //!
 //! A merge adds the narrower chunk into the wider one's storage and moves the
 //! coefficient through whichever chunk is narrower, so it reads only the
@@ -94,6 +95,12 @@ pub const RECORD_SLACK_BITS: u64 = 4;
 /// a fixed-size structure, plus digits that take twice its working width. The
 /// bound confines that form to chunks this wide, whose height changes the
 /// input paid for in a stretch no other live reference shares.
+///
+/// The bound compares working width, while the integer stack's
+/// [`PACKED_BITS`](super::integers::PACKED_BITS) compares the value's width.
+/// A copied chunk's value is below `2^(INLINE_CHUNK_BITS + 2)`, so it can be
+/// up to two bits wider than that bound and take its own allocation in the
+/// stack; a copy still costs at most a constant.
 pub const INLINE_CHUNK_BITS: u64 = 256;
 
 /// Bits a live change's working width may exceed the leaf's height change by

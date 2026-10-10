@@ -31,15 +31,37 @@
 //! closes merely increment the top record's count; one multiplication settles
 //! a whole record.
 //!
-//! # Why the cost remains bounded
+//! # Why the cost stays linear
 //!
-//! Each stored height change is folded into one live accumulator. A record
-//! is written once and read once, when it is settled, and no suspension or
-//! resumption moves it. A subtree close increments a count or moves one
-//! minimum boundary. A new low value permanently consumes each boundary it
-//! crosses. Reference merges read only the narrower operand. No later
-//! shallow subtree or narrow height change repeatedly traverses an older wide
-//! value.
+//! Every unit of work below is charged to input the event consumes or to a
+//! value it destroys, so no surviving wide value is read again for free. Each
+//! line names the item whose documentation carries the local argument.
+//!
+//! - **A height change** is folded once into the live change `L` and once
+//!   into the range tracker's running height, each reading only the change.
+//! - **A leaf** reads `L` only when `L`'s working width is within
+//!   [`UNREAD_FREEZE_BITS`](heights::UNREAD_FREEZE_BITS) of the leaf's
+//!   change, and keeps the value only when it is within
+//!   [`RECORD_SLACK_BITS`](heights::RECORD_SLACK_BITS); otherwise it freezes.
+//!   The read and the addition of the offset into the answer therefore cost
+//!   the leaf's own change plus a constant, apart from cancellation the read
+//!   compacts once ([`HeightReferences::add_leaf`]).
+//! - **A record** is written once when its minimum begins and read once when
+//!   it ends; no suspension or resumption moves it ([`Records`]). It holds an
+//!   offset no wider than its leaf's change plus the slack, at a cost
+//!   proportional to that width ([`IntegerStack`](integers::IntegerStack)).
+//! - **A subtree close** increments the top record's count, or ends a minimum
+//!   and settles its record by one product with a word-sized count.
+//! - **The range tracker** moves boundaries and consumes each crossed one
+//!   once ([`RangeMinima`]).
+//! - **A freeze** moves `L` into a new reference without reading it again.
+//!   Burying the previous top copies a chunk of at most
+//!   [`INLINE_CHUNK_BITS`](heights::INLINE_CHUNK_BITS) or moves a wider one
+//!   whole, a constant either way.
+//! - **A merge** reads only the narrower of two chunks and destroys it, so
+//!   the total stored width of live chunks pays for every merge
+//!   ([`HeightReferences`]).
+//! - **The final settlement** reads the last reference's chunk once.
 
 use suanpan::Accumulator;
 

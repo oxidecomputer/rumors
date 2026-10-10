@@ -19,8 +19,10 @@ pub(super) mod tests;
 
 /// The widest magnitude, in bits, packed into the shared bit stack.
 ///
-/// A wider magnitude is a value whose input already paid for over 256 bits
-/// of height change, enough to cover its own allocation's fixed cost.
+/// A wider magnitude pays a separate allocation's fixed cost, so a client
+/// should push one only when it has input to charge that cost to. `min_ticks`
+/// does: a record offset this wide comes from a leaf whose own height change
+/// is at least `PACKED_BITS − RECORD_SLACK_BITS` bits.
 pub const PACKED_BITS: u64 = 256;
 
 /// Limbs of a packed magnitude at most.
