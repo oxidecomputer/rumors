@@ -214,3 +214,19 @@ linear work on `arming-train` is within it, recorded as an observation.
 Wanted later: a board family that removing `parked` would fail, the module
 doc stating what `parked` buys, and any clarity rework that keeps the
 integrator's efficiency.
+
+## Owner's ruling (#122 scaled readout, 2026-10-10)
+
+The scaled readout reports its scale in bits and promises nothing about its
+granularity, superseding the earlier ruling that it count whole 64-bit
+limbs. Aligning the scale to limbs added a low zero digit whenever a width
+started at an odd digit, which raised 81 board rows in the rank
+integrator's width path (`freeze-parade` heap by about 40%). `suanpan`
+packs limbs from the lowest written digit; `before`'s `SparseWidth` places
+limbs at any bit offset. `abs_diff` is accepted as built: it subtracts in
+place, reads the sign, and negates, at O(narrower width) for nonnegative
+operands and up to the result's own width when the wider operand is
+negative.
+
+Documentation names committed constants instead of quoting their values,
+so it cannot drift from them (owner, 2026-10-10).
