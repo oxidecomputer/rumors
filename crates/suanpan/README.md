@@ -96,12 +96,10 @@ is paid for twice. Additional space excludes inputs and returned output.
 | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 | Working-width and known-zero queries | O(1) | O(1) |
 | Unary `-` and `reset` | O(`W`) | O(1) |
-| `normalize` | Amortized O(log(`W` + 1) + `Q`) | O(1); capacity retained |
 
 Growing an allocation may briefly keep the old and new buffers alive. A
-read or `normalize` can extend the working width
-by at most one 32-bit position, and grows the buffer by exactly that
-position when it must. An accumulator may retain more allocation than its
+read can extend the working width by at most one 32-bit position, and
+grows the buffer by exactly that position when it must. An accumulator may retain more allocation than its
 working width after cancellation or `reset`;
 `reserve_bits` avoids repeated growth.
 

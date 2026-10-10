@@ -83,13 +83,6 @@ impl Value {
         self.digits.cmp_zero()
     }
 
-    /// Normalize the stored digits in place.
-    pub(crate) fn normalize(&mut self) {
-        if self.small.is_none() {
-            self.digits.normalize();
-        }
-    }
-
     /// Return the sign if no adjustment below `2^bits` can change it.
     pub(crate) fn cmp_zero_stable_under(&mut self, bits: u64) -> Option<Ordering> {
         // Whole digits are the unit used by both representations. At least one

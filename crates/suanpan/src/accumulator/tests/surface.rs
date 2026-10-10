@@ -5,7 +5,7 @@
 //! public query and primitive conversion, reading clones so that observing
 //! never changes the tested history. Instructions cover the standard
 //! arithmetic traits, shifted limb and accumulator inputs, sums, reservation,
-//! reset, normalization, in-place reads, and both owned and borrowed operands.
+//! reset, in-place reads, and both owned and borrowed operands.
 //!
 //! The generators put explicit weight on the representation's boundaries:
 //! 30-bit small-path shifts, 32-bit digits, 64-bit limbs, the `2^96` small
@@ -438,8 +438,6 @@ enum Operation {
     Negate,
     /// Reset to zero while retaining reusable storage.
     Reset,
-    /// Normalize the working form without changing the value.
-    Normalize,
     /// Reserve storage for a working width in bits, which may be
     /// unsatisfiable, without changing the value.
     Reserve(u64),
@@ -452,6 +450,9 @@ enum Operation {
     },
     /// Read the magnitude in place, keeping the normalized form for later
     /// steps.
+    ///
+    /// The read must leave the value's own working width, at most one digit
+    /// wider than before.
     Read {
         /// Whether to use the scaled readout.
         scaled: bool,
@@ -566,23 +567,6 @@ impl Operation {
                 actual.reset();
                 *oracle = BigInt::ZERO;
             }
-            Operation::Normalize => {
-                let previous_digits = actual.stored_digit_count();
-                actual.normalize();
-                let expected_digits = usize::try_from(oracle.magnitude().bits())
-                    .expect("generated values have addressable widths")
-                    .div_ceil(32)
-                    .max(1);
-                assert_eq!(
-                    actual.stored_digit_count(),
-                    expected_digits,
-                    "normalization leaves the exact magnitude width"
-                );
-                assert!(
-                    actual.stored_digit_count() <= previous_digits.saturating_add(1),
-                    "normalization grows by at most one digit"
-                );
-            }
             Operation::Reserve(bits) => actual.reserve_bits(*bits),
             Operation::Sum { borrowed, operands } => {
                 let (values, oracles): (Vec<_>, Vec<_>) =
@@ -600,7 +584,21 @@ impl Operation {
                 }
             }
             Operation::Read { scaled } => {
+                let previous_digits = actual.stored_digit_count();
                 assert_eq!(&read_value(actual, *scaled), oracle, "in-place read");
+                let own_digits = usize::try_from(oracle.magnitude().bits())
+                    .expect("generated values have addressable widths")
+                    .div_ceil(32)
+                    .max(1);
+                assert_eq!(
+                    actual.stored_digit_count(),
+                    own_digits,
+                    "a read leaves the value's own working width"
+                );
+                assert!(
+                    actual.stored_digit_count() <= previous_digits.saturating_add(1),
+                    "a read grows the working width by at most one digit"
+                );
             }
         }
     }
@@ -615,10 +613,9 @@ impl Operation {
             Operation::Shift { .. } => 4,
             Operation::Negate => 5,
             Operation::Reset => 6,
-            Operation::Normalize => 7,
-            Operation::Reserve(_) => 8,
-            Operation::Sum { .. } => 9,
-            Operation::Read { .. } => 10,
+            Operation::Reserve(_) => 7,
+            Operation::Sum { .. } => 8,
+            Operation::Read { .. } => 9,
         }
     }
 }
@@ -944,7 +941,6 @@ fn arb_operation() -> BoxedStrategy<Operation> {
         }),
         1 => Just(Operation::Negate),
         1 => Just(Operation::Reset),
-        1 => Just(Operation::Normalize),
         1 => prop_oneof![
             0u64..=4_096,
             // At least 2^60 bits needs at least 2^58 bytes of storage, more
@@ -955,7 +951,7 @@ fn arb_operation() -> BoxedStrategy<Operation> {
         2 => (any::<bool>(), proptest::collection::vec(arb_operand(), 0..=6)).prop_map(
             |(borrowed, operands)| Operation::Sum { borrowed, operands }
         ),
-        1 => any::<bool>().prop_map(|scaled| Operation::Read { scaled }),
+        2 => any::<bool>().prop_map(|scaled| Operation::Read { scaled }),
     ]
     .boxed()
 }

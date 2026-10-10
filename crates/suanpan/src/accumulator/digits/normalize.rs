@@ -1,11 +1,10 @@
 //! Remove cancellation from the stored signed digits in one pass.
 //!
 //! Ordinary updates deliberately leave positive and negative digits mixed: that
-//! is what makes a small update cheap. Some callers eventually need the stored
-//! width to follow the value's actual magnitude, and every magnitude read needs
-//! the magnitude's unsigned digits. One pass serves both: it carries from low
-//! to high inside the existing buffer, and a read collects the digits it
-//! writes.
+//! is what makes a small update cheap. A magnitude read needs the magnitude's
+//! unsigned digits, and writing them back lets the next read pay only for the
+//! result's width. One pass does both: it carries from low to high inside the
+//! existing buffer, and the read collects the digits it writes.
 //!
 //! Once the value's sign is known, multiplying every digit by that sign yields
 //! the positive magnitude. Euclidean division by the digit base leaves an
@@ -39,14 +38,6 @@ use crate::accumulator::touch;
 
 /// Rewrite a wide value into same-signed base-2^32 digits without allocating.
 impl Digits {
-    /// Remove cancellation while retaining the allocated digit buffer.
-    pub fn normalize(&mut self) {
-        let sign = self.cmp_zero();
-        if sign != Ordering::Equal {
-            self.normalize_nonzero_from(sign, 0, |_| {});
-        }
-    }
-
     /// Rewrite the digits from `start` upward as same-signed digits below the
     /// base, passing each magnitude digit to `emit` from low to high.
     ///

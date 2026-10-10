@@ -338,29 +338,6 @@ impl Accumulator {
         self.sign() == Ordering::Less
     }
 
-    /// Reduce the working width after cancellation.
-    ///
-    /// Cancellation can leave the working width much larger than the result's
-    /// bit length. This method makes the two agree, and retains allocated
-    /// capacity for later updates.
-    ///
-    /// # Complexity
-    ///
-    /// Let `W` be the greatest working width reached and `Q` the width
-    /// afterward. Cancellation can make `Q` arbitrarily smaller than the
-    /// working width before normalization, but the bounded stored digits
-    /// guarantee that `Q` exceeds it by at most 32.
-    ///
-    /// The operation takes amortized O(log(`W` + 1) + `Q`) time and O(1)
-    /// arithmetic scratch. It rewrites the existing allocation instead of
-    /// constructing a normalized copy, and deliberately retains that capacity
-    /// for later updates even when `Q` is much smaller. If the one possible
-    /// new digit exceeds the existing capacity, reallocation may temporarily
-    /// retain both buffers.
-    pub fn normalize(&mut self) {
-        self.value.get_mut().normalize();
-    }
-
     /// Try to compare with zero without first applying a smaller operand.
     ///
     /// `bits` describes the operand that might be added or subtracted next.

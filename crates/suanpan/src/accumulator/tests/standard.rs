@@ -25,7 +25,7 @@ enum Form {
     /// The power and the offset written separately, so their digits stay
     /// redundant.
     Split,
-    /// The plain form, normalized first.
+    /// The plain form, normalized in place by a magnitude read.
     Normalized,
 }
 
@@ -54,7 +54,7 @@ fn build(power: &BigUint, offset: i64, negative: bool, form: Form) -> (Accumulat
         _ => acc.add_limb_value(&magnitude),
     }
     if let Form::Normalized = form {
-        acc.normalize();
+        let _ = acc.signed_magnitude();
     }
     (acc, oracle)
 }
