@@ -229,21 +229,27 @@ const STOPPING_TOUCH_FLOOR: u64 = 3 * 2 * BOUNDARY_SMALL_K as u64;
 
 /// Absolute touch ceiling on the stopping shape's larger run: the measured
 /// record ×1.25, rounded up (the record lives in the pin commit).
-const STOPPING_TOUCH_CEILING: u64 = 34_170;
+const STOPPING_TOUCH_CEILING: u64 = 30_413;
 
 /// Band on the stop-minus-control touch difference at the larger run:
 /// the measured record ×0.75 down and ×1.25 up (the record lives in
 /// the pin commit).
 ///
-/// The two runs share every consume, arm, and residue; they part only
-/// at the stack: the stop's residues each pass the zero run, take one
-/// domination read on the surviving boundary, and die by their own
-/// three-digit terminal fold into it, while the control's residues
-/// retire unfolded at its empty stack. The difference is therefore the
-/// boundary-dominates hop itself (plus the one stacked-boundary arming
-/// and its drain park, O(1) in `k`): a per-hop read of the surviving
-/// boundary's width lands whole here, undiluted by the shared work.
-const STOPPING_DIFF_BAND: (u64, u64) = (8_973, 14_955);
+/// The two runs share every consume, arm, and residue; they part at the
+/// stack and in the leaf heights `min_ticks` reads. At the stack, the
+/// stop's residues each pass the zero run, take one domination read on
+/// the surviving boundary, and die by their own three-digit terminal fold
+/// into it, while the control's residues retire unfolded at its empty
+/// stack: the boundary-dominates hop itself, plus the one stacked-boundary
+/// arming and its drain park, O(1) in `k`. In the heights, the stop's
+/// residue steps leave its running height far wider than each step, so
+/// its leaf offsets stay narrow only because `min_ticks` freezes and
+/// merges references; the control's offsets are narrow without them. The
+/// difference therefore also holds the stop's leaf-offset reads, freezes,
+/// and merges. A per-hop read of the surviving boundary's width, or a leaf
+/// offset read at the running height's width, lands whole here, undiluted
+/// by the shared work.
+const STOPPING_DIFF_BAND: (u64, u64) = (4_776, 7_962);
 
 /// The stopping arm uses O(1) work per hop beside the retiring fold:
 /// per-byte touches stay flat (×1.25) across a site doubling, under an
@@ -312,8 +318,8 @@ fn skyline_min_ticks_stopping_boundary_is_flat_per_unit() {
     assert!(
         diff <= STOPPING_DIFF_BAND.1,
         "seam_stop: the stop-minus-control difference {diff} exceeds its band \
-         ceiling {} — a per-hop read of the surviving boundary's width is back \
-         in the stopping arm",
+         ceiling {}: the stopping arm reads the surviving boundary's width per \
+         hop, or min_ticks reads the stop's leaf offsets wider than their steps",
         STOPPING_DIFF_BAND.1,
     );
 }
