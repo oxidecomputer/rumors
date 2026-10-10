@@ -17,17 +17,10 @@ use suanpan::Accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::{Count, Version};
 
-use super::HEIGHT_FREEZE_ALLOWANCE_BITS;
-
 mod minima;
 
 #[cfg(test)]
-thread_local! {
-    /// Freezes the stored-width trigger below fires on this test thread; the
-    /// record trigger in [`minima`] counts its own.
-    /// Tests use this to establish which inputs reach the freeze path.
-    pub static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
+pub use minima::FREEZE_HITS;
 
 impl Count {
     /// Compute the shortest tick history consistent with `version`.
@@ -72,20 +65,6 @@ impl Count {
                 subtree_minima.close_subtree(&mut answer, &mut height_references);
             }
             subtree_minima.open_subtrees(leaves.depth() - turn_depth);
-
-            // Freeze a much wider accumulated change before the narrow delta
-            // that exposed the imbalance can cause later work to revisit it.
-            // The allowance absorbs small width fluctuations without changing
-            // the asymptotic rule. This bounds the stored width that reading
-            // the change costs; the record trigger in `add_leaf` then bounds
-            // the value's width relative to the delta, far more tightly.
-            if recent_height_change.stored_bits()
-                > height_change.magnitude().bits() + HEIGHT_FREEZE_ALLOWANCE_BITS
-            {
-                #[cfg(test)]
-                FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
-                height_references.freeze(&mut recent_height_change, &mut answer);
-            }
 
             let leaf =
                 height_references.add_leaf(&mut recent_height_change, &height_change, &mut answer);

@@ -53,6 +53,8 @@ mod records;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub use heights::FREEZE_HITS;
 pub use heights::{HeightReferences, LeafHeight};
 use records::Records;
 

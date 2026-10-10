@@ -3,7 +3,10 @@
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use super::heights::{MAX_BURIED, MERGES_TO_NEWER, MERGES_TO_OLDER, RECORD_FREEZES, WIDE_CHUNKS};
+use super::heights::{
+    MAX_BURIED, MAX_READ_EXCESS, MERGES_TO_NEWER, MERGES_TO_OLDER, RECORD_FREEZES, UNREAD_FREEZES,
+    UNREAD_FREEZE_BITS, WIDE_CHUNKS,
+};
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::oracles::tree::Version as Tree;
 
@@ -112,4 +115,33 @@ fn wide_step_pairs_bury_whole_chunks_at_every_second_level() {
             "WP({step_bits}, {d}) buried {buried} whole chunks, fewer than one per pair past the first"
         );
     }
+}
+
+/// No read of the live change pays for working width more than
+/// [`UNREAD_FREEZE_BITS`] beyond its leaf's change, on a spine where that
+/// condition holds at every second level.
+///
+/// On the wide-step pair spine at a `2^320` step, each one-tick level follows
+/// a 321-bit step, so the live change is far wider than the one-tick change
+/// and freezes. Freezing it unread saves reading the drift that the freeze
+/// moves whole; a fold that read it first would pass the excess bound here.
+#[test]
+fn a_live_change_far_wider_than_its_delta_freezes_unread() {
+    use crate::testing::meter::registry::Shape;
+
+    let d = 128;
+    let version = Shape::WideStepPairs.build2(320, d).version();
+    let unread_before = UNREAD_FREEZES.with(|c| c.get());
+    MAX_READ_EXCESS.with(|c| c.set(0));
+    let _ = version.min_ticks();
+    let unread = UNREAD_FREEZES.with(|c| c.get()) - unread_before;
+    assert!(
+        unread as usize + 1 >= d / 2,
+        "WP(320, {d}) froze {unread} live changes unread, fewer than one per pair past the first"
+    );
+    assert!(
+        MAX_READ_EXCESS.with(|c| c.get()) <= UNREAD_FREEZE_BITS,
+        "a read paid for {} bits of working width beyond its change",
+        MAX_READ_EXCESS.with(|c| c.get())
+    );
 }

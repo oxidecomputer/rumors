@@ -15,7 +15,9 @@
 //! - The *record trigger* in [`HeightReferences::add_leaf`] freezes whenever
 //!   `L` is wider than the change that reached the leaf by more than
 //!   [`RECORD_SLACK_BITS`]. Every stored offset is therefore at most that
-//!   many bits wider than its own leaf's encoded change.
+//!   many bits wider than its own leaf's encoded change. When `L`'s working
+//!   width alone exceeds the change by more than [`UNREAD_FREEZE_BITS`], its
+//!   value is certainly too wide, and it freezes without being read.
 //! - The top reference, which receives every new leaf, stays even while no
 //!   record refers to it; a reference below the top is retained only while a
 //!   live minimum record refers to it. Records form a stack in leaf order,
@@ -93,8 +95,27 @@ pub const RECORD_SLACK_BITS: u64 = 4;
 /// input paid for in a stretch no other live reference shares.
 pub const INLINE_CHUNK_BITS: u64 = 256;
 
+/// Bits a live change's working width may exceed the leaf's height change by
+/// before the change freezes without being read.
+///
+/// A read leaves the live change's working width within one 32-bit digit of
+/// its value's width, and the fold reads it at every leaf it does not freeze.
+/// Adding a change of `k` bits widens it by at most one digit past the wider
+/// operand. A working width more than this many bits above `k` therefore
+/// means a value more than `k + 192` bits wide, which the record trigger
+/// would freeze anyway; freezing first skips reading a value the freeze
+/// moves whole.
+pub const UNREAD_FREEZE_BITS: u64 = 256;
+
 #[cfg(test)]
 thread_local! {
+    /// Freezes of either kind on this test thread.
+    pub static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// Freezes that skipped reading the live change on this test thread.
+    pub static UNREAD_FREEZES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// The most working width, beyond its leaf's change, that any read of
+    /// the live change paid for on this test thread.
+    pub static MAX_READ_EXCESS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// Record-trigger freezes on this test thread.
     pub static RECORD_FREEZES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// Reference removals that moved the coefficient to the newer neighbour.
@@ -178,6 +199,9 @@ impl HeightReferences {
     /// Add one leaf's offset to `total` and return it, freezing first if the
     /// offset would exceed the record allowance.
     ///
+    /// A live change whose working width exceeds `change`'s bits by more than
+    /// [`UNREAD_FREEZE_BITS`] freezes without being read.
+    ///
     /// `change` is the height change that reached this leaf; the first leaf
     /// passes zero.
     pub fn add_leaf(
@@ -186,13 +210,30 @@ impl HeightReferences {
         change: &BigInt,
         total: &mut Accumulator,
     ) -> LeafHeight {
-        let mut offset = BigInt::from(&*live);
-        if offset.bits() > change.bits() + RECORD_SLACK_BITS {
+        let change_bits = change.bits();
+        let offset = if live.stored_bits() > change_bits + UNREAD_FREEZE_BITS {
             #[cfg(test)]
-            bump(&RECORD_FREEZES);
+            bump(&UNREAD_FREEZES);
             self.freeze(live, total);
-            offset = BigInt::ZERO;
-        }
+            BigInt::ZERO
+        } else {
+            #[cfg(test)]
+            MAX_READ_EXCESS.with(|most| {
+                most.set(
+                    most.get()
+                        .max(live.stored_bits().saturating_sub(change_bits)),
+                )
+            });
+            let offset = BigInt::from(&*live);
+            if offset.bits() > change_bits + RECORD_SLACK_BITS {
+                #[cfg(test)]
+                bump(&RECORD_FREEZES);
+                self.freeze(live, total);
+                BigInt::ZERO
+            } else {
+                offset
+            }
+        };
         *total += &offset;
         self.top.coefficient += 1;
         LeafHeight { offset }
@@ -203,7 +244,9 @@ impl HeightReferences {
     /// A referenced top is buried beneath the new one. An unreferenced top
     /// instead absorbs the change, so every reference below the top stays
     /// referenced.
-    pub fn freeze(&mut self, live: &mut Accumulator, total: &mut Accumulator) {
+    fn freeze(&mut self, live: &mut Accumulator, total: &mut Accumulator) {
+        #[cfg(test)]
+        bump(&FREEZE_HITS);
         let drift = core::mem::take(live);
         let previous = core::mem::replace(
             &mut self.top,
