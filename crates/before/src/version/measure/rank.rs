@@ -2,6 +2,8 @@
 
 use core::cmp::Ordering;
 
+use num_bigint::BigUint;
+
 use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::version::overlay::Side;
@@ -30,8 +32,8 @@ impl Rank {
             integral.boundary(accumulator::digit_len(step.magnitude()));
         }
 
-        let (sign, numerator) = integral.finish(max_depth);
-        debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
+        let numerator = BigUint::try_from(&integral.finish(max_depth))
+            .expect("a rank integrates nonnegative heights, so its numerator is nonnegative");
         Rank::from_raw(numerator, max_depth)
     }
 }

@@ -100,7 +100,7 @@
 
 use core::cmp::Ordering;
 
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::{BigInt, BigUint};
 use suanpan::Accumulator;
 
 use deferred::DeferredIntegral;
@@ -308,12 +308,12 @@ impl Integrator {
         }
     }
 
-    /// Finish the exact numerator at scale `2^closing_shift`.
+    /// Return the exact signed numerator at scale `2^closing_shift`.
     ///
     /// Live changes have already contributed at every region. The parked
     /// height owes its final segment, deferred heights owe all widths after
     /// their deferrals, and the base height owes the whole domain.
-    pub fn finish(mut self, closing_shift: u64) -> (Ordering, BigUint) {
+    pub fn finish(mut self, closing_shift: u64) -> Accumulator {
         self.finish_segment();
         if !self.deferred.is_empty() {
             self.deferred
@@ -323,12 +323,6 @@ impl Integrator {
         if !self.base.is_known_zero() {
             self.total.add_shifted(closing_shift, &self.base);
         }
-        let (sign, magnitude) = BigInt::from(&self.total).into_parts();
-        let sign = match sign {
-            Sign::Minus => Ordering::Less,
-            Sign::NoSign => Ordering::Equal,
-            Sign::Plus => Ordering::Greater,
-        };
-        (sign, magnitude)
+        self.total
     }
 }

@@ -660,7 +660,6 @@ impl TickWalk<'_> {
             BigInt::from(&out_delta)
         } else {
             // `gap` is current input height minus previous output height.
-            self.gap.sign();
             BigInt::from(&self.gap)
         };
         // The new gap is h − value = 0 exactly.
@@ -688,7 +687,6 @@ impl TickWalk<'_> {
         if first {
             // The first output payload stores an absolute height.
             debug_assert!(!self.w_anchored, "the first emission finds no anchor");
-            self.height.sign();
             let value = BigInt::from(&self.height) + &offset;
             debug_assert!(
                 value.sign() != Sign::Minus,
@@ -706,7 +704,6 @@ impl TickWalk<'_> {
             } else {
                 // `gap + offset` is the new value minus previous output.
                 self.gap += &offset;
-                self.gap.sign();
                 BigInt::from(&self.gap)
             };
             self.output.change(depth, &delta);

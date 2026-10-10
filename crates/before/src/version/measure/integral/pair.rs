@@ -3,6 +3,7 @@
 use core::cmp::Ordering;
 
 use num_bigint::BigUint;
+use suanpan::Accumulator;
 
 use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
@@ -19,22 +20,19 @@ impl Integrator {
     /// result must be monotone over `Less`, `Equal`, `Greater` and lie in
     /// `-1..=1`; this ensures that crossing zero adds a nonnegative correction.
     pub fn pair_rank(a: &Version, b: &Version, orientation: impl Fn(Ordering) -> i8) -> Rank {
-        let (sign, total, scale) = Self::pair(a, b, orientation);
-        debug_assert_ne!(sign, Ordering::Less, "the measure is nonnegative");
+        let (total, scale) = Self::pair(a, b, orientation);
+        let total = BigUint::try_from(&total)
+            .expect("orientation keeps every integrated difference nonnegative");
         Rank::from_raw(total, scale)
     }
 
     /// Compare ranks by integrating the signed pointwise difference.
     pub fn pair_order(a: &Version, b: &Version) -> Ordering {
-        Self::pair(a, b, |_| 1).0
+        Self::pair(a, b, |_| 1).0.sign()
     }
 
     /// Integrate `orientation(sign(a - b)) * (a - b)` in one overlay walk.
-    fn pair(
-        a: &Version,
-        b: &Version,
-        orientation: impl Fn(Ordering) -> i8,
-    ) -> (Ordering, BigUint, u64) {
+    fn pair(a: &Version, b: &Version, orientation: impl Fn(Ordering) -> i8) -> (Accumulator, u64) {
         // Every overlap region lies inside a leaf of each operand. Scaling both
         // streams to the deeper maximum depth therefore gives every region an
         // integer power-of-two width and one common denominator.
@@ -97,7 +95,6 @@ impl Integrator {
             integral.boundary(funded_digits);
         }
 
-        let (sign, total) = integral.finish(scale);
-        (sign, total, scale)
+        (integral.finish(scale), scale)
     }
 }
