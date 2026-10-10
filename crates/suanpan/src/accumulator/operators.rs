@@ -129,6 +129,157 @@ macro_rules! primitive_operators {
 
 primitive_operators!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
+/// The remaining primitive forms, each forwarding to a form above.
+///
+/// A borrowed primitive is copied. A primitive on the left moves to the
+/// right: addition commutes, and `value - accumulator` is
+/// `-accumulator + value`.
+macro_rules! forwarded_primitive_operators {
+    ($($operand:ty),* $(,)?) => {$(
+        /// Add a borrowed primitive, at the cost of `+=`.
+        impl AddAssign<&$operand> for Accumulator {
+            #[inline]
+            fn add_assign(&mut self, rhs: &$operand) {
+                *self += *rhs;
+            }
+        }
+
+        /// Subtract a borrowed primitive, at the cost of `-=`.
+        impl SubAssign<&$operand> for Accumulator {
+            #[inline]
+            fn sub_assign(&mut self, rhs: &$operand) {
+                *self -= *rhs;
+            }
+        }
+
+        /// Add a borrowed primitive into the owned receiver, at the cost of
+        /// `+=`.
+        impl Add<&$operand> for Accumulator {
+            type Output = Accumulator;
+
+            fn add(self, rhs: &$operand) -> Accumulator {
+                self + *rhs
+            }
+        }
+
+        /// Subtract a borrowed primitive from the owned receiver, at the cost
+        /// of `-=`.
+        impl Sub<&$operand> for Accumulator {
+            type Output = Accumulator;
+
+            fn sub(self, rhs: &$operand) -> Accumulator {
+                self - *rhs
+            }
+        }
+
+        /// Add a borrowed primitive to a new accumulator holding the borrowed
+        /// value, as with the primitive by value.
+        impl Add<&$operand> for &Accumulator {
+            type Output = Accumulator;
+
+            fn add(self, rhs: &$operand) -> Accumulator {
+                self + *rhs
+            }
+        }
+
+        /// Subtract a borrowed primitive from a new accumulator holding the
+        /// borrowed value, as with the primitive by value.
+        impl Sub<&$operand> for &Accumulator {
+            type Output = Accumulator;
+
+            fn sub(self, rhs: &$operand) -> Accumulator {
+                self - *rhs
+            }
+        }
+
+        /// Add into the owned right operand's storage, at the cost of `+=`.
+        impl Add<Accumulator> for $operand {
+            type Output = Accumulator;
+
+            fn add(self, rhs: Accumulator) -> Accumulator {
+                rhs + self
+            }
+        }
+
+        /// Add to a new accumulator holding the borrowed value, as
+        /// `&accumulator + value`.
+        impl Add<&Accumulator> for $operand {
+            type Output = Accumulator;
+
+            fn add(self, rhs: &Accumulator) -> Accumulator {
+                rhs + self
+            }
+        }
+
+        /// Add into the owned right operand's storage, at the cost of `+=`.
+        impl Add<Accumulator> for &$operand {
+            type Output = Accumulator;
+
+            fn add(self, rhs: Accumulator) -> Accumulator {
+                rhs + *self
+            }
+        }
+
+        /// Add to a new accumulator holding the borrowed value, as
+        /// `&accumulator + value`.
+        impl Add<&Accumulator> for &$operand {
+            type Output = Accumulator;
+
+            fn add(self, rhs: &Accumulator) -> Accumulator {
+                rhs + *self
+            }
+        }
+
+        /// Subtract the owned right operand, as `-rhs + self`, reusing its
+        /// storage: the cost of `+=` plus O(`W`) for the negation.
+        impl Sub<Accumulator> for $operand {
+            type Output = Accumulator;
+
+            fn sub(self, rhs: Accumulator) -> Accumulator {
+                -rhs + self
+            }
+        }
+
+        /// Subtract a borrowed accumulator into a new one, as `-rhs + self`:
+        /// the cost of `-` on a borrow plus `+=`.
+        impl Sub<&Accumulator> for $operand {
+            type Output = Accumulator;
+
+            fn sub(self, rhs: &Accumulator) -> Accumulator {
+                -rhs + self
+            }
+        }
+
+        /// Subtract the owned right operand, as with the primitive by value.
+        impl Sub<Accumulator> for &$operand {
+            type Output = Accumulator;
+
+            fn sub(self, rhs: Accumulator) -> Accumulator {
+                *self - rhs
+            }
+        }
+
+        /// Subtract a borrowed accumulator into a new one, as with the
+        /// primitive by value.
+        impl Sub<&Accumulator> for &$operand {
+            type Output = Accumulator;
+
+            fn sub(self, rhs: &Accumulator) -> Accumulator {
+                *self - rhs
+            }
+        }
+
+        /// Sum borrowed primitives, as summing their values does.
+        impl<'a> Sum<&'a $operand> for Accumulator {
+            fn sum<I: Iterator<Item = &'a $operand>>(iter: I) -> Accumulator {
+                iter.copied().sum()
+            }
+        }
+    )*};
+}
+
+forwarded_primitive_operators!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+
 /// Copy a borrowed accumulator's value into a new one by adding it to zero.
 ///
 /// The read compacts the source's cancelled top, so the copy carries none of
@@ -393,6 +544,45 @@ macro_rules! shifts {
                     shifted.add_shifted(shift, self);
                 }
                 shifted
+            }
+        }
+
+        /// Multiply by `2^shift` for a borrowed count, as `<<=` does.
+        ///
+        /// # Panics
+        ///
+        /// As for `<<=`.
+        impl ShlAssign<&$integer> for Accumulator {
+            fn shl_assign(&mut self, shift: &$integer) {
+                *self <<= *shift;
+            }
+        }
+
+        /// Multiply an owned accumulator by `2^shift` for a borrowed count, as
+        /// `<<=` does.
+        ///
+        /// # Panics
+        ///
+        /// As for `<<=`.
+        impl Shl<&$integer> for Accumulator {
+            type Output = Accumulator;
+
+            fn shl(self, shift: &$integer) -> Accumulator {
+                self << *shift
+            }
+        }
+
+        /// Multiply a borrowed accumulator by `2^shift` for a borrowed count
+        /// into a new one, as with the count by value.
+        ///
+        /// # Panics
+        ///
+        /// As for `<<=`.
+        impl Shl<&$integer> for &Accumulator {
+            type Output = Accumulator;
+
+            fn shl(self, shift: &$integer) -> Accumulator {
+                self << *shift
             }
         }
     )*};

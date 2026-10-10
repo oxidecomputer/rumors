@@ -68,25 +68,87 @@ enum PrimitiveArithmetic {
     BorrowedAdd,
     /// `&accumulator - value`.
     BorrowedSubtract,
+    /// `accumulator += &value`.
+    AddAssignRef,
+    /// `accumulator -= &value`.
+    SubAssignRef,
+    /// `accumulator + &value`.
+    AddRef,
+    /// `accumulator - &value`.
+    SubtractRef,
+    /// `&accumulator + &value`.
+    BorrowedAddRef,
+    /// `&accumulator - &value`.
+    BorrowedSubtractRef,
+    /// `value + accumulator`.
+    LeftAdd,
+    /// `value - accumulator`.
+    LeftSubtract,
+    /// `value + &accumulator`.
+    LeftAddBorrowed,
+    /// `value - &accumulator`.
+    LeftSubtractBorrowed,
+    /// `&value + accumulator`.
+    RefLeftAdd,
+    /// `&value - accumulator`.
+    RefLeftSubtract,
+    /// `&value + &accumulator`.
+    RefLeftAddBorrowed,
+    /// `&value - &accumulator`.
+    RefLeftSubtractBorrowed,
+}
+
+/// How a form combines the accumulator `a` with the primitive `p`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Combination {
+    /// `a + p`.
+    Sum,
+    /// `a - p`.
+    Difference,
+    /// `p - a`.
+    ReversedDifference,
 }
 
 impl PrimitiveArithmetic {
     /// Every form, for generation.
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 20] = [
         Self::AddAssign,
         Self::SubAssign,
         Self::Add,
         Self::Subtract,
         Self::BorrowedAdd,
         Self::BorrowedSubtract,
+        Self::AddAssignRef,
+        Self::SubAssignRef,
+        Self::AddRef,
+        Self::SubtractRef,
+        Self::BorrowedAddRef,
+        Self::BorrowedSubtractRef,
+        Self::LeftAdd,
+        Self::LeftSubtract,
+        Self::LeftAddBorrowed,
+        Self::LeftSubtractBorrowed,
+        Self::RefLeftAdd,
+        Self::RefLeftSubtract,
+        Self::RefLeftAddBorrowed,
+        Self::RefLeftSubtractBorrowed,
     ];
 
-    /// Whether the form subtracts the primitive from the accumulator.
-    fn subtracts(self) -> bool {
-        matches!(
-            self,
-            Self::SubAssign | Self::Subtract | Self::BorrowedSubtract
-        )
+    /// The value the form computes.
+    fn combination(self) -> Combination {
+        match self {
+            Self::SubAssign
+            | Self::Subtract
+            | Self::BorrowedSubtract
+            | Self::SubAssignRef
+            | Self::SubtractRef
+            | Self::BorrowedSubtractRef => Combination::Difference,
+            Self::LeftSubtract
+            | Self::LeftSubtractBorrowed
+            | Self::RefLeftSubtract
+            | Self::RefLeftSubtractBorrowed => Combination::ReversedDifference,
+            _ => Combination::Sum,
+        }
     }
 }
 
@@ -124,12 +186,50 @@ impl Primitive {
                     PrimitiveArithmetic::BorrowedSubtract => {
                         replace_borrowed(actual, oracle, |left| left - value);
                     }
+                    PrimitiveArithmetic::AddAssignRef => *actual += &value,
+                    PrimitiveArithmetic::SubAssignRef => *actual -= &value,
+                    PrimitiveArithmetic::AddRef => {
+                        *actual = core::mem::take(actual) + &value;
+                    }
+                    PrimitiveArithmetic::SubtractRef => {
+                        *actual = core::mem::take(actual) - &value;
+                    }
+                    PrimitiveArithmetic::BorrowedAddRef => {
+                        replace_borrowed(actual, oracle, |left| left + &value);
+                    }
+                    PrimitiveArithmetic::BorrowedSubtractRef => {
+                        replace_borrowed(actual, oracle, |left| left - &value);
+                    }
+                    PrimitiveArithmetic::LeftAdd => {
+                        *actual = value + core::mem::take(actual);
+                    }
+                    PrimitiveArithmetic::LeftSubtract => {
+                        *actual = value - core::mem::take(actual);
+                    }
+                    PrimitiveArithmetic::LeftAddBorrowed => {
+                        replace_borrowed(actual, oracle, |right| value + right);
+                    }
+                    PrimitiveArithmetic::LeftSubtractBorrowed => {
+                        replace_borrowed(actual, oracle, |right| value - right);
+                    }
+                    PrimitiveArithmetic::RefLeftAdd => {
+                        *actual = &value + core::mem::take(actual);
+                    }
+                    PrimitiveArithmetic::RefLeftSubtract => {
+                        *actual = &value - core::mem::take(actual);
+                    }
+                    PrimitiveArithmetic::RefLeftAddBorrowed => {
+                        replace_borrowed(actual, oracle, |right| &value + right);
+                    }
+                    PrimitiveArithmetic::RefLeftSubtractBorrowed => {
+                        replace_borrowed(actual, oracle, |right| &value - right);
+                    }
                 }
                 let value = BigInt::from(value);
-                if operation.subtracts() {
-                    *oracle -= value;
-                } else {
-                    *oracle += value;
+                match operation.combination() {
+                    Combination::Sum => *oracle += value,
+                    Combination::Difference => *oracle -= value,
+                    Combination::ReversedDifference => *oracle = value - &*oracle,
                 }
             }};
         }
@@ -210,7 +310,8 @@ impl Primitive {
         }
     }
 
-    /// Check `From` and the type-specific `Sum` implementation.
+    /// Check `From` and the type-specific `Sum` implementations, over values
+    /// and over borrows.
     fn check_construction_and_sum(&self) {
         macro_rules! check {
             ($value:expr) => {{
@@ -218,6 +319,8 @@ impl Primitive {
                 let oracle = BigInt::from(value);
                 assert_value(&Accumulator::from(value), &oracle);
                 let sum: Accumulator = [value, value].into_iter().sum();
+                assert_value(&sum, &(&oracle * 2));
+                let sum: Accumulator = [value, value].iter().sum();
                 assert_value(&sum, &(oracle * 2));
             }};
         }
@@ -277,11 +380,24 @@ enum ShiftForm {
     Owned,
     /// `&accumulator << count`.
     Borrowed,
+    /// `accumulator <<= &count`.
+    AssignRef,
+    /// `accumulator << &count`.
+    OwnedRef,
+    /// `&accumulator << &count`.
+    BorrowedRef,
 }
 
 impl ShiftForm {
     /// Every form, for generation.
-    const ALL: [Self; 3] = [Self::Assign, Self::Owned, Self::Borrowed];
+    const ALL: [Self; 6] = [
+        Self::Assign,
+        Self::Owned,
+        Self::Borrowed,
+        Self::AssignRef,
+        Self::OwnedRef,
+        Self::BorrowedRef,
+    ];
 }
 
 /// Exercise every shift operator form.
@@ -295,6 +411,11 @@ impl Shift {
                     ShiftForm::Assign => *actual <<= count,
                     ShiftForm::Owned => *actual = core::mem::take(actual) << count,
                     ShiftForm::Borrowed => replace_borrowed(actual, oracle, |left| left << count),
+                    ShiftForm::AssignRef => *actual <<= &count,
+                    ShiftForm::OwnedRef => *actual = core::mem::take(actual) << &count,
+                    ShiftForm::BorrowedRef => {
+                        replace_borrowed(actual, oracle, |left| left << &count);
+                    }
                 }
                 *oracle <<= usize::try_from(count).expect("generated shifts are nonnegative");
             }};

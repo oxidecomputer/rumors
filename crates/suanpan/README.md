@@ -33,7 +33,9 @@ division, or right shift:
 - `Accumulator::new` and `Default` construct zero, and `From` converts any
   primitive integer.
 - `+`, `-`, `+=`, `-=`, unary `-`, `<<`, `<<=`, and `Sum` take owned and
-  borrowed accumulators and primitive integers.
+  borrowed accumulators and primitive integers. A primitive may stand on
+  either side of `+` and `-`; `5 - total` negates `total`, at the cost of
+  unary `-`. Shift counts are primitives, owned or borrowed.
 - `==`, `<`, `cmp`, and `Hash` work by value, against another
   accumulator or against a primitive integer on the right.
 - `sign`, `is_zero`,
