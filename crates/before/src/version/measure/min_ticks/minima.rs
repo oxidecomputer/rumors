@@ -71,14 +71,8 @@ struct Events<'a> {
 impl Events<'_> {
     /// Settle and remove the innermost distinct minimum's record.
     fn settle_top(&mut self) {
-        let popped = self.records.pop();
-        self.references.settle_record(
-            popped.negative,
-            popped.magnitude.limbs(),
-            popped.closes,
-            popped.first,
-            self.total,
-        );
+        self.references
+            .settle_record(self.records.pop(), self.total);
     }
 }
 
@@ -122,14 +116,7 @@ impl SubtreeMinima {
         match self.ranges.close() {
             Close::Equal => {}
             Close::Retired | Close::Lower => {
-                let popped = self.records.pop();
-                references.settle_record(
-                    popped.negative,
-                    popped.magnitude.limbs(),
-                    popped.closes,
-                    popped.first,
-                    total,
-                );
+                references.settle_record(self.records.pop(), total);
             }
         }
     }

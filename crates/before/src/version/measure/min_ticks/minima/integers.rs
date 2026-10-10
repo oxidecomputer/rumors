@@ -10,10 +10,12 @@
 //! space proportional to its width, and a pop returns the entry without
 //! copying a wide magnitude.
 
+use core::cmp::Ordering;
+
 use crate::bits::stack::{BitStack, PackedU64Stack};
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 /// The widest magnitude, in bits, packed into the shared bit stack.
 ///
@@ -74,8 +76,9 @@ impl IntegerStack {
         }
     }
 
-    /// Push `±magnitude`, given as little-endian limbs with no high zero limb.
-    pub fn push<L>(&mut self, negative: bool, magnitude: L)
+    /// Push `±magnitude`, given as its comparison with zero and little-endian
+    /// limbs with no high zero limb.
+    pub fn push<L>(&mut self, sign: Ordering, magnitude: L)
     where
         L: ExactSizeIterator<Item = u64>,
     {
@@ -91,41 +94,43 @@ impl IntegerStack {
                 limbs[len] = limb;
                 len += 1;
             }
-            let limbs = &limbs[..len];
-            bit_len = bit_length(limbs);
+            bit_len = bit_length(&limbs[..len]);
             let pieces = bit_len.div_ceil(PIECE_BITS);
-            for (index, &limb) in limbs.iter().enumerate().rev() {
-                for half in [1u64, 0] {
-                    let piece = 2 * index as u64 + half;
-                    if piece < pieces {
-                        let width = piece_width(piece, pieces, bit_len);
-                        self.bits
-                            .push_bits((limb >> (PIECE_BITS * half)) & PIECE_MASK, width);
-                    }
-                }
+            for piece in (0..pieces).rev() {
+                let value =
+                    (limbs[(piece / 2) as usize] >> (PIECE_BITS * (piece % 2))) & PIECE_MASK;
+                self.bits
+                    .push_bits(value, piece_width(piece, pieces, bit_len));
             }
         }
         // The magnitude is held in memory, so its bit length is far below 2^63
         // and the shift keeps every bit.
-        self.headers.push(bit_len << 1 | u64::from(negative));
+        self.headers
+            .push(bit_len << 1 | u64::from(sign == Ordering::Less));
     }
 
-    /// Pop the newest entry, returning whether it is negative and its
+    /// Pop the newest entry, returning its comparison with zero and its
     /// magnitude.
     ///
     /// # Panics
     ///
     /// Panics if the stack is empty.
-    pub fn pop(&mut self) -> (bool, Magnitude) {
+    pub fn pop(&mut self) -> (Ordering, Magnitude) {
         let header = self.headers.pop();
-        let negative = header & 1 == 1;
         let bit_len = header >> 1;
+        let sign = if bit_len == 0 {
+            Ordering::Equal
+        } else if header & 1 == 1 {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
         if bit_len > PACKED_BITS {
             let limbs = self
                 .separate
                 .pop()
                 .expect("each wide header has a separate magnitude");
-            return (negative, Magnitude::Separate(limbs));
+            return (sign, Magnitude::Separate(limbs));
         }
         let pieces = bit_len.div_ceil(PIECE_BITS);
         let mut limbs = [0u64; PACKED_LIMBS];
@@ -134,7 +139,7 @@ impl IntegerStack {
             limbs[(piece / 2) as usize] |= value << (PIECE_BITS * (piece % 2));
         }
         let len = pieces.div_ceil(2) as usize;
-        (negative, Magnitude::Packed { limbs, len })
+        (sign, Magnitude::Packed { limbs, len })
     }
 }
 

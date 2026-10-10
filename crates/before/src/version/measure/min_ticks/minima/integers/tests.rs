@@ -1,5 +1,7 @@
 //! Tests for the integer stack.
 
+use core::cmp::Ordering;
+
 use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 
@@ -22,14 +24,23 @@ fn arb_integer() -> impl Strategy<Value = BigInt> {
 }
 
 /// The integer a popped entry denotes.
-fn value_of(negative: bool, magnitude: &Magnitude) -> BigInt {
+pub(in super::super) fn value_of(sign: Ordering, magnitude: &Magnitude) -> BigInt {
     let digits: Vec<u32> = magnitude
         .limbs()
         .iter()
         .flat_map(|limb| [*limb as u32, (*limb >> 32) as u32])
         .collect();
-    let sign = if negative { Sign::Minus } else { Sign::Plus };
+    let sign = match sign {
+        Ordering::Less => Sign::Minus,
+        Ordering::Equal => Sign::NoSign,
+        Ordering::Greater => Sign::Plus,
+    };
     BigInt::from_biguint(sign, BigUint::from_slice(&digits))
+}
+
+/// The comparison with zero of `value`.
+fn sign_of(value: &BigInt) -> Ordering {
+    value.sign().cmp(&Sign::NoSign)
 }
 
 /// Every pushed integer pops back exactly, in LIFO order, under any
@@ -44,18 +55,19 @@ fn integers_round_trip_in_stack_order() {
         let mut stack = IntegerStack::new();
         let mut model: Vec<BigInt> = Vec::new();
         let check = |stack: &mut IntegerStack, expected: BigInt| -> Result<(), TestCaseError> {
-            let (negative, magnitude) = stack.pop();
+            let (sign, magnitude) = stack.pop();
+            prop_assert_eq!(sign, sign_of(&expected));
             prop_assert!(magnitude.limbs().last() != Some(&0));
             prop_assert_eq!(
                 matches!(magnitude, Magnitude::Separate(_)),
                 expected.bits() > PACKED_BITS
             );
-            prop_assert_eq!(value_of(negative, &magnitude), expected);
+            prop_assert_eq!(value_of(sign, &magnitude), expected);
             Ok(())
         };
         for (push, value) in ops {
             if push || model.is_empty() {
-                stack.push(value.sign() == Sign::Minus, value.iter_u64_digits());
+                stack.push(sign_of(&value), value.iter_u64_digits());
                 model.push(value);
             } else {
                 check(&mut stack, model.pop().expect("model tracks the stack"))?;

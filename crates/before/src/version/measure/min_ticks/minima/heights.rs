@@ -67,6 +67,7 @@ use num_bigint::BigInt;
 use suanpan::Accumulator;
 
 use super::integers::IntegerStack;
+use super::records::Popped;
 use crate::bits::stack::{BitStack, PackedU64Stack};
 
 /// Bits a stored offset may exceed its leaf's height change by before the
@@ -169,8 +170,6 @@ pub struct HeightReferences {
     /// Coefficients of the references below the second, oldest first, as
     /// zigzag codes split into two words.
     coefficients: PackedU64Stack,
-    /// References below the top.
-    buried: u64,
     /// Coefficients settled against the zero below the oldest reference.
     /// With the top's coefficient they sum to one when the fold ends.
     resolved: i128,
@@ -191,7 +190,6 @@ impl HeightReferences {
             second_coefficient: None,
             chunks: ChunkStack::new(),
             coefficients: PackedU64Stack::new(),
-            buried: 0,
             resolved: 0,
         }
     }
@@ -267,9 +265,8 @@ impl HeightReferences {
         }
         self.chunks.push(previous.chunk);
         self.second_coefficient = Some(previous.coefficient);
-        self.buried += 1;
         #[cfg(test)]
-        MAX_BURIED.with(|most| most.set(most.get().max(self.buried)));
+        MAX_BURIED.with(|most| most.set(most.get().max(self.chunks.len())));
     }
 
     /// Note a new minimum record at the top reference, returning whether it
@@ -283,22 +280,16 @@ impl HeightReferences {
     /// The record lies at the top reference if any record does, and
     /// otherwise at the second. `first` marks the last record at its
     /// reference to be settled, which releases that reference.
-    pub fn settle_record(
-        &mut self,
-        negative: bool,
-        magnitude: &[u64],
-        closes: u64,
-        first: bool,
-        total: &mut Accumulator,
-    ) {
+    pub fn settle_record(&mut self, record: Popped, total: &mut Accumulator) {
+        let Popped {
+            sign,
+            magnitude,
+            closes,
+            first,
+        } = record;
         if closes != 0 {
-            let limbs = Scaled::new(magnitude, closes);
-            if negative {
-                total.add_shifted_limbs(0, limbs);
-            } else {
-                total.sub_shifted_limbs(0, limbs);
-            }
             let closes = i128::from(closes);
+            add_product(total, sign, magnitude.limbs(), -closes);
             if self.top.referenced {
                 self.top.coefficient -= closes;
             } else {
@@ -328,8 +319,7 @@ impl HeightReferences {
             .take()
             .expect("a removed reference lies below the top");
         let removed = self.chunks.pop();
-        self.buried -= 1;
-        if self.buried > 0 {
+        if self.chunks.len() > 0 {
             self.second_coefficient = Some(pop_i128(&mut self.coefficients));
         }
         self.merge_into_top(removed, coefficient, total);
@@ -387,7 +377,11 @@ impl HeightReferences {
     /// Every record has been settled, so every buried reference has merged
     /// into the top, whose chunk is the whole height above the first leaf.
     pub fn settle(self, total: &mut Accumulator) {
-        debug_assert_eq!(self.buried, 0, "settled records release every reference");
+        debug_assert_eq!(
+            self.chunks.len(),
+            0,
+            "settled records release every reference"
+        );
         debug_assert_eq!(
             self.top.coefficient + self.resolved,
             1,
@@ -502,14 +496,18 @@ impl ChunkStack {
         }
     }
 
+    /// The number of buried chunks.
+    fn len(&self) -> u64 {
+        self.whole.len()
+    }
+
     /// Push a chunk, copying it only if its working width is at most
     /// [`INLINE_CHUNK_BITS`].
     fn push(&mut self, chunk: Accumulator) {
         if chunk.stored_bits() <= INLINE_CHUNK_BITS {
             let (sign, magnitude) = chunk.signed_magnitude();
             self.whole.push(false);
-            self.packed
-                .push(sign == Ordering::Less, magnitude.as_ref().iter().copied());
+            self.packed.push(sign, magnitude.as_ref().iter().copied());
             return;
         }
         #[cfg(test)]
@@ -523,13 +521,8 @@ impl ChunkStack {
         if self.whole.pop().expect("a buried reference has a chunk") {
             return self.whole_values.pop().expect("each whole tag has a value");
         }
-        let (negative, magnitude) = self.packed.pop();
+        let (sign, magnitude) = self.packed.pop();
         let mut chunk = Accumulator::new();
-        let sign = if negative {
-            Ordering::Less
-        } else {
-            Ordering::Greater
-        };
         add_signed_limbs(&mut chunk, sign, magnitude.limbs());
         chunk
     }

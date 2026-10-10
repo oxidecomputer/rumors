@@ -10,6 +10,8 @@
 //! Offsets live in an [`IntegerStack`], so every record costs space in
 //! proportion to its offset's width.
 
+use core::cmp::Ordering;
+
 use num_bigint::{BigInt, Sign};
 
 use super::integers::{IntegerStack, Magnitude};
@@ -20,8 +22,8 @@ mod tests;
 
 /// A record removed from the stack for settlement.
 pub struct Popped {
-    /// Whether the supplying leaf lies below its reference.
-    pub negative: bool,
+    /// The offset's comparison with zero.
+    pub sign: Ordering,
     /// The offset's magnitude.
     pub magnitude: Magnitude,
     /// Subtree closes charged to this minimum.
@@ -40,8 +42,6 @@ pub struct Records {
     first: BitStack,
     /// The top record's close count.
     top_closes: u64,
-    /// Records held.
-    len: u64,
 }
 
 impl Records {
@@ -52,25 +52,30 @@ impl Records {
             closes: PackedU64Stack::new(),
             first: BitStack::new(),
             top_closes: 0,
-            len: 0,
         }
     }
 
     /// Push a new current minimum with no closes yet.
     pub fn push(&mut self, offset: &BigInt, first: bool) {
-        if self.len != 0 {
+        if self.first.len() != 0 {
             self.closes.push(self.top_closes);
         }
         self.top_closes = 0;
-        self.offsets
-            .push(offset.sign() == Sign::Minus, offset.iter_u64_digits());
+        let sign = match offset.sign() {
+            Sign::Minus => Ordering::Less,
+            Sign::NoSign => Ordering::Equal,
+            Sign::Plus => Ordering::Greater,
+        };
+        self.offsets.push(sign, offset.iter_u64_digits());
         self.first.push(first);
-        self.len += 1;
     }
 
     /// Charge one more subtree close to the current minimum.
     pub fn increment(&mut self) {
-        debug_assert!(self.len != 0, "an armed subtree has a current minimum");
+        debug_assert!(
+            self.first.len() != 0,
+            "an armed subtree has a current minimum"
+        );
         // Each close consumes one internal node of a version held in memory,
         // so the count stays far below u64::MAX.
         self.top_closes += 1;
@@ -82,13 +87,16 @@ impl Records {
     ///
     /// Panics if the stack is empty.
     pub fn pop(&mut self) -> Popped {
-        let (negative, magnitude) = self.offsets.pop();
+        let (sign, magnitude) = self.offsets.pop();
         let closes = self.top_closes;
         let first = self.first.pop().expect("each record has a first flag");
-        self.len -= 1;
-        self.top_closes = if self.len != 0 { self.closes.pop() } else { 0 };
+        self.top_closes = if self.first.len() != 0 {
+            self.closes.pop()
+        } else {
+            0
+        };
         Popped {
-            negative,
+            sign,
             magnitude,
             closes,
             first,

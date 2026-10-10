@@ -1,24 +1,14 @@
 //! Tests for the minimum record stack.
 
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::BigInt;
 use proptest::prelude::*;
 
+use super::super::integers::tests::value_of;
 use super::{Popped, Records};
 
 /// The signed offset a popped record carries.
 fn offset_of(popped: &Popped) -> BigInt {
-    let digits: Vec<u32> = popped
-        .magnitude
-        .limbs()
-        .iter()
-        .flat_map(|limb| [*limb as u32, (*limb >> 32) as u32])
-        .collect();
-    let sign = if popped.negative {
-        Sign::Minus
-    } else {
-        Sign::Plus
-    };
-    BigInt::from_biguint(sign, BigUint::from_slice(&digits))
+    value_of(popped.sign, &popped.magnitude)
 }
 
 /// Offsets of any sign and width, close counts, and first flags come back
