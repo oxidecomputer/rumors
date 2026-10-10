@@ -929,3 +929,102 @@ fn comparison_queries_from_a_two_digit_lead() {
         }
     }
 }
+
+/// `abs_diff` of a far-wider value and a narrow one reads only the wider
+/// value's top and the narrower operand, at any distance between them.
+///
+/// The wide value is `5·2^(32k)`; the narrow one is `n` digits of `2^32 − 1`.
+/// The wider operand's storage receives the subtraction: the narrow sign
+/// decides on its top digit (1), and its `n` digits are read and deposited
+/// below the wide value's untouched gap (`2n`). The result's sign then decides
+/// on the wide top digit (1): `2n + 2` at two distances `k`, with either
+/// operand as the receiver.
+#[test]
+fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
+    for k in [1_000u64, 2_000] {
+        for narrow_digits in [4u64, 40] {
+            for reversed in [false, true] {
+                let mut wide = Accumulator::new();
+                wide.add_shifted_limbs(32 * k, [5]);
+                let mut narrow = Accumulator::new();
+                narrow.add_shifted_limbs(
+                    0,
+                    core::iter::repeat_n(u64::MAX, usize::try_from(narrow_digits / 2).unwrap()),
+                );
+                touch_meter::reset();
+                let (order, gap) = if reversed {
+                    let (order, gap) = narrow.abs_diff(wide);
+                    (order.reverse(), gap)
+                } else {
+                    wide.abs_diff(narrow)
+                };
+                assert_eq!(order, Ordering::Greater);
+                assert_eq!(
+                    touch_meter::touches(),
+                    2 * narrow_digits + 2,
+                    "abs_diff of 5·2^(32·{k}) and {narrow_digits} digits, reversed {reversed}"
+                );
+                let narrow_value =
+                    (IBig::from(1) << usize::try_from(32 * narrow_digits).unwrap()) - 1;
+                assert_value(
+                    &gap,
+                    &((IBig::from(5) << usize::try_from(32 * k).unwrap()) - narrow_value),
+                );
+            }
+        }
+    }
+}
+
+/// `abs_diff` negates its result within the result's own width: O(`n`) for
+/// nonnegative operands whatever the receiver's former width, and the whole
+/// width when the wider operand is negative.
+///
+/// The narrow operand is `n` digits of `2^32 − 1`. A receiver holding 5 under
+/// a top cancelled at position `p` is wider but smaller: the subtraction
+/// decides the narrow sign and reads and deposits its digits (`1 + 2n`), the
+/// sign read clears the cancelling pair, skips the gap, and rewrites the
+/// deciding digit `n − 1` (7), and negating the `n`-digit result costs `n`:
+/// `3n + 8` at both `p`. A receiver of `−2^(32p)` is wider and smaller too, but
+/// its difference keeps its width: the subtraction costs `1 + 2n`, the sign
+/// read folds the top digit into the one below (5), and negation walks the
+/// `p` remaining digits: `p + 2n + 6`.
+#[test]
+fn abs_diff_negates_within_the_result_width() {
+    for position in [1_000u64, 2_000] {
+        for narrow_digits in [4u64, 40] {
+            let mut narrow = Accumulator::new();
+            narrow.add_shifted_limbs(
+                0,
+                core::iter::repeat_n(u64::MAX, usize::try_from(narrow_digits / 2).unwrap()),
+            );
+            let narrow_value = (IBig::from(1) << usize::try_from(32 * narrow_digits).unwrap()) - 1;
+
+            let mut small = cancelled_top(position);
+            small += 5;
+            touch_meter::reset();
+            let (order, gap) = small.abs_diff(narrow.clone());
+            assert_eq!(order, Ordering::Less);
+            assert_eq!(
+                touch_meter::touches(),
+                3 * narrow_digits + 8,
+                "5 under a top cancelled at {position} against {narrow_digits} digits"
+            );
+            assert_value(&gap, &(&narrow_value - 5));
+
+            let mut negative = Accumulator::new();
+            negative.sub_shifted_limbs(32 * position, [1]);
+            touch_meter::reset();
+            let (order, gap) = negative.abs_diff(narrow.clone());
+            assert_eq!(order, Ordering::Less);
+            assert_eq!(
+                touch_meter::touches(),
+                position + 2 * narrow_digits + 6,
+                "-2^(32·{position}) against {narrow_digits} digits"
+            );
+            assert_value(
+                &gap,
+                &((IBig::from(1) << usize::try_from(32 * position).unwrap()) + &narrow_value),
+            );
+        }
+    }
+}

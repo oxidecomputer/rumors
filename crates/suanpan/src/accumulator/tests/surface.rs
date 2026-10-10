@@ -6,7 +6,8 @@
 //! never changes the tested history; cancellation therefore builds up across
 //! steps until an instruction reads in place. Instructions cover the standard
 //! arithmetic traits with owned and borrowed operands on either side, shifted
-//! limb and accumulator inputs, sums, reservation, reset, and in-place reads.
+//! limb and accumulator inputs, sums, `abs_diff`, reservation, reset, and
+//! in-place reads.
 //!
 //! The generators put explicit weight on the representation's boundaries:
 //! 30-bit small-path shifts, 32-bit digits, 64-bit limbs, the `2^96` small
@@ -671,6 +672,14 @@ enum Operation {
     },
     /// Compare with zero in place, keeping the compacted top for later steps.
     Sign,
+    /// Replace the value by the magnitude of its difference from an operand,
+    /// with either one as the receiver, checking the reported order.
+    AbsDiff {
+        /// Operand value and representation.
+        operand: Operand,
+        /// Whether the operand is the receiver, `operand.abs_diff(value)`.
+        reversed: bool,
+    },
     /// Read the magnitude in place, keeping the normalized form for later
     /// steps.
     ///
@@ -822,6 +831,23 @@ impl Operation {
             Operation::Sign => {
                 assert_eq!(actual.sign(), oracle_sign(oracle), "in-place sign");
             }
+            Operation::AbsDiff { operand, reversed } => {
+                let (operand, operand_oracle) = operand.values();
+                let value = core::mem::take(actual);
+                let (order, gap) = if *reversed {
+                    let (order, gap) = operand.abs_diff(value);
+                    (order.reverse(), gap)
+                } else {
+                    value.abs_diff(operand)
+                };
+                assert_eq!(
+                    order,
+                    BigInt::cmp(oracle, &operand_oracle),
+                    "abs_diff order"
+                );
+                *actual = gap;
+                *oracle = BigInt::from((&*oracle - &operand_oracle).magnitude().clone());
+            }
             Operation::Read { scaled } => {
                 let previous_digits = actual.stored_digit_count();
                 assert_eq!(&read_value(actual, *scaled), oracle, "in-place read");
@@ -856,6 +882,7 @@ impl Operation {
             Operation::Sum { .. } => 8,
             Operation::Read { .. } => 9,
             Operation::Sign => 10,
+            Operation::AbsDiff { .. } => 11,
         }
     }
 }
@@ -1170,6 +1197,8 @@ fn arb_operation() -> BoxedStrategy<Operation> {
         ),
         2 => any::<bool>().prop_map(|scaled| Operation::Read { scaled }),
         1 => Just(Operation::Sign),
+        2 => (arb_operand(), any::<bool>())
+            .prop_map(|(operand, reversed)| Operation::AbsDiff { operand, reversed }),
     ]
     .boxed()
 }

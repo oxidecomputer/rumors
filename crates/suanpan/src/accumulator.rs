@@ -341,6 +341,51 @@ impl Accumulator {
         self.sign() == Ordering::Less
     }
 
+    /// Return the order of `self` against `other`, and the magnitude of
+    /// their difference.
+    ///
+    /// Like the primitive integers' `abs_diff`, the second element is
+    /// `|self − other|`; the first says which operand was larger, so the
+    /// signed difference is recoverable. The comparison and the subtraction
+    /// are one pass: the wider operand's storage receives the narrower one,
+    /// and the result's sign decides the order. Comparing first and then
+    /// subtracting would read the operands twice, or subtract into a
+    /// temporary.
+    ///
+    /// ```
+    /// use core::cmp::Ordering;
+    /// use suanpan::Accumulator;
+    ///
+    /// let (order, gap) = Accumulator::from(3).abs_diff(Accumulator::from(10));
+    /// assert_eq!(order, Ordering::Less);
+    /// assert_eq!(gap, 7);
+    /// ```
+    ///
+    /// # Complexity
+    ///
+    /// Amortized O(`A` log(`W` + 1)) time, where `A` is the narrower operand's
+    /// working width and `W` the wider's, with O(1) additional space beyond
+    /// the wider operand's storage, which the result keeps. When the wider
+    /// operand is the smaller value, the result is negated in place, which
+    /// costs its working width after the sign read: O(`A`) when both operands
+    /// are nonnegative, since the result is then below the narrower operand's
+    /// magnitude, and up to O(`W`), the result's own width, when the wider
+    /// operand is negative.
+    pub fn abs_diff(self, other: Accumulator) -> (Ordering, Accumulator) {
+        let (mut wide, narrow, swapped) = if other.stored_digit_count() > self.stored_digit_count()
+        {
+            (other, self, true)
+        } else {
+            (self, other, false)
+        };
+        wide -= &narrow;
+        let order = wide.sign();
+        if order == Ordering::Less {
+            wide = -wide;
+        }
+        (if swapped { order.reverse() } else { order }, wide)
+    }
+
     /// Try to compare with zero without first applying a smaller operand.
     ///
     /// `bits` describes the operand that might be added or subtracted next.

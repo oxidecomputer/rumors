@@ -34,6 +34,8 @@
 //!   unary `-`. Shift counts are primitives, owned or borrowed.
 //! - `==`, `<`, [`cmp`](Ord::cmp), and `Hash` work by value, against another
 //!   accumulator or against a primitive integer on the right.
+//!   [`abs_diff`](Accumulator::abs_diff) compares two accumulators and
+//!   subtracts the smaller from the larger in one pass.
 //! - [`sign`](Accumulator::sign), [`is_zero`](Accumulator::is_zero),
 //!   [`is_positive`](Accumulator::is_positive), and
 //!   [`is_negative`](Accumulator::is_negative) query the sign, and `Display`
@@ -90,6 +92,7 @@
 //! | Add or subtract `L` limbs | Amortized O(`L` log(`W` + 1) + `G`) | O(`L` + `G`) retained |
 //! | Add or subtract an accumulator | Amortized O(`A` log(`W` + 1) + `G`) | O(`A` + `G`) retained |
 //! | Sign queries, comparison with a primitive, primitive `TryFrom` | Amortized O(log(`W` + 1)) | O(1) |
+//! | [`abs_diff`](Accumulator::abs_diff) | Amortized O(`A` log(`W` + 1)), `A` the narrower; plus O(`W`) to negate the result when the wider operand is negative and the smaller | O(1) beyond the wider operand's storage |
 //! | Compare two accumulators | Amortized O(`A` log(`A` + 1)), `A` the narrower; O(log(`W` + 1)) when one is far wider | O(`A`) temporary |
 //! | Magnitude read or `Hash` | Amortized O(log(`W` + 1) + `Q`) | O(`Q`) temporary |
 //! | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
