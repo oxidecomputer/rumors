@@ -355,17 +355,24 @@ fn receiver() -> impl Strategy<Value = Receiver> {
     ]
 }
 
-/// Assert that a shifted zero is still zero and takes no more space than the
-/// zero it came from.
+/// Assert that a shifted zero is still zero, takes no more space than the
+/// digit-stored zero it came from, and keeps that zero's representation and
+/// buffer.
 ///
-/// Neither the stored digits nor the buffer may grow. Both bounds depend only
-/// on the unshifted zero, so they hold at every shift. The crate promises
-/// constant space, not a particular stored form.
+/// The stored digits may not grow, and both bounds depend only on the
+/// unshifted zero, so they hold at every shift. The crate promises constant
+/// space; the representation's one-way rule adds that a digit-stored value
+/// stays in digits, so a shift neither returns it to the small form nor
+/// drops its buffer.
 fn assert_shifted_zero(shifted: Accumulator, shift: u64, unshifted: &Accumulator) {
     // Read the space before comparing: the comparison compacts a cancelled
     // stored form, which would hide what the shift left behind.
     let stored = shifted.stored_digit_count();
     let retained = shifted.stored().digits.retained_len();
+    assert!(
+        shifted.stored().small.is_none(),
+        "a digit-stored zero shifted by {shift} bits stays in digits"
+    );
     assert_eq!(
         shifted.sign(),
         Ordering::Equal,
@@ -378,10 +385,9 @@ fn assert_shifted_zero(shifted: Accumulator, shift: u64, unshifted: &Accumulator
          {stored} stored digits, up from {stored_before}"
     );
     let retained_before = unshifted.stored().digits.retained_len();
-    assert!(
-        retained <= retained_before,
-        "a zero shifted by {shift} bits takes constant space: \
-         {retained} retained digit positions, up from {retained_before}"
+    assert_eq!(
+        retained, retained_before,
+        "a zero shifted by {shift} bits keeps its buffer"
     );
 }
 
@@ -423,7 +429,8 @@ proptest! {
     /// space whatever digits store it.
     ///
     /// Each zero is built by [`redundant_zero`], so it is never a known zero.
-    /// A shifted zero may not gain stored digits. Adding or subtracting it
+    /// A shifted zero may not gain stored digits, and keeps its digit
+    /// representation and buffer. Adding or subtracting it
     /// leaves every kind of receiver's value and space unchanged, as
     /// [`assert_zero_operand`] checks. No bound depends on the shift. Depositing the
     /// cancelling digits at the shifted position instead retains space that

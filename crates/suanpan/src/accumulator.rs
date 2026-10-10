@@ -4,7 +4,8 @@
 //! range, the value moves into redundant signed digits. It stays there until
 //! reset, even if cancellation later makes the value small again. This
 //! one-way transition prevents an alternating workload from repeatedly paying
-//! to convert the same value.
+//! to convert the same value. An owned operator that reuses its other
+//! operand's storage returns that operand's representation instead.
 //!
 //! Every update to the wide representation passes through
 //! [`Digits`](digits::Digits). That single write boundary maintains the digit

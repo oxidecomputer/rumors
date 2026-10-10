@@ -208,10 +208,16 @@ impl Value {
             }
             return;
         }
-        // Applying the old value as a shifted operand compares it with zero
-        // first. A zero whose digits cancel therefore leaves an empty receiver
-        // instead of landing those digits at the shifted position.
-        let mut previous = core::mem::replace(self, Value::new());
-        self.apply_accumulator(&mut previous, shift, Update::Add);
+        // A zero whose digits cancel shifts to itself. Returning here keeps it
+        // in the digit representation with its buffer, as the one-way rule
+        // requires, and never lands its cancelling digits at the shifted
+        // position.
+        if self.digits.cmp_zero() == Ordering::Equal {
+            return;
+        }
+        let previous = core::mem::replace(&mut self.digits, Digits::new());
+        self.digits.activate();
+        self.digits
+            .add_digits(previous.stored_digits(), shift, Update::Add);
     }
 }
