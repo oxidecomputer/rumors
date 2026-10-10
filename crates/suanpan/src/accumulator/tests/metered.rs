@@ -875,42 +875,55 @@ fn far_wider_comparisons_read_only_the_wider_top() {
     }
 }
 
-/// A comparison asks the wider side's stability query exactly when that side
-/// leads by more than two digits, and otherwise subtracts.
+/// A comparison asks the wider side's stability query from a lead of two
+/// digits, and subtracts below it or when the query refuses at that lead.
 ///
-/// `5·2^(32(n + 2))` against `n` digits of `2^32 − 1` leads by three digits:
-/// its top digit 5 decides at once, one touch at any `n`. `5·2^(32(n + 1))`
-/// leads by two, so the comparison subtracts into a temporary. The wide
-/// operand's sign decides on its top digit (1), then its `n + 2` stored digits
-/// are read and the one nonzero deposited (`n + 3`); the narrow operand's sign
-/// decides (1), then its `n` digits are read and deposited (`2n`); and the
-/// difference's top decides (1): `3n + 6`. Both totals hold in either operand
-/// order at two widths.
+/// The narrow operand is `n` digits of `2^32 − 1`; the wide one is a single
+/// top digit `t` at the lead above it. Leading by three digits, or by two with
+/// `t = 5`, the query decides on the top digit: 1 touch. Leading by one digit,
+/// the comparison subtracts into a temporary: the wide sign decides (1), its
+/// `n + 1` stored digits are read and the nonzero one deposited (`n + 2`), the
+/// narrow sign decides (1), its digits are read and deposited (`2n`), and the
+/// difference's top decides (1): `3n + 5`. Leading by two with `t = 2`, the
+/// top does not decide: compacting it into the digit below writes `2·2^32`
+/// back, which carries the same 2 up again, 6 touches each time. The query
+/// pays that and refuses, so the comparison subtracts, and the wide sign and
+/// the difference's sign each pay it again: `6 + 6 + (n + 3) + (2n + 1) + 6`,
+/// which is `3n + 22`. Every total holds in either operand order at two widths.
 #[test]
-fn comparison_queries_only_past_a_two_digit_lead() {
+fn comparison_queries_from_a_two_digit_lead() {
     for digits in [4u64, 40] {
         let mut narrow = Accumulator::new();
         narrow.add_shifted_limbs(
             0,
             core::iter::repeat_n(u64::MAX, usize::try_from(digits / 2).unwrap()),
         );
-        for (lead, expected) in [(3, 1), (2, 3 * digits + 6)] {
-            let mut wide = Accumulator::new();
-            wide.add_shifted_limbs(32 * (digits + lead - 1), [5]);
-            assert_eq!(
-                wide.stored_digit_count(),
-                narrow.stored_digit_count() + usize::try_from(lead).unwrap()
-            );
-            for (left, right, order) in [
-                (&wide, &narrow, Ordering::Greater),
-                (&narrow, &wide, Ordering::Less),
-            ] {
+        for (lead, top, expected) in [
+            (3, 5, 1),
+            (2, 5, 1),
+            (2, 2, 3 * digits + 22),
+            (1, 5, 3 * digits + 5),
+        ] {
+            for reversed in [false, true] {
+                let mut wide = Accumulator::new();
+                wide.add_shifted_limbs(32 * (digits + lead - 1), [top]);
+                assert_eq!(
+                    wide.stored_digit_count(),
+                    narrow.stored_digit_count() + usize::try_from(lead).unwrap()
+                );
+                let narrow = narrow.clone();
                 touch_meter::reset();
-                assert_eq!(left.cmp(right), order);
+                let order = if reversed {
+                    narrow.cmp(&wide).reverse()
+                } else {
+                    wide.cmp(&narrow)
+                };
+                assert_eq!(order, Ordering::Greater);
                 assert_eq!(
                     touch_meter::touches(),
                     expected,
-                    "a lead of {lead} digits over {digits} digits, {order:?}"
+                    "a lead of {lead} digits with top {top} over {digits} digits, \
+                     reversed {reversed}"
                 );
             }
         }

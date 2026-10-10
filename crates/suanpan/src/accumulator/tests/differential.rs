@@ -457,10 +457,9 @@ proptest! {
     ///
     /// Both operands range across the scalar and signed-digit representations,
     /// including shifted updates, cancellation, and extreme coefficients. The
-    /// test follows the comparison protocol: inspect the wider operand,
-    /// reverse roles whenever compaction exposes the other as wider, and
-    /// subtract only once their stored widths differ by at most
-    /// [`CLOSE_LEAD`] digits. Every refusal must strictly reduce the combined
+    /// test follows the comparison protocol's loop: inspect the wider operand,
+    /// reverse roles whenever compaction exposes the other as wider, and stop
+    /// once their stored widths differ by at most [`CLOSE_LEAD`] digits. Every refusal must strictly reduce the combined
     /// retained width. `cmp` on fresh copies of the same stored forms, in both
     /// orders, must return the exact order.
     #[test]

@@ -20,23 +20,26 @@ use super::operand::Update;
 use super::value::Value;
 use super::Accumulator;
 
-/// The greatest working-width lead, in digits, at which a comparison
-/// subtracts instead of asking the wider side's stability query.
+/// The working-width lead, in digits, from which a comparison asks the wider
+/// side's stability query rather than subtracting at once.
 ///
 /// A refused stability query leaves the side it asked at most this many digits
-/// wider than the other. A side is asked only when it leads by more, so each
-/// refusal strictly narrows it, and the loop in [`compare`] ends.
+/// wider than the other. Past this lead each refusal therefore strictly
+/// narrows the side it asked, so [`compare`]'s loop, which asks repeatedly
+/// there, ends. At exactly this lead a refusal need not narrow it: compacting
+/// a top digit can carry the same digit back. The query is asked there once,
+/// and a refusal falls back to subtraction.
 pub(super) const CLOSE_LEAD: usize = 2;
 
 /// Compare by value.
 ///
 /// # Complexity
 ///
-/// If one working width exceeds the other by more than two digits, the wider
-/// side's stability query decides in amortized O(log(`W` + 1)) time unless
-/// its own cancellation leaves it close to the other. Otherwise the comparison
-/// subtracts in amortized O(`A` log(`A` + 1)) time and O(`A`) temporary space,
-/// where `A` is the narrower working width.
+/// If one working width far exceeds the other, the comparison usually decides
+/// from the wider value's top in amortized O(log(`W` + 1)) time, without
+/// reading the narrower one. Otherwise it subtracts in amortized
+/// O(`A` log(`A` + 1)) time and O(`A`) temporary space, where `A` is the
+/// narrower working width.
 impl Ord for Accumulator {
     fn cmp(&self, other: &Accumulator) -> Ordering {
         if core::ptr::eq(self, other) {
@@ -91,6 +94,19 @@ fn compare(a: &mut Value, b: &mut Value) -> Ordering {
             break;
         }
         // A refusal compacted the wider side, which may now be the narrower.
+    }
+    // At exactly the close lead the query may still decide, and is asked once.
+    let (a_digits, b_digits) = (a.stored_digit_count(), b.stored_digit_count());
+    let decided = if a_digits == b_digits + CLOSE_LEAD {
+        a.cmp_zero_stable_under(b.stored_bits())
+    } else if b_digits == a_digits + CLOSE_LEAD {
+        b.cmp_zero_stable_under(a.stored_bits())
+            .map(Ordering::reverse)
+    } else {
+        None
+    };
+    if let Some(sign) = decided {
+        return sign;
     }
     let mut difference = Value::new();
     difference.apply_accumulator(a, 0, Update::Add);
