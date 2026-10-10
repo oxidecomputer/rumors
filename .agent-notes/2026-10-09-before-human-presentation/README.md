@@ -17,7 +17,9 @@ supersedes the other sections wherever they differ:
 5. [05-further-observations.md](05-further-observations.md): further notes
    on notation, semantics, API, and process, including the notation's
    superlinear size.
-6. [probe/](probe/): the throwaway crate behind 02's and 05's evidence.
+6. [06-carry-forward.md](06-carry-forward.md): what to do with all of it,
+   ordered by dependency and risk.
+7. [probe/](probe/): the throwaway crate behind 02's and 05's evidence.
 
 ## The question
 
