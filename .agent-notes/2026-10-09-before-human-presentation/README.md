@@ -1,3 +1,15 @@
+**Question (Finch):**
+
+> One difficulty with `before` is that it is tricky to present its various types in a way that is meaningfully comprehensible to humans. `Rank` and `Count` are exceptions because they are scalar values, but `Version`, `Party`, and composite types like `Span`, `Clock`, and `Query` are trickier because, per the @crates/before/reference/itc2008.md fundamental data structure, versions and parties are tree structures (or in our case, a "skyline" representation which is isomorphic). We have the "shape" iterator already implemented which yields the skyline shape of a party or version, but it's not hooked into any textual representation, and it's not clear whether showing the skyline is the best meaningful way to present such a thing to someone during debugging. Can you brainstorm about textual and/or visual ways to present these data types to humans so that they can meaningfully understand the identity-space and causality information, without loss of precision? Don't limit yourself to what could be implemented for Display/Debug (though those would be useful). Think outside the box: what context could be provided to make more meaningful visualization or textual display? What prior art exists in this space for more typical version vectors, and could it be adapted? What else am I missing?
+
+**Follow-up (Finch), sent while the response was being prepared:**
+
+> The text representation in the paper does not seem worth replicating, because imo it is not easy to read it and understand ownership or causality.
+
+**Response (Claude):**
+
+---
+
 I agree about the paper's notation. Its event trees store each height as a base plus offsets down the path, so reading the height at any id means adding along a branch, and position is only implied by nesting depth. Neither ownership nor causality is visible without doing arithmetic in your head. I've left it out below.
 
 **What I checked in the tree:**
