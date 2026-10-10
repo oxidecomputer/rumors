@@ -298,7 +298,7 @@ const VERSION_STREAM_FAMILIES: &str = concat!(
     "memo-oscillating,mirror-narrow,",
     "mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,",
     "propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,",
-    "staircase,tooth-tail,weight-comb,wide-arming,wide-tooth-comb",
+    "staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-tooth-comb",
 );
 
 /// The pinned worst set of a cell whose ranking depends on the build target.

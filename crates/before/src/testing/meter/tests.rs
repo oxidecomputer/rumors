@@ -18,8 +18,8 @@ use super::{
     latent_ladder, lone_freeze, mask_drift_quadruple, mask_drift_triple, masked_hole,
     plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole,
     scattered_id, seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole,
-    tooth_tail, weight_comb, wide_arming, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS,
-    MIN_DEFERRED_ARMING_DIGITS, PROMOTION_REARM_ARM_BITS,
+    tooth_tail, weight_comb, wide_arming, wide_step_pairs, wide_tooth_comb, Encoding,
+    FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS, PROMOTION_REARM_ARM_BITS,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -301,6 +301,39 @@ proptest! {
         ];
         expected.extend((3..=d as u64).map(|depth| Plateau {
             rise: Some(Rise::Up(Count::from(1u8))),
+            depth,
+        }));
+        expected.push(Plateau { rise: Some(Rise::Up(Count::from(1u8))), depth: d as u64 });
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, expected);
+    }
+
+    /// `WP(e, d)` is canonical normal form at its closed-form size, and its
+    /// shape is the rising spine its resource claim rests on.
+    ///
+    /// The size is exactly `8 + ⌊d/2⌋(2e + 4) + (d − 1 − ⌊d/2⌋)·6` bits, and
+    /// the plateaus sit at depths `1, 2, …, d, d`, rising by `W = 2^e` into
+    /// each even depth and by one tick into each odd depth and the final leaf.
+    ///
+    /// A version is determined by its plateau sequence, so this pins the
+    /// whole tree: wide and one-tick rises alternating one level deeper
+    /// each, never a fall.
+    #[test]
+    fn wide_step_pairs_decodes_canonically_as_an_alternating_spine(
+        e in 1usize..=400,
+        d in 2usize..=300,
+    ) {
+        let shape = wide_step_pairs(e, d);
+        let wide_levels = d / 2;
+        check_version(&shape, 8 + wide_levels * (2 * e + 4) + (d - 1 - wide_levels) * 6);
+        let wide = BigUint::from(1u8) << e;
+        let mut expected = vec![Plateau { rise: None, depth: 1 }];
+        expected.extend((2..=d as u64).map(|depth| Plateau {
+            rise: Some(Rise::Up(if depth % 2 == 0 {
+                Count(wide.clone())
+            } else {
+                Count::from(1u8)
+            })),
             depth,
         }));
         expected.push(Plateau { rise: Some(Rise::Up(Count::from(1u8))), depth: d as u64 });

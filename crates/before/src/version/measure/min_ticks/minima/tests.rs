@@ -73,3 +73,43 @@ fn min_ticks_matches_the_tree_oracle_across_reference_paths() {
         "the generator never buried two references at once"
     );
 }
+
+/// The board's wide-step pair spine, at the step width the board samples,
+/// buries a chunk in the whole-accumulator form at every second level past
+/// the first pair, and `min_ticks` still equals the tree oracle there.
+///
+/// The board samples this family at that step so that the one width
+/// threshold among the references, where copying a buried chunk gives way
+/// to moving it whole, is crossed on every sampled size, and so that every
+/// record offset at a wide level is stored on its own rather than packed.
+#[test]
+fn wide_step_pairs_bury_whole_chunks_at_every_second_level() {
+    use super::heights::INLINE_CHUNK_BITS;
+    use super::integers::PACKED_BITS;
+    use crate::testing::bridge::to_oracle_version;
+    use crate::testing::meter::board::WIDE_STEP_PAIRS_STEP_BITS;
+    use crate::testing::meter::registry::Shape;
+
+    let step_bits = WIDE_STEP_PAIRS_STEP_BITS as u64;
+    assert!(
+        step_bits > INLINE_CHUNK_BITS,
+        "the board's {step_bits}-bit step no longer buries chunks whole"
+    );
+    assert!(
+        step_bits > PACKED_BITS,
+        "the board's {step_bits}-bit step no longer stores wide record offsets on their own"
+    );
+    for d in [4usize, 16, 64, 129] {
+        let version = Shape::WideStepPairs
+            .build2(WIDE_STEP_PAIRS_STEP_BITS, d)
+            .version();
+        let before = WIDE_CHUNKS.with(|c| c.get());
+        let ticks = version.min_ticks();
+        let buried = WIDE_CHUNKS.with(|c| c.get()) - before;
+        assert_eq!(ticks, to_oracle_version(&version).min_ticks());
+        assert!(
+            buried as usize >= d / 2 - 1,
+            "WP({step_bits}, {d}) buried {buried} whole chunks, fewer than one per pair past the first"
+        );
+    }
+}

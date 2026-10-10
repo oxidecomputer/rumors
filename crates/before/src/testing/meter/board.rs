@@ -144,6 +144,8 @@ pub use ceilings::{
 pub use compare::{capture, compare};
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
+#[cfg(test)]
+pub(crate) use family::WIDE_STEP_PAIRS_STEP_BITS;
 pub use ladder::{Ladder, Verdict};
 pub use measure::HeapMeter;
 pub use operand::stored_nonzero_deltas;
