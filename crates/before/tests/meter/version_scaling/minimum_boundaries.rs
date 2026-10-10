@@ -369,8 +369,12 @@ const LADDER_MARGINAL_TOUCH_CEILING: u64 = 4_480;
 /// settle are identical at both `k` and cancel — so a decision that
 /// reads the latent across its width (the regression
 /// `decide_undercut_through_latent`'s O(1) claim forbids) doubles the
-/// marginal when the width doubles. Semantics first: all four points
-/// fold to their closed forms, so the marginal rides on pinned values.
+/// marginal when the width doubles. The decision leaves' references also
+/// merge with a reference as wide as the parked latent, so a merge that
+/// reads the wider side instead of the narrower one grows the marginal with
+/// the width as well.
+/// Semantics first: all four points fold to their closed forms, so the
+/// marginal rides on pinned values.
 #[test]
 fn skyline_min_ticks_latent_ladder_is_flat_per_unit() {
     let marginal = |w: usize| {
@@ -398,7 +402,7 @@ fn skyline_min_ticks_latent_ladder_is_flat_per_unit() {
             u128::from(a) * u128::from(SLACK_DEN) <= u128::from(b) * u128::from(SLACK_NUM),
             "latent_ladder ({name}): the per-decision marginal moved more than \
              ×1.25 across the width doubling ({narrow} -> {wide}): the undercut \
-             decision is reading the parked latent's width",
+             decision or a reference merge is reading the parked latent's width",
         );
     }
     assert!(

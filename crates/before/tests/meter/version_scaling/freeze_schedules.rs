@@ -386,7 +386,7 @@ fn skyline_rank_lone_freeze_tail_is_flat_per_unit() {
 /// pin commit).
 ///
 /// Flat per encoded byte across the doubling: `Θ(k)` frozen references merge
-/// at one funded-width read each.
+/// once each.
 const MIN_TICKS_FREEZE_POSITION_CEILINGS: [u64; 2] = [87_500, 175_000];
 
 /// min_ticks is linear on the freeze-position family: per-byte
@@ -394,10 +394,12 @@ const MIN_TICKS_FREEZE_POSITION_CEILINGS: [u64; 2] = [87_500, 175_000];
 /// doubling, under absolute two-scale ceilings.
 ///
 /// `FP(k)` freezes one height reference per block. Each released reference
-/// merges into its neighbour once, reading the narrower chunk for one product
-/// by a word-sized coefficient and one sum. Re-reading all prior references at
-/// every freeze, or rebasing each recorded offset across a freeze, would go
-/// quadratic. The rank-side band prices the same schedule through the
+/// merges into its neighbour once, for one product by a word-sized
+/// coefficient and one sum. Re-reading all prior references at every freeze,
+/// or rebasing each recorded offset across a freeze, would go quadratic. The
+/// two sides of each merge here are about equally wide, so this band cannot
+/// tell which side a merge reads; the latent-ladder band detects a merge that
+/// reads the wider side. The rank-side band prices the same schedule through the
 /// anchored-segment integral; this one prices min_ticks' own frozen-reference
 /// accounting.
 #[test]
@@ -431,7 +433,7 @@ fn skyline_min_ticks_freeze_position_is_flat_per_unit() {
 /// pin commit).
 ///
 /// Flat per encoded byte across the doubling: `Θ(p)` wide-drift
-/// references in both directions merge at one funded-width read each.
+/// references in both directions merge once each.
 const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [500_697, 1_001_322];
 
 /// `min_ticks` is linear on the deferral re-arm spine: per-byte
@@ -442,8 +444,10 @@ const MIN_TICKS_PROMOTION_REARM_CEILINGS: [u64; 2] = [500_697, 1_001_322];
 /// blocks — `Θ(p)` freezes whose evicted drifts are wide in both
 /// directions. Leaves and subtree minima keep their offset from the frozen
 /// reference current when they were observed, and every wide reference merges
-/// once, at the width of the narrower side. Re-reading the whole reference
-/// history for each freeze would go quadratic.
+/// once. Re-reading the whole reference history for each freeze would go
+/// quadratic. A merge that reads its wider side instead of the narrower one
+/// costs a few percent here, within this band's slack; the latent-ladder band
+/// detects it.
 /// Rank handles this schedule through its deferred reduction. `min_ticks` uses
 /// different reference accounting, so this separate band checks the same
 /// many-freeze schedule directly.
