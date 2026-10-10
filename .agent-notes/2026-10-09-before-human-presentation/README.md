@@ -47,16 +47,27 @@ evidence that two versions are concurrent.
 
 ### Spelling numbers
 
+One rule covers every number the crate prints: integer digits are decimal, and
+digits after the point are binary.
+
 - Heights are decimal integers: they are event counts, and `Count`'s
   `Display` is decimal.
-- Positions and widths are binary fractions, `0.101`: everything is dyadic,
-  and binary shows the structure (each digit picks a half).
-- Ranks: open; see [Open questions](#open-questions).
+- Positions and widths are binary fractions, `0.101`; their integer part is
+  only ever 0 or 1. Binary shows the structure: each digit picks a half.
+- Ranks have a decimal integer part and a binary fraction:
+  `Version { 0..1 => 5 }` has rank `5`, and five and three quarters prints
+  `5.11`. A reader who mistakes the fraction for decimal still orders ranks
+  correctly, because digit strings over `{0, 1}` compare the same way in any
+  base.
+- This changes `Rank`'s `Display`, `FromStr`, and `serde` human-readable text;
+  nothing shipped depends on them. The integer part inherits `Count`'s
+  decimal conversion cost ("superlinear but subquadratic"), so `Display`'s
+  documented bound changes and its fuelscape panel is regenerated.
 
 ### Party
 
-Owned ranges in Rust's half-open range notation, maximal (adjacent owned
-regions merge):
+Owned ranges in Rust's half-open range notation, in parentheses, maximal
+(adjacent owned regions merge):
 
 ```
 Party(0.001..0.01, 0.1101..0.111)
@@ -65,12 +76,12 @@ Party(0..1)                          // the seed
 
 ### Version
 
-Match arms over maximal runs: adjacent ranges of equal height merge, so the
-output is as small as the function allows. It reads as the version's
-definition, `match id { … }`.
+Match arms over maximal runs, in braces in both modes: adjacent ranges of
+equal height merge, so the output is as small as the function allows. It
+reads as the version's definition, `match id { … }`.
 
 ```
-Version(0..0.1 => 3, 0.1..0.101 => 1, 0.101..1 => 2)
+Version { 0..0.1 => 3, 0.1..0.101 => 1, 0.101..1 => 2 }
 ```
 
 Pretty form, one arm per line:
@@ -95,16 +106,19 @@ parser.
 A band: each arm gives the range of heights the span allows over that range of
 ids, with a single height where the endpoints agree. A version lies in the
 span exactly when, over every arm's range, its heights fall within the arm's
-band.
+band. Braces follow `Version`, since the arms are the same syntax (an
+inference from the `Version` ruling, not a separate one).
 
 ```
-Span(0..0.11 => 2..=3, 0.11..1 => 1..=2)
+Span { 0..0.11 => 2..=3, 0.11..1 => 1..=2 }
 ```
+
+`Span` holds its endpoints by value; see [Spans by value](#spans-by-value).
 
 ### Clock
 
 ```
-Clock { party: Party(0..0.1), version: Version(0..0.1 => 3, 0.1..0.11 => 2, 0.11..1 => 1) }
+Clock { party: Party(0..0.1), version: Version { 0..0.1 => 3, 0.1..0.11 => 2, 0.11..1 => 1 } }
 ```
 
 ### Legend
@@ -122,9 +136,12 @@ lies in.
   live party is missing from the legend or identity leaked through a dropped
   `Party`.
 - With a legend, a version's arms split at ownership boundaries and each arm
-  names its owner (annotation style is open):
+  names its owner: a parenthetical on one line, a trailing comment when
+  pretty-printed, with the comments vertically aligned.
 
 ```
+Version { 0..0.1 => 3 (alice), 0.1..0.101 => 1 (bob), 0.101..0.11 => 2 (bob), 0.11..1 => 2 (carol) }
+
 Version {
     0..0.1 => 3,        // alice
     0.1..0.101 => 1,    // bob
@@ -158,14 +175,29 @@ Agreeing rows collapse to `(k agreeing ranges)` when there are many. The
 assertion macros must be named (`assert_le!(a, b)`, `assert_lt!`,
 `assert_concurrent!`): a `macro_rules` `$a:expr` may only be followed by `=>`,
 `,`, or `;`, so `assert_causal!(a <= b)` cannot parse. The single-version case
-of this layout, without owners, is the pretty `Debug` above.
+of this layout, without owners, is the pretty `Debug` above. `Diff` carries no
+lifetime, holding its versions by value as `Span` does; a legend-annotated
+diff borrows the legend.
 
-The summary line uses depth-independent measures. `lag` and `distance` measure
-area, so missing one event over a range 2⁻²⁰ wide counts as 2⁻²⁰. *Maximum
-deficit* (the largest height difference at any id) and *extent* (the width of
-the ids where one version is behind) do not depend on depth.
+The summary line pairs a vertical and a horizontal measure of each side's
+lead; see [Vertical and horizontal lag](#open-questions). The vertical one,
+the largest height difference, does not depend on tree depth. The horizontal
+one, the width of the ids where that side is ahead, does: like `lag`'s area,
+it shrinks with the regions it covers.
 
-### Dropped
+### Spans by value
+
+`Span` holds its versions by value instead of `Cow`, and `Crossed` carries
+them back, so a failed construction can render the diff. `Query`, its bounds,
+and `Ranked` follow. `Version`'s clone is a refcount increment (storage is
+`Bytes::from(Vec<u8>)`; I believe `bytes` makes such a buffer's first clone
+allocate a small shared header, unverified). Lifetimes remain wherever a
+`Party` is borrowed (`OwnVersion`, `OwnSpan`, `Legend`), since `Party` is not
+`Clone`. rumors' tree code returns `Span<'_>` from nodes and caches
+`Span<'static>`; the migration there is mechanical. This is a public API
+change.
+
+### Dropped or tabled
 
 - The paper's tuple notation: reading a height means summing along a branch,
   and positions are implicit in nesting depth.
@@ -175,48 +207,64 @@ the ids where one version is behind) do not depend on depth.
   information.
 - Locating the overlap in `Overlap` or join errors: `Overlap` stays opaque for
   now.
+- The stepping visualizer, tabled. An editable pane that accepts only a
+  Rust-like subset would confuse users who expect Rust. Record-and-replay
+  (a `trace` feature recording each operation's call site and canonical
+  bytes, replayed beside the source) runs arbitrary Rust but is not what
+  Finch wants either.
+
+## For later triage
+
+Recorded here, not done:
+
+- **`Version::ranked`'s docs steer sorts toward the expensive path.** They
+  advise preferring `Ranked` "when you … merely need a causal ordering", but
+  each `Ranked` comparison repeats the rank traversal, so a sort pays it on
+  every comparison. `Ranked`'s own docs already recommend materialized keys
+  for large sorts; the same hazard belongs at `Version::ranked`.
 
 ## Open questions
 
-1. **Rank spelling.** Should the integer part be decimal and the fraction
-   binary? That gives one rule for the whole crate ("integer digits are
-   decimal, digits after the point are binary") covering heights, positions,
-   widths, and ranks, and `Version(0..1 => 5)` then has rank `5`, not `101`.
-   Costs: `5.1` reads as decimal to anyone who has not met the rule; `Rank`'s
-   `Display` is also its `FromStr` and `serde` human-readable form, so this
-   changes a text format; and the integer part inherits `Count`'s decimal
-   conversion cost ("superlinear but subquadratic") where today's binary
-   spelling is linear.
-2. **Brackets.** Should `Version` and `Span` use braces in both modes
-   (`Version { 0..0.1 => 3, … }`), matching match-arm syntax, or parentheses
-   single-line and braces pretty?
-3. **Owner annotation.** Parenthetical single-line (`0..0.1 => 3 (alice)`)
-   and trailing comment in pretty form?
-4. **Spans by value.** `Version`'s clone is a refcount increment (storage is
-   `Bytes::from(Vec<u8>)`; I believe `bytes` makes such a buffer's first clone
-   allocate a small shared header, unverified), so `Span`
-   could hold versions by value instead of `Cow`, and `Crossed` could carry
-   them back for the diff. `Query`, its bounds, and `Ranked` would follow.
-   Lifetimes remain wherever a `Party` is borrowed (`OwnVersion`, `OwnSpan`,
-   `Legend`), since `Party` is not `Clone`. rumors' tree code returns
-   `Span<'_>` from nodes and caches `Span<'static>`; the migration there is
-   mechanical. This is a public API change.
-5. **`Version::ranked`'s docs.** They advise preferring `Ranked` "when you
-   … merely need a causal ordering", which steers sorts toward repeating the
-   rank traversal on every comparison. `Ranked`'s own docs already recommend
-   materialized keys for large sorts; the same hazard belongs on
-   `Version::ranked`.
-6. **Maximum deficit and extent.** Deficit is computable through
-   `shape::combine` by summing rises, with the documented hazard that running
-   `Count` sums can be quadratic in the worst case. Extent cannot be built
-   exactly as a `Rank` from the public API (the only constructor besides
-   `ZERO` is parsing text). Proposal: implement both privately for the diff's
-   summary line, and expose them only when a use beyond display appears. A
-   related, unexamined question: is "a is missing at least k ticks" (a
-   `min_ticks`-like bound on the difference) computable? `fill` makes a tick's
-   effect depend on the surrounding heights, so `min_ticks` of the difference
-   function need not be the answer.
-7. **The partial-order view** (`git log --graph` over a collection). It is a
+1. **Vertical and horizontal lag.** Write `g = (b − a)⁺` for the part of `b`
+   above `a`; `a.lag(&b)` is its area, `∫ g`. Its *height* is `max g`, an
+   integer, and its *width* is the measure of `{g > 0}`, a binary fraction.
+   Slicing `g` into floors `{g ≥ 1} ⊇ {g ≥ 2} ⊇ …` gives `lag` as the sum of
+   floor widths, width as the ground floor's width, and height as the number
+   of floors, so `width ≤ lag ≤ height × width`.
+   - All three are zero exactly when `b <= a`, shrink as `a` absorbs history,
+     grow as `b` gains it, and obey the triangle inequality.
+   - Only height is depth-independent. A depth-independent horizontal measure
+     would be a count: how many maximal ranges have `b` above `a`.
+   - Height is not a lower bound on missing ticks: `fill` can raise a point by
+     many in one tick. Under static membership, where each party owns one
+     dyadic interval and only its owner ticks there, height over a party's
+     region equals the version-vector difference for that writer.
+   - Candidate names: `lag_height` and `lag_width`, beside `lag`. They show
+     the pairing and the inequality, and follow `lag`'s direction.
+   - Candidate uses: progress measures in convergence tests; the bracketing
+     inequality and triangle inequality as property tests; the diff's summary
+     line; bounded-staleness predicates (`a.lag_height(&b) <= k`, in the
+     spirit of TACT's error bounds and Cosmos DB's bounded staleness); peer
+     selection for anti-entropy. The last two are application policies with
+     no current consumer in rumors.
+   - Proposal: implement privately for the diff; expose `lag_height` when a
+     consumer appears. Height is computable today through `shape::combine` by
+     summing rises (with the documented quadratic hazard for running `Count`
+     sums); width cannot be built exactly as a `Rank` from the public API.
+2. **A lower bound on missing ticks.** Is the fewest ticks `b`'s history must
+   hold beyond `a`'s computable? It is finite even though the true count is
+   unbounded above; from the empty version it is exactly `min_ticks`.
+   `min_ticks(a | b) − min_ticks(a)` is not a valid bound, because `a`'s real
+   history may hold more than `min_ticks(a)` events. `max(b) − max(a)` (global
+   maximum heights) is a valid bound if a tick raises a version's global
+   maximum by at most one: `fill` raises points only to heights already
+   present, and `grow` adds one. Induction over the execution then gives
+   `max(b) ≤ max(a) + |events b has seen that a has not|`. The premise is
+   unverified against this crate's tick; a proptest can check it.
+3. **The legend and assertion APIs** need development before they are
+   specified: the `Diff` and `Legend` types, the macros, and how a legend
+   attaches to `Debug`-style output.
+4. **The partial-order view** (`git log --graph` over a collection). It is a
    newtype over `C` where `for<'a> &'a C: IntoIterator<Item = &'a T>`,
    `T: Borrow<Version>`, optionally with labels. It sorts by rank computed
    once per version (`sort_by_cached_key`), not by comparing `Ranked` views.
@@ -225,22 +273,14 @@ the ids where one version is behind) do not depend on depth.
    worst, fine for debugging. With a legend, edges read `+1 bob`, an edge
    spanning several owners lists each, and merges read `merge of v2, v3` or
    `merge of v2, v3, +1 carol`.
-8. **The knowledge matrix.** Rows are owners' regions, columns are each peer's
+5. **The knowledge matrix.** Rows are owners' regions, columns are each peer's
    current version, and brackets mark a peer's view of its own region; `meet`
    and `join` columns give what everyone knows and the newest anyone has seen.
    Conjecture to check before relying on it: if every tick goes through its
    owner's `Clock`, each bracketed cell is its row's maximum, so a violation
    points at broken linearity.
-9. **Visualizer direction.** An in-browser editable pane that accepts only a
-   Rust-like subset would confuse users who expect Rust. The alternative under
-   discussion is record-and-replay, as Python Tutor does it. A `trace` feature
-   records each public operation (call site via `#[track_caller]`, inputs and
-   outputs as canonical bytes) while ordinary Rust runs locally. A viewer built
-   on `before-viz`'s renderer then steps through the recording beside the
-   source. Doc examples could ship pre-recorded, which sets no expectation of
-   editing.
 
-## Corrections to round one
+## Corrections to earlier rounds
 
 - `crates/before-viz` already exists: a gesture-driven wasm visualizer
   (fork, tick, join, send) that draws each clock as a skyline over an
@@ -251,7 +291,9 @@ the ids where one version is behind) do not depend on depth.
   ranges narrower than 7px stop being legible.
 - §3a's pseudo-version-vector table is the single-version case of the diff
   layout, transposed; the legend-annotated `Debug` above replaces it.
-- §3g's lag time series measured area, which depends on depth; see the
-  diff's summary measures above.
+- §3g's lag time series measured area, which depends on depth.
+- Round two claimed that the width where one version is behind ("extent") is
+  depth-independent. It is not: one missed tick on a 2⁻²⁰-wide fragment has
+  width 2⁻²⁰. Only the vertical measure is.
 - Prior art in round one comes from memory and has not been checked on the
   web.
