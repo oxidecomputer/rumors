@@ -13,7 +13,7 @@ their reports, verbatim, beside the build report they reviewed.
 2. [Correctness](02-review-correctness.md). It handed back before its cost
    probes ran, so its cost hypotheses are open; its value-correctness
    evidence comes from runs that finished.
-3. Test coverage: added when it arrives.
+3. [Test coverage](03-review-coverage.md).
 4. [Structure](04-review-structure.md), with its four prototype patches in
    [structure-patches/](structure-patches/), each verified on the box by
    the reviewer (tests and board capture/compare), not by the coordinator.
