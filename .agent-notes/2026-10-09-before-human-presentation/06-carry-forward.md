@@ -125,8 +125,3 @@ detail lives.
 - Probes against the public API, kept with notes, produced three findings
   here: the missing positions, the opaque `Debug` in a real failure, and an
   easy misreading of `forks`. They are cheap to repeat.
-- A pending proposal for Finch's instructions: the main checkout's branch
-  can change under a running session, so commit after checking the branch,
-  or commit notes to `main` through a detached worktree with a
-  compare-and-swap ref update. It may be an instance of the existing rule
-  to stop and ask on unexpected state.
