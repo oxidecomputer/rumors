@@ -527,9 +527,11 @@ _gate-docsrs: docs-docsrs
 _gate-audit: supply-chain
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
-# `borsh` is exercised constantly via rumors; `serde` and `oracle` are only
-# ever lit here. The `serde`+`borsh` pair matters because both derive on the
-# same types.
+# `serde` is compiled in every build that includes `rumors`, which enables it,
+# and `oracle` in every `before` test build, through `before`'s dev-dependency
+# on itself. No manifest enables `borsh`, so outside `--all-features` builds
+# only this recipe compiles it. The `serde`+`borsh` pair matters because both
+# derive on the same types.
 
 # Feature matrix: every cfg-gated surface on its own, so nothing rots behind `--all-features`.
 features:

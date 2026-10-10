@@ -313,7 +313,8 @@ const VERSION_STREAM_FAMILIES: &str = concat!(
 /// that the measured operation reaches changes *which family reads worst*
 /// between the 64-bit hosts the pin is taken and checked on, and name that
 /// path in a `// Target-conditional path:` comment on the line above the
-/// entry; a test fails any marked entry without one. A reading that merely
+/// entry, or above its `#[cfg]` attribute when the entry is feature-gated; a
+/// test fails any marked entry without one. A reading that merely
 /// differs by target does not qualify, nor does a flip between near-equal
 /// families with no such path behind it, however small its margin: that flip
 /// is news (see [`NEAR_TIE_RATIO`]). The margin plays no part in the rule, so

@@ -993,45 +993,76 @@ fn worst_rankings_pin_is_well_formed() {
     }
 }
 
+/// The feature named by a ranking-pin source line that is a
+/// `#[cfg(feature = "...")]` attribute, or `None` for any other line.
+fn pin_entry_feature(line: &str) -> Option<&str> {
+    line.trim_start()
+        .strip_prefix("#[cfg(feature = \"")?
+        .strip_suffix("\")]")
+}
+
+/// Whether this build compiles `feature`, one of the features that gate
+/// ranking-pin entries.
+///
+/// # Panics
+///
+/// Panics on any other feature: a pin entry gated on it needs an arm here.
+fn pin_feature_compiled(feature: &str) -> bool {
+    match feature {
+        "serde" => cfg!(feature = "serde"),
+        "borsh" => cfg!(feature = "borsh"),
+        other => panic!("a ranking-pin entry is gated on feature {other:?}: add its arm here"),
+    }
+}
+
 /// Every [`TARGET_DEPENDENT`](super::worst::TARGET_DEPENDENT) entry in the
-/// ranking pin names its target-conditional code path in a comment on the line
-/// above it.
+/// ranking pin names its target-conditional code path in a comment above it.
+///
+/// The comment sits on the line directly above the entry, or above its
+/// `#[cfg(feature = "...")]` attribute when the entry is feature-gated.
 ///
 /// The marker's rule admits a cell only when such a path changes which family
 /// reads worst between the hosts the pin is checked on. Whether a named path
 /// does so is for review; this test makes an entry that names no path fail.
-/// It scans the pin's source, so it first checks that the scan finds one
-/// marked line per marked table entry, which keeps a scan that finds nothing
-/// from passing.
+/// It scans the pin's source, skipping the entries whose feature this build
+/// omits, as the table does, and checks that the scan finds one marked line
+/// per marked table entry, which keeps a scan that finds nothing from passing.
 #[test]
 fn target_dependent_pin_entries_name_their_code_path() {
     use super::worst::{TARGET_DEPENDENT, WORST_RANKINGS};
     const PATH_COMMENT: &str = "// Target-conditional path: ";
     let source: Vec<&str> = include_str!("worst.rs").lines().collect();
-    let marked_lines: Vec<usize> = (0..source.len())
-        .filter(|&i| {
-            let line = source[i].trim_start();
-            line.starts_with("(\"") && line.contains("TARGET_DEPENDENT")
-        })
-        .collect();
+    let mut marked_lines = 0;
+    for (i, line) in source.iter().enumerate() {
+        let line = line.trim_start();
+        if !(line.starts_with("(\"") && line.contains("TARGET_DEPENDENT")) {
+            continue;
+        }
+        // A feature-gated entry sits directly under its `#[cfg]` attribute,
+        // with the path comment above that.
+        let mut comment = i.checked_sub(1);
+        if let Some(feature) = comment.and_then(|above| pin_entry_feature(source[above])) {
+            if !pin_feature_compiled(feature) {
+                continue;
+            }
+            comment = comment.and_then(|above| above.checked_sub(1));
+        }
+        marked_lines += 1;
+        assert!(
+            comment.is_some_and(|above| source[above].trim_start().starts_with(PATH_COMMENT)),
+            "worst.rs line {}: a target-dependent entry needs a `{PATH_COMMENT}...` comment \
+             on the line above it, or above its `#[cfg]` attribute: {line}",
+            i + 1,
+        );
+    }
     let marked_entries = WORST_RANKINGS
         .iter()
         .filter(|(_, _, columns)| columns.contains(&TARGET_DEPENDENT))
         .count();
     assert_eq!(
-        marked_lines.len(),
-        marked_entries,
-        "the source scan must find each marked pin entry on its own line"
+        marked_lines, marked_entries,
+        "the source scan must find each compiled marked pin entry on its own line"
     );
-    for i in marked_lines {
-        assert!(
-            i > 0 && source[i - 1].trim_start().starts_with(PATH_COMMENT),
-            "worst.rs line {}: a target-dependent entry needs a `{PATH_COMMENT}...` comment \
-             on the line above it: {}",
-            i + 1,
-            source[i].trim()
-        );
-    }
 }
 
 /// Build a worst-map row whose heap column ranks `heap` worst (empty when no
