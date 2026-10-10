@@ -199,3 +199,18 @@ order and would subtract twice when the values are close. `Ord` also asks
 the stability query once at a lead of exactly two digits, falling back to
 subtraction on refusal, so it still terminates. `place/filter.rs` uses
 `Ord` in place of its copy of the comparison protocol.
+
+## Owner's ruling (rank integrator tiers, 2026-10-09)
+
+The rank integrator keeps its `parked` tier. A prototype
+(`explore/rank-single-tier`, kept as evidence) showed that deferring every
+freeze stays within O(M(n)) but, on families that freeze often with narrow
+deltas, adds a log factor to linear work and raises heap from 0.04 to 4.66
+bytes per input byte (`zz-nf-d8`). Eager freezing raises rank's heap to
+115.7 bytes per input byte without `parked` and 41.5 with it; the 8-digit
+allowance keeps every family under 6.9. O(M(n)) is the contract: exact
+integration can encode an integer product. The deferred tree's n log n
+linear work on `arming-train` is within it, recorded as an observation.
+Wanted later: a board family that removing `parked` would fail, the module
+doc stating what `parked` buys, and any clarity rework that keeps the
+integrator's efficiency.
