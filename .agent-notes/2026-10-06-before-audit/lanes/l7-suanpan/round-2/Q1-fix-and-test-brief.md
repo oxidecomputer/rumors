@@ -230,3 +230,12 @@ negative.
 
 Documentation names committed constants instead of quoting their values,
 so it cannot drift from them (owner, 2026-10-10).
+
+## Owner's rulings (#122 review process, 2026-10-10)
+
+The coordinator checks every finding in the three #122 reviews against its
+disposition and the diff, and brings the owner only the findings that need
+judgment, in place of a full walk-through. Prose revision is deferred for
+#122 and `fix/min-ticks-transient-heap`: once both have landed, one prose
+pass covers everything the two branches touched, instead of a pass on each
+branch.
