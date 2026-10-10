@@ -18,5 +18,13 @@ their reports, verbatim, beside the build report they reviewed.
    [structure-patches/](structure-patches/), each verified on the box by
    the reviewer (tests and board capture/compare), not by the coordinator.
 
+5. [Dispositions](05-dispositions.md): the fix builder's report at
+   `ac7b99900`, with a disposition for every finding, and two findings held
+   for the owner.
+
 **What has been verified.** The coordinator verified the branch's ten
-signatures, its base, a clean tree, and its landing check before review.
+signatures, its base, a clean tree, and its landing check before review;
+and after the fix round, the 18 signatures at `ac7b99900`, its base (#122's
+`e0956b25d`), a clean tree, the landing check, and that no board row rises
+against the reviewed tip (35 `version_min_ticks` rows move, all down). The
+owner has not yet gone over the findings against their dispositions.
