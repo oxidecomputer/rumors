@@ -42,10 +42,13 @@ membership with single-interval parties. Rendering could use the compact
 form whenever it is exact, and expand only owners whose regions vary. This
 is the principled version of round one's pseudo-version-vector table.
 
-**Projections.** `v / p` sets heights outside `p`'s region to zero, so
-"outside this party" and "no events here" look the same once materialized.
-`OwnVersion`'s `Debug` can tell them apart with a wildcard arm:
-`OwnVersion { 0..0.1 => 3, 0.1..1 => _ }`.
+**Projections render as their materialization (ruled; see the README).** An
+earlier proposal marked ranges outside the party with a wildcard arm
+(`0.1..1 => _`), to tell "outside this party" from "no events here". Finch
+ruled instead that a projected view prints exactly as the masked version
+does, save the type name, and the ruling holds up: the view compares equal
+to its materialization, so a wildcard would render two equal values
+differently.
 
 **Point spans read as versions.** `Span::at(v)` has a single height in every
 arm, so its `Debug` matches `v`'s apart from the type name, a useful

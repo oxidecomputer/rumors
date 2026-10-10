@@ -138,6 +138,26 @@ Span { 0..0.11 => 2..=3, 0.11..1 => 1..=2 }
 
 `Span` holds its endpoints by value; see [Spans by value](#spans-by-value).
 
+### Views
+
+A lazy view renders as the value it denotes, save the type name. `v / p`
+(an `OwnVersion`) prints exactly as its materialization, the version masked
+to zero outside `p`'s region:
+
+```
+OwnVersion { 0..0.1 => 3, 0.1..1 => 0 }
+```
+
+The view compares equal to that materialization with `==`, so any other
+rendering would print two equal values differently. `OwnSpan` follows: the
+band of both endpoints masked. `Debug` streams the masked runs from the same
+lazy walk the comparisons use, never materializing the projection. The
+materialized tree can outgrow its operands multiplicatively, per
+`OwnVersion`'s docs, but every run boundary of the masked function is a
+boundary of `v` or of `p`, so the runs are no more numerous than the
+operands' boundaries together. `OwnVersion` derives `Debug` today, printing
+its two fields; this replaces that with a hand-written impl.
+
 ### Clock
 
 ```
