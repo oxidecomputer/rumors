@@ -2,9 +2,17 @@
 
 A living design note: how `Party`, `Version`, `Clock`, `Span`, and their
 relations should read in `Debug` output, assertion failures, and visual tools.
-It records what Finch has ruled, what remains open, and why. The round-one
-brainstorm is kept verbatim in [01-brainstorm.md](01-brainstorm.md); this
-README supersedes it wherever they differ.
+It records what Finch has ruled, what remains open, and why. This README
+supersedes the other sections wherever they differ:
+
+1. [01-brainstorm.md](01-brainstorm.md): the round-one brainstorm, verbatim.
+2. [02-measures.md](02-measures.md): what the numeric measures of versions and
+   pairs mean (height, width, rank, `min_ticks`, the lag and distance
+   families, bricks and floors), with proofs, probe evidence, and open
+   problems.
+3. [03-views.md](03-views.md): notation alternatives, the skyline drawing,
+   the partial-order and knowledge-matrix views, and prior art.
+4. [probe/](probe/): the throwaway crate behind 02's evidence.
 
 ## The question
 
@@ -101,6 +109,9 @@ the maximal runs determine the function. A parser that lives only in tests,
 plus a round-trip proptest, commits this as a tested fact; there is no public
 parser.
 
+The alternatives weighed against this notation, the skyline drawing, and the
+floors notation for the crate docs are in [03-views.md](03-views.md).
+
 ### Span
 
 A band: each arm gives the range of heights the span allows over that range of
@@ -180,7 +191,7 @@ lifetime, holding its versions by value as `Span` does; a legend-annotated
 diff borrows the legend.
 
 The summary line pairs a vertical and a horizontal measure of each side's
-lead; see [Vertical and horizontal lag](#open-questions). The vertical one,
+lead; see [02-measures.md](02-measures.md#pairwise-measures). The vertical one,
 the largest height difference, does not depend on tree depth. The horizontal
 one, the width of the ids where that side is ahead, does: like `lag`'s area,
 it shrinks with the regions it covers.
@@ -222,131 +233,42 @@ Recorded here, not done:
   each `Ranked` comparison repeats the rank traversal, so a sort pays it on
   every comparison. `Ranked`'s own docs already recommend materialized keys
   for large sorts; the same hazard belongs at `Version::ranked`.
-- **Laws about global heights, none of which a test states today.** A
-  scratch probe (randomized histories of up to 8 parties, 24,000 versions)
-  found no counterexample to any of them; none is committed.
+- **Laws about measures, none of which a test states today.**
+  [02-measures.md](02-measures.md) gives each one's status (proved, probed, or
+  conjectured); the probe found no counterexample to any probed law, and none
+  is committed.
   - A tick raises a version's global maximum height by at most one (Finch
-    confirms), so `ticks(k)` raises it by at most `k`.
-  - `ticks(k)` raises it by at least `k − 1` when the party is a single dyadic
-    interval containing a point of maximal height: the first tick may fill
-    that interval up to the maximum, and every later tick grows it by one. The
-    seed is such a party. For any other party the lower bound is 0. The probe
-    shows a party owning `0..0.1` tick four times from
-    `Version { 0..0.1 => 0, 0.1..0.11 => 5, 0.11..1 => 14 }` without moving
-    the maximum: the first tick fills its half to 5, and later ticks grow it
-    below 14.
-  - `min_ticks(v) >= max height of v`.
-  - The maximum height preserves joins, and the minimum height preserves
-    meets.
-  - `width <= rank <= max height × width`, where width is the measure of the
-    ids with nonzero height.
+    confirms), so `ticks(k)` raises it by at most `k`; by at least `k − 1`
+    when the party is a single dyadic interval containing a point of maximal
+    height, such as the seed; and otherwise by possibly nothing.
+  - `max ≤ min_ticks`, `rank ≤ min_ticks`, `width ≤ rank ≤ max × width`.
+  - The maximum height preserves joins; the minimum height preserves meets.
+  - `rank` and width are modular: `f(a | b) + f(a & b) = f(a) + f(b)`.
+  - `min_ticks` equals the number of bricks (the floors' maximal dyadic
+    pieces), is submodular, and is not monotone in the causal order.
 
 ## Open questions
 
-1. **Vertical and horizontal lag.** Write `g = (b − a)⁺` for the part of `b`
-   above `a`; `a.lag(&b)` is its area, `∫ g`. Its *height* is `max g`, an
-   integer, and its *width* is the measure of `{g > 0}`, a binary fraction.
-   Slicing `g` into floors `{g ≥ 1} ⊇ {g ≥ 2} ⊇ …` gives `lag` as the sum of
-   floor widths, width as the ground floor's width, and height as the number
-   of floors, so `width ≤ lag ≤ height × width`.
-   - All three are zero exactly when `b <= a`, shrink as `a` absorbs history,
-     grow as `b` gains it, and obey the triangle inequality.
-   - Only height is depth-independent. A depth-independent horizontal measure
-     would be a count: how many maximal ranges have `b` above `a`.
-   - Height is not a lower bound on missing ticks: `fill` can raise a point by
-     many in one tick. Under static membership, where each party owns one
-     dyadic interval and only its owner ticks there, height over a party's
-     region equals the version-vector difference for that writer.
-   - Candidate names: `lag_height` and `lag_width`, beside `lag`. They show
-     the pairing and the inequality, and follow `lag`'s direction.
-   - Candidate uses: progress measures in convergence tests; the bracketing
-     inequality and triangle inequality as property tests; the diff's summary
-     line; bounded-staleness predicates (`a.lag_height(&b) <= k`, in the
-     spirit of TACT's error bounds and Cosmos DB's bounded staleness); peer
-     selection for anti-entropy. The last two are application policies with
-     no current consumer in rumors.
-   - Proposal: implement privately for the diff; expose `lag_height` when a
-     consumer appears. Height is computable today through `shape::combine` by
-     summing rises (with the documented quadratic hazard for running `Count`
-     sums); width cannot be built exactly as a `Rank` from the public API.
-   - **Symmetric forms.** Since `|a − b| = (a | b) − (a & b)` pointwise, every
-     symmetric measure is the matching lag measure from the meet to the join,
-     as `distance` is the lag from meet to join. Distance-height is
-     `max |a − b|`, the Chebyshev distance, equal to the larger of the two
-     lag-heights. Distance-width is the width of `{a ≠ b}`, equal to the sum
-     of the two lag-widths, because the sets where each side leads are
-     disjoint. Heights combine by maximum, widths and areas by sum, and the
-     bracketing inequality holds again. All three are metrics. None says who
-     leads; the asymmetric pair does. Each is two calls to the asymmetric
-     forms, so a method is worth adding only for a consumer that needs one
-     pass.
-   - **Single-version forms.** Measured from the empty version, a version has
-     a maximum height, a width (the measure of its *support*, the ids with
-     nonzero height), and an area (its rank); its minimum height, the
-     canonical tree's root base, adds a fourth.
-     - Flat versions `Version { 0..1 => k }` form a chain: scalar,
-       single-writer time. Writing `flat(k)` for them, `v <= flat(k)` exactly
-       when `max(v) <= k`, and `flat(k) <= v` exactly when `k <= min(v)`. The
-       maximum and minimum are the left and right adjoints of the embedding
-       `flat`, the best scalar approximations of `v` from above and below.
-       Hence the maximum preserves joins and the minimum preserves meets.
-     - The maximum is causal depth. Each tick raises it by at most one and
-       joins take maxima, so every history producing `v` contains a chain of
-       at least `max(v)` causally ordered ticks. The bound is exact: fork the
-       seed into one party per plateau of `v`, tick each up to its plateau's
-       height concurrently, and join them. So `max(v)` is the least possible
-       longest causal chain over all histories of `v`, where `min_ticks` is
-       the least possible event count, and `min_ticks >= max`.
-     - Width is breadth across identity space: how much of it carries any
-       history, not how many events (one seed tick has width 1). Under static,
-       equal-share membership of N parties, width × N counts the parties that
-       have ticked. The support preserves both joins and meets (union and
-       intersection) and is the right adjoint of the indicator embedding
-       (the version at height 1 over a set of ids, 0 elsewhere). The floors
-       `{v ≥ k}` generalize it: each is the right adjoint of the embedding at
-       height `k`, which is why the floors notation determines the version.
-     - A support or floor is a set of ids with no identity attached, so if one
-       is ever exposed it needs its own type, not `Party`, which would create
-       identity.
-   - **Pairwise height carries no causal bound, but the global difference
-     does.** From the empty version, `grow` built every height, so the
-     maximum bounds causal depth. Between two versions, a `fill` can copy a
-     height `a` already holds elsewhere, so `a.lag_height(&b)` can be 10 while
-     `b` has seen one tick `a` has not (party P forks into quarters, the right
-     quarter ticks ten times, P rejoins, and P's next tick fills the left
-     quarter to 10; the probe confirms it, from
-     `a = Version { 0..0.01 => 0, 0.01..0.1 => 10, 0.1..1 => 0 }` to
-     `b = Version { 0..0.1 => 10, 0.1..1 => 0 }`). `max(a | b) − max(a)` is at most both `a.lag_height(&b)`
-     and the number of missing ticks; those two are incomparable.
-2. **A lower bound on missing ticks.** Is the fewest ticks `b`'s history must
-   hold beyond `a`'s computable? It is finite even though the true count is
-   unbounded above; from the empty version it is exactly `min_ticks`.
-   `min_ticks(a | b) − min_ticks(a)` is not a valid bound, because `a`'s real
-   history may hold more than `min_ticks(a)` events. `max(b) − max(a)` (global
-   maximum heights) is a valid bound: a tick raises a version's global maximum
-   by at most one (Finch confirms; the probe agrees), joins take maxima, and
-   any version built entirely from events `a` has seen lies below `a`.
-   Induction over the execution gives
-   `max(b) ≤ max(a) + |events b has seen that a has not|`. Whether the
-   greatest lower bound is computable is open.
+1. **Lag measures for the diff and beyond.** The candidates `lag_height` (the
+   largest height difference, depth-independent) and `lag_width` (the width
+   where one side leads, depth-dependent) pair with `lag` (area):
+   `width ≤ lag ≤ height × width`. Their symmetric forms are the same measures
+   from meet to join. Proposal: implement them privately for the diff, and
+   expose `lag_height` when a consumer appears. Names, return types, uses, and
+   properties are in [02-measures.md](02-measures.md).
+2. **A lower bound on missing ticks.** `max(b) − max(a)` is a valid lower
+   bound on the ticks `b` has seen that `a` has not; pairwise height is not.
+   Whether the greatest lower bound is computable is open; see
+   [02-measures.md](02-measures.md#causal-content).
 3. **The legend and assertion APIs** need development before they are
    specified: the `Diff` and `Legend` types, the macros, and how a legend
    attaches to `Debug`-style output.
-4. **The partial-order view** (`git log --graph` over a collection). It is a
-   newtype over `C` where `for<'a> &'a C: IntoIterator<Item = &'a T>`,
-   `T: Borrow<Version>`, optionally with labels. It sorts by rank computed
-   once per version (`sort_by_cached_key`), not by comparing `Ranked` views.
-   A version's parents are the earlier versions below it that lie below no
-   parent already chosen, found by walking down in rank: O(n³) comparisons at
-   worst, fine for debugging. With a legend, edges read `+1 bob`, an edge
-   spanning several owners lists each, and merges read `merge of v2, v3` or
-   `merge of v2, v3, +1 carol`.
-5. **The knowledge matrix.** Rows are owners' regions, columns are each peer's
-   current version, and brackets mark a peer's view of its own region; `meet`
-   and `join` columns give what everyone knows and the newest anyone has seen.
-   Conjecture to check before relying on it: if every tick goes through its
-   owner's `Clock`, each bracketed cell is its row's maximum, so a violation
-   points at broken linearity.
+4. **The partial-order view** (`git log --graph` over a collection of
+   versions): type, ordering, parent selection, and legend labels are
+   sketched in [03-views.md](03-views.md#the-partial-order-view).
+5. **The knowledge matrix** (owners' regions against each peer's version),
+   and its conjecture that each owner's own cell is its row's maximum: see
+   [03-views.md](03-views.md#the-knowledge-matrix).
 
 ## Corrections to earlier rounds
 
