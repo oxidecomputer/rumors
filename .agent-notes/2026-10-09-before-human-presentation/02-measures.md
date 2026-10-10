@@ -179,6 +179,10 @@ negative for the pair above, and so is the entropy-style
 
 ## Pairwise measures
 
+[07-signed-versions.md](07-signed-versions.md) reorganizes this section: each
+pairwise measure is a single-version measure of `b ∸ a`, of `|a − b|`, or of
+the signed `Diff` `a − b`. What follows is the original derivation.
+
 Write `g = (b − a)⁺`, the part of `b` above `a`. It is a nonnegative dyadic
 step function, so it has the same floors and bricks as a version, and every
 single-version measure applies to it:

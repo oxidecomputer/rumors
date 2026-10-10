@@ -19,7 +19,10 @@ supersedes the other sections wherever they differ:
    superlinear size.
 6. [06-carry-forward.md](06-carry-forward.md): what to do with all of it,
    ordered by dependency and risk.
-7. [probe/](probe/): the throwaway crate behind 02's and 05's evidence.
+7. [07-signed-versions.md](07-signed-versions.md): saturating subtraction and
+   a signed `Diff`, which reorganize 02's pairwise measures, the order, the
+   drivers and folds, and the diff display.
+8. [probe/](probe/): the throwaway crate behind 02's and 05's evidence.
 
 ## The question
 

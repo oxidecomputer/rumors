@@ -75,7 +75,9 @@ detail lives.
 - **The causal diff and named assertion macros**, with a summary line from
   private lag-height and lag-width folds (README, Causal diff;
   [02](02-measures.md#computing-the-measures)). Settle the macro names
-  ([05](05-further-observations.md#notation)).
+  ([05](05-further-observations.md#notation)). If `Diff` lands, the display
+  is its `Debug` and the summary line measures its parts
+  ([07](07-signed-versions.md)).
 - **`Legend`**: names of any `N: Display`, built from `(name, &Party)` pairs,
   infallible, collapsing to version-vector form wherever each owner's region
   is flat (README, Legend; [05](05-further-observations.md#notation)).
