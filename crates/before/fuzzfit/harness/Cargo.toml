@@ -10,12 +10,12 @@ edition = "2021"
 # fuel) — so the same `before` build the guest wraps is a direct dependency.
 # The meter feature lights the instrument surface: the exact-bit-length
 # observation (`encoded_bits`) the fuel denominators read.
-before = { path = "../..", features = ["meter"] }
+before = { workspace = true, features = ["meter"] }
 # Executes the guest under fuel metering: fuel decrements per executed wasm
-# instruction, deterministic and host-independent. Tool-side only: this
-# workspace is detached from the parent, so wasmtime never enters the
-# production crates' dependency graph.
-wasmtime = { version = "48.0.5", default-features = false, features = [
+# instruction, deterministic and host-independent. Tool-side only: this crate
+# is listed in the justfile's `tool_members`, so the gate's ordinary legs
+# never compile wasmtime.
+wasmtime = { workspace = true, features = [
     "cranelift",
     "runtime",
     # Pooled instance slots: samplers instantiate one guest per sample,
@@ -25,14 +25,15 @@ wasmtime = { version = "48.0.5", default-features = false, features = [
 ] }
 # The enforcement leg's engine; a regular dependency (not dev) because the
 # calibration binary draws from the same strategies the tests do.
-proptest = "1"
+proptest = { workspace = true }
 # Deterministic seed streams for the calibration sweep, the same
-# documented-portable generator the parent crate's corpus sweeps use.
-rand = "0.8"
-rand_chacha = "0.3"
+# documented-portable generator the parent crate's corpus sweeps use, at the
+# 0.8 releases the committed bands were calibrated with.
+rand08 = { workspace = true }
+rand_chacha03 = { workspace = true }
 
 [build-dependencies]
 # Identifies the building toolchain (`build.rs` embeds it): fuel constants
 # are a function of the guest codegen, so the suite refuses to judge
 # against bands pinned under a different rustc.
-rustc_version = "0.4"
+rustc_version = { workspace = true }

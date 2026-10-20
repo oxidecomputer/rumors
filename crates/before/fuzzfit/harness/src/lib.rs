@@ -2,9 +2,10 @@
 //!
 //! The resource board measures chosen input families with per-currency
 //! counters. This harness adds instruction-cost observations and randomized
-//! shapes. It runs the selected operations in [`ops`] as a release Wasm guest
-//! under Wasmtime fuel metering. Fuel is deterministic for fixed guest bytes,
-//! call sequences, and payloads; it measures Wasm work, not native elapsed time.
+//! shapes. It runs the selected operations in [`ops`] as a Wasm guest, built
+//! in the root manifest's `fuel` profile, under Wasmtime fuel metering. Fuel
+//! is deterministic for fixed guest bytes, call sequences, and payloads; it
+//! measures Wasm work, not native elapsed time.
 //!
 //! Calibration fits fuel against operand size over a deterministic corpus
 //! and commits the results in [`bands`]. Enforcement compares new samples with

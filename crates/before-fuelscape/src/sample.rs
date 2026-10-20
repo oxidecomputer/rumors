@@ -27,8 +27,8 @@
 
 use num_bigint::{BigUint, RandBigInt};
 use num_traits::Zero;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
+use rand08::SeedableRng;
+use rand_chacha03::ChaChaRng;
 
 use crate::count::{
     bit_window, version_leaf_count, PartyCounts, VersionCounts, MIN_PARTY_BITS, MIN_VERSION_BITS,

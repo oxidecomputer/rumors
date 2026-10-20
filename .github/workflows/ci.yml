@@ -58,12 +58,12 @@ jobs:
 
 # Gate judgments that also run on shared runners: advisory and dependency
 # policy, the amplification board and its ranking pin, and public-surface
-# totality. The local gate additionally runs the detached Wasmtime fuel and
+# totality. The local gate additionally runs the tool-side Wasmtime fuel and
 # 32-bit boundary suites; their builds and deep executions are deliberately
 # kept off the shared runner.
   #
   # Runner fit: every step here builds `before` alone (release profile,
-  # counter features) plus the small detached surfacecheck workspace;
+  # counter features) plus the small surfacecheck member;
   # rumors' release-profile bench builds live in `ci`'s bench-build leg,
   # not in this job.
   #
@@ -84,7 +84,6 @@ jobs:
           nightly: "true"
           cache-workspaces: |
             .
-            crates/before/surfacecheck
 
       - name: Run deterministic instruments
         run: just ci-instruments

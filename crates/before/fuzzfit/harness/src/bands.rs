@@ -28,10 +28,11 @@
 //! measure malformed decoding or empty folds. See [`crate::strategies`] for
 //! the generated inputs and their limits.
 //!
-//! The pin uses the release Wasm guest, the toolchain in [`PINNED_RUSTC`], and
-//! Wasmtime fuel. Calibration reports the fixed reach programs' ceiling excess,
-//! the measured floors' distance from a no-op, and prefix-refit divergence.
-//! Review these measurements against the enforcement tolerances when re-pinning.
+//! The pin uses the Wasm guest built in the root manifest's `fuel` profile,
+//! the toolchain in [`PINNED_RUSTC`], and Wasmtime fuel. Calibration reports
+//! the fixed reach programs' ceiling excess, the measured floors' distance
+//! from a no-op, and prefix-refit divergence. Review these measurements
+//! against the enforcement tolerances when re-pinning.
 
 /// One pinned band (see the module doc for the membership predicate).
 #[derive(Debug, Clone, Copy)]

@@ -106,16 +106,19 @@ fn recorded_panic(instance: &Instance, store: &mut Store<()>) -> Option<String> 
     Some(String::from_utf8(message).expect("the guest records UTF-8 cut at a character boundary"))
 }
 
-/// Returns the guest built beside this detached workspace.
+/// Returns the compiled guest's path: `WASM32_PINS_GUEST_WASM`, else the
+/// guest under `CARGO_TARGET_DIR`, else the repo root's `target/wasm32-pins`,
+/// where `just wasm32-pins-build` writes it in the `wasm32-pins` profile.
 fn guest_wasm_path() -> PathBuf {
     if let Ok(path) = std::env::var("WASM32_PINS_GUEST_WASM") {
         return PathBuf::from(path);
     }
     if let Ok(target) = std::env::var("CARGO_TARGET_DIR") {
-        return PathBuf::from(target).join("wasm32-unknown-unknown/release/wasm32_pins_guest.wasm");
+        return PathBuf::from(target)
+            .join("wasm32-unknown-unknown/wasm32-pins/wasm32_pins_guest.wasm");
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../../target/wasm32-pins/wasm32-unknown-unknown/release/wasm32_pins_guest.wasm",
+        "../../../../target/wasm32-pins/wasm32-unknown-unknown/wasm32-pins/wasm32_pins_guest.wasm",
     )
 }
 

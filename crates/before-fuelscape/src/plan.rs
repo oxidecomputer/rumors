@@ -21,7 +21,7 @@
 //! bytes everywhere, and every rendered plot carries its row's exact
 //! declaration ([`crate::ops::OpSpec`]'s `size_measure`).
 
-use rand::Rng;
+use rand08::Rng;
 use rayon::prelude::*;
 
 use fuzzfit_harness::wasm::Guest;
@@ -173,7 +173,7 @@ impl Samplers {
 /// parts peak at `k ≈ total/2`) — so every arity gets equal
 /// representation per column, and the split below stays exactly uniform
 /// at the drawn arity.
-fn draw_arity(cap: usize, rng: &mut rand_chacha::ChaChaRng) -> usize {
+fn draw_arity(cap: usize, rng: &mut rand_chacha03::ChaChaRng) -> usize {
     rng.gen_range(1..=cap)
 }
 
@@ -186,7 +186,7 @@ fn draw_arity(cap: usize, rng: &mut rand_chacha::ChaChaRng) -> usize {
 ///
 /// For one part this draws nothing; for two it is a single
 /// `gen_range(1..total)` — the binary split rule, unchanged.
-fn split_budget(total: usize, parts: usize, rng: &mut rand_chacha::ChaChaRng) -> Vec<usize> {
+fn split_budget(total: usize, parts: usize, rng: &mut rand_chacha03::ChaChaRng) -> Vec<usize> {
     assert!(
         total >= parts && parts >= 1,
         "a column of {total} bytes cannot feed {parts} one-byte-minimum operands"
@@ -214,7 +214,7 @@ fn draw_encoded(
     operands: &[Operand],
     samplers: &Samplers,
     size: usize,
-    rng: &mut rand_chacha::ChaChaRng,
+    rng: &mut rand_chacha03::ChaChaRng,
 ) -> (Vec<Vec<u8>>, u64) {
     let sizes = split_budget(size, operands.len(), rng);
     let mut rejected = 0;
@@ -251,7 +251,7 @@ fn draw_inputs(
     op: &OpSpec,
     samplers: &Samplers,
     size: usize,
-    rng: &mut rand_chacha::ChaChaRng,
+    rng: &mut rand_chacha03::ChaChaRng,
 ) -> (Vec<Vec<u8>>, usize, u64) {
     match op.inputs {
         Inputs::Operands(operands) => {

@@ -64,29 +64,43 @@ host_triple := `rustc -vV | sed -n 's/^host: //p'`
 
 fuzz_smoke_secs := "20"
 
+# The workspace's tool-side members, and the one list of them: instruments
+# that measure or check the production crates and pull in tooling those
+# crates never need, Wasmtime above all. Every `--workspace` invocation
+# below excludes them, so the ordinary legs never compile Wasmtime; each
+# member is built, linted, and tested by its own recipes. `manifestlint`
+# holds this list to the workspace; its header states the rules.
+
+tool_members := "--exclude before-fuelscape --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
+
 # The fuzz-fit guest's wasm: one artifact produced by one recipe and read
-# by two others (the fuzz-fit harness and the fuelscape pipeline), in
-# separate detached workspaces.
+# by two others (the fuzz-fit harness and the fuelscape pipeline).
 #
 # Named here, and passed explicitly at the producer and at every consumer,
-# because the location is otherwise a coincidence: the fuzzfit workspace's
-# `.cargo/config.toml` points its target dir at the repo root's
-# `target/fuzzfit`, and an ambient `CARGO_TARGET_DIR` silently overrides
-# that — so the guest is written somewhere else while the consumers keep
-# reading the configured path. Anyone who exports `CARGO_TARGET_DIR`, and
-# any harness that sets one to keep artifacts outside a synced tree, gets
-# a "guest wasm not found" that names a path nothing wrote.
+# so an ambient `CARGO_TARGET_DIR` cannot separate the guest from the
+# consumers that read it: every tool recipe passes `--target-dir`, which
+# overrides the variable. The guest builds in the root manifest's `fuel`
+# profile, which is part of what fuel measures. The tool recipes keep
+# target directories of their own under `target/`, so the gate's streams
+# can overlap; the `gate` recipe's comment states when they do.
 
 fuzzfit_target := justfile_directory() + "/target/fuzzfit"
-fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/release/fuzzfit_guest.wasm"
+fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/fuel/fuzzfit_guest.wasm"
 
-# The 32-bit boundary-pin guest's wasm: produced by `wasm32-pins-build`,
-# read by the `wasm32-pins` harness run. Named and passed explicitly for
-# the same reason as the fuzz-fit guest above: an ambient CARGO_TARGET_DIR
-# must not separate the producer from the consumer.
+# The fuelscape atlas's and the surface-totality checker's target
+# directories, kept apart from the root `target/` for the same reason.
+
+fuelscape_target := justfile_directory() + "/target/before-fuelscape"
+surfacecheck_target := justfile_directory() + "/target/surfacecheck"
+
+# The 32-bit boundary-pin guest's wasm: produced by `wasm32-pins-build` in
+# the root manifest's `wasm32-pins` profile, read by the `wasm32-pins`
+# harness run. Named and passed explicitly for the same reason as the
+# fuzz-fit guest above: an ambient CARGO_TARGET_DIR must not separate the
+# producer from the consumer.
 
 wasm32pins_target := justfile_directory() + "/target/wasm32-pins"
-wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/release/wasm32_pins_guest.wasm"
+wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/wasm32-pins/wasm32_pins_guest.wasm"
 
 # List recipes.
 default:
@@ -98,7 +112,7 @@ default:
 # with `required-features` (the focused before resource suite) is skipped here and
 # type-checked by `just test` and the gate's all-features legs instead.
 check:
-    cargo check --workspace --all-targets
+    cargo check --workspace {{ tool_members }} --all-targets
 
 # Run the test suites; pass a filter to narrow (`just test mirror`). The
 # focused resource suite (crates/before/tests/meter.rs) builds only with its touch
@@ -109,14 +123,14 @@ check:
 # suite, the fold and coincident-span suites, the touch-meter unit tests);
 # the other packages' own features stay default.
 test *args:
-    cargo nextest run --workspace --features before/touch-meter,before/scan-meter {{ args }}
+    cargo nextest run --workspace {{ tool_members }} --features before/touch-meter,before/scan-meter {{ args }}
 
 # Every feature is lit here and nowhere else in the gate: the meter suites
 # and the conformance module build only under `--all-features`.
 
 # Run the test suites under every feature (the gate's test run).
 test-all *args:
-    cargo nextest run --workspace --all-features --no-fail-fast {{ args }}
+    cargo nextest run --workspace {{ tool_members }} --all-features --no-fail-fast {{ args }}
 
 # Run Rumors at a larger property-test count under the faster release profile.
 # This stays package-scoped: before's operation meters intentionally pin the
@@ -132,11 +146,11 @@ test-release *args:
 
 # Run the doctests (nightly), which nextest does not run.
 doctest:
-    RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" cargo +{{ nightly_toolchain }} test --workspace --doc --all-features --target-dir target/doctest-nightly
+    RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" cargo +{{ nightly_toolchain }} test --workspace {{ tool_members }} --doc --all-features --target-dir target/doctest-nightly
 
 # Lint every target, warnings denied (the commit-gate setting).
 clippy:
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo clippy --workspace {{ tool_members }} --all-targets --all-features -- -D warnings
 
 # `clippy` above lints under --all-features, and the dev-dependency cycle
 # forces the meter/oracle features onto the lib for every test build — so a
@@ -217,10 +231,13 @@ workflowlint:
 # feature selections and `optional` flags, so the table stays the one version
 # of record and no member-local restatement can drift when it moves. Cargo
 # has no native check (`cargo metadata` resolves inheritance away before
-# reporting), so the tool reads the member manifests cargo names.
+# reporting), so the tool reads the member manifests cargo names. It also
+# holds `tool_members` to the workspace, because cargo cannot: cargo only
+# warns about an exclusion naming no member, and cannot tell a tool from any
+# other member. The tool's header lists what the rule checks.
 # Build-free, so it rides the lint tier.
 
-# Hold every member manifest's dependencies to the workspace table.
+# Hold member manifests to the workspace table, and `tool_members` to the workspace.
 manifestlint:
     ./tools/manifestlint --self-test
     ./tools/manifestlint
@@ -276,7 +293,7 @@ readme-check:
 
 # Build the rustdoc with warnings denied; hold the widget assets to their pages.
 docs:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace {{ tool_members }} --all-features --no-deps
     ./tools/fuelscape-assets --self-test
     ./tools/fuelscape-assets target/doc
 
@@ -290,7 +307,7 @@ docs:
 
 # Build the rustdoc including private items, warnings denied; hold the widget assets to their pages.
 docs-internal:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace {{ tool_members }} --all-features --no-deps --document-private-items --target-dir target/doc-internal
     ./tools/fuelscape-assets --self-test
     ./tools/fuelscape-assets target/doc-internal/doc
 
@@ -324,23 +341,24 @@ docs-docsrs:
 
 # Fail unless the future-size pins were collected and pass (liveness for tests/future_size.rs).
 future-size:
-    cargo nextest run --workspace --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
+    cargo nextest run --workspace {{ tool_members }} --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
 
 # The supply-chain leg, two build-free checks over the committed lockfiles.
-# cargo-audit sweeps every lockfile tracked by Git — the root workspace and
-# every detached workspace —
-# against the RustSec advisory database (fetched once over the network, so this
-# is the one gate leg that needs connectivity): a vulnerability anywhere
-# fails the gate; unmaintained/unsound/yanked advisories print as warnings
-# for triage without failing. cargo-deny holds the root workspace's
-# resolved graph (all members, all features, all targets) to one version
-# per crate; deny.toml is the roster of record, every tolerated duplicate
-# carrying the holdout that keeps it alive. The duplicate policy covers
-# the root workspace only: a duplicate in a detached dev-tooling workspace
-# costs one extra tool compile, never a shipped byte. Both invocations
-# name `--workspace` explicitly — the root manifest is a package AND a
-# workspace, and cargo-deny's default member selection would otherwise
-# silently check the root package alone (measured: 84 crates vs 459).
+# cargo-audit sweeps every lockfile tracked by Git — the root workspace's,
+# which every member shares, tool-side ones included, and the detached fuzz
+# workspace's — against the RustSec advisory database (fetched once over
+# the network, so this is the one gate leg that needs connectivity): a
+# vulnerability anywhere fails the gate; unmaintained/unsound/yanked
+# advisories print as warnings for triage without failing. cargo-deny holds
+# the resolved graph of every root-workspace member but the tool-side ones
+# (all features, all targets) to one version per crate; deny.toml is the
+# roster of record, every tolerated duplicate carrying the holdout that
+# keeps it alive. The duplicate policy leaves the tool-side members out: a
+# duplicate only they pull in costs one extra tool compile, never a
+# shipped byte. The invocation names `--workspace` explicitly — the root
+# manifest is a package AND a workspace, and cargo-deny's default member
+# selection would otherwise check the root package's graph alone, missing
+# any duplicate only another member pulls in.
 # Needs cargo-audit and cargo-deny: `cargo install cargo-audit cargo-deny`.
 
 # Audit advisories on every lockfile and hold the workspace to single crate versions.
@@ -356,7 +374,7 @@ supply-chain:
             cargo audit --no-fetch --file "$lock"
         fi
     done < <(git ls-files -z -- '*Cargo.lock')
-    cargo deny --workspace check bans
+    cargo deny --workspace {{ tool_members }} check bans
 
 # The fuzz targets live in a detached workspace (crates/before/fuzz), so no
 # root-workspace command formats, lints, tests, or compiles them. This gate leg
@@ -389,9 +407,16 @@ fuzz-build:
 # preserving the fail-fast ordering within it. Every other leg already
 # writes a directory nothing else touches — the nightly doctest target,
 # the private-items doc target, the docs.rs doc target, the rustdoc-JSON
-# target, and the detached fuzz/fuzzfit/fuelscape/surfacecheck workspaces
-# -- and that is exactly what lets them overlap. `fuzzfit` and
+# target, the tool recipes' targets, and the detached fuzz workspace --
+# and that is exactly what lets them overlap. `fuzzfit` and
 # `fuelscape-test` share one stream because both build the same wasm guest.
+#
+# That holds where each target directory is also its own build directory,
+# cargo's default. A `build.build-dir` set in a cargo config gives every
+# invocation in a workspace one build directory, and one build lock,
+# whatever its target directory, so there the streams' builds wait on one
+# another and overlap less. The verdicts are the same either way; only the
+# wall time grows.
 #
 # Concurrency multiplies peak memory, not just cores. Nothing here caps
 # memory; how many gates share a machine is the operator's call.
@@ -553,7 +578,7 @@ viz:
 
 # Compile (don't run) the criterion benches.
 bench-build:
-    cargo bench --workspace --no-run
+    cargo bench --workspace {{ tool_members }} --no-run
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) and the `before::testing::laws` law collection are asserted inline in
@@ -576,42 +601,40 @@ fuzz secs=fuzz_smoke_secs:
         cargo +{{ nightly_toolchain }} fuzz run --target {{ host_triple }} "$target" "corpus/$target" "seeds/$target" -- -max_total_time={{ secs }}
     done < <(cargo +{{ nightly_toolchain }} fuzz list)
 
-# The fuzz-fit asymptotics harness lives in a detached workspace
-# (crates/before/fuzzfit, the fuzz-target idiom), so workspace-wide builds
-# never compile it and wasmtime stays out of the production crates' graph;
-# the gate reaches it only through these recipes by name. The guest
-# compiles selected public operations to wasm32-unknown-unknown; the harness
-# replays generated programs natively and under wasmtime fuel metering
-# (deterministic instruction counts, byte-reproducible under any load) and
-# judges each measured step against its pinned fuel band in
+# The fuzz-fit asymptotics harness (crates/before/fuzzfit) is a pair of
+# tool-side workspace members. A plain cargo command at the root never
+# builds them, since they are not default members, and the justfile's
+# workspace-wide recipes exclude them (`tool_members`), so the ordinary legs
+# never compile them or wasmtime. A bare `cargo <cmd> --workspace` does
+# compile both. The gate reaches them only through these recipes by name.
+# The guest compiles selected public operations to wasm32-unknown-unknown in
+# the `fuel` profile, built alone so its features are exactly its own; the
+# harness replays generated programs natively and under wasmtime fuel
+# metering (deterministic instruction counts, byte-reproducible under any
+# load) and judges each measured step against its pinned fuel band in
 # harness/src/bands.rs. A cost change in that vocabulary fails here and must
 # be re-pinned deliberately (`just fuzzfit-calibrate`) instead of drifting.
 
 # Build the fuzz-fit wasm guest and its harness (both halves).
-[working-directory("crates/before/fuzzfit")]
 fuzzfit-build:
-    cargo build -p fuzzfit-guest --release --target wasm32-unknown-unknown --target-dir {{ fuzzfit_target }}
-    cargo build -p fuzzfit-harness --tests --release
+    cargo build -p fuzzfit-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ fuzzfit_target }}
+    cargo build -p fuzzfit-harness --tests --release --target-dir {{ fuzzfit_target }}
 
 # Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
 # and shape-leg tripwires, the quadratic-burner adequacy check, the
 # toolchain-pin and staleness cross-checks, and the enforcement check
 # (48 generated programs against the pinned bands, point and trend checks,
 # plus the whole 256-program deterministic prefix judged step by step).
-# A failure
-# shrinks to a minimal out-of-band shape and writes a proptest seed
-# file -- commit any seed that appears. The fmt/clippy lines are the
-# detached workspace's own lint leg (the root `cargo fmt --all`/clippy
-# cannot reach a detached workspace, so without them its source rots
-# invisibly through green gates -- the fuelscape and surfacecheck recipes
-# carry the same discipline).
+# A failure shrinks to a minimal out-of-band shape and writes a proptest
+# seed file -- commit any seed that appears. The clippy line is the
+# members' own lint leg, since the workspace-wide clippy excludes them (the
+# root `cargo fmt --all` reaches them); every tool recipe that runs tests
+# carries the same lint leg.
 
 # Run the fuzz-fit asymptotics suites against the pinned fuel bands.
-[working-directory("crates/before/fuzzfit")]
 fuzzfit: fuzzfit-build
-    cargo fmt --check
-    cargo clippy --all-targets -- -D warnings
-    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run --cargo-profile release
+    cargo clippy -p fuzzfit-guest -p fuzzfit-harness --all-targets --target-dir {{ fuzzfit_target }} -- -D warnings
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run -p fuzzfit-guest -p fuzzfit-harness --cargo-profile release --target-dir {{ fuzzfit_target }}
 
 # Re-fit the pinned bands from the committed deterministic corpus (4096
 # programs; byte-reproducible, so any diff is a real change). Rewrites
@@ -619,54 +642,51 @@ fuzzfit: fuzzfit-build
 # commit with the movement annotated in the commit message.
 
 # Re-fit and rewrite the fuzz-fit harness's pinned fuel bands.
-[working-directory("crates/before/fuzzfit")]
 fuzzfit-calibrate: fuzzfit-build
-    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo run --release -p fuzzfit-harness --bin calibrate
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo run --release -p fuzzfit-harness --bin calibrate --target-dir {{ fuzzfit_target }}
 
-# The detached wasm32 workspace executes `before` at the 32-bit boundaries
-# where `usize` conversions or backend capacity can change behavior. Each
-# boundary has adjacent cases so a failure identifies the exact transition.
-# The guest uses release overflow semantics, so explicit checks must prevent a
-# 32-bit wrap from changing the observed result.
+# The 32-bit boundary pins (crates/before/wasm32-pins, tool-side workspace
+# members) execute `before` at the 32-bit boundaries where `usize`
+# conversions or backend capacity can change behavior. `just wasm-check`
+# proves only that `before` compiles for a 32-bit target; these pins run the
+# operations, on inputs synthesized inside wasm so a 64-bit host cannot
+# conceal the boundary. Each boundary has adjacent cases so a failure
+# identifies the exact transition. The guest builds in the root manifest's
+# `wasm32-pins` profile, whose overflow checks are off as in an ordinary
+# release build, so explicit checks must prevent a 32-bit wrap from
+# changing the observed result.
 
 # Build the 32-bit boundary-pin wasm guest and its harness (both halves).
-[working-directory("crates/before/wasm32-pins")]
 wasm32-pins-build:
-    cargo build -p wasm32-pins-guest --release --target wasm32-unknown-unknown --target-dir {{ wasm32pins_target }}
-    cargo build -p wasm32-pins-harness --tests --release
+    cargo build -p wasm32-pins-guest --profile wasm32-pins --target wasm32-unknown-unknown --target-dir {{ wasm32pins_target }}
+    cargo build -p wasm32-pins-harness --tests --release --target-dir {{ wasm32pins_target }}
 
 # The deep pins walk hundreds of megabytes inside a 32-bit guest, so the
 # run costs minutes of wall time and peaks at a few GiB of host memory
-# across nextest's parallel workers. The fmt/clippy lines are the detached
-# workspace's own lint leg (the root `cargo fmt --all`/clippy cannot reach
-# a detached workspace, so without them its source rots invisibly through
-# green gates -- the fuzzfit recipes carry the same discipline).
+# across nextest's parallel workers. The clippy line is the members' own
+# lint leg, since the workspace-wide clippy excludes them.
 
 # Run the 32-bit boundary pins under wasmtime (minutes; a few GiB of host memory).
-[working-directory("crates/before/wasm32-pins")]
 wasm32-pins: wasm32-pins-build
-    cargo fmt --check
-    cargo clippy --all-targets -- -D warnings
-    WASM32_PINS_GUEST_WASM={{ wasm32pins_guest_wasm }} cargo nextest run --cargo-profile release
+    cargo clippy -p wasm32-pins-guest -p wasm32-pins-harness -p wasm32-pins-protocol --all-targets --target-dir {{ wasm32pins_target }} -- -D warnings
+    WASM32_PINS_GUEST_WASM={{ wasm32pins_guest_wasm }} cargo nextest run -p wasm32-pins-guest -p wasm32-pins-harness -p wasm32-pins-protocol --cargo-profile release --target-dir {{ wasm32pins_target }}
 
-# The population atlas lives in its own detached workspace
-# (crates/before-fuelscape, the fuzz-fit idiom: workspace-wide builds never
-# compile it, and its wasmtime/plotters tooling stays out of the
-# production crates' graph); the gate reaches it only through these
-# recipes by name. Its committed tests are the sampler adequacy pins —
-# counting tables against exhaustive grammar enumeration and the real
-# decoders' accept sets, chi-square uniformity, codec round-trips — plus
-# a tiny end-to-end pipeline smoke (sample, measure fuel in the fuzz-fit
-# guest, render), which is why the guest builds first. Audit-only by
-# design: nothing here enforces a fuel number — the amplification board and
-# the fuzz-fit bands own enforcement.
+# The population atlas (crates/before-fuelscape) is a tool-side workspace
+# member like the fuzz-fit crates: plain cargo at the root never builds it,
+# and the justfile's workspace-wide recipes exclude it, so the ordinary legs
+# never compile it or its wasmtime and plotters tooling. The gate reaches it
+# only through these recipes by name. Its committed tests are the sampler
+# adequacy pins — counting tables against exhaustive grammar enumeration and
+# the real decoders' accept sets, chi-square uniformity, codec round-trips —
+# plus a tiny end-to-end pipeline smoke (sample, measure fuel in the
+# fuzz-fit guest, render), which is why the guest builds first. Audit-only
+# by design: nothing here enforces a fuel number — the amplification board
+# and the fuzz-fit bands own enforcement.
 
 # Lint and test the fuelscape: sampler adequacy pins plus the pipeline smoke.
-[working-directory("crates/before-fuelscape")]
 fuelscape-test: fuzzfit-build
-    cargo fmt --check
-    cargo clippy --all-targets -- -D warnings
-    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run
+    cargo clippy -p before-fuelscape --all-targets --target-dir {{ fuelscape_target }} -- -D warnings
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run -p before-fuelscape --target-dir {{ fuelscape_target }}
 
 # Renders one log-log heatmap per public operation into target/fuelscape
 # (SVG per op plus a gallery index.html): p(fuel | size) from uniform
@@ -681,7 +701,7 @@ fuelscape-test: fuzzfit-build
 # Render the full population atlas into target/fuelscape (audit view; not enforcement).
 [working-directory("crates/before-fuelscape")]
 fuelscape *args: fuzzfit-build
-    FUELSCAPE_TIP=$(git rev-parse HEAD) FUZZFIT_GUEST_WASM={{ justfile_directory() }}/target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm cargo run --release --bin fuelscape -- --out {{ justfile_directory() }}/target/fuelscape {{ args }}
+    FUELSCAPE_TIP=$(git rev-parse HEAD) FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo run --release -p before-fuelscape --bin fuelscape --target-dir {{ fuelscape_target }} -- --out {{ justfile_directory() }}/target/fuelscape {{ args }}
 
 # The rustdoc fuelscape islands' committed inputs are derived artifacts:
 # the widget datasets (crates/before/fuelscape) derive by pure compaction
@@ -699,13 +719,13 @@ fuelscape *args: fuzzfit-build
 # Re-derive the fuelscape widget datasets from the committed dump.
 [working-directory("crates/before-fuelscape")]
 fuelscape-compact:
-    cargo run --release --bin fuelscape -- --compact-from dump --out {{ justfile_directory() }}/crates/before/fuelscape
+    cargo run --release -p before-fuelscape --bin fuelscape --target-dir {{ fuelscape_target }} -- --compact-from dump --out {{ justfile_directory() }}/crates/before/fuelscape
 
 # Verify the committed widget datasets equal a fresh compaction of the committed dump.
 [working-directory("crates/before-fuelscape")]
 fuelscape-verify:
     rm -rf {{ justfile_directory() }}/target/fuelscape-verify
-    cargo run --release --bin fuelscape -- --compact-from dump --out {{ justfile_directory() }}/target/fuelscape-verify
+    cargo run --release -p before-fuelscape --bin fuelscape --target-dir {{ fuelscape_target }} -- --compact-from dump --out {{ justfile_directory() }}/target/fuelscape-verify
     diff -r {{ justfile_directory() }}/target/fuelscape-verify {{ justfile_directory() }}/crates/before/fuelscape
 
 # Regenerate the README's space-consumption figure from the measurement
@@ -787,11 +807,11 @@ window-tradeoff:
 # `just bench version version/hole --profile-time 10` records a focused
 # profiler workload without a second profiling harness.
 bench target *filter:
-    cargo bench --workspace --bench {{ target }} -- {{ filter }}
+    cargo bench --workspace {{ tool_members }} --bench {{ target }} -- {{ filter }}
 
 # The reduced-sampling inner loop: `bench` at 10 samples x 1 s. Never quoted.
 bench-quick target *filter:
-    cargo bench --workspace --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
+    cargo bench --workspace {{ tool_members }} --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
 # Each board cell judges deterministic work counters (touches, scans, heap)
 # against its declared bounds: green means the samples fit, red is a resource
@@ -878,10 +898,9 @@ amp-board-acceptance *args:
 # consts and types, statics, macros) are pinned by the censuses in
 # crates/before/surfacecheck/src/census.rs, reconciled both ways, so a new impl
 # or item reads red until reviewed. Trait resource decisions remain grouped in
-# the board's family entries. The checker lives in a detached workspace (the
-# fuzzfit idiom), so ordinary
-# workspace builds never compile it; this recipe also runs its lints and
-# unit tests, which the workspace-wide gate legs cannot reach.
+# the board's family entries. The checker is a tool-side workspace member,
+# which the workspace-wide gate legs exclude, so this recipe also runs its
+# lints and unit tests.
 #
 # Toolchain coupling: rustdoc JSON is an unstable format, versioned by
 # its `format_version` field, and the checker's `rustdoc-types`
@@ -890,7 +909,7 @@ amp-board-acceptance *args:
 # any document whose format_version differs, so a nightly bump can fail
 # this recipe but can never make it silently wrong. After bumping the
 # nightly: run this recipe, and if it reports a format mismatch, move
-# the `rustdoc-types` pin in crates/before/surfacecheck/Cargo.toml to
+# the `rustdoc-types` pin in the root Cargo.toml's workspace table to
 # the release whose FORMAT_VERSION matches the new nightly's output
 # (the rustdoc-types changelog maps releases to formats), then re-run
 # until green.
@@ -900,12 +919,10 @@ surface-json:
     cargo +{{ nightly_toolchain }} rustdoc -p before --lib --all-features --target-dir target/surface-json -- -Z unstable-options --output-format json
 
 # Hold before's public surface total against resource coverage.
-[working-directory("crates/before/surfacecheck")]
 surface-totality: surface-json
-    cargo fmt --check
-    cargo clippy --all-targets -- -D warnings
-    cargo nextest run
-    cargo run -q -- {{ justfile_directory() }}/target/surface-json/doc/before.json
+    cargo clippy -p surfacecheck --all-targets --target-dir {{ surfacecheck_target }} -- -D warnings
+    cargo nextest run -p surfacecheck --target-dir {{ surfacecheck_target }}
+    cargo run -q -p surfacecheck --target-dir {{ surfacecheck_target }} -- {{ justfile_directory() }}/target/surface-json/doc/before.json
 
 # The worst-case map answers "which committed shape is worst for operation
 # X" mechanically: for every operation x currency it takes the argmax over
