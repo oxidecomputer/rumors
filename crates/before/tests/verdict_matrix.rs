@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use before::causally::{self, Coverage};
 use before::testing::meter::registry::{FamilyId, Shape};
-use before::testing::meter::{Encoding, MIN_DEFERRED_ARMING_DIGITS};
+use before::testing::meter::{Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS};
 use before::{
     Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };
@@ -348,6 +348,12 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
         FamilyId::WideStepPairs => (vec![Shape::WideStepPairs.build2(320, 4).version()], vec![]),
         // The rising spine whose every step is wider than a word.
         FamilyId::WideStepSpine => (vec![Shape::WideStepSpine.build2(64, 4).version()], vec![]),
+        // The zigzag path alternating wide and one-tick steps in both
+        // directions.
+        FamilyId::NarrowFreezes => (
+            vec![Shape::NarrowFreezes.build2(FREEZE_DRIFT_BITS, 1).version()],
+            vec![],
+        ),
     };
     MatrixOperands { versions, masks }
 }
