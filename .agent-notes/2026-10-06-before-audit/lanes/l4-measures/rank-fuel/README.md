@@ -27,3 +27,14 @@ The coordinator verified on `main` at `6a329b17a` the two replacement sites
 `self.width = Accumulator::new()`), `Digits::add_at` growing an empty
 buffer with `resize(position + 1, 0)`, and `Digits::reset` clearing from
 digit 0. The measurements are the auditor's, not re-run.
+
+## Owner's ruling (2026-10-20)
+
+- **D1:** fix it now, in a subagent (`fix/rank-integrator-refill`).
+- **The bound:** rank's `O(M(n))` means whatever the multiplication backend
+  in use (`num-bigint`) achieves. Do not promise that in public
+  documentation, which is not the altitude for it; state it in the
+  maintainer-facing private docs where the bound is relied on.
+- **D2:** hold until #86 (the written-position set replacing the zero-range
+  map) lands, then re-measure `rank_sum`; it ought then to fit its stated
+  `O(k + n)` bound.
