@@ -24,17 +24,19 @@
 //!
 //! For each quantity, the board fits a log-log scaling trend across the measured
 //! sizes and checks the largest per-byte cost. A cell is green only when every
-//! trend and constant stays within its ceiling. The acceptance run uses the
-//! complete measurement ladder; a single-scale run is diagnostic only.
+//! trend and constant stays within its ceiling. The acceptance judgment uses
+//! the complete measurement ladder; a single-scale run is diagnostic only.
 //! Additional small-input samples check ceilings and liveness without fitting
 //! growth through minimum allocation sizes. Every sample checks its full heap
-//! peak against `1,024 + C * D`: `C` defaults to 20 and `D` is the row's
-//! declared constant units. Query evaluation has a separate coefficient because
-//! it keeps one cursor and comparison state per bound. No bytes are subtracted
-//! from reported readings.
+//! peak against `I + C * D`: `I` is [`HEAP_INTERCEPT_BYTES`], `C` defaults to
+//! [`MAX_HEAP_BYTES_PER_INPUT_BYTE`], and `D` is the row's declared constant
+//! units. Query evaluation has a separate coefficient
+//! ([`QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE`]) because it keeps one cursor
+//! and comparison state per bound. No bytes are subtracted from reported
+//! readings.
 //!
-//! The heap growth fit has 4 KiB resolution to accommodate allocation
-//! thresholds on the finite ladder. It cannot detect growth entirely below
+//! The heap growth fit has a resolution of [`HEAP_TREND_RESOLUTION_BYTES`] to
+//! accommodate allocation thresholds on the finite ladder. It cannot detect growth entirely below
 //! that level. These empirical checks are regression evidence over the sampled
 //! inputs, not proofs of asymptotic or universal bounds. Deep-tree tests check
 //! stack safety directly.
@@ -42,6 +44,20 @@
 //! Operand preparation and the board's result containers precede the heap
 //! baseline. Measuring the maximum live heap above that baseline includes
 //! operation scratch and newly allocated results; it does not separate them.
+//!
+//! # The verdict of record
+//!
+//! One [`Ladder`] sweep measures every cell at each sampling scale, and
+//! everything the board decides about a tree is read from it:
+//! [`Ladder::judge`] renders the acceptance matrices, then entry-compares the
+//! worst-case ranking pin, and returns both results as one [`Verdict`];
+//! [`capture`] writes the same sweep's exact readings for a later
+//! [`compare()`]. The readings are deterministic counters, so sweeping again
+//! for each consumer would only repeat the same measurements.
+//!
+//! A [`Ladder`] can only be swept, never read from a file, so every verdict
+//! judges the tree that ran it. A capture is an input to [`compare()`] alone,
+//! which reports differences and judges nothing.
 //!
 //! # Counter liveness
 //!
@@ -105,6 +121,7 @@ mod defect;
 mod family;
 mod floors;
 mod judge;
+mod ladder;
 mod measure;
 mod operand;
 mod ops;
@@ -127,10 +144,9 @@ pub use ceilings::{
 pub use compare::{capture, compare};
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
+pub use ladder::{Ladder, Verdict};
 pub use measure::HeapMeter;
 pub use operand::stored_nonzero_deltas;
 pub use render::Summary;
-pub use shard::{
-    check_worst_map, emit_shard, max_useful_shards, run, run_acceptance, worst_map, ShardSpawner,
-};
+pub use shard::{emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
 pub use worst::{NEAR_TIE_RATIO, WORST_MAP_SCALES};

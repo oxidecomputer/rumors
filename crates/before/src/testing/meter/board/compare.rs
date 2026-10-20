@@ -26,9 +26,11 @@
 //!
 //! - `currency` is `heap`, `scan`, or `touch`.
 //! - `scale` is the sampling scale and `sample` is `1` for its scaled size or
-//!   `2` for that size's double. Each cell and currency has six lines, in
-//!   ladder order: the small-input pair ([`SMALL_INPUT_SCALE`]), then the
-//!   growth ladder's two pairs ([`DEFAULT_SCALE`], then [`LADDER_TOP_SCALE`]).
+//!   `2` for that size's double. Each cell and currency has one pair of lines
+//!   per sampling scale, in ladder order: the small-input pair
+//!   ([`SMALL_INPUT_SCALE`](super::SMALL_INPUT_SCALE)), then the growth
+//!   ladder's two pairs ([`DEFAULT_SCALE`](super::DEFAULT_SCALE), then
+//!   [`LADDER_TOP_SCALE`](super::LADDER_TOP_SCALE)).
 //! - `axis` is the size the board fits that currency's growth trend against,
 //!   in the cell's growth units (input bytes, unless the rendered board's row
 //!   names another unit),
@@ -44,11 +46,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 
-use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE, SMALL_INPUT_SCALE};
 use super::currency::{ByCurrency, Currency};
 use super::judge::trend_units;
+use super::ladder::{Ladder, LADDER_SCALES};
 use super::measure::Sample;
-use super::shard::{merge_samples, ShardSpawner};
 
 #[cfg(test)]
 mod tests;
@@ -56,11 +57,8 @@ mod tests;
 /// The format name and version that open every capture's header.
 const FORMAT: &str = "amp-board readings v1";
 
-/// The measurement ladder's sampling scales in capture order: the small-input
-/// pair's scale, then the growth ladder's two.
-const LADDER_SCALES: [f64; 3] = [SMALL_INPUT_SCALE, DEFAULT_SCALE, LADDER_TOP_SCALE];
-
-/// The readings each cell and currency carries: two samples at every scale.
+/// The readings each cell and currency carries: two samples at every scale,
+/// in [`LADDER_SCALES`] order.
 const LADDER_SIZES: usize = 2 * LADDER_SCALES.len();
 
 /// The ladder index of the first growth-ladder size; the small-input pair
@@ -122,40 +120,28 @@ fn currencies() -> [Currency; 3] {
     .map(|(currency, _)| currency)
 }
 
-/// Sweep the board at every ladder scale across `shards` child processes and
-/// write every cell's exact readings to `out` in the capture format.
+/// Write every cell's exact readings from one ladder sweep to `out` in the
+/// capture format.
 ///
-/// `spawn` is invoked once per ladder scale, smallest first. The sweeps are the
-/// ones acceptance judges, so a capture reads what the board of record reads.
+/// The ladder is the one acceptance judges, so a capture reads what the board
+/// of record reads.
 ///
 /// # Panics
 ///
-/// Panics if a counter is not compiled into this run (a capture records every
-/// currency, so it requires the `touch-meter` and `scan-meter` features), if
-/// the sweeps measure different cell grids, and on any protocol violation in a
-/// child capture.
-pub fn capture(shards: usize, spawn: ShardSpawner<'_>, out: &mut dyn Write) -> io::Result<()> {
-    let mut sweeps = Vec::with_capacity(LADDER_SCALES.len());
-    for scale in LADDER_SCALES {
-        sweeps.push(merge_samples(scale, shards, &spawn(scale)?));
-    }
+/// Panics if a counter is not compiled into this run: a capture records every
+/// currency, so it requires the `touch-meter` and `scan-meter` features.
+pub fn capture(ladder: &Ladder, out: &mut dyn Write) -> io::Result<()> {
+    let sweeps = ladder.by_scale().map(|(_, cells)| cells);
     let cells = sweeps[0].len();
-    assert!(
-        sweeps.iter().all(|sweep| sweep.len() == cells),
-        "amp-board capture: the ladder's sweeps measured different cell grids"
-    );
     let mut rows = Vec::with_capacity(cells * currencies().len());
     for cell in 0..cells {
         let (op, family, ..) = sweeps[0][cell];
+        // The ladder's sweeps share one cell grid, so position `cell` is the
+        // same operation and family in each.
         let samples: Vec<&Sample> = sweeps
             .iter()
             .flat_map(|sweep| {
-                let (sweep_op, sweep_family, s1, s2) = &sweep[cell];
-                assert_eq!(
-                    (*sweep_op, *sweep_family),
-                    (op, family),
-                    "amp-board capture: the ladder's sweeps measured different cell grids"
-                );
+                let (_, _, s1, s2) = &sweep[cell];
                 [s1, s2]
             })
             .collect();

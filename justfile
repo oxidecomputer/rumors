@@ -502,22 +502,9 @@ gate-streams:
 _gate-workspace: clippy clippy-default docs test-all future-size
 _gate-doctest: doctest
 
-# Acceptance judges each cell; the pin judges which family reads worst. The
-# pin runs whatever acceptance's verdict, so ranking drift is attributed to the
-# commit that causes it. The stream fails naming each leg that failed.
-_gate-board:
-    #!/usr/bin/env bash
-    set -uo pipefail
-    # A nested `just` stopped by Ctrl-C exits 130 rather than dying, which
-    # would read as a failed leg; stop on the interrupt instead.
-    trap 'exit 130' INT
-    failed=""
-    just amp-board-acceptance || failed="$failed amp-board-acceptance"
-    just worst-cases-pin || failed="$failed worst-cases-pin"
-    if [ -n "$failed" ]; then
-        echo "board: FAILED:$failed"
-        exit 1
-    fi
+# One sweep judges each cell and which family reads worst; the
+# acceptance recipe's comment describes both judgments.
+_gate-board: amp-board-acceptance
 
 _gate-wasm: fuzzfit fuelscape-test wasm32-pins
 _gate-fuzz: fuzz-build
@@ -810,7 +797,6 @@ bench-quick target *filter:
 # against its declared bounds: green means the samples fit, red is a resource
 # regression to investigate. The board
 # reads no clock, so its output is byte-identical under any machine load.
-# Optional scale multiplies the input sizes, e.g. `just amp-board 4`.
 #
 # The board runs at the release profile, the profile of record: debug
 # assertions perform metered work through probe cursors, so a dev board
@@ -818,7 +804,8 @@ bench-quick target *filter:
 # production work alone. A dev run (`cargo run -p before --example amp_board ...`) remains
 # a legitimate debugging view; its numbers must never be pinned anywhere.
 #
-# Every mode parallelizes by process sharding: the peak-heap column reads
+# Every mode that sweeps (all but `compare`, which reads two captures)
+# parallelizes by process sharding: the peak-heap column reads
 # the process-global allocator, so the sweep stays single-threaded inside
 # each process and the runner spawns children that split the operation x
 # family cell grid instead, merging the measured samples back in board
@@ -829,34 +816,59 @@ bench-quick target *filter:
 #
 # A bare run (any single scale) is a debugging view whose verdicts never
 # bind; the verdict of record is the acceptance invocation below, which
-# measures each cell's whole ladder in one judgment. Optional scale
-# multiplies the input sizes, e.g. `just amp-board 4`. The same recipe runs
-# the developer modes that compare two builds' exact readings,
-# `just amp-board capture <file>` and `just amp-board compare <before> <after>`
-# (the amp_board example's doc describes them).
+# measures each cell's whole ladder once. Optional scale multiplies the
+# input sizes, e.g. `just amp-board 4`. The same recipe runs
+# `just amp-board compare <before> <after>`, which compares two captures'
+# exact readings (the amp_board example's doc describes it).
 
 # One command serves every board recipe, keeping the production profile part
 # of the instrument rather than a convention each entry point must repeat.
 amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter,serde,borsh"
 
-# Render the board at one scale (a debugging view), or `capture` and `compare` exact readings.
+# Render the board at one scale (a debugging view), or `compare` two captures.
+[positional-arguments]
 amp-board *args:
-    {{ amp_board_command }} -- {{ args }}
+    {{ amp_board_command }} -- "$@"
 
-# The board's one verdict of record: one invocation measures each cell's
-# whole ladder — two sizes at each of the two sampling scales
+# The board's one verdict of record. One invocation sweeps each cell's
+# whole ladder once — two sizes at each of the two sampling scales
 # (board::DEFAULT_SCALE and board::LADDER_TOP_SCALE), plus a small-input
-# pair for ceilings and liveness — judges every constant and floor per size, fits each
-# exponent as one trend across the ladder, and exits nonzero on any red
-# cell. A red is an untriaged contradiction, resolved only by a cure or
-# an owner-declared model at the cell, so the gate's board stream fails
-# on any red. Every judged quantity is a deterministic counter, so a
-# second run reads the same board and acceptance needs no repeated hand
+# pair for ceilings and liveness — and judges that sweep twice:
+#
+# - Acceptance judges every constant and floor per size and fits each
+#   exponent as one trend across the ladder. A red cell is an untriaged
+#   contradiction, resolved only by a cure or an owner-declared model at
+#   the cell.
+# - The worst-case ranking pin (the WORST_RANKINGS table beside the fold)
+#   is entry-compared against the live argmax family per operation x
+#   currency at both sampling scales, so a ranking flip is caught here,
+#   never discovered by a reader. A flip is news: either a family
+#   legitimately overtook (re-pin deliberately with a movement annotation)
+#   or a code change made some shape relatively worse (investigate first).
+#   A cell is declared TARGET_DEPENDENT in the table, and then needs only a
+#   live worst set, only when a target-conditional code path the measured
+#   operation reaches changes which family reads worst between the 64-bit
+#   hosts the pin is checked on; the entry's comment names that path. A
+#   flip with no such path behind it, however near the tie, never
+#   qualifies: investigate it or re-pin it as above.
+#
+# Both judgments run whatever the other's verdict, so ranking drift is
+# attributed to the commit that causes it. Red rows and drift lines print
+# to stdout; stderr carries a one-line summary of each failed judgment. The
+# run exits nonzero on any red cell or any drift, so the gate's board
+# stream fails on either. Every judged quantity is a deterministic
+# counter, so a second run reads the same board and needs no repeated hand
 # runs.
+#
+# `--capture <file>` also writes the sweep's exact readings to <file>,
+# whatever the verdict, for a later `just amp-board compare`: take one
+# capture before a change and one after, and the developer loop stays one
+# board run per iteration.
 
-# Run the board's acceptance judgment: the whole measurement ladder, one verdict.
-amp-board-acceptance:
-    {{ amp_board_command }} -- acceptance
+# Run the board's verdict of record: one ladder sweep, acceptance and the ranking pin.
+[positional-arguments]
+amp-board-acceptance *args:
+    {{ amp_board_command }} -- acceptance "$@"
 
 # The surface-totality leg holds the resource board's operation inventory
 # against nightly rustdoc JSON — the compiler's own account of the public
@@ -903,31 +915,12 @@ surface-totality: surface-json
 # the claim that this is the true worst case is carried by the rustdoc
 # complexity sections and the asymptotics liveness pins, not by this
 # table. Runs at release, the board's profile of record, one table per
-# sampling scale of the ladder.
+# sampling scale of the ladder. Its rankings are pinned and checked by
+# amp-board-acceptance; this view adds the runner-ups and margins.
 
 # Render the worst-case map: the argmax family per operation x currency, one table per sampling scale.
 worst-cases:
     {{ amp_board_command }} -- worst-cases
-
-# The map's rankings are pinned: a committed expectation table (the
-# WORST_RANKINGS const beside the fold) is entry-compared against the live
-# fold at both of the ladder's sampling scales, so a ranking flip is caught in the gate,
-# never discovered by a reader. A flip is news: either a family
-# legitimately overtook (re-pin deliberately with a movement annotation) or
-# a code change made some shape relatively worse (investigate first). A
-# cell is declared TARGET_DEPENDENT in the table, and then needs only a live
-# worst set, only when a target-conditional code path the measured operation
-# reaches changes which family reads worst between the 64-bit hosts the pin
-# is checked on; the entry's comment names that path. A flip with no such
-# path behind it, however near the tie, never qualifies: investigate it or
-# re-pin it as above.
-# Exits nonzero on any drift, naming the operation, currency, scale, and
-# both worsts. Runs at release, the board's profile of record: rankings
-# derive from readings, and dev readings are never pinned.
-
-# Entry-compare the live worst-case fold against the committed ranking pin.
-worst-cases-pin:
-    {{ amp_board_command }} -- worst-cases-check
 
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
 # Each recipe below owns one CI job. The workflow calls these groups without

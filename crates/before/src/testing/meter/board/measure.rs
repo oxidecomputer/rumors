@@ -38,6 +38,7 @@ pub(super) struct Model {
 }
 
 /// One measured run of a cell body: every meter and its denominators.
+#[derive(Clone)]
 pub(super) struct Sample {
     /// The default proportional units: input bytes, or `n_io` for an
     /// I/O-denominated cell.

@@ -182,7 +182,8 @@
 //! - a board cell or focused resource check fails → the cost moved; measure at
 //!   the parent commit before attributing, then either cure or bring
 //!   the owner a declared-model case with the derivation. The board's
-//!   `capture` and `compare` modes give a cell's exact difference at every
+//!   acceptance run writes a cell's exact readings with `--capture`, and its
+//!   `compare` mode gives the exact difference between two captures at every
 //!   size, classified by how it changes with input size.
 //! - a liveness floor or band floor fails → a meter stopped watching,
 //!   or a valid input legitimately did less work than the floor's

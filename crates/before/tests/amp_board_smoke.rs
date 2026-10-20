@@ -205,8 +205,8 @@ fn shard_protocol_round_trips() {
 ///
 /// Rankings are deliberately not asserted: they are scale- and
 /// profile-dependent readings, and the map of record is the
-/// release-profile entry-compare against the committed pin
-/// (`just worst-cases-pin`).
+/// release-profile entry-compare against the committed pin inside the
+/// board's verdict of record (`just amp-board-acceptance`).
 #[test]
 fn worst_map_covers_every_operation_row() {
     let _guard = measurement_guard();
