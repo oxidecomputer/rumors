@@ -17,7 +17,7 @@ use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_ver
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
 use crate::testing::generators::arb_oracle_version;
 use crate::testing::meter::registry::Shape;
-use crate::testing::meter::{Encoding, MIN_DEFERRED_ARMING_DIGITS};
+use crate::testing::meter::{Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS};
 use crate::testing::optrace;
 use crate::testing::oracles::function;
 use crate::{Clock, Party, Rank, Version};
@@ -211,6 +211,9 @@ fn deferral_pool() -> Vec<Version> {
         version_of(&Shape::WideArming.build2(MIN_DEFERRED_ARMING_DIGITS, 2)),
         version_of(&Shape::WideArming.build2(MIN_DEFERRED_ARMING_DIGITS + 3, 3)),
         version_of(&Shape::FreezePosition.build1(3)),
+        // The narrow freezes: a freeze at every second boundary, each drift
+        // nearly cancelling the one parked before it, so no freeze defers.
+        version_of(&Shape::NarrowFreezes.build2(FREEZE_DRIFT_BITS, 1)),
         version_of(&Shape::PlateauPuncture.build2(10, 3)),
         version_of(&Shape::PlateauPuncture.build2(12, 1)),
         // The first-freeze-gate straddles: the sweep's one freeze fired
@@ -486,6 +489,9 @@ fn freezes_and_deferrals_during(measure: impl FnOnce()) -> (u64, u64) {
 /// - `FP(k)`: `k − 1` freezes; the first block's drop lies in the opening
 ///   height. No deferral: every parked drop is as wide as the next drift.
 /// - `FZ(k)`: `k − 1` freezes, one per cross-pair code, and no deferral.
+/// - `NF(e, c)`: `4c` freezes, one at each one-tick step after a wide step.
+///   No deferral: the parked height alternates `2^e + 1` and `1`, never
+///   wider than the next drift by the allowance.
 /// - `PR(p)`: `2p` freezes, each block's arming and settling freezes, and `p`
 ///   deferrals, each block's settling freeze deferring its arming.
 /// - `DS(p, d)`: `2p + 1` freezes, the blocks' freezes and one where the
@@ -508,7 +514,8 @@ fn freeze_families_fire_their_freezes() {
         })
     };
     let w = MIN_DEFERRED_ARMING_DIGITS;
-    let cases: [(&str, Encoding, (u64, u64)); 18] = [
+    let p = FREEZE_DRIFT_BITS;
+    let cases: [(&str, Encoding, (u64, u64)); 20] = [
         ("LF(2, 2)", Shape::LoneFreeze.build2(2, 2), (1, 0)),
         ("LF(6, 2)", Shape::LoneFreeze.build2(6, 2), (1, 0)),
         ("LF(2, 64)", Shape::LoneFreeze.build2(2, 64), (1, 0)),
@@ -517,6 +524,16 @@ fn freeze_families_fire_their_freezes() {
         ("FP(8)", Shape::FreezePosition.build1(8), (7, 0)),
         ("FZ(1)", Shape::FreezeParade.build1(1), (0, 0)),
         ("FZ(4)", Shape::FreezeParade.build1(4), (3, 0)),
+        (
+            "NF(FREEZE_DRIFT_BITS, 1)",
+            Shape::NarrowFreezes.build2(p, 1),
+            (4, 0),
+        ),
+        (
+            "NF(FREEZE_DRIFT_BITS, 5)",
+            Shape::NarrowFreezes.build2(p, 5),
+            (20, 0),
+        ),
         ("PR(1)", Shape::PromotionRearm.build1(1), (2, 1)),
         ("PR(3)", Shape::PromotionRearm.build1(3), (6, 3)),
         ("DS(1, 2)", Shape::DenseSuffix.build2(1, 2), (3, 1)),

@@ -16,10 +16,11 @@ use super::{
     dense_suffix_mate, dominated_undercut, dominated_undercut_id, freeze_parade, freeze_position,
     harmonic, hoisted_window, hugeleaf, id_spine, jump_comb, jump_pair, jump_rising_spine,
     latent_ladder, lone_freeze, mask_drift_quadruple, mask_drift_triple, masked_hole,
-    plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole,
-    scattered_id, seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole,
-    tooth_tail, weight_comb, wide_arming, wide_step_pairs, wide_step_spine, wide_tooth_comb,
-    Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS, PROMOTION_REARM_ARM_BITS,
+    narrow_freezes, plateau_puncture, plateau_puncture_factors, promotion_rearm,
+    promotion_rearm_mate, raise_hole, scattered_id, seam_plunge, seam_plunge_control, seam_stop,
+    seam_stop_control, site_hole, tooth_tail, weight_comb, wide_arming, wide_step_pairs,
+    wide_step_spine, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS,
+    PROMOTION_REARM_ARM_BITS,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -363,6 +364,55 @@ proptest! {
             depth,
         }));
         expected.push(Plateau { rise: Some(Rise::Up(Count::from(1u8))), depth: d as u64 });
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, expected);
+    }
+
+    /// `NF(e, c)` is canonical normal form at its closed-form size, and its
+    /// shape is the zigzag sweep its freeze schedule rests on.
+    ///
+    /// The size is exactly `c(8e + 44) + 14` bits. With `W = 2^e`, the
+    /// plateau heights are `1`, then `c` cycles of `W + 1, W + 2, 3, 2`, the
+    /// bottom `0`, `c` more cycles, and `1`; their depths run `1, 3, …,
+    /// 8c + 1` going down, then `8c + 2, 8c + 2, 8c, …, 2` coming up.
+    ///
+    /// A version is determined by its plateau sequence, so this pins the
+    /// whole tree: the zigzag path, and every wide step followed by a
+    /// one-tick step.
+    #[test]
+    fn narrow_freezes_decodes_canonically_as_a_zigzag_path(
+        e in 2usize..=400,
+        c in 1usize..=24,
+    ) {
+        let shape = narrow_freezes(e, c);
+        check_version(&shape, c * (8 * e + 44) + 14);
+        let wide = BigUint::from(1u8) << e;
+        let cycle = [&wide + 1u8, &wide + 2u8, BigUint::from(3u8), BigUint::from(2u8)];
+        let cycles = || cycle.iter().cycle().take(4 * c).cloned();
+        let heights = std::iter::once(BigUint::from(1u8))
+            .chain(cycles())
+            .chain([BigUint::ZERO])
+            .chain(cycles())
+            .chain([BigUint::from(1u8)]);
+        let bottom = 8 * c as u64 + 2;
+        let depths = (0..=4 * c as u64)
+            .map(|j| 2 * j + 1)
+            .chain([bottom])
+            .chain((0..=4 * c as u64).map(|j| bottom - 2 * j));
+        let mut previous = BigUint::ZERO;
+        let mut expected = Vec::new();
+        for (height, depth) in heights.zip(depths) {
+            let rise = if height > previous {
+                Some(Rise::Up(Count(&height - &previous)))
+            } else if height < previous {
+                Some(Rise::Down(Count(&previous - &height)))
+            } else {
+                None
+            };
+            expected.push(Plateau { rise, depth });
+            previous = height;
+        }
+        prop_assert_eq!(expected.len(), 8 * c + 3, "one plateau per leaf");
         let plateaus: Vec<Plateau> = shape.version().shape().collect();
         prop_assert_eq!(plateaus, expected);
     }

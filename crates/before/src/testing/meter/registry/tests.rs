@@ -7,7 +7,7 @@ use super::{FamilyId, Shape};
 /// Every shape constructor, for the citation pin below.
 ///
 /// The complete shape set used to check registry citations.
-const ALL_SHAPES: [Shape; 71] = [
+const ALL_SHAPES: [Shape; 72] = [
     Shape::Dense,
     Shape::Bigroot,
     Shape::Hugeleaf,
@@ -62,6 +62,7 @@ const ALL_SHAPES: [Shape; 71] = [
     Shape::WeightComb,
     Shape::FreezeParade,
     Shape::LoneFreeze,
+    Shape::NarrowFreezes,
     Shape::ToothTail,
     Shape::PunctureProduct,
     Shape::PlateauPuncture,

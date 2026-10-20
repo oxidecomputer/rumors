@@ -9,7 +9,7 @@
 
 use crate::bits::BitsWriter;
 use crate::testing::meter::registry::{FamilyId, Shape};
-use crate::testing::meter::MIN_DEFERRED_ARMING_DIGITS;
+use crate::testing::meter::{FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS};
 use num_bigint::BigUint;
 
 use crate::{Clock, Count, Party, Rank, Version};
@@ -275,6 +275,15 @@ const WIDE_STEP_SPINE_BASE_DEPTH: usize = 260;
 /// boundary between the spine's nested minima takes a range-minimum fold's
 /// wide form, at the narrowest step that does.
 const WIDE_STEP_SPINE_STEP_BITS: usize = 64;
+
+/// Narrow-freeze zigzag cycles per half at the default scale.
+///
+/// The base is a multiple of 4 deliberately: the family's rank exponent is
+/// its depth, `8c + 2`, and `rank_sum` lands each small summand at bit
+/// remainder `exp mod 32` (the freeze-position base's derivation carries the
+/// mechanism). `4 | c` keeps that remainder fixed across the level doubling,
+/// so the exponent leg compares like against like.
+const NARROW_FREEZES_BASE_CYCLES: usize = 64;
 
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
@@ -1174,6 +1183,16 @@ impl FamilyData {
                 kind,
                 Shape::WideStepSpine
                     .build2(WIDE_STEP_SPINE_STEP_BITS, size(WIDE_STEP_SPINE_BASE_DEPTH))
+                    .version()
+                    .encode(),
+            ),
+            // The wide step is the freeze families' shared drift width, wide
+            // enough that the following one-tick step freezes it in every
+            // stored form.
+            FamilyId::NarrowFreezes => Self::event(
+                kind,
+                Shape::NarrowFreezes
+                    .build2(FREEZE_DRIFT_BITS, size(NARROW_FREEZES_BASE_CYCLES))
                     .version()
                     .encode(),
             ),

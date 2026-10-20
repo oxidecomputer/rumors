@@ -2379,6 +2379,79 @@ fn lone_freeze(pre: usize, post: usize) -> Encoding {
     Encoding::from_bits(bits)
 }
 
+/// The narrow-freeze zigzag `NF(e, c)`: a path of `8c + 2` internal nodes
+/// turning alternately right and left, whose leaves, in sweep order, repeat a
+/// wide rise and a wide fall, each followed by a one-tick step.
+///
+/// With `W = 2^e`, the sweep's heights are `1`, then `c` cycles of `W + 1,
+/// W + 2, 3, 2`, then the bottom leaf `0`, then `c` more cycles, closing in
+/// `1`. Exactly `c(8e + 44) + 14` bits.
+///
+/// Each one-tick step follows a drift of magnitude at least `W`, so with `e`
+/// at least [`FREEZE_DRIFT_BITS`] a numeric fold freezes at every second
+/// boundary, `4c` times in all, while the wide steps themselves stay within
+/// the freeze allowance of their own codes. Consecutive drifts alternate in
+/// sign and nearly cancel: the sum of the frozen drifts, which is the height
+/// less the opening `1`, alternates between `W + 1` and `1`. It never
+/// outspans the next drift by the allowance, so no freeze defers, and every
+/// freeze settles a nonzero sum over the two regions since the last one.
+/// The path zigzags, so the sweep visits every other depth going down and
+/// the rest coming up: region widths shrink through the first half and grow
+/// through the second, and widths summed across segments form a dense binary
+/// pattern, one set bit per two levels, rather than the short run a straight
+/// spine's halving widths compact to.
+///
+/// Layout: for each depth `k = 0, …, 8c + 1`, the node `"11"` (the internal
+/// flag and `gamma(0)`), followed at even `k` by its left leaf, the next
+/// height of the first half; then the deepest node's left child, the bottom
+/// leaf `"01"`; then the odd depths' right leaves, deepest first, carrying
+/// the second half. A cycle's leaves take `2e + 2`, `2e + 2`, 6, and 4 bits,
+/// and the opening and closing `1` take 4 bits each. Normal form: the bottom
+/// leaf lies in every subtree, so every base is 0, and the only sibling leaf
+/// pair is the deepest node's `(0, W + 1)`.
+///
+/// # Panics
+///
+/// Panics if `e < 2`, where the wide codes break the closed-form size
+/// (`gamma(W + 2)` codes `2^e + 3`, which spans `2e + 1` bits only from
+/// `e = 2`), or if `c == 0`.
+fn narrow_freezes(e: usize, c: usize) -> Encoding {
+    assert!(
+        e >= 2,
+        "the narrow-freeze zigzag needs a wide step of at least 4"
+    );
+    assert!(
+        c >= 1,
+        "the narrow-freeze zigzag needs at least one cycle per half"
+    );
+    let wide = pow2(e);
+    let one = BigUint::ONE;
+    let cycle = [
+        &wide + 1u8,
+        &wide + 2u8,
+        BigUint::from(3u8),
+        BigUint::from(2u8),
+    ];
+    let cycles = || cycle.iter().cycle().take(4 * c);
+    let mut bits = BitsWriter::with_capacity((c * (8 * e + 44) + 14) as u64);
+    let mut descent = core::iter::once(&one).chain(cycles());
+    for depth in 0..8 * c + 2 {
+        bits.push(true); // the node at `depth`, base 0
+        bits.write_gamma(&BigUint::ZERO);
+        if depth % 2 == 0 {
+            let height = descent
+                .next()
+                .expect("one first-half height per even depth");
+            ev_leaf_wide(&mut bits, height); // its left leaf, swept going down
+        }
+    }
+    ev_leaf(&mut bits, 0); // the bottom: the deepest node's left child
+    for height in cycles().chain([&one]) {
+        ev_leaf_wide(&mut bits, height); // the odd depths' right leaves, swept coming up
+    }
+    Encoding::from_bits(bits)
+}
+
 /// The tooth-tail pair `TT(g, m)`: two same-shape right spines of `m` flat unit
 /// leaves over a terminal 0, whose second leaves spike by `2^(32g)` in both
 /// operands.

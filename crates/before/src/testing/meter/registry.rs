@@ -168,6 +168,9 @@ pub enum Shape {
     /// The lone-freeze spine `LF(pre, post)`:
     /// [`Shape::build2`]`(pre, post)`.
     LoneFreeze,
+    /// The narrow-freeze zigzag `NF(e, c)`, a wide step and a one-tick step
+    /// alternating in both directions: [`Shape::build2`]`(e, c)`.
+    NarrowFreezes,
     /// The tooth-tail pair `TT(g, m)`: [`Shape::build_pair`]`(g, m)`.
     ToothTail,
     /// The puncture-product embedding `V(x, y)` over arbitrary factors:
@@ -311,6 +314,7 @@ impl Shape {
             Shape::WeightComb => Builder::P1(super::weight_comb),
             Shape::FreezeParade => Builder::P1(super::freeze_parade),
             Shape::LoneFreeze => Builder::P2(super::lone_freeze),
+            Shape::NarrowFreezes => Builder::P2(super::narrow_freezes),
             Shape::ToothTail => Builder::Pair2(super::tooth_tail),
             Shape::PunctureProduct => Builder::Product(super::puncture_product),
             Shape::PlateauPuncture => Builder::P2(super::plateau_puncture),
@@ -933,6 +937,20 @@ pub enum FamilyId {
     /// of that code at every level. Designed against the transient heap of
     /// `min_ticks`'s range minima.
     WideStepSpine,
+    /// The narrow-freeze zigzag `NF(e, c)` at the freeze-firing step width:
+    /// a freeze at every second boundary, with no freeze deferring.
+    ///
+    /// Each wide rise or fall is followed by a one-tick step that freezes it,
+    /// and consecutive drifts nearly cancel, so the sum of the frozen drifts
+    /// alternates between one wide step and one tick. The integrator's memory
+    /// on this family is therefore whatever it keeps of its frozen drifts: it
+    /// parks their running sum, which never outspans the next drift by the
+    /// freeze allowance, so every freeze settles that sum over its segment and
+    /// none defers. The path zigzags, so region widths shrink and then grow
+    /// along the sweep, unlike the straight descents of the freeze-position
+    /// and freeze-parade families. Designed against the rank integrator's
+    /// transient heap.
+    NarrowFreezes,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -980,7 +998,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 60] = [
+    pub const ALL: [FamilyId; 61] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1041,6 +1059,7 @@ impl FamilyId {
         FamilyId::JumpRisingSpine,
         FamilyId::WideStepPairs,
         FamilyId::WideStepSpine,
+        FamilyId::NarrowFreezes,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1370,6 +1389,11 @@ impl FamilyId {
             FamilyId::WideStepSpine => FamilySpec {
                 name: "wide-step-spine",
                 shapes: &[Shape::WideStepSpine],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::NarrowFreezes => FamilySpec {
+                name: "narrow-freezes",
+                shapes: &[Shape::NarrowFreezes],
                 cells: VERSION_BUNDLE_CELLS,
             },
         }
