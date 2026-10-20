@@ -36,7 +36,8 @@
 /// remain responsible for each operation's asymptotic contract.
 pub const MAX_SCALING_EXPONENT: f64 = 1.15;
 
-/// Proportional term in the heap ceiling `HEAP_INTERCEPT_BYTES + C * D`.
+/// Proportional term `C` in the heap ceiling `I + C * D`, where `I` is
+/// [`HEAP_INTERCEPT_BYTES`].
 ///
 /// Most operations use their input size; operations whose required output can
 /// be larger use total input and output instead. Numeric rows use value width.
@@ -56,8 +57,8 @@ pub const HEAP_INTERCEPT_BYTES: usize = 1_024;
 /// Resolution of the empirical heap growth fit, independent of its ceiling.
 ///
 /// Inline storage, buffer doubling, and numeric formatting algorithms produce
-/// allocation thresholds on the finite ladder. Clamping the fit at 4 KiB
-/// accommodates these transitions. Growth below this resolution is not judged
+/// allocation thresholds on the finite ladder. Clamping the fit at this
+/// resolution accommodates these transitions. Growth below this resolution is not judged
 /// by the fit; every raw peak still faces the tighter affine ceiling above.
 pub const HEAP_TREND_RESOLUTION_BYTES: usize = 4_096;
 
@@ -88,7 +89,7 @@ pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 24.0;
 /// Scan liveness floor: an operation that must examine its operands scans at
 /// least this many bits per input byte.
 ///
-/// One bit per byte is well below a complete walk's eight bits per byte, but
+/// The floor is well below a complete walk's eight bits per byte, but
 /// above the zero reading produced by a disconnected counter.
 pub const SCAN_FLOOR_BITS_PER_INPUT_BYTE: f64 = 1.0;
 
@@ -111,7 +112,7 @@ pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 /// The fixed count the `version_ticks` cell registers per measurement.
 ///
 /// Holding the count fixed makes input size the cell's only scaling
-/// variable. A count of 512 is large enough that an implementation which loops
+/// variable. The count is large enough that an implementation which loops
 /// over ticks cannot hide that work in a fixed cost.
 pub const TICKS_BOARD_COUNT: u64 = 512;
 
@@ -179,6 +180,6 @@ pub const DEFAULT_SCALE: f64 = 1.0;
 
 /// The top sampling scale of the measurement ladder.
 ///
-/// Along with the base scale, this supplies four sizes spanning an eightfold
-/// range for the growth fit. Ordinary development runs use the base scale.
+/// Along with the base scale, this supplies four sizes for the growth fit, from
+/// the base scale's smaller size to this scale's larger one. Ordinary development runs use the base scale.
 pub const LADDER_TOP_SCALE: f64 = 4.0;

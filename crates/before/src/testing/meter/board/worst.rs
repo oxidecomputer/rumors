@@ -18,10 +18,9 @@ use super::ceilings::LADDER_TOP_SCALE;
 use super::currency::Currency;
 use super::judge::CellResult;
 
-/// The measurement ladder's two sampling scales, at each of which the
-/// worst-case map is rendered and pinned: the board's seconds-scale base and
-/// the ladder top ([`LADDER_TOP_SCALE`], which owns the ×4 calibration
-/// argument).
+/// The measurement ladder's two growth sampling scales, at each of which the
+/// worst-case map is rendered and pinned: the ladder's base
+/// ([`DEFAULT_SCALE`]) and its top ([`LADDER_TOP_SCALE`]).
 ///
 /// The map's claim is scale-qualified because a ranking is: a shape's
 /// normalized constant carries its intercept at the default scale, and the

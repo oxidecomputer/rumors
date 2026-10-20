@@ -28,13 +28,15 @@
 //! complete measurement ladder; a single-scale run is diagnostic only.
 //! Additional small-input samples check ceilings and liveness without fitting
 //! growth through minimum allocation sizes. Every sample checks its full heap
-//! peak against `1,024 + C * D`: `C` defaults to 20 and `D` is the row's
-//! declared constant units. Query evaluation has a separate coefficient because
-//! it keeps one cursor and comparison state per bound. No bytes are subtracted
-//! from reported readings.
+//! peak against `I + C * D`: `I` is [`HEAP_INTERCEPT_BYTES`], `C` defaults to
+//! [`MAX_HEAP_BYTES_PER_INPUT_BYTE`], and `D` is the row's declared constant
+//! units. Query evaluation has a separate coefficient
+//! ([`QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE`]) because it keeps one cursor
+//! and comparison state per bound. No bytes are subtracted from reported
+//! readings.
 //!
-//! The heap growth fit has 4 KiB resolution to accommodate allocation
-//! thresholds on the finite ladder. It cannot detect growth entirely below
+//! The heap growth fit has a resolution of [`HEAP_TREND_RESOLUTION_BYTES`] to
+//! accommodate allocation thresholds on the finite ladder. It cannot detect growth entirely below
 //! that level. These empirical checks are regression evidence over the sampled
 //! inputs, not proofs of asymptotic or universal bounds. Deep-tree tests check
 //! stack safety directly.

@@ -16,26 +16,25 @@ use crate::{Clock, Count, Party, Rank, Version};
 
 use super::operand::value_content_bytes;
 
-// ─── family sizes at scale 1.0 ──────────────────────────────────────────────
+// ─── family sizes at the default scale ───────────────────────────────────────
 
-/// Dense event spine depth at scale 1.0 (size ~4 KiB).
+/// Dense event spine depth at the default scale.
 const DENSE_BASE_DEPTH: usize = 8_000;
 
-/// Bigroot root magnitude in bits at scale 1.0.
+/// Bigroot root magnitude in bits at the default scale.
 const BIGROOT_BASE_MAGNITUDE_BITS: usize = 8_000;
 
-/// Bigroot spine depth at scale 1.0 (size ~3 KiB with the magnitude).
+/// Bigroot spine depth at the default scale.
 const BIGROOT_BASE_DEPTH: usize = 2_000;
 
-/// Hugeleaf magnitude in bits at scale 1.0 (size ~4 KiB).
+/// Hugeleaf magnitude in bits at the default scale.
 const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 32_000;
 
-/// Id spine depth at scale 1.0 (pair size ~6 KiB).
+/// Id spine depth at the default scale.
 const ID_BASE_DEPTH: usize = 12_000;
 
-/// Boundary-comb tooth magnitude (bits) and tooth count at scale 1.0 (encoded
-/// size ~4 KiB); one parameter drives both, mirroring the meter suite's `k = n`
-/// convention.
+/// Boundary-comb tooth magnitude (bits) and tooth count at the default scale;
+/// one parameter drives both, mirroring the meter suite's `k = n` convention.
 ///
 /// Scaling `k` with `n` is the separating choice: it keeps the comb's absolute
 /// value content growing quadratically in the input, so a sweep that
@@ -44,7 +43,7 @@ const ID_BASE_DEPTH: usize = 12_000;
 /// magnitude.
 const CLIFF_BASE_SCALE: usize = 128;
 
-/// Comb-scatter tooth count at scale 1.0 (encoded cross ~32 KiB).
+/// Comb-scatter tooth count at the default scale.
 ///
 /// Scale drives the tooth count (and with it the scattered party's fragment
 /// count, half the teeth); the tooth magnitude stays at
@@ -55,68 +54,67 @@ const CROSS_BASE_TEETH: usize = 128;
 /// Comb-scatter tooth magnitude in bits (fixed across scales).
 const CROSS_TOOTH_MAGNITUDE_BITS: usize = 1_000;
 
-/// Harmonic spine depth at scale 1.0 (size ~6 KiB, matching the
-/// dense spine's depth).
+/// Harmonic spine depth at the default scale (matching the dense spine's
+/// depth).
 const HARMONIC_BASE_DEPTH: usize = 8_000;
 
-/// Scatter population at scale 1.0: balanced-forked parties, one tick
-/// each (~10 KiB of encoded single-tick versions).
+/// Scatter population at the default scale: balanced-forked parties, one tick
+/// each.
 const SCATTER_BASE_CLOCKS: usize = 1_024;
 
-/// Nested-full-sibling depth at scale 1.0 (pair size ~1.5 KiB).
+/// Nested-full-sibling depth at the default scale.
 ///
 /// Deep enough that a per-level re-scan exposes its exponent across the
 /// level doubling, small enough that the quadratic pin stays inside the board's
 /// runtime budget at the acceptance scale.
 const NESTED_BASE_DEPTH: usize = 1_500;
 
-/// Nested-wide depth and root-magnitude bits at scale 1.0 (equal, so the
-/// doubling scales width and depth together — the cross's cost is their
-/// product; pair size ~1.5 KiB).
+/// Nested-wide depth and root-magnitude bits at the default scale (equal, so
+/// the doubling scales width and depth together — the cross's cost is their
+/// product).
 ///
 /// Small enough that even a width × depth kernel stays inside the
 /// acceptance-scale runtime budget; the red reading rides the exponent leg, not
 /// the constant ceiling.
 const NESTED_WIDE_BASE: usize = 1_000;
 
-/// Mirror-wide depth and tail-magnitude bits at scale 1.0 (equal, as above;
-/// pair size ~1 KiB). The memo arm's chains grow steeper than the right-full
-/// arm's, so the base sits lower.
+/// Mirror-wide depth and tail-magnitude bits at the default scale (equal, as
+/// above). The memo arm's chains grow steeper than the right-full arm's, so the
+/// base sits lower.
 const MIRROR_WIDE_BASE: usize = 500;
 
-/// Mirror-narrow depth at scale 1.0 (pair size ~1.5 KiB): the nested-full
-/// base, mirrored — the memo machinery at the same depth the right-full cells
-/// walk.
+/// Mirror-narrow depth at the default scale: the nested-full base, mirrored —
+/// the memo machinery at the same depth the right-full cells walk.
 const MIRROR_NARROW_BASE_DEPTH: usize = 1_500;
 
-/// Distinct-minimum memo sites at scale 1.0.
+/// Distinct-minimum memo sites at the default scale.
 ///
 /// The acceptance ladder's larger sample reaches 2,000 sites.
 const MEMO_CHAIN_BASE_SITES: usize = 250;
 
-/// Nested memo levels at scale 1.0.
+/// Nested memo levels at the default scale.
 ///
 /// The acceptance ladder's larger sample reaches 1,000 levels.
 const MEMO_COMB_BASE_DEPTH: usize = 125;
 
-/// Memo churn and descending-raise sites at scale 1.0.
+/// Memo churn and descending-raise sites at the default scale.
 ///
 /// The acceptance ladder's larger sample reaches 1,600 sites.
 const MEMO_CHURN_BASE_SITES: usize = 200;
 
-/// Magnitude width of the memo fan-out witness at scale 1.0.
+/// Magnitude width of the memo fan-out witness at the default scale.
 const MEMO_FANOUT_BASE_WIDTH: usize = 2_048;
 
-/// Magnitude width of each oscillating memo difference at scale 1.0.
+/// Magnitude width of each oscillating memo difference at the default scale.
 const MEMO_OSCILLATING_BASE_WIDTH: usize = 512;
 
-/// Staircase depth at scale 1.0 (pair size ~2 KiB): deep enough that
-/// per-level minimum bookkeeping would read its exponent across the doubling,
-/// all values word-scale.
+/// Staircase depth at the default scale: deep enough that per-level minimum
+/// bookkeeping would read its exponent across the doubling, all values
+/// word-scale.
 const STAIRCASE_BASE_DEPTH: usize = 1_500;
 
-/// Reveal-comb site count and plateau-magnitude bits at scale 1.0
-/// (equal; pair size ~1 KiB).
+/// Reveal-comb site count and plateau-magnitude bits at the default scale
+/// (equal).
 ///
 /// One parameter drives both, so the doubling scales the site count and the
 /// circulated width together — the cycle's cost is their product. The
@@ -124,17 +122,17 @@ const STAIRCASE_BASE_DEPTH: usize = 1_500;
 /// chains, so the base sits at the mirror-wide level.
 const REVEAL_COMB_BASE: usize = 500;
 
-/// Pure-comb level count and leaf-magnitude bits at scale 1.0 (equal,
-/// as above; pair size ~1 KiB).
+/// Pure-comb level count and leaf-magnitude bits at the default scale (equal,
+/// as above).
 ///
 /// The range-minimum stack's own cycle runs at ~2 wide folds per level — a
 /// tenth of the reveal comb's constant — so the base sits higher for comparable
 /// work.
 const PURE_COMB_BASE: usize = 1_000;
 
-/// Ascending-cliff spine length and leaf-magnitude bits at scale 1.0 (equal, so
-/// the doubling scales the hop count and the residue width together — the
-/// cascade's cost is their product; pair size ~1 KiB).
+/// Ascending-cliff spine length and leaf-magnitude bits at the default scale
+/// (equal, so the doubling scales the hop count and the residue width together
+/// — the cascade's cost is their product).
 ///
 /// The cascade runs at ~4 touches per input byte on the cured fold direction —
 /// the leveled control's constant — so the base sits at the pure-comb level for
@@ -152,8 +150,8 @@ const PURE_COMB_BASE: usize = 1_000;
 /// samples the same work at nearly double the held capacity.
 const ASCEND_CLIFF_BASE: usize = 992;
 
-/// Dominated-undercut site count and wide-width bits at scale 1.0 (equal;
-/// pair size ~13 KiB).
+/// Dominated-undercut site count and wide-width bits at the default scale
+/// (equal).
 ///
 /// One knob drives both, so the doubling scales the emission count and the
 /// per-site climb width together — every site's climb is its own input-funded
@@ -176,41 +174,42 @@ const DOMINATED_UNDERCUT_BASE: usize = 160;
 /// exponent and numerator width.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
-/// Wide-tooth magnitude, tooth width, and tooth count at scale 1.0.
+/// Wide-tooth magnitude, tooth width, and tooth count at the default scale.
 const WIDE_TOOTH_BASE_MAGNITUDE: usize = 9_600;
 const WIDE_TOOTH_BASE_WIDTH: usize = 300;
 const WIDE_TOOTH_BASE_TEETH: usize = 64;
 
-/// Jump-comb magnitude and tooth count at scale 1.0.
+/// Jump-comb magnitude and tooth count at the default scale.
 const JUMP_COMB_BASE_MAGNITUDE: usize = 512;
 const JUMP_COMB_BASE_TEETH: usize = 128;
 
-/// Cliff-fan and cancelling-chain dimensions at scale 1.0.
+/// Cliff-fan and cancelling-chain dimensions at the default scale.
 const CLIFF_FAN_BASE: usize = 256;
 const CANCELLING_CHAIN_BASE: usize = 256;
 
-/// Alternating-spine depth at scale 1.0.
+/// Alternating-spine depth at the default scale.
 const ALT_SPINE_BASE_DEPTH: usize = 8_000;
 
-/// Correlated masked-comparison dimensions at scale 1.0.
+/// Correlated masked-comparison dimensions at the default scale.
 const MASK_DRIFT_BASE_MAGNITUDE: usize = 512;
 const MASK_DRIFT_BASE_TEETH: usize = 256;
 const MASKED_HOLE_BASE_DEPTH: usize = 2_000;
 const MASKED_HOLE_MASK_DEPTH: usize = 8;
 
-/// Meet-shade carrier depth and population size at scale 1.0.
+/// Meet-shade carrier depth and population size at the default scale.
 const MEET_SHADE_BASE: usize = 128;
 
-/// Arming-train dimensions at scale 1.0.
+/// Arming-train dimensions at the default scale.
 const ARMING_TRAIN_BASE_BLOCKS: usize = 64;
 const ARMING_TRAIN_BASE_WIDTH: usize = 32;
 const ARMING_TRAIN_BASE_GAPS: usize = 32;
 
-/// Scan-hole unit and per-hole depths at scale 1.0.
+/// Scan-hole unit and per-hole depths at the default scale.
 const SCAN_HOLE_BASE_UNITS: usize = 64;
 const SCAN_HOLE_BASE_STEPS: usize = 256;
 
-/// Copy-hole units at scale 1.0, sized apart from the other hole families.
+/// Copy-hole units at the default scale, sized apart from the other hole
+/// families.
 ///
 /// Ticking the copy-hole pair copies its event stream into the result through
 /// one splice, which reserves exactly the copied bytes. The bits written after
@@ -231,17 +230,17 @@ const HOISTED_WINDOW_WIDTH: usize = MIN_DEFERRED_ARMING_DIGITS;
 /// Hoisted-window gap count, fixed across scales.
 const HOISTED_WINDOW_GAPS: usize = 40;
 
-/// Hoisted-window tail depth at scale 1.0.
+/// Hoisted-window tail depth at the default scale.
 const HOISTED_WINDOW_BASE_TAIL: usize = 81_920;
 
-/// Propagation-seam and latent-ladder dimensions at scale 1.0.
+/// Propagation-seam and latent-ladder dimensions at the default scale.
 const PROPAGATE_SEAM_BASE_DEPTH: usize = 512;
 const PROPAGATE_SEAM_CLEARANCE: usize = 5;
 const LATENT_LADDER_BASE_WIDTH: usize = 64;
 const LATENT_LADDER_BASE_LEAVES: usize = 512;
 
-/// Two-operand jump-comb teeth at scale 1.0 (pair size ~35 KiB, the teeth
-/// operand's per-level wide codes dominating).
+/// Two-operand jump-comb teeth at the default scale (the teeth operand's
+/// per-level wide codes dominating the pair's size).
 ///
 /// One knob drives the tooth count and, through [`JUMP_PAIR_DIGIT_DIVISOR`],
 /// the isolated-position digit count, at the fixed tooth magnitude
@@ -266,8 +265,8 @@ const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
 /// pair.
 const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 
-/// Freeze-position blocks at scale 1.0 (encoded version ~74 KiB, the per-block
-/// wide drop codes dominating).
+/// Freeze-position blocks at the default scale (the per-block wide drop codes
+/// dominating the encoded version's size).
 ///
 /// The scale of the freeze-position band's small run, so the board's default
 /// pair spans the regime the family is designed to test. The
@@ -282,8 +281,8 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// preserves the remainder and the exponent leg compares like against like.
 const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 
-/// Deferral re-arm blocks at scale 1.0 (stored version ~128 KiB, the per-block
-/// wide arming codes dominating).
+/// Deferral re-arm blocks at the default scale (the per-block wide arming codes
+/// dominating the stored version's size).
 ///
 /// Half the deferral re-arm band's small run, so the board's default pair
 /// spans the regime the family is designed to test. The base is
@@ -294,8 +293,9 @@ const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 /// so every doubling compares like against like.
 const PROMO_REARM_BASE_BLOCKS: usize = 512;
 
-/// Weight-comb block pairs at scale 1.0 (encoded version ~7 KiB, the spine's
-/// unit codes dominating), rounded up to a power of two at every scale.
+/// Weight-comb block pairs at the default scale (the spine's unit codes
+/// dominating the encoded version's size), rounded up to a power of two at
+/// every scale.
 ///
 /// The rounding is the complete-subtree relation's call-site repair, and the
 /// level doubling then doubles the rounded count exactly. The base is the scale
@@ -308,9 +308,9 @@ const PROMO_REARM_BASE_BLOCKS: usize = 512;
 /// derivation carries the mechanism).
 const WEIGHT_COMB_BASE_BLOCKS: usize = 512;
 
-/// Freeze-parade blocks at scale 1.0 (encoded version ~49 KiB, the blocks' wide
-/// drop codes dominating), rounded up to a power of two at every scale (the
-/// parade block is one complete subtree).
+/// Freeze-parade blocks at the default scale (the blocks' wide drop codes
+/// dominating the encoded version's size), rounded up to a power of two at
+/// every scale (the parade block is one complete subtree).
 ///
 /// This is the small size used by the `skyline_flatness` freeze-parade band,
 /// which exercises the write watermark across a doubling. Power-of-two `k`
@@ -318,19 +318,19 @@ const WEIGHT_COMB_BASE_BLOCKS: usize = 512;
 /// alignment as the weight comb's.
 const FREEZE_PARADE_BASE_BLOCKS: usize = 512;
 
-/// Concurrent-pair forked-party count at scale 1.0, rounded up to a power of
-/// two at every scale (the balanced fork and the alternating dominance schedule
-/// both need it; the level doubling then doubles it exactly).
+/// Concurrent-pair forked-party count at the default scale, rounded up to a
+/// power of two at every scale (the balanced fork and the alternating dominance
+/// schedule both need it; the level doubling then doubles it exactly).
 const CONCURRENT_BASE_LEAVES: usize = 1_024;
 
-/// Tooth-tail boundary count at scale 1.0 (the pair ~3.6 KiB per operand); the
-/// spike width rides the same knob at [`TOOTH_TAIL_SPIKE_DIVISOR`], the
-/// committed flatness band's ratio.
+/// Tooth-tail boundary count at the default scale; the spike width rides the
+/// same knob at [`TOOTH_TAIL_SPIKE_DIVISOR`], the committed flatness band's
+/// ratio.
 const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 
 /// Dense-suffix blocks (and gap digits: one knob drives both, the `DS(p, p)`
-/// diagonal) at scale 1.0 (encoded version ~122 KiB, the blocks' wide climb
-/// codes dominating).
+/// diagonal) at the default scale (the blocks' wide climb codes dominating the
+/// encoded version's size).
 ///
 /// This is the small size used by the `skyline_flatness` dense-suffix bands.
 /// The base is a multiple of 32 deliberately: the family's rank exponent is linear in the
@@ -342,7 +342,7 @@ const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 const DENSE_SUFFIX_BASE_BLOCKS: usize = 512;
 
 /// Wide-arming digits (arming digits and gap digits together: the `WA(w, d)`
-/// diagonal at `w = d`) at scale 1.0 (encoded version ~13 KiB).
+/// diagonal at `w = d`) at the default scale.
 ///
 /// Its rank exponent is `32s`, so doubling the scale preserves the exponent's
 /// word alignment. The build arm floors the knob at
@@ -352,7 +352,7 @@ const DENSE_SUFFIX_BASE_BLOCKS: usize = 512;
 const WIDE_ARMING_BASE_DIGITS: usize = 512;
 
 /// Plateau-puncture digits (plateau digits and turn count together: the `PP(w,
-/// d)` diagonal at `w = d`) at scale 1.0 (encoded version ~15 KiB).
+/// d)` diagonal at `w = d`) at the default scale.
 ///
 /// The family's encoded construction spells the plateau once per turn, so
 /// every bundle build pays `Θ(s²)` encoded bits and this knob owns the board's
@@ -365,7 +365,7 @@ const PLATEAU_PUNCTURE_BASE_DIGITS: usize = 384;
 
 /// Lone-freeze oscillation pairs per axis (the `LF(s, s)` diagonal: one knob
 /// drives the never-freezing plateau prefix and the frozen tail together) at
-/// scale 1.0 (encoded version ~2.6 KiB).
+/// the default scale.
 ///
 /// The scale of the `skyline_flatness` lone-freeze bands' small runs (each band
 /// isolates one axis at the generator minimum; the board column scales both, so
@@ -383,8 +383,8 @@ const LONE_FREEZE_BASE_PAIRS: usize = 2_048;
 /// needs the tail to dominate the spike).
 const TOOTH_TAIL_SPIKE_DIVISOR: usize = 64;
 
-/// Staggered fold population operand count at scale 1.0, rounded up to the
-/// power of two the slot addressing needs.
+/// Staggered fold population operand count at the default scale, rounded up to
+/// the power of two the slot addressing needs.
 ///
 /// 64 operands of [`STAGGER_BASE_BLOCKS`] teeth each keep the default-scale
 /// fold cells seconds-fast while giving the balanced reduction seven levels of
@@ -393,15 +393,15 @@ const TOOTH_TAIL_SPIKE_DIVISOR: usize = 64;
 /// fold model's exponent ceiling is computed from the realized pair.
 const STAGGER_BASE_OPERANDS: usize = 64;
 
-/// Staggered fold population blocks (teeth) per operand at scale 1.0, rounded
-/// up to a power of two (the complete top tree needs it).
+/// Staggered fold population blocks (teeth) per operand at the default scale,
+/// rounded up to a power of two (the complete top tree needs it).
 const STAGGER_BASE_BLOCKS: usize = 64;
 
-/// Benign clock population at scale 1.0.
+/// Benign clock population at the default scale.
 const BENIGN_BASE_CLOCKS: usize = 256;
 
-/// The weave fold population's leaf count at scale 1.0 (rounded up to a power
-/// of two by construction).
+/// The weave fold population's leaf count at the default scale (rounded up to a
+/// power of two by construction).
 ///
 /// 4096 leaves woven into [`WEAVE_GROUPS`] parties give each operand about 256
 /// scattered leaves under a fully shared upper skeleton. This makes

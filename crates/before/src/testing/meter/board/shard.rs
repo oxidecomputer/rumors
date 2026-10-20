@@ -533,9 +533,9 @@ pub(super) fn merge_samples(
 /// Sweep the whole board across `shards` child processes at `scale` and render
 /// the matrix to `out`.
 ///
-/// `scale` multiplies every family's base size (1.0 is the seconds-scale
-/// default; the smoke suite passes a small fraction). Cells run at the scaled
-/// size and its double. Red rows print first. `spawn` is invoked once, at
+/// `scale` multiplies every family's base size
+/// ([`DEFAULT_SCALE`](super::DEFAULT_SCALE) is the default; the smoke suite
+/// passes a small fraction). Cells run at the scaled size and its double. Red rows print first. `spawn` is invoked once, at
 /// `scale`.
 ///
 /// # Panics
