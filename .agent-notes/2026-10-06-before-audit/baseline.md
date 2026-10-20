@@ -48,8 +48,8 @@ spelling.
 
 Branches land on the landing check (`~/bin/audit-check`, described in the
 README) rather than the full gate. Its baseline is recorded at `main`
-`6a8dab7cc` (2026-10-20), after #122 and its follow-ups, #130, #129, and
-#131 landed. The invocation:
+`054cdd1fb` (2026-10-20), after #122 and its follow-ups, #130, #129, #131,
+#133, #72, #134, and #135 landed. The invocation:
 
 ```
 on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check'
@@ -57,17 +57,15 @@ on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24
 
 | Leg | Verdict | Detail |
 |---|---|---|
-| tests | ok | `before` and `suanpan`: 840 run, 840 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
+| tests | ok | `before` and `suanpan`: 844 run, 844 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
 | lints | ok | `just gate-lints` and both clippy runs clean |
 | docs | ok | private-items and docs.rs builds clean; doctests: 193 passed (`before`), 15 passed (`suanpan`) |
 | surface | ok | 14 tests passed; 215 public function-like items = 134 board-covered + 81 excepted |
-| board | ok | 5545 green, 0 red; `worst-case pin: clean (272 pinned rows verified at 2 sampling scales)` |
+| board | ok | 5729 green, 0 red, under the shared heap ceiling of 15 bytes per input byte; `worst-case pin: clean (272 pinned rows verified at 2 sampling scales)` |
 | wasm | ok | wasm32-pins 12/12, fuzzfit 25/25, fuelscape 43/43 |
 
 A branch's landing check must match this table, with counts moved only by
-the tests the branch adds or removes. A branch based before #129 runs the
-board and the worst-case pin as two commands; one based on or after it
-runs one sweep.
+the tests and board families the branch adds or removes.
 
 ## Open items
 
