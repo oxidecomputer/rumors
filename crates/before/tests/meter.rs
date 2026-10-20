@@ -77,6 +77,8 @@ mod deferred_wide_arming;
 #[cfg(feature = "scan-meter")]
 #[path = "meter/duplicate_runs.rs"]
 mod duplicate_runs;
+#[path = "meter/encode_allocation.rs"]
+mod encode_allocation;
 #[cfg(feature = "touch-meter")]
 #[path = "meter/eq_early_exit.rs"]
 mod eq_early_exit;
