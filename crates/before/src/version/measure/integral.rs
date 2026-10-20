@@ -186,8 +186,6 @@ pub struct Integrator {
     base: Accumulator,
     /// Older wide heights and the widths between their deferrals.
     deferred: DeferredIntegral,
-    /// Reused for region-width additions, avoiding an integer per region.
-    one: BigUint,
 }
 
 /// Advance the integral while charging each height component only over its lifetime.
@@ -202,7 +200,6 @@ impl Integrator {
             tracks_width: false,
             base: Accumulator::new(),
             deferred: DeferredIntegral::new(),
-            one: BigUint::from(1u8),
         }
     }
 
@@ -232,8 +229,7 @@ impl Integrator {
             self.total.add_shifted(weight_shift, &self.live);
         }
         if self.tracks_width {
-            self.segment_width
-                .add_shifted_limbs(weight_shift, self.one.iter_u64_digits());
+            self.segment_width.add_shifted_limbs(weight_shift, [1]);
         }
     }
 
