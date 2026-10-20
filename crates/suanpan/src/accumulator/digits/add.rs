@@ -9,7 +9,7 @@
 //! carry intermediate: small values use 32-bit magnitude pieces, 64-bit limbs
 //! split in half, and stored signed digits already satisfy the bound. They all
 //! pass through [`Digits::add_at`], so no alternate write path can bypass the
-//! digit or zero-range invariants.
+//! digit or written-set invariants.
 //!
 //! Position calculations stay in `u128` until a nonzero contribution needs a
 //! buffer index. Zero pieces record their operand read but neither allocate

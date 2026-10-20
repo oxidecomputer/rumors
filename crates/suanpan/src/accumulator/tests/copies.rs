@@ -125,3 +125,40 @@ fn clone_from_reuses_the_receivers_buffer() {
     assert_eq!(receiver.stored().digits.stored_digits().as_ptr(), buffer);
     assert_value(&receiver, &IBig::from(from_limbs(&[u64::MAX, 7])));
 }
+
+/// A clone's written set takes space for the copied value's width alone,
+/// however wide a set its source retains.
+///
+/// Writes at digits 0, 10, 20, 29,000, and 30,000 give the source's written
+/// set a bitset covering the first 29,001 positions. Cancelling the two far
+/// writes leaves a value of 21 digits, and the source keeps that bitset, as
+/// it keeps its digit buffer. The crate promises O(`Q`) space for a copy, so
+/// the clone's set may hold at most twice the words that 21 positions need at
+/// one bit each.
+#[test]
+fn clones_take_written_set_space_for_the_value_alone() {
+    const FAR: u64 = 32 * 30_000;
+    let mut source = Accumulator::new();
+    for shift in [0, 32 * 10, 32 * 20, FAR - 32 * 1_000, FAR] {
+        source.add_shifted_limbs(shift, [1]);
+    }
+    for shift in [FAR - 32 * 1_000, FAR] {
+        source.sub_shifted_limbs(shift, [1]);
+    }
+    let retained = source.stored().digits.written_storage_words();
+    assert!(
+        retained >= 29_001_usize.div_ceil(64),
+        "the far writes allocated a bitset covering the old width, {retained} words"
+    );
+
+    let copy = source.clone();
+    let expected = IBig::from(1) + (IBig::from(1) << 320usize) + (IBig::from(1) << 640usize);
+    assert_value(&copy, &expected);
+    let copied = copy.stored().digits.written_storage_words();
+    let level_zero = copy.stored_digit_count().div_ceil(64);
+    assert!(
+        copied <= 2 * level_zero,
+        "the copy's set takes {copied} words for {} digits, where its source retains {retained}",
+        copy.stored_digit_count()
+    );
+}

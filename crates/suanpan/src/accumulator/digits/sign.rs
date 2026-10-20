@@ -15,7 +15,7 @@
 //! and writes the final partial back at the position where it stops. This
 //! preserves the integer while replacing the inspected suffix with its
 //! compact equivalent. Each individually visited position was written by an
-//! earlier update; untouched zero ranges are skipped in one step. The work of
+//! earlier update; a gap of unwritten zeros is skipped in one step. The work of
 //! comparisons with zero is therefore amortized over the updates that made it
 //! necessary.
 //!
@@ -56,9 +56,11 @@ impl Digits {
 
     /// Return the stopping position and replace the scanned suffix by its value.
     ///
-    /// A zero partial can skip a known-zero range unchanged. A nonzero partial
-    /// reaches the decision threshold at the first zero digit in a gap.
-    /// Only digits the fold has incorporated are cleared.
+    /// A zero partial can skip a gap of unwritten zeros unchanged. A nonzero
+    /// partial reaches the decision threshold at the first zero digit in such
+    /// a gap. Only digits the fold has incorporated are cleared; they all lie
+    /// above the stopping position, so truncating the written set there
+    /// removes exactly them.
     fn compact_until_order_known(&mut self) -> (usize, i128) {
         self.debug_assert_valid();
         let previous_highest = self.highest_nonzero;
@@ -75,16 +77,15 @@ impl Digits {
             // zero it so the floor re-deposit preserves the value.
             self.digits[index] = 0;
             touch(1);
-            if partial == 0 {
-                if let Some(lo) = self.zero_ranges.take_below(index) {
-                    debug_assert!(lo < index);
-                    // Multiplying zero by any skipped powers of B still gives
-                    // zero, so no arithmetic is needed across this range.
-                    index = lo;
-                    continue;
-                }
-            }
-            index -= 1;
+            index = if partial == 0 {
+                // Multiplying zero by any skipped powers of B still gives
+                // zero, so no arithmetic is needed across the unwritten gap.
+                self.written
+                    .last_below(index)
+                    .expect("position zero stays written, and lies below index")
+            } else {
+                index - 1
+            };
         }
         if index < previous_highest {
             // Everything above this position is now represented by `partial`.
@@ -93,11 +94,13 @@ impl Digits {
             self.digits[index] = 0;
             touch(1);
             self.highest_nonzero = index;
+            // The cleared positions leave the written set only now. A query
+            // below a position never sees the positions above it, so the
+            // scan's queries were unaffected. A zero partial stops only at
+            // position zero, which stays written.
+            self.written.truncate(index);
             if partial != 0 {
                 self.add_at(index, partial);
-            } else {
-                // No digits remain above or below the final zero partial.
-                self.zero_ranges.clear();
             }
         }
         self.debug_assert_valid();

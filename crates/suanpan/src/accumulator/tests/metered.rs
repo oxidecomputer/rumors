@@ -78,9 +78,10 @@ fn scaled_read_costs_the_written_span() {
 
 /// Alternating shifted updates cost three touches per pair regardless of the gap.
 ///
-/// Two deposits and one recorded-range skip suffice at both tested shifts.
-/// The same pin holds with a nonzero digit below the gap: recording only a
-/// single lowest-written position could not justify skipping that interior range.
+/// Two deposits and one skip down the unwritten gap suffice at both tested
+/// shifts. The same pin holds with a nonzero digit below the gap: recording
+/// only a single lowest-written position could not justify skipping that
+/// interior gap.
 #[test]
 fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
     let one = UBig::from(1u8);
@@ -96,7 +97,7 @@ fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
             touch_meter::touches(),
             3_000,
             "1,000 alternating one-limb pairs at shift {shift}: 3 touches per \
-             pair (2 deposits + 1 range skip), whatever the shift"
+             pair (2 deposits + 1 gap skip), whatever the shift"
         );
         // The oscillation is value-neutral: the held value is still 2^shift.
         let (sign, magnitude) = acc.sign_biguint();
@@ -107,7 +108,7 @@ fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
         );
     }
     // An array-backed one-limb stream follows the same fast path as the
-    // oracle's iterator, including the single skip over the zero range.
+    // oracle's iterator, including the single skip over the unwritten gap.
     for shift in [32_000u64, 64_000] {
         let mut acc = Accumulator::new();
         acc.add_shifted_limbs(shift, [1]);
@@ -120,7 +121,7 @@ fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
             touch_meter::touches(),
             3_000,
             "1,000 alternating word pairs at shift {shift}: 3 touches per \
-             pair (2 deposits + 1 range skip), whatever the shift"
+             pair (2 deposits + 1 gap skip), whatever the shift"
         );
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
@@ -185,11 +186,11 @@ fn top_settlement_steps_are_metered() {
 /// The query costs six touches: three reads and three clearing writes.
 /// It must also leave the representation visibly zero.
 #[test]
-fn sign_query_skips_recorded_zero_ranges() {
+fn sign_query_skips_unwritten_zeros() {
     let mut acc = Accumulator::new();
     acc.add_limb_value_shl(&UBig::from(1u8), 32 * 1_001);
     // Deposit −2^32 in digit 1,000: the value is now zero, spelled
-    // across digits 1,000 and 1,001 above the never-written run.
+    // across digits 1,000 and 1,001 above the never-written gap.
     acc.sub_value_shl(&UBig::from(1u64 << 32), 32 * 1_000);
     touch_meter::reset();
     assert_eq!(acc.sign(), Ordering::Equal);
@@ -197,7 +198,7 @@ fn sign_query_skips_recorded_zero_ranges() {
         touch_meter::touches(),
         6,
         "3 fold reads + 3 collapse zeroes: a zero partial crosses the \
-         recorded zero range in one skip, touching none of its digits"
+         unwritten gap in one skip, touching none of its digits"
     );
     assert!(acc.is_known_zero(), "the collapse canonicalized zero");
 }
@@ -553,7 +554,7 @@ fn limb_writes_cost_the_operand_at_any_held_width() {
 ///
 /// A one-limb stream delegates to the word operation. On this oscillating
 /// schedule, 1,000 sub/add pairs cost exactly 3,000 touches: two deposits and
-/// one range skip per pair, pinned identical across a shift doubling.
+/// one gap skip per pair, pinned identical across a shift doubling.
 /// The second clause pins the contract's
 /// padding sentence exactly: a `[5, 0, 0]` stream costs 4 touches (3
 /// yielded-limb reads + 1 deposit) — high zero limbs are value-neutral
@@ -755,8 +756,8 @@ fn no_collapse_fold_re_scans_the_prefix() {
 ///
 /// The value `2^(32r) − 1`, `r` digits of `2^32 − 1`, sits under a top that
 /// cancels at position `p`. The first read compares with zero: it reads and
-/// clears each of the two cancelling digits (4 touches), crosses the recorded
-/// zero range below them in one untouched skip, and reads the deciding digit
+/// clears each of the two cancelling digits (4 touches), crosses the unwritten
+/// gap below them in one untouched skip, and reads the deciding digit
 /// `r − 1` and rewrites it with a clear and a deposit (3). Its normalizing pass
 /// then touches the `r` digits: `r + 7` in all. The read keeps the normalized
 /// form, so every repeated read costs one deciding touch and the same pass:
@@ -800,7 +801,7 @@ fn magnitude_reads_cost_the_result_width() {
 /// conversion fails without reading further. The returned value's compacted
 /// top decides each later conversion in 1 touch. A value of 5 under a top that
 /// cancels at position `p` converts in 9: the stability query reads and clears
-/// the two cancelling digits, skips the zero range, and rewrites the deciding
+/// the two cancelling digits, skips the unwritten gap, and rewrites the deciding
 /// digit 5 at position 0 (7), and the normalizing read then decides on that
 /// digit and passes over it (2). Both totals are exact at two heights.
 #[test]

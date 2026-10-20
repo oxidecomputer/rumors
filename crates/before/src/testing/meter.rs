@@ -2210,8 +2210,8 @@ fn parked_unit_spine(bits: &mut BitsWriter, s: usize) {
 /// gap; every odd-numbered leaf re-raises it in one write. A settlement scan
 /// that steps the gap digit by digit pays `Θ(n)`
 /// unfunded touches per event (`Θ(n²)` on linear input), and the parked digit-0
-/// unit forecloses value-emptiness and write-watermark shortcuts, so consuming
-/// one recorded zero range per jump is what holds the cost flat (the
+/// unit forecloses value-emptiness and write-watermark shortcuts, so crossing
+/// the never-written gap in one step per jump is what holds the cost flat (the
 /// `skyline_flatness` weight-comb band in `tests/meter.rs` carries both
 /// readings). `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's
 /// `32n − 1` unit leaves plus the block's `n` twos). Normal form: the innermost

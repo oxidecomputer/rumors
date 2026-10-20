@@ -27,9 +27,10 @@
 //!
 //! The comparison with zero that supplies the sign first compacts any
 //! cancelled top, so the pass covers only the value's own width. The pass
-//! writes every position it covers, so it records no zero ranges there: a later
-//! descent through one of its zeros is paid for by that write, as for any
-//! other write.
+//! writes every position it covers, so afterwards the written set holds
+//! position zero and one run from the lowest written position to the top: a
+//! later descent through one of the run's zeros is paid for by the pass's
+//! write, as for any other write.
 
 use core::cmp::Ordering;
 
@@ -80,6 +81,9 @@ impl Digits {
         };
         let base = 1_i128 << DIGIT_BITS;
         let old_highest = self.highest_nonzero;
+        // The value is nonzero, so the floor is `lowest_written`, and every
+        // digit below it is zero before and after the pass.
+        let floor = self.written_floor();
         let mut carry = 0_i128;
         for digit in &mut self.digits[start..=old_highest] {
             touch(1);
@@ -115,14 +119,20 @@ impl Digits {
             highest <= old_highest.saturating_add(1),
             "normalization grows by at most one digit"
         );
-        let written_top = highest;
 
         while highest > 0 && self.digits[highest] == 0 {
             touch(1);
             highest -= 1;
         }
         self.highest_nonzero = highest;
-        self.zero_ranges.remove_written(start, written_top);
+        // The pass wrote every position from `start` to its last carry, and
+        // every digit below the floor stays zero, so the set becomes position
+        // zero and one run from the floor to the new top. Every position the
+        // set held other than zero lies in `floor..=old_highest`, which the
+        // pass covered, so clearing them stays within the pass's cost.
+        self.written.clear(floor, old_highest);
+        self.written.insert(0);
+        self.written.insert_span(floor, highest);
         self.debug_assert_valid();
     }
 }
