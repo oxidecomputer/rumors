@@ -1,23 +1,22 @@
 //! Stack-growth guard for depth-recursive tree traversals.
 //!
-//! A traversal that recurses on tree depth routes each recursive call through
-//! here. A shallow, near-balanced tree recurses on the program stack at native
-//! speed; before a deep, unbalanced tree can approach the stack limit, `grow`
-//! extends the stack onto the heap (via `stacker`), so deep inputs cannot
-//! overflow.
+//! A test traversal that must survive deep inputs routes each recursive call
+//! through here. A shallow, near-balanced tree recurses on the program stack at
+//! native speed; before a deep, unbalanced tree can approach the stack limit,
+//! `grow` extends the stack onto the heap (via `stacker`), so deep inputs
+//! cannot overflow.
 //!
 //! Every library traversal is iterative: depth lives on explicit heap stacks,
 //! never the call stack, so the guard machinery compiles only for the test
-//! surface. The guarded recursion there is the differential oracle bridge
-//! (`testing::bridge`), whose walks mirror the paper's recursive trees, the
-//! test-local recursive witnesses beside it, and the tree oracle's test-only
-//! multiplicity comparison. The tree oracle's own operations recurse unguarded
-//! by design; their harnesses bound input depth instead, as the oracle's
-//! module doc explains.
+//! surface. A recursive test helper whose descents all pass through `descend!`
+//! survives depths the program stack alone could not carry.
 //!
-//! The paper-shaped oracle is clearest written recursively, and the guard is
-//! what lets it meet deep inputs safely. Deep-input tests exercise the
-//! production traversals' iterative implementation directly.
+//! The recursive tree oracle's own operations (`testing::oracles::tree`) are
+//! not guarded. They transcribe the paper's recursions on native frames by
+//! design, and each harness that drives them bounds its input depth; the
+//! oracle's "Operating envelope" section gives the reasoning. Deep-input tests
+//! therefore exercise the production traversals' iterative implementations
+//! directly.
 //!
 //! The headroom probe is amortized: a traversal routes each recursive call
 //! through the `descend!` macro, which probes only once every `STRIDE` levels
