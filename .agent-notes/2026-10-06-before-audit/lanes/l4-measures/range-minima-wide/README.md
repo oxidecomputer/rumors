@@ -13,3 +13,10 @@ before committing a fix, because each candidate needs an owner ruling.
 - [`NOTES.md`](NOTES.md): the fixer's working notes.
 
 The measurements are the fixer's, not re-run by the coordinator.
+
+## Owner's ruling (2026-10-20)
+
+Design 1: wide boundaries of up to 256 working bits are stored as their
+digits, wider ones move whole, so storage is proportional to each
+boundary's width. The `seam_plunge` touch ceiling and its band are
+re-derived from the copy's mechanism.
