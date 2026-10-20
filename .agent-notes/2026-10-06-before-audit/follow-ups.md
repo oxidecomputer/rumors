@@ -175,14 +175,6 @@ audit. Each entry names its source and what it would catch.
 These are scheduled, not proposals: the owner asked for each, to be built
 once the branches it depends on land.
 
-- **The rank integrator's `parked` tier, justified and clarified.** After
-  #122 lands. A board family that removing `parked` fails, built from the
-  rank prototype's `zz-nf-d8` shape (narrow freezes: heap about 0.04 bytes
-  per input byte with `parked`, 4.66 without); the integrator's module doc
-  stating what `parked` buys; and any clarity rework that leaves every board
-  reading unchanged. Source: the rank prototype (`explore/rank-single-tier`)
-  and the owner's ruling in the suanpan lane record.
-
 - **`RangeMinima`'s wide-boundary heap.** After #122 and
   `fix/min-ticks-transient-heap` land, since both edit `range_minima`. A
   `min_ticks` spine whose steps exceed 64 bits reads about 27 heap bytes per
