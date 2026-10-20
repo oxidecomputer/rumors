@@ -278,7 +278,7 @@ pub(super) fn render_map(
     )
 }
 
-/// Every party-bearing family, for exact ties at one scan per input bit.
+/// Every party-bearing family, for cells in which all of them tie exactly.
 const PARTY_STREAM_FAMILIES: &str = concat!(
     "ascend-cliff,ascend-plateau,benign,collapse-hole,comb-scatter,copy-hole,",
     "descending-raises,dominated-undercut,id-pair,memo-chain,memo-churn,",
@@ -287,12 +287,28 @@ const PARTY_STREAM_FAMILIES: &str = concat!(
     "site-hole,staircase",
 );
 
-/// Every version-bearing family, for exact ties at one scan per input bit.
+/// Every version-bearing family, for cells in which all of them tie exactly.
 const VERSION_STREAM_FAMILIES: &str = concat!(
     "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,",
     "cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,",
     "copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,",
     "freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,jump-comb,",
+    "jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,",
+    "masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,",
+    "memo-oscillating,mirror-narrow,",
+    "mirror-wide,narrow-freezes,nested-full,nested-wide,plateau-puncture,promo-rearm,",
+    "propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,",
+    "staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-step-spine,",
+    "wide-tooth-comb",
+);
+
+/// Every clock-bearing family, which is every version-bearing or
+/// party-bearing family, for cells in which all of them tie exactly.
+const CLOCK_STREAM_FAMILIES: &str = concat!(
+    "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,",
+    "cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,",
+    "copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,",
+    "freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,id-pair,jump-comb,",
     "jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,",
     "masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,",
     "memo-oscillating,mirror-narrow,",
@@ -352,7 +368,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "span_intersect", ["meet-shade", "benign", "stagger,stagger-arity,stagger-size"]),
     ("default", "span_join", ["meet-shade", "stagger", "stagger-size"]),
     ("default", "span_meet", ["meet-shade", "meet-shade", "stagger-size"]),
-    ("default", "span_encode", ["copy-hole", "-", "-"]),
+    ("default", "span_encode", [VERSION_STREAM_FAMILIES, "-", "-"]),
     ("default", "span_decode", ["hoisted-window", "copy-hole", "staircase"]),
     ("default", "version_tick", ["memo-comb", "memo-oscillating", "mirror-narrow"]),
     ("default", "version_ticks", ["memo-comb", "memo-oscillating", "memo-comb"]),
@@ -433,7 +449,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "party_hash", ["-", "-", "-"]),
     ("default", "party_shape", ["copy-hole", "id-pair", "-"]),
     ("default", "clock_decode", ["id-pair", "promo-rearm", "copy-hole"]),
-    ("default", "clock_encode", ["id-pair", "-", "-"]),
+    ("default", "clock_encode", [CLOCK_STREAM_FAMILIES, "-", "-"]),
     ("default", "clock_tick", ["id-pair", "memo-oscillating", "mirror-narrow"]),
     ("default", "clock_fork", ["id-pair", "id-pair", "-"]),
     ("default", "clock_forks", ["staircase", "id-pair", "-"]),
@@ -507,7 +523,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "span_intersect", ["mirror-narrow", "stagger-arity", "stagger-size"]),
     ("acceptance", "span_join", ["dense-suffix", "stagger", "stagger-size"]),
     ("acceptance", "span_meet", ["meet-shade", "meet-shade", "stagger-size"]),
-    ("acceptance", "span_encode", ["copy-hole", "-", "-"]),
+    ("acceptance", "span_encode", [VERSION_STREAM_FAMILIES, "-", "-"]),
     ("acceptance", "span_decode", ["hoisted-window", "copy-hole", "staircase"]),
     ("acceptance", "version_tick", ["memo-comb", "memo-oscillating", "mirror-narrow"]),
     ("acceptance", "version_ticks", ["memo-comb", "memo-oscillating", "comb-scatter"]),
@@ -584,7 +600,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "party_hash", ["-", "-", "-"]),
     ("acceptance", "party_shape", ["copy-hole", "id-pair", "-"]),
     ("acceptance", "clock_decode", ["id-pair", "cancelling-chain", "copy-hole"]),
-    ("acceptance", "clock_encode", ["id-pair", "-", "-"]),
+    ("acceptance", "clock_encode", [CLOCK_STREAM_FAMILIES, "-", "-"]),
     ("acceptance", "clock_tick", ["id-pair", "memo-oscillating", "mirror-narrow"]),
     ("acceptance", "clock_fork", ["id-pair", "id-pair", "-"]),
     ("acceptance", "clock_forks", ["staircase", "id-pair", "-"]),
