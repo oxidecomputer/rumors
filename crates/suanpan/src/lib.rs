@@ -131,9 +131,11 @@
 #![forbid(unsafe_code)]
 
 mod accumulator;
+#[cfg(feature = "num-bigint")]
+mod interop;
 #[cfg(feature = "touch-meter")]
 pub mod touch_meter;
 
-#[cfg(feature = "num-bigint")]
-pub use accumulator::NegativeValueError;
 pub use accumulator::{Accumulator, Limbs};
+#[cfg(feature = "num-bigint")]
+pub use interop::NegativeValueError;

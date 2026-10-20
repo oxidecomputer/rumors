@@ -19,8 +19,6 @@ mod compare;
 mod conversions;
 mod digits;
 mod format;
-#[cfg(feature = "num-bigint")]
-mod interop;
 mod limbs;
 mod operand;
 mod operators;
@@ -32,8 +30,6 @@ use core::cmp::Ordering;
 use operand::Update;
 use value::Value;
 
-#[cfg(feature = "num-bigint")]
-pub use interop::NegativeValueError;
 pub use limbs::Limbs;
 
 /// Record digit work; compile away completely without the meter feature.
