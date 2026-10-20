@@ -192,16 +192,3 @@ once the branches it depends on land.
   family as its demonstration. `reference-dense e=65` (about 19 bytes per
   input byte on `main`) may share the cause. Source: the `min_ticks`
   prototype's probe table.
-
-- **The amplification board in wasm, with fuel as a time currency.** The
-  owner's direction (2026-10-20) for time regressions the board's touch and
-  scan currencies cannot see: work in `num-bigint`, `Vec` element moves, and
-  `before`'s own stacks. A reviewer's mutant that made `min_ticks`'
-  `IntegerStack` shift every element on each push and pop costs quadratic
-  moves yet passed the suite, the board, the worst-case pin, and `fuzzfit`
-  (whose random programs never build the shape). Running the board's
-  operation by family grid in a wasm guest under Wasmtime fuel would count
-  every instruction deterministically, given families that reach the
-  shapes. A scope is in progress on `explore/board-in-wasm`; among its
-  questions is whether a `memmove` compiled to wasm's bulk `memory.copy` is
-  priced per byte.

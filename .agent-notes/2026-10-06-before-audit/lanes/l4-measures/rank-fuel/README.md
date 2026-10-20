@@ -2,7 +2,7 @@
 
 The auditor `audit-rank-fuel` read the rank path at #122's tip `e0956b25d`
 to decide whether rank operations meet their documented bounds on the inputs
-where the board-in-wasm scope (`../../l8-adequacy/board-in-wasm/`) saw fuel
+where the board-in-wasm scope (now the deferred note `.agent-notes/2026-10-20-board-in-wasm-fuel/`) saw fuel
 grow superlinearly.
 
 - [`report.md`](report.md): the hand-back: two defects, two questions, one
