@@ -10,43 +10,56 @@
 //! Usage: `just amp-board` (release, the profile of record — dev runs are
 //! a debugging view whose readings are never pinned), or directly
 //! `cargo run -p before --example amp_board --features touch-meter,scan-meter
-//! -- [scale]` where the optional `scale` (a positive number, default 1)
-//! multiplies every input family's base size and renders a single-scale
-//! debugging view whose verdicts never bind. The literal `acceptance`
-//! (`just amp-board-acceptance`) runs the board's one verdict of record:
-//! each cell's growth ladder (two sizes at each of the two
-//! sampling scales, `board::DEFAULT_SCALE` and `board::LADDER_TOP_SCALE`)
-//! in one judgment, the exponents fitted as one trend over the four
-//! measured points, plus a small-input pair checked against ceilings and
-//! liveness floors. The exit code carries the verdict — any red cell at the
-//! measured sizes exits nonzero, so every gate leg that runs the board of record
-//! consumes it. The default sizes keep the whole board at seconds of
-//! runtime. The counter features are `required-features`: a build
-//! without them would render scan and touch unjudged while still
-//! printing verdict colors, so cargo refuses it outright.
+//! -- [scale]` where the optional `scale` (a positive number, default
+//! `board::DEFAULT_SCALE`) multiplies every input family's base size and
+//! renders a single-scale debugging view whose verdicts never bind. The counter
+//! features are `required-features`: a build without them would render scan
+//! and touch unjudged while still printing verdict colors, so cargo refuses it
+//! outright.
 //!
-//! Two further modes consume the same sweep instead of rendering the
-//! matrix: `worst-cases` renders the worst-case map (the argmax family
-//! per operation × currency) at each of the ladder's sampling scales
-//! (`board::WORST_MAP_SCALES`, `just worst-cases`), and
-//! `worst-cases-check` entry-compares the live fold against the
-//! committed ranking pin, exiting nonzero on any drift (`just
-//! worst-cases-pin`).
+//! # The verdict of record
 //!
-//! Two developer modes compare the board across a change without judging
-//! either side. `capture <file>` sweeps the acceptance ladder and writes
-//! every cell's exact readings at every size to `<file>`, replacing it only
-//! once the whole capture is written; `compare <before> <after>` reads two
+//! `acceptance [--capture <file>]` (`just amp-board-acceptance`) sweeps the
+//! measurement ladder once (two sizes at each of the two growth sampling
+//! scales, `board::DEFAULT_SCALE` and `board::LADDER_TOP_SCALE`, plus a
+//! small-input pair at `board::SMALL_INPUT_SCALE`) and judges that one sweep
+//! twice:
+//!
+//! 1. The acceptance judgment renders one matrix per sweep (the ladder's
+//!    base, its top, and the small inputs), fitting each exponent as one trend
+//!    over the four growth points and judging every constant, model band, and
+//!    liveness floor at every size.
+//! 2. The worst-case ranking pin entry-compares the argmax family per
+//!    operation × currency at both growth scales against the committed table,
+//!    printing one drift line per disagreement.
+//!
+//! Both judgments always run, so a red cell never hides ranking drift. Red
+//! rows and drift lines print to stdout with the matrices; stderr carries a
+//! one-line summary of each failed judgment (the red-cell count, and a notice
+//! that the pin drifted). The run exits nonzero if any cell is red anywhere on
+//! the ladder or any ranking drifted, so every gate leg that runs the board
+//! consumes the exit code.
+//!
+//! With `--capture <file>`, the run also writes every cell's exact readings at
+//! every size to `<file>` (replacing it only once the whole capture is
+//! written), whatever the verdict. `compare <before> <after>` reads two
 //! captures and prints, per cell and currency, the exact difference at each
-//! size, classified as unchanged, constant, growing (with
-//! its slope), or uneven. Use them where a rendered board's rounded exponent
-//! moves and the question is whether a cost grows with input or only shifts: a
-//! fixed-cost change alone moves a fitted exponent. Run both captures through
-//! `just amp-board capture <file>`, so each is a release reading, and on one
-//! host: a capture records its target and debug-assertion setting, and the
-//! comparison refuses captures that differ in either. `board::compare`
-//! documents the capture format, the classification rule, and what the rule
-//! cannot distinguish.
+//! size, classified as unchanged, constant, growing (with its slope), or
+//! uneven; it judges neither side. Use the pair where a rendered board's
+//! rounded exponent moves and the question is whether a cost grows with input
+//! or only shifts: a fixed-cost change alone moves a fitted exponent. Take both
+//! captures with `just amp-board-acceptance --capture <file>`, so each is a
+//! release reading, and on one host: a capture records its target and
+//! debug-assertion setting, and the comparison refuses captures that differ in
+//! either. `board::compare` documents the capture format, the classification
+//! rule, and what the rule cannot distinguish.
+//!
+//! # The worst-case map
+//!
+//! `worst-cases` (`just worst-cases`) renders the worst-case map itself, with
+//! runner-ups and margins, at each of the ladder's growth sampling scales
+//! (`board::WORST_MAP_SCALES`). It is a reading aid; the pin above is its
+//! verdict.
 //!
 //! # Process sharding
 //!
@@ -153,8 +166,8 @@ fn spawner(count: usize) -> impl Fn(f64) -> io::Result<Vec<Vec<u8>>> {
     }
 }
 
-/// Unwrap a capture mode's file or format result, or report its error and
-/// exit nonzero.
+/// Unwrap a sweep's, a capture file's, or a capture format's result, or report
+/// its error and exit nonzero.
 fn exit_on_error<T>(result: io::Result<T>, doing: &str) -> T {
     result.unwrap_or_else(|error| {
         eprintln!("amp-board: {doing}: {error}");
@@ -205,41 +218,44 @@ fn main() {
                     .expect("stdout stays writable");
             }
         }
-        Some("worst-cases-check") => {
-            let clean = board::check_worst_map(shards, &spawner(shards), &mut out)
-                .expect("stdout stays writable");
-            if !clean {
-                std::process::exit(1);
-            }
-        }
-        // The verdict of record: the whole ladder, one judgment, any red
-        // cell exits nonzero — a red is an untriaged contradiction, resolved
-        // only by a cure or an owner-declared model at the cell.
         Some("acceptance") => {
-            let summary = board::run_acceptance(shards, &spawner(shards), &mut out)
-                .expect("stdout stays writable");
-            if summary.red != 0 {
-                eprintln!(
-                    "amp-board: {red} red cells across the measurement ladder",
-                    red = summary.red
-                );
-                std::process::exit(1);
-            }
-        }
-        Some("capture") => {
-            let [_, path] = args.as_slice() else {
-                panic!("amp-board: capture takes exactly one output path");
+            let capture_path = match &args[1..] {
+                [] => None,
+                [flag, path] if flag == "--capture" => Some(Path::new(path)),
+                _ => panic!("amp-board: acceptance takes no arguments or `--capture <file>`"),
             };
-            // The capture is written to a temporary file beside `path` and
-            // renamed into place, so a failed sweep or write leaves any
-            // existing capture intact and no temporary file behind.
-            let mut text = Vec::new();
-            exit_on_error(
-                board::capture(shards, &spawner(shards), &mut text),
+            let ladder = exit_on_error(
+                board::Ladder::sweep(shards, &spawner(shards)),
                 "sweeping the board",
             );
-            let written = write_atomically(Path::new(path), &text);
-            exit_on_error(written, &format!("writing capture {path:?}"));
+            let verdict = ladder.judge(&mut out).expect("stdout stays writable");
+            // The verdict's summary prints before the capture is attempted,
+            // so a failed capture write cannot leave a red board's stderr
+            // without it.
+            if verdict.summary.red != 0 {
+                eprintln!(
+                    "amp-board: {red} red cells across the measurement ladder",
+                    red = verdict.summary.red
+                );
+            }
+            if !verdict.pin_clean {
+                eprintln!("amp-board: the worst-case ranking pin drifted (drift lines above)");
+            }
+            // A capture records readings, not a verdict, so it is written
+            // whatever the verdict: a red board's capture is the evidence a
+            // `compare` against the last green one needs. It is written to a
+            // temporary file beside `path` and renamed into place, so a
+            // failed write leaves any existing capture intact and no
+            // temporary file behind.
+            if let Some(path) = capture_path {
+                let mut text = Vec::new();
+                board::capture(&ladder, &mut text).expect("writing to a Vec succeeds");
+                let written = write_atomically(path, &text);
+                exit_on_error(written, &format!("writing capture {path:?}"));
+            }
+            if !verdict.passed() {
+                std::process::exit(1);
+            }
         }
         Some("compare") => {
             let [_, before, after] = args.as_slice() else {

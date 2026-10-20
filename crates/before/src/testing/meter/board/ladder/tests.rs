@@ -1,0 +1,285 @@
+//! Checks that one ladder sweep reaches each of the board's consumers at the
+//! right sampling scale: the acceptance matrices, the ranking pin, and the
+//! capture.
+//!
+//! The ladders here are synthetic: two families on one operation, with heap
+//! readings chosen so that each sweep is recognizable in every consumer's
+//! output. No test sweeps the board; the ladders are built directly, so the
+//! suite adds no measurement work.
+//!
+//! Every reading derives from the board's heap ceiling and fit resolution, so
+//! the fixture stays green, and its rankings hold, whatever values those
+//! constants take.
+
+use super::super::compare::capture;
+use super::super::currency::ByCurrency;
+use super::super::floors::na;
+use super::super::measure::Sample;
+use super::super::shard::Measured;
+use super::super::{
+    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE,
+};
+use super::{Ladder, Verdict, LADDER_SCALES};
+
+/// The one synthetic operation.
+const OP: &str = "probe_op";
+
+/// The smaller input size of the small-input sweep's pair, in bytes.
+const SMALL_DENOM: usize = 10;
+
+/// The smaller input size of the growth ladder base's pair, in bytes.
+const BASE_DENOM: usize = 1_000;
+
+/// The smaller input size of the growth ladder top's pair, in bytes.
+const TOP_DENOM: usize = 4_000;
+
+/// Returns the heap ceiling at `denom` input bytes, in bytes.
+fn heap_ceiling(denom: usize) -> f64 {
+    HEAP_INTERCEPT_BYTES as f64 + MAX_HEAP_BYTES_PER_INPUT_BYTE * denom as f64
+}
+
+/// Returns the largest heap reading that is green at `denom` input bytes and
+/// flat in the growth fit: within the heap ceiling, and no larger than the
+/// fit's resolution, at which the fit clamps every reading.
+fn green_cap(denom: usize) -> u64 {
+    (heap_ceiling(denom) as u64).min(HEAP_TREND_RESOLUTION_BYTES as u64)
+}
+
+/// A sample of `denom` input bytes reading `heap` heap bytes and no scan or
+/// touch work, with no liveness obligation.
+///
+/// Every currency reads a value, as the ranking pin requires of a run with
+/// every counter compiled in; scan and touch read zero, so no family drives
+/// them and their pinned worst set is `-`.
+fn sample(denom: usize, heap: u64) -> Sample {
+    Sample {
+        denom_bytes: denom,
+        exp_denom_bytes: denom,
+        floors: ByCurrency {
+            heap: na("no liveness obligation in this probe"),
+            scan: na("no liveness obligation in this probe"),
+            touch: na("no liveness obligation in this probe"),
+        },
+        models: ByCurrency {
+            heap: None,
+            scan: None,
+            touch: None,
+        },
+        readings: ByCurrency {
+            heap: Some(heap),
+            scan: Some(0),
+            touch: Some(0),
+        },
+    }
+}
+
+/// Builds one sweep of the synthetic board: the families `alpha` and `beta`,
+/// each measured at `denom` bytes and its double, reading the given heap bytes
+/// at both sizes.
+fn sweep(denom: usize, alpha: u64, beta: u64) -> Vec<Measured> {
+    vec![
+        (OP, "alpha", sample(denom, alpha), sample(2 * denom, alpha)),
+        (OP, "beta", sample(denom, beta), sample(2 * denom, beta)),
+    ]
+}
+
+/// Returns `alpha`'s heap reading in each of [`ladder`]'s sweeps, in
+/// [`LADDER_SCALES`] order.
+fn alpha_readings() -> [u64; 3] {
+    [
+        green_cap(SMALL_DENOM) / 2,
+        green_cap(BASE_DENOM),
+        green_cap(TOP_DENOM) / 2,
+    ]
+}
+
+/// Builds a green ladder whose worst heap family differs between the growth
+/// scales.
+///
+/// At the base, `alpha` reads the green cap ([`green_cap`]) and `beta` half of
+/// it; at the top, the roles swap. Both families share each sweep's input
+/// sizes, so `alpha` is worst at the base and `beta` at the top. On the small
+/// inputs both read half the cap, a tie. No reading exceeds the fit's
+/// resolution, so every fitted exponent is flat, and every reading is within
+/// the heap ceiling at its size.
+fn ladder() -> Ladder {
+    let [small, base, top] = alpha_readings();
+    Ladder {
+        small: sweep(SMALL_DENOM, small, small),
+        base: sweep(BASE_DENOM, base, base / 2),
+        top: sweep(TOP_DENOM, top, green_cap(TOP_DENOM)),
+    }
+}
+
+/// The ranking pin [`ladder`] satisfies.
+const PINS: &[(&str, &str, [&str; 3])] = &[
+    ("default", OP, ["alpha", "-", "-"]),
+    ("acceptance", OP, ["beta", "-", "-"]),
+];
+
+/// Judges `ladder` against `pins`, returning the verdict and the rendered text.
+fn judge(ladder: &Ladder, pins: &[(&str, &str, [&str; 3])]) -> (Verdict, String) {
+    let mut out = Vec::new();
+    let verdict = ladder
+        .judge_with(pins, &mut out)
+        .expect("writing to a Vec succeeds");
+    (
+        verdict,
+        String::from_utf8(out).expect("the board renders UTF-8"),
+    )
+}
+
+/// A green ladder that matches its pin passes, and the pin reads the base
+/// sweep at the default scale and the top sweep at the acceptance scale: the
+/// same pin with its two scales' rows exchanged drifts at both.
+///
+/// A pin check handed the small sweep fails the first half, because both
+/// families tie there. One handed base and top swapped comes up clean against
+/// the exchanged pin, and fails the second half.
+#[test]
+fn ranking_pin_reads_each_growth_sweep_at_its_own_scale() {
+    let (verdict, text) = judge(&ladder(), PINS);
+    assert!(verdict.passed(), "the matching pin passes:\n{text}");
+    assert!(
+        text.contains("worst-case pin: clean (2 pinned rows verified at 2 sampling scales)"),
+        "the clean pin reports itself:\n{text}"
+    );
+
+    let swapped = [
+        ("default", OP, ["beta", "-", "-"]),
+        ("acceptance", OP, ["alpha", "-", "-"]),
+    ];
+    let (verdict, text) = judge(&ladder(), &swapped);
+    assert_eq!(verdict.summary.red, 0, "the readings are still green");
+    assert!(
+        !verdict.pin_clean && !verdict.passed(),
+        "the swapped pin drifts:\n{text}"
+    );
+    for (label, pinned, live) in [
+        ("default", "beta", "alpha"),
+        ("acceptance", "alpha", "beta"),
+    ] {
+        assert!(
+            text.contains(&format!(
+                "{OP} x heap at the {label} scale: pinned worst {pinned}, live worst {live}"
+            )),
+            "the {label} scale drifts from {pinned} to {live}:\n{text}"
+        );
+    }
+}
+
+/// A cell red only on the small-input sweep fails the verdict, and the ranking
+/// pin is still checked and reported beside it.
+///
+/// The small sweep binds acceptance even though the growth fit never reads it,
+/// and a red cell never stops the pin from running: a change that breaks
+/// both reports both.
+#[test]
+fn small_input_red_fails_the_verdict_and_the_pin_still_runs() {
+    let mut red = ladder();
+    let over_ceiling = heap_ceiling(SMALL_DENOM) as u64 + 1;
+    red.small = sweep(SMALL_DENOM, over_ceiling, green_cap(SMALL_DENOM) / 2);
+    let (verdict, text) = judge(&red, PINS);
+    assert_eq!(verdict.summary.red, 1, "alpha is red once:\n{text}");
+    assert_eq!(verdict.summary.green, 1, "beta stays green:\n{text}");
+    assert!(verdict.pin_clean, "the pin is unmoved:\n{text}");
+    assert!(!verdict.passed(), "a red cell fails the verdict");
+    assert!(
+        text.contains("worst-case pin: clean"),
+        "the pin runs after a red acceptance:\n{text}"
+    );
+}
+
+/// Each acceptance matrix renders its own sweep: the base, top, and small-input
+/// matrices each show that sweep's per-byte heap reading for `alpha`.
+///
+/// `alpha`'s reading per input byte differs between the three sweeps (the
+/// test checks that premise first), so a matrix rendered from another sweep
+/// shows another value.
+#[test]
+fn acceptance_matrices_render_their_own_sweeps() {
+    let per_byte = |reading: u64, denom: usize| format!("{:.1}/B", reading as f64 / denom as f64);
+    let [small, base, top] = alpha_readings();
+    let expected = [
+        ("=== ladder base:", per_byte(base, BASE_DENOM)),
+        ("=== ladder top:", per_byte(top, TOP_DENOM)),
+        ("=== small inputs:", per_byte(small, SMALL_DENOM)),
+    ];
+    assert!(
+        expected[0].1 != expected[1].1
+            && expected[1].1 != expected[2].1
+            && expected[0].1 != expected[2].1,
+        "the fixture's per-byte readings must tell the three sweeps apart: {expected:?}"
+    );
+
+    let (_, text) = judge(&ladder(), PINS);
+    let section = |header: &str| -> &str {
+        let start = text
+            .find(header)
+            .unwrap_or_else(|| panic!("the judgment renders {header:?}:\n{text}"));
+        let rest = &text[start + header.len()..];
+        &rest[..rest.find("=== ").unwrap_or(rest.len())]
+    };
+    let alpha_heap = |section: &str| -> String {
+        let row = section
+            .lines()
+            .find(|line| line.contains(OP) && line.contains("alpha"))
+            .unwrap_or_else(|| panic!("the matrix has an alpha row:\n{section}"));
+        let heap = row
+            .split("heap[")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .unwrap_or_else(|| panic!("the row has a heap column: {row}"));
+        heap.split_whitespace()
+            .last()
+            .unwrap_or_else(|| panic!("the heap column has a reading: {heap}"))
+            .to_owned()
+    };
+    for (header, reading) in &expected {
+        assert_eq!(
+            &alpha_heap(section(header)),
+            reading,
+            "the matrix under {header:?} renders its own sweep"
+        );
+    }
+}
+
+/// The capture writes each sweep under its own sampling scale, in ladder
+/// order: the small pair, then the base pair, then the top pair.
+///
+/// Each sweep's `alpha` heap reading is distinct, so a capture that wrote one
+/// sweep under another's scale label shows the wrong reading on that line.
+#[test]
+fn capture_writes_each_sweep_under_its_own_scale() {
+    let readings = alpha_readings();
+    assert!(
+        readings[0] != readings[1] && readings[1] != readings[2] && readings[0] != readings[2],
+        "the fixture's readings must tell the three sweeps apart: {readings:?}"
+    );
+
+    let mut out = Vec::new();
+    capture(&ladder(), &mut out).expect("writing to a Vec succeeds");
+    let text = String::from_utf8(out).expect("a capture is UTF-8");
+    let alpha_heap: Vec<(String, String, String)> = text
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let [op, family, "heap", scale, sample, _axis, reading] = fields[..] else {
+                return None;
+            };
+            (op == OP && family == "alpha")
+                .then(|| (scale.to_owned(), sample.to_owned(), reading.to_owned()))
+        })
+        .collect();
+    let expected: Vec<(String, String, String)> = LADDER_SCALES
+        .iter()
+        .zip(readings)
+        .flat_map(|(scale, reading)| {
+            ["1", "2"].map(|sample| (scale.to_string(), sample.to_owned(), reading.to_string()))
+        })
+        .collect();
+    assert_eq!(
+        alpha_heap, expected,
+        "the capture's alpha heap row:\n{text}"
+    );
+}

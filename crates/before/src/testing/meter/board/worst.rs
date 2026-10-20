@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 
-use super::ceilings::LADDER_TOP_SCALE;
+use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE};
 use super::currency::Currency;
 use super::judge::CellResult;
 
@@ -26,7 +26,8 @@ use super::judge::CellResult;
 /// normalized constant carries its intercept at the default scale, and the
 /// acceptance scale is where the known onset effects (segment growth,
 /// doubling-chain steps) have fired.
-pub const WORST_MAP_SCALES: [(&str, f64); 2] = [("default", 1.0), ("acceptance", LADDER_TOP_SCALE)];
+pub const WORST_MAP_SCALES: [(&str, f64); 2] =
+    [("default", DEFAULT_SCALE), ("acceptance", LADDER_TOP_SCALE)];
 
 /// A runner-up within this ratio of the worst reading is flagged `~near-tie` in
 /// the rendered table.
@@ -324,8 +325,9 @@ pub(super) const TARGET_DEPENDENT: &str = "(target-dependent)";
 ///
 /// Tied family names are comma-separated in name order; `-` means every family
 /// read zero; [`TARGET_DEPENDENT`] means the winner depends on the build
-/// target. [`check_worst_map`](super::shard::check_worst_map) compares this
-/// table with fresh release-profile measurements at [`WORST_MAP_SCALES`].
+/// target. [`Ladder::judge`](super::ladder::Ladder::judge) compares this table
+/// with the release-profile measurements of one ladder sweep at
+/// [`WORST_MAP_SCALES`].
 ///
 /// Each deserialization row's entries compile under the same feature as the
 /// row, so the table names exactly the board's operation rows in every build.
@@ -725,13 +727,14 @@ pub(super) fn check_scale(
     Ok(clean)
 }
 
-/// Entry-compare the live worst-case fold against the committed ranking pin
-/// (the `WORST_RANKINGS` table beside the fold), writing one drift line per
+/// Entry-compare the live worst-case fold against the ranking pin `pins`
+/// (the committed one is [`WORST_RANKINGS`]), writing one drift line per
 /// disagreement to `out`.
 ///
-/// `sweeps` yields one whole board's judged cells per sampling scale — a shard
-/// merge under [`check_worst_map`](super::shard::check_worst_map). Each scale's
-/// fold is judged by [`check_scale`].
+/// `judged_at` returns one whole board's judged cells, in board row order, at
+/// each of [`WORST_MAP_SCALES`]' sampling scales: under
+/// [`Ladder::judge`](super::ladder::Ladder::judge), one ladder sweep's cells
+/// at that scale. Each scale's fold is judged by [`check_scale`].
 ///
 /// Returns `Ok(true)` when every entry matches at every scale.
 ///
@@ -739,14 +742,15 @@ pub(super) fn check_scale(
 ///
 /// Panics if a mapped counter is not compiled into this run (the pin is stated
 /// over all three mapped currencies, so the check requires the `touch-meter` and
-/// `scan-meter` features), or if the pin table itself is malformed (duplicate
-/// or unknown scale/operation keys).
+/// `scan-meter` features), or if `pins` is malformed (duplicate or unknown
+/// scale/operation keys).
 pub(super) fn check_with(
-    sweeps: &mut dyn FnMut(f64) -> io::Result<Vec<CellResult>>,
+    pins: &[(&str, &str, [&str; 3])],
+    judged_at: &dyn Fn(f64) -> Vec<CellResult>,
     out: &mut dyn Write,
 ) -> io::Result<bool> {
     let mut seen = BTreeSet::new();
-    for (scale, op, _) in WORST_RANKINGS {
+    for (scale, op, _) in pins {
         assert!(
             WORST_MAP_SCALES.iter().any(|(label, _)| label == scale),
             "worst-case pin: unknown scale label {scale:?} on {op}"
@@ -758,14 +762,14 @@ pub(super) fn check_with(
     }
     let mut clean = true;
     for (label, scale) in WORST_MAP_SCALES {
-        let map = fold(&sweeps(scale)?);
-        clean &= check_scale(label, &map, WORST_RANKINGS, out)?;
+        let map = fold(&judged_at(scale));
+        clean &= check_scale(label, &map, pins, out)?;
     }
     if clean {
         writeln!(
             out,
             "worst-case pin: clean ({} pinned rows verified at {} sampling scales)",
-            WORST_RANKINGS.len(),
+            pins.len(),
             WORST_MAP_SCALES.len()
         )?;
     }

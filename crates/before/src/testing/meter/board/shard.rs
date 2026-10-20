@@ -10,12 +10,14 @@
 //! reset-peak per cell ([`measure_cell`]), and the parent merges the measured
 //! samples back into board row order and judges and renders them itself.
 //!
-//! # The seam
+//! # Judgment stays in the parent
 //!
 //! A child emits raw [`Sample`]s, never verdicts: judgment ([`evaluate`]) and
-//! rendering stay in the parent, over the one merged result list, so the
-//! matrix, the worst-case fold, and the ranking pin all consume one sweep
-//! through the same code.
+//! rendering stay in the parent, over the one merged result list
+//! ([`merge_samples`]). Every consumer of a sweep reads that list, so the
+//! acceptance matrices, the worst-case fold, the ranking pin, and the exact
+//! capture judge or record the same samples (the `ladder` module holds one
+//! merged list per sampling scale for all of them).
 //!
 //! A cell's reading is a function of the cell alone: every judged quantity is a
 //! deterministic counter read from state a child owns privately (its own global
@@ -62,27 +64,26 @@
 //! once at each of the pair's two levels — and a child builds one family at a
 //! time, in roster order, so its live set stays one operand-bundle pair wide.
 
-// The acceptance entry point's doc cites the private judge seam it drives;
-// the link is the rename detector, and the internal-docs gate resolves it.
-#![allow(rustdoc::private_intra_doc_links)]
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::sync::{Mutex, OnceLock};
 
-use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE, SMALL_INPUT_SCALE};
 use super::currency::{ByCurrency, Liveness};
-use super::judge::{evaluate, evaluate_acceptance, evaluate_small, CellResult};
+use super::judge::{evaluate, CellResult};
 use super::measure::{HeapMeter, Model, Sample};
 use super::ops::ops;
 use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
-use super::worst::{check_with, render_map};
+use super::worst::render_map;
 use crate::testing::meter::registry::FamilyId;
 
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
 /// so a stale child binary can never be merged as current.
 const PROTOCOL: &str = "amp-board-shard v5";
+
+/// One measured cell, as the merge returns it: its operation, its family, and
+/// its two samples at one sampling scale.
+pub(super) type Measured = (&'static str, &'static str, Sample, Sample);
 
 /// Runs every shard child at one scale and returns their raw stdout captures in
 /// shard-index order.
@@ -384,8 +385,8 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
 /// Validates every stamp, parses the samples, reorders by the parent's own
 /// operation table and family roster, and judges each cell ([`evaluate`]) —
 /// the single-scale judgment, whose exponent trend is the window's own two
-/// points. The acceptance path judges across scales instead
-/// ([`run_acceptance`], over [`merge_samples`]).
+/// points. The acceptance judgment fits across scales instead, over the
+/// unjudged cells [`merge_samples`] returns.
 ///
 /// # Panics
 ///
@@ -408,11 +409,7 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
 /// Panics on any protocol violation — the module doc's refusal list — and
 /// unless `scale` is strictly positive, checked before any child capture is
 /// trusted.
-pub(super) fn merge_samples(
-    scale: f64,
-    count: usize,
-    captures: &[Vec<u8>],
-) -> Vec<(&'static str, &'static str, Sample, Sample)> {
+pub(super) fn merge_samples(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<Measured> {
     assert!(
         scale > 0.0 && scale.is_finite(),
         "amp-board: scale must be a positive finite number"
@@ -432,8 +429,7 @@ pub(super) fn merge_samples(
         .enumerate()
         .map(|(position, family)| (family.name(), position))
         .collect();
-    let mut cells: BTreeMap<(usize, usize), (&'static str, &'static str, Sample, Sample)> =
-        BTreeMap::new();
+    let mut cells: BTreeMap<(usize, usize), Measured> = BTreeMap::new();
     for (index, capture) in captures.iter().enumerate() {
         let text = std::str::from_utf8(capture).unwrap_or_else(|_| {
             panic!("amp-board shard merge: shard {index}/{count} emitted non-UTF-8 output")
@@ -551,92 +547,6 @@ pub fn run(
     render_results(&merge(scale, shards, &spawn(scale)?), out)
 }
 
-/// Check the growth ladder and small inputs, rendering all three matrices.
-///
-/// Two sizes at each of the growth ladder's two scales supply one four-point
-/// trend. An additional pair at [`SMALL_INPUT_SCALE`] checks ceilings and
-/// liveness independently of that fit. Every sweep uses `shards` processes.
-///
-/// This is the acceptance judgment — the board's one verdict of record
-/// (`just amp-board-acceptance`): every constant, declared-model band, and
-/// liveness floor is judged per ladder window exactly as a single-scale run
-/// judges it, while the exponent legs are judged once, on the log-log
-/// least-squares trend across the whole ladder ([`evaluate_acceptance`]).
-/// The returned [`Summary`] counts distinct cells: red is the number of
-/// cells red anywhere on the ladder, so a zero-red summary is the all-green
-/// acceptance criterion whole.
-///
-/// `spawn` is invoked once per sampling scale.
-///
-/// # Panics
-///
-/// As [`run`], plus if the sweeps disagree on the cell grid. Each
-/// sweep's merge already refuses a grid that falls short of the registry's
-/// declared reach ([`merge_samples`]'s completeness refusal, which is what
-/// holds applicability scale-independent in practice), so the cross-check
-/// here also checks their row order.
-pub fn run_acceptance(
-    shards: usize,
-    spawn: ShardSpawner<'_>,
-    out: &mut dyn Write,
-) -> io::Result<Summary> {
-    let lo = merge_samples(DEFAULT_SCALE, shards, &spawn(DEFAULT_SCALE)?);
-    let hi = merge_samples(LADDER_TOP_SCALE, shards, &spawn(LADDER_TOP_SCALE)?);
-    let small = merge_samples(SMALL_INPUT_SCALE, shards, &spawn(SMALL_INPUT_SCALE)?);
-    assert_eq!(lo.len(), small.len(), "small-input grid matches the ladder");
-    assert_eq!(
-        lo.len(),
-        hi.len(),
-        "amp-board acceptance: the ladder's two sweeps measured different cell grids"
-    );
-    let mut lo_cells = Vec::with_capacity(lo.len());
-    let mut hi_cells = Vec::with_capacity(hi.len());
-    let mut small_cells = Vec::with_capacity(small.len());
-    for (
-        ((op_lo, family_lo, l1, l2), (op_hi, family_hi, h1, h2)),
-        (op_small, family_small, s1, s2),
-    ) in lo.into_iter().zip(hi).zip(small)
-    {
-        assert_eq!(
-            (op_lo, family_lo),
-            (op_hi, family_hi),
-            "amp-board acceptance: the ladder's two sweeps measured different cell grids"
-        );
-        assert_eq!(
-            (op_lo, family_lo),
-            (op_small, family_small),
-            "small-input grid matches the ladder"
-        );
-        let (cell_lo, cell_hi) = evaluate_acceptance(op_lo, family_lo, (l1, l2), (h1, h2));
-        lo_cells.push(cell_lo);
-        hi_cells.push(cell_hi);
-        small_cells.push(evaluate_small(op_small, family_small, s1, s2));
-    }
-    // Each matrix prints its own per-scale summary line; the returned
-    // summary is the joint verdict over distinct cells.
-    writeln!(out, "=== ladder base: sampling scale {DEFAULT_SCALE} ===")?;
-    render_results(&lo_cells, out)?;
-    writeln!(out, "=== ladder top: sampling scale {LADDER_TOP_SCALE} ===")?;
-    render_results(&hi_cells, out)?;
-    writeln!(
-        out,
-        "=== small inputs: sampling scale {SMALL_INPUT_SCALE}, ceilings and floors ==="
-    )?;
-    render_results(&small_cells, out)?;
-    // Count each cell once even if it fails at several sample sizes.
-    let red: BTreeSet<(&'static str, &'static str)> = lo_cells
-        .iter()
-        .chain(hi_cells.iter())
-        .chain(small_cells.iter())
-        .filter(|cell| !cell.red.is_empty())
-        .map(|cell| (cell.op, cell.family))
-        .collect();
-    Ok(Summary {
-        green: lo_cells.len() - red.len(),
-        red: red.len(),
-    })
-}
-
 /// Sweep the whole board across `shards` child processes at `scale` and render
 /// the worst-case map table to `out`.
 ///
@@ -653,25 +563,4 @@ pub fn worst_map(
     out: &mut dyn Write,
 ) -> io::Result<()> {
     render_map(label, scale, &merge(scale, shards, &spawn(scale)?), out)
-}
-
-/// Entry-compare the live worst-case fold against the committed ranking pin,
-/// from sweeps run across `shards` child processes at each of the ladder's
-/// sampling scales.
-///
-/// `spawn` is invoked once per sampling scale.
-///
-/// # Panics
-///
-/// Panics if a mapped counter is not compiled into this run (the pin is stated
-/// over all three mapped currencies, so the check requires the `touch-meter` and
-/// `scan-meter` features), if the pin table itself is malformed (duplicate or
-/// unknown scale/operation keys), or on any protocol violation in a child
-/// capture.
-pub fn check_worst_map(
-    shards: usize,
-    spawn: ShardSpawner<'_>,
-    out: &mut dyn Write,
-) -> io::Result<bool> {
-    check_with(&mut |scale| Ok(merge(scale, shards, &spawn(scale)?)), out)
 }
