@@ -42,6 +42,25 @@
 //! height must affect only subsequent regions. Deferral prevents a wide parked
 //! height from being multiplied again at every later narrow freeze.
 //!
+//! Parking keeps a run of narrow freezes in one accumulator. `parked` holds
+//! the sum of every frozen drift not yet deferred, so consecutive drifts add
+//! into one value and drifts of opposite sign cancel there: however many
+//! freezes fire, the integrator keeps one parked height. A deferred entry
+//! instead keeps its height and the width before it until
+//! [`Integrator::finish`], and the deferred reduction adds each group's
+//! summed heights and widths into its neighbor's at every level, reading an
+//! entry's contribution again at each level above it. Deferral is therefore
+//! kept for the case that needs it: a sum much wider than the changes now
+//! arriving.
+//!
+//! Input already read pays for each product a freeze makes. The product
+//! multiplies the sum the previous freeze kept. That freeze kept the sum only
+//! if it was at most the allowance wider than the drift being added, so the
+//! kept sum exceeds that drift's width by at most the allowance and the
+//! addition's carry; a freeze that defers keeps the drift alone. Each drift
+//! therefore pays for at most one product: its own width plus a constant,
+//! times one segment's width.
+//!
 //! # Measure distances between boundaries
 //!
 //! A segment stores the sum of its regions' widths, never an absolute sweep
@@ -155,7 +174,8 @@ pub struct Integrator {
     total: Accumulator,
     /// Changes since the last freeze. The driver folds boundary deltas here.
     pub live: Accumulator,
-    /// Changes applying throughout the current segment, excluding deferred heights.
+    /// The sum of the frozen drifts not yet deferred, which applies throughout
+    /// the current segment.
     parked: Accumulator,
     /// Sum of region widths since the last freeze.
     segment_width: Accumulator,
