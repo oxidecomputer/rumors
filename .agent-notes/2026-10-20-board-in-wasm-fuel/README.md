@@ -2,8 +2,9 @@
 
 # Running `before`'s amplification board in wasm under fuel (deferred)
 
-**Status: deferred** (owner, 2026-10-20). The direction is scoped but not
-scheduled; nothing here is tracked by the `before`/`suanpan` audit.
+**Status: built, under review** (owner, 2026-10-20). The branch
+`audit/board-fuel` adds fuel as the board's time currency; its builder's
+report is [`build-report.md`](build-report.md). The audit tracks it.
 
 ## The idea
 
