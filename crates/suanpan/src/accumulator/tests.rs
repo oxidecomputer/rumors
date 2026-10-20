@@ -5,6 +5,7 @@
 //! stale zero ranges that might corrupt a later query even when the current
 //! value still reads correctly.
 
+mod copies;
 mod differential;
 #[cfg(feature = "num-bigint")]
 mod interop;
@@ -30,6 +31,18 @@ impl Value {
     /// leaves every retained digit zero.
     fn assert_invariants(&self, trace: &[u8]) {
         self.digits.assert_invariants(self.small.is_some(), trace);
+    }
+}
+
+/// A test-only copy that leaves the source's stored form untouched.
+impl Accumulator {
+    /// Copy the stored form exactly, without reading or normalizing the
+    /// source, so that observing a copy never changes the tested history.
+    ///
+    /// [`Clone`] normalizes its source in place; tests that inspect a value
+    /// mid-history read this copy instead.
+    fn stored_copy(&self) -> Accumulator {
+        Accumulator::from_value(self.peek(Value::clone))
     }
 }
 
@@ -61,15 +74,15 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
 /// Assert that both limb readouts denote the oracle's exact signed value, and
 /// that each read keeps that value in the value's own working width.
 ///
-/// Each read runs on its own clone, so the caller's stored form is unchanged
+/// Each read runs on its own stored copy, so the caller's stored form is unchanged
 /// for later steps. A read keeps the normalized form it computes, so reading
-/// the clone again checks that written-back form: it must hold the same value,
+/// the copy again checks that written-back form: it must hold the same value,
 /// in a working width that is the value's own, with every digit invariant.
 fn assert_value(acc: &Accumulator, oracle: &IBig) {
     let own_width = usize::try_from(oracle.magnitude().bits().div_ceil(32).max(1))
         .expect("tested values have addressable widths");
     for scaled in [false, true] {
-        let mut read = acc.clone();
+        let mut read = acc.stored_copy();
         for repeated in [false, true] {
             assert_eq!(
                 &read_value(&mut read, scaled),
@@ -137,7 +150,7 @@ trait TestBig {
     fn add_value_shl(&mut self, value: &UBig, shift: u64);
     /// Subtract a shifted oracle value through the narrowest applicable path.
     fn sub_value_shl(&mut self, value: &UBig, shift: u64);
-    /// Read a clone of the held value into the big-integer oracle
+    /// Read a stored copy of the held value into the big-integer oracle
     /// representation, leaving the stored form unchanged.
     fn sign_biguint(&self) -> (Ordering, UBig);
 }
@@ -180,12 +193,12 @@ impl TestBig for Accumulator {
         }
     }
 
-    /// Build the oracle from a clone's normalized limbs.
+    /// Build the oracle from a stored copy's normalized limbs.
     ///
     /// Cloning keeps the tested history independent of where the test reads:
     /// an in-place read would normalize the value for every later step.
     fn sign_biguint(&self) -> (Ordering, UBig) {
-        let (sign, limbs) = self.clone().signed_magnitude();
+        let (sign, limbs) = self.stored_copy().signed_magnitude();
         (sign, from_limbs(limbs.as_ref()))
     }
 }

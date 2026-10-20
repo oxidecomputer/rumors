@@ -19,8 +19,6 @@ mod compare;
 mod conversions;
 mod digits;
 mod format;
-#[cfg(feature = "num-bigint")]
-mod interop;
 mod limbs;
 mod operand;
 mod operators;
@@ -32,8 +30,6 @@ use core::cmp::Ordering;
 use operand::Update;
 use value::Value;
 
-#[cfg(feature = "num-bigint")]
-pub use interop::NegativeValueError;
 pub use limbs::Limbs;
 
 /// Record digit work; compile away completely without the meter feature.
@@ -65,15 +61,9 @@ const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 /// the value. Reads take `&self`: the stored form lives in a [`RefCell`]. As a
 /// result an accumulator is [`Send`] but not [`Sync`].
 ///
-/// An accumulator cannot be cloned. A copy would carry the same uncompacted
-/// cancellation as its original, and both would pay to compact it, so the
-/// amortized costs would no longer hold. To copy the value, add it to zero with
-/// `Accumulator::from(&total)`, which compacts the source first.
-///
-/// ```compile_fail
-/// let total = suanpan::Accumulator::from(3);
-/// let copy = total.clone(); // no `Clone`
-/// ```
+/// Cloning normalizes the source in place first, so a copy starts with no
+/// deferred cancellation and costs the value's own width, whatever the
+/// source's working width.
 ///
 /// ```compile_fail
 /// fn shared<T: Sync>(_: &T) {}
@@ -94,15 +84,43 @@ pub struct Accumulator {
     value: RefCell<Value>,
 }
 
-/// Copy an accumulator for tests that compare a value before and after an
-/// operation.
+/// Copy the value, normalizing the source in place first.
 ///
-/// Tests only: a copy duplicates uncompacted cancellation, which the public
-/// type forbids so that its amortized costs hold.
-#[cfg(test)]
+/// The copy holds the value in its normalized form, with no deferred
+/// cancellation, so its amortized costs hold from its own operations alone.
+/// Normalizing changes the source's stored form, as any read may: its
+/// [`stored_bits`](Accumulator::stored_bits) can shrink, never its value.
+///
+/// ```
+/// use suanpan::Accumulator;
+///
+/// let mut total = Accumulator::new();
+/// // A top that cancels across two positions, held until something reads it.
+/// total.add_shifted_limbs(4_096, [1]);
+/// total.sub_shifted_limbs(4_064, [1 << 32]);
+/// total += 7;
+/// let cancelled_width = total.stored_bits();
+/// let copy = total.clone();
+/// assert_eq!(copy, 7);
+/// assert!(copy.stored_bits() < cancelled_width); // the cancelled span is not copied
+/// ```
+///
+/// # Complexity
+///
+/// The cost of a magnitude read, amortized O(log(`W` + 1) + `Q`) time, plus
+/// O(`Q`) for the copy, where `W` is the source's greatest working width and
+/// `Q` the value's width. [`clone_from`](Clone::clone_from) reuses the
+/// receiver's allocation when it suffices.
 impl Clone for Accumulator {
     fn clone(&self) -> Self {
-        Accumulator::from_value(self.peek(Value::clone))
+        let mut copy = Value::new();
+        self.read(|value| value.clone_normalized_into(&mut copy));
+        Accumulator::from_value(copy)
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        let target = self.value.get_mut();
+        source.read(|value| value.clone_normalized_into(target));
     }
 }
 
@@ -143,10 +161,9 @@ impl Accumulator {
 
     /// Add little-endian 64-bit limbs multiplied by `2^shift`.
     ///
-    /// The stream is consumed directly without a normalized or shifted copy.
-    /// An empty stream changes nothing. No operand copy is allocated. High
-    /// zero limbs are permitted, but every yielded limb contributes to the
-    /// input length used by the complexity bound.
+    /// The stream is consumed directly, without a normalized or shifted copy
+    /// of the operand. An empty stream changes nothing. High zero limbs are
+    /// permitted, but every yielded limb counts toward `L` in the cost below.
     ///
     /// # Complexity
     ///
@@ -158,8 +175,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if a nonzero contribution would land at or beyond `usize::MAX`,
-    /// where the required retained span is unrepresentable.
+    /// Panics if the limbs are nonzero and the result needs more storage than
+    /// a buffer can address. Zero limbs never panic.
     pub fn add_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
         self.value
             .get_mut()
@@ -168,17 +185,22 @@ impl Accumulator {
 
     /// Subtract little-endian 64-bit limbs multiplied by `2^shift`.
     ///
-    /// The stream is consumed directly. An empty stream changes nothing. High
-    /// zero limbs are permitted, but every yielded limb contributes to `L` in
-    /// the [crate-level cost model](crate#costs-and-storage). This takes
-    /// amortized O(`L` log(`W` + 1) + `G`) time and adds
-    /// O(`L` + `G`) retained space in the worst case. Growing the receiver may
-    /// temporarily retain both its old and replacement allocations.
+    /// The stream is consumed directly, without a normalized or shifted copy
+    /// of the operand. An empty stream changes nothing. High zero limbs are
+    /// permitted, but every yielded limb counts toward `L` in the cost below.
+    ///
+    /// # Complexity
+    ///
+    /// Using the quantities defined in the [crate-level cost
+    /// model](crate#costs-and-storage), this takes amortized
+    /// O(`L` log(`W` + 1) + `G`) time and adds O(`L` + `G`) retained space in
+    /// the worst case. Growing the receiver may temporarily retain both its old
+    /// and replacement allocations.
     ///
     /// # Panics
     ///
-    /// Panics if a nonzero contribution would land at or beyond `usize::MAX`,
-    /// where the required working width is unrepresentable.
+    /// Panics if the limbs are nonzero and the result needs more storage than
+    /// a buffer can address. Zero limbs never panic.
     pub fn sub_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
         self.value
             .get_mut()
@@ -187,16 +209,13 @@ impl Accumulator {
 
     /// Add another accumulator's value multiplied by `2^shift`.
     ///
-    /// The operand is read directly; shifting it first would construct another
-    /// accumulator merely to consume it here. The read may reduce `other`'s
-    /// working width without changing its value. The receiver is borrowed
-    /// mutably, so `other` is always a different accumulator.
+    /// The operand is read directly, without first shifting it into another
+    /// accumulator. The read may reduce `other`'s working width without
+    /// changing its value. The receiver is borrowed mutably, so `other` is
+    /// always a different accumulator:
     ///
     /// ```compile_fail
-    /// use suanpan::Accumulator;
-    ///
-    /// let mut total = Accumulator::from(3);
-    /// // The receiver cannot also be the operand.
+    /// let mut total = suanpan::Accumulator::from(3);
     /// total.add_shifted(1, &total);
     /// ```
     ///
@@ -220,9 +239,10 @@ impl Accumulator {
 
     /// Subtract another accumulator's value multiplied by `2^shift`.
     ///
-    /// The operand is read directly, and the read may reduce its working width
-    /// without changing its value. As with [`add_shifted`](Self::add_shifted),
-    /// `other` is always a different accumulator:
+    /// The operand is read directly, without first shifting it into another
+    /// accumulator. The read may reduce `other`'s working width without
+    /// changing its value. The receiver is borrowed mutably, so `other` is
+    /// always a different accumulator:
     ///
     /// ```compile_fail
     /// let mut total = suanpan::Accumulator::from(3);
@@ -234,9 +254,9 @@ impl Accumulator {
     /// Using the quantities defined in the [crate-level cost
     /// model](crate#costs-and-storage), this takes amortized
     /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain
-    /// both its old and replacement allocations. A zero operand adds O(1)
-    /// retained space at any shift.
+    /// the worst case. Growing the receiver may temporarily retain both its old
+    /// and replacement allocations. A zero operand adds O(1) retained space at
+    /// any shift.
     ///
     /// # Panics
     ///

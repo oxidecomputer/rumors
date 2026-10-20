@@ -435,14 +435,14 @@ proptest! {
                 "a decided verdict implies the larger magnitude strictly \
                  exceeds any operand stored in digits 0..=floor"
             );
-            let mut folded = acc.clone();
+            let mut folded = acc.stored_copy();
             folded -= &operand;
             prop_assert_eq!(
                 folded.sign(), sign,
                 "a decided verdict survives subtracting an operand stored \
                  in digits 0..=floor"
             );
-            let mut folded = acc.clone();
+            let mut folded = acc.stored_copy();
             folded += &operand;
             prop_assert_eq!(
                 folded.sign(), sign,
@@ -470,8 +470,8 @@ proptest! {
         let (left, left_oracle) = build_stability_value(&left_value, left_floor);
         let (right, right_oracle) = build_stability_value(&right_value, right_floor);
         let expected = left_oracle.cmp(&right_oracle);
-        prop_assert_eq!(left.clone().cmp(&right.clone()), expected);
-        prop_assert_eq!(right.clone().cmp(&left.clone()), expected.reverse());
+        prop_assert_eq!(left.stored_copy().cmp(&right.stored_copy()), expected);
+        prop_assert_eq!(right.stored_copy().cmp(&left.stored_copy()), expected.reverse());
         let close = |left: &Accumulator, right: &Accumulator| {
             left.stored_digit_count().abs_diff(right.stored_digit_count()) <= CLOSE_LEAD
         };
@@ -512,7 +512,7 @@ proptest! {
                 close(&left, &right),
                 "all far-wider cancellation must be compacted before subtraction"
             );
-            let mut difference = left.clone();
+            let mut difference = left.stored_copy();
             difference -= &right;
             difference.sign()
         };

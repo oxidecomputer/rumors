@@ -16,10 +16,10 @@ use super::{
 use crate::accumulator::operand::Update;
 use crate::touch_meter;
 
-/// Read a clone's sign, magnitude, and factored scale in bits, leaving the
+/// Read a stored copy's sign, magnitude, and factored scale in bits, leaving the
 /// stored form unchanged.
 fn scaled_reading(acc: &Accumulator) -> (Ordering, UBig, u64) {
-    let (sign, limbs, shift) = acc.clone().scaled_signed_magnitude();
+    let (sign, limbs, shift) = acc.stored_copy().scaled_signed_magnitude();
     (sign, from_limbs(limbs.as_ref()), shift)
 }
 
@@ -918,7 +918,7 @@ fn comparison_queries_from_a_two_digit_lead() {
                     wide.stored_digit_count(),
                     narrow.stored_digit_count() + usize::try_from(lead).unwrap()
                 );
-                let narrow = narrow.clone();
+                let narrow = narrow.stored_copy();
                 touch_meter::reset();
                 let order = if reversed {
                     narrow.cmp(&wide).reverse()
@@ -1009,7 +1009,7 @@ fn abs_diff_negates_within_the_result_width() {
             let mut small = cancelled_top(position);
             small += 5;
             touch_meter::reset();
-            let (order, gap) = small.abs_diff(narrow.clone());
+            let (order, gap) = small.abs_diff(narrow.stored_copy());
             assert_eq!(order, Ordering::Less);
             assert_eq!(
                 touch_meter::touches(),
@@ -1021,7 +1021,7 @@ fn abs_diff_negates_within_the_result_width() {
             let mut negative = Accumulator::new();
             negative.sub_shifted_limbs(32 * position, [1]);
             touch_meter::reset();
-            let (order, gap) = negative.abs_diff(narrow.clone());
+            let (order, gap) = negative.abs_diff(narrow.stored_copy());
             assert_eq!(order, Ordering::Less);
             assert_eq!(
                 touch_meter::touches(),

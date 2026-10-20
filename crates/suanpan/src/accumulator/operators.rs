@@ -3,7 +3,7 @@
 //! Assignment is the primitive operation: an accumulator updates one running
 //! value. Consuming operators reuse their left operand's storage, and owned
 //! addition reuses whichever input is wider. An operator on a borrowed left
-//! operand builds a new accumulator by adding that operand to zero.
+//! operand starts from a clone of that operand.
 //!
 //! An accumulator operand is read, never copied, and the read compacts any
 //! cancellation at its top. An assignment borrows its receiver mutably, so its
@@ -98,23 +98,23 @@ macro_rules! primitive_operators {
             }
         }
 
-        /// Add to a new accumulator holding the borrowed value, in amortized
-        /// O(`A` log(`A` + 1)) time and O(`A`) space.
+        /// Add to a clone of the borrowed accumulator, at the cost of
+        /// [`clone`](Clone::clone) plus `+=`.
         impl Add<$operand> for &Accumulator {
             type Output = Accumulator;
 
             fn add(self, rhs: $operand) -> Accumulator {
-                Accumulator::from(self) + rhs
+                self.clone() + rhs
             }
         }
 
-        /// Subtract from a new accumulator holding the borrowed value, in
-        /// amortized O(`A` log(`A` + 1)) time and O(`A`) space.
+        /// Subtract from a clone of the borrowed accumulator, at the cost of
+        /// [`clone`](Clone::clone) plus `-=`.
         impl Sub<$operand> for &Accumulator {
             type Output = Accumulator;
 
             fn sub(self, rhs: $operand) -> Accumulator {
-                Accumulator::from(self) - rhs
+                self.clone() - rhs
             }
         }
 
@@ -280,18 +280,6 @@ macro_rules! forwarded_primitive_operators {
 
 forwarded_primitive_operators!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-/// Copy a borrowed accumulator's value into a new one by adding it to zero.
-///
-/// The read compacts the source's cancelled top, so the copy carries none of
-/// it. Takes amortized O(`A` log(`A` + 1)) time and O(`A`) space.
-impl From<&Accumulator> for Accumulator {
-    fn from(value: &Accumulator) -> Accumulator {
-        let mut copy = Accumulator::new();
-        copy += value;
-        copy
-    }
-}
-
 /// Add a borrowed accumulator in amortized O(`A` log(`W` + 1) + `G`) time,
 /// adding O(`A` + `G`) retained space.
 ///
@@ -427,25 +415,25 @@ impl Sub<Accumulator> for &Accumulator {
 
 /// Add two borrowed accumulators into a new one.
 ///
-/// Takes the cost of copying the left operand plus `+=` with the right. The
+/// Takes the cost of cloning the left operand plus `+=` with the right. The
 /// two may be the same accumulator: `&a + &a` is twice `a`.
 impl Add<&Accumulator> for &Accumulator {
     type Output = Accumulator;
 
     fn add(self, rhs: &Accumulator) -> Accumulator {
-        Accumulator::from(self) + rhs
+        self.clone() + rhs
     }
 }
 
 /// Subtract two borrowed accumulators into a new one.
 ///
-/// Takes the cost of copying the left operand plus `-=` with the right. The
+/// Takes the cost of cloning the left operand plus `-=` with the right. The
 /// two may be the same accumulator: `&a - &a` is zero.
 impl Sub<&Accumulator> for &Accumulator {
     type Output = Accumulator;
 
     fn sub(self, rhs: &Accumulator) -> Accumulator {
-        Accumulator::from(self) - rhs
+        self.clone() - rhs
     }
 }
 
@@ -479,12 +467,13 @@ impl Neg for Accumulator {
     }
 }
 
-/// Negate into a new accumulator, at the cost of `-=` into zero.
+/// Negate a clone, at the cost of [`clone`](Clone::clone) plus negating the
+/// value's own width.
 impl Neg for &Accumulator {
     type Output = Accumulator;
 
     fn neg(self) -> Accumulator {
-        Accumulator::new() - self
+        -self.clone()
     }
 }
 

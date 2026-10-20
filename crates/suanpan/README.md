@@ -65,10 +65,9 @@ that `stored_bits` reports can. Reads go
 through a `RefCell`, so they take `&self`; as a
 result an accumulator is `Send` but not `Sync`.
 
-An accumulator is not `Clone`: a copy would carry the same cancellation as
-its original, and both would pay to compact it. To copy a value, construct
-`Accumulator::from(&total)`, which reads, and so compacts, the original
-first.
+A `clone` is a read too: it normalizes the original in
+place, then copies only the value's own width, so the copy starts with no
+deferred cancellation.
 
 `is_known_zero` is a constant-time check that
 reads nothing: `true` proves zero, and `false` proves nothing.
@@ -99,6 +98,7 @@ is paid for twice. Additional space excludes inputs and returned output.
 | `abs_diff` | Amortized O(`A` log(`W` + 1)), `A` the narrower; plus O(`W`) to negate the result when the wider operand is negative and the smaller | O(1) beyond the wider operand's storage |
 | Compare two accumulators | Amortized O(`A` log(`A` + 1)), `A` the narrower; O(log(`W` + 1)) when one is far wider | O(`A`) temporary |
 | Magnitude read or `Hash` | Amortized O(log(`W` + 1) + `Q`) | O(`Q`) temporary |
+| `clone` / `clone_from` | The magnitude read plus O(`Q`) | O(`Q`) for the copy; `clone_from` reuses the receiver's allocation |
 | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 | Working-width and known-zero queries | O(1) | O(1) |
 | Unary `-` and `reset` | O(`W`) | O(1) |

@@ -120,14 +120,14 @@ fn stability_covers_extreme_accumulator_operands() {
         "the operand sits at the floor"
     );
     // |larger| > |operand|, so adding or subtracting it cannot flip the sign.
-    let mut probe = larger.clone();
+    let mut probe = larger.stored_copy();
     probe -= &operand;
     assert_eq!(
         probe.sign(),
         Ordering::Greater,
         "larger − operand remains positive"
     );
-    let mut probe = larger.clone();
+    let mut probe = larger.stored_copy();
     probe += &operand;
     assert_eq!(
         probe.sign(),
@@ -171,7 +171,7 @@ fn small_value_stability_threshold_is_tight_from_below() {
          that is larger than the current value"
     );
     // Why false is required: the in-scope operand flips the sign.
-    let mut probe = larger.clone();
+    let mut probe = larger.stored_copy();
     probe -= &operand;
     assert_eq!(
         probe.sign(),

@@ -11,7 +11,7 @@ use core::ops::{AddAssign, SubAssign};
 
 use num_bigint::{BigInt, BigUint, Sign};
 
-use super::Accumulator;
+use crate::Accumulator;
 
 /// The error from converting a negative accumulator to a [`BigUint`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

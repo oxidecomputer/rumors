@@ -13,9 +13,7 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 use proptest::prelude::*;
 
-use super::{
-    assert_value, cancelled_top, fresh, from_limbs, oracle_sign, Accumulator, TestBig as _,
-};
+use super::{assert_value, fresh, from_limbs, oracle_sign, Accumulator, TestBig as _};
 
 /// Fixed operands that create carries, cancellations, and separated writes.
 struct Operands {
@@ -110,7 +108,7 @@ fn check_schedules(
 ) {
     for op in 0..REPRESENTATION_OPS {
         schedule.push(op);
-        let mut next_acc = acc.clone();
+        let mut next_acc = acc.stored_copy();
         let mut next_oracle = oracle.clone();
         operands.apply(&mut next_acc, &mut next_oracle, op);
         next_acc.stored().assert_invariants(schedule);
@@ -396,7 +394,7 @@ fn assert_shifted_zero(shifted: Accumulator, shift: u64, unshifted: &Accumulator
 /// Assert that applying a zero operand at a shift keeps both values and leaves
 /// the receiver's space unchanged.
 ///
-/// The operand is a fresh clone of `zero`, so the call sees its cancelled form.
+/// The operand is a fresh stored copy of `zero`, so the call sees its cancelled form.
 /// Comparing the operand with zero skips it, so neither the receiver's stored
 /// digit count nor its buffer may change, whether the zero's digits would land
 /// inside the buffer or past it.
@@ -410,7 +408,7 @@ fn assert_zero_operand(
     let (mut acc, value) = receiver.build();
     let stored_before = acc.stored_digit_count();
     let retained_before = acc.stored().digits.retained_len();
-    let operand = zero.clone();
+    let operand = zero.stored_copy();
     apply(&mut acc, shift, &operand);
     assert_value(&acc, &value);
     assert_value(&operand, &IBig::ZERO);
@@ -447,10 +445,10 @@ proptest! {
     ) {
         let zero = redundant_zero(k, &cancellation);
 
-        let mut assigned = zero.clone();
+        let mut assigned = zero.stored_copy();
         assigned <<= shift;
         assert_shifted_zero(assigned, shift, &zero);
-        assert_shifted_zero(zero.clone() << shift, shift, &zero);
+        assert_shifted_zero(zero.stored_copy() << shift, shift, &zero);
 
         assert_zero_operand(&receiver, "add_shifted", Accumulator::add_shifted, shift, &zero);
         assert_zero_operand(&receiver, "sub_shifted", Accumulator::sub_shifted, shift, &zero);
@@ -461,7 +459,7 @@ proptest! {
     /// Repeatedly adding zero at the top of a receiver's buffer leaves the
     /// buffer's length unchanged.
     ///
-    /// Each step adds or subtracts a fresh clone of the same zero, so every
+    /// Each step adds or subtracts a fresh stored copy of the same zero, so every
     /// step sees its cancelled form. Its top digit lands on the buffer's top
     /// position or up to three positions past it, at a varying bit offset.
     /// Checking each operation alone would miss growth that accumulates: a
@@ -482,9 +480,9 @@ proptest! {
             let top = (acc.stored().digits.retained_len() as u64).saturating_sub(1) + past_top;
             let shift = 32 * top.saturating_sub(top_offset) + bit;
             if step % 2 == 0 {
-                acc.add_shifted(shift, &zero.clone());
+                acc.add_shifted(shift, &zero.stored_copy());
             } else {
-                acc.sub_shifted(shift, &zero.clone());
+                acc.sub_shifted(shift, &zero.stored_copy());
             }
         }
         assert_value(&acc, &value);
@@ -494,33 +492,5 @@ proptest! {
             "{} zero operands at the buffer's top leave the buffer's length",
             landings.len()
         );
-    }
-}
-
-/// Copying an accumulator with `From<&Accumulator>` compacts its source's
-/// cancelled top, so both the copy and the source end at the value's own
-/// working width, unlike a copy of the stored form.
-#[test]
-fn copies_carry_no_cancelled_width() {
-    for position in [3u64, 30] {
-        for tail in [5i64, -5, 1 << 40] {
-            let mut source = cancelled_top(position);
-            source += tail;
-            let own_width = if tail.unsigned_abs() < 1 << 32 { 1 } else { 2 };
-            assert!(source.stored_digit_count() > own_width);
-            let copy = Accumulator::from(&source);
-            assert_eq!(
-                copy.stored_digit_count(),
-                own_width,
-                "copy of {tail} at {position}"
-            );
-            assert_eq!(
-                source.stored_digit_count(),
-                own_width,
-                "source of {tail} at {position}"
-            );
-            assert_value(&copy, &IBig::from(tail));
-            assert_value(&source, &IBig::from(tail));
-        }
     }
 }
