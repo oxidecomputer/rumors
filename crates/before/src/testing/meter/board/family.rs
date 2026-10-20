@@ -1413,7 +1413,10 @@ impl FamilyData {
         let mut rng = XorShift(BENIGN_RNG_SEED);
         let mut clocks = vec![Clock::seed()];
         while clocks.len() < n {
-            let i = (rng.next() as usize) % clocks.len();
+            // Reducing in `u64` before narrowing keeps the draw identical on
+            // every pointer width; the remainder is below `clocks.len()`, so
+            // the narrowing is lossless.
+            let i = (rng.next() % clocks.len() as u64) as usize;
             let child = clocks[i].fork();
             clocks.push(child);
         }
