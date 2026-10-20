@@ -128,6 +128,35 @@ impl Digits {
         self.highest_nonzero + 1
     }
 
+    /// Make `target` hold exactly this stored prefix and its scan metadata,
+    /// reusing `target`'s allocation when it suffices.
+    ///
+    /// The copy holds no digits above the stored prefix, so its retained
+    /// length is the prefix's.
+    pub fn copy_into(&self, target: &mut Digits) {
+        self.debug_assert_valid();
+        let prefix = self.stored_digits();
+        touch(prefix.len() as u64);
+        target.digits.clear();
+        target.digits.extend_from_slice(prefix);
+        target.highest_nonzero = self.highest_nonzero;
+        // A cancelled zero can leave the watermark above its top digit; the
+        // copy holds only the prefix, so the watermark is clamped into it.
+        // Every digit below the clamped watermark is still zero.
+        target.lowest_written = self.lowest_written.min(self.highest_nonzero);
+        target.zero_ranges.clone_from(&self.zero_ranges);
+        target.debug_assert_valid();
+    }
+
+    /// Drop every digit, retaining capacity, so that the storage is inactive
+    /// and empty.
+    pub fn clear(&mut self) {
+        self.digits.clear();
+        self.highest_nonzero = 0;
+        self.lowest_written = usize::MAX;
+        self.zero_ranges.clear();
+    }
+
     /// Count the digit positions the buffer holds, including zeros above the
     /// stored prefix.
     ///

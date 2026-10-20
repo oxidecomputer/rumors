@@ -61,15 +61,9 @@ const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 /// the value. Reads take `&self`: the stored form lives in a [`RefCell`]. As a
 /// result an accumulator is [`Send`] but not [`Sync`].
 ///
-/// An accumulator cannot be cloned. A copy would carry the same uncompacted
-/// cancellation as its original, and both would pay to compact it, so the
-/// amortized costs would no longer hold. To copy the value, add it to zero with
-/// `Accumulator::from(&total)`, which compacts the source first.
-///
-/// ```compile_fail
-/// let total = suanpan::Accumulator::from(3);
-/// let copy = total.clone(); // no `Clone`
-/// ```
+/// Cloning normalizes the source in place first, so a copy starts with no
+/// deferred cancellation and costs the value's own width, whatever the
+/// source's working width.
 ///
 /// ```compile_fail
 /// fn shared<T: Sync>(_: &T) {}
@@ -90,15 +84,43 @@ pub struct Accumulator {
     value: RefCell<Value>,
 }
 
-/// Copy an accumulator for tests that compare a value before and after an
-/// operation.
+/// Copy the value, normalizing the source in place first.
 ///
-/// Tests only: a copy duplicates uncompacted cancellation, which the public
-/// type forbids so that its amortized costs hold.
-#[cfg(test)]
+/// The copy holds the value in its normalized form, with no deferred
+/// cancellation, so its amortized costs hold from its own operations alone.
+/// Normalizing changes the source's stored form, as any read may: its
+/// [`stored_bits`](Accumulator::stored_bits) can shrink, never its value.
+///
+/// ```
+/// use suanpan::Accumulator;
+///
+/// let mut total = Accumulator::new();
+/// // A top that cancels across two positions, held until something reads it.
+/// total.add_shifted_limbs(4_096, [1]);
+/// total.sub_shifted_limbs(4_064, [1 << 32]);
+/// total += 7;
+/// let cancelled_width = total.stored_bits();
+/// let copy = total.clone();
+/// assert_eq!(copy, 7);
+/// assert!(copy.stored_bits() < cancelled_width); // the cancelled span is not copied
+/// ```
+///
+/// # Complexity
+///
+/// The cost of a magnitude read, amortized O(log(`W` + 1) + `Q`) time, plus
+/// O(`Q`) for the copy, where `W` is the source's greatest working width and
+/// `Q` the value's width. [`clone_from`](Clone::clone_from) reuses the
+/// receiver's allocation when it suffices.
 impl Clone for Accumulator {
     fn clone(&self) -> Self {
-        Accumulator::from_value(self.peek(Value::clone))
+        let mut copy = Value::new();
+        self.read(|value| value.clone_normalized_into(&mut copy));
+        Accumulator::from_value(copy)
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        let target = self.value.get_mut();
+        source.read(|value| value.clone_normalized_into(target));
     }
 }
 

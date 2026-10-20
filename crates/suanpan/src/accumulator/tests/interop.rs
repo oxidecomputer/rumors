@@ -54,7 +54,7 @@ proptest! {
                 oracle += value;
             }
             // Reading a copy leaves the history's redundant digits in place.
-            prop_assert_eq!(BigInt::from(&acc.clone()), oracle.clone());
+            prop_assert_eq!(BigInt::from(&acc.stored_copy()), oracle.clone());
         }
         assert_value(&acc, &oracle);
     }
@@ -81,7 +81,7 @@ proptest! {
     /// digits.
     #[test]
     fn conversions_to_bigints_are_exact((acc, value) in arb_stored()) {
-        prop_assert_eq!(BigInt::from(&acc.clone()), value.clone());
+        prop_assert_eq!(BigInt::from(&acc.stored_copy()), value.clone());
         let unsigned = BigUint::try_from(&acc);
         if value.sign() == Sign::Minus {
             prop_assert_eq!(unsigned, Err(NegativeValueError));

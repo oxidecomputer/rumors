@@ -2,7 +2,7 @@
 //!
 //! One generated program updates an [`Accumulator`] and an independent
 //! [`BigInt`] in lockstep. After every instruction, the observer checks every
-//! public query and primitive conversion, reading clones so that observing
+//! public query and primitive conversion, reading stored copies so that observing
 //! never changes the tested history; cancellation therefore builds up across
 //! steps until an instruction reads in place. Instructions cover the standard
 //! arithmetic traits with owned and borrowed operands on either side, shifted
@@ -283,12 +283,12 @@ impl Primitive {
                 let value = *$value;
                 let expected = oracle.cmp(&BigInt::from(value));
                 assert_eq!(
-                    actual.clone().partial_cmp(&value),
+                    actual.stored_copy().partial_cmp(&value),
                     Some(expected),
                     "ordering with {value} after {trace:?}"
                 );
                 assert_eq!(
-                    actual.clone() == value,
+                    actual.stored_copy() == value,
                     expected == Ordering::Equal,
                     "equality with {value} after {trace:?}"
                 );
@@ -887,33 +887,42 @@ impl Operation {
     }
 }
 
-/// Check the standard traits and sign queries against the oracle, on clones so
+/// Check the standard traits and sign queries against the oracle, on stored copies so
 /// that observing never changes the tested history.
 fn assert_standard_traits(actual: &Accumulator, oracle: &BigInt, step: &Step, trace: &[u8]) {
     let sign = oracle_sign(oracle);
     assert_eq!(
-        actual.clone().is_zero(),
+        actual.stored_copy().is_zero(),
         sign == Ordering::Equal,
         "is_zero after {trace:?}"
     );
     assert_eq!(
-        actual.clone().is_positive(),
+        actual.stored_copy().is_positive(),
         sign == Ordering::Greater,
         "is_positive after {trace:?}"
     );
     assert_eq!(
-        actual.clone().is_negative(),
+        actual.stored_copy().is_negative(),
         sign == Ordering::Less,
         "is_negative after {trace:?}"
     );
 
     // `num-bigint` pads integers through the same `Formatter` helper.
     for (actual_text, oracle_text) in [
-        (actual.clone().to_string(), oracle.to_string()),
-        (format!("{:+}", actual.clone()), format!("{oracle:+}")),
-        (format!("{:>30}", actual.clone()), format!("{oracle:>30}")),
-        (format!("{:+030}", actual.clone()), format!("{oracle:+030}")),
-        (format!("{:*^31}", actual.clone()), format!("{oracle:*^31}")),
+        (actual.stored_copy().to_string(), oracle.to_string()),
+        (format!("{:+}", actual.stored_copy()), format!("{oracle:+}")),
+        (
+            format!("{:>30}", actual.stored_copy()),
+            format!("{oracle:>30}"),
+        ),
+        (
+            format!("{:+030}", actual.stored_copy()),
+            format!("{oracle:+030}"),
+        ),
+        (
+            format!("{:*^31}", actual.stored_copy()),
+            format!("{oracle:*^31}"),
+        ),
     ] {
         assert_eq!(actual_text, oracle_text, "formatting after {trace:?}");
     }
@@ -921,17 +930,17 @@ fn assert_standard_traits(actual: &Accumulator, oracle: &BigInt, step: &Step, tr
     let (comparand, comparand_oracle) = step.comparand.values();
     let expected = oracle.cmp(&comparand_oracle);
     assert_eq!(
-        actual.clone().cmp(&comparand),
+        actual.stored_copy().cmp(&comparand),
         expected,
         "ordering after {trace:?}"
     );
     assert_eq!(
-        comparand.cmp(&actual.clone()),
+        comparand.cmp(&actual.stored_copy()),
         expected.reverse(),
         "reversed ordering after {trace:?}"
     );
     assert_eq!(
-        actual.clone() == comparand,
+        actual.stored_copy() == comparand,
         expected == Ordering::Equal,
         "equality after {trace:?}"
     );
@@ -940,12 +949,12 @@ fn assert_standard_traits(actual: &Accumulator, oracle: &BigInt, step: &Step, tr
     // The same value in its plain stored form: equal, and hashed equally.
     let plain = plain_form(oracle);
     assert!(
-        actual.clone() == plain,
+        actual.stored_copy() == plain,
         "equality across stored forms after {trace:?}"
     );
     let hasher = std::collections::hash_map::RandomState::new();
     assert_eq!(
-        hasher.hash_one(actual.clone()),
+        hasher.hash_one(actual.stored_copy()),
         hasher.hash_one(&plain),
         "equal values hash equally after {trace:?}"
     );
@@ -965,10 +974,10 @@ fn plain_form(oracle: &BigInt) -> Accumulator {
 }
 
 /// Check every public observation against the exact modeled value, on
-/// clones so that observing never changes the tested history.
+/// stored copies so that observing never changes the tested history.
 fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u64, trace: &[u8]) {
     assert_value(actual, oracle);
-    assert_value(&actual.clone(), oracle);
+    assert_value(&actual.stored_copy(), oracle);
 
     if actual.is_known_zero() {
         assert_eq!(oracle, &BigInt::ZERO, "known zero after {trace:?}");
@@ -987,7 +996,7 @@ fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u
         "stored width bounds the redundant value after {trace:?}"
     );
 
-    if let Some(reported) = actual.clone().cmp_zero_stable_under(comparison_bits) {
+    if let Some(reported) = actual.stored_copy().cmp_zero_stable_under(comparison_bits) {
         assert_eq!(
             reported,
             oracle_sign(oracle),
@@ -1004,7 +1013,7 @@ fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u
         );
     }
 
-    let compared = actual.clone();
+    let compared = actual.stored_copy();
     assert_eq!(
         compared.sign(),
         oracle_sign(oracle),
@@ -1021,7 +1030,7 @@ fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u
         ($integer:ty) => {
             match (
                 <$integer>::try_from(oracle),
-                <$integer>::try_from(actual.clone()),
+                <$integer>::try_from(actual.stored_copy()),
             ) {
                 (Ok(expected), Ok(found)) => assert_eq!(found, expected, "conversion after {trace:?}"),
                 (Err(_), Err(rejected)) => assert_value(&rejected, oracle),

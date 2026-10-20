@@ -38,6 +38,19 @@ use crate::accumulator::touch;
 
 /// Rewrite a wide value into same-signed base-2^32 digits without allocating.
 impl Digits {
+    /// Normalize the whole stored value in place and return its comparison
+    /// with zero.
+    ///
+    /// The comparison compacts a cancelled top first, so the pass covers only
+    /// the value's own width.
+    pub fn normalize(&mut self) -> Ordering {
+        let sign = self.cmp_zero();
+        if sign != Ordering::Equal {
+            self.normalize_nonzero_from(sign, 0, |_| {});
+        }
+        sign
+    }
+
     /// Rewrite the digits from `start` upward as same-signed digits below the
     /// base, passing each magnitude digit to `emit` from low to high.
     ///

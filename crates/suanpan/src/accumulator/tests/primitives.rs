@@ -61,7 +61,7 @@ macro_rules! integer_boundaries {
             ];
             for (value, oracle) in outside {
                 for spilled in [false, true] {
-                    let mut value = value.clone();
+                    let mut value = value.stored_copy();
                     if spilled {
                         value.value.get_mut().ensure_digits();
                     }
@@ -200,7 +200,7 @@ fn primitive_shift_counts_are_checked() {
         cancelled.add_shifted_limbs(32, [1, 0]);
         cancelled.sub_shifted_limbs(0, [1 << 32]);
         assert!(!cancelled.is_known_zero());
-        assert_eq!((&cancelled.clone() << count).sign(), Ordering::Equal);
+        assert_eq!((&cancelled.stored_copy() << count).sign(), Ordering::Equal);
         cancelled <<= count;
         assert_eq!(cancelled.sign(), Ordering::Equal);
     }
@@ -244,13 +244,13 @@ fn owned_arithmetic_reuses_storage_and_preserves_order() {
             assert_eq!(negative.stored().digits.stored_digits().as_ptr(), address);
             assert_value(&negative, &(-&expected));
 
-            let values = [negative.clone(), Accumulator::from(13)];
+            let values = [negative.stored_copy(), Accumulator::from(13)];
             assert_value(&values.iter().sum(), &(-&expected + 13));
             assert_value(&values.into_iter().sum(), &(-&expected + 13));
             assert_value(&(Accumulator::from(13) + &negative), &(-&expected + 13));
             assert_value(&(Accumulator::from(13) - &negative), &(&expected + 13));
             assert_value(
-                &(Accumulator::from(13) - negative.clone()),
+                &(Accumulator::from(13) - negative.stored_copy()),
                 &(&expected + 13),
             );
             let mut difference = Accumulator::from(13);

@@ -133,6 +133,26 @@ impl Value {
         self.digits.normalized_limbs_with_shift()
     }
 
+    /// Normalize in place, then make `target` hold the same value in exactly
+    /// the normalized digits, reusing `target`'s allocation when it suffices.
+    pub(crate) fn clone_normalized_into(&mut self, target: &mut Value) {
+        match self.small {
+            Some(value) => {
+                touch(1);
+                target.digits.clear();
+                target.small = Some(value);
+            }
+            None if self.digits.normalize() == Ordering::Equal => {
+                target.digits.clear();
+                target.small = Some(0);
+            }
+            None => {
+                target.small = None;
+                self.digits.copy_into(&mut target.digits);
+            }
+        }
+    }
+
     /// Negate in place.
     pub(crate) fn negate(&mut self) {
         if let Some(value) = &mut self.small {
