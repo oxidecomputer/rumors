@@ -88,8 +88,9 @@ improvements unless they are small, contained, and simple. No wall-clock
 measurement or benchmarking.
 
 **Execution.** Every build, test, and run executes on ox-east-1, including
-inputs of several gigabytes. Allowed tools: cargo-mutants, llvm-cov branch
-coverage, and long property-test runs. libFuzzer is not used: it does not
+inputs of several gigabytes. Allowed tools: llvm-cov branch coverage and
+long property-test runs. Never run cargo-mutants (owner, 2026-10-20): a
+mutation score is not a goal, and a surviving mutant is not a finding. libFuzzer is not used: it does not
 build on illumos, and the fuzz workspace that depends on it is out of scope.
 The one exception to running everything on the box is branch coverage: no
 toolchain on the box ships the profiler runtime that `llvm-cov` needs, so the

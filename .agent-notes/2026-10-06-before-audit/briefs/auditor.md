@@ -98,8 +98,7 @@ The rest of the audit depends on these, however you work.
 
    Measure what generators actually produce (histograms of shapes, depths,
    widths, and branch outcomes) before trusting volume. The coordinator
-   forwards cargo-mutants survivors and uncovered branches from the adequacy
-   lane as they arrive.
+   forwards uncovered branches from the adequacy lane as they arrive.
 2. **Choose where to attack, then get searches running early.** Attack first
    the production code that is complex but whose correct behavior is simple to
    state: that is where defects hide, and where an oracle is cheap to write.

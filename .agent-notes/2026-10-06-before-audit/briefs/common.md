@@ -187,6 +187,12 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   instrument must name a constructible failure that no existing instrument
   catches, and must get an entry in the validation index
   (`src/testing/validation_index.rs`).
+- Never run cargo-mutants, and never treat a surviving mutant as a finding
+  (owner, 2026-10-20). A mutation score is not a goal. A test earns its place
+  by catching a real, plausible regression that you can name. Showing that a
+  specific known-bad variant of the code under change fails your new check
+  is still expected: that variant is a plausible regression, constructed on
+  purpose, and not a sweep.
 - Leave every test, helper, or generator you touch more legible, without
   weakening its coverage. If you find one that is wrong, vacuous, or weaker
   than its claim, fix it and call out the behavioral correction.
