@@ -78,8 +78,10 @@
 //! rather than the value's bit length. Let `W` be the greatest working width
 //! the receiver has reached, `A` an accumulator operand's working width, `L`
 //! the number of input limbs, `G` the growth of the receiver's working width,
-//! and `Q` the width of a read's result. A large shift can make `G` large even
-//! for one input limb.
+//! `R` the receiver's *written span*, from the lowest position written since
+//! creation or the last reset up to its working width (a shift moves the
+//! written span with the value), and `Q` the width of a read's result. A large
+//! shift can make `G` large even for one input limb.
 //!
 //! Amortized bounds hold over the whole sequence of operations: one call may
 //! finish carry or cancellation work that earlier calls prepared, but no work
@@ -97,7 +99,8 @@
 //! | `clone` / `clone_from` | The magnitude read plus O(`Q`) | O(`Q`) for the copy; `clone_from` reuses the receiver's allocation |
 //! | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 //! | Working-width and known-zero queries | O(1) | O(1) |
-//! | Unary `-` and [`reset`](Accumulator::reset) | O(`W`) | O(1) |
+//! | Unary `-` | O(`W`) | O(1) |
+//! | [`reset`](Accumulator::reset) | O(`R`) | O(1) |
 //!
 //! Growing an allocation may briefly keep the old and new buffers alive. A
 //! read can extend the working width by at most a constant, and grows the

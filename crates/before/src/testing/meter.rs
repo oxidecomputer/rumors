@@ -2212,13 +2212,13 @@ fn weight_comb(n: usize) -> Encoding {
 /// sets the scale). The write watermark is what lets each scaled read start at
 /// the written span; a read that starts at digit 0 walks the `Θ(k)`-digit
 /// never-written prefix per freeze — `Θ(k²)` touches on linear input, the
-/// zero-padded magnitudes with it. The `skyline_flatness` freeze-parade band in
-/// `tests/meter.rs` measures the resulting accumulator work. The block is
+/// zero-padded magnitudes with it. The meter suite's rank bands over this
+/// family measure its touches and allocation. The block is
 /// min-lifted over a strictly descending run, every
 /// node's minimum its last leaf, so right children code base 0 and left
 /// children the difference of the halves' minima; `min_ticks(FZ(k))` is the
 /// printed-base sum, re-derived in closed form by this module's tests and the
-/// band. Normal form: values strictly descend (no equal siblings) and every
+/// touch band `skyline_rank_freeze_parade_is_flat_per_unit`. Normal form: values strictly descend (no equal siblings) and every
 /// subtree minimum is 0 through the spine's parked unit.
 ///
 /// # Panics

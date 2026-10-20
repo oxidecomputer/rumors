@@ -57,9 +57,11 @@ impl DeferredIntegral {
         debug_assert!(!width.is_zero(), "a deferral follows at least one interval");
         self.entries.push(Entry { height, width });
 
-        // A fresh accumulator drops its allocation without scanning the zero
-        // prefix below the interval's scale, as reset() would do.
-        self.width = Accumulator::new();
+        // Keep the buffer, as `Integrator::freeze` keeps the segment width's:
+        // a fresh accumulator would grow from digit 0 to the next interval's
+        // scale at every deferral. The reset clears only the span this interval
+        // wrote.
+        self.width.reset();
     }
 
     /// Add every deferred contribution after the final segment width has arrived.
@@ -127,8 +129,12 @@ impl Aggregate {
     /// products at many levels. Data-weighted splits isolate expensive entries
     /// near the root. The combined weight at each level stays bounded by the
     /// input data; along a descending path it halves at least every two levels.
-    /// For the integer backend's superlinear multiplication bound, the costs of
-    /// successively smaller products sum to the same order as the root's product.
+    /// The backend multiplication, `num-bigint`'s and the `M(n)` of the
+    /// integrator's bound, costs polynomially more than linear (Toom-3,
+    /// `Θ(n^log₃5)`, at large sizes). The products' costs therefore fall
+    /// geometrically down the tree and sum to the order of the root's product.
+    /// The argument needs that polynomial gap: an `M` growing only as
+    /// `n log n` would leave a factor of the tree's depth.
     fn reduce(leaves: Vec<Self>, total: &mut Accumulator) {
         let mut prefix = Vec::with_capacity(leaves.len() + 1);
         let mut running = 0u64;

@@ -89,7 +89,7 @@ impl Digits {
     ///
     /// Every retained digit must already be zero. Inactive storage is either
     /// fresh, and so empty, or left by [`reset`](Self::reset), which zeroes the
-    /// stored prefix; every digit above that prefix is already zero. Activation
+    /// written span; every digit outside that span is already zero. Activation
     /// resets only the scan metadata, so a stale digit would enter the next
     /// value. After a reset, `pooled_reuse_after_reset_matches_the_oracle`
     /// checks the reused accumulator against an oracle, and
@@ -140,10 +140,9 @@ impl Digits {
         target.digits.clear();
         target.digits.extend_from_slice(prefix);
         target.highest_nonzero = self.highest_nonzero;
-        // A cancelled zero can leave the watermark above its top digit; the
-        // copy holds only the prefix, so the watermark is clamped into it.
-        // Every digit below the clamped watermark is still zero.
-        target.lowest_written = self.lowest_written.min(self.highest_nonzero);
+        // The copy holds only the prefix, so its watermark is the floor
+        // clamped into that prefix.
+        target.lowest_written = self.written_floor();
         target.zero_ranges.clone_from(&self.zero_ranges);
         target.debug_assert_valid();
     }
@@ -191,10 +190,17 @@ impl Digits {
         self.debug_assert_valid();
     }
 
-    /// Zero the stored prefix and discard its scan metadata, retaining capacity.
+    /// Zero the written span and discard its scan metadata, retaining capacity.
+    ///
+    /// Every position outside [`written_floor`](Self::written_floor) through
+    /// `highest_nonzero` is already zero, so clearing covers only that span.
+    /// When cancellation leaves the watermark above `highest_nonzero`, clearing
+    /// covers only position `highest_nonzero`. A reset therefore costs the span
+    /// written since activation, not the position where that span starts.
     pub fn reset(&mut self) {
         self.debug_assert_valid();
-        for digit in &mut self.digits[..=self.highest_nonzero] {
+        let floor = self.written_floor();
+        for digit in &mut self.digits[floor..=self.highest_nonzero] {
             touch(1);
             *digit = 0;
         }
@@ -202,6 +208,17 @@ impl Digits {
         self.lowest_written = usize::MAX;
         self.zero_ranges.clear();
         self.debug_assert_valid();
+    }
+
+    /// The lowest position that can hold a nonzero digit, never above the top.
+    ///
+    /// Every digit below `lowest_written` is zero, and cancellation can leave
+    /// that watermark above `highest_nonzero`, so the floor clamps it to the
+    /// top. Every digit below the floor is zero, and the floor never exceeds
+    /// `highest_nonzero`, so `floor..=highest_nonzero` is the span a scaled
+    /// read, a reset, or a copy must cover.
+    fn written_floor(&self) -> usize {
+        self.lowest_written.min(self.highest_nonzero)
     }
 
     /// Add a nonzero contribution at `pos`, restoring every digit invariant.

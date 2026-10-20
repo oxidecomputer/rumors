@@ -124,7 +124,7 @@ const REVEAL_COMB_TOUCH_TRIPWIRE: u64 = 43_029;
 ///
 /// The accumulator handles each narrow step in its inline state, so widening
 /// the one plateau should add only the work needed to read that plateau.
-const PURE_COMB_TOUCH_CEILING: u64 = 1_464;
+const PURE_COMB_TOUCH_CEILING: u64 = 1_384;
 
 /// Widening a pure comb's one plateau does not multiply the work at every site.
 ///
