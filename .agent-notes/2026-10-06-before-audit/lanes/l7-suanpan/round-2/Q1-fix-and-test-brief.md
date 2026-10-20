@@ -239,3 +239,16 @@ judgment, in place of a full walk-through. Prose revision is deferred for
 #122 and `fix/min-ticks-transient-heap`: once both have landed, one prose
 pass covers everything the two branches touched, instead of a pass on each
 branch.
+
+## Owner's rulings (#122 review findings, 2026-10-20)
+
+Every finding's disposition at `e0956b25` holds. `interop.rs` moves to the
+`suanpan` crate root, accepted on a compile check alone. The `regions.rs`
+binding stays. `Debug` copying the stored form and formatting the copy
+through the caller's formatter is accepted. The four `dense-suffix` query
+rows rising by a constant 2 or 4 touches, from `Ord` in the query filter,
+are accepted. `Hash` writing a `usize` slice length, so its bytes differ
+between 32- and 64-bit targets as `num-bigint`'s do, is accepted.
+`Display`'s committed format specs stay as they are. The
+`add_shifted_limbs` and `sub_shifted_limbs` docs share one outline and one
+`# Panics` wording, done in #122 rather than the joint prose pass.

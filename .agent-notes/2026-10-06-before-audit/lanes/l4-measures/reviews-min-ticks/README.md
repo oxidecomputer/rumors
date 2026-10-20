@@ -28,3 +28,11 @@ and after the fix round, the 18 signatures at `ac7b99900`, its base (#122's
 `e0956b25d`), a clean tree, the landing check, and that no board row rises
 against the reviewed tip (35 `version_min_ticks` rows move, all down). The
 owner has not yet gone over the findings against their dispositions.
+
+**The owner's rulings on the two held findings (2026-10-20).** No time
+meter inside the branch: a check for work the board cannot see (here, a
+mutant shifting every `IntegerStack` element on each push, which also
+passes `fuzzfit`) is follow-up work, directed at running the board in
+wasm with fuel (`follow-ups.md`). No 32-bit `min_ticks` check: the new
+code's only `usize` uses index a four-element array with values at most
+4.
