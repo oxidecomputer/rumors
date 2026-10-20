@@ -446,6 +446,119 @@ fn harmonic(d: usize) -> Encoding {
     Encoding::from_bits(bits)
 }
 
+/// The jump-entered rising spine `JR(b, d)`: `d` internal nodes leaning
+/// right, whose preorder leaves are `0, J + 1, J + 2, …, J + d` for the
+/// entry jump `J = 2^b`; `6d + 2b` bits.
+///
+/// Every internal node's subtree minimum is its left leaf, and each nested
+/// subtree's minimum sits strictly above its parent's, so a range-minimum
+/// fold over the spine suspends one positive boundary per level and holds
+/// all of them at once at the bottom. The input pays the jump's width once,
+/// at entry; every later level costs 6 bits however wide `J` is. With `J` at
+/// least `2^31`, every leaf after the first sits more than `i32::MAX` above
+/// the root's height while consecutive leaves differ by one tick, so a fold
+/// that stores each suspended level relative to a fixed reference height
+/// pays a wide offset per level unless it re-anchors. Designed against
+/// `min_ticks`'s transient heap.
+///
+/// Layout: `"11"` (the root: internal flag + `gamma(0)`), `"01"` (its left
+/// leaf 0), `"1"` + `gamma(J + 1)` (the right subtree's root, `2b + 2` bits),
+/// then `"01" "1010"` × `(d − 2)` (each level's left leaf 0 and its internal
+/// right sibling lifted by 1), then `"01" "0010"` (the deepest node's leaves,
+/// 0 and 1). Exactly `6d + 2b` bits. Normal form holds everywhere: each
+/// internal node's left leaf stores 0, so every node's minimum is its own
+/// base, and no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `b < 2`, where the entry code breaks the closed-form size
+/// (`gamma(J + 1)` codes `2^b + 2`, which spans `2b + 1` bits only from
+/// `b = 2`), or if `d < 2`: the spine needs the root and its lifted right
+/// subtree.
+fn jump_rising_spine(b: usize, d: usize) -> Encoding {
+    assert!(
+        b >= 2,
+        "jump-entered rising spine needs an entry jump of at least 4"
+    );
+    assert!(
+        d >= 2,
+        "jump-entered rising spine needs the root and its lifted right subtree"
+    );
+    let one = BigUint::from(1u8);
+    let entry = (BigUint::from(1u8) << b) + &one;
+    let mut bits = BitsWriter::with_capacity((6 * d + 2 * b) as u64);
+    bits.push(true); // the root: internal flag
+    bits.write_gamma(&BigUint::ZERO); // ... at base 0
+    ev_leaf(&mut bits, 0); // the root's left leaf: height 0
+    bits.push(true); // the right subtree's root
+    bits.write_gamma(&entry); // ... lifted to J + 1
+    for _ in 0..d - 2 {
+        ev_leaf(&mut bits, 0); // this level's left leaf: the level's minimum
+        bits.push(true); // its right sibling, one level deeper
+        bits.write_gamma(&one); // ... lifted by 1
+    }
+    ev_leaf(&mut bits, 0); // the deepest node's left leaf: J + d − 1
+    ev_leaf(&mut bits, 1); // its right leaf: J + d
+    Encoding::from_bits(bits)
+}
+
+/// The wide-step pair spine `WP(e, d)`: `d` internal nodes leaning right,
+/// whose nested minima rise alternately by `W = 2^e` and by one tick.
+///
+/// Its preorder leaves are `0, W, W + 1, 2W + 1, 2W + 2, …`, in exactly
+/// `8 + ⌊d/2⌋(2e + 4) + (d − 1 − ⌊d/2⌋)·6` bits.
+///
+/// Every internal node's subtree minimum is its left leaf, and each nested
+/// subtree's minimum sits strictly above its parent's, so a range-minimum
+/// fold holds one suspended minimum per level until the end. Each wide rise
+/// is followed by a one-tick rise, so a fold that freezes its running height
+/// whenever the height outgrows the latest change does so at every second
+/// level, and every frozen value is `e + 1` bits wide and still in use by a
+/// suspended minimum. With `e` above 256, every such value is wider than
+/// `min_ticks` copies when it buries a reference, so the spine samples the
+/// representation `min_ticks` keeps for wide frozen heights at every second
+/// level. Designed against `min_ticks`'s transient heap.
+///
+/// Layout: `"11"` (the root: internal flag + `gamma(0)`), then for each
+/// deeper node `k = 2, …, d`: `"01"` (the left leaf 0 of the node above) and
+/// `"1"` + `gamma(lift)` (node `k`, lifted by `W` for even `k`, `2e + 2`
+/// bits, and by 1 for odd `k`, 4 bits); then `"01" "0010"` (the deepest
+/// node's leaves, 0 and 1). Normal form holds everywhere: each internal
+/// node's left leaf stores 0, so every node's minimum is its own base, and
+/// no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `e < 1`, where the wide code breaks the closed-form size
+/// (`gamma(W)` codes `2^e + 1`, which spans `2e + 1` bits only from `e = 1`),
+/// or if `d < 2`: the spine needs the root and one lifted right subtree.
+fn wide_step_pairs(e: usize, d: usize) -> Encoding {
+    assert!(
+        e >= 1,
+        "wide-step pair spine needs a wide step of at least 2"
+    );
+    assert!(
+        d >= 2,
+        "wide-step pair spine needs the root and one lifted right subtree"
+    );
+    let one = BigUint::from(1u8);
+    let wide = BigUint::from(1u8) << e;
+    let wide_levels = d / 2;
+    let unit_levels = d - 1 - wide_levels;
+    let mut bits =
+        BitsWriter::with_capacity((8 + wide_levels * (2 * e + 4) + unit_levels * 6) as u64);
+    bits.push(true); // the root: internal flag
+    bits.write_gamma(&BigUint::ZERO); // ... at base 0
+    for k in 2..=d {
+        ev_leaf(&mut bits, 0); // the node above's left leaf: its minimum
+        bits.push(true); // node k, its right sibling
+        bits.write_gamma(if k % 2 == 0 { &wide } else { &one }); // ... lifted
+    }
+    ev_leaf(&mut bits, 0); // the deepest node's left leaf
+    ev_leaf(&mut bits, 1); // its right leaf, one above
+    Encoding::from_bits(bits)
+}
+
 /// The alternating-binary spine `A(d)`: depth `d`, `2d + 1` nodes, `4d + 4`
 /// bits.
 ///

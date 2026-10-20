@@ -139,7 +139,7 @@ pub struct TickWalk<'a> {
     /// Whether the last collapsed range contained one leaf.
     range_is_leaf: bool,
     /// Minimum values for currently open version ranges.
-    minima: RangeMinima<()>,
+    minima: RangeMinima,
     /// Minima computed ahead of the main cursor.
     memo: Memo,
     /// How the memo's reference minimum relates to the live walk.

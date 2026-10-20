@@ -11,44 +11,57 @@
 //! These structures keep the same calculation proportional to the input that
 //! introduced each value.
 //!
-//! # Frozen height prefixes
+//! # Frozen height references
 //!
-//! [`HeightPrefixes`] writes the current height as `F + L`. `L` is the recent
-//! change held in one accumulator. When it grows much wider than the next
-//! stored change, it becomes another component of `F`. Leaves and minima keep
-//! only their small offset from the prefix of components current when they
-//! were observed.
-//!
-//! Each leaf adds its offset immediately and adds `+1` to its prefix's
-//! coefficient. Each closed subtree adds the negative coefficient of its
-//! minimum. Final settlement reverses the sums:
-//!
-//! `Σ_p coefficient_p · prefix_p`
-//! `= Σ_c component_c · Σ_{p ≥ c} coefficient_p`.
-//!
-//! Each frozen component is therefore read for one product, regardless of how
-//! many later leaves refer to a prefix containing it.
+//! [`HeightReferences`] writes the current height as `h_0 + F + L`: `h_0` is
+//! the first leaf's height, which the fold counts once, `F` the newest frozen
+//! reference above it, and `L` the recent change. Leaves and minima keep only
+//! their offset from the reference current when they were observed, and the
+//! reference's coefficient defers the `F` part. Its module documentation
+//! explains when references freeze and merge, and why `h_0` counts once.
 //!
 //! # Tracking subtree minima
 //!
 //! Open subtrees are properly nested. [`SubtreeMinima`] uses [`RangeMinima`] to
-//! maintain their minima as differences between adjacent nesting levels. It
-//! attaches a contribution to each distinct minimum: the supplying leaf's
-//! offset, its frozen prefix, and the number of subtrees closed at that value.
-//! Most closes merely increment that count. When the minimum changes or leaves
-//! the stack, one multiplication settles the whole contribution.
+//! maintain their minima as differences between adjacent nesting levels, and
+//! keeps one record per distinct minimum in a [`Records`] stack: the supplying
+//! leaf's offset and the number of subtrees closed at that value. The range
+//! tracker reports when each distinct minimum begins and ends, in stack order,
+//! so a beginning pushes a record and an ending settles the top one. Most
+//! closes merely increment the top record's count; one multiplication settles
+//! a whole record.
 //!
-//! The common contribution fits in one word. Larger offsets, prefix indices,
-//! and close counts spill to exact storage without changing the input domain.
+//! # Why the cost stays linear
 //!
-//! # Why the cost remains bounded
+//! Every unit of work below is charged to input the event consumes or to a
+//! value it destroys, so no surviving wide value is read again for free. Each
+//! line names the item whose documentation carries the local argument.
 //!
-//! Each stored height change is folded into one live accumulator. A subtree
-//! close increments a compact count or moves one minimum boundary. A new low
-//! value permanently consumes each boundary it crosses. Freezing visits a live
-//! value once, and final settlement visits each frozen component once. No
-//! later shallow subtree or narrow height change repeatedly traverses an older
-//! wide value.
+//! - **A height change** is folded once into the live change `L` and once
+//!   into the range tracker's running height, each reading only the change.
+//! - **A leaf** reads `L` only when `L`'s working width is within
+//!   [`UNREAD_FREEZE_BITS`](heights::UNREAD_FREEZE_BITS) of the leaf's
+//!   change, and keeps the value only when it is within
+//!   [`RECORD_SLACK_BITS`](heights::RECORD_SLACK_BITS); otherwise it freezes.
+//!   The read and the addition of the offset into the answer therefore cost
+//!   the leaf's own change plus a constant, apart from cancellation the read
+//!   compacts once ([`HeightReferences::add_leaf`]).
+//! - **A record** is written once when its minimum begins and read once when
+//!   it ends; no suspension or resumption moves it ([`Records`]). It holds an
+//!   offset no wider than its leaf's change plus the slack, at a cost
+//!   proportional to that width ([`IntegerStack`](integers::IntegerStack)).
+//! - **A subtree close** increments the top record's count, or ends a minimum
+//!   and settles its record by one product with a word-sized count.
+//! - **The range tracker** moves boundaries and consumes each crossed one
+//!   once ([`RangeMinima`]).
+//! - **A freeze** moves `L` into a new reference without reading it again.
+//!   Burying the previous top copies a chunk of at most
+//!   [`INLINE_CHUNK_BITS`](heights::INLINE_CHUNK_BITS) or moves a wider one
+//!   whole, a constant either way.
+//! - **A merge** reads only the narrower of two chunks and destroys it, so
+//!   the total stored width of live chunks pays for every merge
+//!   ([`HeightReferences`]).
+//! - **The final settlement** reads the last reference's chunk once.
 
 use suanpan::Accumulator;
 
@@ -56,67 +69,41 @@ use num_bigint::BigInt;
 
 use crate::version::range_minima::{Close, RangeMinima};
 
-mod contributions;
 mod heights;
+mod integers;
+mod records;
+#[cfg(test)]
+mod tests;
 
-use contributions::{ContributionStore, StoredContribution};
-pub use heights::{HeightPrefixes, LeafHeight};
+#[cfg(test)]
+pub use heights::FREEZE_HITS;
+pub use heights::{HeightReferences, LeafHeight};
+use records::Records;
 
-/// Shared state for the callbacks that arm pending subtree ranges.
-struct Arming<'a> {
-    /// Contribution for the current innermost minimum.
-    current: &'a mut Option<StoredContribution>,
-    /// Compact and spilled contributions.
-    contributions: &'a mut ContributionStore,
-    /// Leaf that may become the new minimum.
-    leaf: &'a LeafHeight,
+/// The state the range tracker's callbacks settle records against.
+struct Events<'a> {
+    /// Live minimum records.
+    records: &'a mut Records,
+    /// Frozen-height accounting by reference.
+    references: &'a mut HeightReferences,
     /// Running min-ticks total.
     total: &'a mut Accumulator,
-    /// Frozen-height accounting by prefix.
-    prefixes: &'a mut HeightPrefixes,
 }
 
-impl Arming<'_> {
-    /// Make the pending leaf current and return the contribution it displaces.
-    fn replace_current(&mut self) -> StoredContribution {
-        self.current
-            .replace(self.contributions.store(self.leaf))
-            .expect("an armed subtree has a current contribution")
-    }
-
-    /// Settle a contribution retired while the pending leaf is armed.
-    fn settle(&mut self, contribution: StoredContribution) {
-        self.contributions
-            .settle(contribution, self.total, self.prefixes);
+impl Events<'_> {
+    /// Settle and remove the innermost distinct minimum's record.
+    fn settle_top(&mut self) {
+        self.references
+            .settle_record(self.records.pop(), self.total);
     }
 }
 
-/// Shared state for retiring contributions displaced by a lower leaf.
-struct Settlement<'a> {
-    /// Compact and spilled contributions.
-    contributions: &'a mut ContributionStore,
-    /// Running min-ticks total.
-    total: &'a mut Accumulator,
-    /// Frozen-height accounting by prefix.
-    prefixes: &'a mut HeightPrefixes,
-}
-
-impl Settlement<'_> {
-    /// Settle one outer contribution displaced by the new minimum.
-    fn settle(&mut self, contribution: StoredContribution) {
-        self.contributions
-            .settle(contribution, self.total, self.prefixes);
-    }
-}
-
-/// Tracks the minimum and deferred contribution of every open subtree.
+/// Tracks the minimum of every open subtree and the record that settles it.
 pub struct SubtreeMinima {
-    /// Nested minima; a positive boundary carries the outer contribution.
-    ranges: RangeMinima<StoredContribution>,
-    /// Contribution for the innermost minimum, while a range is armed.
-    current_contribution: Option<StoredContribution>,
-    /// Compact storage, with exact spill slots for uncommon values.
-    contributions: ContributionStore,
+    /// Nested minima, reporting when each distinct minimum begins and ends.
+    ranges: RangeMinima,
+    /// One record per distinct live minimum, the current minimum on top.
+    records: Records,
 }
 
 impl SubtreeMinima {
@@ -124,8 +111,7 @@ impl SubtreeMinima {
     pub fn new() -> SubtreeMinima {
         SubtreeMinima {
             ranges: RangeMinima::new(),
-            current_contribution: None,
-            contributions: ContributionStore::new(),
+            records: Records::new(),
         }
     }
 
@@ -141,108 +127,64 @@ impl SubtreeMinima {
 
     /// Close the innermost subtree and subtract its minimum from `total`.
     ///
-    /// If the parent has the same minimum, its current contribution continues. If
-    /// the parent has a lower minimum, its suspended contribution resumes and
-    /// the inner contribution is settled. Closing the final subtree settles
-    /// the final contribution.
-    pub fn close_subtree(&mut self, total: &mut Accumulator, prefixes: &mut HeightPrefixes) {
+    /// If the parent has the same minimum, the current record continues. If
+    /// the parent has a lower minimum, the current record is settled and the
+    /// record below it, the parent's, becomes current. Closing the final
+    /// subtree settles the final record.
+    pub fn close_subtree(&mut self, total: &mut Accumulator, references: &mut HeightReferences) {
         // Charge this subtree to the leaf that supplied its minimum before
-        // that contribution continues, settles, or is replaced.
+        // that record continues or is settled.
+        self.records.increment();
         match self.ranges.close() {
-            Close::Equal => {
-                self.contributions.increment(
-                    self.current_contribution
-                        .as_mut()
-                        .expect("an armed subtree has a current contribution"),
-                );
-            }
-            Close::Retired => {
-                let mut contribution = self
-                    .current_contribution
-                    .take()
-                    .expect("an armed subtree has a current contribution");
-                self.contributions.increment(&mut contribution);
-                self.contributions.settle(contribution, total, prefixes);
-            }
-            Close::Lower(parent) => {
-                let mut completed = self
-                    .current_contribution
-                    .replace(parent)
-                    .expect("an armed subtree has a current contribution");
-                self.contributions.increment(&mut completed);
-                self.contributions.settle(completed, total, prefixes);
+            Close::Equal => {}
+            Close::Retired | Close::Lower => {
+                references.settle_record(self.records.pop(), total);
             }
         }
     }
 
     /// Let one leaf update the minima of every subtree containing it.
     ///
-    /// Arms any pending ranges at the leaf; otherwise an amortized sign read
-    /// decides whether the leaf undercuts the innermost minimum, and only a
-    /// true undercut does more than O(1) work. It consumes each crossed
-    /// boundary and settles that boundary's contribution once.
+    /// The range tracker settles the record of every distinct minimum the leaf
+    /// ends, innermost first, and the leaf's own record goes on top if it
+    /// begins a new innermost minimum. Only a leaf that arms ranges or truly
+    /// undercuts the innermost minimum, which an amortized sign read decides,
+    /// does more than O(1) work.
     pub fn observe_leaf(
         &mut self,
         leaf: &LeafHeight,
         total: &mut Accumulator,
-        prefixes: &mut HeightPrefixes,
+        references: &mut HeightReferences,
     ) {
-        if self.ranges.has_pending() {
-            if !self.ranges.armed() {
-                // The first leaf establishes both the minimum and its
-                // accounting contribution.
-                self.current_contribution = Some(self.contributions.store(leaf));
-            }
-            // A higher inner minimum suspends the outer contribution on their
-            // boundary. An equal minimum keeps it current. A lower minimum
-            // settles every contribution that it displaces.
-            let mut context = Arming {
-                current: &mut self.current_contribution,
-                contributions: &mut self.contributions,
-                leaf,
-                total,
-                prefixes,
-            };
-            self.ranges.arm_at_height(
-                &mut context,
-                Arming::replace_current,
-                |contribution, context| context.settle(contribution),
-            );
-            return;
-        }
-        if !self.ranges.armed() {
-            // A single-leaf stream: no node will ever fold a minimum.
-            return;
-        }
-        if !self.ranges.undercuts_here() {
-            return;
-        }
-        // The new leaf supplies the minimum. Settle the displaced contribution,
-        // then every outer contribution whose boundary the drop crosses.
-        let displaced = self
-            .current_contribution
-            .take()
-            .expect("an armed subtree has a current contribution");
-        self.contributions.settle(displaced, total, prefixes);
-        self.current_contribution = Some(self.contributions.store(leaf));
-        let mut context = Settlement {
-            contributions: &mut self.contributions,
+        let mut events = Events {
+            records: &mut self.records,
+            references: &mut *references,
             total,
-            prefixes,
         };
-        self.ranges.undercut(&mut context, |contribution, context| {
-            context.settle(contribution);
-        });
+        let begins = if self.ranges.has_pending() {
+            self.ranges.arm_at_height(&mut events, Events::settle_top)
+        } else if self.ranges.armed() && self.ranges.undercuts_here() {
+            self.ranges.undercut(&mut events, Events::settle_top);
+            true
+        } else {
+            // The leaf lies at or above the innermost minimum, or the stream
+            // is a single leaf with no subtree.
+            false
+        };
+        if begins {
+            let first = references.reference_top();
+            self.records.push(leaf.sign(), leaf.limbs(), first);
+        }
     }
 
     /// Close every remaining range at the stream's end.
-    pub fn close_all(&mut self, total: &mut Accumulator, prefixes: &mut HeightPrefixes) {
+    pub fn close_all(&mut self, total: &mut Accumulator, references: &mut HeightReferences) {
         debug_assert!(
             !self.ranges.has_pending(),
             "the final leaf armed every open range"
         );
         while self.ranges.armed() {
-            self.close_subtree(total, prefixes);
+            self.close_subtree(total, references);
         }
     }
 }

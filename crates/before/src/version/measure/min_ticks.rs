@@ -11,22 +11,16 @@
 //! heights and nested minima from being copied or scanned again for every later
 //! leaf.
 
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 use suanpan::Accumulator;
 
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::{Count, Version};
 
-use super::HEIGHT_FREEZE_ALLOWANCE_BITS;
-
 mod minima;
 
 #[cfg(test)]
-thread_local! {
-    /// Freezes of the recent height change on this test thread.
-    /// Tests use this to establish which inputs reach the freeze path.
-    pub static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
+pub use minima::FREEZE_HITS;
 
 impl Count {
     /// Compute the shortest tick history consistent with `version`.
@@ -34,19 +28,25 @@ impl Count {
         let (mut leaves, first_height) = VersionRegionReader::open(version);
 
         // Recent changes stay in one accumulator. Wider, older changes are
-        // frozen as shared prefixes, so a narrow next delta never has to copy
-        // the absolute height built before it.
+        // frozen as shared references, so a narrow next delta never has to
+        // copy the absolute height built before it.
         let mut recent_height_change = Accumulator::new();
-        let mut answer = Accumulator::new();
-        let mut height_prefixes = minima::HeightPrefixes::new(first_height);
+        let mut height_references = minima::HeightReferences::new();
         let mut subtree_minima = minima::SubtreeMinima::new();
 
+        // Every leaf height and every subtree minimum is the first leaf's
+        // height plus a signed offset from it. The identity adds each leaf and
+        // subtracts each internal node's minimum, and a binary tree has one
+        // more leaf than internal nodes, so the first leaf's height counts
+        // exactly once. The references measure only the offsets.
+        let mut answer = Accumulator::from(first_height);
+
         // The first leaf lies inside one open subtree for each ancestor on its
-        // path. Its live offset is zero because its absolute height opened the
-        // frozen-prefix representation.
+        // path. Its live offset is zero.
         subtree_minima.open_subtrees(leaves.depth());
-        let first_leaf = height_prefixes.add_leaf(&recent_height_change, &mut answer);
-        subtree_minima.observe_leaf(&first_leaf, &mut answer, &mut height_prefixes);
+        let first_leaf =
+            height_references.add_leaf(&mut recent_height_change, &BigInt::ZERO, &mut answer);
+        subtree_minima.observe_leaf(&first_leaf, &mut answer, &mut height_references);
 
         while !leaves.done() {
             let previous_depth = leaves.depth();
@@ -62,31 +62,20 @@ impl Count {
             // deeper ancestors left behind, then the descent opens any new
             // internal subtrees above the next leaf.
             for _ in 0..previous_depth - turn_depth {
-                subtree_minima.close_subtree(&mut answer, &mut height_prefixes);
+                subtree_minima.close_subtree(&mut answer, &mut height_references);
             }
             subtree_minima.open_subtrees(leaves.depth() - turn_depth);
 
-            // Freeze a much wider accumulated change before the narrow delta
-            // that exposed the imbalance can cause later work to revisit it.
-            // The allowance absorbs small width fluctuations without changing
-            // the asymptotic rule.
-            if recent_height_change.stored_bits()
-                > height_change.magnitude().bits() + HEIGHT_FREEZE_ALLOWANCE_BITS
-            {
-                #[cfg(test)]
-                FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
-                height_prefixes.freeze(&mut recent_height_change);
-            }
-
-            let leaf = height_prefixes.add_leaf(&recent_height_change, &mut answer);
-            subtree_minima.observe_leaf(&leaf, &mut answer, &mut height_prefixes);
+            let leaf =
+                height_references.add_leaf(&mut recent_height_change, &height_change, &mut answer);
+            subtree_minima.observe_leaf(&leaf, &mut answer, &mut height_references);
         }
 
-        // The final leaf closes every remaining subtree. Their minimum
-        // contributions and the deferred frozen prefixes complete the identity
+        // The final leaf closes every remaining subtree. Their minimum records
+        // and the last reference's deferred height complete the identity
         // stated in the module documentation.
-        subtree_minima.close_all(&mut answer, &mut height_prefixes);
-        height_prefixes.settle(&mut answer);
+        subtree_minima.close_all(&mut answer, &mut height_references);
+        height_references.settle(&mut answer);
         Count(
             BigUint::try_from(&answer)
                 .expect("a subtree minimum never exceeds the sum of its leaves"),

@@ -18,13 +18,6 @@
 //! retains only its cursor paths and the arithmetic state needed for its
 //! result; none constructs a recursive tree or an intermediate Version.
 
-/// Extra bits of working width a height change may hold beyond the newest
-/// delta's bit length before it is frozen.
-///
-/// The cushion avoids moving arithmetic state for small width fluctuations;
-/// being fixed, it does not affect the input-proportional bound.
-pub(super) const HEIGHT_FREEZE_ALLOWANCE_BITS: u64 = 256;
-
 mod distance;
 pub mod integral;
 mod lag;

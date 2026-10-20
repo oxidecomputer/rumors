@@ -107,7 +107,12 @@ use suanpan::Accumulator;
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
 
-use super::HEIGHT_FREEZE_ALLOWANCE_BITS;
+/// Extra bits of working width the live height change may hold beyond the
+/// newest delta's bit length before [`Integrator::boundary`] freezes it.
+///
+/// The cushion avoids moving arithmetic state for small width fluctuations;
+/// being fixed, it does not affect the input-proportional bound.
+pub(crate) const HEIGHT_FREEZE_ALLOWANCE_BITS: u64 = 256;
 
 mod deferred;
 mod pair;

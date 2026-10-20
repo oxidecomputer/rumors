@@ -12,12 +12,13 @@ pub fn validate(version: &Version) -> Result<(), Decode> {
     super::io::validate::whole(version.0.reader())
 }
 
-/// Extra bits of working width a numeric fold's accumulated height change may
-/// hold beyond the newest code's bit length before the fold freezes it.
+/// Extra bits of working width the rank integrator's accumulated height
+/// change may hold beyond the newest code's bit length before it freezes.
 ///
 /// Meter families that must fire a freeze derive their widths from this.
 #[cfg(any(test, feature = "meter"))]
-pub(crate) const HEIGHT_FREEZE_ALLOWANCE_BITS: u64 = super::measure::HEIGHT_FREEZE_ALLOWANCE_BITS;
+pub(crate) const HEIGHT_FREEZE_ALLOWANCE_BITS: u64 =
+    super::measure::integral::HEIGHT_FREEZE_ALLOWANCE_BITS;
 
 /// Copy a version's live bits for tests that inspect the representation.
 #[cfg(any(test, feature = "meter"))]

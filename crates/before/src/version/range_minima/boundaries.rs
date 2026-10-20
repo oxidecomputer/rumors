@@ -1,9 +1,9 @@
 //! Compact LIFO storage for the differences between armed range minima.
 //!
-//! Equal adjacent minima form counted zero runs. Positive boundaries carry one
-//! opaque client payload apiece. Separate bit tags, packed integers, and sparse
-//! vectors keep a small boundary from paying for a wide accumulator and payload
-//! in every record. All columns are LIFO, so they need no per-record indices.
+//! Equal adjacent minima form counted zero runs. Separate bit tags, packed
+//! integers, and a sparse vector keep a small boundary from paying for a wide
+//! accumulator in every record. All columns are LIFO, so they need no
+//! per-record indices.
 
 use suanpan::Accumulator;
 
@@ -12,20 +12,15 @@ use crate::bits::stack::{BitStack, PackedU64Stack};
 use super::boundary::Boundary;
 
 /// One logical record, starting with the innermost boundary when popped.
-pub(super) enum Entry<P> {
+pub(super) enum Entry {
     /// This many adjacent pairs of ranges share their minimum.
     Equal(u64),
-    /// The outer minimum is lower, and its client state is suspended here.
-    Positive {
-        /// Difference between the inner and outer minima.
-        boundary: Boundary,
-        /// Client state to resume when the outer minimum becomes current.
-        payload: P,
-    },
+    /// The outer minimum is lower by this difference.
+    Positive(Boundary),
 }
 
 /// Synchronized storage columns for zero runs and positive boundaries.
-pub(super) struct Boundaries<P> {
+pub(super) struct Boundaries {
     /// Whether each stored record is positive rather than an equal-minimum run.
     positive: BitStack,
     /// Whether each positive boundary needs arbitrary precision.
@@ -34,14 +29,12 @@ pub(super) struct Boundaries<P> {
     compact: PackedU64Stack,
     /// Top zero run; extending it must cost O(1), regardless of its count.
     top_zeros: u64,
-    /// One payload per positive boundary.
-    payloads: Vec<P>,
     /// One accumulator per wide boundary.
     wide_values: Vec<Accumulator>,
 }
 
 /// Keep the storage columns in lockstep as complete records enter and leave.
-impl<P> Boundaries<P> {
+impl Boundaries {
     /// Construct an empty boundary stack without allocating.
     pub(super) fn new() -> Self {
         Self {
@@ -49,7 +42,6 @@ impl<P> Boundaries<P> {
             wide: BitStack::new(),
             compact: PackedU64Stack::new(),
             top_zeros: 0,
-            payloads: Vec::new(),
             wide_values: Vec::new(),
         }
     }
@@ -68,8 +60,8 @@ impl<P> Boundaries<P> {
         }
     }
 
-    /// Suspend the outer minimum's payload on one positive boundary.
-    pub(super) fn push_positive(&mut self, boundary: Boundary, payload: P) {
+    /// Push one positive boundary above the current zero run.
+    pub(super) fn push_positive(&mut self, boundary: Boundary) {
         self.flush_zeros();
         self.positive.push(true);
         match boundary {
@@ -82,7 +74,6 @@ impl<P> Boundaries<P> {
                 self.wide_values.push(wide);
             }
         }
-        self.payloads.push(payload);
     }
 
     /// Extend the equal-minimum run, merging adjacent runs in constant time.
@@ -91,7 +82,7 @@ impl<P> Boundaries<P> {
     }
 
     /// Pop a complete record, consuming only the columns selected by its tags.
-    pub(super) fn pop(&mut self) -> Option<Entry<P>> {
+    pub(super) fn pop(&mut self) -> Option<Entry> {
         if self.top_zeros != 0 {
             return Some(Entry::Equal(core::mem::take(&mut self.top_zeros)));
         }
@@ -107,12 +98,6 @@ impl<P> Boundaries<P> {
         } else {
             Boundary::Word(self.compact.pop())
         };
-        Some(Entry::Positive {
-            boundary,
-            payload: self
-                .payloads
-                .pop()
-                .expect("each positive boundary has a payload"),
-        })
+        Some(Entry::Positive(boundary))
     }
 }

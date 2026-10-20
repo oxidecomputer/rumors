@@ -1,4 +1,5 @@
-//! Version-height emissions, comparisons, and followers without suspended payloads.
+//! Version-height emissions, comparisons, and followers for clients that keep
+//! no state per distinct minimum.
 //!
 //! Values may be the running height itself or an offset from it. The generic
 //! range operations handle nesting and boundary propagation; these methods
@@ -12,14 +13,14 @@ use suanpan::Accumulator;
 use super::boundary::Signed;
 use super::RangeMinima;
 
-/// Track emitted minima and client differences when boundaries need no payload.
-impl RangeMinima<()> {
+/// Track emitted minima and client differences without distinct-minimum events.
+impl RangeMinima {
     /// Emit the running height, arming pending ranges or lowering existing minima.
     pub fn emit_here(&mut self) {
         if self.has_pending() {
-            self.arm_at_height(&mut (), |_| (), |(), _| ());
+            self.arm_at_height(&mut (), |_| ());
         } else if self.undercuts_here() {
-            self.undercut(&mut (), |(), _| ());
+            self.undercut(&mut (), |_| ());
         }
     }
 
@@ -38,7 +39,7 @@ impl RangeMinima<()> {
         if self.has_pending() {
             let mut below = Accumulator::new();
             below -= offset;
-            self.arm_below(below, &mut (), |_| (), |(), _| ());
+            self.arm_below(below, &mut (), |_| ());
             return;
         }
         if self.emit_when_gap_dominates(offset) {
@@ -50,7 +51,7 @@ impl RangeMinima<()> {
             self.anchor.subtract_offset(offset);
             return;
         }
-        self.undercut(&mut (), |(), _| ());
+        self.undercut(&mut (), |_| ());
         self.anchor.set_gap_below_offset(offset);
     }
 
@@ -76,7 +77,7 @@ impl RangeMinima<()> {
                         "a dominating negative gap lowers the minimum by a positive amount"
                     )
                 };
-                self.propagate_drop(decrease, &mut (), |(), _| ());
+                self.propagate_drop(decrease, &mut (), |_| ());
                 self.anchor.set_gap_below_offset(offset);
             }
             Ordering::Equal => unreachable!("a decisive gap is nonzero"),
@@ -86,7 +87,7 @@ impl RangeMinima<()> {
 
     /// Arm pending ranges at `h - below`, reusing the supplied accumulator.
     pub fn emit_below_accum(&mut self, below: Accumulator) {
-        self.arm_below(below, &mut (), |_| (), |(), _| ());
+        self.arm_below(below, &mut (), |_| ());
     }
 
     /// Compare `h + above` with the innermost minimum without emitting it.
@@ -130,7 +131,7 @@ impl RangeMinima<()> {
         let pending = core::mem::take(&mut self.pending);
         let above_minimum = self.anchor.arm_relative(arm_offset);
         self.armed += pending;
-        self.finish_arming(above_minimum, pending, &mut (), |_| (), |(), _| ());
+        self.finish_arming(above_minimum, pending, &mut (), |_| ());
     }
 
     /// Attach the value `A - X`, which will follow changes in the anchor.

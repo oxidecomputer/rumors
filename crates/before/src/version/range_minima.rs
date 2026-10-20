@@ -18,13 +18,16 @@
 //! minimum at every level. Expanding the zero runs gives exactly one boundary
 //! per adjacent pair of armed ranges.
 //!
-//! Each positive boundary also suspends one caller-owned payload for the outer
-//! minimum. Closing the inner range returns it; an emission at or below the
-//! outer minimum retires it through a callback. Equal minima need no payload.
-//! Payload construction is lazy: first arming and equal arming never call the
-//! factory. Completing the range lifecycle returns or retires every constructed
-//! payload exactly once. Callbacks supply client work outside this module's
-//! arithmetic bound.
+//! # Distinct minima, in stack order
+//!
+//! A client that keeps state per *distinct* minimum, rather than per range,
+//! learns when each one begins and ends. An emission reports whether it begins
+//! a new innermost distinct minimum, and calls back once for each distinct
+//! minimum it ends, innermost first. A close reports whether it ends the
+//! innermost one. Every distinct minimum begins once and ends once, and the
+//! one that ends is always the newest that has not yet ended, so the client's
+//! state forms a stack whose top is the innermost minimum. Callbacks supply
+//! client work outside this module's arithmetic bound.
 //!
 //! # Follow one minimum relative to the running height
 //!
@@ -47,7 +50,8 @@
 //! outward: zero boundaries transmit it unchanged; each positive boundary
 //! absorbs as much of it as possible. If a boundary survives, the outer minimum
 //! stays fixed and propagation stops. Every crossed boundary becomes zero and
-//! retires its payload. [`RangeMinima::propagate_drop`] expresses those cases.
+//! ends the distinct minimum outside it. [`RangeMinima::propagate_drop`]
+//! expresses those cases.
 //!
 //! A close consumes exactly one armed range. Equal parent and child minima
 //! leave the anchor unchanged. A lower parent adds its boundary to the deferred
@@ -67,7 +71,8 @@
 //! into the deferred distance once. Equal ranges use compact counts. For a
 //! validated Version, arithmetic work is therefore amortized linear in encoded
 //! value bits plus topology events, and tracker-owned storage is linear in
-//! those inputs; payload contents remain the caller's responsibility. Depth
+//! those inputs; state a client keeps per distinct minimum remains its own
+//! responsibility. Depth
 //! alone does not multiply the cost of a shared wide minimum.
 
 use core::cmp::Ordering;
@@ -87,29 +92,30 @@ use boundaries::{Boundaries, Entry};
 use boundary::{Boundary, Positive, Remainder, Signed};
 
 /// What becomes visible after closing the innermost range.
-pub enum Close<P> {
-    /// No armed range remains.
+pub enum Close {
+    /// No armed range remains; the innermost distinct minimum ended.
     Retired,
-    /// The parent shares the minimum, so client state continues unchanged.
+    /// The parent shares the minimum, which continues.
     Equal,
-    /// The parent has a lower minimum; resume its suspended client state.
-    Lower(P),
+    /// The parent has a lower minimum; the innermost distinct minimum ended,
+    /// and the parent's is innermost again.
+    Lower,
 }
 
 /// Open ranges, their ordered minima, and one shared height reference.
-pub struct RangeMinima<P> {
+pub struct RangeMinima {
     /// The innermost minimum relative to the running height and client values.
     anchor: Anchor,
     /// Differences between armed minima, with the innermost boundary last.
-    boundaries: Boundaries<P>,
+    boundaries: Boundaries,
     /// Innermost ranges still waiting for their first emission.
     pending: u64,
     /// Ranges with minima; the expanded boundary count is `armed - 1`.
     armed: u64,
 }
 
-/// Maintain range nesting and move payloads when distinct minima meet or separate.
-impl<P> RangeMinima<P> {
+/// Maintain range nesting and report distinct minima as they begin and end.
+impl RangeMinima {
     /// Construct an empty stack; no height is retained until its first arming.
     pub fn new() -> Self {
         Self {
@@ -161,23 +167,21 @@ impl<P> RangeMinima<P> {
     /// First arming establishes an anchor and equal minima. With older armed
     /// ranges, moving the anchor gives the new value's signed distance above
     /// the old minimum; that distance determines the connecting boundary.
-    pub fn arm_at_height<C>(
-        &mut self,
-        context: &mut C,
-        payload: impl FnOnce(&mut C) -> P,
-        retire_payload: impl FnMut(P, &mut C),
-    ) {
+    ///
+    /// Returns whether the value begins a new innermost distinct minimum; `end`
+    /// runs once for each distinct minimum it ends, innermost first.
+    pub fn arm_at_height<C>(&mut self, context: &mut C, end: impl FnMut(&mut C)) -> bool {
         debug_assert!(self.has_pending(), "arming requires a pending range");
         let pending = core::mem::take(&mut self.pending);
         if !self.armed() {
             self.anchor.initialize(Accumulator::new());
             self.armed = pending;
             self.boundaries.push_equal(pending - 1);
-            return;
+            return true;
         }
         let above_minimum = self.anchor.arm_at_height();
         self.armed += pending;
-        self.finish_arming(above_minimum, pending, context, payload, retire_payload);
+        self.finish_arming(above_minimum, pending, context, end)
     }
 
     /// Give pending ranges their first minimum at `v = h - below`.
@@ -185,51 +189,56 @@ impl<P> RangeMinima<P> {
     /// The owned `below` becomes the new height gap. With an existing anchor,
     /// the displaced gap supplies `v - A = old_gap - below`; accounting for
     /// any deferred distance then yields the connecting difference `v - m`.
+    /// Returns and calls back as [`Self::arm_at_height`] does.
     pub fn arm_below<C>(
         &mut self,
         below: Accumulator,
         context: &mut C,
-        payload: impl FnOnce(&mut C) -> P,
-        retire_payload: impl FnMut(P, &mut C),
-    ) {
+        end: impl FnMut(&mut C),
+    ) -> bool {
         debug_assert!(self.has_pending(), "arming requires a pending range");
         let pending = core::mem::take(&mut self.pending);
         if !self.armed() {
             self.anchor.initialize(below);
             self.armed = pending;
             self.boundaries.push_equal(pending - 1);
-            return;
+            return true;
         }
         let above_minimum = self.anchor.arm_below(below);
         self.armed += pending;
-        self.finish_arming(above_minimum, pending, context, payload, retire_payload);
+        self.finish_arming(above_minimum, pending, context, end)
     }
 
     /// Connect newly armed ranges to the older ranges using `v - old_minimum`.
     ///
     /// The anchor and followers already describe `v`. A positive difference
-    /// suspends the older minimum's payload on a new boundary. Equality needs
-    /// no payload. A negative difference retires the older payload and lowers
-    /// every enclosing minimum reached by the drop. All new ranges share `v`.
+    /// begins a new distinct minimum above the older one, on a new boundary.
+    /// Equality continues the older minimum. A negative difference ends the
+    /// older minimum and lowers every enclosing minimum reached by the drop,
+    /// then begins `v`. All new ranges share `v`.
     fn finish_arming<C>(
         &mut self,
         above_minimum: Accumulator,
         pending: u64,
         context: &mut C,
-        payload: impl FnOnce(&mut C) -> P,
-        mut retire_payload: impl FnMut(P, &mut C),
-    ) {
+        mut end: impl FnMut(&mut C),
+    ) -> bool {
         match Signed::of(above_minimum) {
             Signed::Positive(above_minimum) => {
                 self.boundaries
-                    .push_positive(Boundary::from_positive(above_minimum), payload(context));
+                    .push_positive(Boundary::from_positive(above_minimum));
                 self.boundaries.push_equal(pending - 1);
+                true
             }
-            Signed::Zero => self.boundaries.push_equal(pending),
-            Signed::Negative(drop) => {
-                retire_payload(payload(context), context);
-                self.propagate_drop(drop, context, retire_payload);
+            Signed::Zero => {
                 self.boundaries.push_equal(pending);
+                false
+            }
+            Signed::Negative(drop) => {
+                end(context);
+                self.propagate_drop(drop, context, end);
+                self.boundaries.push_equal(pending);
+                true
             }
         }
     }
@@ -246,11 +255,14 @@ impl<P> RangeMinima<P> {
     ///
     /// Move the anchor to the height, update its followers, and consume any
     /// deferred distance before propagating the true drop `old_minimum - h`.
-    pub fn undercut<C>(&mut self, context: &mut C, retire_payload: impl FnMut(P, &mut C)) {
+    /// The emission begins a new innermost distinct minimum; `end` runs once
+    /// for each it ends, innermost first, starting with the old innermost one.
+    pub fn undercut<C>(&mut self, context: &mut C, mut end: impl FnMut(&mut C)) {
         let Signed::Positive(decrease) = Signed::of(self.anchor.undercut_here()) else {
             unreachable!("a confirmed undercut lowers the minimum by a positive amount")
         };
-        self.propagate_drop(decrease, context, retire_payload);
+        end(context);
+        self.propagate_drop(decrease, context, end);
     }
 
     /// Carry a positive decrease from the innermost minimum toward outer ranges.
@@ -258,30 +270,31 @@ impl<P> RangeMinima<P> {
     /// The anchor already describes the new minimum. Equal boundaries pass
     /// the decrease through unchanged. A positive boundary either retains the
     /// part above the decrease, transmits the remaining decrease outward, or
-    /// disappears exactly at equality. Every vanished boundary retires its
-    /// payload, and all resulting zero boundaries merge into one run.
+    /// disappears exactly at equality. Every vanished boundary ends the
+    /// distinct minimum outside it, and all resulting zero boundaries merge into
+    /// one run.
     fn propagate_drop<C>(
         &mut self,
         mut decrease: Positive,
         context: &mut C,
-        mut retire_payload: impl FnMut(P, &mut C),
+        mut end: impl FnMut(&mut C),
     ) {
         let mut equal_boundaries = 0;
         while let Some(entry) = self.boundaries.pop() {
             match entry {
                 Entry::Equal(count) => equal_boundaries += count,
-                Entry::Positive { boundary, payload } => match boundary.lowered_by(decrease) {
+                Entry::Positive(boundary) => match boundary.lowered_by(decrease) {
                     Remainder::Decrease(remaining) => {
-                        retire_payload(payload, context);
+                        end(context);
                         equal_boundaries += 1;
                         decrease = remaining;
                     }
                     Remainder::Boundary(remaining) => {
-                        self.boundaries.push_positive(remaining, payload);
+                        self.boundaries.push_positive(remaining);
                         break;
                     }
                     Remainder::Equal => {
-                        retire_payload(payload, context);
+                        end(context);
                         equal_boundaries += 1;
                         break;
                     }
@@ -291,12 +304,12 @@ impl<P> RangeMinima<P> {
         self.boundaries.push_equal(equal_boundaries);
     }
 
-    /// Close exactly one armed range and expose its parent's minimum and payload.
+    /// Close exactly one armed range and expose its parent's minimum.
     ///
     /// An equal parent needs only a zero-run decrement. A lower parent moves
     /// its boundary into the deferred anchor distance, at the cost of the
     /// narrower accumulator. The final close clears the anchor altogether.
-    pub fn close(&mut self) -> Close<P> {
+    pub fn close(&mut self) -> Close {
         debug_assert!(
             !self.has_pending(),
             "every closing range must first see an emission"
@@ -319,9 +332,9 @@ impl<P> RangeMinima<P> {
                 }
                 Close::Equal
             }
-            Entry::Positive { boundary, payload } => {
+            Entry::Positive(boundary) => {
                 self.anchor.defer(boundary);
-                Close::Lower(payload)
+                Close::Lower
             }
         }
     }

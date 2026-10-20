@@ -239,6 +239,28 @@ const PROPAGATE_SEAM_CLEARANCE: usize = 5;
 const LATENT_LADDER_BASE_WIDTH: usize = 64;
 const LATENT_LADDER_BASE_LEAVES: usize = 512;
 
+/// Jump-entered rising spine depth at the default scale (the harmonic spine's
+/// depth).
+const JUMP_RISING_SPINE_BASE_DEPTH: usize = 8_000;
+
+/// Jump-entered rising spine entry width in bits (fixed across scales).
+///
+/// `2^40` lies above `i32::MAX`, so every leaf after the first sits beyond a
+/// 32-bit offset from the root's height while each level still steps by one
+/// tick. Past that threshold the width is arbitrary; keeping it small keeps
+/// the one entry code a negligible share of the input at every scale.
+const JUMP_RISING_SPINE_ENTRY_BITS: usize = 40;
+
+/// Wide-step pair spine depth at the default scale.
+const WIDE_STEP_PAIRS_BASE_DEPTH: usize = 128;
+
+/// Wide-step pair spine step width in bits (fixed across scales).
+///
+/// Each wide step freezes a height of `2^320 + 1`, wider than the 256-bit
+/// working width up to which `min_ticks` copies a buried reference's frozen
+/// height, so every frozen height takes the whole-accumulator form.
+pub(crate) const WIDE_STEP_PAIRS_STEP_BITS: usize = 320;
+
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
 ///
@@ -1113,6 +1135,23 @@ impl FamilyData {
                         size(LATENT_LADDER_BASE_WIDTH),
                         size(LATENT_LADDER_BASE_LEAVES),
                     )
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::JumpRisingSpine => Self::event(
+                kind,
+                Shape::JumpRisingSpine
+                    .build2(
+                        JUMP_RISING_SPINE_ENTRY_BITS,
+                        size(JUMP_RISING_SPINE_BASE_DEPTH),
+                    )
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::WideStepPairs => Self::event(
+                kind,
+                Shape::WideStepPairs
+                    .build2(WIDE_STEP_PAIRS_STEP_BITS, size(WIDE_STEP_PAIRS_BASE_DEPTH))
                     .version()
                     .encode(),
             ),

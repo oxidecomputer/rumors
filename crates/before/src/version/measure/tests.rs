@@ -288,7 +288,7 @@ fn spine_of(heights: &[BigUint]) -> Version {
 ///
 /// Panics if `32(p − 1)` or `32q` is at most `a + 2`.
 fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
-    let crosses = |m: u32| 32 * u64::from(m) > super::HEIGHT_FREEZE_ALLOWANCE_BITS + 2;
+    let crosses = |m: u32| 32 * u64::from(m) > super::integral::HEIGHT_FREEZE_ALLOWANCE_BITS + 2;
     assert!(
         p >= 1 && crosses(p - 1) && crosses(q),
         "every drift must cross the freeze trigger in its shortest form"
