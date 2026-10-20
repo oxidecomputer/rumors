@@ -65,16 +65,27 @@ fn stopping_boundary_ticks(k: usize) -> BigUint {
 /// the propagation's irreducible work — never from a measured basis.
 ///
 /// The plunge consumes every stacked boundary: `k` dying folds, each
-/// reading its dying operand's three base-2^32 digits once (the dying
-/// side is a spilled two-limb magnitude, so its held digit span is
-/// exactly three), `3k` touches at `k = 1,024`. Everything else the run
-/// does is on top; a reading below this means the propagation's folds
-/// left the metered representation.
+/// touching at least once every base-2^32 digit position its dying operand
+/// spans, three for a seam rung. A boundary still held in digits is read one
+/// stored digit at a time. A boundary rebuilt inline from its copy is read as
+/// one value, and the carry chain that lands it in the residue then touches
+/// each of its three positions. That is `3k` touches at `k = 1,024`.
+/// Everything else the run does is on top; a reading below this means the
+/// propagation's folds left the metered representation.
 const DESCENDING_TOUCH_FLOOR: u64 = 3 * 2 * BOUNDARY_SMALL_K as u64;
 
-/// Absolute touch ceiling on the descending shape's larger run: the measured
-/// record ×1.25, rounded up (the record lives in the pin commit).
-const DESCENDING_TOUCH_CEILING: u64 = 23_099;
+/// Absolute touch ceiling on the descending shape's larger run: a bound on
+/// its cascade's work plus four touches per stacked boundary for its copy.
+///
+/// The cascade's work is bounded by its measured record ×1.25 (the record
+/// lives in the pin commit).
+///
+/// The minima tracker copies each stacked boundary once, when the next
+/// arming covers it: one read of its magnitude, which takes a sign read
+/// decided at the top digit (one touch, since the top digit is 5) and one
+/// pass over its three digits. The input supplies one arming per copy, so the
+/// copies add a constant per site, at most `4k` touches at `k = 1,024`.
+const DESCENDING_TOUCH_CEILING: u64 = 23_099 + 4 * 2 * BOUNDARY_SMALL_K as u64;
 
 /// Band on the control-minus-plunge touch difference at the larger run:
 /// the measured record ×0.75 down and ×1.25 up (the record lives in the
@@ -90,7 +101,8 @@ const DESCENDING_TOUCH_CEILING: u64 = 23_099;
 /// of the surviving residue's width in the plunge (the regression the
 /// wide-hop guards exist to prevent) drives this surplus through zero —
 /// the floor is the tripwire — while a park regression inflates it past
-/// the ceiling.
+/// the ceiling. The minima tracker's copy of each stacked boundary happens
+/// while the two runs arm, so it is shared work and cancels here.
 const DESCENDING_PARK_SURPLUS_BAND: (i64, i64) = (1_514, 2_523);
 
 /// The descending cascade is flat per retiring digit width.

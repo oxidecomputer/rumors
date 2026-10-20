@@ -14,9 +14,13 @@
 //!
 //! Store adjacent differences `inner_min - outer_min` as *boundaries*. Equal
 //! minima form counted zero runs. Positive boundaries use space proportional
-//! to their value widths. Thus deep nesting does not duplicate a wide absolute
-//! minimum at every level. Expanding the zero runs gives exactly one boundary
-//! per adjacent pair of armed ranges.
+//! to their working widths: once a deeper boundary covers it, a boundary wider
+//! than a word is copied into packed limbs, or kept whole only when it is
+//! wider than [`INLINE_BOUNDARY_BITS`](boundaries::INLINE_BOUNDARY_BITS), wide
+//! enough that its accumulator's fixed size is at most a constant per bit.
+//! Thus deep nesting does not duplicate a wide absolute minimum at every
+//! level. Expanding the zero runs gives exactly one boundary per adjacent pair
+//! of armed ranges.
 //!
 //! # Distinct minima, in stack order
 //!
@@ -68,12 +72,14 @@
 //! reading the narrower one.
 //!
 //! Each crossed boundary is consumed permanently; each closed boundary moves
-//! into the deferred distance once. Equal ranges use compact counts. For a
+//! into the deferred distance once. Storing or retrieving a boundary costs a
+//! constant, because a boundary is copied only when a later push covers it,
+//! and only up to a bounded width. Equal ranges use compact counts. For a
 //! validated Version, arithmetic work is therefore amortized linear in encoded
 //! value bits plus topology events, and tracker-owned storage is linear in
 //! those inputs; state a client keeps per distinct minimum remains its own
-//! responsibility. Depth
-//! alone does not multiply the cost of a shared wide minimum.
+//! responsibility. Depth alone does not multiply the cost of a shared wide
+//! minimum.
 
 use core::cmp::Ordering;
 

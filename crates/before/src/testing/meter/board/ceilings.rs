@@ -44,7 +44,7 @@ pub const MAX_SCALING_EXPONENT: f64 = 1.15;
 /// Query evaluation has a separate limit because it keeps one cursor and
 /// comparison state per bound. The coefficient is a regression limit over the
 /// inputs the board measures, not a proof over unmeasured ones.
-pub const MAX_HEAP_BYTES_PER_INPUT_BYTE: f64 = 18.0;
+pub const MAX_HEAP_BYTES_PER_INPUT_BYTE: f64 = 15.0;
 
 /// Additive term in every sample's heap ceiling, including small-input checks.
 ///

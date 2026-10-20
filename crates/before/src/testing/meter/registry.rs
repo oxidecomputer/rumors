@@ -67,6 +67,9 @@ pub enum Shape {
     /// The wide-step pair spine `WP(e, d)`, nested minima rising alternately
     /// by `2^e` and by one: [`Shape::build2`]`(e, d)`.
     WideStepPairs,
+    /// The wide-step spine `WS(e, d)`, nested minima each rising by `2^e`:
+    /// [`Shape::build2`]`(e, d)`.
+    WideStepSpine,
     /// The alternating-binary spine `A(d)`: [`Shape::build1`]`(d)`.
     AltSpine,
     /// The scattered id `Z(e)`, `e` owned fragments at alternating
@@ -265,6 +268,7 @@ impl Shape {
             Shape::Harmonic => Builder::P1(super::harmonic),
             Shape::JumpRisingSpine => Builder::P2(super::jump_rising_spine),
             Shape::WideStepPairs => Builder::P2(super::wide_step_pairs),
+            Shape::WideStepSpine => Builder::P2(super::wide_step_spine),
             Shape::AltSpine => Builder::P1(super::alt_spine),
             Shape::ScatteredId => Builder::P1(super::scattered_id),
             Shape::IdSpine => Builder::Flag(super::id_spine),
@@ -919,6 +923,16 @@ pub enum FamilyId {
     /// `min_ticks`'s references at every second level. Designed against
     /// `min_ticks`'s transient heap.
     WideStepPairs,
+    /// The wide-step spine `WS(e, d)` at a fixed step of `2^64`: one
+    /// suspended range minimum per level, each nested minimum one step above
+    /// its parent's.
+    ///
+    /// Every boundary between adjacent minima is wider than a 64-bit word,
+    /// and the input pays one 129-bit code per level for it, so a fold that
+    /// keeps a fixed-size structure per wide boundary holds a fixed multiple
+    /// of that code at every level. Designed against the transient heap of
+    /// `min_ticks`'s range minima.
+    WideStepSpine,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -966,7 +980,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 59] = [
+    pub const ALL: [FamilyId; 60] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1026,6 +1040,7 @@ impl FamilyId {
         FamilyId::LatentLadder,
         FamilyId::JumpRisingSpine,
         FamilyId::WideStepPairs,
+        FamilyId::WideStepSpine,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1350,6 +1365,11 @@ impl FamilyId {
             FamilyId::WideStepPairs => FamilySpec {
                 name: "wide-step-pairs",
                 shapes: &[Shape::WideStepPairs],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::WideStepSpine => FamilySpec {
+                name: "wide-step-spine",
+                shapes: &[Shape::WideStepSpine],
                 cells: VERSION_BUNDLE_CELLS,
             },
         }

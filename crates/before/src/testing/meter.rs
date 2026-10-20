@@ -559,6 +559,53 @@ fn wide_step_pairs(e: usize, d: usize) -> Encoding {
     Encoding::from_bits(bits)
 }
 
+/// The wide-step spine `WS(e, d)`: `d` internal nodes leaning right, whose
+/// nested minima each rise by `W = 2^e`.
+///
+/// Its preorder leaves are `0, W, 2W, …, (d − 1)W`, then `(d − 1)W + 1`, in
+/// exactly `8 + (d − 1)(2e + 4)` bits.
+///
+/// Every internal node's subtree minimum is its left leaf, and each nested
+/// subtree's minimum sits `W` above its parent's, so a range-minimum fold
+/// holds one positive boundary of value `W` per level, all of them at once at
+/// the bottom. Each level pays for its boundary with one code of `2e + 1`
+/// bits. With `e` at least 64, every boundary is wider than a 64-bit word,
+/// so the spine samples the form a range-minimum fold keeps for wide
+/// boundaries at every level. Designed against the transient heap of
+/// `min_ticks`'s range minima.
+///
+/// Layout: `"11"` (the root: internal flag + `gamma(0)`), then for each
+/// deeper node: `"01"` (the left leaf 0 of the node above) and `"1"` +
+/// `gamma(W)` (the node, lifted by `W`, `2e + 2` bits); then `"01" "0010"`
+/// (the deepest node's leaves, 0 and 1). Normal form holds everywhere: each
+/// internal node's left leaf stores 0, so every node's minimum is its own
+/// base, and no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `e < 1`, where the wide code breaks the closed-form size
+/// (`gamma(W)` codes `2^e + 1`, which spans `2e + 1` bits only from `e = 1`),
+/// or if `d < 2`: the spine needs the root and one lifted right subtree.
+fn wide_step_spine(e: usize, d: usize) -> Encoding {
+    assert!(e >= 1, "wide-step spine needs a step of at least 2");
+    assert!(
+        d >= 2,
+        "wide-step spine needs the root and one lifted right subtree"
+    );
+    let wide = BigUint::from(1u8) << e;
+    let mut bits = BitsWriter::with_capacity((8 + (d - 1) * (2 * e + 4)) as u64);
+    bits.push(true); // the root: internal flag
+    bits.write_gamma(&BigUint::ZERO); // ... at base 0
+    for _ in 2..=d {
+        ev_leaf(&mut bits, 0); // the node above's left leaf: its minimum
+        bits.push(true); // the next node, its right sibling
+        bits.write_gamma(&wide); // ... lifted by W
+    }
+    ev_leaf(&mut bits, 0); // the deepest node's left leaf
+    ev_leaf(&mut bits, 1); // its right leaf, one above
+    Encoding::from_bits(bits)
+}
+
 /// The alternating-binary spine `A(d)`: depth `d`, `2d + 1` nodes, `4d + 4`
 /// bits.
 ///

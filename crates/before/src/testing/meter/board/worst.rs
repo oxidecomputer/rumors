@@ -298,7 +298,8 @@ const VERSION_STREAM_FAMILIES: &str = concat!(
     "memo-oscillating,mirror-narrow,",
     "mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,",
     "propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,",
-    "staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-tooth-comb",
+    "staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-step-spine,",
+    "wide-tooth-comb",
 );
 
 /// The pinned worst set of a cell whose ranking depends on the build target.
@@ -379,7 +380,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "ranked_encode", ["arming-train", "promo-rearm", "jump-rising-spine"]),
     ("default", "ranked_encode_rank", ["arming-train", "promo-rearm", "jump-rising-spine"]),
     ("default", "ranked_decode", ["wide-arming", "cancelling-chain", "jump-rising-spine"]),
-    ("default", "version_min_ticks", ["propagate-seam", "promo-rearm", "copy-hole"]),
+    ("default", "version_min_ticks", ["wide-step-pairs", "promo-rearm", "copy-hole"]),
     ("default", "version_join_all", ["meet-shade", "stagger", "stagger"]),
     ("default", "version_meet_all", ["meet-shade", "meet-shade", "meet-shade"]),
     ("default", "version_span_all", ["meet-shade", "stagger,stagger-arity,stagger-size", "stagger-arity"]),
@@ -437,7 +438,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "clock_fork", ["id-pair", "id-pair", "-"]),
     ("default", "clock_forks", ["staircase", "id-pair", "-"]),
     ("default", "clock_forks_full", ["stagger", "meet-shade", "-"]),
-    ("default", "clock_split_array", ["alt-spine,arming-train,benign,bigroot,cancelling-chain,cliff,cliff-fan,concurrent-pair,dense,dense-suffix,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,plateau-puncture,promo-rearm,propagate-seam,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-tooth-comb", "pure-comb", "-"]),
+    ("default", "clock_split_array", ["alt-spine,arming-train,benign,bigroot,cancelling-chain,cliff,cliff-fan,concurrent-pair,dense,dense-suffix,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,plateau-puncture,promo-rearm,propagate-seam,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-step-spine,wide-tooth-comb", "pure-comb", "-"]),
     ("default", "clock_join", ["bigroot", "bigroot", "jump-rising-spine"]),
     ("default", "clock_sync", ["bigroot", "bigroot", "jump-rising-spine"]),
     ("default", "clock_sync_all", ["meet-shade", "stagger", "stagger"]),
@@ -480,7 +481,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     #[cfg(feature = "borsh")]
     ("default", "version_borsh_deserialize", ["mirror-narrow,nested-full", VERSION_STREAM_FAMILIES, "staircase"]),
     #[cfg(feature = "borsh")]
-    ("default", "clock_borsh_deserialize", ["id-pair", "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,id-pair,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-tooth-comb", "copy-hole"]),
+    ("default", "clock_borsh_deserialize", ["id-pair", "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,id-pair,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-step-spine,wide-tooth-comb", "copy-hole"]),
     #[cfg(feature = "borsh")]
     ("default", "rank_borsh_deserialize", ["benign,concurrent-pair,descending-raises", "-", "-"]),
     #[cfg(feature = "borsh")]
@@ -534,7 +535,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "ranked_encode", ["arming-train", "memo-oscillating", "jump-rising-spine"]),
     ("acceptance", "ranked_encode_rank", ["arming-train", "memo-oscillating", "jump-rising-spine"]),
     ("acceptance", "ranked_decode", ["wide-arming", "cancelling-chain", "jump-rising-spine"]),
-    ("acceptance", "version_min_ticks", ["propagate-seam", "memo-oscillating", "copy-hole"]),
+    ("acceptance", "version_min_ticks", ["wide-step-pairs", "memo-oscillating", "copy-hole"]),
     ("acceptance", "version_join_all", ["meet-shade", "stagger", "stagger"]),
     ("acceptance", "version_meet_all", ["meet-shade", "meet-shade", "meet-shade"]),
     ("acceptance", "version_span_all", ["meet-shade", "stagger-size", "stagger-arity"]),
@@ -588,7 +589,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "clock_fork", ["id-pair", "id-pair", "-"]),
     ("acceptance", "clock_forks", ["staircase", "id-pair", "-"]),
     ("acceptance", "clock_forks_full", ["stagger", "meet-shade", "-"]),
-    ("acceptance", "clock_split_array", ["alt-spine,arming-train,benign,bigroot,cancelling-chain,cliff,cliff-fan,concurrent-pair,dense,dense-suffix,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,plateau-puncture,promo-rearm,propagate-seam,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-tooth-comb", "pure-comb", "-"]),
+    ("acceptance", "clock_split_array", ["alt-spine,arming-train,benign,bigroot,cancelling-chain,cliff,cliff-fan,concurrent-pair,dense,dense-suffix,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,plateau-puncture,promo-rearm,propagate-seam,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-step-spine,wide-tooth-comb", "pure-comb", "-"]),
     ("acceptance", "clock_join", ["bigroot", "bigroot", "jump-rising-spine"]),
     ("acceptance", "clock_sync", ["bigroot", "bigroot", "jump-rising-spine"]),
     ("acceptance", "clock_sync_all", ["meet-shade", "stagger", "stagger"]),
@@ -631,7 +632,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     #[cfg(feature = "borsh")]
     ("acceptance", "version_borsh_deserialize", ["mirror-narrow,nested-full", VERSION_STREAM_FAMILIES, "staircase"]),
     #[cfg(feature = "borsh")]
-    ("acceptance", "clock_borsh_deserialize", ["id-pair", "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,id-pair,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-tooth-comb", "copy-hole"]),
+    ("acceptance", "clock_borsh_deserialize", ["id-pair", "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,id-pair,jump-comb,jump-pair,jump-rising-spine,latent-ladder,lone-freeze,mask-drift,masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,staircase,tooth-tail,weight-comb,wide-arming,wide-step-pairs,wide-step-spine,wide-tooth-comb", "copy-hole"]),
     #[cfg(feature = "borsh")]
     ("acceptance", "rank_borsh_deserialize", ["concurrent-pair", "-", "-"]),
     #[cfg(feature = "borsh")]
