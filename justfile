@@ -967,13 +967,41 @@ amp-board-fuel *args: amp-board-fuel-build
     fi
     BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} exec cargo run --release -p board-fuel-harness --target-dir {{ board_fuel_target }} -- acceptance "$@"
 
-# The fuel board's per-cell ceilings are derived from its own readings (the
-# board's `cell_ceilings` module states the rule). This recipe sweeps the
-# fuel board without judging and rewrites the fuel table, printing every cell
-# whose ceiling moved. Review the rewritten table like a snapshot, quoting the
-# movement in the commit message.
+# Every board cell carries per-cell ceilings derived from its own readings
+# (the board's `cell_ceilings` module states the rule): one heap table and
+# one fuel table. Heap readings differ between the heap table's two
+# architectures of record (aarch64 and x86_64, `board::HEAP_ARCHS`), and the
+# table holds on both because each cell's ceiling is derived from the larger
+# of its two readings at every sample. A re-derivation takes two hosts and
+# one tree:
+#
+# 1. Bring both hosts to the same source tree (commit, or sync the edits).
+# 2. On the host of one architecture, capture its readings:
+#    `just amp-board-acceptance --capture <file>`.
+# 3. On the host of the other, `just amp-board-calibrate <file>`, with an
+#    absolute path. It sweeps this host's board without judging, refuses the
+#    capture unless it names this source tree and, with this host, covers
+#    exactly the architectures of record, takes each sample's larger heap
+#    reading, and rewrites the heap table. Then it runs
+#    `amp-board-calibrate-fuel`. Every cell whose ceiling moved prints.
+#
+# Fuel readings do not depend on the host, so a change that moves fuel alone
+# (a toolchain or Wasmtime bump, or a cost-table change) needs only
+# `just amp-board-calibrate-fuel`, which sweeps the fuel board on one host
+# and rewrites the fuel table.
+#
+# Review the rewritten tables like snapshots, quoting the movement in the
+# commit message.
 
-# Re-derive the per-cell fuel ceilings from a fresh sweep.
+# Re-derive the per-cell heap and fuel ceilings from this host and another architecture's capture.
+[positional-arguments]
+amp-board-calibrate *captures: && amp-board-calibrate-fuel
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tree="$({{ source_tree }})"
+    AMP_BOARD_SOURCE_TREE="$tree" {{ amp_board_command }} -- calibrate "$@"
+
+# Re-derive the per-cell fuel ceilings alone, from a fresh fuel sweep.
 amp-board-calibrate-fuel: amp-board-fuel-build
     #!/usr/bin/env bash
     set -euo pipefail

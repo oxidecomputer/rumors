@@ -28,8 +28,9 @@
 //! covers them, so the proportional term need not. A small sample whose
 //! allocations grow with its input still enters the derivation in full.
 //!
-//! The fuel board applies the same rule to each cell's own readings, with 10%
-//! headroom (the `cell_ceilings` module): fuel has no board-wide ceiling.
+//! The board-wide ceilings here are outer bounds. Beneath them, every cell
+//! also carries ceilings derived by the same rule from its own readings alone,
+//! with 10% headroom (the `cell_ceilings` module).
 
 /// Green requires every meter's scaling exponent at or below this.
 ///

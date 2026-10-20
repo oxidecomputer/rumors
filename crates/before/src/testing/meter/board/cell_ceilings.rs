@@ -4,8 +4,11 @@
 //!
 //! A board-wide ceiling binds only the cells that read near it. Fuel per byte
 //! differs between cells by orders of magnitude, so no board-wide fuel
-//! ceiling could bind more than the costliest cells. A *per-cell ceiling* is
-//! derived from the cell's own readings instead.
+//! ceiling could bind more than the costliest cells, and a cell reading 2
+//! heap bytes per input byte could regress several-fold under the board-wide
+//! heap ceiling ([`MAX_HEAP_BYTES_PER_INPUT_BYTE`](super::MAX_HEAP_BYTES_PER_INPUT_BYTE))
+//! without turning red. A *per-cell ceiling* is derived from the cell's own
+//! readings instead.
 //!
 //! # The rule
 //!
@@ -45,28 +48,35 @@
 //! A table holds one currency's ceilings and names the architectures whose
 //! readings it was calibrated from, because a reading is deterministic only
 //! for a given target. Fuel is measured only in a wasm32 guest
-//! ([`FUEL_ARCHS`]). A table calibrated from several architectures takes the
-//! larger of their readings at every sample, so it holds on each. Each table
-//! lives in a generated child module named for its currency, and [`TABLES`]
-//! lists them.
+//! ([`FUEL_ARCHS`]). Heap readings differ between aarch64 and x86_64 wherever
+//! an operation reaches an architecture-conditional allocation (the board
+//! module's "Target dependence" section), so the heap table is calibrated
+//! from both ([`HEAP_ARCHS`]): each cell's ceiling is derived from the larger
+//! of its two readings at every sample. Each table lives in a generated child
+//! module named for its currency, and [`TABLES`] lists them.
 //!
 //! A run on an architecture its currency's table does not name is judged
-//! without the table: a currency with an outer bound falls back to it, and
-//! the rendered board names the missing table. Fuel has no outer bound to
-//! fall back to, so a fuel run without its table is refused rather than
-//! judged. A currency with no table at all is judged by its outer bound
-//! alone.
+//! without the table: heap falls back to its outer bound, and the rendered
+//! board names the missing table. Fuel has no outer bound to fall back to,
+//! so a fuel run without its table is refused rather than judged. A currency
+//! with no table at all is judged by its outer bound alone.
 //!
 //! # Recalibrating
 //!
-//! `just amp-board-calibrate-fuel` rewrites the fuel table from a fresh fuel
-//! sweep, printing each cell whose ceiling moved. A calibration refuses a
-//! capture of another source tree, and refuses to write a table whose
-//! architectures would differ from its currency's architectures of record.
+//! `just amp-board-calibrate <capture>` sweeps the board on this host and
+//! merges a capture taken on the other architecture of record
+//! (`just amp-board-acceptance --capture <file>` there). It refuses a capture
+//! of another source tree, and refuses to write a table whose architectures
+//! would differ from its currency's architectures of record. It rewrites the
+//! heap table from the larger reading at every sample, and the fuel table from
+//! a fresh fuel sweep, printing each cell whose ceiling moved. Fuel readings do
+//! not depend on the host, so `just amp-board-calibrate-fuel` rewrites the fuel
+//! table alone, from one host, after a change that moves fuel and not heap.
 //! Review the diff like a snapshot (one line per cell), and commit it with the
 //! movement explained.
 
 mod fuel;
+mod heap;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -111,6 +121,10 @@ pub struct CellCeilings {
     entries: &'static [(&'static str, &'static str, u64)],
 }
 
+/// The architectures whose readings the heap table must be calibrated from:
+/// the 64-bit architectures the board of record runs on.
+pub const HEAP_ARCHS: [&str; 2] = ["aarch64", "x86_64"];
+
 /// The architectures whose readings the fuel table must be calibrated from:
 /// the guest's alone, since fuel is measured nowhere else.
 pub const FUEL_ARCHS: [&str; 1] = ["wasm32"];
@@ -119,13 +133,14 @@ pub const FUEL_ARCHS: [&str; 1] = ["wasm32"];
 /// currency with no table.
 fn archs_of_record(currency: Currency) -> &'static [&'static str] {
     match currency {
+        Currency::Heap => &HEAP_ARCHS,
         Currency::Fuel => &FUEL_ARCHS,
-        Currency::Heap | Currency::Scan | Currency::Touch => &[],
+        Currency::Scan | Currency::Touch => &[],
     }
 }
 
 /// Every per-cell table, at most one for each currency.
-const TABLES: [&CellCeilings; 1] = [&fuel::CEILINGS];
+const TABLES: [&CellCeilings; 2] = [&heap::CEILINGS, &fuel::CEILINGS];
 
 impl CellCeilings {
     /// Returns cell `op` × `family`'s ceiling, in reading per constant unit.
@@ -265,7 +280,7 @@ pub fn write_recalibrations(
 /// capture is `(name, text)`, as [`capture`](super::capture) wrote it, and
 /// must come from a release build of the same tree; `name` labels it in
 /// errors. Together the ladder and the captures must cover exactly the
-/// currency's architectures of record ([`FUEL_ARCHS`] for fuel), so a
+/// currency's architectures of record ([`HEAP_ARCHS`], [`FUEL_ARCHS`]), so a
 /// table never holds for an architecture whose readings it never saw, nor
 /// stops holding for one of record.
 ///

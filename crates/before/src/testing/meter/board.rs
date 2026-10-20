@@ -31,7 +31,10 @@
 //! units. Query evaluation has a separate coefficient
 //! ([`QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE`]) because it keeps one cursor
 //! and comparison state per bound. No bytes are subtracted from reported
-//! readings.
+//! readings. Beneath that bound, each cell's heap also faces a ceiling of its
+//! own ([`CellCeilings`]), 10% above its worst calibrated reading per unit;
+//! its other samples are held to that same per-unit ceiling, so they may grow
+//! by more than 10% before the cell turns red.
 //!
 //! The heap growth fit has a resolution of [`HEAP_TREND_RESOLUTION_BYTES`] to
 //! accommodate allocation thresholds on the finite ladder. It cannot detect growth entirely below
@@ -123,8 +126,9 @@
 //! architecture, so formatting a [`Count`](crate::Count) allocates differently
 //! on x86_64 than on aarch64.
 //!
-//! The ceilings judge such a reading on every host. Where the path also
-//! changes which family reads worst, the
+//! The ceilings judge such a reading on every host; the per-cell heap ceiling
+//! is calibrated from the larger of a cell's aarch64 and x86_64 readings for
+//! that reason. Where the path also changes which family reads worst, the
 //! worst-case pin declares the cell target-dependent, checks only that some
 //! family drives it, and names the path in a comment at the entry. The pin's
 //! table (`WORST_RANKINGS`) is therefore the record of which rankings depend on
@@ -166,7 +170,7 @@ pub use ceilings::{
 };
 pub use cell_ceilings::{
     cell_ceilings, recalibrate, write_recalibrations, CellCeilings, Recalibration,
-    CEILING_RESOLUTION, CELL_CEILING_HEADROOM, FUEL_ARCHS,
+    CEILING_RESOLUTION, CELL_CEILING_HEADROOM, FUEL_ARCHS, HEAP_ARCHS,
 };
 pub use compare::{capture, capture_file, compare, source_tree, SOURCE_TREE_ENV};
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};

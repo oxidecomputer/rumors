@@ -140,6 +140,20 @@ fn tables_are_sorted_and_distinct() {
     }
 }
 
+/// Every table names exactly its currency's architectures of record.
+///
+/// A table calibrated from fewer architectures stops holding for the omitted
+/// one, whose runs then face the board-wide ceiling alone (or, for fuel,
+/// which has none, are refused).
+#[test]
+fn every_table_names_its_architectures_of_record() {
+    for table in TABLES {
+        let named: BTreeSet<&str> = table.archs.iter().copied().collect();
+        let of_record: BTreeSet<&str> = archs_of_record(table.currency).iter().copied().collect();
+        assert_eq!(named, of_record, "the {} table", table.currency.label());
+    }
+}
+
 /// A derived ceiling is the cell's worst reading per unit after the
 /// intercept, times the headroom, rounded up to a thousandth, and clamped at
 /// zero.
@@ -240,6 +254,29 @@ fn recalibration_refuses_unmergeable_captures() {
     let renamed = good.replace(CELL.1, "other_family");
     let refused = derived(&renamed).expect_err("a capture lacking the cell is refused");
     assert_eq!(refused.kind(), std::io::ErrorKind::InvalidData);
+}
+
+/// Recalibration refuses to write a heap table from any set of
+/// architectures but the heap architectures of record.
+///
+/// A table calibrated from fewer architectures stops holding for the omitted
+/// one, whose runs then face the board-wide ceiling alone. One calibrated
+/// from more claims an architecture that the next calibration, taken from
+/// the architectures of record, drops without notice.
+#[test]
+fn recalibration_refuses_architectures_off_the_record() {
+    let flat = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
+    let here = ladder("aarch64", flat);
+    let good = capture_text(&ladder("x86_64", flat), "tree-a");
+    let third = capture_text(&ladder("riscv64", flat), "tree-a");
+    for captures in [
+        vec![],
+        vec![("x86", good.as_str()), ("riscv", third.as_str())],
+    ] {
+        let refused =
+            recalibrate(&here, "tree-a", &captures, None).expect_err("the calibration must refuse");
+        assert_eq!(refused.kind(), std::io::ErrorKind::InvalidData);
+    }
 }
 
 /// The heap table judged by every test below: [`CELL`] at a ceiling of 2.0

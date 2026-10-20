@@ -107,8 +107,10 @@
 //! Red means untriaged, nothing else: every persistent contradiction
 //! resolves to a cure or a declared model, and any red cell fails the
 //! gate's board leg outright. It is the enforced per-operation record: every
-//! compatible family reaches every compatible operation, and its shared
-//! limits ratchet both growth and constant factors.
+//! compatible family reaches every compatible operation, its shared limits
+//! bound growth and constant factors, and each cell's own heap ceiling holds
+//! its worst calibrated reading per unit within 10% (its other samples to
+//! that same per-unit ceiling).
 //!
 //! **The fuel board** (the `board-fuel` crates under this one; `just
 //! amp-board-fuel`). The same cells, each run in a fresh wasm32 guest

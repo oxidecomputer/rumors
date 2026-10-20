@@ -56,6 +56,19 @@
 //! documents the capture format, the classification rule, and what the rule
 //! cannot distinguish.
 //!
+//! # Recalibrating per-cell ceilings
+//!
+//! `calibrate [<capture>...]` (`just amp-board-calibrate`) sweeps the same
+//! ladder, judges nothing, and rewrites the heap ceiling table
+//! (`board::recalibrate`) from the larger of this host's reading and each
+//! capture's reading at every sample, printing one line per cell whose
+//! ceiling moved. Pass a capture taken on each other architecture of record
+//! (`acceptance --capture` there) from the same source tree, which
+//! `AMP_BOARD_SOURCE_TREE` names: the calibration refuses another tree's
+//! capture, and refuses to write a table that would not cover exactly the
+//! architectures of record (`board::HEAP_ARCHS`). Review the rewritten table
+//! like a snapshot.
+//!
 //! # The worst-case map
 //!
 //! `worst-cases` (`just worst-cases`) renders the worst-case map itself, with
@@ -266,6 +279,34 @@ fn main() {
             if !verdict.passed() {
                 std::process::exit(1);
             }
+        }
+        Some("calibrate") => {
+            let source_tree = exit_on_error(board::source_tree(), "naming the tree");
+            let captures: Vec<(String, String)> = args[1..]
+                .iter()
+                .map(|path| {
+                    let text = fs::read_to_string(path);
+                    (
+                        path.clone(),
+                        exit_on_error(text, &format!("reading capture {path:?}")),
+                    )
+                })
+                .collect();
+            let captures: Vec<(&str, &str)> = captures
+                .iter()
+                .map(|(path, text)| (path.as_str(), text.as_str()))
+                .collect();
+            let ladder = exit_on_error(
+                board::Ladder::sweep(shards, &spawner(shards)),
+                "sweeping the board",
+            );
+            let recalibrations = board::recalibrate(&ladder, &source_tree, &captures, None);
+            let recalibrations = exit_on_error(recalibrations, "merging the captures");
+            let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+            exit_on_error(
+                board::write_recalibrations(&recalibrations, crate_root, &mut out),
+                "writing the tables",
+            );
         }
         Some("compare") => {
             let [_, before, after] = args.as_slice() else {
