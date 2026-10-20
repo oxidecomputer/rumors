@@ -27,6 +27,9 @@
 //! allocations dominate a small sample's reading, and the intercept already
 //! covers them, so the proportional term need not. A small sample whose
 //! allocations grow with its input still enters the derivation in full.
+//!
+//! The fuel board applies the same rule to each cell's own readings, with 10%
+//! headroom (the `cell_ceilings` module): fuel has no board-wide ceiling.
 
 /// Green requires every meter's scaling exponent at or below this.
 ///
@@ -61,6 +64,36 @@ pub const HEAP_INTERCEPT_BYTES: usize = 1_024;
 /// resolution accommodates these transitions. Growth below this resolution is not judged
 /// by the fit; every raw peak still faces the tighter affine ceiling above.
 pub const HEAP_TREND_RESOLUTION_BYTES: usize = 4_096;
+
+/// Additive term in every fuel ceiling: the instructions a sample may execute
+/// beyond its cell's per-unit fuel ceiling.
+///
+/// A cell's smallest samples carry work that does not scale with their few
+/// input bytes (allocator requests, and setup of the operation's cursors and
+/// accumulators): about a thousand instructions at the median cell, measured
+/// by extrapolating the line through each cell's two smallest samples to an
+/// empty input. Without an allowance, that work divided by a handful of bytes
+/// would set the cell's per-unit ceiling, which then admits many times the
+/// fuel its large samples read.
+///
+/// The value trades two kinds of looseness. Lowering it lets fixed costs set
+/// more cells' ceilings: with no allowance, the per-cell rule's ceiling admits
+/// about 1.3 times the top sample's fuel at the median cell and about 30 times
+/// at the 90th percentile, against about 1.1 and 3 times at this value. (These
+/// ratios measure units as input bytes, which is exact for every cell with no
+/// declared model.) Raising it leaves more constant-cost cells, whose every
+/// reading stays under the allowance, bounded by the allowance alone.
+pub const FUEL_INTERCEPT: u64 = 1_000;
+
+/// Resolution of the fuel growth fit, in instructions.
+///
+/// A cell that does almost nothing can step between fixed costs as its input
+/// crosses a machine-word width, such as a comparison leaving a word-sized
+/// fast path, and a step of a few hundred instructions across a few bytes of
+/// input reads as a steep exponent. Clamping the fit at this resolution, as the
+/// heap fit is clamped at [`HEAP_TREND_RESOLUTION_BYTES`], leaves such steps
+/// unjudged by the fit; every reading still faces the cell's fuel ceiling.
+pub const FUEL_TREND_RESOLUTION: u64 = 1_000;
 
 /// Extra small-input scale for heap ceilings and counter liveness.
 ///

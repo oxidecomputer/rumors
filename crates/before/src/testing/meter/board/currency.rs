@@ -5,7 +5,7 @@
 //! compile until it handles the new measurement.
 
 /// One deterministic resource measurement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Currency {
     /// Peak additional live heap bytes, including retained results.
     Heap,
@@ -13,6 +13,10 @@ pub enum Currency {
     Scan,
     /// Accumulator digit touches (digit-state cost; `touch-meter`).
     Touch,
+    /// Wasm instructions executed, as Wasmtime fuel (execution cost; read
+    /// only when the board runs inside a wasm guest that supplies a
+    /// [`FuelMeter`](super::FuelMeter)).
+    Fuel,
 }
 
 impl Currency {
@@ -22,6 +26,7 @@ impl Currency {
             Currency::Heap => "heap",
             Currency::Scan => "scan",
             Currency::Touch => "touch",
+            Currency::Fuel => "fuel",
         }
     }
 }
@@ -38,16 +43,35 @@ pub struct ByCurrency<T> {
     pub scan: T,
     /// The touch column's value.
     pub touch: T,
+    /// The fuel column's value.
+    pub fuel: T,
 }
 
 impl<T> ByCurrency<T> {
+    /// Builds a value for every currency from `value`, called once per
+    /// currency in display order.
+    pub fn from_fn(mut value: impl FnMut(Currency) -> T) -> Self {
+        ByCurrency {
+            heap: value(Currency::Heap),
+            scan: value(Currency::Scan),
+            touch: value(Currency::Touch),
+            fuel: value(Currency::Fuel),
+        }
+    }
+
     /// Every measurement and its value, in display order.
-    pub fn each(&self) -> [(Currency, &T); 3] {
-        let ByCurrency { heap, scan, touch } = self;
+    pub fn each(&self) -> [(Currency, &T); 4] {
+        let ByCurrency {
+            heap,
+            scan,
+            touch,
+            fuel,
+        } = self;
         [
             (Currency::Heap, heap),
             (Currency::Scan, scan),
             (Currency::Touch, touch),
+            (Currency::Fuel, fuel),
         ]
     }
 
@@ -57,6 +81,7 @@ impl<T> ByCurrency<T> {
             Currency::Heap => &self.heap,
             Currency::Scan => &self.scan,
             Currency::Touch => &self.touch,
+            Currency::Fuel => &self.fuel,
         }
     }
 
@@ -66,6 +91,7 @@ impl<T> ByCurrency<T> {
             Currency::Heap => &mut self.heap,
             Currency::Scan => &mut self.scan,
             Currency::Touch => &mut self.touch,
+            Currency::Fuel => &mut self.fuel,
         }
     }
 }
@@ -88,5 +114,42 @@ pub enum Liveness {
     },
 }
 
-/// A cell's liveness declaration for every measurement.
-pub type Floors = ByCurrency<Liveness>;
+/// A cell's liveness declarations, one for each measurement whose counter
+/// the measured implementation could bypass.
+///
+/// Heap, scan, and touch count only the work that passes through their
+/// probes, so each cell argues its own floor. Fuel counts every instruction
+/// the guest executes, so no implementation can bypass it, and one floor
+/// serves every cell ([`FUEL_FLOOR`]); [`Floors::with_fuel`] adds it.
+#[derive(Clone, Copy, Debug)]
+pub struct Floors {
+    /// The peak-heap column's declaration.
+    pub heap: Liveness,
+    /// The scan column's declaration.
+    pub scan: Liveness,
+    /// The touch column's declaration.
+    pub touch: Liveness,
+}
+
+/// Fuel's liveness floor, shared by every cell.
+///
+/// A cell body runs between the two fuel readings, and running anything
+/// executes at least one instruction, so a reading of zero means the fuel
+/// reader is not counting.
+pub const FUEL_FLOOR: Liveness = Liveness::Floor {
+    min: 1,
+    why: "running a cell body executes at least one instruction",
+};
+
+impl Floors {
+    /// Returns every currency's declaration: these, and [`FUEL_FLOOR`].
+    pub fn with_fuel(self) -> ByCurrency<Liveness> {
+        let Floors { heap, scan, touch } = self;
+        ByCurrency {
+            heap,
+            scan,
+            touch,
+            fuel: FUEL_FLOOR,
+        }
+    }
+}

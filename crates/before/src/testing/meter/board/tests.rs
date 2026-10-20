@@ -25,7 +25,7 @@ fn version_output_denominator_includes_boundary_marker_byte() {
 
     use super::cell::Cell;
     use super::floors::na;
-    use super::measure::{measure, HeapMeter};
+    use super::measure::{measure, Meters};
     use super::operand::version_output_bytes;
     use super::Floors;
 
@@ -58,12 +58,12 @@ fn version_output_denominator_includes_boundary_marker_byte() {
         },
         move || version,
     );
-    let heap = HeapMeter {
-        reset_peak: || {},
-        peak: || 0,
+    let meters = Meters {
+        heap: None,
+        fuel: None,
     };
 
-    let sample = measure(&heap, cell, None);
+    let sample = measure(&meters, cell, None);
     assert_eq!(sample.denom_bytes, INPUT_BYTES + output_bytes);
 }
 
@@ -276,10 +276,15 @@ use crate::testing::meter::cliff_comb;
 
 /// Use the board's default resource model for every currency.
 fn no_model_overrides() -> ByCurrency<Option<Model>> {
-    ByCurrency {
-        heap: None,
-        scan: None,
-        touch: None,
+    ByCurrency::from_fn(|_| None)
+}
+
+/// No per-cell ceilings: the board-wide ceilings alone judge the synthetic
+/// cells these tests build, which no calibrated table holds.
+fn uncalibrated() -> super::cell_ceilings::Calibration {
+    super::cell_ceilings::Calibration {
+        arch: "uncalibrated".to_owned(),
+        tables: ByCurrency::from_fn(|_| None),
     }
 }
 
@@ -347,17 +352,19 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
         Sample {
             denom_bytes: n,
             exp_denom_bytes: n,
-            floors: floors_of(n),
+            floors: floors_of(n).with_fuel(),
             models: no_model_overrides(),
             readings: ByCurrency {
                 heap: Some(0),
                 scan: Some(scanned),
                 touch: None,
+                fuel: None,
             },
         }
     };
 
     let ceilings_only = evaluate(
+        &uncalibrated(),
         "bypass_probe",
         "dense",
         sample(1_000, na_floors),
@@ -371,6 +378,7 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
     );
 
     let floored = evaluate(
+        &uncalibrated(),
         "bypass_probe",
         "dense",
         sample(1_000, probe_walk_floors),
@@ -430,8 +438,8 @@ fn flat_denominator_stored_fit_manufactures_an_exponent() {
         "per-tooth touch work must be flat across the doubling: {per_tooth:?}"
     );
     // The same readings, two fits, an exponent class apart.
-    let stored_fit = trend(&[(build1, ops1), (build2, ops2)]);
-    let content_fit = trend(&[(content1, ops1), (content2, ops2)]);
+    let stored_fit = trend(&[(build1 as u64, ops1), (build2 as u64, ops2)]);
+    let content_fit = trend(&[(content1 as u64, ops1), (content2 as u64, ops2)]);
     assert!(
         stored_fit > 2.0 * MAX_SCALING_EXPONENT,
         "the stored-size fit must manufacture a superlinear exponent from flat marginal work: \
@@ -453,12 +461,14 @@ fn heap_sample(denom: usize, heap: u64) -> super::measure::Sample {
             heap: na("the heap ceiling is under test"),
             scan: na("no work counter in this probe"),
             touch: na("no work counter in this probe"),
-        },
+        }
+        .with_fuel(),
         models: no_model_overrides(),
         readings: ByCurrency {
             heap: Some(heap),
             scan: None,
             touch: None,
+            fuel: None,
         },
     }
 }
@@ -480,7 +490,7 @@ fn heap_ceiling_checks_both_samples_without_hiding_raw_cost() {
                 } else {
                     (heap_sample(denom, 0), heap_sample(denom, peak))
                 };
-                let cell = evaluate("heap", "boundary", first, second);
+                let cell = evaluate(&uncalibrated(), "heap", "boundary", first, second);
                 assert_eq!(cell.red.contains(&"heap constant"), peak > limit);
                 assert_eq!(cell.scores.heap.per_unit, Some(peak as f64 / denom as f64));
             }
@@ -497,6 +507,7 @@ fn heap_trend_resolution_does_not_exempt_peaks_from_the_ceiling() {
 
     let judge = |denom: [usize; 4], heap: [u64; 4]| {
         evaluate_acceptance(
+            &uncalibrated(),
             "heap",
             "ladder",
             (
@@ -535,7 +546,7 @@ fn exponent_guard_depends_on_denominator_span() {
         first.readings.scan = Some(12);
         let mut last = heap_sample(second, 0);
         last.readings.scan = Some(60);
-        let cell = evaluate("scan", "span", first, last);
+        let cell = evaluate(&uncalibrated(), "scan", "span", first, last);
         assert_eq!(cell.red.contains(&"scan exponent"), judged);
     }
 }
@@ -568,12 +579,14 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
                 heap: na(PROBE_NA),
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
-            },
+            }
+            .with_fuel(),
             models: no_model_overrides(),
             readings: ByCurrency {
                 heap: Some(0),
                 scan: Some(scan),
                 touch: None,
+                fuel: None,
             },
         }
     };
@@ -581,13 +594,17 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
     // bumped: the lump an organic family rebuilt per scale can hand any
     // sparse counter.
     let ladder = [(134usize, 226u64), (288, 708), (549, 860), (1117, 1720)];
-    let window_fit = trend(&ladder[..2]);
+    let window_fit = trend(&[
+        (ladder[0].0 as u64, ladder[0].1),
+        (ladder[1].0 as u64, ladder[1].1),
+    ]);
     assert!(
         window_fit > MAX_SCALING_EXPONENT,
         "the tripwire's premise: the lumped window's own two-point fit must \
          read over the ceiling (read {window_fit:.2})"
     );
     let (lo, hi) = evaluate_acceptance(
+        &uncalibrated(),
         "trend_probe",
         "lump-ladder",
         (
@@ -610,6 +627,7 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
     // bends, and the trend stays red in both windows.
     let quadratic = |n: usize| (n * n / 100) as u64;
     let (lo, hi) = evaluate_acceptance(
+        &uncalibrated(),
         "trend_probe",
         "quadratic-ladder",
         (
@@ -652,20 +670,23 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
                 heap: na(PROBE_NA),
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
-            },
+            }
+            .with_fuel(),
             models: ByCurrency {
                 heap: None,
                 scan: Some(Model {
-                    trend_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as usize,
-                    constant_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as usize,
+                    trend_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as u64,
+                    constant_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as u64,
                     ceiling: Some(FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL),
                 }),
                 touch: None,
+                fuel: None,
             },
             readings: ByCurrency {
                 heap: Some(0),
                 scan: Some(scan),
                 touch: None,
+                fuel: None,
             },
         }
     };
@@ -676,6 +697,7 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
         let cost = |coefficient: f64, n: usize, k: u64| (coefficient * units(n, k) as f64) as u64;
         let judge = |first, second| {
             evaluate(
+                &uncalibrated(),
                 "fold",
                 "doubling",
                 sample(bytes, arity, first),
@@ -734,25 +756,29 @@ fn resource_model_preserves_constant_and_exponent_checks() {
                 heap: na(PROBE_NA),
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
-            },
+            }
+            .with_fuel(),
             models: ByCurrency {
                 heap: None,
                 scan: Some(Model {
-                    trend_units: work,
-                    constant_units: work,
+                    trend_units: work as u64,
+                    constant_units: work as u64,
                     ceiling: None,
                 }),
                 touch: None,
+                fuel: None,
             },
             readings: ByCurrency {
                 heap: Some(0),
                 scan: Some(scan),
                 touch: None,
+                fuel: None,
             },
         }
     };
 
     let linear = evaluate(
+        &uncalibrated(),
         "scan_work_probe",
         "linear",
         sample(100, 1_000, 8_000),
@@ -765,6 +791,7 @@ fn resource_model_preserves_constant_and_exponent_checks() {
     );
 
     let quadratic = evaluate(
+        &uncalibrated(),
         "scan_work_probe",
         "quadratic",
         sample(100, 1_000, 8_000),
@@ -794,24 +821,28 @@ fn model_ceiling_tightens_only_the_constant() {
                 heap: na(PROBE_NA),
                 scan: na(PROBE_NA),
                 touch: na(PROBE_NA),
-            },
+            }
+            .with_fuel(),
             models: ByCurrency {
                 heap: Some(Model {
-                    trend_units: denom,
-                    constant_units: denom,
+                    trend_units: denom as u64,
+                    constant_units: denom as u64,
                     ceiling: Some(3.0),
                 }),
                 scan: None,
                 touch: None,
+                fuel: None,
             },
             readings: ByCurrency {
                 heap: Some(heap),
                 scan: None,
                 touch: None,
+                fuel: None,
             },
         }
     };
     let within = evaluate(
+        &uncalibrated(),
         "heap_probe",
         "within",
         sample(10_000, 25_000),
@@ -827,6 +858,7 @@ fn model_ceiling_tightens_only_the_constant() {
         "declaring a constant must not disable exponent judgment"
     );
     let over = evaluate(
+        &uncalibrated(),
         "heap_probe",
         "over",
         sample(10_000, 31_025),

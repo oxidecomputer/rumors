@@ -42,17 +42,19 @@
 //!
 //! With `--capture <file>`, the run also writes every cell's exact readings at
 //! every size to `<file>` (replacing it only once the whole capture is
-//! written), whatever the verdict. `compare <before> <after>` reads two
-//! captures and prints, per cell and currency, the exact difference at each
-//! size, classified as unchanged, constant, growing (with its slope), or
-//! uneven; it judges neither side. Use the pair where a rendered board's
-//! rounded exponent moves and the question is whether a cost grows with input
-//! or only shifts: a fixed-cost change alone moves a fitted exponent. Take both
-//! captures with `just amp-board-acceptance --capture <file>`, so each is a
-//! release reading, and on one host: a capture records its target and
-//! debug-assertion setting, and the comparison refuses captures that differ in
-//! either. `board::compare` documents the capture format, the classification
-//! rule, and what the rule cannot distinguish.
+//! written), whatever the verdict, under the source tree that
+//! `AMP_BOARD_SOURCE_TREE` names (the just recipes set it).
+//! `compare <before> <after>` reads two captures and prints, per cell and
+//! currency, the exact difference at each size, classified as unchanged,
+//! constant, growing (with its slope), or uneven; it judges neither side. Use
+//! the pair where a rendered board's rounded exponent moves and the question is
+//! whether a cost grows with input or only shifts: a fixed-cost change alone
+//! moves a fitted exponent. Take both captures with
+//! `just amp-board-acceptance --capture <file>`, so each is a release reading,
+//! and on one host: a capture records its target and debug-assertion setting,
+//! and the comparison refuses captures that differ in either. `board::compare`
+//! documents the capture format, the classification rule, and what the rule
+//! cannot distinguish.
 //!
 //! # The worst-case map
 //!
@@ -77,17 +79,21 @@
 //! it (default: available parallelism).
 
 use std::fs;
-use std::io::{self, Write as _};
+use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use before::testing::meter::board::{self, HeapMeter};
+use before::testing::meter::board::{self, Currency, HeapMeter, Meters};
 use peak_alloc::PeakAlloc;
-use tempfile::NamedTempFile;
 
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
+
+/// The currencies this runner measures and its verdict requires: heap
+/// through the counting allocator, scan and touch through the
+/// `required-features` that compile their counters in.
+const MEASURED: [Currency; 3] = [Currency::Heap, Currency::Scan, Currency::Touch];
 
 /// The shard-count override. Unset, the runner uses available
 /// parallelism.
@@ -97,20 +103,24 @@ const SHARDS_ENV: &str = "AMP_BOARD_SHARDS";
 /// from.
 static PEAK_ORIGIN: AtomicUsize = AtomicUsize::new(0);
 
-/// The peak-heap readers over this binary's global allocator.
+/// The native board's meters: the peak-heap readers over this binary's
+/// global allocator, and no fuel, which only a wasm guest can read.
 ///
 /// The allocator counts process-wide, which the board's single-threaded sweep
 /// makes exact: no other thread allocates while a cell is measured.
-fn heap_meter() -> HeapMeter {
-    HeapMeter {
-        reset_peak: || {
-            HEAP.reset_peak_usage();
-            PEAK_ORIGIN.store(HEAP.current_usage(), Ordering::Relaxed);
-        },
-        peak: || {
-            HEAP.peak_usage()
-                .saturating_sub(PEAK_ORIGIN.load(Ordering::Relaxed))
-        },
+fn meters() -> Meters {
+    Meters {
+        heap: Some(HeapMeter {
+            reset_peak: || {
+                HEAP.reset_peak_usage();
+                PEAK_ORIGIN.store(HEAP.current_usage(), Ordering::Relaxed);
+            },
+            peak: || {
+                HEAP.peak_usage()
+                    .saturating_sub(PEAK_ORIGIN.load(Ordering::Relaxed))
+            },
+        }),
+        fuel: None,
     }
 }
 
@@ -200,7 +210,7 @@ fn run_child(args: &[String]) {
             .unwrap_or_else(|_| panic!("amp-board: malformed --scale-bits argument {bits:?}")),
     );
     let mut out = std::io::stdout().lock();
-    board::emit_shard(scale, index, count, &heap_meter(), &mut out).expect("stdout stays writable");
+    board::emit_shard(scale, index, count, &meters(), &mut out).expect("stdout stays writable");
 }
 
 fn main() {
@@ -225,11 +235,15 @@ fn main() {
                 [flag, path] if flag == "--capture" => Some(Path::new(path)),
                 _ => panic!("amp-board: acceptance takes no arguments or `--capture <file>`"),
             };
+            // Named before the sweep, so a run that cannot write its capture
+            // fails before it spends one.
+            let source_tree =
+                capture_path.map(|_| exit_on_error(board::source_tree(), "naming the tree"));
             let ladder = exit_on_error(
                 board::Ladder::sweep(shards, &spawner(shards)),
                 "sweeping the board",
             );
-            let verdict = ladder.judge(&mut out).expect("stdout stays writable");
+            let verdict = exit_on_error(ladder.judge(&MEASURED, &mut out), "judging the board");
             // The verdict's summary prints before the capture is attempted,
             // so a failed capture write cannot leave a red board's stderr
             // without it.
@@ -244,14 +258,9 @@ fn main() {
             }
             // A capture records readings, not a verdict, so it is written
             // whatever the verdict: a red board's capture is the evidence a
-            // `compare` against the last green one needs. It is written to a
-            // temporary file beside `path` and renamed into place, so a
-            // failed write leaves any existing capture intact and no
-            // temporary file behind.
-            if let Some(path) = capture_path {
-                let mut text = Vec::new();
-                board::capture(&ladder, &mut text).expect("writing to a Vec succeeds");
-                let written = write_atomically(path, &text);
+            // `compare` against the last green one needs.
+            if let Some((path, tree)) = capture_path.zip(source_tree) {
+                let written = board::capture_file(&ladder, &tree, path);
                 exit_on_error(written, &format!("writing capture {path:?}"));
             }
             if !verdict.passed() {
@@ -285,19 +294,4 @@ fn main() {
             board::run(scale, shards, &spawner(shards), &mut out).expect("stdout stays writable");
         }
     }
-}
-
-/// Replace `path` with `bytes` in one rename, or leave it untouched.
-///
-/// The temporary file lives in `path`'s directory so the rename stays on one
-/// filesystem, and it deletes itself if the write or rename fails.
-fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let dir = path
-        .parent()
-        .filter(|dir| !dir.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let mut file = NamedTempFile::new_in(dir)?;
-    file.write_all(bytes)?;
-    file.persist(path).map_err(|error| error.error)?;
-    Ok(())
 }

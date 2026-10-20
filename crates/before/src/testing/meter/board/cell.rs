@@ -32,7 +32,7 @@ pub(super) enum Units {
     /// Multiply the ordinary units by this factor.
     Scale(f64),
     /// Use an operation-derived number of units directly.
-    Explicit(usize),
+    Explicit(u64),
 }
 
 /// A cell's expected bound for one measured resource.
@@ -84,11 +84,21 @@ impl ModelSpec {
     }
 
     /// Judge both growth and proportional cost against `units`.
-    pub(super) fn work(units: usize) -> Self {
+    pub(super) fn work(units: u64) -> Self {
         assert!(units > 0, "resource-model work units are positive");
         Self {
             trend: Units::Explicit(units),
             constant: Units::Explicit(units),
+            ceiling: None,
+        }
+    }
+
+    /// Fit growth against `units` while retaining the ordinary constant axis.
+    pub(super) fn trend(units: u64) -> Self {
+        assert!(units > 0, "resource-model trend units are positive");
+        Self {
+            trend: Units::Explicit(units),
+            constant: Units::Default,
             ceiling: None,
         }
     }
@@ -174,11 +184,7 @@ impl Cell {
             input_bytes,
             denom: Denom::Input,
             floors,
-            models: ByCurrency {
-                heap: None,
-                scan: None,
-                touch: None,
-            },
+            models: ByCurrency::from_fn(|_| None),
             body: Box::new(move |observe| {
                 let run = body.take().expect("a prepared cell runs once");
                 let result = run();

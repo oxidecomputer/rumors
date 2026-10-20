@@ -11,11 +11,17 @@
 //!
 //! # The capture format
 //!
-//! A capture is UTF-8 text. Its first line is a header: the format name and
-//! version, whether debug assertions were compiled in, and the target
-//! architecture and operating system, tab-separated. Readings are comparable
-//! only between captures whose headers match, because debug assertions add
-//! metered work and some operations allocate differently by target.
+//! A capture is UTF-8 text. Its first line is a header of four tab-separated
+//! fields: the format name and version; whether debug assertions were
+//! compiled into the code that ran the cells (`debug_assertions=<bool>`); the
+//! target architecture and operating system that code was built for
+//! (`target=<arch>-<os>`), which for a fuel run is the wasm guest, not the
+//! host that wrote the capture; and the source tree it measured
+//! (`tree=<id>`, the runner's `AMP_BOARD_SOURCE_TREE`). [`compare`] compares
+//! readings only between captures whose builds match, because debug
+//! assertions add metered work and some operations allocate differently by
+//! target; comparing two trees is what it is for. A calibration merges
+//! readings only from captures of the tree it measures itself.
 //!
 //! Each line after the header, but for the last, holds one reading in seven
 //! tab-separated fields:
@@ -24,7 +30,9 @@
 //! operation  family  currency  scale  sample  axis  reading
 //! ```
 //!
-//! - `currency` is `heap`, `scan`, or `touch`.
+//! - `currency` is `heap`, `scan`, `touch`, or `fuel`. A capture holds rows for
+//!   the currencies its run measured: heap, scan, and touch from the native
+//!   board, fuel from the fuel board.
 //! - `scale` is the sampling scale and `sample` is `1` for its scaled size or
 //!   `2` for that size's double. Each cell and currency has one pair of lines
 //!   per sampling scale, in ladder order: the small-input pair
@@ -45,8 +53,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
+use std::path::Path;
 
 use super::currency::{ByCurrency, Currency};
+use super::files::write_atomically;
 use super::judge::trend_units;
 use super::ladder::{Ladder, LADDER_SCALES};
 use super::measure::Sample;
@@ -55,7 +65,7 @@ use super::measure::Sample;
 mod tests;
 
 /// The format name and version that open every capture's header.
-const FORMAT: &str = "amp-board readings v1";
+const FORMAT: &str = "amp-board readings v2";
 
 /// The readings each cell and currency carries: two samples at every scale,
 /// in [`LADDER_SCALES`] order.
@@ -87,51 +97,124 @@ struct Row {
     points: [Point; LADDER_SIZES],
 }
 
-/// A whole capture: its header line and its rows in board order.
+/// A whole capture: its header's build stamp and source tree, and its rows
+/// in board order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Capture {
-    /// The header line, without its newline.
-    header: String,
+    /// The build that measured the readings.
+    measured_on: BuildStamp,
+    /// The source tree the build was compiled from, as the runner named it.
+    source_tree: String,
     /// Every cell and currency's readings.
     rows: Vec<Row>,
 }
 
-/// The header this build writes: format, debug assertions, and target.
-fn header() -> String {
-    format!(
-        "{FORMAT}\tdebug_assertions={debug}\ttarget={arch}-{os}",
-        debug = cfg!(debug_assertions),
-        arch = std::env::consts::ARCH,
-        os = std::env::consts::OS,
-    )
+/// What a build measures with: whether debug assertions are compiled in, and
+/// the target it is built for.
+///
+/// Every shard child reports its own stamp, so a ladder records the build
+/// that measured it even when another program merges the readings. It
+/// renders, and parses, as `debug_assertions=<bool>` and
+/// `target=<arch>-<os>`, tab-separated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct BuildStamp {
+    /// Whether debug assertions are compiled in.
+    pub(super) debug_assertions: bool,
+    /// The target architecture, as [`std::env::consts::ARCH`] names it.
+    pub(super) arch: String,
+    /// The target operating system, as [`std::env::consts::OS`] names it.
+    pub(super) os: String,
+}
+
+impl BuildStamp {
+    /// This build's stamp.
+    pub(super) fn current() -> BuildStamp {
+        BuildStamp {
+            debug_assertions: cfg!(debug_assertions),
+            arch: std::env::consts::ARCH.to_owned(),
+            os: std::env::consts::OS.to_owned(),
+        }
+    }
+
+    /// Parses a rendered stamp, or returns `None` if `text` is not one.
+    pub(super) fn parse(text: &str) -> Option<BuildStamp> {
+        let (debug, target) = text.split_once('\t')?;
+        let debug_assertions = debug.strip_prefix("debug_assertions=")?.parse().ok()?;
+        let (arch, os) = target.strip_prefix("target=")?.split_once('-')?;
+        Some(BuildStamp {
+            debug_assertions,
+            arch: arch.to_owned(),
+            os: os.to_owned(),
+        })
+    }
+}
+
+/// Renders the stamp as [`BuildStamp::parse`] reads it.
+impl std::fmt::Display for BuildStamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "debug_assertions={}\ttarget={}-{}",
+            self.debug_assertions, self.arch, self.os
+        )
+    }
+}
+
+/// The environment variable through which a runner names the source tree
+/// its build was compiled from; the just recipes set it to the git tree of
+/// the checkout's tracked files.
+pub const SOURCE_TREE_ENV: &str = "AMP_BOARD_SOURCE_TREE";
+
+/// Returns the source tree [`SOURCE_TREE_ENV`] names.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::NotFound`] if the variable is unset or empty: a
+/// capture or calibration must name the tree it measured.
+pub fn source_tree() -> io::Result<String> {
+    std::env::var(SOURCE_TREE_ENV)
+        .ok()
+        .filter(|tree| !tree.is_empty())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "{SOURCE_TREE_ENV} must name the source tree the build was compiled from \
+                     (the just recipes set it)"
+                ),
+            )
+        })
 }
 
 /// Every currency, in display order.
 ///
 /// Built from a [`ByCurrency`] so that adding a currency cannot leave the
 /// capture's parser unable to read it.
-fn currencies() -> [Currency; 3] {
-    ByCurrency {
-        heap: (),
-        scan: (),
-        touch: (),
-    }
-    .each()
-    .map(|(currency, _)| currency)
+fn currencies() -> [Currency; 4] {
+    ByCurrency::from_fn(|_| ())
+        .each()
+        .map(|(currency, _)| currency)
 }
 
 /// Write every cell's exact readings from one ladder sweep to `out` in the
 /// capture format.
 ///
 /// The ladder is the one acceptance judges, so a capture reads what the board
-/// of record reads.
+/// of record reads. The capture records every currency the ladder measured,
+/// and only those, under `source_tree`, the runner's name for the source the
+/// ladder's build was compiled from.
 ///
 /// # Panics
 ///
-/// Panics if a counter is not compiled into this run: a capture records every
-/// currency, so it requires the `touch-meter` and `scan-meter` features.
-pub fn capture(ladder: &Ladder, out: &mut dyn Write) -> io::Result<()> {
+/// Panics if a currency is measured in some samples but not others (its rows
+/// would be incomplete), or if `source_tree` contains a tab or newline.
+pub fn capture(ladder: &Ladder, source_tree: &str, out: &mut dyn Write) -> io::Result<()> {
+    assert!(
+        !source_tree.contains(['\t', '\n']),
+        "amp-board capture: a source tree's name may not contain a tab or newline"
+    );
     let sweeps = ladder.by_scale().map(|(_, cells)| cells);
+    let measured = ByCurrency::from_fn(|currency| measured(ladder, currency));
     let cells = sweeps[0].len();
     let mut rows = Vec::with_capacity(cells * currencies().len());
     for cell in 0..cells {
@@ -146,16 +229,17 @@ pub fn capture(ladder: &Ladder, out: &mut dyn Write) -> io::Result<()> {
             })
             .collect();
         for currency in currencies() {
+            if !*measured.get(currency) {
+                continue;
+            }
             let points = std::array::from_fn(|index| {
                 let sample = samples[index];
                 Point {
-                    axis: trend_units(sample, currency) as u64,
-                    reading: sample.readings.get(currency).unwrap_or_else(|| {
-                        panic!(
-                            "amp-board capture: the {} counter is not compiled in",
-                            currency.label()
-                        )
-                    }),
+                    axis: trend_units(sample, currency),
+                    reading: sample
+                        .readings
+                        .get(currency)
+                        .expect("a measured currency reads in every sample"),
                 }
             });
             rows.push(Row {
@@ -168,16 +252,99 @@ pub fn capture(ladder: &Ladder, out: &mut dyn Write) -> io::Result<()> {
     }
     write_capture(
         &Capture {
-            header: header(),
+            measured_on: ladder.measured_on.clone(),
+            source_tree: source_tree.to_owned(),
             rows,
         },
         out,
     )
 }
 
+/// Writes [`capture`]'s text for `ladder` under `source_tree` to the file at
+/// `path`, replacing any file there only once the whole capture is written.
+///
+/// A failed write leaves any earlier capture at `path` intact.
+///
+/// # Errors
+///
+/// Returns any error writing the capture beside `path` or renaming it into
+/// place.
+///
+/// # Panics
+///
+/// Panics as [`capture`] does.
+pub fn capture_file(ladder: &Ladder, source_tree: &str, path: &Path) -> io::Result<()> {
+    let mut text = Vec::new();
+    capture(ladder, source_tree, &mut text)?;
+    write_atomically(path, &text)
+}
+
+/// Whether the ladder measured `currency`.
+///
+/// # Panics
+///
+/// Panics if the ladder measured `currency` in some samples but not others.
+pub(super) fn measured(ladder: &Ladder, currency: Currency) -> bool {
+    let read: BTreeSet<bool> = ladder
+        .by_scale()
+        .into_iter()
+        .flat_map(|(_, cells)| cells.iter().flat_map(|(_, _, s1, s2)| [s1, s2]))
+        .map(|sample| sample.readings.get(currency).is_some())
+        .collect();
+    assert!(
+        read.len() <= 1,
+        "amp-board capture: the {} counter read in some samples but not others",
+        currency.label()
+    );
+    read.contains(&true)
+}
+
+/// One capture's build stamp, source tree, and every reading it holds, keyed
+/// by operation, family, and currency, each with the readings' axes in ladder
+/// order.
+pub(super) struct Readings {
+    /// The build that measured the readings.
+    pub(super) measured_on: BuildStamp,
+    /// The source tree the build was compiled from, as the runner named it.
+    pub(super) source_tree: String,
+    /// Each row's `(axis, reading)` pairs in ladder order.
+    pub(super) rows: BTreeMap<(String, String, Currency), [(u64, u64); LADDER_SIZES]>,
+}
+
+/// Reads a capture's stamp and readings, for a calibration that merges
+/// another build's readings with its own.
+///
+/// `name` labels the capture in errors.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::InvalidData`] if `text` is not a well-formed
+/// capture.
+pub(super) fn readings(name: &str, text: &str) -> io::Result<Readings> {
+    let capture = parse(name, text)?;
+    let rows = capture
+        .rows
+        .into_iter()
+        .map(|row| {
+            let points = row.points.map(|point| (point.axis, point.reading));
+            ((row.op, row.family, row.currency), points)
+        })
+        .collect();
+    Ok(Readings {
+        measured_on: capture.measured_on,
+        source_tree: capture.source_tree,
+        rows,
+    })
+}
+
 /// Write `capture` in the capture format.
 fn write_capture(capture: &Capture, out: &mut dyn Write) -> io::Result<()> {
-    writeln!(out, "{}", capture.header)?;
+    writeln!(
+        out,
+        "{FORMAT}\t{stamp}\ttree={tree}",
+        stamp = capture.measured_on,
+        tree = capture.source_tree
+    )?;
     for row in &capture.rows {
         for (index, point) in row.points.iter().enumerate() {
             writeln!(
@@ -217,16 +384,20 @@ fn parse(name: &str, text: &str) -> io::Result<Capture> {
         ));
     };
     let lines: Vec<(&str, usize)> = body.split('\n').zip(1..).collect();
-    let header = match lines[0] {
-        (line, _) if line.split('\t').next() == Some(FORMAT) => line.to_owned(),
-        _ => {
-            return Err(malformed(
-                name,
-                1,
-                &format!("the header must begin with {FORMAT:?}"),
-            ))
-        }
-    };
+    let header = lines[0].0;
+    let fields = header
+        .strip_prefix(FORMAT)
+        .and_then(|rest| rest.strip_prefix('\t'))
+        .ok_or_else(|| malformed(name, 1, &format!("the header must begin with {FORMAT:?}")))?;
+    let (stamp, tree) = fields
+        .rsplit_once('\t')
+        .ok_or_else(|| malformed(name, 1, "the header must end with the source tree"))?;
+    let measured_on = BuildStamp::parse(stamp)
+        .ok_or_else(|| malformed(name, 1, "the header carries no build stamp"))?;
+    let source_tree = tree
+        .strip_prefix("tree=")
+        .ok_or_else(|| malformed(name, 1, "the header must end with `tree=<id>`"))?
+        .to_owned();
     let (end, readings) = match lines[1..].split_last() {
         Some((&(line, number), readings)) => match line.strip_prefix("end ") {
             Some(count) => ((count, number), readings),
@@ -270,7 +441,11 @@ fn parse(name: &str, text: &str) -> io::Result<Capture> {
             &format!("the end line must count the {} rows read", rows.len()),
         ));
     }
-    Ok(Capture { header, rows })
+    Ok(Capture {
+        measured_on,
+        source_tree,
+        rows,
+    })
 }
 
 /// Parse one reading line, numbered `line.1`, which must hold the ladder size
@@ -562,19 +737,18 @@ fn evidence(compared: &Compared) -> String {
 /// # Errors
 ///
 /// Returns [`io::ErrorKind::InvalidData`] if either text is not a well-formed
-/// capture, or if the headers differ (the captures come from different
-/// formats, debug-assertion settings, or targets), and any error writing to
-/// `out`.
+/// capture, or if the captures' builds differ (in debug-assertion settings or
+/// targets), and any error writing to `out`. Their source trees may differ.
 pub fn compare(before: &str, after: &str, out: &mut dyn Write) -> io::Result<()> {
     let before = parse("before", before)?;
     let after = parse("after", after)?;
-    if before.header != after.header {
+    if before.measured_on != after.measured_on {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
-                "amp-board compare: the captures' headers differ, so their readings are not \
-                 comparable: before {:?}, after {:?}",
-                before.header, after.header
+                "amp-board compare: the captures come from different builds, so their \
+                 readings are not comparable: before {}, after {}",
+                before.measured_on, after.measured_on
             ),
         ));
     }

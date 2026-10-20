@@ -1,0 +1,21 @@
+[package]
+name = "board-fuel-harness"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+# The harness merges, judges, captures, and recalibrates the guests' readings
+# with the board's own code, so it links the same `before` features as the
+# guest.
+before = { workspace = true, features = ["meter", "serde", "borsh"] }
+# Runs the guest under fuel metering. Tool-side only: this crate is outside
+# the workspace's default members, so ordinary builds never compile wasmtime.
+# `reexport-wasmparser` exposes the exact `wasmparser` whose operator list
+# Wasmtime's cost table is generated from, so the harness can state every
+# operator's cost explicitly.
+wasmtime = { workspace = true, features = [
+    "cranelift",
+    "runtime",
+    "reexport-wasmparser",
+] }

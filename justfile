@@ -71,7 +71,7 @@ fuzz_smoke_secs := "20"
 # member is built, linted, and tested by its own recipes. `manifestlint`
 # holds this list to the workspace; its header states the rules.
 
-tool_members := "--exclude before-fuelscape --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
+tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
 
 # The fuzz-fit guest's wasm: one artifact produced by one recipe and read
 # by two others (the fuzz-fit harness and the fuelscape pipeline).
@@ -101,6 +101,13 @@ surfacecheck_target := justfile_directory() + "/target/surfacecheck"
 
 wasm32pins_target := justfile_directory() + "/target/wasm32-pins"
 wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/wasm32-pins/wasm32_pins_guest.wasm"
+
+# The fuel board's guest wasm: produced by `amp-board-fuel-build` in the
+# `fuel` profile, read by the fuel board's harness. Named and passed
+# explicitly for the same reason as the fuzz-fit guest above.
+
+board_fuel_target := justfile_directory() + "/target/board-fuel"
+board_fuel_guest_wasm := board_fuel_target + "/wasm32-unknown-unknown/fuel/board_fuel_guest.wasm"
 
 # List recipes.
 default:
@@ -485,6 +492,7 @@ gate-streams:
     start_stream workspace     0 _gate-workspace
     start_stream doctest      10 _gate-doctest
     start_stream board        10 _gate-board
+    start_stream board-fuel   10 _gate-board-fuel
     start_stream wasm         10 _gate-wasm
     start_stream fuzz         10 _gate-fuzz
     start_stream surface      10 _gate-surface
@@ -530,6 +538,9 @@ _gate-doctest: doctest
 # One sweep judges each cell and which family reads worst; the
 # acceptance recipe's comment describes both judgments.
 _gate-board: amp-board-acceptance
+
+# The same cells judged in Wasmtime fuel; the fuel recipe's comment says why.
+_gate-board-fuel: amp-board-fuel
 
 _gate-wasm: fuzzfit fuelscape-test wasm32-pins
 _gate-fuzz: fuzz-build
@@ -845,6 +856,18 @@ bench-quick target *filter:
 # of the instrument rather than a convention each entry point must repeat.
 amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter,serde,borsh"
 
+# A board capture names the source tree it measured, so a calibration can
+# refuse to merge readings of another tree. This command prints that name:
+# the git tree of the checkout's tracked files as they stand, edits included
+# and untracked files excluded. It stages the tracked files into a temporary
+# copy of the index and writes that copy's tree, so it never takes
+# `.git/index.lock` and leaves the checkout's index untouched; the copy keeps
+# the index's stat cache, so only edited files are hashed. If the command
+# fails, the recipe stops before measuring anything. The recipes below
+# compute the name only for a run that captures or calibrates, and pass it to
+# the runner as AMP_BOARD_SOURCE_TREE; a capture with no name is refused.
+source_tree := 'd=$(mktemp -d) && trap "rm -rf \"$d\"" EXIT && cp "$(git rev-parse --git-path index)" "$d/index" && GIT_INDEX_FILE="$d/index" git add -u && GIT_INDEX_FILE="$d/index" git write-tree'
+
 # Render the board at one scale (a debugging view), or `compare` two captures.
 [positional-arguments]
 amp-board *args:
@@ -881,14 +904,81 @@ amp-board *args:
 # runs.
 #
 # `--capture <file>` also writes the sweep's exact readings to <file>,
-# whatever the verdict, for a later `just amp-board compare`: take one
-# capture before a change and one after, and the developer loop stays one
-# board run per iteration.
+# whatever the verdict, stamped with the source tree, for a later `just
+# amp-board compare`: take one capture before a change and one after, and the
+# developer loop stays one board run per iteration.
 
 # Run the board's verdict of record: one ladder sweep, acceptance and the ranking pin.
 [positional-arguments]
 amp-board-acceptance *args:
-    {{ amp_board_command }} -- acceptance "$@"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ${1-} == --capture ]]; then
+        tree="$({{ source_tree }})"
+        export AMP_BOARD_SOURCE_TREE="$tree"
+    fi
+    exec {{ amp_board_command }} -- acceptance "$@"
+
+# The fuel board runs every board cell inside a wasm32 guest under Wasmtime
+# fuel metering and judges fuel, a count of every wasm instruction the cell
+# body executes, by the board's own acceptance rules: the exponent bound,
+# declared models, and a ceiling calibrated per cell. It exists because heap,
+# scan, and touch count only the work that passes through their probes:
+# element moves inside a `Vec`, arithmetic inside `num-bigint`, and buffer
+# fills cost time that none of them sees, and a regression there is red
+# here. The native board above stays the measure of record for heap, scan,
+# and touch.
+#
+# Fuel is deterministic for a given guest build and cost table, so the
+# verdict is unaffected by machine load and by the worker count
+# (AMP_BOARD_FUEL_THREADS): every cell runs in its own fresh guest instance,
+# because a fuel reading would otherwise depend on what earlier cells left in
+# the allocator. The ceilings record the compiler (read from the guest's own
+# `producers` section), Wasmtime version, and cost table they were calibrated
+# under, and the run refuses to judge a guest built under any other, or one
+# that embeds a path under the home directory; after a toolchain or Wasmtime
+# bump, re-derive them with `just amp-board-calibrate-fuel`. The members'
+# clippy runs here, since the workspace-wide clippy excludes them.
+#
+# `--capture <file>` also writes the sweep's exact fuel readings, which
+# `just amp-board compare` compares like any board capture.
+
+# The guest embeds source paths (panic locations), and their lengths shift
+# the guest's memory layout and so its fuel readings. Paths inside this
+# workspace are already relative, so the host-specific prefixes are those of
+# dependency sources under CARGO_HOME and of the toolchain's rust-src; the
+# guest build maps both to fixed ones, and bypasses any rustc wrapper, which
+# could add mappings of its own, so every host builds the same module.
+
+# Build the fuel board's wasm guest and its harness (both halves).
+amp-board-fuel-build:
+    RUSTC_WRAPPER= RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$(rustc --print sysroot)/lib/rustlib/src/rust=/rustc/$(rustc -vV | sed -n 's/^commit-hash: //p')" cargo build -p board-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ board_fuel_target }}
+    cargo build -p board-fuel-harness --release --target-dir {{ board_fuel_target }}
+
+# Run the fuel board's verdict of record: every cell judged in Wasmtime fuel.
+[positional-arguments]
+amp-board-fuel *args: amp-board-fuel-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo clippy -p board-fuel-guest -p board-fuel-harness --all-targets --target-dir {{ board_fuel_target }} -- -D warnings
+    if [[ ${1-} == --capture ]]; then
+        tree="$({{ source_tree }})"
+        export AMP_BOARD_SOURCE_TREE="$tree"
+    fi
+    BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} exec cargo run --release -p board-fuel-harness --target-dir {{ board_fuel_target }} -- acceptance "$@"
+
+# The fuel board's per-cell ceilings are derived from its own readings (the
+# board's `cell_ceilings` module states the rule). This recipe sweeps the
+# fuel board without judging and rewrites the fuel table, printing every cell
+# whose ceiling moved. Review the rewritten table like a snapshot, quoting the
+# movement in the commit message.
+
+# Re-derive the per-cell fuel ceilings from a fresh sweep.
+amp-board-calibrate-fuel: amp-board-fuel-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tree="$({{ source_tree }})"
+    AMP_BOARD_SOURCE_TREE="$tree" BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo run --release -p board-fuel-harness --target-dir {{ board_fuel_target }} -- calibrate
 
 # The surface-totality leg holds the resource board's operation inventory
 # against nightly rustdoc JSON — the compiler's own account of the public

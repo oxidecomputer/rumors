@@ -272,6 +272,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "board-fuel-guest"
+version = "0.0.0"
+dependencies = [
+ "before",
+]
+
+[[package]]
+name = "board-fuel-harness"
+version = "0.0.0"
+dependencies = [
+ "before",
+ "wasmtime",
+]
+
+[[package]]
 name = "borsh"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

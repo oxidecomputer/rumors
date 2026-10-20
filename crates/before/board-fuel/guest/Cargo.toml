@@ -1,0 +1,21 @@
+[package]
+name = "board-fuel-guest"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# A cdylib so `cargo build --target wasm32-unknown-unknown` emits a plain wasm
+# module whose exports the harness calls directly.
+# No tests or doctests: the fuel import has a definition only inside a
+# Wasmtime host, so a native test binary of this crate cannot link.
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+# The amp_board example's features except the scan and touch meters, whose
+# probes are instrumented work that fuel would count. `serde` and `borsh`
+# keep the operation table, and so the cell grid, identical to the native
+# board's.
+before = { workspace = true, features = ["meter", "serde", "borsh"] }

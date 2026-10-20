@@ -4,8 +4,8 @@
 use proptest::prelude::*;
 
 use super::{
-    compare, compare_captures, currencies, header, parse, write_capture, Capture, Outcome, Point,
-    Row, LADDER_SIZES,
+    compare, compare_captures, currencies, parse, write_capture, BuildStamp, Capture, Outcome,
+    Point, Row, LADDER_SIZES,
 };
 
 /// Render `capture` in the capture format.
@@ -27,11 +27,12 @@ fn outcomes(before: &Capture, after: &Capture) -> Vec<Outcome> {
 }
 
 /// A capture of `rows`, each a distinct cell and currency with the given axes
-/// and readings, under this build's header.
+/// and readings, under this build's stamp and a fixed source tree.
 fn capture_of(rows: &[([u64; LADDER_SIZES], [u64; LADDER_SIZES])]) -> Capture {
     let currencies = currencies();
     Capture {
-        header: header(),
+        measured_on: BuildStamp::current(),
+        source_tree: "tree-a".to_owned(),
         rows: rows
             .iter()
             .enumerate()
@@ -185,19 +186,59 @@ fn rows_without_a_counterpart_at_equal_size_are_not_classified() {
     );
 }
 
-/// Captures from builds with different headers are refused rather than
-/// compared: debug assertions add metered work, and some operations allocate
-/// differently by target, so their differences would not be the change's.
+/// Captures from different builds are refused rather than compared, while
+/// captures from different source trees of one build are compared.
+///
+/// Debug assertions add metered work, and some operations allocate
+/// differently by target, so a difference between builds would not be the
+/// change's; a difference between trees is the change, which is what a
+/// comparison is for.
 #[test]
-fn captures_with_different_headers_are_refused() {
+fn captures_from_different_builds_are_refused_and_different_trees_compared() {
     let before = capture_of(&[([1, 2, 10, 20, 40, 80], [100; LADDER_SIZES])]);
-    let mut after = before.clone();
-    after.header = after.header.replace(
-        &format!("debug_assertions={}", cfg!(debug_assertions)),
-        &format!("debug_assertions={}", !cfg!(debug_assertions)),
-    );
-    assert_ne!(after.header, before.header);
-    let refused = compare(&text(&before), &text(&after), &mut Vec::new())
-        .expect_err("differing headers are refused");
+    let mut other_build = before.clone();
+    other_build.measured_on.debug_assertions = !other_build.measured_on.debug_assertions;
+    let refused = compare(&text(&before), &text(&other_build), &mut Vec::new())
+        .expect_err("captures from different builds are refused");
     assert_eq!(refused.kind(), std::io::ErrorKind::InvalidData);
+
+    let mut other_target = before.clone();
+    other_target.measured_on.arch = "wasm32".to_owned();
+    compare(&text(&before), &text(&other_target), &mut Vec::new())
+        .expect_err("captures from different targets are refused");
+
+    let mut other_tree = before.clone();
+    other_tree.source_tree = "tree-b".to_owned();
+    compare(&text(&before), &text(&other_tree), &mut Vec::new())
+        .expect("captures of different trees from one build are compared");
+}
+
+/// A build stamp renders as `debug_assertions=<bool>` and
+/// `target=<arch>-<os>`, tab-separated, and parses back to itself, including
+/// a wasm32 guest's, whose operating system is empty.
+///
+/// A shard child's header and a capture's header both carry the stamp as
+/// text, and the merge and the calibration compare parsed stamps, so a stamp
+/// that did not survive the round trip would make two identical builds read
+/// as different, or two different ones as the same.
+#[test]
+fn build_stamps_render_and_parse_back() {
+    let guest = BuildStamp {
+        debug_assertions: false,
+        arch: "wasm32".to_owned(),
+        os: String::new(),
+    };
+    assert_eq!(guest.to_string(), "debug_assertions=false\ttarget=wasm32-");
+    for stamp in [BuildStamp::current(), guest] {
+        assert_eq!(BuildStamp::parse(&stamp.to_string()), Some(stamp));
+    }
+    for malformed in [
+        "",
+        "debug_assertions=false",
+        "debug_assertions=maybe\ttarget=x86_64-linux",
+        "debug_assertions=false\ttarget=x86_64",
+        "target=x86_64-linux\tdebug_assertions=false",
+    ] {
+        assert_eq!(BuildStamp::parse(malformed), None, "{malformed:?}");
+    }
 }

@@ -5,7 +5,7 @@
 use crate::testing::meter;
 
 use super::cell::{Cell, Denom, ModelSpec, Units};
-use super::currency::{ByCurrency, Floors};
+use super::currency::{ByCurrency, Liveness};
 
 /// The peak-heap meter the board reads, supplied by the binary that runs it.
 ///
@@ -26,13 +26,45 @@ pub struct HeapMeter {
     pub peak: fn() -> usize,
 }
 
+/// The fuel meter the board reads, supplied by a wasm guest that runs it.
+///
+/// Fuel is the Wasmtime host's count of the instructions a guest instance has
+/// executed, so only a guest can read it, through an import its host
+/// provides. The board reads `used` immediately before each cell's body and
+/// again once the body has produced its result; the difference is the cell's
+/// fuel reading.
+///
+/// A fuel reading depends on the allocator state that earlier work left in
+/// the same instance, so a runner measures each cell in a fresh instance (the
+/// `shard` module's one-cell deal).
+pub struct FuelMeter {
+    /// Return the fuel this instance has consumed so far.
+    pub used: fn() -> u64,
+}
+
+/// The meters a runner supplies to the board.
+///
+/// Scan and touch are compiled in by the `scan-meter` and `touch-meter`
+/// features; heap and fuel are read through state only the running binary
+/// owns. A currency whose meter is absent reads `None` in every sample, and
+/// the board neither judges nor renders it.
+pub struct Meters {
+    /// The peak-heap meter, or `None` where the runner counts no allocations.
+    pub heap: Option<HeapMeter>,
+    /// The fuel meter, or `None` outside a wasm guest.
+    pub fuel: Option<FuelMeter>,
+}
+
 /// A resource model resolved to this sample's concrete units.
+///
+/// Units count work, not memory, so they are `u64` on every target: a model
+/// such as `n²` exceeds a 32-bit `usize` at inputs a wasm32 guest measures.
 #[derive(Clone, Copy)]
 pub(super) struct Model {
     /// Units against which the growth trend is fitted.
-    pub(super) trend_units: usize,
+    pub(super) trend_units: u64,
     /// Units against which the proportional constant is checked.
-    pub(super) constant_units: usize,
+    pub(super) constant_units: u64,
     /// Optional replacement for the currency's global proportional ceiling.
     pub(super) ceiling: Option<f64>,
 }
@@ -54,12 +86,12 @@ pub(super) struct Sample {
     pub(super) exp_denom_bytes: usize,
     /// The cell's liveness declarations; each sample carries its own since
     /// floors scale with the sample's operands.
-    pub(super) floors: Floors,
+    pub(super) floors: ByCurrency<Liveness>,
     /// Resource models that differ from the global linear defaults.
     pub(super) models: ByCurrency<Option<Model>>,
-    /// Every currency's counter reading over the body; `None` where the counter
-    /// is not compiled in (the feature-gated scan and touch columns
-    /// render `off` and are exempt from judgment).
+    /// Every currency's counter reading over the body; `None` where the
+    /// runner supplies no meter for it (a feature-gated counter not compiled
+    /// in, or an absent [`Meters`] field), which exempts it from judgment.
     pub(super) readings: ByCurrency<Option<u64>>,
 }
 
@@ -70,16 +102,28 @@ pub(super) struct Sample {
 /// result rather than a prediction. The peak includes result allocations as
 /// well as scratch; releasing an input during the operation can reduce the
 /// extra live heap relative to its level at the reset.
-pub(super) fn measure(heap: &HeapMeter, mut cell: Cell, content: Option<usize>) -> Sample {
+///
+/// Fuel is read last before the body and first after it, so the other meters'
+/// own work stays out of the fuel reading.
+pub(super) fn measure(meters: &Meters, mut cell: Cell, content: Option<usize>) -> Sample {
     reset_scan();
     reset_touch();
-    (heap.reset_peak)();
+    if let Some(heap) = &meters.heap {
+        (heap.reset_peak)();
+    }
+    let fuel_origin = meters.fuel.as_ref().map(|fuel| (fuel.used)());
     let mut observation = None;
     (cell.body)(&mut |result| {
+        let fuel = meters.fuel.as_ref().zip(fuel_origin).map(|(fuel, origin)| {
+            (fuel.used)()
+                .checked_sub(origin)
+                .expect("an instance's consumed fuel never decreases")
+        });
         let readings = ByCurrency {
-            heap: Some((heap.peak)() as u64),
+            heap: meters.heap.as_ref().map(|heap| (heap.peak)() as u64),
             scan: read_scan(),
             touch: read_touch(),
+            fuel,
         };
         let (denom_bytes, exp_denom_bytes) = match &cell.denom {
             // The flat-denominator shape's content denominator carries the exponent
@@ -102,38 +146,36 @@ pub(super) fn measure(heap: &HeapMeter, mut cell: Cell, content: Option<usize>) 
     let resolve = |spec: Option<ModelSpec>| -> Option<Model> {
         let spec = spec?;
         let ordinary_constant = denom_bytes;
-        let units = |units: Units, ordinary: usize| -> usize {
+        let units = |units: Units, ordinary: usize| -> u64 {
+            let ordinary = ordinary as u64;
             let resolved = match units {
                 Units::Default => ordinary,
-                Units::Scale(factor) => ((ordinary as f64) * factor).ceil() as usize,
+                Units::Scale(factor) => {
+                    let scaled = (ordinary as f64 * factor).ceil();
+                    // A float-to-integer cast saturates silently, so the
+                    // range is checked before it.
+                    assert!(
+                        scaled < u64::MAX as f64,
+                        "resource-model units fit in a u64"
+                    );
+                    scaled as u64
+                }
                 Units::Explicit(units) => units,
             };
             assert!(resolved > 0, "resource-model units are positive");
             resolved
         };
-        let trend_units = units(spec.trend, exp_denom_bytes);
-        let constant_units = units(spec.constant, ordinary_constant);
-        assert!(
-            trend_units != exp_denom_bytes
-                || constant_units != ordinary_constant
-                || spec.ceiling.is_some(),
-            "a resource-model override must change a unit axis or ceiling"
-        );
         Some(Model {
-            trend_units,
-            constant_units,
+            trend_units: units(spec.trend, exp_denom_bytes),
+            constant_units: units(spec.constant, ordinary_constant),
             ceiling: spec.ceiling,
         })
     };
-    let models = ByCurrency {
-        heap: resolve(cell.models.heap),
-        scan: resolve(cell.models.scan),
-        touch: resolve(cell.models.touch),
-    };
+    let models = ByCurrency::from_fn(|currency| resolve(*cell.models.get(currency)));
     Sample {
         denom_bytes,
         exp_denom_bytes,
-        floors: cell.floors,
+        floors: cell.floors.with_fuel(),
         models,
         readings,
     }

@@ -183,11 +183,32 @@ fn fork_count_bytes(count: usize) -> usize {
         .expect("a machine-word bit count fits usize")
 }
 
+/// The growth units of multiplying two `bytes`-byte integers: `bytes^log2 3`,
+/// an asymptotic envelope of `num-bigint`'s multiplication cost `M(n)`.
+///
+/// `num-bigint` multiplies by long multiplication (`n²`) while the shorter
+/// factor has at most 32 digits, by Karatsuba (`n^log2 3`) up to 256 digits,
+/// and by Toom-3 (`n^1.465`) beyond; a factor at least twice its partner's
+/// length is split by Half-Karatsuba. Its digits are 32 bits wide on wasm32
+/// and 64 bits wide on 64-bit targets, so the thresholds fall at 128 bytes
+/// and 1 KiB in the fuel guest. Above the long-multiplication threshold,
+/// these units grow at least as fast as `M(n)`; below it, `M(n)` grows faster
+/// than its envelope, so a model built on these units holds only for operands
+/// past that threshold.
+fn multiplication_units(bytes: usize) -> u64 {
+    let units = (bytes as f64).powf(3f64.log2()).ceil();
+    // A float-to-integer cast saturates silently, so the range is checked
+    // before it.
+    assert!(units < u64::MAX as f64, "multiplication units fit in a u64");
+    units as u64
+}
+
 /// Apply the balanced fold's `D log k` work model.
 ///
-/// Scan has a measured constant per reduction level. Touch keeps its ordinary
-/// per-input-byte ceiling, but fits growth against the same logarithmic work
-/// axis so increasing arity is not mistaken for super-linearity.
+/// Scan has a measured constant per reduction level. Touch and fuel keep their
+/// ordinary per-input-byte ceilings, but fit growth against the same
+/// logarithmic work axis so increasing arity is not mistaken for
+/// super-linearity.
 fn fold_model(cell: Cell, arity: u64) -> Cell {
     let levels = (2.0 * arity as f64).log2();
     cell.with_model(
@@ -195,6 +216,7 @@ fn fold_model(cell: Cell, arity: u64) -> Cell {
         ModelSpec::scaled(levels, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL),
     )
     .with_model(Currency::Touch, ModelSpec::scaled_trend(levels))
+    .with_model(Currency::Fuel, ModelSpec::scaled_trend(levels))
 }
 
 /// The four balanced span folds measured by the board.
@@ -374,7 +396,9 @@ struct MeasuredQuery {
     lower: Option<Version>,
     endpoint: Version,
     input_bytes: usize,
-    touch_work: usize,
+    /// Model units of work, which count steps rather than bytes held, so
+    /// they are `u64` on every target.
+    touch_work: u64,
 }
 
 impl MeasuredQuery {
@@ -395,12 +419,11 @@ impl MeasuredQuery {
             .checked_add(endpoint.as_bytes().len())
             .and_then(|bytes| bytes.checked_add(lower.as_ref().map_or(0, |lo| lo.as_bytes().len())))
             .expect("allocated query operands have a representable size");
-        let intervals = overlay_intervals.unwrap_or(input_bytes);
-        let touch_work = holes
-            .len()
+        let intervals = overlay_intervals.unwrap_or(input_bytes) as u64;
+        let touch_work = (holes.len() as u64)
             .checked_mul(intervals)
-            .and_then(|updates| input_bytes.checked_add(updates))
-            .expect("allocated query operands have a representable work bound");
+            .and_then(|updates| (input_bytes as u64).checked_add(updates))
+            .expect("a work bound over allocated query operands fits in a u64");
         MeasuredQuery {
             holes,
             lower,
@@ -1017,12 +1040,20 @@ pub(super) fn ops() -> Vec<Op> {
                     .into_iter()
                     .max_by_key(|count| count.0.bits())?;
                 let n = count_input_bytes(&count);
-                Some(Cell::io(
-                    n,
-                    count_floors(na(NA_HEAP_COUNT_FORMAT)),
-                    count_text_output_bytes,
-                    move || (formatted_len(format_args!("{count}")), count),
-                ))
+                // Decimal rendering is documented superlinear but
+                // subquadratic: `num-bigint` renders by divide and conquer
+                // over Burnikel-Ziegler division, `O(M(n) log n)`. Fuel fits
+                // growth against `M(n)`'s envelope, so a quadratic regression
+                // reads red.
+                Some(
+                    Cell::io(
+                        n,
+                        count_floors(na(NA_HEAP_COUNT_FORMAT)),
+                        count_text_output_bytes,
+                        move || (formatted_len(format_args!("{count}")), count),
+                    )
+                    .with_model(Currency::Fuel, ModelSpec::trend(multiplication_units(n))),
+                )
             },
         },
         Op {
@@ -1032,14 +1063,20 @@ pub(super) fn ops() -> Vec<Op> {
                     .into_iter()
                     .max_by_key(|count| count.0.bits())?;
                 let text = count.to_string();
-                Some(Cell::new(
-                    text.len(),
-                    count_floors(count_heap_floor(count_value_bytes(&count))),
-                    move || {
-                        text.parse::<Count>()
-                            .expect("displayed count text is canonical")
-                    },
-                ))
+                // Parsing `d` digits takes the documented `O(d²)` time, so
+                // fuel fits growth against `d²`.
+                let digits = text.len() as u64;
+                Some(
+                    Cell::new(
+                        text.len(),
+                        count_floors(count_heap_floor(count_value_bytes(&count))),
+                        move || {
+                            text.parse::<Count>()
+                                .expect("displayed count text is canonical")
+                        },
+                    )
+                    .with_model(Currency::Fuel, ModelSpec::trend(digits * digits)),
+                )
             },
         },
         Op {
@@ -1772,7 +1809,10 @@ pub(super) fn ops() -> Vec<Op> {
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
                     )
-                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                    .with_model(Currency::Touch, ModelSpec::work(work))
+                    // The work units lie within the documented `O(k·n)` time
+                    // bound.
+                    .with_model(Currency::Fuel, ModelSpec::work(work)),
                 )
             },
         },
@@ -1795,7 +1835,10 @@ pub(super) fn ops() -> Vec<Op> {
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
                     )
-                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                    .with_model(Currency::Touch, ModelSpec::work(work))
+                    // The work units lie within the documented `O(k·n)` time
+                    // bound.
+                    .with_model(Currency::Fuel, ModelSpec::work(work)),
                 )
             },
         },
@@ -1931,14 +1974,14 @@ pub(super) fn ops() -> Vec<Op> {
                     .expect("allocated query operands have a representable size");
                 // Every cross-side pair is concurrent. Comparing them reads
                 // each left hole once per right hole and vice versa.
-                let work = left_bytes
-                    .checked_mul(right_holes.len())
+                let work = (left_bytes as u64)
+                    .checked_mul(right_holes.len() as u64)
                     .and_then(|left| {
-                        right_bytes
-                            .checked_mul(left_holes.len())
+                        (right_bytes as u64)
+                            .checked_mul(left_holes.len() as u64)
                             .and_then(|right| left.checked_add(right))
                     })
-                    .expect("allocated query operands have a representable work bound");
+                    .expect("a work bound over allocated query operands fits in a u64");
                 let left = Query::<Down>::from_inclusive_holes(left_holes);
                 let right = Query::<Down>::from_inclusive_holes(right_holes);
                 let floors = Floors {
@@ -1949,7 +1992,10 @@ pub(super) fn ops() -> Vec<Op> {
                 Some(
                     Cell::new(n, floors, move || left & right)
                         .with_model(Currency::Scan, ModelSpec::work(work))
-                        .with_model(Currency::Touch, ModelSpec::work(work)),
+                        .with_model(Currency::Touch, ModelSpec::work(work))
+                        // The work units lie within the documented
+                        // `O(n(k + m + 1))` time bound.
+                        .with_model(Currency::Fuel, ModelSpec::work(work)),
                 )
             },
         },
@@ -2116,10 +2162,11 @@ pub(super) fn ops() -> Vec<Op> {
                 let mut children = Vec::with_capacity(child_count);
                 // A borrowing drain may scan the stored party once per child;
                 // count bookkeeping is bounded by the count's own width. This
-                // is the public `k (D + log k)` bound expressed in byte units.
-                let scan_work = child_count
-                    .checked_mul(input_bytes)
-                    .expect("the board's fork work model fits usize");
+                // is the public `k (D + log k)` bound expressed in byte units,
+                // and it bounds the drain's time, so fuel fits against it too.
+                let scan_work = (child_count as u64)
+                    .checked_mul(input_bytes as u64)
+                    .expect("the board's fork work model fits in a u64");
                 let floors = Floors {
                     // The result retains every share. Even when canonical
                     // collapses shorten them, at least one encoded byte per
@@ -2147,7 +2194,8 @@ pub(super) fn ops() -> Vec<Op> {
                             (party, children)
                         },
                     )
-                    .with_model(Currency::Scan, ModelSpec::work(scan_work)),
+                    .with_model(Currency::Scan, ModelSpec::work(scan_work))
+                    .with_model(Currency::Fuel, ModelSpec::work(scan_work)),
                 )
             },
         },
@@ -2423,10 +2471,11 @@ pub(super) fn ops() -> Vec<Op> {
                 let mut children = Vec::with_capacity(child_count);
                 // Clock delegates partitioning to Party. Its shared empty
                 // Version is neither scanned nor copied, so the scan model is
-                // the same `k (D + log k)` bound over party and count bytes.
-                let scan_work = child_count
-                    .checked_mul(party_bytes + count_bytes)
-                    .expect("the board's fork work model fits usize");
+                // the same `k (D + log k)` bound over party and count bytes,
+                // and fuel fits against it too, since it bounds the time.
+                let scan_work = (child_count as u64)
+                    .checked_mul((party_bytes + count_bytes) as u64)
+                    .expect("the board's fork work model fits in a u64");
                 let mut clock = Clock::from_parts(party, Version::new());
                 let floors = Floors {
                     heap: heap_materializes(arity),
@@ -2452,7 +2501,8 @@ pub(super) fn ops() -> Vec<Op> {
                             (clock, children)
                         },
                     )
-                    .with_model(Currency::Scan, ModelSpec::work(scan_work)),
+                    .with_model(Currency::Scan, ModelSpec::work(scan_work))
+                    .with_model(Currency::Fuel, ModelSpec::work(scan_work)),
                 )
             },
         },
