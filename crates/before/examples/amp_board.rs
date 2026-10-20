@@ -66,7 +66,8 @@
 //! The sweep is single-threaded within a process by design — the
 //! peak-heap column reads the process-global allocator, so concurrent
 //! threads would blend live sets — and parallelizes by process instead:
-//! every mode spawns one copy of this binary per slice of the operation
+//! every mode that sweeps (all but `compare`, which reads two captures)
+//! spawns one copy of this binary per slice of the operation
 //! × family cell grid (`--shard i/N`, an internal protocol;
 //! `board::shard` documents it), each child measuring its slice
 //! single-threaded, and the parent merges, judges, and renders. Every

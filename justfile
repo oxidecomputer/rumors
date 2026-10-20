@@ -797,7 +797,6 @@ bench-quick target *filter:
 # against its declared bounds: green means the samples fit, red is a resource
 # regression to investigate. The board
 # reads no clock, so its output is byte-identical under any machine load.
-# Optional scale multiplies the input sizes, e.g. `just amp-board 4`.
 #
 # The board runs at the release profile, the profile of record: debug
 # assertions perform metered work through probe cursors, so a dev board
@@ -805,7 +804,8 @@ bench-quick target *filter:
 # production work alone. A dev run (`cargo run -p before --example amp_board ...`) remains
 # a legitimate debugging view; its numbers must never be pinned anywhere.
 #
-# Every mode parallelizes by process sharding: the peak-heap column reads
+# Every mode that sweeps (all but `compare`, which reads two captures)
+# parallelizes by process sharding: the peak-heap column reads
 # the process-global allocator, so the sweep stays single-threaded inside
 # each process and the runner spawns children that split the operation x
 # family cell grid instead, merging the measured samples back in board
