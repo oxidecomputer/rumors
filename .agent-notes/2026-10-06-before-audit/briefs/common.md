@@ -154,6 +154,10 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   reads as passing.
 - Commands longer than a few minutes run in the background with output
   redirected to a file, which you poll; a foreground call dies at ten minutes.
+  Start each one as a harness-tracked background task (`run_in_background`),
+  never detached with `&` inside one. An agent that ends its turn with no
+  tracked background work is treated as finished and must hand back at once;
+  a Monitor does not count as background work.
 - Up to 16 agents share the box.
   - Run long investigative jobs under `nice -n 10`.
   - Separate `--no-run` builds from test runs.
