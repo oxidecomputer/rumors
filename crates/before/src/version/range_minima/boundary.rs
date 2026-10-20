@@ -64,12 +64,14 @@ pub(super) enum Remainder {
 impl Boundary {
     /// Use a word when the difference's working width is at most 64 bits.
     ///
-    /// The minimum tracker's cost argument rests on moving boundaries on push
-    /// and pop without reading them: a wide boundary is read only when a drop
-    /// crosses and consumes it. A wider difference therefore stays `Wide` even
-    /// if its value would fit a word. Converting it would read its top through
-    /// the accumulator's stability query, compacting the top only to learn
-    /// that it does not fit, once for every boundary pushed.
+    /// The minimum tracker's cost argument rests on every push and pop of a
+    /// boundary costing a constant, whatever its width: storage copies a wide
+    /// boundary only when a later push covers it and its working width is
+    /// bounded, and otherwise moves it unread until a drop crosses and
+    /// consumes it. A wider difference therefore stays `Wide` even if its
+    /// value would fit a word. Converting it would read its top through the
+    /// accumulator's stability query, compacting the top only to learn that it
+    /// does not fit, once for every boundary pushed.
     pub(super) fn from_positive(Positive(difference): Positive) -> Self {
         if difference.stored_bits() > 64 {
             return Self::Wide(difference);

@@ -47,11 +47,13 @@ const COPIED_STEP_BITS: usize = 65;
 /// `WP(65, d)`, measured ×1.25 (the record and every re-pin's movement live in
 /// the pin commits).
 ///
-/// A buried chunk at most 256 bits wide is copied into a packed stack; a wider
-/// one keeps its whole accumulator. Moving these two-limb chunks whole instead
-/// (a copy bound of 64 bits, or none) costs an accumulator per level and
-/// exceeds these ceilings.
-const WIDE_STEP_PAIRS_HEAP_CEILINGS: [usize; 2] = [292_580, 584_980];
+/// Every second level suspends a minimum on two two-limb values: the frozen
+/// height `2^65 + 1`, whose chunk `min_ticks` buries, and the range boundary
+/// `2^65` beneath the level's minimum. Both are at most 256 bits wide, so
+/// `min_ticks` copies the chunk into its packed stack and the range minima
+/// copy the boundary once a deeper level covers it: each wide level costs
+/// packed limbs, in proportion to the values' width.
+const WIDE_STEP_PAIRS_HEAP_CEILINGS: [usize; 2] = [65_120, 130_080];
 
 /// Hugeleaf widths of the touch ceilings' small runs, in bits (the large run
 /// doubles it): the board's `hugeleaf` sample at scale 1.0.
@@ -160,7 +162,8 @@ fn min_ticks_peak_heap_on_the_rising_spine_stays_within_measured_ceilings() {
 /// two depths.
 ///
 /// Every second level freezes a `2^65 + 1` height that a suspended minimum
-/// still uses, so this pins the bytes a buried two-limb chunk costs.
+/// still uses, above a `2^65` range boundary, so this pins the bytes a buried
+/// two-limb chunk and a covered two-limb boundary cost.
 #[test]
 fn min_ticks_peak_heap_on_copied_wide_step_pairs_stays_within_measured_ceilings() {
     let runs = [WIDE_STEP_PAIRS_SMALL_DEPTH, 2 * WIDE_STEP_PAIRS_SMALL_DEPTH].map(|d| {
