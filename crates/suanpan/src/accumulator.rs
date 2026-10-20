@@ -139,10 +139,9 @@ impl Accumulator {
 
     /// Add little-endian 64-bit limbs multiplied by `2^shift`.
     ///
-    /// The stream is consumed directly without a normalized or shifted copy.
-    /// An empty stream changes nothing. No operand copy is allocated. High
-    /// zero limbs are permitted, but every yielded limb contributes to the
-    /// input length used by the complexity bound.
+    /// The stream is consumed directly, without a normalized or shifted copy
+    /// of the operand. An empty stream changes nothing. High zero limbs are
+    /// permitted, but every yielded limb counts toward `L` in the cost below.
     ///
     /// # Complexity
     ///
@@ -154,8 +153,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if a nonzero contribution would land at or beyond `usize::MAX`,
-    /// where the required retained span is unrepresentable.
+    /// Panics if the limbs are nonzero and the result needs more storage than
+    /// a buffer can address. Zero limbs never panic.
     pub fn add_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
         self.value
             .get_mut()
@@ -164,17 +163,22 @@ impl Accumulator {
 
     /// Subtract little-endian 64-bit limbs multiplied by `2^shift`.
     ///
-    /// The stream is consumed directly. An empty stream changes nothing. High
-    /// zero limbs are permitted, but every yielded limb contributes to `L` in
-    /// the [crate-level cost model](crate#costs-and-storage). This takes
-    /// amortized O(`L` log(`W` + 1) + `G`) time and adds
-    /// O(`L` + `G`) retained space in the worst case. Growing the receiver may
-    /// temporarily retain both its old and replacement allocations.
+    /// The stream is consumed directly, without a normalized or shifted copy
+    /// of the operand. An empty stream changes nothing. High zero limbs are
+    /// permitted, but every yielded limb counts toward `L` in the cost below.
+    ///
+    /// # Complexity
+    ///
+    /// Using the quantities defined in the [crate-level cost
+    /// model](crate#costs-and-storage), this takes amortized
+    /// O(`L` log(`W` + 1) + `G`) time and adds O(`L` + `G`) retained space in
+    /// the worst case. Growing the receiver may temporarily retain both its old
+    /// and replacement allocations.
     ///
     /// # Panics
     ///
-    /// Panics if a nonzero contribution would land at or beyond `usize::MAX`,
-    /// where the required working width is unrepresentable.
+    /// Panics if the limbs are nonzero and the result needs more storage than
+    /// a buffer can address. Zero limbs never panic.
     pub fn sub_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
         self.value
             .get_mut()
@@ -183,16 +187,13 @@ impl Accumulator {
 
     /// Add another accumulator's value multiplied by `2^shift`.
     ///
-    /// The operand is read directly; shifting it first would construct another
-    /// accumulator merely to consume it here. The read may reduce `other`'s
-    /// working width without changing its value. The receiver is borrowed
-    /// mutably, so `other` is always a different accumulator.
+    /// The operand is read directly, without first shifting it into another
+    /// accumulator. The read may reduce `other`'s working width without
+    /// changing its value. The receiver is borrowed mutably, so `other` is
+    /// always a different accumulator:
     ///
     /// ```compile_fail
-    /// use suanpan::Accumulator;
-    ///
-    /// let mut total = Accumulator::from(3);
-    /// // The receiver cannot also be the operand.
+    /// let mut total = suanpan::Accumulator::from(3);
     /// total.add_shifted(1, &total);
     /// ```
     ///
@@ -216,9 +217,10 @@ impl Accumulator {
 
     /// Subtract another accumulator's value multiplied by `2^shift`.
     ///
-    /// The operand is read directly, and the read may reduce its working width
-    /// without changing its value. As with [`add_shifted`](Self::add_shifted),
-    /// `other` is always a different accumulator:
+    /// The operand is read directly, without first shifting it into another
+    /// accumulator. The read may reduce `other`'s working width without
+    /// changing its value. The receiver is borrowed mutably, so `other` is
+    /// always a different accumulator:
     ///
     /// ```compile_fail
     /// let mut total = suanpan::Accumulator::from(3);
@@ -230,9 +232,9 @@ impl Accumulator {
     /// Using the quantities defined in the [crate-level cost
     /// model](crate#costs-and-storage), this takes amortized
     /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain
-    /// both its old and replacement allocations. A zero operand adds O(1)
-    /// retained space at any shift.
+    /// the worst case. Growing the receiver may temporarily retain both its old
+    /// and replacement allocations. A zero operand adds O(1) retained space at
+    /// any shift.
     ///
     /// # Panics
     ///
