@@ -264,6 +264,60 @@ deliberately failing test commit. A plain `git bisect` still descends into
 the branches. If the owner edits a branch after its check, the check reruns
 before the merge.
 
+### Integration practice
+
+- **Review checkout.** The owner reviews in `/Users/oxide/src/rumors`. To
+  bring a branch there, detach its slot (`git -C <slot> switch --detach`)
+  and `git switch <branch>` in the checkout; commits the owner makes there
+  land on the branch. Before switching away, check `git status` for the
+  owner's uncommitted work and ask about any. After each approval, put the
+  next branch in the order there at once; merging waits for the approved
+  branch's check, the owner's review does not.
+- **Where to commit and check.** Never run a check from the owner's
+  checkout: the box sync copies whatever branch it holds into `~/src/rumors`
+  on the box. Check each branch in its slot and `main` in
+  `/Users/oxide/src/rumors-verify` (detached). Commit tracked notes on
+  `main`: in the owner's checkout when it holds `main` with a clean tree,
+  otherwise in `rumors-verify` (`git switch main`, commit,
+  `git switch --detach`).
+- **Merging without a rebase.** When `main` has moved only in
+  `.agent-notes/` since a branch's base (`git diff <base> main -- .
+  ':!.agent-notes'` empty), merge without rebasing: the check stands and
+  the branch's signatures survive.
+- **Conflicts.** After resolving one, run `cargo fmt --all --check` and
+  compile the touched workspace before `rebase --continue`: a clean textual
+  merge can still break against an API an earlier landing changed. In
+  `worst.rs`, take both sides' intended rows (values from one, `#[cfg]`
+  gates from the other), then run the worst-case pin at the rebased tip; a
+  remaining flip is news to investigate before re-pinning.
+- **Measurements.** State every moved measurement as parent and new
+  reading, never only against a ceiling. When an assertion fails, check
+  whether later assertions in the same test never ran. Capture command
+  output whole, then filter the file.
+- **`QUESTIONS.md`.** Every question to the owner goes there in the same
+  turn, policy questions under Open questions. The owner edits the file
+  too: never revert a change that looks moved, and ask about it.
+- **Briefs.** A brief's scope is the change the owner asked for; additions
+  go to the owner as proposals with their cost. Every brief tells the agent
+  to run long commands as harness-tracked background tasks, never detached
+  with `&`: an agent that ends its turn with no tracked background work is
+  forced to hand back, and a Monitor does not count.
+- **Review reports.** Archive each one verbatim in its lane record the turn
+  it arrives, with a CAVEAT LECTOR header and a README stating what is
+  verified, committed on `main`.
+- **The box's landing check** (`~/bin/audit-reserved ~/bin/audit-check`).
+  Each check caps itself at 24 build jobs and 24 test threads; run at most
+  five or six at once, since around ten, `bounded_corpus_manifest_snapshot`
+  times out. Edit `~/bin/audit-check` by writing a temporary file and
+  `mv`-ing it into place: bash reads a running script incrementally. To
+  stop a check, kill every process whose working directory is in the slot
+  (`for p in $(pgrep -u agent); do pwdx $p | grep -q rumors-slot-NN && kill
+  $p; done`, repeated until none remain) and the local `on-illumos.sh`;
+  matching command lines misses the script itself. A check killed
+  mid-build can leave link errors on `anon.*.llvm.*` symbols in `libbefore`:
+  run `cargo clean -p before` and remove `target/debug/incremental` in the
+  slot's box directory.
+
 ### Agent compaction
 
 Subagents compact automatically when their context fills, and each keeps a
