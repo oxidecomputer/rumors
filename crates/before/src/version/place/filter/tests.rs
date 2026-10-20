@@ -1,12 +1,14 @@
 //! Numeric comparison properties for the fused query filter.
 
-use core::cmp::Ordering;
-
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use suanpan::Accumulator;
 
-use super::{Comparison, HeightWidths};
+use super::{close, Comparison, MAX_CLOSE_LEAD_BITS};
+
+/// The working width a difference may add beyond its wider operand's for a
+/// carry: a constant, so a difference stays proportional to its operands.
+const CARRY_ALLOWANCE_BITS: u64 = 64;
 
 /// Build a nonnegative height with an optional cancelling high prefix.
 ///
@@ -44,28 +46,37 @@ fn arb_height() -> impl Strategy<Value = (BigUint, u64, bool)> {
 }
 
 proptest! {
-    /// The bounded no-copy path agrees with exact nonnegative integer order.
+    /// Height comparison agrees with exact nonnegative integer order, and keeps
+    /// an exact difference exactly when the heights' working widths are
+    /// close.
     ///
     /// Independent cancellation patterns make either side start wider, make
     /// the first refusal expose the opposite side as wider, and cross the
-    /// two-digit cache boundary. Whenever an exact difference is retained, its
-    /// operands must have the width relation promised by the memory bound.
+    /// cache boundary. A retained difference obeys the memory bound: built
+    /// from operands at most [`MAX_CLOSE_LEAD_BITS`] apart in working width,
+    /// it is at most that lead plus [`CARRY_ALLOWANCE_BITS`] wider than the
+    /// narrower height.
     #[test]
     fn height_comparison_matches_biguint(
         (probe_value, probe_extra, probe_subtracts_first) in arb_height(),
         (bound_value, bound_extra, bound_subtracts_first) in arb_height(),
     ) {
-        let mut probe = height(&probe_value, probe_extra, probe_subtracts_first);
-        let mut bound = height(&bound_value, bound_extra, bound_subtracts_first);
-        let (actual, difference) = Comparison::compare_heights(&mut probe, &mut bound);
+        let probe = height(&probe_value, probe_extra, probe_subtracts_first);
+        let bound = height(&bound_value, bound_extra, bound_subtracts_first);
+        let narrower = probe.stored_bits().min(bound.stored_bits());
+        let was_close = close(&probe, &bound);
+        let (actual, difference) = Comparison::compare_heights(&probe, &bound);
         let expected = probe_value.cmp(&bound_value);
 
         prop_assert_eq!(actual, expected);
-        if difference.is_some() {
-            prop_assert_eq!(HeightWidths::between(&probe, &bound), HeightWidths::Close);
-        }
-        if expected == Ordering::Equal {
-            prop_assert!(difference.is_some(), "equal heights require an exact difference");
+        prop_assert_eq!(difference.is_some(), was_close);
+        if let Some(difference) = &difference {
+            prop_assert!(
+                difference.stored_bits() <= narrower + MAX_CLOSE_LEAD_BITS + CARRY_ALLOWANCE_BITS,
+                "a retained difference of {} bits exceeds the memory bound over \
+                 a narrower height of {narrower} bits",
+                difference.stored_bits()
+            );
         }
     }
 }

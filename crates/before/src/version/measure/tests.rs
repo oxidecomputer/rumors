@@ -272,11 +272,27 @@ fn spine_of(heights: &[BigUint]) -> Version {
 /// The exact-cancellation freeze schedule.
 ///
 /// Heights whose freezes park `+2^(32p)`, `−(2^32 − 1)·2^(32(p−1))`, and
-/// `−2^(32(p−1))`. Those terms cancel although the accumulator retains high
-/// positive and negative digits. A fourth freeze follows a climb to `2^(32q)`
-/// and return to the small drift `s`; it settles a segment against the
-/// zero-valued parked component before resetting the deferred state.
+/// `−2^(32(p−1))`. Those terms cancel although the parked accumulator retains
+/// a high positive digit over negative ones. A fourth freeze follows a climb to
+/// `2^(32q)`; it settles a segment against the zero-valued parked component.
+/// The final height `s` leaves the newly parked climb a closing segment.
+///
+/// Each freeze fires at a unit delta, after a drift whose working width must
+/// exceed that delta's one bit plus the freeze allowance `a` bits. `suanpan`
+/// keeps every value below `2^(stored_bits + 2)`, so a power `2^(32m)` holds at
+/// least `32m − 1` working bits in every stored form, and the smallest drifts,
+/// `2^(32(p−1))` and `2^(32q)`, cross the trigger in every form when `32(p − 1)`
+/// and `32q` exceed `a + 2`. No compaction can then keep a freeze from firing.
+///
+/// # Panics
+///
+/// Panics if `32(p − 1)` or `32q` is at most `a + 2`.
 fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
+    let crosses = |m: u32| 32 * u64::from(m) > super::HEIGHT_FREEZE_ALLOWANCE_BITS + 2;
+    assert!(
+        p >= 1 && crosses(p - 1) && crosses(q),
+        "every drift must cross the freeze trigger in its shortest form"
+    );
     let x = BigUint::from(1u8) << (32 * p);
     let t = BigUint::from(1u8) << (32 * (p - 1));
     let z = BigUint::from(1u8) << (32 * q);
@@ -288,18 +304,17 @@ fn parked_cancellation_heights(p: u32, q: u32, s: u64) -> Vec<BigUint> {
         t,
         BigUint::from(1u8),
         BigUint::ZERO,
+        z.clone() - &BigUint::from(1u8),
         z,
         BigUint::from(s),
-        BigUint::from(s + 1),
     ]
 }
 
-/// A freeze schedule whose buffered drift cancels to zero.
+/// A schedule whose drift cancels to zero at a narrow delta.
 ///
-/// Deltas `+（2^(32p) + d)`, `−(2^32 − 1)·2^(32(p−1))`, `−2^(32(p−1))`, then
-/// `−d`: the last, narrow delta trips the width trigger with the live
-/// component's value exactly zero while its buffers still reach digit `p`.
-/// The freeze therefore has no height change to park and must keep the prefix.
+/// Deltas `+(2^(32p) + d)`, `−(2^32 − 1)·2^(32(p−1))`, `−2^(32(p−1))`, then
+/// `−d`: the last, narrow delta leaves the drift's value exactly zero after
+/// wide deltas wrote digits up to `p`.
 fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
     let x = BigUint::from(1u8) << (32 * p);
     let t = BigUint::from(1u8) << (32 * (p - 1));
@@ -315,13 +330,13 @@ fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
 /// The worked point of the cancellation family, with the freeze tap proving
 /// the schedule really parks.
 ///
-/// Four freezes fire, the fourth settling and attempting to defer a parked
+/// Four freezes fire, the fourth settling a segment against a parked
 /// component whose buffered positive and negative terms cancel. The cheap
 /// `is_known_zero` check cannot detect that cancellation, and every fold
 /// stays exact against the tree oracle.
 #[test]
-fn parked_cancellation_settles_and_defers_exactly() {
-    let v = spine_of(&parked_cancellation_heights(11, 9, 5));
+fn parked_cancellation_settles_exactly() {
+    let v = spine_of(&parked_cancellation_heights(11, 10, 5));
     let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
     assert_single(&v);
     assert!(
@@ -334,14 +349,12 @@ fn parked_cancellation_settles_and_defers_exactly() {
 proptest! {
     /// The exact-cancellation family holds every fold to the tree oracle over
     /// the cancellation scale, the trailing climb's scale, and the final
-    /// narrow drift.
+    /// height.
     ///
-    /// A parked component whose terms cancel must charge nothing at later
-    /// settlements. A deferral considered after a large climb returns to a
-    /// narrow drift, skips the cancelled component, and still resets. Any
-    /// misaccounting in either zero case changes the exact totals.
+    /// A parked component whose terms cancel must charge nothing at the
+    /// settlement that follows; any misaccounting changes the exact totals.
     #[test]
-    fn parked_cancellation_family_agrees(p in 11u32..=14, q in 9u32..=12, s in 1u64..=6) {
+    fn parked_cancellation_family_agrees(p in 11u32..=14, q in 10u32..=13, s in 1u64..=6) {
         let v = spine_of(&parked_cancellation_heights(p, q, s));
         let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
         assert_single(&v);
@@ -351,15 +364,28 @@ proptest! {
         );
     }
 
-    /// The zero-drift family: a width trigger tripped by buffered terms that
-    /// cancel exactly freezes nothing.
+    /// The zero-drift family: a drift that cancels exactly never trips the
+    /// freeze trigger, and both folds stay exact against the tree oracle.
     ///
-    /// The rank integral parks no drift and min_ticks keeps its prefix, and
-    /// both folds stay exact against the tree oracle through the empty
-    /// freeze.
+    /// The rank integral compacts its drift before each boundary, and
+    /// min_ticks normalizes its live offset at each leaf, so the cancelled
+    /// wide digits are gone before the narrow delta's width check. Neither
+    /// freeze therefore needs a case for a zero drift.
     #[test]
-    fn zero_drift_freezes_keep_the_totals_exact(p in 9u32..=13, d in 1u64..=6) {
+    fn zero_drift_never_freezes(p in 9u32..=13, d in 1u64..=6) {
+        let freezes = || {
+            (
+                super::integral::FREEZE_HITS.with(|hits| hits.get()),
+                super::min_ticks::FREEZE_HITS.with(|hits| hits.get()),
+            )
+        };
+        let before = freezes();
         assert_single(&spine_of(&zero_drift_heights(p, d)));
+        prop_assert_eq!(
+            freezes(),
+            before,
+            "a drift that cancels exactly tripped a freeze trigger (rank, min_ticks)"
+        );
     }
 }
 

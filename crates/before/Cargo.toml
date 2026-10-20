@@ -26,7 +26,7 @@ serde_json = { workspace = true }
 bytes = { workspace = true }
 hex = { workspace = true }
 num-bigint = { workspace = true }
-suanpan = { workspace = true }
+suanpan = { workspace = true, features = ["num-bigint"] }
 dsi-bitstream = { workspace = true }
 static_assertions = { workspace = true }
 thiserror = { workspace = true }

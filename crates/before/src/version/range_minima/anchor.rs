@@ -19,8 +19,6 @@ use core::cmp::Ordering;
 use num_bigint::BigInt;
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
-
 use super::boundary::Boundary;
 
 /// Number of independently retained client differences.
@@ -66,7 +64,7 @@ impl Anchor {
 
     /// Advance the running height, reading only the supplied difference.
     pub(super) fn fold_height(&mut self, delta: &BigInt) {
-        self.gap.add_bigint(delta);
+        self.gap += delta;
     }
 
     /// Consume a running-height change without normalizing or copying it.
@@ -76,7 +74,7 @@ impl Anchor {
 
     /// Undo a temporary height offset after a comparison.
     pub(super) fn subtract_offset(&mut self, offset: &BigInt) {
-        self.gap.sub_bigint(offset);
+        self.gap -= offset;
     }
 
     /// Move the anchor to `h`, returning its signed distance above the old minimum.
@@ -126,7 +124,7 @@ impl Anchor {
     /// [`Boundary::from_positive`](super::boundary::Boundary::from_positive).
     /// A zero distance would answer `Greater` for a height equal to the minimum.
     pub(super) fn compare_height(&mut self) -> Ordering {
-        let sign = self.gap.cmp_zero();
+        let sign = self.gap.sign();
         if self.deferred.is_none() {
             return sign;
         }
@@ -150,7 +148,7 @@ impl Anchor {
             .expect("the minimum is below the anchor");
         // Sign normalization removes cancelling leading digits before the
         // digit counts are used as evidence of domination.
-        let sign = deferred.cmp_zero();
+        let sign = deferred.sign();
         debug_assert_eq!(sign, Ordering::Greater, "the deferred distance is positive");
         if deferred.cmp_zero_stable_under(gap_bits).is_some() {
             return Ordering::Greater;
@@ -163,11 +161,11 @@ impl Anchor {
             return Ordering::Less;
         }
         self.resolve();
-        self.gap.cmp_zero()
+        self.gap.sign()
     }
 
     /// Certify the gap's sign when adding any word-sized offset cannot change it.
-    pub(super) fn gap_dominates_word(&mut self) -> Option<Ordering> {
+    pub(super) fn gap_dominates_word(&self) -> Option<Ordering> {
         self.gap.cmp_zero_stable_under(64)
     }
 
@@ -186,7 +184,7 @@ impl Anchor {
     pub(super) fn undercut_offset(&mut self, offset: &BigInt) -> Accumulator {
         let mut decrease = core::mem::take(&mut self.gap);
         decrease = -decrease;
-        decrease.sub_bigint(offset);
+        decrease -= offset;
         self.lower_by(decrease)
     }
 
@@ -196,7 +194,7 @@ impl Anchor {
     /// has already moved the old gap into the decrease; no wide value is copied.
     pub(super) fn set_gap_below_offset(&mut self, offset: &BigInt) {
         let mut gap = Accumulator::new();
-        gap.sub_bigint(offset);
+        gap -= offset;
         self.gap = gap;
     }
 
@@ -281,9 +279,9 @@ impl Anchor {
         candidate: &Accumulator,
     ) -> Ordering {
         self.gap -= candidate;
-        self.gap.add_bigint(above);
-        let sign = self.gap.cmp_zero();
-        self.gap.sub_bigint(above);
+        self.gap += above;
+        let sign = self.gap.sign();
+        self.gap -= above;
         self.gap += candidate;
         sign
     }

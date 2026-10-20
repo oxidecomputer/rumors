@@ -128,6 +128,7 @@ pub use compare::{capture, compare};
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
 pub use currency::{ByCurrency, Currency, Floors, Liveness};
 pub use measure::HeapMeter;
+pub use operand::stored_nonzero_deltas;
 pub use render::Summary;
 pub use shard::{
     check_worst_map, emit_shard, max_useful_shards, run, run_acceptance, worst_map, ShardSpawner,

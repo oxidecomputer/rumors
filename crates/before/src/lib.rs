@@ -430,7 +430,6 @@
 // attribute on the macro invocation never reaches the expanded `static`.
 #![cfg_attr(target_os = "illumos", allow(clippy::missing_const_for_thread_local))]
 
-pub(crate) mod accumulator;
 mod bits;
 mod clock;
 mod count;

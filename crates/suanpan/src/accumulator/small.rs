@@ -16,7 +16,8 @@
 //! supplied width can represent, including the extra range of redundant
 //! signed digits.
 
-use super::{touch, Accumulator};
+use super::touch;
+use super::value::Value;
 
 /// Largest magnitude retained as one `i128` value.
 pub const SMALL_MAX: u128 = 1 << 96;
@@ -28,7 +29,7 @@ pub const SMALL_MAX: u128 = 1 << 96;
 pub const SMALL_SHIFT_MAX: u64 = 30;
 
 /// Operate on the small value and transfer it into digits when necessary.
-impl Accumulator {
+impl Value {
     /// Add a bounded delta, returning whether the small path handled it.
     ///
     /// A handled update may move its sum into digits. `false` means the
@@ -72,14 +73,4 @@ impl Accumulator {
         self.small = None;
         self.digits.activate();
     }
-}
-
-/// Place an unsigned small-value magnitude in a two-limb stack buffer.
-pub fn limbs_from_u128(value: u128) -> ([u64; 2], usize) {
-    let limbs = [value as u64, (value >> 64) as u64];
-    let len = usize::from(value != 0) + usize::from(value > u128::from(u64::MAX));
-    debug_assert!(len <= 2);
-    debug_assert_eq!(len == 0, value == 0);
-    debug_assert!(len < 2 || limbs[1] != 0);
-    (limbs, len)
 }

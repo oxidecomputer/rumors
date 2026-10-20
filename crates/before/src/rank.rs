@@ -55,7 +55,6 @@ use std::io::{self, Read, Write};
 use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::error::{Decode, ParseRank};
 
 /// An exact nonnegative measure of causal history.
@@ -1049,12 +1048,7 @@ impl Rank {
             }
             acc.add_shifted_limbs(exp - rank.exp, rank.num.iter_u64_digits());
         }
-        let (sign, num) = acc.biguint_parts();
-        debug_assert_ne!(
-            sign,
-            Ordering::Less,
-            "a sum of nonnegative ranks is nonnegative"
-        );
+        let num = BigUint::try_from(&acc).expect("a sum of nonnegative ranks is nonnegative");
         Rank::from_raw(num, exp)
     }
 }

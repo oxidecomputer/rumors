@@ -18,12 +18,12 @@
 //! retains only its cursor paths and the arithmetic state needed for its
 //! result; none constructs a recursive tree or an intermediate Version.
 
-/// Extra base-2^32 digits tolerated before an old height change is frozen.
+/// Extra bits of working width a height change may hold beyond the newest
+/// delta's bit length before it is frozen.
 ///
-/// Eight digits give a 256-bit cushion. This avoids moving arithmetic state for
-/// small width fluctuations; the fixed cushion does not affect the
-/// input-proportional bound.
-pub(super) const HEIGHT_FREEZE_ALLOWANCE_DIGITS: usize = 8;
+/// The cushion avoids moving arithmetic state for small width fluctuations;
+/// being fixed, it does not affect the input-proportional bound.
+pub(super) const HEIGHT_FREEZE_ALLOWANCE_BITS: u64 = 256;
 
 mod distance;
 pub mod integral;

@@ -7,12 +7,8 @@
 //! Final settlement combines those references without reconstructing an
 //! absolute height at every leaf.
 
-use core::cmp::Ordering;
-
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
-
-use crate::accumulator::BigIntAccumulator as _;
 
 /// One leaf height expressed relative to the current frozen prefix.
 pub struct LeafHeight {
@@ -61,22 +57,14 @@ impl HeightPrefixes {
     /// The absolute height is `frozen_prefix + live`. The live offset is added
     /// immediately; the prefix coefficient is deferred until settlement.
     pub fn add_leaf(&mut self, live: &Accumulator, total: &mut Accumulator) -> LeafHeight {
-        let (ordering, magnitude) = live.biguint_parts();
-        let negative = ordering == Ordering::Less;
-        if negative {
-            total.sub_shifted_limbs(0, magnitude.iter_u64_digits());
-        } else {
-            total.add_shifted_limbs(0, magnitude.iter_u64_digits());
-        }
+        let offset = BigInt::from(live);
+        *total += &offset;
         *self
             .coefficients
             .last_mut()
             .expect("the opening height always provides one prefix") += 1;
         LeafHeight {
-            offset: BigInt::from_biguint(
-                if negative { Sign::Minus } else { Sign::Plus },
-                magnitude,
-            ),
+            offset,
             prefix: self.current(),
         }
     }
@@ -88,14 +76,13 @@ impl HeightPrefixes {
 
     /// Move the live height change into a new prefix, then clear it.
     ///
-    /// A zero change adds no component: every existing prefix still denotes
-    /// the same value, so another index would carry no information.
+    /// The change is nonzero whenever the caller's width trigger fires: each
+    /// leaf's read normalizes `live`, so a change that cancels keeps no width
+    /// beyond its last delta's. A zero component would still be exact; its
+    /// prefix would denote the same value as the one before it.
     pub fn freeze(&mut self, live: &mut Accumulator) {
-        let component = live.to_bigint();
-        if component.sign() != Sign::NoSign {
-            self.components.push(component);
-            self.coefficients.push(0);
-        }
+        self.components.push(BigInt::from(&*live));
+        self.coefficients.push(0);
         live.reset();
     }
 

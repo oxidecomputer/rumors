@@ -4,7 +4,7 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 
-use super::{assert_value, park_extreme_negative_digit, Accumulator, TestBig as _};
+use super::{assert_value, from_limbs, park_extreme_negative_digit, Accumulator, TestBig as _};
 use crate::accumulator::digit_index;
 use crate::accumulator::small::{SMALL_MAX, SMALL_SHIFT_MAX};
 
@@ -43,7 +43,7 @@ fn comparison_threshold_survives_extreme_cancellation() {
         "the exact value is −(2^32 − 1)"
     );
     assert_eq!(
-        acc.cmp_zero(),
+        acc.sign(),
         Ordering::Less,
         "a top partial of 2 must not decide"
     );
@@ -56,7 +56,7 @@ fn comparison_threshold_survives_extreme_cancellation() {
         (Ordering::Greater, UBig::from((1u64 << 32) - 1)),
         "the mirrored value is +(2^32 − 1)"
     );
-    assert_eq!(acc.cmp_zero(), Ordering::Greater);
+    assert_eq!(acc.sign(), Ordering::Greater);
 }
 
 /// A sign decided at digit two is not enough to cover every 64-bit adjustment.
@@ -70,7 +70,7 @@ fn stability_needs_two_digits_of_clearance() {
     park_extreme_negative_digit(&mut acc, 1);
     acc.add_value_shl(&UBig::from(3u8), 64);
     let stable = acc.cmp_zero_stable_under(64);
-    assert_eq!(acc.cmp_zero(), Ordering::Greater, "the value is positive");
+    assert_eq!(acc.sign(), Ordering::Greater, "the value is positive");
     assert_eq!(
         stable, None,
         "deciding one digit lower would claim stability against an \
@@ -80,7 +80,7 @@ fn stability_needs_two_digits_of_clearance() {
     // flips the sign.
     acc -= u64::MAX;
     assert_eq!(
-        acc.cmp_zero(),
+        acc.sign(),
         Ordering::Less,
         "u64::MAX exceeds 2^64 − 2^32 + 1"
     );
@@ -123,14 +123,14 @@ fn stability_covers_extreme_accumulator_operands() {
     let mut probe = larger.clone();
     probe -= &operand;
     assert_eq!(
-        probe.cmp_zero(),
+        probe.sign(),
         Ordering::Greater,
         "larger − operand remains positive"
     );
     let mut probe = larger.clone();
     probe += &operand;
     assert_eq!(
-        probe.cmp_zero(),
+        probe.sign(),
         Ordering::Greater,
         "larger + operand remains positive"
     );
@@ -146,7 +146,7 @@ fn small_value_stability_threshold_is_tight_from_below() {
     larger += 1_u64 << 35;
     larger <<= 30;
     assert!(
-        larger.small.is_some(),
+        larger.stored().small.is_some(),
         "2^65 remains in the small representation"
     );
     assert_value(&larger, &(IBig::from(1) << 65usize));
@@ -164,11 +164,7 @@ fn small_value_stability_threshold_is_tight_from_below() {
     let operand_value = (IBig::from(1) << 65usize) + ((IBig::from(1) << 32usize) - 1);
     assert_value(&operand, &operand_value);
     let stable = larger.cmp_zero_stable_under(64);
-    assert_eq!(
-        larger.cmp_zero(),
-        Ordering::Greater,
-        "the value is positive"
-    );
+    assert_eq!(larger.sign(), Ordering::Greater, "the value is positive");
     assert_eq!(
         stable, None,
         "2^65 < 3 · 2^64: returning Some would cover a stored operand \
@@ -178,7 +174,7 @@ fn small_value_stability_threshold_is_tight_from_below() {
     let mut probe = larger.clone();
     probe -= &operand;
     assert_eq!(
-        probe.cmp_zero(),
+        probe.sign(),
         Ordering::Less,
         "the extreme-digit representation (2^33 − 1)(2^32 + 1) exceeds 2^65"
     );
@@ -192,7 +188,7 @@ fn maximum_adjustment_width_never_decides() {
     let mut acc = Accumulator::new();
     acc.add_limb_value(&(UBig::from(1u8) << 2_048usize));
     let stable = acc.cmp_zero_stable_under(u64::MAX);
-    assert_eq!(acc.cmp_zero(), Ordering::Greater, "the value is positive");
+    assert_eq!(acc.sign(), Ordering::Greater, "the value is positive");
     assert_eq!(
         stable, None,
         "no value dominates an adjustment bound wider than the address space"
@@ -234,7 +230,7 @@ fn small_value_can_decide_before_a_digit_scan_could() {
     let mut acc = Accumulator::new();
     acc += u64::MAX;
     assert!(
-        acc.small.is_some(),
+        acc.stored().small.is_some(),
         "a word-scale add stays in the small representation"
     );
     assert_eq!(acc.stored_digit_count(), 2, "u64::MAX spans two digits");
@@ -256,7 +252,7 @@ fn stability_answer_can_depend_on_representation() {
     acc <<= 30;
     acc <<= 30;
     assert!(
-        acc.small.is_some(),
+        acc.stored().small.is_some(),
         "2^80 remains in the small representation"
     );
     assert_eq!(
@@ -264,7 +260,7 @@ fn stability_answer_can_depend_on_representation() {
         Some(Ordering::Greater),
         "the exact small value proves 2^80 ≥ 3 · 2^64"
     );
-    acc.ensure_digits();
+    acc.value.get_mut().ensure_digits();
     assert_eq!(
         acc.cmp_zero_stable_under(64),
         None,
@@ -301,7 +297,7 @@ fn comparison_compaction_tightens_the_stored_width() {
         "a stability width derived from the stale count must return None"
     );
     // Exact comparison compacts the cancellation, making the width tight.
-    assert_eq!(cancelled.cmp_zero(), Ordering::Greater);
+    assert_eq!(cancelled.sign(), Ordering::Greater);
     assert_eq!(
         cancelled.stored_digit_count(),
         1,
@@ -316,11 +312,16 @@ fn comparison_compaction_tightens_the_stored_width() {
     );
 }
 
-/// Comparison compaction may write below the input's lowest position.
+/// Comparison compaction may write below the input's lowest position, and the
+/// scaled read factors out exactly the zero digits below it, whatever their
+/// parity.
 ///
-/// For 2^1280, it combines the top two positions and deposits the result one
-/// position lower. The scaled read consequently returns (2^32, 1248), not
-/// (1, 1280); either pair denotes the same magnitude.
+/// For 2^1280, one unit at digit 40, the read's comparison combines the top
+/// two positions and deposits the result at digit 39, one position lower. The
+/// read factors out the 39 digits below it, a 1,248-bit span that is not a
+/// whole number of limbs, and returns the one limb `2^32` above it: the same
+/// value, with no extra zero digit. It keeps the lowered position, so reading
+/// again returns the same triple.
 #[test]
 fn comparison_compaction_lowers_the_scaled_read_shift() {
     // One unit parked at digit 40: the 1280-bit shift exceeds the
@@ -328,36 +329,19 @@ fn comparison_compaction_lowers_the_scaled_read_shift() {
     // representation with a one-digit written span at index 40.
     let mut acc = Accumulator::new();
     acc.add_limb_value_shl(&UBig::ONE, 1280);
-    // Before comparison, the scaled read prices the written span and
-    // returns the whole never-written prefix as the shift.
-    let (sign, magnitude, shift) = acc.sign_biguint_shl();
-    assert_eq!(sign, Ordering::Greater);
-    assert_eq!(
-        (magnitude, shift),
-        (UBig::ONE, 1280),
-        "untouched, the scaled read returns the full written-span shift"
-    );
-    // A top coefficient of 1 cannot determine the sign without reading lower
-    // digits. Combining the next position writes the partial sum one digit
-    // lower, so the lowest-written position moves with it.
-    assert_eq!(acc.cmp_zero(), Ordering::Greater);
-    let (sign, magnitude, shift) = acc.sign_biguint_shl();
-    assert_eq!(sign, Ordering::Greater);
-    assert!(
-        shift < 1280,
-        "comparison compaction must lower the returned shift"
-    );
-    assert_eq!(
-        (&magnitude, shift),
-        (&(UBig::ONE << 32usize), 1248),
-        "the collapse re-deposits one digit down: shift 32 · 39, magnitude 2^32"
-    );
-    // The pair is one valid representation of the unchanged value.
-    assert_eq!(
-        magnitude << usize::try_from(shift).expect("the shift fits the address space"),
-        UBig::ONE << 1280usize,
-        "the collapse is value-preserving"
-    );
+    for read in 0..3 {
+        let (sign, limbs, shift) = acc.scaled_signed_magnitude();
+        assert_eq!(
+            (sign, &*limbs, shift),
+            (Ordering::Greater, &[1 << 32][..], 1248),
+            "read {read}: the span below digit 39 is factored out whole"
+        );
+        assert_eq!(
+            from_limbs(&limbs) << usize::try_from(shift).unwrap(),
+            UBig::ONE << 1280usize,
+            "read {read} reconstructs the value"
+        );
+    }
 }
 
 /// The representation `[0, −2]` normalizes to `−2^33` across a zero low digit.
@@ -370,21 +354,21 @@ fn comparison_compaction_lowers_the_scaled_read_shift() {
 #[test]
 fn flush_right_carry_tie_converts_exactly() {
     let mut acc = Accumulator::new();
-    acc.ensure_digits();
+    acc.value.get_mut().ensure_digits();
     acc -= 1_u64 << 32;
     acc -= 1_u64 << 32;
     assert!(
-        acc.small.is_none(),
+        acc.stored().small.is_none(),
         "the boundary under test lives in the digit representation"
     );
     assert_eq!(
-        acc.digits.stored_digits(),
+        acc.stored().digits.stored_digits(),
         &[0, -2],
         "the recenter tie leaves remainder 0 and carry −2"
     );
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!((sign, magnitude), (Ordering::Less, UBig::from(1u64 << 33)));
-    assert_eq!(acc.cmp_zero(), Ordering::Less);
+    assert_eq!(acc.sign(), Ordering::Less);
 }
 
 /// Word updates use the scalar until a wide operand requires digits.
@@ -396,22 +380,22 @@ fn small_value_engages_and_retires() {
     acc += u64::MAX;
     acc -= i64::MIN;
     assert!(
-        acc.small.is_some(),
+        acc.stored().small.is_some(),
         "word-scale streams stay in the small representation"
     );
     acc.add_limb_value(&(UBig::from(1u8) << 200usize));
     assert!(
-        acc.small.is_none(),
+        acc.stored().small.is_none(),
         "a wide operand arms the digit representation"
     );
     acc += 1_u64;
     assert!(
-        acc.small.is_none(),
+        acc.stored().small.is_none(),
         "small updates retain digits until reset"
     );
     acc.reset();
     assert!(
-        acc.small.is_some(),
+        acc.stored().small.is_some(),
         "reset restores the small representation"
     );
 }
@@ -422,18 +406,21 @@ fn small_value_engages_and_retires() {
 fn limb_stream_selects_the_narrowest_representation() {
     let mut acc = Accumulator::new();
     acc.add_shifted_limbs(17, []);
-    assert!(acc.small.is_some(), "an empty stream changes no state");
+    assert!(
+        acc.stored().small.is_some(),
+        "an empty stream changes no state"
+    );
 
     acc.add_shifted_limbs(0, [u64::MAX]);
     assert!(
-        acc.small.is_some(),
+        acc.stored().small.is_some(),
         "a machine-word stream uses the small-value path"
     );
     assert_value(&acc, &IBig::from(u64::MAX));
 
     acc.add_shifted_limbs(0, [1, 1]);
     assert!(
-        acc.small.is_none(),
+        acc.stored().small.is_none(),
         "a two-word stream enters the digit representation"
     );
     assert_value(
@@ -451,7 +438,10 @@ fn full_small_value(negative: bool) -> (Accumulator, IBig) {
     if negative {
         acc = -acc;
     }
-    assert!(acc.small.is_some(), "the ceiling remains a small value");
+    assert!(
+        acc.stored().small.is_some(),
+        "the ceiling remains a small value"
+    );
     let mut oracle = IBig::from(UBig::ONE << 96usize);
     if negative {
         oracle = -oracle;
@@ -509,13 +499,13 @@ fn small_value_extremes_spill_exactly() {
             [(false, false), (false, true), (true, false), (true, true)]
         {
             let (mut acc, mut oracle) = full_small_value(negative);
-            let (mut operand, operand_oracle) = full_small_value(fold_negative);
+            let (operand, operand_oracle) = full_small_value(fold_negative);
             let scaled = operand_oracle << SMALL_SHIFT_MAX as usize;
             if subtract {
-                acc.sub_shifted(SMALL_SHIFT_MAX, &mut operand);
+                acc.sub_shifted(SMALL_SHIFT_MAX, &operand);
                 oracle -= scaled;
             } else {
-                acc.add_shifted(SMALL_SHIFT_MAX, &mut operand);
+                acc.add_shifted(SMALL_SHIFT_MAX, &operand);
                 oracle += scaled;
             }
             assert_value(&acc, &oracle);
@@ -525,14 +515,17 @@ fn small_value_extremes_spill_exactly() {
         let (mut acc, mut oracle) = full_small_value(negative);
         acc <<= SMALL_SHIFT_MAX;
         oracle <<= SMALL_SHIFT_MAX as usize;
-        assert!(acc.small.is_none(), "the shifted ceiling spills");
+        assert!(acc.stored().small.is_none(), "the shifted ceiling spills");
         assert_value(&acc, &oracle);
 
         // Negation at the ceiling stays in the small representation.
         let (mut acc, mut oracle) = full_small_value(negative);
         acc = -acc;
         oracle = -oracle;
-        assert!(acc.small.is_some(), "the zone is symmetric about zero");
+        assert!(
+            acc.stored().small.is_some(),
+            "the zone is symmetric about zero"
+        );
         assert_value(&acc, &oracle);
     }
 }
@@ -552,7 +545,7 @@ fn normalized_limb_conversion_corners() {
         },
         (Ordering::Equal, vec![])
     );
-    zero.ensure_digits();
+    zero.value.get_mut().ensure_digits();
     assert_eq!(
         {
             let (sign, limbs) = zero.signed_magnitude();
@@ -583,9 +576,9 @@ fn normalized_limb_conversion_corners() {
                     acc = -acc;
                 }
                 if spill {
-                    acc.ensure_digits();
+                    acc.value.get_mut().ensure_digits();
                 } else {
-                    assert!(acc.small.is_some(), "the construction stays small");
+                    assert!(acc.stored().small.is_some(), "the construction stays small");
                 }
                 let sign = if negative {
                     Ordering::Less
@@ -617,7 +610,7 @@ fn reserve_bits_is_value_neutral() {
     acc += 7_i64;
     acc.reserve_bits(3_200);
     assert!(
-        acc.small.is_some(),
+        acc.stored().small.is_some(),
         "reserving storage does not change representation"
     );
     let mut oracle = IBig::from(7);

@@ -8,6 +8,7 @@
 
 use super::{min_ticks_from_big, JUMP_PAIR_MAGNITUDE_BITS};
 use before::testing::meter;
+use before::testing::meter::board::stored_nonzero_deltas;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
 use suanpan::touch_meter;
@@ -55,10 +56,20 @@ struct QueryRun {
 
 /// One `Version::min_ticks` run over a generated family shape, with
 /// the family's closed-form tick total as the semantic leg and the
-/// one-touch-per-operand-byte liveness floor.
+/// board's liveness floor for the fold.
+///
+/// The floor is the mechanism's irreducible work, not the family's typical
+/// work: the fold adds every nonzero stored delta to its accumulator, at least
+/// one digit touch each. A floor per operand byte instead assumes a typical
+/// cost per delta that a cheaper read of the same deltas can undercut.
 fn min_ticks_family_run(encoded: before::testing::meter::Encoding, expected: &BigUint) -> QueryRun {
     let v = encoded.version();
     let bytes = v.encode().len() as u64;
+    let folds = stored_nonzero_deltas(&v);
+    assert!(
+        folds > 0,
+        "the family stores a nonzero delta, so its floor is live"
+    );
     touch_meter::reset();
     let ticks = v.min_ticks();
     let run = QueryRun {
@@ -71,9 +82,10 @@ fn min_ticks_family_run(encoded: before::testing::meter::Encoding, expected: &Bi
         "min_ticks disagrees with the family's closed form"
     );
     assert!(
-        run.touches >= run.bytes,
+        run.touches >= folds,
         "min_ticks at {bytes} operand bytes: {} digit touches under the \
-         one-per-byte floor: the fold's accumulator work is not metered",
+         one-per-nonzero-delta floor of {folds}: the fold's accumulator work is \
+         not metered",
         run.touches,
     );
     run

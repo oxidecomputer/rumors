@@ -6,7 +6,6 @@ use suanpan::Accumulator;
 
 use super::super::width::ScaledWidth;
 use super::Aggregate;
-use crate::accumulator::BigIntAccumulator as _;
 
 /// Build the cumulative work weights used to split reduction ranges.
 fn weight_prefix(weights: &[u64]) -> Vec<u64> {
@@ -99,7 +98,7 @@ proptest! {
         }
         let mut actual = Accumulator::new();
         Aggregate::reduce(leaves, &mut actual);
-        prop_assert_eq!(actual.to_bigint(), expected);
+        prop_assert_eq!(BigInt::from(&actual), expected);
     }
 
     /// Every split is nonempty and depth is bounded by twice the log of total weight.

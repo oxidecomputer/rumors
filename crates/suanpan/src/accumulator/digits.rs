@@ -32,8 +32,8 @@
 //! the stored form, not of the normalized magnitude.
 //!
 //! Comparisons with zero scan downward and rewrite the part they inspect so the same
-//! cancellation is not paid for twice. A normalized magnitude is instead
-//! produced in temporary unsigned storage, leaving these digits unchanged.
+//! cancellation is not paid for twice. A magnitude read likewise normalizes
+//! the digits it reads in place.
 
 mod add;
 mod normalize;
@@ -126,15 +126,6 @@ impl Digits {
     /// Count stored positions without inspecting the buffer.
     pub fn stored_digit_count(&self) -> usize {
         self.highest_nonzero + 1
-    }
-
-    /// Return whether depositing `width` digits at bit offset `shift` would
-    /// extend the buffer.
-    ///
-    /// The position is computed in `u128`, so no shift wraps around to a
-    /// position inside the buffer.
-    pub fn deposit_extends_buffer(&self, shift: u64, width: usize) -> bool {
-        u128::from(shift / u64::from(DIGIT_BITS)) + width as u128 > self.digits.len() as u128
     }
 
     /// Count the digit positions the buffer holds, including zeros above the

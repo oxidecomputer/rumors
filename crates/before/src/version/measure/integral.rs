@@ -26,8 +26,9 @@
 //!   the end, together with the other deferred heights.
 //!
 //! A **freeze** transfers `live` into `parked`. After each boundary, the driver
-//! compares the width of `live` with the widest delta just read. If `live`
-//! exceeds it by more than [`HEIGHT_FREEZE_ALLOWANCE_DIGITS`], it freezes before
+//! compares the working width of `live` with the bit length of the widest
+//! delta just read. If `live` exceeds it by more than
+//! [`HEIGHT_FREEZE_ALLOWANCE_BITS`], it freezes before
 //! processing the next region. Thus a wide change can pay for one wide region
 //! addition, but later tiny changes cannot keep provoking that same wide work.
 //! Oscillations made of wide deltas remain live: their own input already pays
@@ -103,12 +104,10 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint};
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
-
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
 
-use super::HEIGHT_FREEZE_ALLOWANCE_DIGITS;
+use super::HEIGHT_FREEZE_ALLOWANCE_BITS;
 
 mod deferred;
 mod pair;
@@ -119,7 +118,7 @@ pub use width::{densified_digits, reset_densified_digits};
 
 #[cfg(test)]
 thread_local! {
-    /// Successful transfers of nonzero live changes on this test thread.
+    /// Freezes on this test thread.
     /// Tests use this to establish that wide-input cases reach the freeze path.
     pub static FREEZE_HITS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 
@@ -191,11 +190,10 @@ impl Integrator {
 
     /// Add the next region, whose width at the common scale is `2^weight_shift`.
     pub fn interval(&mut self, weight_shift: u64) {
-        // This cheap test may miss cancellation in buffered digits. Adding a
-        // mathematically zero `live` inside `total`'s buffer is harmless, and
-        // `add_shifted` compacts and skips one that would extend that buffer.
+        // This cheap test may miss cancellation in buffered digits;
+        // `add_shifted` compacts `live` and skips it if zero.
         if !self.live.is_known_zero() {
-            self.total.add_shifted(weight_shift, &mut self.live);
+            self.total.add_shifted(weight_shift, &self.live);
         }
         if self.tracks_width {
             self.segment_width
@@ -211,7 +209,7 @@ impl Integrator {
     /// one or two. Applying the signed accumulator directly avoids normalizing
     /// it into a temporary magnitude merely to stream that magnitude back into
     /// another accumulator.
-    pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &mut Accumulator) {
+    pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &Accumulator) {
         if order == Ordering::Equal {
             return;
         }
@@ -230,23 +228,24 @@ impl Integrator {
         }
     }
 
-    /// Finish a boundary, bounding the live width by the widest delta read there.
-    pub fn boundary(&mut self, delta_digits: usize) {
-        if self.live.stored_digit_count() > delta_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
+    /// Finish a boundary, bounding the live width by the bit length of the
+    /// widest delta read there.
+    pub fn boundary(&mut self, delta_bits: u64) {
+        if self.live.stored_bits() > delta_bits + HEIGHT_FREEZE_ALLOWANCE_BITS {
             self.freeze();
         }
     }
 
     /// Account for the old parked height, then park the recent changes.
+    ///
+    /// The drift is nonzero whenever the trigger fires: `interval` compacts
+    /// `live` before each boundary, so a drift that cancels keeps no width
+    /// beyond its deltas'. Freezing a zero drift would still be exact; it would
+    /// only settle the segment early and park nothing.
     fn freeze(&mut self) {
-        let drift_order = self.live.cmp_zero();
-        if drift_order == Ordering::Equal {
-            // Buffered changes cancel. Nothing moves, and the current segment
-            // remains open because its parked height has not changed.
-            self.live.reset();
-            return;
-        }
-        let drift_digits = self.live.stored_digit_count();
+        // Compact the drift so that its width measures its value.
+        self.live.sign();
+        let drift_bits = self.live.stored_bits();
         self.tracks_width = true;
         #[cfg(test)]
         FREEZE_HITS.with(|hits| hits.set(hits.get() + 1));
@@ -254,9 +253,16 @@ impl Integrator {
         // This segment belongs to the old parked height. Live changes have
         // already contributed to it region by region; folding them into the
         // parked height first would charge those contributions a second time.
-        let parked = self.close_segment();
-        if self.parked.stored_digit_count() > drift_digits + HEIGHT_FREEZE_ALLOWANCE_DIGITS {
-            self.defer_parked(parked);
+        // A parked height much wider than the drift then owes every later
+        // region, so it is deferred rather than multiplied at each narrow
+        // freeze. Reading it left its working width at its value's width.
+        if let Some(parked) = self.close_segment() {
+            if self.parked.stored_bits() > drift_bits + HEIGHT_FREEZE_ALLOWANCE_BITS {
+                #[cfg(test)]
+                DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
+                self.deferred.push(parked);
+                self.parked.reset();
+            }
         }
         self.parked += &self.live;
         self.live.reset();
@@ -266,7 +272,8 @@ impl Integrator {
         self.segment_width = Accumulator::new();
     }
 
-    /// Settle the completed segment and return its normalized parked height.
+    /// Settle the completed segment and return its parked height, or `None`
+    /// if that height is zero.
     ///
     /// A following deferral reuses the value already needed for multiplication,
     /// rather than reading the parked accumulator twice at the same boundary.
@@ -283,7 +290,7 @@ impl Integrator {
         if self.parked.is_known_zero() {
             return None;
         }
-        let parked = self.parked.to_bigint();
+        let parked = BigInt::from(&self.parked);
         if parked == BigInt::ZERO {
             return None;
         }
@@ -291,35 +298,24 @@ impl Integrator {
         Some(parked)
     }
 
-    /// Record the parked height's remaining contribution from this boundary on.
-    /// The preceding segment must already have been closed.
-    fn defer_parked(&mut self, parked: Option<BigInt>) {
-        if let Some(parked) = parked {
-            #[cfg(test)]
-            DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
-            self.deferred.push(parked);
-        }
-        self.parked.reset();
-    }
-
     /// Settle the last parked segment without collecting an unused deferred width.
     fn finish_segment(&mut self) {
         if self.parked.is_known_zero() {
             return;
         }
-        let parked = self.parked.to_bigint();
+        let parked = BigInt::from(&self.parked);
         if parked != BigInt::ZERO {
             let width = ScaledWidth::read(&self.segment_width);
             width.add_product(&mut self.total, &parked);
         }
     }
 
-    /// Finish the exact numerator at scale `2^closing_shift`.
+    /// Return the exact signed numerator at scale `2^closing_shift`.
     ///
     /// Live changes have already contributed at every region. The parked
     /// height owes its final segment, deferred heights owe all widths after
     /// their deferrals, and the base height owes the whole domain.
-    pub fn finish(mut self, closing_shift: u64) -> (Ordering, BigUint) {
+    pub fn finish(mut self, closing_shift: u64) -> Accumulator {
         self.finish_segment();
         if !self.deferred.is_empty() {
             self.deferred
@@ -327,8 +323,8 @@ impl Integrator {
             self.deferred.finish(&mut self.total);
         }
         if !self.base.is_known_zero() {
-            self.total.add_shifted(closing_shift, &mut self.base);
+            self.total.add_shifted(closing_shift, &self.base);
         }
-        self.total.biguint_parts()
+        self.total
     }
 }

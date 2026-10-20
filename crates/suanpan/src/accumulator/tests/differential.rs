@@ -17,6 +17,7 @@ use super::{
     assert_value, fresh, from_limbs, oracle_sign, park_extreme_negative_digit, Accumulator,
     TestBig as _,
 };
+use crate::accumulator::compare::CLOSE_LEAD;
 use crate::accumulator::operand::Update;
 use crate::accumulator::small::SMALL_SHIFT_MAX;
 
@@ -240,8 +241,8 @@ fn build_stability_value(value: &StabilityValue, floor: usize) -> (Accumulator, 
             while remaining > 0 {
                 let step = remaining.min(SMALL_SHIFT_MAX);
                 if *fold_shift {
-                    let mut operand = core::mem::take(&mut acc);
-                    acc.add_shifted(step, &mut operand);
+                    let operand = core::mem::take(&mut acc);
+                    acc.add_shifted(step, &operand);
                 } else {
                     acc <<= step;
                 }
@@ -252,7 +253,7 @@ fn build_stability_value(value: &StabilityValue, floor: usize) -> (Accumulator, 
                 acc = -acc;
             }
             assert!(
-                acc.small.is_some(),
+                acc.stored().small.is_some(),
                 "the small-value arm remains small until its requested spill"
             );
             let mut oracle = (IBig::from(*m) << (32 * (floor + 1) - 31)) + IBig::from(*delta);
@@ -260,7 +261,7 @@ fn build_stability_value(value: &StabilityValue, floor: usize) -> (Accumulator, 
                 oracle = -oracle;
             }
             if *spill {
-                acc.ensure_digits();
+                acc.value.get_mut().ensure_digits();
             }
             (acc, oracle)
         }
@@ -303,7 +304,7 @@ fn build_probe(
     let mut probe = Accumulator::new();
     // Force the signed-digit representation so the contributions remain
     // separate coefficients rather than combining as one small integer.
-    probe.ensure_digits();
+    probe.value.get_mut().ensure_digits();
     let mut oracle = IBig::from(0);
     for (index, spec) in digits[..=floor].iter().enumerate() {
         let spec = if all_extreme {
@@ -353,7 +354,7 @@ proptest! {
         assert_value(&acc, &oracle);
         for (step, op) in second.iter().enumerate() {
             apply(&mut acc, &mut oracle, op);
-            prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle), "sign at step {}", step);
+            prop_assert_eq!(acc.sign(), oracle_sign(&oracle), "sign at step {}", step);
         }
         assert_value(&acc, &oracle);
     }
@@ -377,8 +378,8 @@ proptest! {
         probe_all_extreme: bool,
         probe_negate: bool,
     ) {
-        let (mut acc, oracle) = build_stability_value(&value, floor);
-        let was_small = acc.small.is_some();
+        let (acc, oracle) = build_stability_value(&value, floor);
+        let was_small = acc.stored().small.is_some();
         let stable = acc.cmp_zero_stable_under((floor as u64 + 1) * 32);
         let sign = oracle_sign(&oracle);
         if let Some(reported) = stable {
@@ -437,38 +438,42 @@ proptest! {
             let mut folded = acc.clone();
             folded -= &operand;
             prop_assert_eq!(
-                folded.cmp_zero(), sign,
+                folded.sign(), sign,
                 "a decided verdict survives subtracting an operand stored \
                  in digits 0..=floor"
             );
             let mut folded = acc.clone();
             folded += &operand;
             prop_assert_eq!(
-                folded.cmp_zero(), sign,
+                folded.sign(), sign,
                 "a decided verdict survives adding an operand stored in \
                  digits 0..=floor"
             );
         }
     }
 
-    /// Alternating stability refusals converge to a cheap exact comparison.
+    /// Alternating stability refusals converge to a cheap exact comparison,
+    /// and `Ord`, which runs that protocol, agrees with exact order.
     ///
     /// Both operands range across the scalar and signed-digit representations,
     /// including shifted updates, cancellation, and extreme coefficients. The
-    /// test follows the comparison protocol used by clients: inspect the wider
-    /// operand, reverse roles whenever compaction exposes the other as wider,
-    /// and subtract only once their stored widths differ by at most two digits.
-    /// Every refusal must strictly reduce the combined retained width.
+    /// test follows the comparison protocol's loop: inspect the wider operand,
+    /// reverse roles whenever compaction exposes the other as wider, and stop
+    /// once their stored widths differ by at most [`CLOSE_LEAD`] digits. Every refusal must strictly reduce the combined
+    /// retained width. `cmp` on fresh copies of the same stored forms, in both
+    /// orders, must return the exact order.
     #[test]
     fn two_sided_stability_converges_to_exact_comparison(
         (left_value, left_floor) in arb_stability_value(),
         (right_value, right_floor) in arb_stability_value(),
     ) {
-        let (mut left, left_oracle) = build_stability_value(&left_value, left_floor);
-        let (mut right, right_oracle) = build_stability_value(&right_value, right_floor);
+        let (left, left_oracle) = build_stability_value(&left_value, left_floor);
+        let (right, right_oracle) = build_stability_value(&right_value, right_floor);
         let expected = left_oracle.cmp(&right_oracle);
+        prop_assert_eq!(left.clone().cmp(&right.clone()), expected);
+        prop_assert_eq!(right.clone().cmp(&left.clone()), expected.reverse());
         let close = |left: &Accumulator, right: &Accumulator| {
-            left.stored_digit_count().abs_diff(right.stored_digit_count()) <= 2
+            left.stored_digit_count().abs_diff(right.stored_digit_count()) <= CLOSE_LEAD
         };
 
         let initial_width = left.stored_digit_count() + right.stored_digit_count();
@@ -509,7 +514,7 @@ proptest! {
             );
             let mut difference = left.clone();
             difference -= &right;
-            difference.cmp_zero()
+            difference.sign()
         };
         prop_assert_eq!(actual, expected);
         assert_value(&left, &left_oracle);
@@ -572,7 +577,7 @@ proptest! {
         let mut acc = Accumulator::new();
         // This boundary exists only in signed digits; a small value is read
         // directly and never recentered.
-        acc.ensure_digits();
+        acc.value.get_mut().ensure_digits();
         let mut oracle = IBig::from(0);
         for (multiple, index, negative) in &ops {
             let delta = UBig::from(multiple << 32);
@@ -588,7 +593,7 @@ proptest! {
             // Raw representation first: the read-out samples the complement
             // boundary before comparison with zero compacts the digits.
             assert_value(&acc, &oracle);
-            prop_assert_eq!(acc.cmp_zero(), oracle_sign(&oracle));
+            prop_assert_eq!(acc.sign(), oracle_sign(&oracle));
         }
     }
 }
@@ -609,10 +614,10 @@ fn boundary_comb_oscillation_matches_the_oracle() {
     for _ in 0..2_000 {
         acc += 1_i64;
         oracle += 1;
-        assert_eq!(acc.cmp_zero(), Ordering::Greater, "above the cliff");
+        assert_eq!(acc.sign(), Ordering::Greater, "above the cliff");
         acc -= 1_i64;
         oracle -= 1;
-        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back below the cliff");
+        assert_eq!(acc.sign(), Ordering::Greater, "back below the cliff");
     }
     assert_value(&acc, &oracle);
 }
@@ -632,10 +637,10 @@ fn wide_teeth_across_the_cliff_match_the_oracle() {
     for _ in 0..500 {
         acc.sub_limb_value(&tooth);
         oracle -= IBig::from(tooth.clone());
-        assert_eq!(acc.cmp_zero(), Ordering::Greater, "below the cliff");
+        assert_eq!(acc.sign(), Ordering::Greater, "below the cliff");
         acc.add_limb_value(&tooth);
         oracle += IBig::from(tooth.clone());
-        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at the cliff");
+        assert_eq!(acc.sign(), Ordering::Greater, "back at the cliff");
     }
     assert_value(&acc, &oracle);
 }
@@ -654,14 +659,14 @@ fn cancelling_prefix_chain_matches_the_oracle() {
     let mut oracle = IBig::from(0);
     acc.add_limb_value(&peak);
     oracle += IBig::from(peak);
-    assert_eq!(acc.cmp_zero(), Ordering::Greater);
+    assert_eq!(acc.sign(), Ordering::Greater);
     for cycle in 0..200 {
         acc.sub_limb_value(&descent);
         oracle -= IBig::from(descent.clone());
-        assert_eq!(acc.cmp_zero(), Ordering::Greater, "down at 1");
+        assert_eq!(acc.sign(), Ordering::Greater, "down at 1");
         acc.add_limb_value(&descent);
         oracle += IBig::from(descent.clone());
-        assert_eq!(acc.cmp_zero(), Ordering::Greater, "back at the peak");
+        assert_eq!(acc.sign(), Ordering::Greater, "back at the peak");
         if cycle % 16 == 0 {
             assert_value(&acc, &oracle);
         }
@@ -681,19 +686,15 @@ fn exact_cancellation_and_unit_nudges_read_correctly() {
     oracle += IBig::from(wide.clone());
     acc.sub_limb_value(&wide);
     oracle -= IBig::from(wide);
-    assert_eq!(
-        acc.cmp_zero(),
-        Ordering::Equal,
-        "exact cancellation is zero"
-    );
+    assert_eq!(acc.sign(), Ordering::Equal, "exact cancellation is zero");
     assert_value(&acc, &oracle);
     acc -= 1_i64;
     oracle -= 1;
-    assert_eq!(acc.cmp_zero(), Ordering::Less, "one below zero");
+    assert_eq!(acc.sign(), Ordering::Less, "one below zero");
     assert_value(&acc, &oracle);
     acc += 2_i64;
     oracle += 2;
-    assert_eq!(acc.cmp_zero(), Ordering::Greater, "one above zero");
+    assert_eq!(acc.sign(), Ordering::Greater, "one above zero");
     assert_value(&acc, &oracle);
 }
 
@@ -707,7 +708,7 @@ fn negative_limb_values_read_back_exactly() {
     let wide = (UBig::from(1u8) << 192usize) - 5u8;
     acc.sub_limb_value(&wide);
     oracle -= IBig::from(wide);
-    assert_eq!(acc.cmp_zero(), Ordering::Less);
+    assert_eq!(acc.sign(), Ordering::Less);
     assert_value(&acc, &oracle);
     // Exact multiple of 2^32: −2^96.
     let mut acc = Accumulator::new();
@@ -715,7 +716,7 @@ fn negative_limb_values_read_back_exactly() {
     let aligned = UBig::from(1u8) << 96usize;
     acc.sub_limb_value(&aligned);
     oracle -= IBig::from(aligned);
-    assert_eq!(acc.cmp_zero(), Ordering::Less);
+    assert_eq!(acc.sign(), Ordering::Less);
     assert_value(&acc, &oracle);
 }
 
@@ -728,15 +729,15 @@ fn u64_entry_points_cover_the_full_range() {
         let mut oracle = IBig::from(0);
         acc += u64::MAX;
         oracle += u64::MAX;
-        assert_eq!(acc.cmp_zero(), Ordering::Greater);
+        assert_eq!(acc.sign(), Ordering::Greater);
         assert_value(&acc, &oracle);
         acc -= u64::MAX;
         oracle -= u64::MAX;
-        assert_eq!(acc.cmp_zero(), Ordering::Equal);
+        assert_eq!(acc.sign(), Ordering::Equal);
         assert_value(&acc, &oracle);
         acc -= u64::MAX;
         oracle -= u64::MAX;
-        assert_eq!(acc.cmp_zero(), Ordering::Less);
+        assert_eq!(acc.sign(), Ordering::Less);
         assert_value(&acc, &oracle);
     }
 }
@@ -748,7 +749,10 @@ fn redundant_zero_reads_nonzero_until_collapsed() {
     // Start in the digit representation deliberately: the test needs two cancelling
     // digits, not a particular public operation's dispatch choice.
     let mut acc = fresh(true);
-    acc.digits.apply_limbs(core::iter::once(1), Update::Add, 32);
+    acc.value
+        .get_mut()
+        .digits
+        .apply_limbs(core::iter::once(1), Update::Add, 32);
     acc -= 1_i64 << 32;
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!((sign, magnitude), (Ordering::Equal, UBig::ZERO));
@@ -756,7 +760,7 @@ fn redundant_zero_reads_nonzero_until_collapsed() {
         !acc.is_known_zero(),
         "cancelling digits spell zero redundantly"
     );
-    assert_eq!(acc.cmp_zero(), Ordering::Equal);
+    assert_eq!(acc.sign(), Ordering::Equal);
     assert!(
         acc.is_known_zero(),
         "comparison with zero compacts the representation to visible zero"
@@ -766,10 +770,30 @@ fn redundant_zero_reads_nonzero_until_collapsed() {
 /// A fresh accumulator (and its `Default`) holds exactly zero.
 #[test]
 fn new_and_default_hold_zero() {
-    for mut acc in [Accumulator::new(), Accumulator::default()] {
-        assert_eq!(acc.cmp_zero(), Ordering::Equal);
+    for acc in [Accumulator::new(), Accumulator::default()] {
+        assert_eq!(acc.sign(), Ordering::Equal);
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Equal);
         assert_eq!(magnitude, UBig::from(0u8));
+    }
+}
+
+/// Comparing `2·2^(32(n + 1))` with an `n`-digit value terminates and is exact
+/// in both orders, for `n` from 1 through 5.
+///
+/// The wide side leads by two digits. Its top digit 2 does not decide, and
+/// compacting it into the digit below carries the same 2 back up, so a
+/// comparison that asked the wide side's stability query at this lead would
+/// never narrow it. The comparison must subtract instead.
+#[test]
+fn comparison_terminates_when_a_refusal_recarries() {
+    for narrow_digits in 1u64..=5 {
+        let mut wide = Accumulator::new();
+        wide.add_shifted_limbs(32 * (narrow_digits + 1) + 1, [1]);
+        let mut narrow = Accumulator::new();
+        narrow.add_shifted_limbs(32 * (narrow_digits - 1), [1, 0]);
+        assert_eq!(wide.stored_digit_count(), narrow.stored_digit_count() + 2);
+        assert_eq!(wide.cmp(&narrow), Ordering::Greater);
+        assert_eq!(narrow.cmp(&wide), Ordering::Less);
     }
 }

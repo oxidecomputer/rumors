@@ -6,10 +6,14 @@
 //! value still reads correctly.
 
 mod differential;
+#[cfg(feature = "num-bigint")]
+mod interop;
 #[cfg(feature = "touch-meter")]
 mod metered;
 mod primitives;
 mod representation;
+mod same_cell;
+mod standard;
 mod surface;
 mod witnesses;
 
@@ -17,7 +21,17 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig, Sign};
 
+use super::value::Value;
 use super::Accumulator;
+
+/// Check a value's representation for the tests.
+impl Value {
+    /// Check the digit invariants after `trace`, including that a small value
+    /// leaves every retained digit zero.
+    fn assert_invariants(&self, trace: &[u8]) {
+        self.digits.assert_invariants(self.small.is_some(), trace);
+    }
+}
 
 /// Start at zero in either the scalar or digit representation.
 ///
@@ -26,7 +40,7 @@ use super::Accumulator;
 fn fresh(digits: bool) -> Accumulator {
     let mut acc = Accumulator::new();
     if digits {
-        acc.ensure_digits();
+        acc.value.get_mut().ensure_digits();
     }
     acc
 }
@@ -44,34 +58,63 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
     }
 }
 
-/// Assert that both limb readouts denote the oracle's exact signed value.
+/// Assert that both limb readouts denote the oracle's exact signed value, and
+/// that each read keeps that value in the value's own working width.
+///
+/// Each read runs on its own clone, so the caller's stored form is unchanged
+/// for later steps. A read keeps the normalized form it computes, so reading
+/// the clone again checks that written-back form: it must hold the same value,
+/// in a working width that is the value's own, with every digit invariant.
 fn assert_value(acc: &Accumulator, oracle: &IBig) {
-    let expected_sign = oracle_sign(oracle);
-    let (sign, limbs) = acc.signed_magnitude();
-    assert_eq!(sign, expected_sign, "unscaled sign");
-    assert_ne!(limbs.as_ref().last(), Some(&0), "no high zero limb");
-    let magnitude = IBig::from(from_limbs(limbs.as_ref()));
-    let rebuilt = if sign == Ordering::Less {
-        -magnitude
-    } else {
-        magnitude
-    };
-    assert_eq!(&rebuilt, oracle, "unscaled value");
+    let own_width = usize::try_from(oracle.magnitude().bits().div_ceil(32).max(1))
+        .expect("tested values have addressable widths");
+    for scaled in [false, true] {
+        let mut read = acc.clone();
+        for repeated in [false, true] {
+            assert_eq!(
+                &read_value(&mut read, scaled),
+                oracle,
+                "value (scaled read: {scaled}, repeated: {repeated})"
+            );
+        }
+        assert_eq!(
+            read.stored_digit_count(),
+            own_width,
+            "a read leaves the value's own working width (scaled read: {scaled})"
+        );
+        read.stored().assert_invariants(&[]);
+    }
+}
 
-    let (sign, limbs, shift) = acc.scaled_signed_magnitude();
-    assert_eq!(sign, expected_sign, "scaled sign");
+/// Read the exact signed value through one of the two limb readouts.
+///
+/// The readout's sign must be the value's, and its limbs must have no high
+/// zero word.
+fn read_value(acc: &mut Accumulator, scaled: bool) -> IBig {
+    let (sign, limbs, shift) = if scaled {
+        let (sign, limbs, shift) = acc.scaled_signed_magnitude();
+        (sign, limbs.as_ref().to_vec(), shift)
+    } else {
+        let (sign, limbs) = acc.signed_magnitude();
+        (sign, limbs.as_ref().to_vec(), 0)
+    };
     assert_ne!(
-        limbs.as_ref().last(),
+        limbs.last(),
         Some(&0),
-        "no high zero limb at scale"
+        "no high zero limb (scaled: {scaled})"
     );
-    let magnitude = IBig::from(from_limbs(limbs.as_ref())) << usize::try_from(shift).unwrap();
-    let rebuilt = if sign == Ordering::Less {
+    let magnitude = IBig::from(from_limbs(&limbs)) << usize::try_from(shift).unwrap();
+    let value = if sign == Ordering::Less {
         -magnitude
     } else {
         magnitude
     };
-    assert_eq!(&rebuilt, oracle, "scaled value");
+    assert_eq!(
+        sign,
+        oracle_sign(&value),
+        "sign agrees with the limbs (scaled: {scaled})"
+    );
+    value
 }
 
 /// A wide magnitude from little-endian 64-bit limbs.
@@ -94,10 +137,9 @@ trait TestBig {
     fn add_value_shl(&mut self, value: &UBig, shift: u64);
     /// Subtract a shifted oracle value through the narrowest applicable path.
     fn sub_value_shl(&mut self, value: &UBig, shift: u64);
-    /// Read the held value into the big-integer oracle representation.
+    /// Read a clone of the held value into the big-integer oracle
+    /// representation, leaving the stored form unchanged.
     fn sign_biguint(&self) -> (Ordering, UBig);
-    /// Read the held value and retained scale into the oracle representation.
-    fn sign_biguint_shl(&self) -> (Ordering, UBig, u64);
 }
 
 /// Keep the oracle library outside the production arithmetic paths.
@@ -138,16 +180,13 @@ impl TestBig for Accumulator {
         }
     }
 
-    /// Build the oracle directly from the borrowed normalized limbs.
+    /// Build the oracle from a clone's normalized limbs.
+    ///
+    /// Cloning keeps the tested history independent of where the test reads:
+    /// an in-place read would normalize the value for every later step.
     fn sign_biguint(&self) -> (Ordering, UBig) {
-        let (sign, limbs) = self.signed_magnitude();
+        let (sign, limbs) = self.clone().signed_magnitude();
         (sign, from_limbs(limbs.as_ref()))
-    }
-
-    /// Preserve the returned scale while converting the borrowed magnitude.
-    fn sign_biguint_shl(&self) -> (Ordering, UBig, u64) {
-        let (sign, limbs, shift) = self.scaled_signed_magnitude();
-        (sign, from_limbs(limbs.as_ref()), shift)
     }
 }
 
@@ -160,6 +199,25 @@ fn oracle_word(value: &UBig) -> Option<u64> {
     }
 }
 
+/// Store zero as a top that cancels across two digits: `1` at `position` and
+/// `−2^32` at `position − 1`.
+///
+/// The digits stay stored until a comparison with zero compacts them, so any
+/// value added below `position − 1` sits under a working width that exceeds
+/// its own. Both writes are single digits above a recorded zero range, so a
+/// compacting scan crosses that range in one skip.
+///
+/// # Panics
+///
+/// Panics if `position` is zero.
+fn cancelled_top(position: u64) -> Accumulator {
+    assert!(position >= 1, "the cancelled top needs a digit below it");
+    let mut acc = Accumulator::new();
+    acc.add_shifted_limbs(32 * position, [1]);
+    acc.sub_shifted_limbs(32 * (position - 1), [1 << 32]);
+    acc
+}
+
 /// Put the smallest permitted coefficient, `−(2^33 − 1)`, at `index`.
 ///
 /// Both the intermediate and final coefficients stay strictly above `−2^33`,
@@ -168,7 +226,7 @@ fn oracle_word(value: &UBig) -> Option<u64> {
 fn park_extreme_negative_digit(acc: &mut Accumulator, index: u64) {
     // Store both updates as digits so their sum remains one extreme signed
     // coefficient instead of being combined in the scalar.
-    acc.ensure_digits();
+    acc.value.get_mut().ensure_digits();
     acc.sub_shifted_limbs(32 * index, [1u64 << 32]);
     acc.sub_shifted_limbs(32 * index, [(1u64 << 32) - 1]);
 }

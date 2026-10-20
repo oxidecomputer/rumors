@@ -11,7 +11,6 @@ use suanpan::Accumulator;
 
 use super::boundary::Signed;
 use super::RangeMinima;
-use crate::accumulator::BigIntAccumulator as _;
 
 /// Track emitted minima and client differences when boundaries need no payload.
 impl RangeMinima<()> {
@@ -38,7 +37,7 @@ impl RangeMinima<()> {
         }
         if self.has_pending() {
             let mut below = Accumulator::new();
-            below.sub_bigint(offset);
+            below -= offset;
             self.arm_below(below, &mut (), |_| (), |(), _| ());
             return;
         }
@@ -155,14 +154,14 @@ impl RangeMinima<()> {
     /// Convert `A - X` into `h - X` by adding the height gap `h - A`.
     ///
     /// The anchor cancels, so even a wide deferred distance is never read.
-    pub fn bridge_add_gap(&mut self, delta: &mut Accumulator) {
+    pub fn bridge_add_gap(&self, delta: &mut Accumulator) {
         self.anchor.add_gap_to(delta);
     }
 
     /// Convert `h - X` into `m - X` after resolving the deferred distance.
     ///
     /// Subtracting the resolved gap `h - m` changes only the reference point.
-    pub fn bridge_sub_gap(&mut self, delta: &mut Accumulator) {
+    pub fn bridge_sub_gap(&self, delta: &mut Accumulator) {
         self.anchor.subtract_gap_from(delta);
     }
 }

@@ -1,10 +1,10 @@
 //! Remove cancellation from the stored signed digits in one pass.
 //!
 //! Ordinary updates deliberately leave positive and negative digits mixed: that
-//! is what makes a small update cheap. Some callers eventually need the stored
-//! width to follow the value's actual magnitude. Rebuilding through normalized
-//! limbs would allocate two temporary vectors and then deposit the same value
-//! again. This pass instead carries from low to high inside the existing buffer.
+//! is what makes a small update cheap. A magnitude read needs the magnitude's
+//! unsigned digits, and writing them back lets the next read pay only for the
+//! result's width. One pass does both: it carries from low to high inside the
+//! existing buffer, and the read collects the digits it writes.
 //!
 //! Once the value's sign is known, multiplying every digit by that sign yields
 //! the positive magnitude. Euclidean division by the digit base leaves an
@@ -24,6 +24,12 @@
 //! keeps the existing digit allocation because callers commonly reuse an
 //! accumulator after reading it; no second value buffer is needed unless that
 //! one possible new position forces the vector to grow.
+//!
+//! The comparison with zero that supplies the sign first compacts any
+//! cancelled top, so the pass covers only the value's own width. The pass
+//! writes every position it covers, so it records no zero ranges there: a later
+//! descent through one of its zeros is paid for by that write, as for any
+//! other write.
 
 use core::cmp::Ordering;
 
@@ -32,13 +38,27 @@ use crate::accumulator::touch;
 
 /// Rewrite a wide value into same-signed base-2^32 digits without allocating.
 impl Digits {
-    /// Remove cancellation while retaining the allocated digit buffer.
-    pub fn normalize(&mut self) {
+    /// Rewrite the digits from `start` upward as same-signed digits below the
+    /// base, passing each magnitude digit to `emit` from low to high.
+    ///
+    /// `sign` must be the value's nonzero sign, and every digit below `start`
+    /// must be zero; any `start` at or below `lowest_written` qualifies. The
+    /// pass reads nothing below `start`, because skipping that prefix is what
+    /// keeps a scaled read proportional to the written span; a nonzero digit
+    /// there would be left out of the value. The tests in
+    /// `accumulator::tests::representation` check the zero prefix below
+    /// `lowest_written` after every step, and compare the scaled readout with
+    /// an oracle. The emitted digits may end in zeros that the final trimming
+    /// removes from the stored prefix.
+    pub(super) fn normalize_nonzero_from(
+        &mut self,
+        sign: Ordering,
+        start: usize,
+        mut emit: impl FnMut(u32),
+    ) {
         self.debug_assert_valid();
-        let sign = self.cmp_zero();
-        if sign == Ordering::Equal {
-            return;
-        }
+        debug_assert_ne!(sign, Ordering::Equal, "a zero needs no normalization");
+        debug_assert!(start <= self.highest_nonzero);
 
         let polarity = if sign == Ordering::Less {
             -1_i128
@@ -48,12 +68,13 @@ impl Digits {
         let base = 1_i128 << DIGIT_BITS;
         let old_highest = self.highest_nonzero;
         let mut carry = 0_i128;
-        for digit in &mut self.digits[..=old_highest] {
+        for digit in &mut self.digits[start..=old_highest] {
             touch(1);
             let magnitude_piece = polarity * i128::from(*digit) + carry;
             let remainder = magnitude_piece.rem_euclid(base);
             carry = magnitude_piece.div_euclid(base);
             *digit = (polarity * remainder) as i64;
+            emit(remainder as u32);
         }
 
         debug_assert!(
@@ -68,22 +89,27 @@ impl Digits {
                 .checked_add(1)
                 .expect("a normalized carry needs an addressable digit position");
             if highest == self.digits.len() {
+                // Normalization adds at most this one position, so we grow by
+                // exactly one rather than letting `push` double the buffer.
+                self.digits.reserve_exact(1);
                 self.digits.push(0);
             }
             touch(1);
             self.digits[highest] = (polarity * remainder) as i64;
+            emit(remainder as u32);
         }
         debug_assert!(
             highest <= old_highest.saturating_add(1),
             "normalization grows by at most one digit"
         );
+        let written_top = highest;
 
         while highest > 0 && self.digits[highest] == 0 {
             touch(1);
             highest -= 1;
         }
         self.highest_nonzero = highest;
-        self.zero_ranges.rebuild(&self.digits[..=highest]);
+        self.zero_ranges.remove_written(start, written_top);
         self.debug_assert_valid();
     }
 }

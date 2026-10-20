@@ -5,17 +5,16 @@
 //! distinguish empty, one-word, and wider input: one word shares the same
 //! path, while a wider stream is deposited directly into signed digits.
 //!
-//! Another accumulator is likewise read as stored. A small operand enters as
-//! one exact value; a digit-stored operand is read through its highest nonzero
+//! Another accumulator is read without a copy. A small operand enters as one
+//! exact value; a digit-stored operand is read through its highest nonzero
 //! position and deposited at the requested offset. Work therefore follows the
 //! operand's stored width, not the receiver's width.
 //!
-//! An operand's stored digits can cancel to zero. Before a shifted deposit that
-//! would extend the receiver's buffer, the operand is compared with zero,
-//! which compacts it, and a zero operand is skipped. Adding a zero at a shift
-//! therefore never grows the buffer toward the shift. A zero deposited inside
-//! the buffer can still carry one position past its top. `+=` and `-=` only
-//! borrow their operand, so they deposit its digits as stored.
+//! An operand's stored width can exceed its value's width only by cancellation
+//! at its top. Every digit-stored operand is therefore compared with zero
+//! first, which compacts that cancellation once rather than at every read, and
+//! a zero operand is skipped. Adding a zero therefore never grows the buffer,
+//! at any shift.
 //!
 //! Position arithmetic uses `u128` until the contribution is known nonzero.
 //! Only then does [`digit_index`] validate its destination. Zero contributions
@@ -24,7 +23,8 @@
 use core::cmp::Ordering;
 
 use super::small::{SMALL_MAX, SMALL_SHIFT_MAX};
-use super::{digit_index, touch, Accumulator, DIGIT_BITS};
+use super::value::Value;
+use super::{digit_index, touch, DIGIT_BITS};
 
 /// Whether a contribution is added to or subtracted from the accumulator.
 #[derive(Clone, Copy)]
@@ -32,10 +32,20 @@ pub enum Update {
     /// Add the contribution as supplied.
     Add,
     /// Subtract the contribution as supplied.
-    Subtract,
+    Sub,
 }
 
 impl Update {
+    /// The update that applies a magnitude of the given sign: subtraction
+    /// for a negative one, addition otherwise.
+    pub fn from_sign(sign: Ordering) -> Update {
+        if sign == Ordering::Less {
+            Update::Sub
+        } else {
+            Update::Add
+        }
+    }
+
     /// Apply this update to a bounded positive or signed contribution.
     pub fn apply(self, contribution: i128) -> i128 {
         debug_assert_ne!(
@@ -45,13 +55,13 @@ impl Update {
         );
         match self {
             Update::Add => contribution,
-            Update::Subtract => -contribution,
+            Update::Sub => -contribution,
         }
     }
 }
 
 /// Add each operand in the form that avoids normalization and copying.
-impl Accumulator {
+impl Value {
     /// Add a full-width integer without forcing it through signed `i128`.
     ///
     /// Smaller primitives use `add_word` and its proven headroom instead.
@@ -65,7 +75,7 @@ impl Accumulator {
             touch(1);
             let sum = match update {
                 Update::Add => value.checked_add_unsigned(magnitude),
-                Update::Subtract => value.checked_sub_unsigned(magnitude),
+                Update::Sub => value.checked_sub_unsigned(magnitude),
             };
             if let Some(sum) = sum {
                 if sum.unsigned_abs() <= SMALL_MAX {
@@ -92,8 +102,9 @@ impl Accumulator {
         }
     }
 
-    /// Add or subtract a shifted accumulator by reading its stored form.
-    pub(crate) fn apply_accumulator(&mut self, other: &Accumulator, shift: u64, update: Update) {
+    /// Add or subtract a shifted accumulator, first compacting a digit-stored
+    /// operand and skipping it if zero.
+    pub(crate) fn apply_accumulator(&mut self, other: &mut Value, shift: u64, update: Update) {
         if let Some(operand_value) = other.small {
             touch(1);
             if operand_value == 0 {
@@ -110,32 +121,16 @@ impl Accumulator {
             }
             return;
         }
+        // The deposit reads every stored digit. Compacting the cancelled top
+        // first means no later read of `other` pays for it again. Depositing a
+        // zero's cancelling digits would instead grow the buffer toward the
+        // shifted position, and panic if that position is unaddressable.
+        if other.digits.cmp_zero() == Ordering::Equal {
+            return;
+        }
         self.ensure_digits();
         self.digits
             .add_digits(other.digits.stored_digits(), shift, update);
-    }
-
-    /// Add or subtract a shifted accumulator, first compacting a digit-stored
-    /// operand whose deposit would extend the buffer, and skipping it if zero.
-    pub(crate) fn apply_shifted_accumulator(
-        &mut self,
-        other: &mut Accumulator,
-        shift: u64,
-        update: Update,
-    ) {
-        // Depositing a zero's cancelling digits past the buffer would grow it
-        // to the shifted position, and panic if that position is unaddressable.
-        // We compare with zero only when the deposit would extend the buffer:
-        // one inside it already costs the operand's width.
-        if other.small.is_none()
-            && self
-                .digits
-                .deposit_extends_buffer(shift, other.digits.stored_digit_count())
-            && other.digits.cmp_zero() == Ordering::Equal
-        {
-            return;
-        }
-        self.apply_accumulator(other, shift, update);
     }
 
     /// Add or subtract a shifted word, staying small when headroom permits.

@@ -3,8 +3,8 @@
 use core::cmp::Ordering;
 
 use num_bigint::BigUint;
+use suanpan::Accumulator;
 
-use crate::accumulator;
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::version::overlay::{advance_diff, OpenedPair, Side};
 use crate::{Rank, Version};
@@ -19,22 +19,19 @@ impl Integrator {
     /// result must be monotone over `Less`, `Equal`, `Greater` and lie in
     /// `-1..=1`; this ensures that crossing zero adds a nonnegative correction.
     pub fn pair_rank(a: &Version, b: &Version, orientation: impl Fn(Ordering) -> i8) -> Rank {
-        let (sign, total, scale) = Self::pair(a, b, orientation);
-        debug_assert_ne!(sign, Ordering::Less, "the measure is nonnegative");
+        let (total, scale) = Self::pair(a, b, orientation);
+        let total = BigUint::try_from(&total)
+            .expect("orientation keeps every integrated difference nonnegative");
         Rank::from_raw(total, scale)
     }
 
     /// Compare ranks by integrating the signed pointwise difference.
     pub fn pair_order(a: &Version, b: &Version) -> Ordering {
-        Self::pair(a, b, |_| 1).0
+        Self::pair(a, b, |_| 1).0.sign()
     }
 
     /// Integrate `orientation(sign(a - b)) * (a - b)` in one overlay walk.
-    fn pair(
-        a: &Version,
-        b: &Version,
-        orientation: impl Fn(Ordering) -> i8,
-    ) -> (Ordering, BigUint, u64) {
+    fn pair(a: &Version, b: &Version, orientation: impl Fn(Ordering) -> i8) -> (Accumulator, u64) {
         // Every overlap region lies inside a leaf of each operand. Scaling both
         // streams to the deeper maximum depth therefore gives every region an
         // integer power-of-two width and one common denominator.
@@ -45,7 +42,7 @@ impl Integrator {
             mut diff,
             ..
         } = OpenedPair::open(a, b);
-        let mut current_orientation = orientation(diff.cmp_zero());
+        let mut current_orientation = orientation(diff.sign());
         let mut integral = Integrator::new();
 
         if current_orientation != 0 {
@@ -59,7 +56,7 @@ impl Integrator {
             }
 
             let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
-            let diff_order = diff.cmp_zero();
+            let diff_order = diff.sign();
             let new_orientation = orientation(diff_order);
 
             // While the selected part is active, fold each input delta into the
@@ -82,22 +79,21 @@ impl Integrator {
                 // The delta folds above use the old orientation. This correction
                 // applies the orientation change to the updated signed difference.
                 // A sign crossing bounds its magnitude by the deltas just consumed.
-                integral.jump(new_orientation - current_orientation, diff_order, &mut diff);
+                integral.jump(new_orientation - current_orientation, diff_order, &diff);
                 current_orientation = new_orientation;
             }
 
             // At least one stream advances at every boundary. Its widest decoded
             // delta pays for the recent arithmetic retained until the next region.
-            let funded_digits = step_a
+            let funded_bits = step_a
                 .iter()
                 .chain(step_b.iter())
-                .map(|step| accumulator::digit_len(step.magnitude()))
+                .map(|step| step.magnitude().bits())
                 .max()
                 .expect("the overlay advances at least one Version per boundary");
-            integral.boundary(funded_digits);
+            integral.boundary(funded_bits);
         }
 
-        let (sign, total) = integral.finish(scale);
-        (sign, total, scale)
+        (integral.finish(scale), scale)
     }
 }

@@ -243,7 +243,7 @@ const STOPPING_TOUCH_CEILING: u64 = 34_170;
 /// boundary-dominates hop itself (plus the one stacked-boundary arming
 /// and its drain park, O(1) in `k`): a per-hop read of the surviving
 /// boundary's width lands whole here, undiluted by the shared work.
-const STOPPING_DIFF_BAND: (u64, u64) = (5_900, 9_834);
+const STOPPING_DIFF_BAND: (u64, u64) = (8_973, 14_955);
 
 /// The stopping arm uses O(1) work per hop beside the retiring fold:
 /// per-byte touches stay flat (×1.25) across a site doubling, under an

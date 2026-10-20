@@ -9,39 +9,35 @@
 use core::cmp::Ordering;
 
 use num_bigint::{BigInt, BigUint, Sign};
-use suanpan::Accumulator;
+use suanpan::{Accumulator, Limbs};
 
-use crate::accumulator::{self, BigIntAccumulator as _};
-
-/// A nonnegative interval width `magnitude * 2^shift`, with a digit-aligned shift.
+/// A nonnegative interval width `limbs · 2^shift`.
 pub struct ScaledWidth {
-    /// Only the accumulator's written span, excluding its unwritten low prefix.
-    magnitude: BigUint,
-    /// Power-of-two scale, always a multiple of 32.
+    /// Little-endian 64-bit limbs of the accumulator's written span, excluding
+    /// its unwritten low prefix; empty for zero.
+    limbs: Limbs,
+    /// The bits the read factored out below `limbs`, with no promised
+    /// granularity.
     shift: u64,
 }
 
 /// Keep an interval's unwritten low prefix separate through readout and arithmetic.
 impl ScaledWidth {
     /// Read a sum of interval widths without materializing its zero prefix.
-    ///
-    /// Do not precede this with an accumulator sign read. Reading the sign can
-    /// rewrite digits and lower the lowest-written position, making this read
-    /// traverse a prefix it could otherwise skip.
     pub fn read(width: &Accumulator) -> Self {
-        let (sign, magnitude, shift) = width.scaled_biguint_parts();
+        let (sign, limbs, shift) = width.scaled_signed_magnitude();
         debug_assert_ne!(sign, Ordering::Less, "interval widths only accumulate");
-        Self { magnitude, shift }
+        Self { limbs, shift }
     }
 
     /// Whether no regions have contributed a width.
     pub fn is_zero(&self) -> bool {
-        self.magnitude == BigUint::ZERO
+        self.limbs.is_empty()
     }
 
     /// Add this relative width to another sum, retaining its scale.
     pub fn add_to(&self, total: &mut Accumulator) {
-        total.add_shifted_limbs(self.shift, self.magnitude.iter_u64_digits());
+        total.add_shifted_limbs(self.shift, self.limbs.iter().copied());
     }
 
     /// Convert the width to balanced digits before multiplying by a height.
@@ -63,31 +59,39 @@ pub struct SparseWidth {
 /// Preserve balanced sparse digits through addition and clustered multiplication.
 impl SparseWidth {
     /// Convert one scaled width, balancing adjacent digits in a single pass.
+    ///
+    /// The shift need not be a multiple of 32: each of the limbs' 32-bit
+    /// pieces is shifted left by `shift % 32` bits, and the bits it pushes past
+    /// 32 join the next piece, so the unsigned digits start at index
+    /// `shift / 32` and run one past the limbs.
     pub fn from_scaled(width: &ScaledWidth) -> Self {
-        debug_assert_eq!(width.shift % 32, 0, "interval widths are digit-aligned");
         let start_index = width.shift / 32;
-        let digits = width
-            .magnitude
-            .iter_u64_digits()
-            .enumerate()
-            .flat_map(|(limb_index, limb)| {
-                [
-                    (
-                        start_index + 2 * limb_index as u64,
-                        (limb & 0xFFFF_FFFF) as i64,
-                    ),
-                    (start_index + 2 * limb_index as u64 + 1, (limb >> 32) as i64),
-                ]
+        let offset = width.shift % 32;
+        let pieces = width
+            .limbs
+            .iter()
+            .flat_map(|&limb| [limb & 0xFFFF_FFFF, limb >> 32])
+            .chain(core::iter::once(0));
+        let digits = pieces
+            .scan(0u64, move |spilled, piece| {
+                // A piece below 2^32 shifted by under 32 bits fits a u64; its
+                // top `offset` bits spill into the next digit.
+                let digit = ((piece << offset) & 0xFFFF_FFFF) | *spilled;
+                *spilled = piece >> (32 - offset);
+                Some(digit as i64)
             })
+            .enumerate()
+            .map(move |(index, digit)| (start_index + index as u64, digit))
             .filter(|&(_, digit)| digit != 0);
         let mut width = Self { digits: Vec::new() };
         width.combine(digits);
         width
     }
 
-    /// Number of stored digits: the work needed to merge this width.
-    pub fn stored_digit_count(&self) -> usize {
-        self.digits.len()
+    /// The bits its stored digits span, 32 per digit: the work needed to
+    /// merge this width.
+    pub fn stored_bits(&self) -> u64 {
+        32 * self.digits.len() as u64
     }
 
     /// Add another width in one pass over both sparse digit sequences.
@@ -178,7 +182,8 @@ impl SparseWidth {
     pub fn add_product(&self, total: &mut Accumulator, height: &BigInt) {
         let sign = height.sign();
         let height = height.magnitude();
-        let gap_limit = accumulator::digit_len(height) as u64;
+        // The height's width in this module's 32-bit digits, at least one.
+        let gap_limit = height.bits().div_ceil(32).max(1);
         for cluster in self.clusters(gap_limit) {
             if let [(index, digit)] = *cluster {
                 // One digit needs only multiplication by a word, with no

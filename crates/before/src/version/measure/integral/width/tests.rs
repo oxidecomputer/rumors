@@ -5,7 +5,6 @@ use proptest::prelude::*;
 use suanpan::Accumulator;
 
 use super::{ScaledWidth, SparseWidth};
-use crate::accumulator::BigIntAccumulator as _;
 
 /// These five digit positions split only where their zero gaps exceed the limit.
 ///
@@ -26,6 +25,14 @@ fn five_positions_split_at_the_selected_gap_limits() {
     assert_eq!(split(1), vec![vec![0], vec![3, 4], vec![8], vec![20]]);
     assert_eq!(split(3), vec![vec![0, 3, 4, 8], vec![20]]);
     assert_eq!(split(11), vec![vec![0, 3, 4, 8, 20]]);
+}
+
+/// An accumulator holding `bytes` as a little-endian magnitude scaled by
+/// `2^(32 · digits)`, written above an unwritten low prefix.
+fn width(bytes: &[u8], digits: u64) -> Accumulator {
+    let mut width = Accumulator::new();
+    width.add_shifted_limbs(32 * digits, BigUint::from_bytes_le(bytes).iter_u64_digits());
+    width
 }
 
 /// Evaluate sparse digits directly, without the production clustering or carry merge.
@@ -71,13 +78,42 @@ proptest! {
         let expected = &factor * dense_value(&width);
         let mut actual = Accumulator::new();
         width.add_product(&mut actual, &factor);
-        prop_assert_eq!(actual.to_bigint(), expected);
+        prop_assert_eq!(BigInt::from(&actual), expected);
     }
 
-    /// Converting and adding scaled widths preserves their sum and sparse invariants.
+    /// Converting a width at any bit shift, a multiple of 32 or not, yields
+    /// balanced digits of exactly `limbs · 2^shift`.
     ///
-    /// Independent scales exercise empty prefixes, overlapping digits, carries,
-    /// and disjoint spans; ordinary integer addition supplies the reference value.
+    /// The readout makes no promise about its shift's granularity, so the
+    /// conversion must split each limb across digits at any offset.
+    #[test]
+    fn scaled_widths_convert_at_any_bit_shift(
+        bytes in proptest::collection::vec(any::<u8>(), 0..64),
+        shift in prop_oneof![0u64..=96, 0u64..=4_096],
+    ) {
+        let value = BigUint::from_bytes_le(&bytes);
+        let mut accumulator = Accumulator::new();
+        accumulator.add_shifted_limbs(0, value.iter_u64_digits());
+        let (_, limbs) = accumulator.signed_magnitude();
+        let width = ScaledWidth { limbs, shift };
+        let sparse = SparseWidth::from_scaled(&width);
+        prop_assert_eq!(
+            dense_value(&sparse),
+            BigInt::from(value << usize::try_from(shift).unwrap())
+        );
+        prop_assert!(sparse.digits.iter().all(|&(_, digit)| {
+            digit != 0 && (-(1i64 << 31)..(1i64 << 31)).contains(&digit)
+        }), "every stored digit must be nonzero and balanced");
+        prop_assert!(sparse.digits.windows(2).all(|pair| pair[0].0 < pair[1].0));
+    }
+
+    /// Reading, converting, and adding scaled widths preserves their sum and
+    /// sparse invariants.
+    ///
+    /// Each width is read from an accumulator written above an unwritten low
+    /// prefix. Independent scales exercise empty prefixes, overlapping digits,
+    /// carries, and disjoint spans; ordinary integer addition supplies the
+    /// reference value.
     #[test]
     fn scaled_width_addition_preserves_values_and_balanced_digits(
         left_bytes in proptest::collection::vec(any::<u8>(), 0..160),
@@ -85,9 +121,11 @@ proptest! {
         left_digits in 0u64..80,
         right_digits in 0u64..80,
     ) {
-        let left = ScaledWidth { magnitude: BigUint::from_bytes_le(&left_bytes), shift: 32 * left_digits };
-        let right = ScaledWidth { magnitude: BigUint::from_bytes_le(&right_bytes), shift: 32 * right_digits };
-        let expected = (&left.magnitude << left.shift as usize) + (&right.magnitude << right.shift as usize);
+        let left_value = BigUint::from_bytes_le(&left_bytes) << (32 * left_digits) as usize;
+        let right_value = BigUint::from_bytes_le(&right_bytes) << (32 * right_digits) as usize;
+        let left = ScaledWidth::read(&width(&left_bytes, left_digits));
+        let right = ScaledWidth::read(&width(&right_bytes, right_digits));
+        let expected = &left_value + &right_value;
         let mut sum = SparseWidth::from_scaled(&left);
         sum.add(SparseWidth::from_scaled(&right));
 

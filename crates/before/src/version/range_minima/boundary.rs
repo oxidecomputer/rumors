@@ -5,9 +5,10 @@
 //! the outer minimum and a smaller boundary. Zero joins the minima. A negative
 //! result lowers the outer minimum too, by `d - b`.
 //!
-//! A surviving wide value must not be scanned for every small decrease. Width
-//! leading-digit comparisons decide well-separated values first; subtraction then reads
-//! the smaller operand. Comparable widths need one ordinary subtraction.
+//! A surviving wide value must not be scanned for every small decrease.
+//! [`Accumulator::abs_diff`] subtracts the narrower operand from the wider
+//! one's storage and decides the order from the result's top, so a small
+//! decrease reads only itself and the boundary's top.
 
 use core::cmp::Ordering;
 
@@ -34,14 +35,14 @@ pub(super) enum Signed {
 /// A strictly positive value.
 ///
 /// Only this module constructs one, and only where it has just established
-/// the sign: [`Signed::of`], or a stability query that proves it.
+/// the sign: [`Signed::of`], or the order [`Accumulator::abs_diff`] reports.
 pub(super) struct Positive(Accumulator);
 
 /// Classify a difference with one comparison against zero.
 impl Signed {
     /// Compare `difference` with zero once, negating a negative difference.
-    pub(super) fn of(mut difference: Accumulator) -> Self {
-        match difference.cmp_zero() {
+    pub(super) fn of(difference: Accumulator) -> Self {
+        match difference.sign() {
             Ordering::Greater => Self::Positive(Positive(difference)),
             Ordering::Equal => Self::Zero,
             Ordering::Less => Self::Negative(Positive(-difference)),
@@ -61,12 +62,16 @@ pub(super) enum Remainder {
 
 /// Arithmetic that preserves compact boundaries and moves wide buffers.
 impl Boundary {
-    /// Use a word when the stored width permits a constant-cost conversion.
+    /// Use a word when the difference's working width is at most 64 bits.
     ///
-    /// A `u64` uses at most two base-2^32 digits. Materializing at most two
-    /// digits has constant cost; a wider accumulator is retained directly.
+    /// The minimum tracker's cost argument rests on moving boundaries on push
+    /// and pop without reading them: a wide boundary is read only when a drop
+    /// crosses and consumes it. A wider difference therefore stays `Wide` even
+    /// if its value would fit a word. Converting it would read its top through
+    /// the accumulator's stability query, compacting the top only to learn
+    /// that it does not fit, once for every boundary pushed.
     pub(super) fn from_positive(Positive(difference): Positive) -> Self {
-        if difference.stored_digit_count() > 2 {
+        if difference.stored_bits() > 64 {
             return Self::Wide(difference);
         }
         match u64::try_from(difference) {
@@ -113,39 +118,15 @@ impl Boundary {
         }
     }
 
-    /// Compare wide values before choosing which one to subtract from the other.
-    ///
-    /// Two base-2^32 digits are the first separation at which Accumulator's
-    /// redundant representation can prove domination. If that comparison
-    /// cannot decide, the values are close enough in stored width that subtracting
-    /// once costs no more than processing comparable operands.
-    fn lower_wide(mut boundary: Accumulator, Positive(mut decrease): Positive) -> Remainder {
-        if decrease.stored_digit_count() >= boundary.stored_digit_count() + 2 {
-            match decrease.cmp_zero_stable_under(boundary.stored_bits()) {
-                Some(Ordering::Greater) => {
-                    decrease -= &boundary;
-                    return Remainder::Decrease(Positive(decrease));
-                }
-                Some(_) => unreachable!("the decrease is positive"),
-                None => {}
-            }
-        }
-        if boundary.stored_digit_count() >= decrease.stored_digit_count() + 2 {
-            match boundary.cmp_zero_stable_under(decrease.stored_bits()) {
-                Some(Ordering::Greater) => {
-                    boundary -= &decrease;
-                    return Remainder::Boundary(Self::from_positive(Positive(boundary)));
-                }
-                Some(_) => unreachable!("stored boundaries are positive"),
-                None => {}
-            }
-        }
-
-        boundary -= &decrease;
-        match Signed::of(boundary) {
-            Signed::Positive(boundary) => Remainder::Boundary(Self::from_positive(boundary)),
-            Signed::Zero => Remainder::Equal,
-            Signed::Negative(decrease) => Remainder::Decrease(decrease),
+    /// Subtract the smaller of a wide boundary and a decrease from the larger,
+    /// in one pass that also decides which is smaller.
+    fn lower_wide(boundary: Accumulator, Positive(decrease): Positive) -> Remainder {
+        // The boundary receives the subtraction when the widths tie: a
+        // surviving boundary then needs no negation.
+        match boundary.abs_diff(decrease) {
+            (Ordering::Greater, rest) => Remainder::Boundary(Self::from_positive(Positive(rest))),
+            (Ordering::Less, rest) => Remainder::Decrease(Positive(rest)),
+            (Ordering::Equal, _) => Remainder::Equal,
         }
     }
 }

@@ -231,7 +231,7 @@ fn compare<V>(
     loop {
         // The current region ends at the earlier leaf boundary, and D is
         // constant throughout it.
-        directions.fold(diff.cmp_zero());
+        directions.fold(diff.sign());
         if let ControlFlow::Break(verdict) = exit(directions) {
             return verdict;
         }

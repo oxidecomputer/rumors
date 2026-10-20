@@ -65,7 +65,6 @@ use core::ops::ControlFlow;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::party::io::PartyRegionReader;
 use crate::{OwnVersion, Party};
 
@@ -146,8 +145,7 @@ impl VersionWriter {
                 // Entering ownership raises the output from zero to the current
                 // absolute height.
                 (false, true) => {
-                    height.cmp_zero();
-                    let height = height.to_bigint();
+                    let height = BigInt::from(&height);
                     debug_assert!(height.sign() != Sign::Minus, "heights are nonnegative");
                     height
                 }
@@ -155,8 +153,7 @@ impl VersionWriter {
                 // this boundary. If the Version stepped here too, remove that
                 // just-applied change to recover the preceding height.
                 (true, false) => {
-                    height.cmp_zero();
-                    let now = height.to_bigint();
+                    let now = BigInt::from(&height);
                     debug_assert!(now.sign() != Sign::Minus, "heights are nonnegative");
                     let before = match version_step {
                         Some(step) => now - step,
@@ -297,24 +294,24 @@ impl<'a> Comparison<'a> {
             let owned_a = self.a_party.as_ref().is_none_or(PartyRegionReader::owned);
             let owned_b = self.b_party.as_ref().is_none_or(PartyRegionReader::owned);
             let sign = match (owned_a, owned_b) {
-                (true, true) => self.diff.cmp_zero(),
+                (true, true) => self.diff.sign(),
                 (true, false) => {
                     // `h′_b = 0`: the interval's sign is `sign(h_a)`, the
                     // trichotomy's zero-check on the unmasked side.
                     let height_sign = self
                         .height_a
-                        .as_mut()
+                        .as_ref()
                         .expect("a restricted `b` maintains h_a")
-                        .cmp_zero();
+                        .sign();
                     debug_assert_ne!(height_sign, Ordering::Less, "heights are nonnegative");
                     height_sign
                 }
                 (false, true) => {
                     let height_sign = self
                         .height_b
-                        .as_mut()
+                        .as_ref()
                         .expect("a restricted `a` maintains h_b")
-                        .cmp_zero();
+                        .sign();
                     debug_assert_ne!(height_sign, Ordering::Less, "heights are nonnegative");
                     height_sign.reverse()
                 }
@@ -444,7 +441,7 @@ impl CursorSet for Comparison<'_> {
                 if let Some(height_a) = &mut self.height_a {
                     // A height integrator accumulates its own side plainly:
                     // the side orientation belongs to `D` alone.
-                    height_a.add_bigint(&step);
+                    *height_a += &step;
                 }
                 flip
             }
@@ -461,7 +458,7 @@ impl CursorSet for Comparison<'_> {
                 if let Some(height_b) = &mut self.height_b {
                     // A height integrator accumulates its own side plainly:
                     // the side orientation belongs to `D` alone.
-                    height_b.add_bigint(&step);
+                    *height_b += &step;
                 }
                 flip
             }

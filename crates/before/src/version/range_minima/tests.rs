@@ -13,7 +13,6 @@ use proptest::sample::Index;
 use suanpan::Accumulator;
 
 use super::{Close, RangeMinima};
-use crate::accumulator::BigIntAccumulator as _;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::oracles::tree::{Party as OracleParty, Version as OracleVersion};
 
@@ -42,7 +41,7 @@ fn around_minimum(minima: &mut RangeMinima<()>, minimum_offset: &BigInt) -> [Ord
 /// Construct an accumulator for a known signed difference in a fixture.
 fn accumulated(value: &BigInt) -> Accumulator {
     let mut result = Accumulator::new();
-    result.add_bigint(value);
+    result += value;
     result
 }
 
@@ -365,7 +364,7 @@ proptest! {
         minima.fold_height(&-BigInt::from(height_drop.clone()));
         minima.emit_offset(&below(offset));
 
-        let moved = minima.follower_take(0).into_bigint();
+        let moved = BigInt::from(&minima.follower_take(0));
         let expected_drop = height_drop + BigUint::from(offset);
         prop_assert_eq!(moved.sign(), Sign::Minus);
         prop_assert_eq!(moved.magnitude(), &(expected_drop - BigUint::from(initial)));
@@ -531,9 +530,9 @@ proptest! {
         let height = &anchor + height_change;
 
         let mut detached = minima.follower_take(0);
-        prop_assert_eq!(detached.to_bigint(), &anchor - client_values[0]);
+        prop_assert_eq!(BigInt::from(&detached), &anchor - client_values[0]);
         minima.bridge_add_gap(&mut detached);
-        prop_assert_eq!(detached.into_bigint(), &height - client_values[0]);
+        prop_assert_eq!(BigInt::from(&detached), &height - client_values[0]);
         prop_assert!(minima.deferred_live(), "height conversion cancels the distance");
         minima.follower_set(0, accumulated(&(&anchor - client_values[0])));
 
@@ -569,7 +568,7 @@ proptest! {
         for (slot, client_value) in client_values.into_iter().enumerate() {
             let follower = minima.follower_take(slot);
             prop_assert_eq!(
-                follower.into_bigint(),
+                BigInt::from(&follower),
                 &expected_minimum - client_value
             );
         }

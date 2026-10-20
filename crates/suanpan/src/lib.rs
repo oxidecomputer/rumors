@@ -1,138 +1,132 @@
 //! Exact signed accumulation with bounded carry and cancellation work.
 //!
-//! [`Accumulator`] maintains a running integer while positive and negative
-//! updates interleave. It is designed for workloads in which a normalized big
-//! integer could repeatedly traverse the same high-order bits—for example, a
-//! weighted sum that moves back and forth across a carry boundary. Suanpan
-//! postpones that work and ensures that later comparisons do not repeatedly
-//! pay for the same cancellation.
+//! [`Accumulator`] is a signed integer of any width, built for running totals
+//! whose updates change sign near carry boundaries: a weighted sum that moves
+//! back and forth across `2^k`, for example. A normalized big integer carries
+//! through the same high positions on every such update. An accumulator keeps
+//! a redundant representation instead, so each update touches only a few
+//! positions, and each read compacts the cancellation it touches, so no later
+//! operation pays for it again.
 //!
 //! ```
-//! use core::cmp::Ordering;
 //! use suanpan::Accumulator;
 //!
 //! let mut total = Accumulator::new();
-//! total.add_shifted_limbs(512, [1]);
+//! total.add_shifted_limbs(512, [1]); // 2^512
 //! for _ in 0..1_000 {
-//!     total -= 1_i64;
-//!     assert_eq!(total.cmp_zero(), Ordering::Greater);
-//!     total += 1_i64;
+//!     total -= 1;
+//!     assert!(total.is_positive());
+//!     total += 1;
 //! }
-//! let (sign, limbs) = total.signed_magnitude();
-//! assert_eq!(sign, Ordering::Greater);
-//! assert_eq!(limbs.as_ref(), [0, 0, 0, 0, 0, 0, 0, 0, 1]);
+//! assert!(total > u128::MAX);
 //! ```
 //!
 //! # Operations
 //!
-//! Construct zero with [`Accumulator::new`] or `Default`, or convert any
-//! primitive integer with `From`. Standard `+`, `-`, `+=`, `-=`, unary `-`,
-//! `<<`, and `<<=` operations accept the corresponding owned, borrowed, or
-//! primitive values. Consuming operations reuse their left operand; owned
-//! addition may instead reuse either input's allocation because addition is
-//! commutative.
+//! An accumulator behaves as a standard integer without multiplication,
+//! division, or right shift:
 //!
-//! Arbitrary-width magnitudes can be streamed as little-endian `u64` limbs
-//! through [`add_shifted_limbs`](Accumulator::add_shifted_limbs) and
-//! [`sub_shifted_limbs`](Accumulator::sub_shifted_limbs). The shift comes first
-//! and multiplies the streamed value by that power of two; use zero for an
-//! unscaled value. The analogous accumulator methods avoid constructing a
-//! shifted temporary.
+//! - [`Accumulator::new`] and `Default` construct zero, and `From` converts any
+//!   primitive integer.
+//! - `+`, `-`, `+=`, `-=`, unary `-`, `<<`, `<<=`, and `Sum` take owned and
+//!   borrowed accumulators and primitive integers. A primitive may stand on
+//!   either side of `+` and `-`; `5 - total` negates `total`, at the cost of
+//!   unary `-`. Shift counts are primitives, owned or borrowed.
+//! - `==`, `<`, [`cmp`](Ord::cmp), and `Hash` work by value, against another
+//!   accumulator or against a primitive integer on the right.
+//!   [`abs_diff`](Accumulator::abs_diff) compares two accumulators and
+//!   subtracts the smaller from the larger in one pass.
+//! - [`sign`](Accumulator::sign), [`is_zero`](Accumulator::is_zero),
+//!   [`is_positive`](Accumulator::is_positive), and
+//!   [`is_negative`](Accumulator::is_negative) query the sign, and `Display`
+//!   writes the value in decimal.
+//! - `TryFrom` extracts a primitive integer exactly, and returns the
+//!   accumulator if the value does not fit.
 //!
-//! [`cmp_zero`](Accumulator::cmp_zero) returns the exact comparison. It takes `&mut self`
-//! because the query compacts cancellation so later queries do not repeat the
-//! work. [`is_known_zero`](Accumulator::is_known_zero) is a cheaper one-sided
-//! check: `true` proves zero; `false` means the stored form is inconclusive.
+//! Wide values stream in as little-endian `u64` limbs through
+//! [`add_shifted_limbs`](Accumulator::add_shifted_limbs) and
+//! [`sub_shifted_limbs`](Accumulator::sub_shifted_limbs), scaled by the power of
+//! two given first. [`add_shifted`](Accumulator::add_shifted) and
+//! [`sub_shifted`](Accumulator::sub_shifted) take another accumulator the same
+//! way, and [`signed_magnitude`](Accumulator::signed_magnitude) reads a value
+//! out as [`Limbs`], which dereference to a `[u64]` slice and stay inline
+//! below `2^128`.
 //!
-//! [`signed_magnitude`](Accumulator::signed_magnitude) returns normalized limbs
-//! and may allocate in proportion to the accumulator's working width. The scaled form returns
-//! a known power-of-two factor separately, which can avoid materializing an
-//! unused low zero prefix. Primitive `TryFrom` conversions are exact, and
-//! return the original accumulator on failure so its storage can still be
-//! reused.
+//! # Reads compact what they touch
 //!
-//! To compare two totals, subtract one from a clone of the other and compare
-//! the difference with zero. When their scales differ greatly,
-//! [`cmp_zero_stable_under`](Accumulator::cmp_zero_stable_under) can avoid reading the
-//! smaller total: `Some(ordering)` means every adjustment within the supplied
-//! bit bound is too small to change that comparison; `None` means the caller
-//! must perform the subtraction.
+//! Every read, whether a comparison, a sign query, a conversion, formatting,
+//! or use as an operand, rewrites the cancellation it reads into a shorter
+//! form of the same value. The value never changes, but the *working width*
+//! that [`stored_bits`](Accumulator::stored_bits) reports can. Reads go
+//! through a [`RefCell`](core::cell::RefCell), so they take `&self`; as a
+//! result an accumulator is `Send` but not `Sync`.
+//!
+//! An accumulator is not `Clone`: a copy would carry the same cancellation as
+//! its original, and both would pay to compact it. To copy a value, construct
+//! `Accumulator::from(&total)`, which reads, and so compacts, the original
+//! first.
+//!
+//! [`is_known_zero`](Accumulator::is_known_zero) is a constant-time check that
+//! reads nothing: `true` proves zero, and `false` proves nothing.
+//! [`cmp_zero_stable_under`](Accumulator::cmp_zero_stable_under) proves that
+//! no adjustment below a given width can change the sign, which lets a caller
+//! skip reading a much narrower operand.
 //!
 //! # Costs and storage
 //!
-//! Cancellation can shorten the mathematical result while the accumulator
-//! still retains contributions at higher bit positions. The costs below
-//! therefore use *working width*, reported by
-//! [`stored_bits`](Accumulator::stored_bits), rather than the result's bit
-//! length. Let `W` be the greatest working width reached by the receiver, `A`
-//! the operand's working width, `L` the number of input limbs, and `G` the
-//! increase in the receiver's working width. A large shift can make `G` large
-//! even when the input is one limb.
+//! Cancellation can shorten the value while the accumulator still holds
+//! storage at higher positions. Costs therefore use the *working width*
+//! rather than the value's bit length. Let `W` be the greatest working width
+//! the receiver has reached, `A` an accumulator operand's working width, `L`
+//! the number of input limbs, `G` the growth of the receiver's working width,
+//! and `Q` the width of a read's result. A large shift can make `G` large even
+//! for one input limb.
 //!
-//! Amortized bounds apply to the whole operation sequence: one call may finish
-//! carry or cancellation work prepared by earlier calls, but the sequence does
-//! not pay for that work repeatedly. Additional space excludes inputs and
-//! returned output. Growing an allocation can briefly keep both allocations
-//! alive.
+//! Amortized bounds hold over the whole sequence of operations: one call may
+//! finish carry or cancellation work that earlier calls prepared, but no work
+//! is paid for twice. Additional space excludes inputs and returned output.
 //!
 //! | Operation | Time | Additional space |
 //! |---|---|---|
 //! | `+=` / `-=` a primitive | Amortized O(log(`W` + 1)) | O(1) retained |
 //! | Add or subtract `L` limbs | Amortized O(`L` log(`W` + 1) + `G`) | O(`L` + `G`) retained |
 //! | Add or subtract an accumulator | Amortized O(`A` log(`W` + 1) + `G`) | O(`A` + `G`) retained |
-//! | Exact or bounded comparison with zero | Amortized O(log(`W` + 1)) | O(1) retained |
+//! | Sign queries, comparison with a primitive, primitive `TryFrom` | Amortized O(log(`W` + 1)) | O(1) |
+//! | [`abs_diff`](Accumulator::abs_diff) | Amortized O(`A` log(`W` + 1)), `A` the narrower; plus O(`W`) to negate the result when the wider operand is negative and the smaller | O(1) beyond the wider operand's storage |
+//! | Compare two accumulators | Amortized O(`A` log(`A` + 1)), `A` the narrower; O(log(`W` + 1)) when one is far wider | O(`A`) temporary |
+//! | Magnitude read or `Hash` | Amortized O(log(`W` + 1) + `Q`) | O(`Q`) temporary |
+//! | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 //! | Working-width and known-zero queries | O(1) | O(1) |
 //! | Unary `-` and [`reset`](Accumulator::reset) | O(`W`) | O(1) |
-//! | [`normalize`](Accumulator::normalize), producing working width `Q` | O(`W` + `Q` log(`Q` + 1)) | O(1) scratch; existing O(`W`) capacity retained for reuse |
-//! | Primitive `TryFrom` | O(`W`) | O(`W`) temporary |
 //!
-//! Any operation that grows the receiver may need O(`W` + `G`) temporary
-//! space while replacing its allocation. This is allocator work, not an
-//! additional copy made by the arithmetic. The retained bounds in the table
-//! describe what remains after the operation.
-//! Normalization can remove arbitrarily much cancelled width, but can extend
-//! the working width by at most one 32-bit position: `Q <= W + 32`. It rewrites
-//! the existing allocation rather than constructing a normalized copy, and
-//! deliberately retains that O(`W`) capacity for later updates. Its rebuilt
-//! skip metadata occupies O(`Q`) space within that retained bound. Only an
-//! extension beyond the existing capacity can temporarily keep both the old
-//! and replacement buffers alive.
-//!
-//! An unscaled magnitude read producing `Q` limbs takes O(`W` + `Q`) time,
-//! O(`W`) temporary space, and O(`Q`) output space. A scaled read can omit a
-//! low range known to be zero; for that operation, replace `W` with the number
-//! of bits between the lowest relevant update and the top of the working range.
-//!
-//! The accumulator may retain more allocation than its current working width
-//! after cancellation or reset. A nonzero left shift can replace that
-//! allocation; the old and new allocations may coexist while the shift runs.
-//!
-//! [`reserve_bits`](Accumulator::reserve_bits) can avoid repeated allocation
-//! growth. [`reset`](Accumulator::reset) clears the value while retaining its
-//! allocation for reuse. Cloning and debug formatting take time and space
-//! proportional to all retained allocation, not merely the current value.
+//! Growing an allocation may briefly keep the old and new buffers alive. A
+//! read can extend the working width by at most a constant, and grows the
+//! buffer by exactly that much when it must. An accumulator may retain more
+//! allocation than its working width after cancellation or
+//! [`reset`](Accumulator::reset); [`reserve_bits`](Accumulator::reserve_bits)
+//! avoids repeated growth.
 //!
 //! # Scope
 //!
-//! This is an accumulator, not a general-purpose integer type: it provides no
-//! general multiplication, division, or right shift. If the value fits a
-//! fixed-width integer, that is usually the simpler choice. The benefit here
-//! is predictable amortized work when updates change sign near carry
-//! boundaries and comparisons with zero interleave with cancellation.
+//! This is an accumulator, not a general-purpose integer: it has no
+//! multiplication, division, or right shift. If the value fits a fixed-width
+//! integer, that is usually simpler; if you need those operations, use a
+//! general big-integer crate such as `num-bigint`. An accumulator pays off when
+//! updates change sign near carry boundaries and reads interleave with
+//! cancellation. The crate requires `std`.
 //!
-//! `Accumulator` deliberately has no `PartialEq` or `Ord`: exact comparison may
-//! mutate an operand to preserve the amortized bound. Subtract and compare the
-//! difference with zero instead. The crate requires `std`.
+//! # Features
 //!
-//! # Optional metering
-//!
-//! The only feature, `touch-meter`, exposes a process-global implementation
-//! counter in the `touch_meter` module. It supports regression tests for the
-//! arithmetic core; it does not measure allocation or all bookkeeping and
-//! therefore does not by itself establish the bounds above. Counts are
-//! deterministic for a fixed implementation and operation sequence, but
-//! individual totals are not an API compatibility promise. Run measured
-//! scenarios serially. With the feature disabled, counting compiles away.
+//! - `num-bigint` converts accumulators to and from `num-bigint`'s `BigInt`
+//!   and `BigUint`, and accepts both as `+=` and `-=` operands. Converting a
+//!   negative value to `BigUint` fails with `NegativeValueError`.
+//! - `touch-meter` exposes a process-global counter of implementation steps in
+//!   the `touch_meter` module, for regression tests of the arithmetic core. It
+//!   does not count allocation or all bookkeeping, so it does not by itself
+//!   establish the bounds above. Counts are deterministic for a fixed
+//!   implementation and operation sequence, but are no compatibility promise.
+//!   Run measured scenarios serially. Without the feature, counting compiles
+//!   away.
 
 #![forbid(unsafe_code)]
 
@@ -140,4 +134,6 @@ mod accumulator;
 #[cfg(feature = "touch-meter")]
 pub mod touch_meter;
 
-pub use accumulator::Accumulator;
+#[cfg(feature = "num-bigint")]
+pub use accumulator::NegativeValueError;
+pub use accumulator::{Accumulator, Limbs};

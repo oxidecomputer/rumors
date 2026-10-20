@@ -73,7 +73,6 @@ use core::cmp::Ordering;
 use num_bigint::BigUint;
 use suanpan::Accumulator;
 
-use crate::accumulator::BigIntAccumulator as _;
 use crate::causally::Coverage;
 
 use super::super::order::OrderState;
@@ -122,40 +121,19 @@ struct Comparison {
     directions: OrderState,
 }
 
-/// Whether an exact difference remains cheap enough to keep per bound.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum HeightWidths {
-    /// The wider height occupies at most two more accumulator positions.
-    Close,
-    /// The probe may be arbitrarily wider than this bound.
-    ProbeFarWider,
-    /// The bound may be arbitrarily wider than the probe.
-    BoundFarWider,
-}
+/// The greatest working-width lead, in bits, at which a bound keeps its
+/// private difference.
+///
+/// Heights this close cost about as much to subtract as to compare, so the
+/// difference is worth keeping; it also stays within this lead of the
+/// narrower height. A wider lead is left to `Ord`, which decides it without
+/// copying either height.
+const MAX_CLOSE_LEAD_BITS: u64 = 64;
 
-impl HeightWidths {
-    /// The greatest width lead permitted in a private difference.
-    ///
-    /// Accumulators use base-2^32 signed digits. Their fast stability check may
-    /// descend one digit before the sign is settled, then needs two positions
-    /// of clearance over the other value. A lead greater than this limit is
-    /// therefore where the no-copy comparison becomes useful. Keeping the
-    /// limit here also caps a private difference at two digits beyond the
-    /// narrower height; the `ProbeFarWider` case has no such upper bound.
-    const MAX_CLOSE_LEAD: usize = 2;
-
-    /// Classify the heights by their retained working widths.
-    fn between(probe: &Accumulator, bound: &Accumulator) -> Self {
-        let probe_digits = probe.stored_digit_count();
-        let bound_digits = bound.stored_digit_count();
-        if probe_digits > bound_digits.saturating_add(Self::MAX_CLOSE_LEAD) {
-            Self::ProbeFarWider
-        } else if bound_digits > probe_digits.saturating_add(Self::MAX_CLOSE_LEAD) {
-            Self::BoundFarWider
-        } else {
-            Self::Close
-        }
-    }
+/// Whether two heights are close enough in working width to keep their
+/// difference.
+fn close(probe: &Accumulator, bound: &Accumulator) -> bool {
+    probe.stored_bits().abs_diff(bound.stored_bits()) <= MAX_CLOSE_LEAD_BITS
 }
 
 impl Comparison {
@@ -168,9 +146,9 @@ impl Comparison {
     }
 
     /// Fold this interval's height relation into the surviving directions.
-    fn read(&mut self, probe: &mut Accumulator, bound: &mut Accumulator) {
-        let sign = match &mut self.difference {
-            Some(difference) => difference.cmp_zero(),
+    fn read(&mut self, probe: &Accumulator, bound: &Accumulator) {
+        let sign = match &self.difference {
+            Some(difference) => difference.sign(),
             None => {
                 let (sign, difference) = Self::compare_heights(probe, bound);
                 self.difference = difference;
@@ -182,7 +160,7 @@ impl Comparison {
 
     /// Fold one crossing unless it makes a private difference too wide.
     fn fold(&mut self, side: Side, probe: &Accumulator, bound: &Accumulator, step: &HeightChange) {
-        if self.difference.is_some() && HeightWidths::between(probe, bound) != HeightWidths::Close {
+        if self.difference.is_some() && !close(probe, bound) {
             self.difference = None;
             return;
         }
@@ -206,66 +184,25 @@ impl Comparison {
     /// Compare two nonnegative heights without copying a much wider operand.
     ///
     /// Close heights get one exact difference, which later crossings update in
-    /// place. For a much wider height, `cmp_zero_stable_under` either proves
-    /// that the narrower height cannot affect the order or compacts the wider
-    /// height. A refusal can reveal another layer of cancellation on the other
-    /// side, so the wider side may alternate. Every refusal strictly shortens
-    /// the side it examines, bounding the loop by the two heights' initial
-    /// combined width. An exact difference is never built from a far-wider
-    /// operand.
+    /// place. Otherwise `Ord` decides, and its comparison of a far-wider
+    /// height asks that height's stability query rather than copying it.
     fn compare_heights(
-        probe: &mut Accumulator,
-        bound: &mut Accumulator,
+        probe: &Accumulator,
+        bound: &Accumulator,
     ) -> (Ordering, Option<Accumulator>) {
-        loop {
-            match HeightWidths::between(probe, bound) {
-                HeightWidths::Close => break,
-                HeightWidths::ProbeFarWider => {
-                    let previous_width = probe.stored_digit_count();
-                    if let Some(sign) = probe.cmp_zero_stable_under(bound.stored_bits()) {
-                        debug_assert_eq!(
-                            sign,
-                            Ordering::Greater,
-                            "Version heights are nonnegative"
-                        );
-                        return (Ordering::Greater, None);
-                    }
-                    debug_assert!(
-                        probe.stored_digit_count() < previous_width,
-                        "a refused stability check compacts the examined height"
-                    );
-                }
-                HeightWidths::BoundFarWider => {
-                    let previous_width = bound.stored_digit_count();
-                    if let Some(sign) = bound.cmp_zero_stable_under(probe.stored_bits()) {
-                        debug_assert_eq!(
-                            sign,
-                            Ordering::Greater,
-                            "Version heights are nonnegative"
-                        );
-                        return (Ordering::Less, None);
-                    }
-                    debug_assert!(
-                        bound.stored_digit_count() < previous_width,
-                        "a refused stability check compacts the examined height"
-                    );
-                }
-            }
-            // The shorter representation may expose the other side as wider;
-            // classifying again removes its next layer of cancellation.
+        if !close(probe, bound) {
+            return (probe.cmp(bound), None);
         }
-
-        debug_assert_eq!(HeightWidths::between(probe, bound), HeightWidths::Close);
         let mut difference = Accumulator::new();
-        if probe.stored_digit_count() <= bound.stored_digit_count() {
-            difference += &*probe;
-            difference -= &*bound;
+        if probe.stored_bits() <= bound.stored_bits() {
+            difference += probe;
+            difference -= bound;
         } else {
-            difference += &*bound;
-            difference -= &*probe;
+            difference += bound;
+            difference -= probe;
             difference = -difference;
         }
-        let sign = difference.cmp_zero();
+        let sign = difference.sign();
         (sign, Some(difference))
     }
 }
@@ -344,8 +281,7 @@ pub fn admits<'a>(
         // One read per live bound per elementary interval, in demand order.
         for slot in &mut walk.sides {
             let Some(side) = slot else { continue };
-            side.comparison
-                .read(&mut walk.probe_height, &mut side.bound);
+            side.comparison.read(&walk.probe_height, &side.bound);
             let directions = side.comparison.directions;
             match side.demand {
                 // A required direction refuted refutes membership: the walk's
@@ -441,7 +377,7 @@ impl CursorSet for MemberCursors<'_> {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
-                self.probe_height.add_bigint(&step);
+                self.probe_height += &step;
                 for side in self.sides.iter_mut().flatten() {
                     side.comparison
                         .fold(Side::A, &self.probe_height, &side.bound, &step);
@@ -453,7 +389,7 @@ impl CursorSet for MemberCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                side.bound.add_bigint(&step);
+                side.bound += &step;
                 side.comparison
                     .fold(Side::B, &self.probe_height, &side.bound, &step);
                 flip
@@ -541,15 +477,11 @@ pub fn coverage<'a>(
             let Some(side) = slot else { continue };
 
             if side.lo.live {
-                side.lo
-                    .comparison
-                    .read(&mut walk.lo_height, &mut side.bound);
+                side.lo.comparison.read(&walk.lo_height, &side.bound);
             }
 
             if side.hi.live {
-                side.hi
-                    .comparison
-                    .read(&mut walk.hi_height, &mut side.bound);
+                side.hi.comparison.read(&walk.hi_height, &side.bound);
             }
 
             match side.demand {
@@ -769,7 +701,7 @@ impl CursorSet for SpanCursors<'_> {
         match slot {
             Self::HI => {
                 let (flip, step) = self.hi.step();
-                self.hi_height.add_bigint(&step);
+                self.hi_height += &step;
                 for side in self.sides.iter_mut().flatten() {
                     if side.hi.live {
                         side.hi
@@ -781,7 +713,7 @@ impl CursorSet for SpanCursors<'_> {
             }
             Self::LO => {
                 let (flip, step) = self.lo.step();
-                self.lo_height.add_bigint(&step);
+                self.lo_height += &step;
                 for side in self.sides.iter_mut().flatten() {
                     if side.lo.live {
                         side.lo
@@ -796,7 +728,7 @@ impl CursorSet for SpanCursors<'_> {
                     .as_mut()
                     .expect("an absent side reads depth zero and never steps");
                 let (flip, step) = side.cursor.step();
-                side.bound.add_bigint(&step);
+                side.bound += &step;
                 if side.lo.live {
                     side.lo
                         .comparison

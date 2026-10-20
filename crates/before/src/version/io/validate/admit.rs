@@ -266,7 +266,7 @@ where
         // One sign read per elementary interval, exactly as the sweep folds it;
         // the three-way match keeps that single read while deciding both the
         // dominance and the equality questions.
-        match diff.cmp_zero() {
+        match diff.sign() {
             Ordering::Greater => {
                 // Dominance is permanently refuted. Stop using the lower
                 // cursor and difference, but finish parsing the upper stream

@@ -21,7 +21,7 @@ use super::ceilings::MACHINE_WORD_MAGNITUDE_BITS;
 /// floor that counted every delta would demand touch work no conforming fold
 /// does (a plateau-heavy stream legitimately reads near zero). Iterative over
 /// the encoded form, outside any measurement.
-pub(super) fn stored_nonzero_deltas(v: &Version) -> u64 {
+pub fn stored_nonzero_deltas(v: &Version) -> u64 {
     let mut reader = VersionTreeReader::new(v);
     let mut pending = 1usize;
     let mut first = true;
