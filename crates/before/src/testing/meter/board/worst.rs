@@ -313,7 +313,8 @@ const VERSION_STREAM_FAMILIES: &str = concat!(
 /// that the measured operation reaches changes *which family reads worst*
 /// between the 64-bit hosts the pin is taken and checked on, and name that
 /// path in a `// Target-conditional path:` comment on the line above the
-/// entry; a test fails any marked entry without one. A reading that merely
+/// entry, or above its `#[cfg]` attribute when the entry is feature-gated; a
+/// test fails any marked entry without one. A reading that merely
 /// differs by target does not qualify, nor does a flip between near-equal
 /// families with no such path behind it, however small its margin: that flip
 /// is news (see [`NEAR_TIE_RATIO`]). The margin plays no part in the rule, so
@@ -326,6 +327,9 @@ pub(super) const TARGET_DEPENDENT: &str = "(target-dependent)";
 /// read zero; [`TARGET_DEPENDENT`] means the winner depends on the build
 /// target. [`check_worst_map`](super::shard::check_worst_map) compares this
 /// table with fresh release-profile measurements at [`WORST_MAP_SCALES`].
+///
+/// Each deserialization row's entries compile under the same feature as the
+/// row, so the table names exactly the board's operation rows in every build.
 #[rustfmt::skip]
 pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "version_decode", ["hugeleaf", "promo-rearm", "staircase"]),
@@ -455,19 +459,33 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "party_without_none", ["copy-hole", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("default", "party_serde_deserialize", ["id-pair", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("default", "version_serde_deserialize", ["hugeleaf", "promo-rearm", "staircase"]),
+    #[cfg(feature = "serde")]
     ("default", "clock_serde_deserialize", ["id-pair", "promo-rearm", "copy-hole"]),
+    #[cfg(feature = "serde")]
     ("default", "rank_serde_deserialize", ["benign,concurrent-pair,descending-raises", "-", "-"]),
+    #[cfg(feature = "serde")]
     ("default", "ranked_serde_deserialize", ["wide-arming", "cancelling-chain", "collapse-hole"]),
+    #[cfg(feature = "serde")]
     ("default", "span_serde_deserialize", ["hoisted-window", "copy-hole", "staircase"]),
+    #[cfg(feature = "serde")]
     ("default", "count_serde_deserialize", ["alt-spine,benign,dense,descending-raises,masked-hole,meet-shade,mirror-narrow,nested-full,scatter,stagger,stagger-arity,stagger-size,weave", "-", "-"]),
+    #[cfg(feature = "borsh")]
     ("default", "party_borsh_deserialize", ["copy-hole", PARTY_STREAM_FAMILIES, "-"]),
+    #[cfg(feature = "borsh")]
     ("default", "version_borsh_deserialize", ["mirror-narrow,nested-full", VERSION_STREAM_FAMILIES, "staircase"]),
+    #[cfg(feature = "borsh")]
     ("default", "clock_borsh_deserialize", ["id-pair", "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,id-pair,jump-comb,jump-pair,latent-ladder,lone-freeze,mask-drift,masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,staircase,tooth-tail,weight-comb,wide-arming,wide-tooth-comb", "copy-hole"]),
+    #[cfg(feature = "borsh")]
     ("default", "rank_borsh_deserialize", ["benign,concurrent-pair,descending-raises", "-", "-"]),
+    #[cfg(feature = "borsh")]
     ("default", "ranked_borsh_deserialize", ["wide-arming", "cancelling-chain", "collapse-hole"]),
+    #[cfg(feature = "borsh")]
     ("default", "span_borsh_deserialize", ["mirror-narrow,nested-full", "copy-hole", "staircase"]),
+    #[cfg(feature = "borsh")]
     ("default", "count_borsh_deserialize", ["freeze-parade", "-", "-"]),
     ("acceptance", "version_decode", ["hugeleaf", "memo-oscillating", "staircase"]),
     ("acceptance", "version_encode", [VERSION_STREAM_FAMILIES, "-", "-"]),
@@ -592,19 +610,33 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "party_without_none", ["copy-hole", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "party_serde_deserialize", ["copy-hole", "id-pair", "-"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "version_serde_deserialize", ["hugeleaf", "memo-oscillating", "staircase"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "clock_serde_deserialize", ["id-pair", "cancelling-chain", "copy-hole"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "rank_serde_deserialize", ["concurrent-pair", "-", "-"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "ranked_serde_deserialize", ["wide-arming", "cancelling-chain", "collapse-hole"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "span_serde_deserialize", ["hoisted-window", "copy-hole", "staircase"]),
+    #[cfg(feature = "serde")]
     ("acceptance", "count_serde_deserialize", ["alt-spine,benign,dense,masked-hole,meet-shade,mirror-narrow,nested-full,scatter,stagger,stagger-arity,stagger-size,weave", "-", "-"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "party_borsh_deserialize", ["copy-hole", PARTY_STREAM_FAMILIES, "-"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "version_borsh_deserialize", ["mirror-narrow,nested-full", VERSION_STREAM_FAMILIES, "staircase"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "clock_borsh_deserialize", ["id-pair", "alt-spine,arming-train,ascend-cliff,ascend-plateau,benign,bigroot,cancelling-chain,cliff,cliff-fan,collapse-hole,comb-scatter,concurrent-pair,copy-hole,dense,dense-suffix,descending-raises,dominated-undercut,freeze-parade,freeze-pos,harmonic,hoisted-window,hugeleaf,id-pair,jump-comb,jump-pair,latent-ladder,lone-freeze,mask-drift,masked-hole,memo-chain,memo-churn,memo-comb,memo-fanout,memo-oscillating,mirror-narrow,mirror-wide,nested-full,nested-wide,plateau-puncture,promo-rearm,propagate-seam,pure-comb,raise-hole,reveal-comb,reveal-hifloor,site-hole,staircase,tooth-tail,weight-comb,wide-arming,wide-tooth-comb", "copy-hole"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "rank_borsh_deserialize", ["concurrent-pair", "-", "-"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "ranked_borsh_deserialize", ["wide-arming", "cancelling-chain", "collapse-hole"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "span_borsh_deserialize", ["mirror-narrow,nested-full", "copy-hole", "staircase"]),
+    #[cfg(feature = "borsh")]
     ("acceptance", "count_borsh_deserialize", ["freeze-parade", "-", "-"]),
 ];
 

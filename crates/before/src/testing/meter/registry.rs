@@ -900,11 +900,17 @@ pub struct FamilySpec {
     pub name: &'static str,
     /// Constructors that belong to this family.
     pub shapes: &'static [Shape],
-    /// Number of operation rows reached by this family's operand bundle.
+    /// Number of operation rows reached by this family's operand bundle in
+    /// this build, which compiles the deserialization rows only under their
+    /// `serde` and `borsh` features.
     pub cells: usize,
 }
 
-/// Optional deserialization rows reached by each available encoded value.
+/// The number of deserialization formats compiled into this build.
+///
+/// Each bundle below reaches a fixed number of deserialization rows per
+/// format, so its reach is a base count plus that number per compiled format,
+/// and a family's declared reach counts only the rows this build compiles.
 const DESERIALIZATION_FORMATS: usize =
     cfg!(feature = "serde") as usize + cfg!(feature = "borsh") as usize;
 
@@ -921,7 +927,10 @@ const CROSS_BUNDLE_CELLS: usize = 101 + 7 * DESERIALIZATION_FORMATS;
 const FULL_BUNDLE_CELLS: usize = 118 + 7 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a population family.
-const POPULATION_BUNDLE_CELLS: usize = 28;
+///
+/// Its one deserialization row per format decodes the population's widest
+/// `Count`.
+const POPULATION_BUNDLE_CELLS: usize = 26 + DESERIALIZATION_FORMATS;
 
 /// Board rows reached by scatter, including correlated query witnesses.
 const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
