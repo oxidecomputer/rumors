@@ -32,7 +32,7 @@ pub enum Update {
     /// Add the contribution as supplied.
     Add,
     /// Subtract the contribution as supplied.
-    Subtract,
+    Sub,
 }
 
 impl Update {
@@ -40,7 +40,7 @@ impl Update {
     /// for a negative one, addition otherwise.
     pub fn from_sign(sign: Ordering) -> Update {
         if sign == Ordering::Less {
-            Update::Subtract
+            Update::Sub
         } else {
             Update::Add
         }
@@ -55,7 +55,7 @@ impl Update {
         );
         match self {
             Update::Add => contribution,
-            Update::Subtract => -contribution,
+            Update::Sub => -contribution,
         }
     }
 }
@@ -75,7 +75,7 @@ impl Value {
             touch(1);
             let sum = match update {
                 Update::Add => value.checked_add_unsigned(magnitude),
-                Update::Subtract => value.checked_sub_unsigned(magnitude),
+                Update::Sub => value.checked_sub_unsigned(magnitude),
             };
             if let Some(sum) = sum {
                 if sum.unsigned_abs() <= SMALL_MAX {

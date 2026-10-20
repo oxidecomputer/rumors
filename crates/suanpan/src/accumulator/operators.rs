@@ -324,7 +324,7 @@ impl AddAssign<&Accumulator> for Accumulator {
 impl SubAssign<&Accumulator> for Accumulator {
     fn sub_assign(&mut self, rhs: &Accumulator) {
         let value = self.value.get_mut();
-        rhs.read(|operand| value.apply_accumulator(operand, 0, Update::Subtract));
+        rhs.read(|operand| value.apply_accumulator(operand, 0, Update::Sub));
     }
 }
 

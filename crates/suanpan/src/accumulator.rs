@@ -182,7 +182,7 @@ impl Accumulator {
     pub fn sub_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
         self.value
             .get_mut()
-            .apply_limbs(limbs.into_iter(), shift, Update::Subtract);
+            .apply_limbs(limbs.into_iter(), shift, Update::Sub);
     }
 
     /// Add another accumulator's value multiplied by `2^shift`.
@@ -244,7 +244,7 @@ impl Accumulator {
     /// buffer can address. A zero operand never panics.
     pub fn sub_shifted(&mut self, shift: u64, other: &Accumulator) {
         let value = self.value.get_mut();
-        other.read(|operand| value.apply_accumulator(operand, shift, Update::Subtract));
+        other.read(|operand| value.apply_accumulator(operand, shift, Update::Sub));
     }
 
     /// Reset to zero, retaining allocated storage for reuse.
@@ -318,7 +318,7 @@ impl Accumulator {
 
     /// Return whether the value is zero.
     ///
-    /// This is [`sign`](Self::sign)` == Ordering::Equal`, with its cost.
+    /// This is [`sign`](Self::sign)` == Ordering::Equal`.
     #[inline]
     pub fn is_zero(&self) -> bool {
         self.sign() == Ordering::Equal
@@ -326,7 +326,7 @@ impl Accumulator {
 
     /// Return whether the value is greater than zero.
     ///
-    /// This is [`sign`](Self::sign)` == Ordering::Greater`, with its cost.
+    /// This is [`sign`](Self::sign)` == Ordering::Greater`.
     #[inline]
     pub fn is_positive(&self) -> bool {
         self.sign() == Ordering::Greater
@@ -334,7 +334,7 @@ impl Accumulator {
 
     /// Return whether the value is less than zero.
     ///
-    /// This is [`sign`](Self::sign)` == Ordering::Less`, with its cost.
+    /// This is [`sign`](Self::sign)` == Ordering::Less`.
     #[inline]
     pub fn is_negative(&self) -> bool {
         self.sign() == Ordering::Less

@@ -110,7 +110,7 @@ fn compare(a: &mut Value, b: &mut Value) -> Ordering {
     }
     let mut difference = Value::new();
     difference.apply_accumulator(a, 0, Update::Add);
-    difference.apply_accumulator(b, 0, Update::Subtract);
+    difference.apply_accumulator(b, 0, Update::Sub);
     difference.cmp_zero()
 }
 
