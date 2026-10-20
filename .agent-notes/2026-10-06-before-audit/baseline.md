@@ -47,10 +47,9 @@ spelling.
 ## Landing check
 
 Branches land on the landing check (`~/bin/audit-check`, described in the
-README) rather than the full gate. Its baseline was recorded at `9a90b767`,
-whose code is `455e97de`'s plus the landed limb-index and board-pin fixes,
-with the corrected script, which judges every command in a leg and refuses
-to run if it cannot see a failing first command. The invocation:
+README) rather than the full gate. Its baseline is recorded at `main`
+`6a8dab7cc` (2026-10-20), after #122 and its follow-ups, #130, #129, and
+#131 landed. The invocation:
 
 ```
 on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check'
@@ -58,18 +57,17 @@ on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24
 
 | Leg | Verdict | Detail |
 |---|---|---|
-| tests | ok | `before` and `suanpan`: 759 run, 759 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
+| tests | ok | `before` and `suanpan`: 840 run, 840 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
 | lints | ok | `just gate-lints` and both clippy runs clean |
-| docs | ok | private-items and docs.rs builds clean; doctests: 193 passed (`before`), 3 passed (`suanpan`) |
-| surface | ok | 14 tests passed; 211 public function-like items = 134 board-covered + 77 excepted |
-| board | ok | 5311 green, 0 red; `worst-case pin: clean (270 pinned rows verified at 2 sampling scales)` |
-| wasm | ok | wasm32-pins 8/8, fuzzfit 25/25, fuelscape 43/43 |
+| docs | ok | private-items and docs.rs builds clean; doctests: 193 passed (`before`), 15 passed (`suanpan`) |
+| surface | ok | 14 tests passed; 215 public function-like items = 134 board-covered + 81 excepted |
+| board | ok | 5545 green, 0 red; `worst-case pin: clean (272 pinned rows verified at 2 sampling scales)` |
+| wasm | ok | wasm32-pins 12/12, fuzzfit 25/25, fuelscape 43/43 |
 
 A branch's landing check must match this table, with counts moved only by
-the tests the branch adds or removes. A branch based before the board-pin
-fix (`ddfabe4c`) instead shows the board leg failing with exactly the two
-`count_display × heap` drift lines described under `just gate`, and nothing
-else beside them; its `before` and `suanpan` count is two lower.
+the tests the branch adds or removes. A branch based before #129 runs the
+board and the worst-case pin as two commands; one based on or after it
+runs one sweep.
 
 ## Open items
 
