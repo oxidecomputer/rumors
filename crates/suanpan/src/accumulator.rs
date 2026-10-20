@@ -269,13 +269,21 @@ impl Accumulator {
 
     /// Reset to zero, retaining allocated storage for reuse.
     ///
-    /// Clearing takes work proportional to the working width. Replacing the
-    /// accumulator with [`new`](Self::new) releases its storage instead.
+    /// Clearing takes work proportional to the span written since creation or
+    /// the previous reset: like
+    /// [`scaled_signed_magnitude`](Self::scaled_signed_magnitude), it skips
+    /// the low positions that write history shows are still zero. Replacing
+    /// the accumulator with [`new`](Self::new) releases its storage instead,
+    /// and the replacement's first update at a large shift grows a buffer from
+    /// position zero again. Reusing one accumulator through `reset` pays that
+    /// growth once.
     ///
     /// # Complexity
     ///
-    /// O(`W`) time and O(1) additional space, where `W` is the working width
-    /// before the reset. The accumulator retains its main allocation.
+    /// O(`R`) time and O(1) additional space, where `R` is the written span
+    /// before the reset, as the [crate-level cost
+    /// model](crate#costs-and-storage) defines it; `R` is at most the working
+    /// width. The accumulator retains its main allocation.
     pub fn reset(&mut self) {
         self.value.get_mut().reset();
     }

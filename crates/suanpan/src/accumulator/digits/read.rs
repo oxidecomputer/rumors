@@ -43,11 +43,7 @@ impl Digits {
         let sign = self.cmp_zero();
         // The comparison may deposit one digit below `lowest_written`, so the
         // scaled start is chosen only after it.
-        let start = if scaled {
-            self.lowest_written.min(self.highest_nonzero)
-        } else {
-            0
-        };
+        let start = if scaled { self.written_floor() } else { 0 };
         // The pass emits one digit per position it covers, which sizes the
         // limbs exactly, and at most one carry digit above them, which grows
         // them by at most one limb.

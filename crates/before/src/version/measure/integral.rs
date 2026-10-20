@@ -91,13 +91,21 @@
 //! Each input delta therefore pays for the accumulator changes and width
 //! checks it causes. Freezes and deferrals move a wide value only after input
 //! established that width; relative segment widths are bounded by the tree
-//! structure traversed inside them. The deferred reduction bounds repeated
-//! reads by its data-weighted depth. Its clustered integer products give the
-//! overall `O(M(n))` time and `O(n)` transient-space bounds in `n` input bits,
-//! where `M(n)` is the cost of multiplying `n`-bit integers. Exact integration
-//! can itself encode an arbitrary integer product, so the multiplication cost
-//! is necessary. The measurement tests exercise that reduction as well as the wide
-//! heights, dense widths, and cancellation cases that require this machinery.
+//! structure traversed inside them. A width's absolute position is not
+//! bounded that way, so the segment and deferred widths each keep one buffer
+//! for the whole sweep, and growing it to a high position happens once. Each
+//! reset of either width follows a scaled read of the same accumulator
+//! (`close_segment` and `DeferredIntegral::push`), with no write between, so
+//! it clears no more than the span that read already covered. The trade is
+//! space: each kept buffer holds up to the scale's digits for the rest of the
+//! sweep, `O(n)` and inside the space bound below. The deferred reduction
+//! bounds repeated reads by its data-weighted depth. Its clustered integer
+//! products give the overall `O(M(n))` time and `O(n)` transient-space
+//! bounds in `n` input bits, where `M(n)` is the cost of multiplying `n`-bit
+//! integers. Exact integration can itself encode an arbitrary integer
+//! product, so the multiplication cost is necessary. The measurement tests
+//! exercise that reduction as well as the wide heights, dense widths, and
+//! cancellation cases that require this machinery.
 
 use core::cmp::Ordering;
 
@@ -272,9 +280,10 @@ impl Integrator {
         self.parked += &self.live;
         self.live.reset();
 
-        // reset() clears the whole allocated span. Segment digits can be high
-        // above an unwritten zero prefix; replacing the buffer avoids scanning it.
-        self.segment_width = Accumulator::new();
+        // Keep the buffer. A fresh accumulator would grow from digit 0 to the
+        // next segment's weight shift at every freeze, and that shift can sit
+        // Θ(n) digits up. The reset clears only the span this segment wrote.
+        self.segment_width.reset();
     }
 
     /// Settle the completed segment and return its parked height, or `None`

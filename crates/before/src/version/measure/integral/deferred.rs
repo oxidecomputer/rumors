@@ -57,9 +57,11 @@ impl DeferredIntegral {
         debug_assert!(!width.is_zero(), "a deferral follows at least one interval");
         self.entries.push(Entry { height, width });
 
-        // A fresh accumulator drops its allocation without scanning the zero
-        // prefix below the interval's scale, as reset() would do.
-        self.width = Accumulator::new();
+        // Keep the buffer, as `Integrator::freeze` keeps the segment width's:
+        // a fresh accumulator would grow from digit 0 to the next interval's
+        // scale at every deferral. The reset clears only the span this interval
+        // wrote.
+        self.width.reset();
     }
 
     /// Add every deferred contribution after the final segment width has arrived.

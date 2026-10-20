@@ -23,11 +23,13 @@ fn scaled_reading(acc: &Accumulator) -> (Ordering, UBig, u64) {
     (sign, from_limbs(limbs.as_ref()), shift)
 }
 
-/// A scaled read skips an untouched low prefix; an unscaled read visits it.
+/// A scaled read and a reset skip an untouched low prefix; an unscaled read
+/// visits it.
 ///
 /// A two-limb value at bit 32,000 takes at most sixteen scaled-read touches
 /// but more than a thousand unscaled-read touches. Both reconstruct the same
-/// integer. Reset clears the value and its remembered scale.
+/// integer. The reset then also takes at most sixteen touches, and clears the
+/// value and its remembered scale.
 #[test]
 fn scaled_read_costs_the_written_span() {
     let mut acc = Accumulator::new();
@@ -57,7 +59,14 @@ fn scaled_read_costs_the_written_span() {
         IBig::from(full),
         IBig::from(from_limbs(&[7, 9])) << 32_000usize
     );
+    touch_meter::reset();
     acc.reset();
+    let reset = touch_meter::touches();
+    assert!(
+        reset <= 16,
+        "the reset cleared {reset} digits: the write watermark is not \
+         skipping the never-written prefix"
+    );
     assert!(acc.is_known_zero());
     let (sign, magnitude, shift) = scaled_reading(&acc);
     assert_eq!(
@@ -377,8 +386,9 @@ fn merge_tie_reads_the_operand() {
 /// held digits, and shift assignment's total is independent of the shift.
 ///
 /// With `d` held digits:
-/// - unary `-` and `reset` touch each digit once: `d`, or `d + 1` after a
-///   shift has grown the span by one;
+/// - unary `-` touches each digit once: `d`;
+/// - `reset` after `<<= 32` touches each written digit once: `d`, because
+///   the shift moved the span up one position and left digit zero unwritten;
 /// - `<<=` reads the top digit to rule out zero, then reads and re-deposits
 ///   each digit: `2d + 1`. The top digit, `2^32 - 1`, settles the zero check
 ///   alone, and the total is the same at a thousandfold larger shift;
@@ -441,9 +451,9 @@ fn held_width_rows_cost_the_held_digits() {
         acc.reset();
         assert_eq!(
             touch_meter::touches(),
-            held_digits + 1,
-            "reset at {held_digits} held digits: one touch per digit (the \
-             shift grew the span by one)"
+            held_digits,
+            "reset at {held_digits} held digits: one touch per written digit \
+             (the shift left digit zero unwritten)"
         );
         assert!(acc.is_known_zero());
     }
