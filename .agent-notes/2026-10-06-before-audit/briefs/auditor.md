@@ -33,11 +33,6 @@ you do not brief*:
 - what it checks, and against what oracle or model
 - what inputs it reaches that the committed generators do not (depth, width,
   heights, sharing, relation mix), measured where you can
-- its calibration, and how many of its mutants the committed suite also
-  caught
-
-"The committed suite caught every mutant I chose" is weak evidence that an
-instrument adds nothing, so record its reach even when you do not brief it.
 
 When the coordinator tells you a fix branch exists for one of your defects,
 merge it into `explore/<lane>` and keep searching past the resolved failure.
@@ -153,10 +148,9 @@ in your report. Every claim says whether you verified it or inferred it.
   repairs, and the other entry points that share the mechanism.
 - **Machinery brief**, one per gap worth closing with a passing test or
   instrument:
-  - the failure class it catches, as a constructible defect
+  - what it covers that the committed suite does not
   - which existing instrument it extends, or why none can
   - the generator construction
-  - your calibration evidence: which injected defects your prototype caught
 - **Simplification brief**, one per self-contained candidate, or per
   constant-factor improvement worth building:
   - the current code, with `file:line`

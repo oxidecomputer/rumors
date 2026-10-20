@@ -53,8 +53,8 @@ experiments; restore them and confirm with `git diff` before you finish.
 
 ### Machinery: can it fail?
 
-- **Does it catch what it claims?** Inject the defect class it names and
-  confirm it fails.
+- **Does it test what it says?** Read each test against its doc comment's
+  claim; a claim wider than what the test exercises is a finding.
 - **Does it duplicate an existing instrument?** If so, is the new failure
   class it catches real?
 

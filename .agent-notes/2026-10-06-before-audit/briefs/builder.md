@@ -8,7 +8,7 @@ fresh branch cut from the base SHA. There are two kinds of brief.
 
 - **Machinery** (branch `audit/<slug>`): a gap-closing property test,
   generator, oracle extension, or instrument extension that passes on the
-  base commit and would catch a named class of defect.
+  base commit and covers behavior the committed suite leaves untested.
 - **Simplification** (branch `simplify/<slug>`): a self-contained,
   behavior-preserving restructuring of production or test code that makes its
   correctness more evident. It changes no public API, no wire or storage
@@ -38,16 +38,10 @@ ceiling.
 
 ## What to verify, on the box
 
-- **Machinery: show it can fail.** Inject the defect class it names by a
-  reversible string swap, confirm the new test fails, revert, and confirm
-  with `git diff` that the tree is restored. Report the injected defect and
-  the failure verbatim. Then confirm the machinery passes on the base commit
-  within nextest's time limit.
+- **Machinery** passes on the base commit within nextest's time limit.
 - **Simplification: show behavior is preserved.** Name the properties that
-  cover the rewritten code, and calibrate them the same way: a plausible
-  defect injected into the *new* code must make them fail. If nothing covers
-  the code well enough to make that true, stop and report; the auditor owes
-  a machinery brief first.
+  cover the rewritten code. If nothing covers it, stop and report; the
+  auditor owes a machinery brief first.
 - **Performance changes.** If the change lowers a deterministic counter,
   capture the improvement by lowering the ceiling so it cannot regress. If it
   raises one, stop and report.
@@ -57,7 +51,6 @@ ceiling.
 
 1. Verdict: built as briefed, or not, and why.
 2. Branch and commit SHAs.
-3. Calibration evidence, verbatim.
-4. Gate result against the baseline.
-5. Deviations from the brief and their reasons.
-6. Unsigned commit SHAs, if any.
+3. Gate result against the baseline.
+4. Deviations from the brief and their reasons.
+5. Unsigned commit SHAs, if any.

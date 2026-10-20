@@ -188,11 +188,12 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   catches, and must get an entry in the validation index
   (`src/testing/validation_index.rs`).
 - Never run cargo-mutants, and never treat a surviving mutant as a finding
-  (owner, 2026-10-20). A mutation score is not a goal. A test earns its place
-  by catching a real, plausible regression that you can name. Showing that a
-  specific known-bad variant of the code under change fails your new check
-  is still expected: that variant is a plausible regression, constructed on
-  purpose, and not a sweep.
+  (owner, 2026-10-20). Do not set out to prove that a test you add would
+  catch some introduced regression: almost any test can be justified by an
+  imagined one, so the exercise costs effort and breeds tests without
+  telling you which tests are worth having. Add the coverage the change
+  needs, and judge it by what it covers. A fix branch's first commit still
+  demonstrates the actual defect by failing on the base commit.
 - Leave every test, helper, or generator you touch more legible, without
   weakening its coverage. If you find one that is wrong, vacuous, or weaker
   than its claim, fix it and call out the behavioral correction.
