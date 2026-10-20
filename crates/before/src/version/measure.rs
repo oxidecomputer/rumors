@@ -13,10 +13,11 @@
 //! readers, so the public methods need no representation-level helper methods.
 //!
 //! Rank, distance, and lag take `O(M(n))` time in `n` input bits, where `M(n)`
-//! is the cost of multiplying `n`-bit integers. An exact result can itself
-//! contain such a product. `min_ticks` is linear in its input. Every traversal
-//! retains only its cursor paths and the arithmetic state needed for its
-//! result; none constructs a recursive tree or an intermediate Version.
+//! is the cost of multiplying `n`-bit integers; [`integral`] says which
+//! multiplication that is. An exact result can itself contain such a product.
+//! `min_ticks` is linear in its input. Every traversal retains only its cursor
+//! paths and the arithmetic state needed for its result; none constructs a
+//! recursive tree or an intermediate Version.
 
 mod distance;
 pub mod integral;

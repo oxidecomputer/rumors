@@ -102,10 +102,13 @@
 //! bounds repeated reads by its data-weighted depth. Its clustered integer
 //! products give the overall `O(M(n))` time and `O(n)` transient-space
 //! bounds in `n` input bits, where `M(n)` is the cost of multiplying `n`-bit
-//! integers. Exact integration can itself encode an arbitrary integer
-//! product, so the multiplication cost is necessary. The measurement tests
-//! exercise that reduction as well as the wide heights, dense widths, and
-//! cancellation cases that require this machinery.
+//! integers with the backend in use, `num-bigint`, rather than a schoolbook
+//! `n²`. Public rustdoc states the bound without naming the backend, because
+//! the backend is not part of what callers are promised. Exact integration
+//! can itself encode an arbitrary integer product, so the multiplication cost
+//! is necessary. The measurement tests exercise that reduction as well as the
+//! wide heights, dense widths, and cancellation cases that require this
+//! machinery.
 
 use core::cmp::Ordering;
 
