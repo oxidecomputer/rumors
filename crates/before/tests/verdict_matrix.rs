@@ -346,6 +346,8 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
         FamilyId::JumpRisingSpine => (vec![Shape::JumpRisingSpine.build2(40, 4).version()], vec![]),
         // The rising spine alternating wide and one-tick steps.
         FamilyId::WideStepPairs => (vec![Shape::WideStepPairs.build2(320, 4).version()], vec![]),
+        // The rising spine whose every step is wider than a word.
+        FamilyId::WideStepSpine => (vec![Shape::WideStepSpine.build2(64, 4).version()], vec![]),
     };
     MatrixOperands { versions, masks }
 }

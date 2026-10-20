@@ -18,8 +18,8 @@ use super::{
     latent_ladder, lone_freeze, mask_drift_quadruple, mask_drift_triple, masked_hole,
     plateau_puncture, plateau_puncture_factors, promotion_rearm, promotion_rearm_mate, raise_hole,
     scattered_id, seam_plunge, seam_plunge_control, seam_stop, seam_stop_control, site_hole,
-    tooth_tail, weight_comb, wide_arming, wide_step_pairs, wide_tooth_comb, Encoding,
-    FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS, PROMOTION_REARM_ARM_BITS,
+    tooth_tail, weight_comb, wide_arming, wide_step_pairs, wide_step_spine, wide_tooth_comb,
+    Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS, PROMOTION_REARM_ARM_BITS,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -334,6 +334,32 @@ proptest! {
             } else {
                 Count::from(1u8)
             })),
+            depth,
+        }));
+        expected.push(Plateau { rise: Some(Rise::Up(Count::from(1u8))), depth: d as u64 });
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, expected);
+    }
+
+    /// `WS(e, d)` is canonical normal form at exactly `8 + (d − 1)(2e + 4)`
+    /// bits, with the rising-spine shape its resource claim rests on.
+    ///
+    /// Its plateaus sit at depths `1, 2, …, d, d`, rising by `W = 2^e` into
+    /// each depth below the root and by one tick into the final leaf.
+    ///
+    /// A version is determined by its plateau sequence, so this pins the
+    /// whole tree: one wide rise per level, never a fall.
+    #[test]
+    fn wide_step_spine_decodes_canonically_as_a_rising_spine(
+        e in 1usize..=400,
+        d in 2usize..=300,
+    ) {
+        let shape = wide_step_spine(e, d);
+        check_version(&shape, 8 + (d - 1) * (2 * e + 4));
+        let wide = BigUint::from(1u8) << e;
+        let mut expected = vec![Plateau { rise: None, depth: 1 }];
+        expected.extend((2..=d as u64).map(|depth| Plateau {
+            rise: Some(Rise::Up(Count(wide.clone()))),
             depth,
         }));
         expected.push(Plateau { rise: Some(Rise::Up(Count::from(1u8))), depth: d as u64 });

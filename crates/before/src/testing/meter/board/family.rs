@@ -261,6 +261,21 @@ const WIDE_STEP_PAIRS_BASE_DEPTH: usize = 128;
 /// height, so every frozen height takes the whole-accumulator form.
 pub(crate) const WIDE_STEP_PAIRS_STEP_BITS: usize = 320;
 
+/// Wide-step spine depth at the default scale.
+///
+/// The depth sits a few levels past a power of two, and the ladder doubles
+/// it, so at every sampled size a fold holding one value per level in a
+/// doubling buffer has just reallocated. The reallocation holds the old and
+/// new storage together, which is where a per-level cost reads highest.
+const WIDE_STEP_SPINE_BASE_DEPTH: usize = 260;
+
+/// Wide-step spine step width in bits (fixed across scales).
+///
+/// `2^64` is the smallest power of two wider than a 64-bit word, so every
+/// boundary between the spine's nested minima takes a range-minimum fold's
+/// wide form, at the narrowest step that does.
+const WIDE_STEP_SPINE_STEP_BITS: usize = 64;
+
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
 ///
@@ -1152,6 +1167,13 @@ impl FamilyData {
                 kind,
                 Shape::WideStepPairs
                     .build2(WIDE_STEP_PAIRS_STEP_BITS, size(WIDE_STEP_PAIRS_BASE_DEPTH))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::WideStepSpine => Self::event(
+                kind,
+                Shape::WideStepSpine
+                    .build2(WIDE_STEP_SPINE_STEP_BITS, size(WIDE_STEP_SPINE_BASE_DEPTH))
                     .version()
                     .encode(),
             ),
