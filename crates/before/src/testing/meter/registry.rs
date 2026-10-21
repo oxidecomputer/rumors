@@ -691,9 +691,9 @@ pub enum FamilyId {
     /// position `Θ(n)` digits above the parked unit for O(1) stored bits per
     /// event — the position weight is topology, so no code funds the gap — and
     /// every cancellation makes the accumulator's top settle back across the
-    /// never-written run. A settlement scan that steps the gap digit by digit
-    /// goes quadratic here; consuming one recorded zero range per jump reads
-    /// flat (the `skyline_flatness`
+    /// never-written gap. A settlement scan that steps the gap digit by digit
+    /// goes quadratic here; crossing the never-written gap in one step per
+    /// jump reads flat (the `skyline_flatness`
     /// weight-comb band). Designed against the numeric-measure rows.
     WeightComb,
     /// The freeze-parade spine `freeze_parade(k)`: the deep-segment freeze

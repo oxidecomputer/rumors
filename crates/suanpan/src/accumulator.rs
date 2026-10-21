@@ -9,8 +9,8 @@
 //!
 //! Every update to the wide representation passes through
 //! [`Digits`](digits::Digits). That single write boundary maintains the digit
-//! bounds and the information that later comparisons with zero need to skip
-//! untouched zero ranges.
+//! bounds and the record of written positions that later comparisons with
+//! zero need to skip untouched zeros.
 //!
 //! [`Accumulator`] holds its [`Value`] in a `RefCell`, so that reads, which
 //! compact what they touch, can take `&self`.
@@ -280,10 +280,12 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// O(`R`) time and O(1) additional space, where `R` is the written span
-    /// before the reset, as the [crate-level cost
+    /// Amortized O(`R`) time and O(1) additional space, where `R` is the
+    /// written span before the reset, as the [crate-level cost
     /// model](crate#costs-and-storage) defines it; `R` is at most the working
-    /// width. The accumulator retains its main allocation.
+    /// width. The bound is amortized because a reset can also clear
+    /// bookkeeping that earlier writes built, work those writes pay for. The
+    /// accumulator retains its main allocation.
     pub fn reset(&mut self) {
         self.value.get_mut().reset();
     }

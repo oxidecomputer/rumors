@@ -2,7 +2,7 @@
 //!
 //! Starting each schedule in both representations protects the scalar fast
 //! path as well as digit arithmetic. Inspecting the private invariants catches
-//! stale zero ranges that might corrupt a later query even when the current
+//! a stale written set that might corrupt a later query even when the current
 //! value still reads correctly.
 
 mod copies;
@@ -217,8 +217,8 @@ fn oracle_word(value: &UBig) -> Option<u64> {
 ///
 /// The digits stay stored until a comparison with zero compacts them, so any
 /// value added below `position − 1` sits under a working width that exceeds
-/// its own. Both writes are single digits above a recorded zero range, so a
-/// compacting scan crosses that range in one skip.
+/// its own. Both writes are single digits above a gap of unwritten zeros, so
+/// a compacting scan crosses that gap in one skip.
 ///
 /// # Panics
 ///

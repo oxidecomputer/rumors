@@ -346,8 +346,7 @@ const PROMO_REARM_BASE_BLOCKS: usize = 512;
 /// The rounding is the complete-subtree relation's call-site repair, and the
 /// level doubling then doubles the rounded count exactly. The base is the scale
 /// of the `skyline_flatness` weight-comb band's small run, so the board's
-/// default pair spans the zero-range skipping behavior the family exists to
-/// check.
+/// default pair spans the gap-skipping behavior the family exists to check.
 /// Power-of-two `n` keeps the spine depth `32n ≡ 0 (mod 32)`, so `rank_sum`
 /// lands its small summands at the same bit remainder at both scales and the
 /// exponent leg compares like against like (the freeze-position base's

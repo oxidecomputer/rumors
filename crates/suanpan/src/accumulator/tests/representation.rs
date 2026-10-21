@@ -2,8 +2,9 @@
 //! constant space whatever its stored form.
 //!
 //! At every step, compare the value with a big-integer oracle and inspect the
-//! representation itself. A stale range could skip a nonzero digit on a later
-//! query even while the current value still reads correctly.
+//! representation itself. A nonzero digit missing from the written set would
+//! be skipped by a later query even while the current value still reads
+//! correctly.
 //!
 //! Zero can be stored as nonzero digits that cancel. Shifting such a zero, or
 //! adding it at a shift, must take constant space, as a known zero does.
@@ -21,7 +22,8 @@ struct Operands {
     ///
     /// The word path does not split the coefficient across two digits. That
     /// distinction constructs an adjacent representation such as `(+1, −2^32)`,
-    /// which can drive a sign fold's partial to zero above a recorded zero range.
+    /// which can drive a sign fold's partial to zero above a gap of unwritten
+    /// zeros.
     word32: UBig,
     /// A unit contribution at digit three.
     p96: IBig,
@@ -120,12 +122,13 @@ fn check_schedules(
     }
 }
 
-/// Every schedule of up to six operations preserves the digit and range invariants.
+/// Every schedule of up to six operations preserves the digit and written-set invariants.
 ///
-/// The eleven-operation alphabet exercises gap creation, splitting, and
-/// consumption, including carries and sign collapse inside a recorded zero range.
-/// Every state must match the oracle and retain disjoint zero ranges wholly
-/// within the stored width.
+/// The operation alphabet exercises gap creation, splitting, and consumption,
+/// including carries and sign collapse inside a gap of unwritten zeros. Every
+/// state must match the oracle, write every nonzero digit, write nothing
+/// above the top, and write nothing below the lowest written position but
+/// position zero.
 #[test]
 fn representation_invariants_hold_exhaustively() {
     let operands = Operands {
@@ -148,7 +151,7 @@ fn representation_invariants_hold_exhaustively() {
 
 proptest! {
     /// Longer streams with wider shifts preserve the value, signed-digit bounds,
-    /// stored width, and disjoint zero ranges after every step.
+    /// stored width, and the written-set invariant after every step.
     ///
     /// The exhaustive sweep's long-schedule, deep-shift complement:
     /// shifts to 4,096 bits, schedules to 150 ops, comparisons with zero
@@ -224,7 +227,7 @@ enum Cancellation {
     ///
     /// A one-limb operand is held in the small representation and deposits
     /// 32-bit pieces, while the one-limb stream deposits a whole word. Wider
-    /// operands extend the buffer and its zero ranges.
+    /// operands extend the buffer and its written set.
     Operand { limbs: Vec<u64>, shift: u64 },
 }
 
@@ -492,5 +495,56 @@ proptest! {
             "{} zero operands at the buffer's top leave the buffer's length",
             landings.len()
         );
+    }
+}
+
+/// The widths at which [`sign_queries_add_written_set_space_independent_of_width`]
+/// reads each value shape, in digit positions.
+///
+/// They span three orders of magnitude, so storage that grew with the width
+/// would differ between them by thousands of bitset words.
+const SIGN_QUERY_WIDTHS: [u64; 4] = [100, 1_000, 10_000, 100_000];
+
+/// A sign query adds the same written-set storage at every width, as the
+/// crate's O(1) additional-space bound for sign queries requires.
+///
+/// Each shape is a value whose top digit `s` lies far above its other
+/// digits: `2^(32s)` alone, whose set is a prefix and a run; with digits at
+/// 0 and `s/2`, two gaps, which the set holds in a bitset; and with digits
+/// at 10 and 20 as well, a bitset holding more gaps. The query reads the top
+/// digit, finds the unwritten position below it, and writes the compacted
+/// top back there. For every shape, the bitset words the query adds must
+/// equal those it adds at the narrowest width.
+#[test]
+fn sign_queries_add_written_set_space_independent_of_width() {
+    #[allow(clippy::type_complexity)]
+    let shapes: [(&str, fn(u64) -> Vec<u64>); 3] = [
+        ("a lone top digit", |_| vec![]),
+        ("two gaps", |s| vec![0, s / 2]),
+        ("several gaps", |s| vec![0, 10, 20, s / 2]),
+    ];
+    for (name, lower) in shapes {
+        let added_at = |s: u64| {
+            let mut acc = Accumulator::new();
+            let mut oracle = IBig::ZERO;
+            for position in lower(s).into_iter().chain([s]) {
+                acc.add_shifted_limbs(32 * position, [1]);
+                oracle += IBig::from(1) << usize::try_from(32 * position).unwrap();
+            }
+            let before = acc.stored().digits.written_storage_words();
+            assert_eq!(acc.sign(), Ordering::Greater, "{name} at {s}");
+            acc.stored().assert_invariants(&[]);
+            assert_value(&acc, &oracle);
+            let after = acc.stored().digits.written_storage_words();
+            after as i128 - before as i128
+        };
+        let narrowest = added_at(SIGN_QUERY_WIDTHS[0]);
+        for s in SIGN_QUERY_WIDTHS {
+            assert_eq!(
+                added_at(s),
+                narrowest,
+                "a sign query on {name} at width {s} adds bitset words that grow with the width"
+            );
+        }
     }
 }

@@ -24,7 +24,8 @@
 //! - `highest_nonzero` names the highest nonzero position, or zero when the
 //!   value is zero;
 //! - every position below `lowest_written` is zero;
-//! - `zero_ranges` records untouched zero ranges between populated positions.
+//! - `written` records which positions updates have written, and its field
+//!   states what that guarantees about the digits.
 //!
 //! The first bounds ordinary reads. The second lets a scaled read omit a known
 //! zero prefix. The third lets a descending scan cross a large shift in one
@@ -41,10 +42,10 @@ mod read;
 mod sign;
 #[cfg(test)]
 mod tests;
-mod zero_ranges;
+mod written;
 
 use super::{touch, DIGIT_BITS};
-use zero_ranges::ZeroRanges;
+use written::WrittenPositions;
 
 /// Twice the base: every stored digit has magnitude strictly below this limit.
 const DIGIT_LIMIT: i128 = 1 << (DIGIT_BITS + 1);
@@ -69,11 +70,27 @@ pub struct Digits {
     /// Cancellation does not raise this bound. A comparison with zero also
     /// deposits through `add_at`, and may lower it by one digit.
     lowest_written: usize,
-    /// Disjoint known-zero ranges within the stored prefix.
-    zero_ranges: ZeroRanges,
+    /// Positions that updates have written, so a descending scan can cross
+    /// the unwritten zeros between them in one step.
+    ///
+    /// At every completed operation:
+    ///
+    /// - every position at or below `highest_nonzero` that the set does not
+    ///   hold is zero, which is what lets a scan skip it; a held position may
+    ///   hold zero after cancellation;
+    /// - the set holds nothing above `highest_nonzero`;
+    /// - while the buffer holds digits, the set holds position zero and
+    ///   `highest_nonzero`, so a descent always finds a position to stop at;
+    /// - apart from position zero, the set holds nothing below
+    ///   `lowest_written`, which is what lets [`reset`](Self::reset) clear it
+    ///   at the cost of the written span.
+    ///
+    /// Storage left by `reset` holds exactly position zero; storage emptied
+    /// by [`clear`](Self::clear) holds nothing.
+    written: WrittenPositions,
 }
 
-/// Maintain the signed digits and their known-zero ranges.
+/// Maintain the signed digits and the positions written into them.
 impl Digits {
     /// Construct inactive digit storage without allocating.
     pub fn new() -> Self {
@@ -81,7 +98,7 @@ impl Digits {
             digits: Vec::new(),
             highest_nonzero: 0,
             lowest_written: usize::MAX,
-            zero_ranges: ZeroRanges::default(),
+            written: WrittenPositions::default(),
         }
     }
 
@@ -100,9 +117,15 @@ impl Digits {
             self.digits.reserve_exact(1);
             self.digits.push(0);
         }
+        debug_assert!(
+            matches!(self.written.last_below(usize::MAX), None | Some(0)),
+            "inactive digit storage holds no written position but zero"
+        );
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
-        self.zero_ranges.clear();
+        // Storage left by `reset` already holds position zero; empty storage
+        // gains it here.
+        self.written.insert(0);
         self.debug_assert_valid();
     }
 
@@ -128,11 +151,14 @@ impl Digits {
         self.highest_nonzero + 1
     }
 
-    /// Make `target` hold exactly this stored prefix and its scan metadata,
+    /// Make `target` hold this stored prefix as freshly written digits,
     /// reusing `target`'s allocation when it suffices.
     ///
     /// The copy holds no digits above the stored prefix, so its retained
-    /// length is the prefix's.
+    /// length is the prefix's. Its metadata records the copy's own writes
+    /// rather than the source's history, so it is valid for any source;
+    /// `clone` normalizes the source first, so the copy carries no
+    /// cancellation.
     pub fn copy_into(&self, target: &mut Digits) {
         self.debug_assert_valid();
         let prefix = self.stored_digits();
@@ -143,17 +169,30 @@ impl Digits {
         // The copy holds only the prefix, so its watermark is the floor
         // clamped into that prefix.
         target.lowest_written = self.written_floor();
-        target.zero_ranges.clone_from(&self.zero_ranges);
+        // The copy writes every position from that floor to its top, so its
+        // set is position zero and that one run, held inline, and takes no
+        // bitset sized to the source's. The target's old set is replaced
+        // rather than cleared: clearing costs the target's written span,
+        // which `clone_from`'s bound, the read plus O(Q), does not include.
+        target.written = WrittenPositions::default();
+        target.written.insert(0);
+        target
+            .written
+            .insert_span(target.lowest_written, target.highest_nonzero);
         target.debug_assert_valid();
     }
 
     /// Drop every digit, retaining capacity, so that the storage is inactive
     /// and empty.
+    ///
+    /// The written set is replaced rather than cleared, releasing any bitset:
+    /// clearing one costs the written span it held, which `clone_from`'s
+    /// bound, the source's read plus O(`Q`), does not include.
     pub fn clear(&mut self) {
         self.digits.clear();
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
-        self.zero_ranges.clear();
+        self.written = WrittenPositions::default();
     }
 
     /// Count the digit positions the buffer holds, including zeros above the
@@ -172,7 +211,7 @@ impl Digits {
             .field("digits", &self.digits)
             .field("highest_nonzero", &self.highest_nonzero)
             .field("lowest_written", &self.lowest_written)
-            .field("zero_ranges", &self.zero_ranges);
+            .field("written", &self.written);
     }
 
     /// Whether the representation itself contains only zeros.
@@ -190,13 +229,16 @@ impl Digits {
         self.debug_assert_valid();
     }
 
-    /// Zero the written span and discard its scan metadata, retaining capacity.
+    /// Zero the written span and reduce the written set to position zero,
+    /// retaining capacity.
     ///
     /// Every position outside [`written_floor`](Self::written_floor) through
     /// `highest_nonzero` is already zero, so clearing covers only that span.
     /// When cancellation leaves the watermark above `highest_nonzero`, clearing
     /// covers only position `highest_nonzero`. A reset therefore costs the span
     /// written since activation, not the position where that span starts.
+    /// The written set's [`clear`](WrittenPositions::clear) costs that span
+    /// too, amortized as its module explains.
     pub fn reset(&mut self) {
         self.debug_assert_valid();
         let floor = self.written_floor();
@@ -204,9 +246,13 @@ impl Digits {
             touch(1);
             *digit = 0;
         }
+        // Every written position but zero lies in the span just zeroed, so
+        // clearing the set costs that span too, not the width its retained
+        // storage covers.
+        self.written.clear(floor, self.highest_nonzero);
+        self.written.insert(0);
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
-        self.zero_ranges.clear();
         self.debug_assert_valid();
     }
 
@@ -237,12 +283,12 @@ impl Digits {
         );
 
         self.lowest_written = self.lowest_written.min(position);
-        self.zero_ranges.record_gap(self.highest_nonzero, position);
         let first_written = position;
 
         // Each iteration fixes one digit. A zero carry ends the chain; a
-        // nonzero carry advances exactly one position, so the written interval
-        // remains contiguous and can update the zero ranges in one operation.
+        // nonzero carry advances exactly one position, so the written
+        // positions form one interval and join the written set in one
+        // operation.
         loop {
             if position >= self.digits.len() {
                 let new_len = position
@@ -267,9 +313,11 @@ impl Digits {
                 .expect("a carry must have a representable destination");
         }
 
+        // A jump above the top leaves the positions it skips out of the set,
+        // which is what lets a later descending scan cross them in one step.
         // The last position is nonzero whenever the carry rose above the old
-        // highest digit, so it also bounds every remainder written below it.
-        self.zero_ranges.remove_written(first_written, position);
+        // top, so the whole interval lies at or below the new one.
+        self.written.insert_span(first_written, position);
         self.trim_high_zeros();
         self.debug_assert_valid();
     }
@@ -292,19 +340,33 @@ impl Digits {
     }
 
     /// Move `highest_nonzero` down to the highest remaining nonzero digit.
-    ///
-    /// A position is visited only after an update has written through it. A
-    /// large untouched gap is skipped using the range recorded when the write
-    /// jumped over it. Thus the descent is charged to preceding writes rather
-    /// than to the numeric distance between positions.
+    #[inline]
     fn trim_high_zeros(&mut self) {
+        if self.highest_nonzero > 0 && self.digits[self.highest_nonzero] == 0 {
+            self.descend_to_nonzero();
+        }
+    }
+
+    /// Descend from a zero top digit to the highest nonzero one.
+    ///
+    /// A position is visited only after an update has written through it, and
+    /// a gap of unwritten zeros is crossed in one query. Thus the descent is
+    /// charged to preceding writes rather than to the numeric distance between
+    /// positions. The positions it passes leave the written set together once
+    /// it stops, since a query below a position ignores everything above it.
+    ///
+    /// Kept out of line so that a write whose top digit stays nonzero, the
+    /// common case, carries only the test in [`trim_high_zeros`](Self::trim_high_zeros).
+    #[inline(never)]
+    fn descend_to_nonzero(&mut self) {
         while self.highest_nonzero > 0 && self.digits[self.highest_nonzero] == 0 {
             touch(1);
-            self.highest_nonzero = match self.zero_ranges.take_below(self.highest_nonzero) {
-                Some(lo) => lo,
-                None => self.highest_nonzero - 1,
-            };
+            self.highest_nonzero = self
+                .written
+                .last_below(self.highest_nonzero)
+                .expect("position zero stays written, and lies below the top");
         }
+        self.written.truncate(self.highest_nonzero);
     }
 
     /// Check the constant-time representation invariants at method boundaries.
@@ -316,6 +378,10 @@ impl Digits {
             debug_assert!(
                 self.highest_nonzero == 0 || self.digits[self.highest_nonzero] != 0,
                 "highest_nonzero names the last nonzero digit"
+            );
+            debug_assert!(
+                self.written.contains(0) && self.written.contains(self.highest_nonzero),
+                "position zero and the top stay written once the buffer is allocated"
             );
         }
     }

@@ -26,7 +26,7 @@ pub(crate) struct Value {
     ///
     /// While this is `Some`, `digits` is empty or contains only zeros.
     pub(crate) small: Option<i128>,
-    /// Retained digit storage and known zero ranges, active when `small` is `None`.
+    /// Retained digit storage and its written positions, active when `small` is `None`.
     pub(crate) digits: Digits,
 }
 

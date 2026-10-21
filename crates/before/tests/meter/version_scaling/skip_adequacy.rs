@@ -6,8 +6,9 @@ use before::testing::meter::{FREEZE_DRIFT_BITS, PROMOTION_REARM_ARM_BITS};
 // ── the accumulator skip mechanisms' before-level adequacy bands ──
 //
 // Three families exercise the accumulator's independent ways of avoiding
-// scans across known zeroes: recorded zero ranges, the lowest position ever
-// written, and the highest position whose value is nonzero. Without the
+// scans across known zeroes: the record of written positions, which lets a
+// scan cross each unwritten gap in one step; the lowest position ever
+// written; and the highest position whose value is nonzero. Without the
 // corresponding shortcut, each family makes one public `before` operation
 // superlinear while its input remains linear. These bands establish the same
 // properties through `before`'s public API that the following `suanpan` tests
@@ -63,7 +64,8 @@ fn rank_weight_comb_run(n: usize) -> QueryRun {
 /// freezes, so no segment feed deposits, and its wide cycling pays
 /// one spill each time the inline accumulator is re-entered. A scan that steps
 /// through the zero gap digit by digit takes `n² + O(n)` touches and exceeds
-/// these ceilings; skipping each recorded zero range keeps the reading linear.
+/// these ceilings; crossing each unwritten gap in one step keeps the reading
+/// linear.
 const RANK_WEIGHT_COMB_CEILINGS: [u64; 2] = [6_414, 12_814];
 
 /// Block pairs of the weight-comb band's small run.
@@ -80,7 +82,7 @@ const RANK_WEIGHT_COMB_SMALL: usize = 512;
 /// across the never-written gap: a settlement that walks the gap
 /// pays `Θ(n)` unfunded touches per event (`Θ(n²)` on linear
 /// input), and the parked digit-0 unit forecloses value-emptiness
-/// and write-watermark shortcuts. Skipping each recorded zero range in one
+/// and write-watermark shortcuts. Crossing the never-written gap in one
 /// step is what holds this band flat. This is the
 /// public-API lift of the accumulator's own row witness
 /// (`alternating_shifted_writes_cost_the_operand_not_the_gap`):
@@ -262,8 +264,8 @@ const CMP_TOOTH_TAIL_SMALL: usize = 4_096;
 /// the spike's own code paid once and would otherwise be re-paid
 /// per boundary forever. The public-API lift of
 /// `held_width_rows_cost_the_held_digits`: reads price the settled
-/// width, and settlement skipping the recorded zero range is what
-/// keeps the settled width accurate after a cancellation.
+/// width, and settlement crossing the unwritten gap in one step is
+/// what keeps the settled width accurate after a cancellation.
 #[test]
 fn skyline_cmp_tooth_tail_is_flat_per_unit() {
     let m = CMP_TOOTH_TAIL_SMALL;

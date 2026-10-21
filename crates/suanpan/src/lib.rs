@@ -100,7 +100,7 @@
 //! | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 //! | Working-width and known-zero queries | O(1) | O(1) |
 //! | Unary `-` | O(`W`) | O(1) |
-//! | [`reset`](Accumulator::reset) | O(`R`) | O(1) |
+//! | [`reset`](Accumulator::reset) | Amortized O(`R`) | O(1) |
 //!
 //! Growing an allocation may briefly keep the old and new buffers alive. A
 //! read can extend the working width by at most a constant, and grows the
