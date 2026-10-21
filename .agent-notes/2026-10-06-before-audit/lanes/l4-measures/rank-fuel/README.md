@@ -35,6 +35,8 @@ digit 0. The measurements are the auditor's, not re-run.
   in use (`num-bigint`) achieves. Do not promise that in public
   documentation, which is not the altitude for it; state it in the
   maintainer-facing private docs where the bound is relied on.
-- **D2:** hold until #86 (the written-position set replacing the zero-range
-  map) lands, then re-measure `rank_sum`; it ought then to fit its stated
-  `O(k + n)` bound.
+- **D2:** resolved by #86. Re-measured at `d6c4a8118`
+  ([`remeasure-after-written-set.md`](remeasure-after-written-set.md),
+  evidence in [`remeasure/`](remeasure/)): fuel per byte is flat on both
+  original families and four constructed ones, and `O(k + n)` holds. What
+  remains is where the derivation is written down (`QUESTIONS.md`).
