@@ -806,9 +806,15 @@ impl Clock {
     /// assert_eq!(bytes, [clock.party().encode(), clock.version().encode()].concat());
     /// ```
     pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        self.encode_to(&mut bytes)
-            .expect("writing to a Vec is infallible");
+        // Sizing the buffer for both parts up front keeps the output to one
+        // allocation of exactly its length. An empty buffer would first grow
+        // to fit the party alone, so writing the version would reallocate it
+        // whenever the clock is larger, copying the party's bytes a second
+        // time while both buffers are live.
+        let (party, version) = (self.party.as_bytes(), self.version.as_bytes());
+        let mut bytes = Vec::with_capacity(party.len() + version.len());
+        bytes.extend_from_slice(party);
+        bytes.extend_from_slice(version);
         bytes
     }
 

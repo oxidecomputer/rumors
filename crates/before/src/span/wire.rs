@@ -44,8 +44,14 @@ impl<'a> Span<'a> {
     /// assert_eq!(Span::decode(&span.encode()[..]).unwrap(), span);
     /// ```
     pub fn encode(&self) -> Vec<u8> {
-        let mut bytes = self.lo.encode();
-        bytes.extend_from_slice(self.hi.as_bytes());
+        // Sizing the buffer for both endpoints up front keeps the output to
+        // one allocation. Appending the upper endpoint to a buffer sized for
+        // the lower one alone would reallocate it, copying the lower
+        // endpoint's bytes a second time while both buffers are live.
+        let (lo, hi) = (self.lo.as_bytes(), self.hi.as_bytes());
+        let mut bytes = Vec::with_capacity(lo.len() + hi.len());
+        bytes.extend_from_slice(lo);
+        bytes.extend_from_slice(hi);
         bytes
     }
 
