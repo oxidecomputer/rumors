@@ -184,8 +184,9 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   differential table (`testing::diff_ops`), the operation traces
   (`testing::optrace`), the law registry (`testing::laws`), exhaustive
   enumeration (`testing::exhaustive`), and the amplification board. A new
-  instrument must name a constructible failure that no existing instrument
-  catches, and must get an entry in the validation index
+  instrument must name the region of input space, or the code it is
+  independent of, that no existing instrument can judge, and must get an
+  entry in the validation index
   (`src/testing/validation_index.rs`).
 - Never run cargo-mutants, and never treat a surviving mutant as a finding
   (owner, 2026-10-20). Do not set out to prove that a test you add would

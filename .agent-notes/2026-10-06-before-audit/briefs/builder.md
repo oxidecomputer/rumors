@@ -28,8 +28,9 @@ ceiling.
 - Follow the repo's conventions, the shared standards in the common brief, and
   Part IV of the owner's doctrine for every line of prose.
 - Machinery extends the existing instruments wherever it can. A new
-  instrument names the constructible failure only it catches, and gets a
-  validation-index entry.
+  instrument names the region of input space, or the code it is independent
+  of, that no existing instrument can judge, and gets a validation-index
+  entry.
 - A simplification rewrites the code so its correctness follows from its
   structure, and states its invariants where a maintainer will look for them.
   Remove what the new structure makes redundant.
