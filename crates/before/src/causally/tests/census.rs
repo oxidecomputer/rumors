@@ -27,6 +27,7 @@ use core::ops::{Range, RangeInclusive};
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
+use proptest::sample::Index;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::{Config, TestCaseError, TestRunner};
 
@@ -235,11 +236,20 @@ impl Sites {
     /// One bump of `base` per site, pairwise concurrent, and `top`: `base`
     /// raised on every site by its amount.
     ///
-    /// A raised bump is `base` raised on its own site alone; a lowered bump
-    /// is `top` with its own site dropped back to `base`. Every amount is at
-    /// least one, so each raised bump lies strictly above every other bump
-    /// on its own site, and each lowered bump strictly below every other
-    /// there: no bump lies at or below another.
+    /// Read the sites as a cycle, in depth order. Bump `j` raises `base` on
+    /// the *window* of `width` consecutive sites starting at site `j`, each
+    /// by its amount. `pick` selects `width` from one through one less than
+    /// the site count, or one when there is a single site, so distinct
+    /// bumps' windows are distinct sets of one size, and each holds a site
+    /// the other lacks.
+    /// Every amount is at least one, so each bump lies strictly above every
+    /// other on some site and strictly below it on another: no bump lies at
+    /// or below another.
+    ///
+    /// At width one each bump raises its own site alone, and at one short of
+    /// the site count each is `top` with one site dropped back to `base`.
+    /// Between, two bumps meet on the overlap of their windows, so their
+    /// pairwise meets differ.
     ///
     /// # Panics
     ///
@@ -248,15 +258,14 @@ impl Sites {
         &self,
         base: &FlatVersion,
         amounts: &[BigUint],
-        raise: bool,
+        pick: Index,
     ) -> (FlatVersion, Vec<FlatVersion>) {
-        assert!(amounts.len() >= self.depths.len(), "one amount per site");
+        let count = self.depths.len();
+        assert!(amounts.len() >= count, "one amount per site");
+        let width = 1 + pick.index(count.saturating_sub(1).max(1));
         let top = self.lift(base, amounts, |_| true);
-        let bumps = (0..self.depths.len())
-            .map(|own| match raise {
-                true => self.lift(base, amounts, |site| site == own),
-                false => self.lift(base, amounts, |site| site != own),
-            })
+        let bumps = (0..count)
+            .map(|own| self.lift(base, amounts, |site| (site + count - own) % count < width))
             .collect();
         (top, bumps)
     }
@@ -324,24 +333,24 @@ fn arb_hole_spellings() -> impl Strategy<Value = (u8, u8)> {
 /// three to eight bumps of one deep version, at pairwise disjoint sites.
 ///
 /// The pool is the base version, `top` (the base raised on every site), the
-/// bumps, all raised from the base or all lowered from `top`, and the empty
-/// version, so its segments run from below the antichain to above it. Each
-/// site carries one hole of each polarity at its bump, in a drawn spelling,
-/// and both queries hold up to two inclusive bounds at pool versions, which
-/// may prune the holes they make vacuous.
+/// bumps, each raising the base on its own window of sites (see
+/// [`Sites::bumps`]), and the empty version, so its segments run from below
+/// the antichain to above it. Each site carries one hole of each polarity at
+/// its bump, in a drawn spelling, and both queries hold up to two inclusive
+/// bounds at pool versions, which may prune the holes they make vacuous.
 fn arb_antichain_case() -> impl Strategy<Value = QueryCase> {
     (
         arb_deep_version(),
         arb_sites(ANTICHAIN_SITES),
         arb_amounts(*ANTICHAIN_SITES.end()),
-        any::<bool>(),
+        any::<Index>(),
         proptest::collection::vec(arb_hole_spellings(), *ANTICHAIN_SITES.end()),
         proptest::collection::vec(bound_clause_among(POOL_PICKS), 0..=2),
         any::<u64>(),
     )
-        .prop_map(|(base, sites, amounts, raise, spellings, bounds, sides)| {
+        .prop_map(|(base, sites, amounts, width, spellings, bounds, sides)| {
             let base = FlatVersion::from_rows(base.leaves());
-            let (top, bumps) = sites.bumps(&base, &amounts, raise);
+            let (top, bumps) = sites.bumps(&base, &amounts, width);
             const FIRST_BUMP: usize = 2;
             let mut pool = vec![base, top];
             pool.extend(bumps);
@@ -389,11 +398,11 @@ fn arb_query_case() -> impl Strategy<Value = QueryCase> {
         arb_deep_version_triple(),
         arb_sites(QUERY_SITES),
         arb_amounts(*QUERY_SITES.end()),
-        any::<bool>(),
+        any::<Index>(),
         arb_clauses(POOL_PICKS, 5, 5),
         any::<u64>(),
     )
-        .prop_map(|((a, b, c), sites, amounts, raise, clauses, sides)| {
+        .prop_map(|((a, b, c), sites, amounts, width, clauses, sides)| {
             let triple = [a, b, c].map(|list| FlatVersion::from_rows(list.leaves()));
             let mut pool = triple.to_vec();
             for (i, x) in triple.iter().enumerate() {
@@ -402,7 +411,7 @@ fn arb_query_case() -> impl Strategy<Value = QueryCase> {
                     pool.push(x.meet(y));
                 }
             }
-            let (top, bumps) = sites.bumps(&triple[0], &amounts, raise);
+            let (top, bumps) = sites.bumps(&triple[0], &amounts, width);
             pool.push(top);
             pool.extend(bumps);
             QueryCase {
@@ -682,10 +691,10 @@ proptest! {
     /// admit exactly what their clauses admit, and cover every segment
     /// between pool versions exactly as the census says.
     ///
-    /// Each case builds an antichain of three to eight bumps of a deep
-    /// version, at pairwise disjoint dyadic cells along one path to depth
-    /// 160, each raised alone or lowered alone from the version raised on
-    /// every cell, by amounts from one to `2^200`. It places one hole of
+    /// Each case picks three to eight pairwise disjoint dyadic cells along
+    /// one path to depth 160 and builds an antichain of as many bumps of a
+    /// deep version, each raising a window of consecutive cells of one
+    /// drawn width, by amounts from one to `2^200`. It places one hole of
     /// each polarity at every bump, spelled `since`, `!before`, or
     /// `after(..).or_concurrent()` downward and `until`, `!after`, or
     /// `before(..).or_concurrent()` upward, beside up to two inclusive
