@@ -354,6 +354,11 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             vec![Shape::NarrowFreezes.build2(FREEZE_DRIFT_BITS, 1).version()],
             vec![],
         ),
+        // A plateau puncture and its mirror image: distinct, of equal rank.
+        FamilyId::RankTie => {
+            let (puncture, mirrored) = Shape::RankTie.build_pair(10, 2);
+            (vec![puncture.version(), mirrored.version()], vec![])
+        }
     };
     MatrixOperands { versions, masks }
 }

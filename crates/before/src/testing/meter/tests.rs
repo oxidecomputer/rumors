@@ -10,6 +10,7 @@ use crate::{Count, Party, Rank, Version};
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
+use super::rank_tie;
 use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
     cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
@@ -1251,4 +1252,42 @@ proptest! {
             );
         }
     }
+}
+
+/// The leaves of a version, left to right, as absolute heights and depths:
+/// [`plateaus_of`]'s inverse, read from the version's own shape walk.
+fn leaves_of(version: &Version) -> Vec<(BigUint, u64)> {
+    let mut height = BigUint::ZERO;
+    version
+        .shape()
+        .map(|plateau| {
+            match plateau.rise {
+                Some(Rise::Up(Count(up))) => height += up,
+                Some(Rise::Down(Count(down))) => height -= down,
+                None => {}
+            }
+            (height.clone(), plateau.depth)
+        })
+        .collect()
+}
+
+proptest! {
+    /// `RT(w, d)` is two canonical versions at the plateau puncture's size,
+    /// each the other's leaves in reverse order at the same depths, distinct,
+    /// and of exactly equal rank.
+    #[test]
+    fn rank_tie_is_a_mirrored_pair_of_equal_rank(w in 10usize..=24, d in 1usize..=6) {
+        let (puncture, mirrored) = rank_tie(w, d);
+        let bits = d * (64 * w + 262) + 4;
+        check_version(&puncture, bits);
+        check_version(&mirrored, bits);
+        let (v, m) = (puncture.version(), mirrored.version());
+        let mut reversed = leaves_of(&v);
+        reversed.reverse();
+        prop_assert_eq!(leaves_of(&m), reversed);
+        prop_assert_ne!(&v, &m, "the pair must be distinct versions");
+        prop_assert_eq!(v.rank(), m.rank(), "mirroring preserves the rank");
+    }
+
+
 }

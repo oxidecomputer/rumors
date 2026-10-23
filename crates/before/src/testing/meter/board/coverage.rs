@@ -23,12 +23,18 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::tick", &["version_tick", "version_tick_adv_party"]),
     ("Party::ticks", &["version_ticks"]),
     ("Party::fork", &["party_fork"]),
-    ("Party::forks", &["party_forks", "party_forks_full"]),
+    (
+        "Party::forks",
+        &["party_forks", "party_forks_full"],
+    ),
     ("Party::join", &["party_join", "party_join_overlap"]),
     ("Party::join_all", &["party_join_all"]),
     ("Party::is_disjoint", &["party_disjoint"]),
     ("Party::covers", &["party_covers"]),
-    ("Party::without", &["party_without", "party_without_none"]),
+    (
+        "Party::without",
+        &["party_without", "party_without_none"],
+    ),
     ("Party::encode", &["party_encode"]),
     ("Party::encode_to", &["party_encode"]),
     ("Party::shape", &["party_shape"]),
@@ -109,7 +115,12 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Ranked::encode_to", &["ranked_encode"]),
     ("Ranked::encode_rank", &["ranked_encode_rank"]),
     ("Ranked::encode_rank_to", &["ranked_encode_rank"]),
-    ("Ranked::decode", &["ranked_decode"]),
+    (
+        "Ranked::decode",
+        &[
+            "ranked_decode",
+        ],
+    ),
     ("causally::Floor::contains", &["causally_contains"]),
     ("causally::Ceiling::contains", &["causally_contains"]),
     (

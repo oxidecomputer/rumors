@@ -214,6 +214,9 @@ pub enum Shape {
     SiteHole,
     /// The masked-hole triple `MH(d, h)`: [`Shape::build_triple`]`(d, h)`.
     MaskedHoleTriple,
+    /// The rank-tie pair `RT(w, d)`, a plateau puncture and its mirror:
+    /// [`Shape::build_pair`]`(w, d)`.
+    RankTie,
 }
 
 /// A registered constructor's signature class, binding one [`Shape`] to
@@ -332,6 +335,7 @@ impl Shape {
             Shape::RaiseHole => Builder::Pair2(super::raise_hole),
             Shape::SiteHole => Builder::Pair2(super::site_hole),
             Shape::MaskedHoleTriple => Builder::Triple2(super::masked_hole),
+            Shape::RankTie => Builder::Pair2(super::rank_tie),
         }
     }
 
@@ -951,6 +955,17 @@ pub enum FamilyId {
     /// and freeze-parade families. Designed against the rank integrator's
     /// transient heap.
     NarrowFreezes,
+    /// The rank-tie pair `RT(s, s)`: a plateau puncture against its mirror
+    /// image, two distinct versions of exactly equal rank.
+    ///
+    /// The bundle's comparison counterpart is the mirror rather than a ticked
+    /// copy, so every pair row compares two versions whose ranks tie: the
+    /// rank comparisons must resolve the whole difference to zero before
+    /// `Ranked`'s order falls to the version bytes, the case its ordering
+    /// documentation names as the worst, and both ranks embed the product of
+    /// a `Θ(s)`-digit plateau and a `Θ(s)`-term punctured mass. Designed
+    /// against `Ranked`'s ordering.
+    RankTie,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -998,7 +1013,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 61] = [
+    pub const ALL: [FamilyId; 62] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1060,6 +1075,7 @@ impl FamilyId {
         FamilyId::WideStepPairs,
         FamilyId::WideStepSpine,
         FamilyId::NarrowFreezes,
+        FamilyId::RankTie,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1394,6 +1410,11 @@ impl FamilyId {
             FamilyId::NarrowFreezes => FamilySpec {
                 name: "narrow-freezes",
                 shapes: &[Shape::NarrowFreezes],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::RankTie => FamilySpec {
+                name: "rank-tie",
+                shapes: &[Shape::RankTie],
                 cells: VERSION_BUNDLE_CELLS,
             },
         }

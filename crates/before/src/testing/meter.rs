@@ -3740,6 +3740,85 @@ fn masked_hole(d: usize, h: usize) -> (Encoding, Encoding, Encoding) {
     (dense(d), id_spine(h, true), Encoding::from_bits(plateau))
 }
 
+/// Mirror a construction-language event stream: every internal node's two
+/// children trade places.
+///
+/// The leaves come out in reverse order, each at its own depth and height,
+/// so the mirrored version has exactly the original's rank. Normal form is
+/// symmetric in a node's children, so the mirror of a canonical stream is
+/// canonical, and its size is the original's.
+///
+/// The nodes are read into a preorder list first, and each internal node's
+/// right subtree located by the end of its left one, computed from the back
+/// of the list; the mirrored stream is then written from an explicit stack,
+/// so no step recurses on the tree's depth.
+///
+/// # Panics
+///
+/// Panics if `shape` is not exactly one complete construction-language tree:
+/// a truncated tree and bits after a complete one both panic.
+fn mirror(shape: &Encoding) -> Encoding {
+    use crate::bits::BitRead;
+
+    let mut reader = shape.reader();
+    let mut nodes: Vec<(bool, BigUint)> = Vec::new();
+    let mut pending = 1usize;
+    while pending > 0 {
+        pending -= 1;
+        let internal = reader.read_bit().expect("the shape is one complete tree");
+        let base = reader.read_gamma().expect("the shape is one complete tree");
+        if internal {
+            pending += 2;
+        }
+        nodes.push((internal, base));
+    }
+    assert_eq!(
+        reader.position(),
+        shape.bits as u64,
+        "the shape is exactly one tree, with no bits after it"
+    );
+    // `end[i]` is the position just past node `i`'s subtree: a leaf's own
+    // successor, or the end of an internal node's right subtree, which
+    // starts where its left subtree (at `i + 1`) ends.
+    let mut end = vec![0usize; nodes.len()];
+    for i in (0..nodes.len()).rev() {
+        end[i] = if nodes[i].0 { end[end[i + 1]] } else { i + 1 };
+    }
+    let mut bits = BitsWriter::with_capacity(shape.bits as u64);
+    let mut stack = vec![0usize];
+    while let Some(i) = stack.pop() {
+        let (internal, base) = &nodes[i];
+        bits.push(*internal);
+        bits.write_gamma(base);
+        if *internal {
+            let left = i + 1;
+            stack.push(left); // written second
+            stack.push(end[left]); // the right subtree, written first
+        }
+    }
+    Encoding::from_bits(bits)
+}
+
+/// The rank-tie pair `RT(w, d)`: the plateau puncture `PP(w, d)` and its
+/// [`mirror`], two distinct versions of exactly equal rank.
+///
+/// `Ranked` orders by rank and then by version bytes, and an exact rank tie
+/// forces the comparison to resolve the whole rank difference to zero
+/// before it can fall to the bytes: the ordering's documented worst case.
+/// The puncture's rank embeds the product of a `Θ(w)`-digit plateau and a
+/// `Θ(d)`-term punctured mass ([`plateau_puncture`]), so the difference the
+/// comparison must resolve carries that product on both sides. Its size is
+/// `PP(w, d)`'s for each operand.
+///
+/// # Panics
+///
+/// As [`plateau_puncture`].
+fn rank_tie(w: usize, d: usize) -> (Encoding, Encoding) {
+    let puncture = plateau_puncture(w, d);
+    let mirrored = mirror(&puncture);
+    (puncture, mirrored)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> BigUint {
     pow2(b) - &BigUint::from(1u8)

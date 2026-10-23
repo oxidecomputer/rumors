@@ -286,6 +286,19 @@ const WIDE_STEP_SPINE_STEP_BITS: usize = 64;
 /// so the exponent leg compares like against like.
 const NARROW_FREEZES_BASE_CYCLES: usize = 64;
 
+/// Rank-tie plateau digits and turns (the `RT(s, s)` diagonal) at the default
+/// scale.
+///
+/// The stored versions grow linearly in the knob, but the puncture's
+/// construction stream spells its plateau once per turn, `Θ(s²)` bits, and
+/// the family builds that stream and mirrors it at every size, so the base
+/// sits at a quarter of [`PLATEAU_PUNCTURE_BASE_DIGITS`] to keep the build
+/// within the board's runtime at the top scale. It is a multiple of 32 for the same
+/// `rank_sum` remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the build
+/// arm floors the knob at the generator's minimum width, which binds only
+/// under extreme scale-down.
+const RANK_TIE_BASE_DIGITS: usize = 96;
+
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
 ///
@@ -552,9 +565,9 @@ pub(super) struct FamilyData {
     pub(super) version: Option<Vec<u8>>,
     /// The comparison counterpart: `version` plus one seed tick, encoded.
     ///
-    /// Derived uniformly by the post-pass — except on the pair shapes
-    /// (jump-pair, concurrent-pair), whose build arms fill it with the pairing
-    /// the shape was constructed around and the post-pass leaves in place.
+    /// Derived uniformly by the post-pass, except where a pair shape's build
+    /// arm fills it with the pairing the shape was constructed around, which
+    /// the post-pass leaves in place.
     pub(super) version2: Option<Vec<u8>>,
     /// A disjoint encoded party pair within one universe: natural for the id
     /// pair and the benign halves, constructed by the disjoint-mount adapter from a
@@ -1194,6 +1207,16 @@ impl FamilyData {
                     .version()
                     .encode(),
             ),
+            FamilyId::RankTie => {
+                // One knob drives the plateau width and the turn count, floored
+                // at the generator's minimum width; the mirror is the
+                // comparison counterpart, so every pair row compares a tie.
+                let s = size(RANK_TIE_BASE_DIGITS).max(10);
+                let (puncture, mirrored) = Shape::RankTie.build_pair(s, s);
+                let mut data = Self::event(kind, puncture.version().encode());
+                data.version2 = Some(mirrored.version().encode());
+                data
+            }
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
         // A cross shape's primary version is its event side.
