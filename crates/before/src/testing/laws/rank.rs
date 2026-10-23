@@ -14,9 +14,10 @@ laws! {
     /// order's duality, and cross-path normalization (value-equal ranks built
     /// along different operation paths are one structural value, equal under
     /// `Eq` and `Hash`). The wire form's laws ride the same group: the codec
-    /// round-trip, byte order equal to `Ord`, and prefix-freedom. So do
-    /// `Debug`'s documented format, which is `Display`'s, and `Display`'s
-    /// formatting flags, which apply to the whole rendered text.
+    /// round-trip, byte order equal to `Ord`, and prefix-freedom. So do the
+    /// trait-impl laws: every spelling of addition agrees, `Debug`'s format is
+    /// `Display`'s, as documented, and `Display`'s formatting flags apply to
+    /// the whole rendered text.
     pub static RANK_TRIPLE: (a: &Rank, b: &Rank, c: &Rank);
 
     /// Addition is commutative: `a + b == b + a`.
@@ -118,6 +119,27 @@ laws! {
         via_add == via_sum
             && via_sub == Some(via_add.clone())
             && hash_of(&via_add) == hash_of(&via_sum)
+    }
+
+    /// Every spelling of addition computes `a + b`: the four owned and
+    /// borrowed `+` cells, `+=` with an owned or borrowed right operand, and
+    /// `Sum` over owned or borrowed items.
+    fn rank_add_spellings_agree(a, b, _c) {
+        let sum = a + b;
+        let mut by_ref = a.clone();
+        by_ref += b;
+        let mut by_value = a.clone();
+        by_value += b.clone();
+        let spellings = [
+            a.clone() + b.clone(),
+            a.clone() + b,
+            a + b.clone(),
+            by_ref,
+            by_value,
+            [a.clone(), b.clone()].into_iter().sum(),
+            [a, b].into_iter().sum(),
+        ];
+        spellings.iter().all(|spelled| *spelled == sum)
     }
 
     /// `Debug` renders a rank exactly as `Display` does, as its documentation
