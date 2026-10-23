@@ -38,6 +38,10 @@ pub(crate) mod shape_rows;
 mod algebraic_laws;
 #[cfg(test)]
 mod asymptotics;
+// Needs both codec features, so only the all-features legs run it: the
+// gate's `test-all` and the landing check's tests leg, not `just test`.
+#[cfg(all(test, feature = "serde", feature = "borsh"))]
+mod decoders;
 #[cfg(test)]
 pub(crate) mod diff_ops;
 #[cfg(test)]

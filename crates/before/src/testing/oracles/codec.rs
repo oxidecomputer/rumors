@@ -427,6 +427,15 @@ impl Party {
         &self.leaves
     }
 
+    /// The depth of the deepest leaf.
+    pub(crate) fn depth(&self) -> u64 {
+        self.leaves
+            .iter()
+            .map(|&(depth, _)| depth)
+            .max()
+            .unwrap_or(0)
+    }
+
     /// The normal form of the same region: every sibling pair of equal
     /// ownership collapsed into its parent.
     pub(crate) fn normalized(&self) -> Party {

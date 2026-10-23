@@ -16,6 +16,7 @@ use super::{encode_rank, Party, Version};
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
 };
+use crate::testing::generators::near_valid::SPINE_LEVELS;
 use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, arb_shape, shape_party, shape_version,
 };
@@ -80,17 +81,17 @@ proptest! {
         prop_assert_eq!(flat.encode(), from_oracle_party(&party).encode());
     }
 
-    /// The flat encoding of every committed shape, spines up to 399 levels and
-    /// bushy trees of up to 400 leaves, equals production's encoding of the
-    /// same value.
+    /// The flat encoding of every committed shape at every scale the
+    /// near-valid spines reach, below the end of [`SPINE_LEVELS`], equals
+    /// production's encoding of the same value.
     ///
     /// The arbitrary-tree properties above stop at the committed generators'
     /// depth; these spines carry the comparison to the deepest spines the
-    /// near-valid generators draw.
+    /// near-valid generators draw, and the bushy shapes to as many leaves.
     #[test]
     fn flat_encoding_matches_production_on_deep_shapes(
         shape in arb_shape(),
-        scale in 1usize..400,
+        scale in 1..SPINE_LEVELS.end,
     ) {
         let version = shape_version(shape, scale);
         prop_assert_eq!(

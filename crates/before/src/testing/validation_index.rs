@@ -50,6 +50,28 @@
 //! the tracked minimum's deferred update resolves, a memo block allocated one
 //! reservation late, and a block left uncleared for the next pre-scan.
 //!
+//! **Near-valid decoding** ([`super::decoders`], over
+//! [`super::generators::near_valid`]). An encoder that shares no code with
+//! production's writers ([`super::oracles::codec`]), calibrated against
+//! production's canonical spellings, spells bushy trees and spines, the
+//! spines hundreds of levels deep, with heights hundreds of bits wide, as
+//! canonical encodings and as encodings with one constraint violated: a
+//! planted collapsible pair or negative height, an edited bit, a sealing
+//! defect, an edited byte, or a composite's endpoints or rank out of
+//! agreement. Every entry point of every type decodes them: the reader decode
+//! on whole and chunked, interrupting readers, hexadecimal text, postcard,
+//! CBOR, borsh, and a span's human-readable record. An accepted encoding must
+//! be the independent encoder's spelling of the decoded value, and the entry
+//! points must agree with the slice decode. What it alone catches:
+//! **non-canonical acceptance and entry-point divergence past small trees**.
+//! Examples are a validator that accepts a collapsible pair or a negative
+//! height only once its path state spills past one word, a borsh or serde
+//! path that accepts bytes the reader decode rejects, a span that reports its
+//! endpoint order before a structural error, and a panic on a damaged deep
+//! encoding. The codec suites' rejection tests damage arbitrary values no
+//! deeper than the generators' `ARB_DEPTH` and a few small fixed shapes, and
+//! judge an accepted mutation against production's own writer.
+//!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:
 //! lattice identities, monotonicity, the distance metric's axioms, order/rank
