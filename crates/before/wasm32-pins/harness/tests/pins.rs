@@ -28,8 +28,13 @@ const JOIN_RIGHT_ABOVE: u64 = 2_047_483_646;
 /// largest `usize`; one more bit makes it `2^32`.
 const FIRST_UNINDEXABLE_STABILITY_WIDTH: u64 = 32 * (1 << 32) + 1;
 
-/// The documented panic of a `suanpan` contribution that lands at a digit
+/// The panic message of a `suanpan` contribution that lands at a digit
 /// position its buffer cannot address.
+///
+/// The panic condition is documented, under `add_shifted_limbs`'s `# Panics`
+/// and its siblings'; the message is not. This string is the message of
+/// `suanpan`'s private `digit_index`, which converts every landing position
+/// these pins reach into a buffer index.
 const UNADDRESSABLE_LANDING: &str = "a nonzero contribution needs an addressable digit position";
 
 /// Runs a check and reports its parameters if it fails.
@@ -212,9 +217,17 @@ fn rank_sum_straddles_the_usize_alignment_limit() {
 /// and `<<=`; the subtracting methods and `<<` reach the same paths. In each
 /// case, wrapping or narrowing the landing position would return normally
 /// after writing near the start of the buffer.
+///
+/// A limb stream lands each limb at a digit position, the shift's digits plus
+/// twice the limb's index, which becomes a buffer index only where the digit
+/// is stored, so it must not depend on the width of `usize` before then. The
+/// limb-stream cases differ in which term carries that position past
+/// `2^32 - 1`. In case 1 only the sum does, from shift digit `2^32 - 4` and
+/// index 2. In case 4 the index counter itself passes `usize::MAX`. In case 7
+/// the doubling alone does, at index `2^31`, which a 32-bit `usize` holds.
 #[test]
 fn suanpan_rejects_unaddressable_digit_landings() {
-    for case in 1..=6 {
+    for case in 1..=7 {
         assert_panics(Check::SuanpanLanding, case, 0, UNADDRESSABLE_LANDING);
     }
 }

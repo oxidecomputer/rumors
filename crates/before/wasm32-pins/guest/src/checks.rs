@@ -316,6 +316,12 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
             accumulator += 1_u64;
             accumulator <<= 32 * (max + 1);
         }
+        // A limb stream at shift 0 whose landing passes 2^32 - 1 through the
+        // doubling alone: zero limbs fill indices 0 through 2^31 - 1, and the
+        // 1 sits at index 2^31, which a 32-bit `usize` holds. Each limb spans
+        // two digits, so the 1 lands at digit 2^32, which no 32-bit `usize`
+        // holds.
+        7 => accumulator.add_shifted_limbs(0, iter::repeat_n(0, 1 << 31).chain([1])),
         _ => return Err(Failure::InvalidArguments),
     }
 
