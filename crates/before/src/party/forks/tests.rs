@@ -543,9 +543,18 @@ proptest! {
     /// Converting a deep party or clock into an array of `N` parties or
     /// clocks deals exactly the flat model's balanced shares of `N`, in
     /// order, for every `N` from 1 to 9 and for 13, 16, and 17.
+    ///
+    /// Each clock in a split carries the parent clock's version, which has
+    /// ticked away from the empty version.
     #[test]
     fn array_splits_match_the_flat_model_on_deep_parties(p in arb_deep_party()) {
         let model = flat::Party::from_oracle(&p);
+        let ticked = || {
+            let mut clock = Clock::from_parts(model.production(), Version::new());
+            clock.tick();
+            clock
+        };
+        let version = ticked().version().clone();
         macro_rules! check_split {
             ($($n:literal),*) => {$(
                 let shares = model.shares($n);
@@ -553,9 +562,10 @@ proptest! {
                 for (got, share) in parties.iter().zip(&shares) {
                     check_party(got, share, concat!("a party split into ", $n))?;
                 }
-                let clocks: [Clock; $n] = Clock::from_parts(model.production(), Version::new()).into();
+                let clocks: [Clock; $n] = ticked().into();
                 for (got, share) in clocks.iter().zip(&shares) {
                     check_party(got.party(), share, concat!("a clock split into ", $n))?;
+                    prop_assert_eq!(got.version(), &version, "the version of a clock split into {}", $n);
                 }
             )*};
         }

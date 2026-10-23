@@ -425,6 +425,8 @@ proptest! {
         check_order_spellings(&va, &va.clone(), Some(Ordering::Equal))?;
         check_order_spellings(&va, &copy, Some(Ordering::Equal))?;
         check_order_spellings(&va, &vj, ma.relation(&mj))?;
+        check_order_spellings(&va, &vm, ma.relation(&mm))?;
+        check_order_spellings(&vb, &vj, mb.relation(&mj))?;
         check_order_spellings(&vm, &vb, mm.relation(&mb))?;
         check_order_spellings(&vj, &vm, mj.relation(&mm))?;
     }

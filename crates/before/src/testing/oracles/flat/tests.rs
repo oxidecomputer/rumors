@@ -15,7 +15,7 @@ use crate::testing::generators::leaf_list::{arb_deep_version_pair, TWO_VERSION_D
 use crate::testing::generators::regions::arb_deep_party;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version, divided_config};
 use crate::testing::oracles::tree;
-use crate::testing::shape_rows::{oracle_plateaus, oracle_regions};
+use crate::testing::shape_rows::{oracle_plateaus, oracle_regions, Leaf};
 use crate::Rank;
 
 /// A rank's stored `(num, exp)`, the form the model's measures return.
@@ -27,14 +27,40 @@ fn raw(rank: &Rank) -> (BigUint, u64) {
 /// Asserts that the model's version answers equal the recursive oracle's on
 /// one pair of normal-form trees and one party.
 ///
-/// The measures are checked against the oracle's ranks through the
-/// valuation identities the rustdoc states: `distance(a, b) = rank(a ∨ b) −
-/// rank(a ∧ b)` and `a.lag(b) = rank(a ∨ b) − rank(a)`.
+/// The canonical form is checked in both directions: the model keeps each
+/// tree's own leaves, which are already in normal form, and it collapses a
+/// spelling with every leaf split in two back to them. The measures are
+/// checked against the oracle's ranks through the valuation identities the
+/// rustdoc states: `distance(a, b) = rank(a ∨ b) − rank(a ∧ b)` and
+/// `a.lag(b) = rank(a ∨ b) − rank(a)`.
 fn assert_versions_agree(
     ta: &tree::Version,
     tb: &tree::Version,
     tp: &tree::Party,
 ) -> Result<(), TestCaseError> {
+    for tree in [ta, tb] {
+        let rows = oracle_plateaus(tree);
+        let split: Vec<Leaf> = rows
+            .iter()
+            .flat_map(|leaf| {
+                let child = Leaf {
+                    depth: leaf.depth + 1,
+                    height: leaf.height.clone(),
+                };
+                [child.clone(), child]
+            })
+            .collect();
+        prop_assert_eq!(
+            Version::from_oracle(tree).rows().to_vec(),
+            rows.clone(),
+            "canonical form"
+        );
+        prop_assert_eq!(
+            Version::from_rows(&split).rows().to_vec(),
+            rows,
+            "canonical form of every leaf split in two"
+        );
+    }
     let (a, b) = (Version::from_oracle(ta), Version::from_oracle(tb));
     let p = Party::from_oracle(tp);
     let (join, meet) = (ta.clone() | tb.clone(), ta.clone() & tb.clone());

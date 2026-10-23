@@ -145,7 +145,13 @@ proptest! {
         let want = restricted_a.relation(&restricted_b);
         prop_assert_eq!(view_a.partial_cmp(&view_b), want, "view_a.partial_cmp(view_b)");
         prop_assert_eq!(view_b.partial_cmp(&view_a), want.map(Ordering::reverse), "view_b.partial_cmp(view_a)");
-        prop_assert_eq!(view_a == view_b, want == Some(Ordering::Equal), "view_a == view_b");
+        let le = matches!(want, Some(Ordering::Less | Ordering::Equal));
+        let ge = matches!(want, Some(Ordering::Greater | Ordering::Equal));
+        prop_assert_eq!(
+            (view_a <= view_b, view_a < view_b, view_a >= view_b, view_a > view_b, view_a == view_b),
+            (le, want == Some(Ordering::Less), ge, want == Some(Ordering::Greater), want == Some(Ordering::Equal)),
+            "view_a against view_b"
+        );
         let materialized = view_a.to_version();
         prop_assert!(view_a == materialized && materialized == view_a, "a view equals its materialization");
     }
