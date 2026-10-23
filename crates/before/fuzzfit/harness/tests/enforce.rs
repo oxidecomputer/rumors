@@ -7,8 +7,9 @@
 //!
 //! The prefix must refit every pinned operation/outcome pair, preserving its
 //! classification and staying within the line-divergence tolerance. Additional
-//! tests check compiler provenance, fresh-instance fuel determinism, no-op
-//! overhead, and detection of a deliberately quadratic guest operation.
+//! tests check compiler provenance, the guest's source-path remapping,
+//! fresh-instance fuel determinism, no-op overhead, and detection of a
+//! deliberately quadratic guest operation.
 //!
 //! The property test runs proptest's default case count, raised with
 //! `PROPTEST_CASES`; the calibration corpus is the big sweep.
@@ -28,7 +29,7 @@ use fuzzfit_harness::drive::{
 };
 use fuzzfit_harness::fit::{fit, line_divergence, FIT_FLOOR_BITS};
 use fuzzfit_harness::strategies::{any_program, build, Family, ESCALATION_REPLAYS};
-use fuzzfit_harness::wasm::Guest;
+use fuzzfit_harness::wasm::{guest_wasm_path, Guest};
 
 /// Checks one program's pointwise fuel and within-case growth, panicking on
 /// any violation.
@@ -286,6 +287,28 @@ fn building_toolchain_matches_the_pin() {
         PINNED_RUSTC,
         env!("FUZZFIT_RUSTC_VERSION"),
         "toolchain drift: re-pin the bands with `just fuzzfit-calibrate`"
+    );
+}
+
+/// Ensures the guest embeds no path under the home directory.
+///
+/// The guest embeds source paths (panic locations), and their lengths shift
+/// its memory layout and so its fuel. `just fuzzfit-build` maps every
+/// host-specific prefix to a fixed one, so a path under the home directory
+/// means the guest was built without that mapping, and its fuel, and any
+/// bands calibrated from it, depend on the host that built it.
+#[test]
+fn guest_embeds_no_home_path() {
+    let path = guest_wasm_path();
+    let wasm = std::fs::read(&path).unwrap_or_else(|e| panic!("reading {path:?}: {e}"));
+    let home = std::env::var("HOME").expect("HOME names the home directory");
+    let home = format!("{}/", home.trim_end_matches('/'));
+    assert!(
+        home.len() == 1
+            || !wasm
+                .windows(home.len())
+                .any(|window| window == home.as_bytes()),
+        "the guest embeds a path under {home}: build it with `just fuzzfit-build`"
     );
 }
 

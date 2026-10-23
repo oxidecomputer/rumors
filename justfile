@@ -109,6 +109,17 @@ wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/wasm32-pin
 board_fuel_target := justfile_directory() + "/target/board-fuel"
 board_fuel_guest_wasm := board_fuel_target + "/wasm32-unknown-unknown/fuel/board_fuel_guest.wasm"
 
+# The environment every fuel-metered wasm guest builds under. A guest embeds
+# source paths (panic locations), and their lengths shift its memory layout
+# and so its fuel readings. Paths inside this workspace are already
+# relative, so the host-specific prefixes are those of dependency sources
+# under CARGO_HOME and of the toolchain's rust-src. These flags map both to
+# fixed ones, and clear any rustc wrapper, which could add mappings of its
+# own, so every host builds the same module. The value is shell text that a
+# recipe puts in front of its cargo command, expanded when the line runs.
+
+fuel_guest_env := "RUSTC_WRAPPER= RUSTFLAGS=\"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$(rustc --print sysroot)/lib/rustlib/src/rust=/rustc/$(rustc -vV | sed -n 's/^commit-hash: //p')\""
+
 # List recipes.
 default:
     @just --list --unsorted
@@ -620,7 +631,8 @@ fuzz secs=fuzz_smoke_secs:
 # never compile them or wasmtime. A bare `cargo <cmd> --workspace` does
 # compile both. The gate reaches them only through these recipes by name.
 # The guest compiles selected public operations to wasm32-unknown-unknown in
-# the `fuel` profile, built alone so its features are exactly its own; the
+# the `fuel` profile, built alone so its features are exactly its own and
+# under `fuel_guest_env`, so every host builds the same module; the
 # harness replays generated programs natively and under wasmtime fuel
 # metering (deterministic instruction counts, byte-reproducible under any
 # load) and judges each measured step against its pinned fuel band in
@@ -629,7 +641,7 @@ fuzz secs=fuzz_smoke_secs:
 
 # Build the fuzz-fit wasm guest and its harness (both halves).
 fuzzfit-build:
-    cargo build -p fuzzfit-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ fuzzfit_target }}
+    {{ fuel_guest_env }} cargo build -p fuzzfit-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ fuzzfit_target }}
     cargo build -p fuzzfit-harness --tests --release --target-dir {{ fuzzfit_target }}
 
 # Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
@@ -950,16 +962,12 @@ amp-board-acceptance *args:
 # `--capture <file>` also writes the sweep's exact fuel readings, which
 # `just amp-board compare` compares like any board capture.
 
-# The guest embeds source paths (panic locations), and their lengths shift
-# the guest's memory layout and so its fuel readings. Paths inside this
-# workspace are already relative, so the host-specific prefixes are those of
-# dependency sources under CARGO_HOME and of the toolchain's rust-src; the
-# guest build maps both to fixed ones, and bypasses any rustc wrapper, which
-# could add mappings of its own, so every host builds the same module.
+# The guest builds under `fuel_guest_env`, which fixes the source paths it
+# embeds, so every host builds the same module.
 
 # Build the fuel board's wasm guest and its harness (both halves).
 amp-board-fuel-build:
-    RUSTC_WRAPPER= RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$(rustc --print sysroot)/lib/rustlib/src/rust=/rustc/$(rustc -vV | sed -n 's/^commit-hash: //p')" cargo build -p board-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ board_fuel_target }}
+    {{ fuel_guest_env }} cargo build -p board-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ board_fuel_target }}
     cargo build -p board-fuel-harness --release --target-dir {{ board_fuel_target }}
 
 # Run the fuel board's verdict of record: every cell judged in Wasmtime fuel.
