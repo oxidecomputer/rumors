@@ -17,8 +17,9 @@
 //! **The pointwise differential table** ([`super::diff_ops`]). Every
 //! deterministic operation in the three models' common vocabulary is spelled
 //! once for production, the recursive oracle, and the function-space oracle.
-//! Shared drivers apply every descriptor to arbitrary normal forms and values
-//! produced by realistic operation traces.
+//! Shared drivers apply every descriptor to arbitrary normal forms, to values
+//! produced by realistic operation traces, and, against the recursive oracle
+//! alone, to the deep populations below.
 //! What it alone catches: **population holes** — an operation checked on
 //! arbitrary shapes but not on causally related values, or the reverse.
 //!
@@ -119,9 +120,10 @@
 //! zigzags, and combs, and parties as unions of dyadic intervals, to depth
 //! 80. Pairs are related by construction, so equal pairs and distinct pairs
 //! of equal rank are common, and party families of up to ten are pairwise
-//! disjoint or overlap in one inserted party. They feed every law group, and
-//! add no judge of their own. What they alone reach: **arbitrary shapes past
-//! depth four** — random topology where the arbitrary generators stop, and
+//! disjoint or overlap in one inserted party. They feed every law group and
+//! every differential descriptor against the recursive oracle, and add no
+//! judge of their own. What they alone reach: **arbitrary shapes past depth
+//! four** — random topology where the arbitrary generators stop, and
 //! accepted `join_all` families of more than four unrelated parties. The
 //! fixed deep families reach depth only along their chosen shapes. Their versions pass through
 //! production's writer on the way to every judge, so a canonicalization

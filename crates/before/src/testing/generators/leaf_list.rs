@@ -35,7 +35,7 @@
 //! The composed strategies [`arb_deep_version`], [`arb_deep_version_pair`],
 //! [`arb_deep_version_triple`], and [`arb_deep_version_family`] draw one
 //! size, then leaf lists of that size with heights from any arm, for the
-//! law drivers.
+//! law drivers and the tree-oracle differentials.
 //!
 //! [`LeafList::tree`] normalizes through the recursive oracle's constructors,
 //! so a leaf list's canonical depth can be less than its listed depth. The
