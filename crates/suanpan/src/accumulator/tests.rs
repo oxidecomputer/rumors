@@ -11,6 +11,7 @@ mod differential;
 mod interop;
 #[cfg(feature = "touch-meter")]
 mod metered;
+mod pool;
 mod primitives;
 mod representation;
 mod same_cell;
@@ -79,8 +80,7 @@ fn oracle_sign(oracle: &IBig) -> Ordering {
 /// the copy again checks that written-back form: it must hold the same value,
 /// in a working width that is the value's own, with every digit invariant.
 fn assert_value(acc: &Accumulator, oracle: &IBig) {
-    let own_width = usize::try_from(oracle.magnitude().bits().div_ceil(32).max(1))
-        .expect("tested values have addressable widths");
+    let own_width = own_digits(oracle);
     for scaled in [false, true] {
         let mut read = acc.stored_copy();
         for repeated in [false, true] {
@@ -97,6 +97,13 @@ fn assert_value(acc: &Accumulator, oracle: &IBig) {
         );
         read.stored().assert_invariants(&[]);
     }
+}
+
+/// The value's own working width in digits: the 32-bit digits of its
+/// normalized magnitude, at least one.
+fn own_digits(oracle: &IBig) -> usize {
+    usize::try_from(oracle.magnitude().bits().div_ceil(32).max(1))
+        .expect("tested values have addressable widths")
 }
 
 /// Read the exact signed value through one of the two limb readouts.
