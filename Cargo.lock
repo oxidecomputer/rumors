@@ -2395,6 +2395,7 @@ name = "wasm32-pins-guest"
 version = "0.0.0"
 dependencies = [
  "before",
+ "borsh",
  "suanpan",
  "wasm32-pins-protocol",
 ]

@@ -214,10 +214,12 @@
 //! access into large streams. A stream bit position at or past `2^32` arises
 //! in the pins only as a stream's live length or as the progress of a
 //! sequential pass from bit zero: a reader consuming its input, or a writer
-//! appending its output. No pin starts a read or a copy at such a position,
-//! and the guest builds without the `borsh` feature, so the gamma decoder's
-//! one-word window is absent from it. A starting position narrowed before it
-//! becomes a byte index therefore passes every pin.
+//! appending its output. No pin starts a read or a copy at such a position.
+//! The guest builds with the `borsh` feature, which compiles the gamma
+//! decoder's one-word window in, but only the pin that decodes through borsh
+//! calls it, and only at bit 1, where the stream decoder has buffered a
+//! single byte. A starting position narrowed before it becomes a byte index
+//! therefore passes every pin.
 //!
 //! # The resource instruments
 //!

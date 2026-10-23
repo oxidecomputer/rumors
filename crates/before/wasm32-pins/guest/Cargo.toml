@@ -12,7 +12,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # The meter feature exposes exact live bit lengths, which distinguish crossing
-# a bit-position boundary from merely allocating a buffer of nearby size.
-before = { workspace = true, features = ["meter"] }
+# a bit-position boundary from merely allocating a buffer of nearby size. The
+# borsh feature adds the stream decoders, whose bit cursor is separate from
+# the slice decoder's.
+before = { workspace = true, features = ["meter", "borsh"] }
+# Names `BorshDeserialize`, which `before` implements but does not re-export.
+borsh = { workspace = true }
 suanpan = { workspace = true }
 wasm32-pins-protocol = { workspace = true }
