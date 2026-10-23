@@ -306,6 +306,14 @@ const RANK_TIE_BASE_DIGITS: usize = 96;
 /// the same at every size, and the knob scales only the heights' width.
 const SPARSE_HEIGHT_BASE_DIGITS: usize = 64;
 
+/// Wide-offset comb teeth at the default scale, for both prefix arrangements.
+///
+/// A multiple of 32: the combs' rank exponent is the tooth count plus two, and
+/// `rank_sum` lands its small summands at bit remainder `exp mod 32` (the
+/// freeze-position base's derivation carries the mechanism), so `32 | k` keeps
+/// that remainder fixed across the level doubling.
+const WIDE_OFFSET_COMB_BASE_TEETH: usize = 256;
+
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
 ///
@@ -1235,6 +1243,20 @@ impl FamilyData {
                 kind,
                 Shape::SparseFill
                     .build1(size(SPARSE_HEIGHT_BASE_DIGITS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::CrossPrefixComb => Self::event(
+                kind,
+                Shape::CrossPrefixComb
+                    .build1(size(WIDE_OFFSET_COMB_BASE_TEETH))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::SamePrefixComb => Self::event(
+                kind,
+                Shape::SamePrefixComb
+                    .build1(size(WIDE_OFFSET_COMB_BASE_TEETH))
                     .version()
                     .encode(),
             ),

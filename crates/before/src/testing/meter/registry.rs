@@ -221,6 +221,10 @@ pub enum Shape {
     /// The rank-tie pair `RT(w, d)`, a plateau puncture and its mirror:
     /// [`Shape::build_pair`]`(w, d)`.
     RankTie,
+    /// The cross-prefix wide-offset comb `CC(k)`: [`Shape::build1`]`(k)`.
+    CrossPrefixComb,
+    /// The same-prefix wide-offset comb `CS(k)`: [`Shape::build1`]`(k)`.
+    SamePrefixComb,
 }
 
 /// A registered constructor's signature class, binding one [`Shape`] to
@@ -342,6 +346,8 @@ impl Shape {
             Shape::SparseOscillation => Builder::P1(super::sparse_oscillation),
             Shape::SparseFill => Builder::P1(super::sparse_fill),
             Shape::RankTie => Builder::Pair2(super::rank_tie),
+            Shape::CrossPrefixComb => Builder::P1(super::cross_prefix_comb),
+            Shape::SamePrefixComb => Builder::P1(super::same_prefix_comb),
         }
     }
 
@@ -991,6 +997,18 @@ pub enum FamilyId {
     /// descends across every written position. Designed against `suanpan`'s
     /// written-position set.
     SparseFill,
+    /// The cross-prefix comb `CC(k)`: `k` narrow records pushed and popped
+    /// directly above an outer minimum whose offset is `64k` bits wide, the
+    /// records measured from a frozen height reference after the minimum's.
+    ///
+    /// The input pays the wide offset once; a minimum fold that read or
+    /// copied it per record would work quadratically. Designed against
+    /// `min_ticks`.
+    CrossPrefixComb,
+    /// The same-prefix comb `CS(k)`: the cross-prefix comb's circulation with
+    /// the wide outer minimum and the records measured from one height
+    /// reference. Designed against `min_ticks`.
+    SamePrefixComb,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -1038,7 +1056,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 64] = [
+    pub const ALL: [FamilyId; 66] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1103,6 +1121,8 @@ impl FamilyId {
         FamilyId::RankTie,
         FamilyId::SparseOscillation,
         FamilyId::SparseFill,
+        FamilyId::CrossPrefixComb,
+        FamilyId::SamePrefixComb,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1452,6 +1472,16 @@ impl FamilyId {
             FamilyId::SparseFill => FamilySpec {
                 name: "sparse-fill",
                 shapes: &[Shape::SparseFill],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::CrossPrefixComb => FamilySpec {
+                name: "cross-prefix-comb",
+                shapes: &[Shape::CrossPrefixComb],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::SamePrefixComb => FamilySpec {
+                name: "same-prefix-comb",
+                shapes: &[Shape::SamePrefixComb],
                 cells: VERSION_BUNDLE_CELLS,
             },
         }

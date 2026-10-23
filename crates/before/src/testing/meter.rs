@@ -3981,6 +3981,115 @@ fn rank_tie(w: usize, d: usize) -> (Encoding, Encoding) {
     (puncture, mirrored)
 }
 
+/// The width, in bits, of the wide-offset combs' outer offset per tooth.
+///
+/// Sixty-four bits per tooth make the offset two machine words wider for
+/// every tooth the comb carries, so a minimum fold that copied the offset
+/// once per tooth would do quadratic work while the input pays the offset's
+/// code once.
+const WIDE_OFFSET_BITS_PER_TOOTH: usize = 64;
+
+/// Append the left-deep comb `M_k` over the teeth `T_1 = (0, 1)` and
+/// `T_i = 1 + (0, 1)`, with `M_k` lifted by `top` above its parent:
+/// `12k − 5 + |gamma(top)|` bits.
+///
+/// `M_i` is the node over `M_(i−1)` and `T_i`, and `M_1` is `T_1`, so the
+/// preorder runs `M_k, …, M_2, T_1, T_2, …, T_k`. A minimum fold suspends a
+/// narrow record at every `M_i` and closes it at `T_i`.
+fn left_comb(bits: &mut BitsWriter, k: usize, top: &BigUint) {
+    bits.push(true); // M_k, lifted by `top`
+    bits.write_gamma(top);
+    for _ in 0..k - 2 {
+        bits.push(true); // M_(k−1) down to M_2, each at base 0
+        bits.write_gamma(&BigUint::ZERO);
+    }
+    bits.push(true); // T_1, at base 0
+    bits.write_gamma(&BigUint::ZERO);
+    ev_leaf(bits, 0);
+    ev_leaf(bits, 1);
+    for _ in 2..=k {
+        bits.push(true); // T_i, one above its sibling M_(i−1)
+        bits.write_gamma(&BigUint::ONE);
+        ev_leaf(bits, 0);
+        ev_leaf(bits, 1);
+    }
+}
+
+/// The cross-prefix comb `CC(k)`: an outer minimum `J = 2^(64k)` above its
+/// first leaf, then a `k`-tooth [`left_comb`] one tick above it, in exactly
+/// `140k + 6` bits.
+///
+/// Its leaves are `0, J, J + 1, J + 2`, then `J + 2, J + 3` once for each of
+/// the comb's other `k − 1` teeth. `min_ticks` keeps each leaf and minimum as
+/// an offset from the height reference current when it observes it. The
+/// outer minimum's record holds the offset `J`, `64k` bits wide, from the
+/// first leaf's height. The narrow change after that wide rise freezes `J`
+/// into a new reference, so the comb's records, pushed and popped one per
+/// tooth directly above the outer minimum, hold offsets of a tick or two
+/// from a different reference than the outer minimum's: the name's two
+/// prefixes. The input pays the wide offset once, and the offset widens by
+/// [`WIDE_OFFSET_BITS_PER_TOOTH`] bits per tooth, so a fold that read or
+/// copied the outer offset at every record would do work quadratic in the
+/// input. [`same_prefix_comb`] keeps the outer minimum and the comb's records
+/// on one reference. Designed against `min_ticks`.
+///
+/// Layout: the root `"11"`, the first leaf `"01"`, the node `"1" ·
+/// gamma(J)` (`128k + 2` bits), its leaf `"01"`, then the comb lifted by 1.
+/// Normal form: every internal node has a child of base 0, and every tooth's
+/// leaves differ.
+///
+/// # Panics
+///
+/// Panics if `k < 2`: the comb needs at least two teeth.
+fn cross_prefix_comb(k: usize) -> Encoding {
+    assert!(k >= 2, "the wide-offset comb needs at least two teeth");
+    let b = WIDE_OFFSET_BITS_PER_TOOTH * k;
+    let mut bits = BitsWriter::with_capacity((140 * k + 6) as u64);
+    bits.push(true); // the root
+    bits.write_gamma(&BigUint::ZERO);
+    ev_leaf(&mut bits, 0); // the first leaf, 0
+    bits.push(true); // the outer node, at J
+    bits.write_gamma(&pow2(b));
+    ev_leaf(&mut bits, 0); // the outer minimum, J
+    left_comb(&mut bits, k, &BigUint::ONE);
+    Encoding::from_bits(bits)
+}
+
+/// The same-prefix comb `CS(k)`: an outer minimum of 1 below a first leaf
+/// of `H = 2^(64k)`, then a `k`-tooth [`left_comb`] lifted back to `H`, in
+/// exactly `268k + 6` bits.
+///
+/// Its leaves are `H, 1, H + 1, H + 2`, then `H + 2, H + 3` once for each of
+/// the comb's other `k − 1` teeth. No narrow change follows a wide recent
+/// change, so nothing freezes, and every record holds its offset from the
+/// first leaf's height, the one reference current throughout. The outer
+/// minimum's offset is `1 − H`, `64k` bits wide, and the comb's records,
+/// pushed and popped one per tooth directly above it, hold offsets of a tick
+/// or two from that same reference. [`cross_prefix_comb`] measures the two
+/// from different references. Designed against `min_ticks`.
+///
+/// Layout: the root `"1" · gamma(1)`, the first leaf `"0" · gamma(H − 1)`
+/// (`128k + 2` bits), the node `"11"`, its leaf `"01"`, then the comb lifted
+/// by `H` (its top code `128k + 2` bits). Normal form: every internal node
+/// has a child of base 0, and every tooth's leaves differ.
+///
+/// # Panics
+///
+/// Panics if `k < 2`: the comb needs at least two teeth.
+fn same_prefix_comb(k: usize) -> Encoding {
+    assert!(k >= 2, "the wide-offset comb needs at least two teeth");
+    let b = WIDE_OFFSET_BITS_PER_TOOTH * k;
+    let mut bits = BitsWriter::with_capacity((268 * k + 6) as u64);
+    bits.push(true); // the root, at 1
+    bits.write_gamma(&BigUint::ONE);
+    ev_leaf_wide(&mut bits, &pow2_minus_1(b)); // the first leaf, H
+    bits.push(true); // the outer node, at 1
+    bits.write_gamma(&BigUint::ZERO);
+    ev_leaf(&mut bits, 0); // the outer minimum, 1
+    left_comb(&mut bits, k, &pow2(b));
+    Encoding::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> BigUint {
     pow2(b) - &BigUint::from(1u8)

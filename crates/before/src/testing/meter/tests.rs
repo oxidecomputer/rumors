@@ -22,7 +22,10 @@ use super::{
     wide_step_spine, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS,
     PROMOTION_REARM_ARM_BITS,
 };
-use super::{gap_filling_height, rank_tie, sparse_fill, sparse_height, sparse_oscillation};
+use super::{
+    cross_prefix_comb, gap_filling_height, rank_tie, same_prefix_comb, sparse_fill, sparse_height,
+    sparse_oscillation,
+};
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
 /// a shared-process test runner, under which the process-global counters bleed
@@ -1340,6 +1343,52 @@ proptest! {
         prop_assert_eq!(leaves_of(&m), reversed);
         prop_assert_ne!(&v, &m, "the pair must be distinct versions");
         prop_assert_eq!(v.rank(), m.rank(), "mirroring preserves the rank");
+    }
+
+    /// `CC(k)` is canonical normal form at exactly `140k + 6` bits, with its
+    /// outer minimum at `J = 2^(64k)` above the first leaf and its comb's
+    /// teeth one and two ticks above that, at the next prefix.
+    #[test]
+    fn cross_prefix_comb_decodes_canonically_above_its_wide_minimum(k in 2usize..=40) {
+        let shape = cross_prefix_comb(k);
+        check_version(&shape, 140 * k + 6);
+        let j = BigUint::ONE << (64 * k);
+        let depth = k as u64;
+        let mut leaves = vec![
+            (BigUint::ZERO, 1),
+            (j.clone(), 2),
+            (&j + 1u8, depth + 2),
+            (&j + 2u8, depth + 2),
+        ];
+        for tooth in 2..=depth {
+            leaves.push((&j + 2u8, 4 + depth - tooth));
+            leaves.push((&j + 3u8, 4 + depth - tooth));
+        }
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
+    }
+
+    /// `CS(k)` is canonical normal form at exactly `268k + 6` bits, with its
+    /// outer minimum of 1 below a first leaf of `H = 2^(64k)` and its comb's
+    /// teeth one and two ticks above `H`, on the minimum's prefix.
+    #[test]
+    fn same_prefix_comb_decodes_canonically_above_its_wide_minimum(k in 2usize..=40) {
+        let shape = same_prefix_comb(k);
+        check_version(&shape, 268 * k + 6);
+        let h = BigUint::ONE << (64 * k);
+        let depth = k as u64;
+        let mut leaves = vec![
+            (h.clone(), 1),
+            (BigUint::ONE, 2),
+            (&h + 1u8, depth + 2),
+            (&h + 2u8, depth + 2),
+        ];
+        for tooth in 2..=depth {
+            leaves.push((&h + 2u8, 4 + depth - tooth));
+            leaves.push((&h + 3u8, 4 + depth - tooth));
+        }
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
     }
 
 

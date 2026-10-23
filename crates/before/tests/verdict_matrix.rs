@@ -363,6 +363,10 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
         FamilyId::SparseOscillation => (vec![Shape::SparseOscillation.build1(2).version()], vec![]),
         // Heights filling a sparse-digit value's gaps and draining them.
         FamilyId::SparseFill => (vec![Shape::SparseFill.build1(2).version()], vec![]),
+        // A comb above a wide outer minimum, on the next prefix.
+        FamilyId::CrossPrefixComb => (vec![Shape::CrossPrefixComb.build1(2).version()], vec![]),
+        // A comb above a wide outer minimum, on its own prefix.
+        FamilyId::SamePrefixComb => (vec![Shape::SamePrefixComb.build1(2).version()], vec![]),
     };
     MatrixOperands { versions, masks }
 }
