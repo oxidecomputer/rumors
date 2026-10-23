@@ -269,9 +269,9 @@ impl Ladder {
     ///
     /// # Panics
     ///
-    /// Panics if a measured currency's per-cell table lacks one of the
-    /// ladder's cells, or if a cell has no ceiling at all for a measured
-    /// currency (fuel, with no table for the measured architecture).
+    /// Panics if a cell has no ceiling at all for a measured currency (fuel,
+    /// with no table for the measured architecture). A cell that a table
+    /// omits is judged red instead (the `cell_ceilings` module doc).
     pub fn accept(&self, required: &[Currency], out: &mut dyn Write) -> io::Result<Summary> {
         for &currency in required {
             if !measured(self, currency) {

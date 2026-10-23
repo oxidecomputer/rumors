@@ -335,6 +335,27 @@ fn judge_applies_the_tighter_ceiling_and_names_it() {
     );
 }
 
+/// A table that holds no ceiling for a cell, because the cell is new since
+/// the calibration, judges it red as uncalibrated rather than refusing to
+/// judge, and its outer bound still binds.
+///
+/// A refusal would end the run before it writes its capture, and a
+/// recalibration needs that capture from the other architecture of record.
+#[test]
+fn a_cell_its_table_omits_is_red_as_uncalibrated() {
+    const OTHER_CELL: CellCeilings = CellCeilings {
+        currency: Currency::Heap,
+        archs: &["aarch64"],
+        provenance: None,
+        entries: &[("another_op", CELL.1, 2_000)],
+    };
+    assert_eq!(labels(1.5, Some(&OTHER_CELL)), ["heap cell uncalibrated"]);
+    assert_eq!(
+        labels(MAX_HEAP_BYTES_PER_INPUT_BYTE + 1.0, Some(&OTHER_CELL)),
+        ["heap cell uncalibrated", "heap constant"]
+    );
+}
+
 /// The rendered ceiling of a currency with a per-cell table names that table
 /// on every architecture; a currency with no table anywhere names none.
 ///

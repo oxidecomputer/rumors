@@ -61,6 +61,13 @@
 //! so a fuel run without its table is refused rather than judged. A currency
 //! with no table at all is judged by its outer bound alone.
 //!
+//! A cell that a table holding for the run omits, because the cell is new or
+//! renamed since the calibration, is red (`cell uncalibrated`) whatever its
+//! readings; a heap cell is still judged against its outer bound beside
+//! that. It is red rather than refused so that the run still
+//! completes and writes its capture, which the recalibration below needs
+//! from the other architecture of record.
+//!
 //! # Recalibrating
 //!
 //! `just amp-board-calibrate <capture>` sweeps the board on this host and
@@ -143,24 +150,15 @@ fn archs_of_record(currency: Currency) -> &'static [&'static str] {
 const TABLES: [&CellCeilings; 2] = [&heap::CEILINGS, &fuel::CEILINGS];
 
 impl CellCeilings {
-    /// Returns cell `op` × `family`'s ceiling, in reading per constant unit.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the table holds no ceiling for the cell: the cell is new, or
-    /// renamed, since the table was calibrated.
-    pub(super) fn ceiling(&self, op: &str, family: &str) -> f64 {
+    /// Returns cell `op` × `family`'s ceiling, in reading per constant unit,
+    /// or `None` if the table holds no ceiling for the cell: the cell is new,
+    /// or renamed, since the table was calibrated.
+    pub(super) fn ceiling(&self, op: &str, family: &str) -> Option<f64> {
         let index = self
             .entries
             .binary_search_by(|&(o, f, _)| (o, f).cmp(&(op, family)))
-            .unwrap_or_else(|_| {
-                panic!(
-                    "amp-board: no calibrated {} ceiling for {op} x {family}; recalibrate \
-                     as the `cell_ceilings` module doc says",
-                    self.currency.label(),
-                )
-            });
-        self.entries[index].2 as f64 / CEILING_RESOLUTION as f64
+            .ok()?;
+        Some(self.entries[index].2 as f64 / CEILING_RESOLUTION as f64)
     }
 
     /// The generated module's file name, relative to this module's directory.

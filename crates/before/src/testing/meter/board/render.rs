@@ -43,7 +43,8 @@ fn floor_value(liveness: Liveness) -> String {
 /// An `exponent` red is a scaling-class finding; a `constant` red is a
 /// proportionality finding at
 /// exponent ~1; a `floor` red is a liveness vacuity (a meter not watching the
-/// work) or a stale declared model.
+/// work) or a stale declared model; an `uncalibrated` red is a cell its
+/// per-cell table omits, awaiting a recalibration.
 fn mechanism(red: &[&'static str]) -> String {
     let mut kinds = Vec::new();
     if red.iter().any(|label| label.contains("exponent")) {
@@ -54,6 +55,9 @@ fn mechanism(red: &[&'static str]) -> String {
     }
     if red.iter().any(|label| label.contains("floor")) {
         kinds.push("floor");
+    }
+    if red.iter().any(|label| label.ends_with("uncalibrated")) {
+        kinds.push("uncalibrated");
     }
     kinds.join("+")
 }
