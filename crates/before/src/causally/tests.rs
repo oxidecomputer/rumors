@@ -3,9 +3,12 @@ use crate::testing::bridge::from_oracle_version;
 use crate::testing::exhaustive::{cell_event, cell_heights};
 use crate::testing::generators::arb_oracle_version;
 use crate::{Clock, Span, Version};
+use core::ops::Range;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use std::sync::LazyLock;
+
+mod census;
 
 /// The organic witness set: a three-step chain on one party, a
 /// concurrent line on a second, and their join.
@@ -74,10 +77,11 @@ fn selected<T>(grid: &[T], index: usize) -> &T {
 
 /// The order a clause is evaluated in.
 ///
-/// Versions use production's causal order. Height vectors, the heights of
-/// versions constant on each cell of one shared uniform partition, use the
-/// pointwise order, which equals the causal order on such versions and shares
-/// no code with production.
+/// Versions use production's causal order. Height vectors use the pointwise
+/// order, which equals the causal order on the versions they describe and
+/// shares no code with production: the finer-pool tests read the heights of
+/// versions constant on each cell of one shared partition, and the census
+/// tests read height vectors off the flat model.
 trait CausalOrder {
     /// Whether `self` lies at or below `other`.
     fn le(&self, other: &Self) -> bool;
@@ -207,9 +211,15 @@ impl BoundClause {
 
 /// Generates bounds throughout the complete two-party grid.
 fn bound_clause() -> impl Strategy<Value = BoundClause> {
+    bound_clause_among(0..9)
+}
+
+/// Generates bounds anchored at the pool indices `anchors` draws, which
+/// [`selected`] reduces modulo the pool's size.
+fn bound_clause_among(anchors: Range<usize>) -> impl Strategy<Value = BoundClause> {
     prop_oneof![
-        (0usize..9).prop_map(BoundClause::After),
-        (0usize..9).prop_map(BoundClause::Before),
+        anchors.clone().prop_map(BoundClause::After),
+        anchors.prop_map(BoundClause::Before),
     ]
 }
 
@@ -260,12 +270,18 @@ impl DownClause {
 
 /// Generates every public downward-polar query form across the grid.
 fn down_clause() -> impl Strategy<Value = DownClause> {
+    down_clause_among(0..9)
+}
+
+/// Generates every public downward-polar query form, anchored at the pool
+/// indices `anchors` draws.
+fn down_clause_among(anchors: Range<usize>) -> impl Strategy<Value = DownClause> {
     prop_oneof![
-        (0usize..9).prop_map(DownClause::Since),
-        (0usize..9).prop_map(DownClause::NotBefore),
-        (0usize..9).prop_map(DownClause::StrictlyAfter),
-        (0usize..9).prop_map(DownClause::AfterOrConcurrent),
-        (0usize..9, 0usize..9).prop_map(|(start, end)| DownClause::Delta(start, end)),
+        anchors.clone().prop_map(DownClause::Since),
+        anchors.clone().prop_map(DownClause::NotBefore),
+        anchors.clone().prop_map(DownClause::StrictlyAfter),
+        anchors.clone().prop_map(DownClause::AfterOrConcurrent),
+        (anchors.clone(), anchors).prop_map(|(start, end)| DownClause::Delta(start, end)),
     ]
 }
 
@@ -316,12 +332,18 @@ impl UpClause {
 
 /// Generates every public upward-polar query form across the grid.
 fn up_clause() -> impl Strategy<Value = UpClause> {
+    up_clause_among(0..9)
+}
+
+/// Generates every public upward-polar query form, anchored at the pool
+/// indices `anchors` draws.
+fn up_clause_among(anchors: Range<usize>) -> impl Strategy<Value = UpClause> {
     prop_oneof![
-        (0usize..9).prop_map(UpClause::Until),
-        (0usize..9).prop_map(UpClause::NotAfter),
-        (0usize..9).prop_map(UpClause::StrictlyBefore),
-        (0usize..9).prop_map(UpClause::BeforeOrConcurrent),
-        (0usize..9, 0usize..9).prop_map(|(start, end)| UpClause::Toward(start, end)),
+        anchors.clone().prop_map(UpClause::Until),
+        anchors.clone().prop_map(UpClause::NotAfter),
+        anchors.clone().prop_map(UpClause::StrictlyBefore),
+        anchors.clone().prop_map(UpClause::BeforeOrConcurrent),
+        (anchors.clone(), anchors).prop_map(|(start, end)| UpClause::Toward(start, end)),
     ]
 }
 
