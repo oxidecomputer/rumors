@@ -11,9 +11,15 @@
 //! generators can spell the non-canonical encodings no production writer
 //! emits; its canonical spellings are calibrated against production, which
 //! is the only authority for the version and party bit layouts.
+//!
+//! The test-only dyadic oracle models an exact rank as an unnormalized dyadic
+//! rational, so rank values, order, and text are judged without production's
+//! arithmetic or codecs.
 
 #[cfg(test)]
 pub(crate) mod codec;
+#[cfg(test)]
+pub(crate) mod dyadic;
 #[cfg(test)]
 pub(crate) mod function;
 

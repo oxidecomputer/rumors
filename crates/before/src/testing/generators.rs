@@ -1,4 +1,5 @@
-//! Property-test inputs for arbitrary valid trees and selected deep shapes.
+//! Property-test inputs for arbitrary valid trees, selected deep shapes, and
+//! dyadic rationals for exact ranks.
 //!
 //! Arbitrary values are normalized by the recursive oracle before conversion
 //! to the production representation. Deep shapes have a scale proportional to
@@ -15,6 +16,7 @@ use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use crate::bits;
+use crate::testing::oracles::dyadic::Dyadic;
 use crate::testing::oracles::tree;
 use crate::{Party, Version};
 
@@ -455,5 +457,110 @@ pub(crate) fn arb_clock_family() -> impl Strategy<
                 .flat_map(|p| versions.iter().map(move |v| (p.clone(), v.clone())))
                 .collect();
             family_picks(pool)
+        })
+}
+
+// ───────────────────────────── dyadic rationals ─────────────────────────────
+
+/// Numerators for [`arb_dyadic`]: zero, small values, powers of two and their
+/// neighbors at word boundaries and beyond, random values to 80 bytes,
+/// shifted random values, and shifted runs of ones.
+fn arb_dyadic_num() -> impl Strategy<Value = BigUint> {
+    let boundary_power = prop_oneof![
+        0u32..8,
+        prop::sample::select(vec![
+            31u32, 32, 33, 63, 64, 65, 127, 128, 129, 191, 192, 255, 256
+        ]),
+        0u32..600,
+    ];
+    prop_oneof![
+        1 => Just(BigUint::ZERO),
+        2 => (0u32..16).prop_map(BigUint::from),
+        3 => (boundary_power.clone(), -1i8..=1).prop_map(|(k, offset)| {
+            let power = BigUint::from(1u8) << k;
+            match offset {
+                -1 => power - 1u8,
+                0 => power,
+                _ => power + 1u8,
+            }
+        }),
+        3 => prop::collection::vec(any::<u8>(), 1..80).prop_map(|bytes| BigUint::from_bytes_le(&bytes)),
+        2 => (prop::collection::vec(any::<u8>(), 1..24), 0u32..300)
+            .prop_map(|(bytes, shift)| BigUint::from_bytes_le(&bytes) << shift),
+        2 => (boundary_power, 0u32..200).prop_map(|(k, shift)| ((BigUint::from(1u8) << k) - 1u8) << shift),
+    ]
+}
+
+/// Exponents for [`arb_dyadic`]: zero often, small values, word boundaries,
+/// and values to 5,000.
+fn arb_dyadic_exp() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        3 => Just(0u64),
+        3 => 0u64..12,
+        2 => prop::sample::select(vec![31u64, 32, 33, 63, 64, 65, 127, 128, 129]),
+        2 => 0u64..800,
+        1 => 0u64..5000,
+    ]
+}
+
+/// Dyadic rationals in any spelling, numerator and exponent drawn
+/// independently.
+///
+/// An exponent of zero, or a numerator with at least as many trailing zero
+/// bits as the exponent, gives an integral value, and a zero numerator gives
+/// zero; both are common. The strategy draws numerators that are neither odd
+/// nor normalized, so the same value arrives in many spellings.
+pub(crate) fn arb_dyadic() -> impl Strategy<Value = Dyadic> {
+    (arb_dyadic_num(), arb_dyadic_exp()).prop_map(|(num, exp)| Dyadic { num, exp })
+}
+
+/// `first`, paired with a second dyadic rational related to it.
+///
+/// The second is, with equal weight: an independent draw; the same value in
+/// another spelling; a low-bit flip of the numerator, usually in the same
+/// magnitude class; the value plus a tiny offset far below it; the value
+/// scaled into a wider word count with one deep bit added; a value of the same
+/// width class at another exponent with an independent mantissa, or the same
+/// spelling again when the first is zero; or the same spelling again.
+pub(crate) fn arb_related_dyadic(first: Dyadic) -> impl Strategy<Value = (Dyadic, Dyadic)> {
+    (
+        0u8..7,
+        arb_dyadic(),
+        0u64..70,
+        0u64..300,
+        prop::collection::vec(any::<u8>(), 1..40),
+    )
+        .prop_map(move |(mode, independent, shift, depth, mantissa)| {
+            let a = &first;
+            let second = match mode {
+                0 => independent,
+                1 => Dyadic {
+                    num: &a.num << shift,
+                    exp: a.exp + shift,
+                },
+                2 => Dyadic {
+                    num: &a.num ^ (BigUint::from(1u8) << (shift % 8)),
+                    exp: a.exp,
+                },
+                3 => a.add(&Dyadic {
+                    num: BigUint::from(1u8),
+                    exp: a.exp + depth + 1,
+                }),
+                4 => Dyadic {
+                    num: (&a.num << (64 + shift)) | BigUint::from(1u8),
+                    exp: a.exp + 64 + shift,
+                },
+                5 if a.num != BigUint::ZERO => {
+                    let width = a.num.bits() + shift;
+                    let top = BigUint::from(1u8) << (width - 1);
+                    let low = BigUint::from_bytes_le(&mantissa) % &top;
+                    Dyadic {
+                        num: top + low,
+                        exp: a.exp + shift,
+                    }
+                }
+                _ => a.clone(),
+            };
+            (first.clone(), second)
         })
 }

@@ -23,11 +23,14 @@ use crate::error::Decode;
 use crate::rank::DECODE_CHUNK_BYTES;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
 use crate::testing::generators::co_generated::arb_spine_case;
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::generators::{
+    arb_dyadic, arb_oracle_party_nonempty, arb_oracle_version, arb_related_dyadic,
+};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{
     leq as oracle_leq, run, step, versions, world_strategy, Production, TraceModel,
 };
+use crate::testing::oracles::dyadic::Dyadic;
 use crate::testing::oracles::function;
 use crate::testing::scripted_reader::{arb_read_schedule, ReadSchedule, ScriptedReader};
 use crate::{Clock, Count, Party, Rank};
@@ -1333,12 +1336,37 @@ proptest! {
     #[test]
     fn rank_sum_equals_the_pairwise_fold(seeds in proptest::collection::vec(any::<u64>(), 0..24)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
-        let reference = ranks
-            .iter()
-            .fold(super::Rank::ZERO, |acc, r| acc + r);
-        prop_assert_eq!(&ranks.iter().sum::<super::Rank>(), &reference);
-        prop_assert_eq!(&ranks.into_iter().sum::<super::Rank>(), &reference);
+        assert_sum_is_the_pairwise_fold(ranks, None)?;
     }
+
+    /// `Sum` is the pairwise fold and the exact rational sum, over multisets
+    /// of dyadic ranks.
+    ///
+    /// [`arb_dyadic`] draws integral ranks, zero, and equal values, which the
+    /// seeded ranks of `rank_sum_equals_the_pairwise_fold` almost never are.
+    /// The reference is [`Dyadic::add`]'s sum, rendered to text and parsed, so
+    /// no production arithmetic computes the reference.
+    #[test]
+    fn rank_sum_equals_the_dyadic_sum(values in proptest::collection::vec(arb_dyadic(), 0..10)) {
+        let total = values.iter().fold(Dyadic::zero(), |sum, value| sum.add(value));
+        let ranks: Vec<super::Rank> = values.iter().map(Dyadic::rank).collect();
+        assert_sum_is_the_pairwise_fold(ranks, Some(&total.rank()))?;
+    }
+}
+
+/// Checks that both `Sum` impls return the value of the pairwise
+/// `fold(ZERO, +)`, and that this value is `expected` when one is given.
+fn assert_sum_is_the_pairwise_fold(
+    ranks: Vec<super::Rank>,
+    expected: Option<&super::Rank>,
+) -> Result<(), TestCaseError> {
+    let reference = ranks.iter().fold(super::Rank::ZERO, |acc, r| acc + r);
+    if let Some(expected) = expected {
+        prop_assert_eq!(&reference, expected);
+    }
+    prop_assert_eq!(&ranks.iter().sum::<super::Rank>(), &reference);
+    prop_assert_eq!(&ranks.into_iter().sum::<super::Rank>(), &reference);
+    Ok(())
 }
 
 /// A rank's numerator width for the tie construction above.
@@ -1356,6 +1384,50 @@ proptest! {
     #[test]
     fn rank_triple_laws_on_seeded_ranks(seeds in proptest::collection::vec(any::<u64>(), 3)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
+        let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
+        for (name, law) in crate::testing::laws::RANK_TRIPLE {
+            prop_assert!(law(a, b, c), "law violated: {}", name);
+        }
+    }
+}
+
+proptest! {
+    /// Every `laws::RANK_TRIPLE` law holds on ranks of dyadic rationals, and
+    /// each rank agrees with its rational in value, text, and order.
+    ///
+    /// `rank_triple_laws_on_seeded_ranks` draws odd numerators at exponents
+    /// below 100,000, so it almost never builds an integral rank, and never
+    /// zero or one rank reached from two spellings of a value. [`arb_dyadic`]
+    /// and [`arb_related_dyadic`] build all three often. Each rank comes from
+    /// parsing [`Dyadic::render`]'s text, which no production code writes. It
+    /// must equal `Rank::from_raw` of the same pair, production's `Display`
+    /// must print exactly that text, and any two ranks must order as their
+    /// rationals do by cross-multiplication.
+    #[test]
+    fn rank_triple_laws_on_dyadic_ranks(
+        (qa, qb) in arb_dyadic().prop_flat_map(arb_related_dyadic),
+        qc in arb_dyadic(),
+    ) {
+        let values = [&qa, &qb, &qc];
+        let ranks: Vec<super::Rank> = values.iter().map(|value| value.rank()).collect();
+        for (value, rank) in values.iter().zip(&ranks) {
+            prop_assert_eq!(
+                &super::Rank::from_raw(value.num.clone(), value.exp),
+                rank,
+                "the parsed and raw routes disagree on {:?}",
+                value,
+            );
+            prop_assert_eq!(rank.to_string(), value.render(), "the printer on {:?}", value);
+        }
+        for (i, j) in [(0, 1), (1, 0), (0, 2), (1, 2)] {
+            prop_assert_eq!(
+                ranks[i].cmp(&ranks[j]),
+                values[i].cmp_value(values[j]),
+                "order of {:?} against {:?}",
+                values[i],
+                values[j],
+            );
+        }
         let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
         for (name, law) in crate::testing::laws::RANK_TRIPLE {
             prop_assert!(law(a, b, c), "law violated: {}", name);

@@ -37,6 +37,16 @@
 //! What they alone catch: **surface composition errors** that no independent
 //! model represents, such as omitting one component from a streamed encoding.
 //!
+//! **The dyadic rank oracle** ([`super::oracles::dyadic`]). An exact rank is
+//! modeled as an unnormalized dyadic rational: order by cross-multiplication,
+//! sums by aligned exponents, and canonical text rendered from the pair alone.
+//! Its generators feed the rank laws and the `Sum` property integral ranks,
+//! zero, and one value in several spellings. What it alone catches: **rank
+//! errors that production's arithmetic, order, and text agree on** — a parser
+//! and printer that err consistently pass the text round trip, and ranks whose
+//! order is wrong but self-consistent pass every law, yet neither matches
+//! values rendered and compared outside production.
+//!
 //! **Co-generated tick pairs** ([`super::generators::co_generated`]). These
 //! strategies build a tick's party and version together, region by region,
 //! and feed the tick module's differentials against the recursive oracle. One
