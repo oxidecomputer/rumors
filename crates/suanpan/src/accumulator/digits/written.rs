@@ -107,8 +107,22 @@ enum Below {
     /// Any positions, in a bitset allocated when a second gap first appears,
     /// and kept from then on.
     ///
-    /// A clear leaves it holding position zero, which the run then holds
-    /// too.
+    /// In a set whose first insertion included position zero, as every set
+    /// `Digits` writes, the bitset holds zero from its creation on, which is
+    /// what lets [`clear`](WrittenPositions::clear) keep zero without
+    /// inserting it:
+    ///
+    /// - Zero stays in such a set: a truncation removes only the positions
+    ///   above the one it truncates to, and a clear keeps zero.
+    /// - The conversion that creates the bitset moves a prefix that holds
+    ///   zero. While the set holds zero, either the prefix holds it, or the
+    ///   run starts at zero; then nothing lies below the run, and a jump
+    ///   folds the run into the prefix rather than converting it.
+    /// - Once in the bitset, zero leaves it neither by truncation nor by a
+    ///   clear.
+    ///
+    /// A set that gains zero only after its bitset exists can hold zero in
+    /// the run alone.
     Bitset(Box<Bitset>),
 }
 
@@ -286,16 +300,24 @@ impl WrittenPositions {
         }
     }
 
-    /// Reduce the set to position zero, given that every other position lies
-    /// in `lowest..=highest`.
+    /// Reduce the set to position zero, given that the set's first insertion
+    /// included position zero and that every other position lies in
+    /// `lowest..=highest`.
     ///
     /// Costs O(1) in the prefix form, and in the bitset form an amortized
     /// cost proportional to the span, as the [module](self#costs) explains;
-    /// a bitset keeps its storage, and position zero, for reuse. A position
-    /// outside the span fails the assertion in a debug build; in a release
-    /// build, every later operation on the set may then return a wrong result
-    /// or panic.
+    /// a bitset keeps its storage, and position zero, for reuse. The bitset
+    /// clears without inserting zero first, because in such a set it already
+    /// holds zero ([`Below::Bitset`]). `Digits` inserts zero first into
+    /// every set it writes. A set without position zero, or with a position
+    /// outside the span, fails an assertion in a debug build, as does a
+    /// bitset without zero; in a release build, every later operation on the
+    /// set may then return a wrong result or panic.
     pub fn clear(&mut self, lowest: usize, highest: usize) {
+        debug_assert!(
+            self.last_below(1) == Some(0),
+            "clear's caller guarantees that the set holds position zero"
+        );
         debug_assert!(
             self.last_below(usize::MAX) <= Some(highest)
                 && self.last_below(lowest).is_none_or(|position| position == 0),

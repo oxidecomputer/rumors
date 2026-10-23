@@ -86,7 +86,10 @@ pub struct Digits {
     ///   at the cost of the written span.
     ///
     /// Storage left by `reset` holds exactly position zero; storage emptied
-    /// by [`clear`](Self::clear) holds nothing.
+    /// by [`clear`](Self::clear) holds nothing. Every set this field holds
+    /// receives position zero as its first insertion, from
+    /// [`activate`](Self::activate) or [`copy_into`](Self::copy_into); the
+    /// set's [`clear`](WrittenPositions::clear) requires that.
     written: WrittenPositions,
 }
 
@@ -124,7 +127,8 @@ impl Digits {
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
         // Storage left by `reset` already holds position zero; empty storage
-        // gains it here.
+        // gains it here, as the first insertion into its set, which the set's
+        // `clear` requires.
         self.written.insert(0);
         self.debug_assert_valid();
     }
@@ -174,6 +178,7 @@ impl Digits {
         // bitset sized to the source's. The target's old set is replaced
         // rather than cleared: clearing costs the target's written span,
         // which `clone_from`'s bound, the read plus O(Q), does not include.
+        // Position zero goes in first, as the set's `clear` requires.
         target.written = WrittenPositions::default();
         target.written.insert(0);
         target

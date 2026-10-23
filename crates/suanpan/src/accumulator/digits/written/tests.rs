@@ -46,6 +46,8 @@ enum Op {
     /// Clear from the oracle's least position other than zero, less the first
     /// slack, through its largest position, plus the second, as `Digits`
     /// clears from its floor through its top, leaving position zero alone.
+    /// Nothing happens unless the history's first insertion was of position
+    /// zero, which `clear` requires.
     Clear(usize, usize),
 }
 
@@ -83,12 +85,14 @@ fn truncate(
     touched.insert(highest);
 }
 
-/// Apply `op` to both sets, recording every position it names in `touched`.
+/// Apply `op` to both sets, recording every position it names in `touched`;
+/// `zero_first` says whether the history began by inserting position zero.
 fn apply(
     op: &Op,
     set: &mut WrittenPositions,
     oracle: &mut BTreeSet<usize>,
     touched: &mut BTreeSet<usize>,
+    zero_first: bool,
 ) {
     match *op {
         Op::Insert(position) => {
@@ -117,6 +121,7 @@ fn apply(
                 truncate(largest.saturating_sub(1), set, oracle, touched);
             }
         }
+        Op::Clear(..) if !zero_first => {}
         Op::Clear(below, above) => {
             let highest = oracle.last().copied().unwrap_or(0) + above;
             let lowest = oracle
@@ -183,6 +188,12 @@ proptest! {
     /// Every sequence of inserts, truncations, and clears leaves the set
     /// agreeing with an ordered-set oracle on every query.
     ///
+    /// Most histories are seeded with position zero, as `Digits` seeds every
+    /// set, so that their clears apply. The rest start empty, and zero enters
+    /// them, if at all, through an ordinary insertion, possibly after a
+    /// bitset exists, where the run alone can hold it; their clears are
+    /// skipped.
+    ///
     /// After every operation the set holds exactly the oracle's positions,
     /// its run lies above every other position, any bitset keeps its own
     /// invariants, and `contains` and `last_below` agree with the oracle at
@@ -191,14 +202,18 @@ proptest! {
     /// above everything held.
     #[test]
     fn written_positions_match_an_ordered_set(
+        seed_zero in proptest::bool::weighted(0.75),
         ops in proptest::collection::vec(op(), 1..48),
     ) {
         let mut set = WrittenPositions::default();
         let mut oracle = BTreeSet::new();
         let mut touched = BTreeSet::new();
+        if seed_zero {
+            apply(&Op::Insert(0), &mut set, &mut oracle, &mut touched, true);
+        }
         assert_agrees(&set, &oracle, &touched, &[]);
         for (step, op) in ops.iter().enumerate() {
-            apply(op, &mut set, &mut oracle, &mut touched);
+            apply(op, &mut set, &mut oracle, &mut touched, seed_zero);
             assert_agrees(&set, &oracle, &touched, &ops[..=step]);
         }
     }
@@ -332,8 +347,9 @@ fn converting_a_prefix_keeps_every_position() {
 /// A position high enough to give a bitset four levels.
 const TALL: usize = 64 * 64 * 64;
 
-/// Each form a set can hold its positions below the run in before a clear,
-/// named, with the operations that build it.
+/// The sets a clear meets, one for each form of the positions below the
+/// run: each named, with the operations that build it, which insert
+/// position zero first, as `clear` requires.
 const BEFORE_CLEAR: [(&str, &[Op]); 2] = [
     // One gap, between the prefix 0..3 and the run at 10.
     ("prefix", &[Op::InsertSpan(0, 3), Op::Insert(10)]),
@@ -382,17 +398,17 @@ fn a_clear_leaves_zero_and_later_operations_match_an_ordered_set() {
                 let mut touched = BTreeSet::new();
                 let mut trace = setup.to_vec();
                 for op in setup {
-                    apply(op, &mut set, &mut oracle, &mut touched);
+                    apply(op, &mut set, &mut oracle, &mut touched, true);
                 }
                 assert_eq!(set.form(), form, "the form built by {trace:?}");
                 trace.push(Op::Clear(0, 0));
-                apply(&Op::Clear(0, 0), &mut set, &mut oracle, &mut touched);
+                apply(&Op::Clear(0, 0), &mut set, &mut oracle, &mut touched, true);
                 assert_eq!(set.positions(), [0], "position zero alone after {trace:?}");
                 assert_eq!(set.form(), form, "the form kept by {trace:?}");
                 assert_agrees(&set, &oracle, &touched, &trace);
                 for op in [first, second] {
                     trace.push(op.clone());
-                    apply(op, &mut set, &mut oracle, &mut touched);
+                    apply(op, &mut set, &mut oracle, &mut touched, true);
                     assert_agrees(&set, &oracle, &touched, &trace);
                 }
             }

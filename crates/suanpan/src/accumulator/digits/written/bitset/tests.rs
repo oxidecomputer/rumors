@@ -45,9 +45,10 @@ enum Op {
     /// Remove a position the oracle holds, chosen by index; nothing when the
     /// oracle is empty.
     RemoveHeld(Index),
-    /// Clear from the oracle's least position other than zero, less the first
-    /// slack, through its largest position, plus the second, which satisfies
-    /// `clear`'s precondition, leaving position zero alone.
+    /// Insert position zero, then clear from the oracle's least position
+    /// other than zero, less the first slack, through its largest position,
+    /// plus the second, which satisfies `clear`'s precondition, leaving
+    /// position zero alone.
     Clear(usize, usize),
 }
 
@@ -109,6 +110,8 @@ fn apply(op: &Op, set: &mut Bitset, oracle: &mut BTreeSet<usize>, touched: &mut 
                 .range(1..)
                 .next()
                 .map_or(highest, |&least| least.saturating_sub(below));
+            // `clear` requires position zero, which a removal may have taken.
+            set.insert(0);
             set.clear(lowest, highest);
             *oracle = BTreeSet::from([0]);
             touched.extend([lowest, highest]);
@@ -239,10 +242,11 @@ fn levels_off_word_zero(position: usize) -> usize {
 /// empties a word other than word zero, and leaves a hierarchy on which a
 /// later insertion and every query agree with the oracle.
 ///
-/// A hierarchy of four levels is built by inserting [`TALL`] and clearing
-/// it. Then, for every subset of [`CLEAR_POINTS`], and for a span starting
-/// at the subset's least nonzero point and one starting at zero, the subset
-/// is inserted and cleared through its largest point. The clear must leave
+/// A hierarchy of four levels is built by inserting position zero and
+/// [`TALL`], and clearing [`TALL`]. Then, for every subset of
+/// [`CLEAR_POINTS`], and for a span starting at the subset's least nonzero
+/// point and one starting at zero, the subset is inserted and cleared
+/// through its largest point. The clear must leave
 /// exactly position zero, with both invariants and the storage kept, having
 /// examined level 0 and one level more for each level at which the largest
 /// point lies outside word zero. An empty subset, or zero alone, therefore
@@ -256,6 +260,7 @@ fn levels_off_word_zero(position: usize) -> usize {
 #[test]
 fn a_clear_leaves_zero_and_climbs_only_past_emptied_words() {
     let mut tall = Bitset::default();
+    tall.insert(0);
     tall.insert(TALL);
     tall.clear(TALL, TALL);
     assert_eq!(

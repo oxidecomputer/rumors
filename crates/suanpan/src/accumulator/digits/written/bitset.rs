@@ -175,39 +175,47 @@ impl Bitset {
         Some(index)
     }
 
-    /// Reduce the set to position zero, given that every other position lies
-    /// in `lowest..=highest`, keeping the storage.
+    /// Reduce the set to position zero, given that it holds position zero
+    /// and that every other position lies in `lowest..=highest`, keeping the
+    /// storage.
     ///
-    /// A position other than zero outside that span is left set while
-    /// summary words above it may be cleared, which breaks the summary
-    /// invariant: every later operation may then return a wrong result or
-    /// panic.
+    /// A set without position zero fails the assertion in a debug build. In
+    /// a release build the clear may then break the summary invariant: over
+    /// a span starting in word zero it sets position zero at level 0,
+    /// possibly without the summary bits above it, and over a span starting
+    /// above word zero it may set a summary bit above an empty word zero. A
+    /// position other than zero outside the span is left set while summary
+    /// words above it may be cleared, which breaks the invariant too. Every
+    /// later operation may then return a wrong
+    /// result or panic. The written set clears its bitset only when the
+    /// bitset holds zero, as [`Below`](super::Below) documents.
     ///
-    /// Position zero stays, inserted if absent, because the written set
-    /// always holds it again after a clear. Keeping it keeps word zero
-    /// nonempty at every level, so an insertion after the clear stops at the
-    /// first word it shares with position zero, as it would before the clear,
-    /// instead of climbing every level of an emptied hierarchy.
+    /// Position zero stays, so word zero stays nonempty at every level, and
+    /// an insertion after the clear stops at the first word it shares with
+    /// position zero, as it would before the clear, instead of climbing
+    /// every level of an emptied hierarchy.
     ///
-    /// Once zero is held, the clear works upward from level 0. Every position
-    /// other than zero lies in the span, so at each level, every nonempty
-    /// word other than word zero lies among the words that summarize the
-    /// span, and word zero holds the bit on position zero's path and
-    /// otherwise only bits standing for the span. The clear sets word zero to
-    /// that one bit, if word zero lies in the span, and empties the span's
-    /// other words. Word zero stays nonempty, so a level at which no other
-    /// word empties changes no summary bit above it, and the clear stops
-    /// there.
+    /// The clear works upward from level 0. Every position other than zero
+    /// lies in the span, so at each level, every nonempty word other than
+    /// word zero lies among the words that summarize the span, and word zero
+    /// holds the bit on position zero's path and otherwise only bits standing
+    /// for the span. The clear sets word zero to that one bit, if word zero
+    /// lies in the span, and empties the span's other words. Word zero stays
+    /// nonempty, so a level at which no other word empties changes no
+    /// summary bit above it, and the clear stops there.
     ///
-    /// The cost is the insertion of zero, one word operation when zero is
-    /// already held; O(1 + (`highest` − `lowest`) / 64) word operations at
-    /// level 0; and at each level above, O(1) plus the span's words there.
+    /// The cost is O(1 + (`highest` − `lowest`) / 64) word operations at
+    /// level 0, and at each level above, O(1) plus the span's words there.
     /// The clear reaches a level only after emptying a word other than word
     /// zero on the level below. That word turned nonempty through an
     /// insertion that climbed to the level reached, and the clear leaves it
     /// empty, so each level's O(1) is charged once to that climb.
     pub fn clear(&mut self, lowest: usize, highest: usize) {
-        self.insert(0);
+        debug_assert_eq!(
+            self.last_below(1),
+            Some(0),
+            "clear's caller guarantees that the set holds position zero"
+        );
         let mut first_word = lowest / WORD_BITS;
         let mut last_word = highest / WORD_BITS;
         for words in &mut self.levels {
