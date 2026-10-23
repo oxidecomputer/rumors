@@ -13,7 +13,8 @@ laws! {
     /// The lattice point laws at a single value (idempotence, the bottom
     /// element), observer coherence (`is_empty`, `concurrent`, `distance`,
     /// `rank`, `min_ticks`, [`Ranked`]), the representational round-trips
-    /// (codec, text, byte views), and the byte hash.
+    /// (codec, text, byte views), the byte hash, and the shape iterator's
+    /// size hints.
     pub static VERSION_SOLO: (a: &Version);
 
     /// Idempotence: `a | a == a` (the LUB of a value and itself is that value).
@@ -170,6 +171,15 @@ laws! {
     /// derivation.
     fn version_hash_is_the_byte_hash {
         hash_of(a) == hash_of(a.as_bytes())
+    }
+
+    /// The [`Plateaus`](shape::Plateaus) iterator's size hint brackets the
+    /// plateaus it has left, at every step and after exhaustion.
+    ///
+    /// [`Iterator::size_hint`]'s contract requires the bracket, and the
+    /// iterator's `FusedIterator` impl promises that it stays exhausted.
+    fn version_shape_size_hint_brackets_remaining {
+        size_hints_bracket(a.shape(), a.shape().count())
     }
 }
 
