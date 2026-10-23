@@ -41,7 +41,7 @@ use super::floors::{
     masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines, scan_touch,
     sync_floors, tick_walk_floors, touch_delta_fold, touch_fold_first_merges, touch_pair_fold,
     touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE, NA_HEAP_QUERY_CLONE,
-    NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_QUERY_CLONE,
+    NA_HEAP_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_QUERY_CLONE,
     NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW,
     NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
     NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_SCAN_EXAMINES,
@@ -2966,6 +2966,85 @@ pub(super) fn ops() -> Vec<Op> {
                     assert!(
                         matches!(err, Decode::TrailingBits),
                         "the placed defect is the appended tail, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "rank_decode_truncated",
+            prepare: |f| {
+                // The family-derived rank's canonical bytes without their
+                // last byte. Minimal packing ends the byte string in the byte
+                // holding the stream's closing bit, so the cut removes it and
+                // the decoder reads to the cut before it can reject.
+                let (a, _) = f.rank_pair.clone()?;
+                let mut fed = a.encode();
+                fed.pop();
+                let floors = Floors {
+                    heap: na(NA_HEAP_REJECTION),
+                    scan: na(NA_SCAN_RANK_BYTES),
+                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
+                };
+                Some(Cell::new(fed.len(), floors, move || {
+                    let err = Rank::decode(&fed[..]).expect_err("a truncated rank is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "ranked_decode_truncated",
+            prepare: |f| {
+                // The family version's composite key cut short in its
+                // version component, the key's tail: the decoder parses the
+                // rank prefix and the version to the cut. The scan floor
+                // counts the version component's fed bytes alone, since the
+                // rank prefix is read outside the metered stream primitives.
+                let (v, _) = f.version()?;
+                let ranked = Ranked::from(&v);
+                let rank_bytes = ranked.encode_rank().len();
+                let fed = truncated_bytes(&ranked.encode());
+                let floors = rejection_floors(fed.len() - rank_bytes, WHY_SCAN_REJECT_END);
+                Some(Cell::new(fed.len(), floors, move || {
+                    let err =
+                        Ranked::decode(&fed[..]).expect_err("a truncated composite is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "ranked_decode_mismatch",
+            prepare: |f| {
+                // A composite key whose rank prefix is the rank of the
+                // family's version ticked once by the seed, over the
+                // version's own bytes. A tick raises the height on a region
+                // of positive width, so the two ranks differ, and the
+                // decoder can reject only after it has parsed both
+                // components and ranked the version: the latest-detected
+                // rejection the format has. The rank fold takes its floors.
+                let (v, n) = f.version()?;
+                let mut ticked = v.clone();
+                ticked.tick(&Party::seed());
+                let fed = [ticked.rank().encode(), v.encode()].concat();
+                let floors = Floors {
+                    heap: na(NA_HEAP_REJECTION),
+                    scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
+                };
+                Some(Cell::new(fed.len(), floors, move || {
+                    let err = Ranked::decode(&fed[..])
+                        .expect_err("a rank prefix the version does not measure is rejected");
+                    assert!(
+                        matches!(err, Decode::NotCanonical),
+                        "the placed defect is the mismatched rank, not {err:?}"
                     );
                     (err, fed)
                 }))

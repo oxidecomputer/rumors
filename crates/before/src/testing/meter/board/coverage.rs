@@ -109,7 +109,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Rank::saturating_sub", &["rank_checked_sub"]),
     ("Rank::encode", &["rank_encode"]),
     ("Rank::encode_to", &["rank_encode"]),
-    ("Rank::decode", &["rank_decode"]),
+    ("Rank::decode", &["rank_decode", "rank_decode_truncated"]),
     ("Ranked::rank", &["version_rank"]),
     ("Ranked::encode", &["ranked_encode"]),
     ("Ranked::encode_to", &["ranked_encode"]),
@@ -119,6 +119,8 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         "Ranked::decode",
         &[
             "ranked_decode",
+            "ranked_decode_truncated",
+            "ranked_decode_mismatch",
         ],
     ),
     ("causally::Floor::contains", &["causally_contains"]),

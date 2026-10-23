@@ -204,7 +204,8 @@ pub(super) const WHY_SCAN_OVERLAP_END: &str = "the pair's one overlapping region
      operands' preorder ends by construction, and the encoded coding has no random access: \
      any correct rejection scans to it";
 /// Heap NA on rejection rows: no result is materialized.
-const NA_HEAP_REJECTION: &str = "a rejecting or empty outcome materializes no result, and \
+pub(super) const NA_HEAP_REJECTION: &str =
+    "a rejecting or empty outcome materializes no result, and \
      buffering the fed stream is not semantically forced: allocation stays the \
      implementation's choice";
 /// Touch NA on rejection rows: no accumulator fold is forced.
