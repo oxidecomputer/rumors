@@ -6,15 +6,17 @@
 //! over a duplicated version produces the same successors. For a
 //! *version* that is valid use: a version records causal knowledge, not
 //! event identity, and duplicating one to stamp divergent timelines is
-//! how version-vector-style callers work. Three pins state that model.
-//! For a *clock* it is the hazard the linearity rule exists to prevent:
-//! restoring a clock from bytes persisted before its latest advance
-//! brings a retired state of the identity back into play, and the
-//! restored party overlaps its own descendant. The fourth witness pins
-//! that violation. All four are built from individually documented
+//! how version-vector-style callers work. The pins marked "valid by the
+//! model" state that model, including what `Clock::from_parts` produces
+//! over a version missing some of its party's events. For a *clock* it is
+//! the hazard the linearity rule exists to prevent: restoring a clock from
+//! bytes persisted before its latest advance brings a retired state of the
+//! identity back into play, and the restored party overlaps its own
+//! descendant. `restored_pre_tick_clock_conflates_without_any_fork` pins
+//! that violation. Every pin is built from individually documented
 //! operations (`Version` is freely `Clone`; encode/decode round-trips;
-//! `from_parts` pairs parts): the pins hold the crate docs' statements
-//! to what actually happens.
+//! `from_parts` pairs parts): the pins hold the crate docs' statements to
+//! what actually happens.
 
 use before::{Clock, Party, Version};
 
@@ -39,8 +41,8 @@ fn same_party_ticks_on_divergent_clones_produce_equal_versions() {
 
 /// The join of two same-party-ticked clones equals either line.
 ///
-/// Join merges causal knowledge; two lines carrying equal knowledge
-/// add nothing to each other.
+/// Valid by the model: join merges causal knowledge, and two lines carrying
+/// equal knowledge add nothing to each other.
 #[test]
 fn join_of_same_party_ticked_clones_equals_either_line() {
     let p = Party::seed();
@@ -91,4 +93,54 @@ fn from_parts_over_an_earlier_version_reproduces_its_successor() {
     let mut rebuilt = Clock::from_parts(party, earlier);
     let y: Version = rebuilt.tick().clone(); // event Y
     assert_eq!(x, y, "the rebuilt clock reproduces the same successor");
+}
+
+/// `Clock::from_parts` over a version that lacks the party's events, after
+/// the party's clock received a message, records an event that the party's
+/// last stamp already contains, under a version the party never issued.
+///
+/// Valid by the model, and the consequence `from_parts`'s warning states for
+/// any version missing the party's events: the new event is already inside
+/// an earlier stamp. The rebuilt clock reproduces no issued stamp, because
+/// the party's clock never ticked from the version it starts from.
+#[test]
+fn from_parts_over_a_received_version_records_an_event_an_issued_stamp_contains() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let message = bob.tick().clone();
+    let first = alice.tick().clone();
+    let second = alice.recv(&message).clone();
+    let (party, _current) = alice.into_parts();
+    let mut rebuilt = Clock::from_parts(party, message);
+    let y: Version = rebuilt.tick().clone();
+    assert_ne!(y, first, "y is not alice's first stamp");
+    assert_ne!(y, second, "y is not alice's second stamp");
+    assert!(
+        y < second,
+        "alice's second stamp already contains y's event"
+    );
+}
+
+/// `Clock::from_parts` over a version the party's clock held just before a
+/// receive records an event that the receive's stamp already contains, under
+/// a version the party never issued.
+///
+/// Valid by the model. The receive joins the message before it ticks, so its
+/// stamp is the tick of the joined version, not of the held one. Over a
+/// version held just before a `tick`, the rebuilt clock reproduces that
+/// tick's stamp instead, as
+/// `from_parts_over_an_earlier_version_reproduces_its_successor` shows.
+#[test]
+fn from_parts_over_a_version_held_before_a_receive_records_an_event_its_stamp_contains() {
+    let mut alice = Clock::seed();
+    let mut bob = alice.fork();
+    let message = bob.tick().clone();
+    let first = alice.tick().clone();
+    let second = alice.recv(&message).clone();
+    let (party, _current) = alice.into_parts();
+    let mut rebuilt = Clock::from_parts(party, first.clone());
+    let y: Version = rebuilt.tick().clone();
+    assert_ne!(y, first, "y is not alice's first stamp");
+    assert_ne!(y, second, "y is not the receive's stamp");
+    assert!(y < second, "the receive's stamp already contains y's event");
 }
