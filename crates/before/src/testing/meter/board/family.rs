@@ -299,6 +299,13 @@ const NARROW_FREEZES_BASE_CYCLES: usize = 64;
 /// under extreme scale-down.
 const RANK_TIE_BASE_DIGITS: usize = 96;
 
+/// Nonzero digits of the sparse-written families' height `S(r)` at the default
+/// scale.
+///
+/// Both families hold their 32 leaves at depth 5, so their rank exponent is
+/// the same at every size, and the knob scales only the heights' width.
+const SPARSE_HEIGHT_BASE_DIGITS: usize = 64;
+
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
 ///
@@ -1217,6 +1224,20 @@ impl FamilyData {
                 data.version2 = Some(mirrored.version().encode());
                 data
             }
+            FamilyId::SparseOscillation => Self::event(
+                kind,
+                Shape::SparseOscillation
+                    .build1(size(SPARSE_HEIGHT_BASE_DIGITS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::SparseFill => Self::event(
+                kind,
+                Shape::SparseFill
+                    .build1(size(SPARSE_HEIGHT_BASE_DIGITS))
+                    .version()
+                    .encode(),
+            ),
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
         // A cross shape's primary version is its event side.

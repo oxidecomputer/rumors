@@ -214,6 +214,10 @@ pub enum Shape {
     SiteHole,
     /// The masked-hole triple `MH(d, h)`: [`Shape::build_triple`]`(d, h)`.
     MaskedHoleTriple,
+    /// The sparse oscillation `SO(r)`: [`Shape::build1`]`(r)`.
+    SparseOscillation,
+    /// The sparse fill `SF(r)`: [`Shape::build1`]`(r)`.
+    SparseFill,
     /// The rank-tie pair `RT(w, d)`, a plateau puncture and its mirror:
     /// [`Shape::build_pair`]`(w, d)`.
     RankTie,
@@ -335,6 +339,8 @@ impl Shape {
             Shape::RaiseHole => Builder::Pair2(super::raise_hole),
             Shape::SiteHole => Builder::Pair2(super::site_hole),
             Shape::MaskedHoleTriple => Builder::Triple2(super::masked_hole),
+            Shape::SparseOscillation => Builder::P1(super::sparse_oscillation),
+            Shape::SparseFill => Builder::P1(super::sparse_fill),
             Shape::RankTie => Builder::Pair2(super::rank_tie),
         }
     }
@@ -966,6 +972,25 @@ pub enum FamilyId {
     /// a `Θ(s)`-digit plateau and a `Θ(s)`-term punctured mass. Designed
     /// against `Ranked`'s ordering.
     RankTie,
+    /// The sparse oscillation `SO(r)`: 32 leaves whose heights alternate
+    /// between a value with one zero digit between each pair of nonzero
+    /// digits and 0.
+    ///
+    /// Every running height, in every row that keeps one, writes those
+    /// sparse digits at each rise, so its accumulator's written-position set
+    /// takes its bitset form, and cancels them at each fall, so its top
+    /// digit's descent crosses every written position below. Designed
+    /// against `suanpan`'s written-position set.
+    SparseOscillation,
+    /// The sparse fill `SF(r)`: 32 leaves whose heights cycle through the
+    /// sparse oscillation's value, that value with every gap filled, the
+    /// sparse value again, and 0.
+    ///
+    /// Filling the gaps writes each of their digits below the
+    /// written-position set's run, into its bitset, and the closing fall
+    /// descends across every written position. Designed against `suanpan`'s
+    /// written-position set.
+    SparseFill,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -1013,7 +1038,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 62] = [
+    pub const ALL: [FamilyId; 64] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1076,6 +1101,8 @@ impl FamilyId {
         FamilyId::WideStepSpine,
         FamilyId::NarrowFreezes,
         FamilyId::RankTie,
+        FamilyId::SparseOscillation,
+        FamilyId::SparseFill,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1415,6 +1442,16 @@ impl FamilyId {
             FamilyId::RankTie => FamilySpec {
                 name: "rank-tie",
                 shapes: &[Shape::RankTie],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::SparseOscillation => FamilySpec {
+                name: "sparse-oscillation",
+                shapes: &[Shape::SparseOscillation],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::SparseFill => FamilySpec {
+                name: "sparse-fill",
+                shapes: &[Shape::SparseFill],
                 cells: VERSION_BUNDLE_CELLS,
             },
         }

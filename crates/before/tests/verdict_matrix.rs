@@ -359,6 +359,10 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             let (puncture, mirrored) = Shape::RankTie.build_pair(10, 2);
             (vec![puncture.version(), mirrored.version()], vec![])
         }
+        // Heights alternating between a sparse-digit value and 0.
+        FamilyId::SparseOscillation => (vec![Shape::SparseOscillation.build1(2).version()], vec![]),
+        // Heights filling a sparse-digit value's gaps and draining them.
+        FamilyId::SparseFill => (vec![Shape::SparseFill.build1(2).version()], vec![]),
     };
     MatrixOperands { versions, masks }
 }

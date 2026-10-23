@@ -10,7 +10,6 @@ use crate::{Count, Party, Rank, Version};
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use super::rank_tie;
 use super::{
     alt_spine, arming_train, ascend_cliff, ascend_cliff_plateau, bigroot, bitlen, cancelling_chain,
     cliff_comb, cliff_fan, collapse_hole, concurrent_pair, copy_hole, dense, dense_suffix,
@@ -23,6 +22,7 @@ use super::{
     wide_step_spine, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS,
     PROMOTION_REARM_ARM_BITS,
 };
+use super::{gap_filling_height, rank_tie, sparse_fill, sparse_height, sparse_oscillation};
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
 /// a shared-process test runner, under which the process-global counters bleed
@@ -1254,6 +1254,28 @@ proptest! {
     }
 }
 
+/// The plateaus of a version whose leaves, left to right, sit at these
+/// absolute heights and depths: one plateau per leaf, each entered by its
+/// height's change from the leaf before, the first from 0.
+fn plateaus_of(leaves: &[(BigUint, u64)]) -> Vec<Plateau> {
+    let mut previous = BigUint::ZERO;
+    leaves
+        .iter()
+        .map(|(height, depth)| {
+            let rise = match height.cmp(&previous) {
+                std::cmp::Ordering::Greater => Some(Rise::Up(Count(height - &previous))),
+                std::cmp::Ordering::Less => Some(Rise::Down(Count(&previous - height))),
+                std::cmp::Ordering::Equal => None,
+            };
+            previous = height.clone();
+            Plateau {
+                rise,
+                depth: *depth,
+            }
+        })
+        .collect()
+}
+
 /// The leaves of a version, left to right, as absolute heights and depths:
 /// [`plateaus_of`]'s inverse, read from the version's own shape walk.
 fn leaves_of(version: &Version) -> Vec<(BigUint, u64)> {
@@ -1272,6 +1294,37 @@ fn leaves_of(version: &Version) -> Vec<(BigUint, u64)> {
 }
 
 proptest! {
+    /// `SO(r)` is canonical normal form at exactly `2048r − 1858` bits, and
+    /// its 32 leaves at depth 5 alternate between `S(r)` and 0, the
+    /// oscillation its written-position claim rests on.
+    #[test]
+    fn sparse_oscillation_decodes_canonically_as_an_oscillation(r in 1usize..=40) {
+        let shape = sparse_oscillation(r);
+        check_version(&shape, 2048 * r - 1858);
+        let wide = sparse_height(r);
+        let leaves: Vec<(BigUint, u64)> = (0..32)
+            .map(|leaf| (if leaf % 2 == 0 { wide.clone() } else { BigUint::ZERO }, 5))
+            .collect();
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
+    }
+
+    /// `SF(r)` is canonical normal form at exactly `3072r − 2370` bits, and
+    /// its 32 leaves at depth 5 cycle through `S(r)`, `S(r) + O(r)`, `S(r)`,
+    /// and 0, so its rises write `O(r)` into every zero digit `S(r)` leaves.
+    #[test]
+    fn sparse_fill_decodes_canonically_as_a_filling_cycle(r in 1usize..=40) {
+        let shape = sparse_fill(r);
+        check_version(&shape, 3072 * r - 2370);
+        let (wide, fill) = (sparse_height(r), gap_filling_height(r));
+        prop_assert_eq!(&wide & &fill, BigUint::ZERO, "O(r) writes only S(r)'s zero digits");
+        let cycle = [wide.clone(), &wide + &fill, wide.clone(), BigUint::ZERO];
+        let leaves: Vec<(BigUint, u64)> =
+            cycle.iter().cycle().take(32).map(|height| (height.clone(), 5)).collect();
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
+    }
+
     /// `RT(w, d)` is two canonical versions at the plateau puncture's size,
     /// each the other's leaves in reverse order at the same depths, distinct,
     /// and of exactly equal rank.

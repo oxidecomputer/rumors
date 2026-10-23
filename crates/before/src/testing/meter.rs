@@ -3740,6 +3740,168 @@ fn masked_hole(d: usize, h: usize) -> (Encoding, Encoding, Encoding) {
     (dense(d), id_spine(h, true), Encoding::from_bits(plateau))
 }
 
+/// The value whose base-2^32 digit is `digit` at every position below
+/// `positions` with parity `parity`, and zero at every other position.
+fn alternating_digits(positions: usize, parity: usize, digit: u32) -> BigUint {
+    let digits: Vec<u32> = (0..positions)
+        .map(|position| if position % 2 == parity { digit } else { 0 })
+        .collect();
+    BigUint::from_slice(&digits)
+}
+
+/// The sparse height `S(r)`: the digit 4 at every even position below
+/// `2r − 1`, so `r` nonzero digits with one zero digit between each pair.
+///
+/// Its bit length is `64r − 61`, and so is `S(r) + 1`'s, which makes its
+/// gamma code exactly `128r − 123` bits at every `r`.
+fn sparse_height(r: usize) -> BigUint {
+    alternating_digits(2 * r - 1, 0, 4)
+}
+
+/// The gap-filling height `O(r)`: the digit 1 at every odd position below
+/// `2r`, one in each zero digit of [`sparse_height`]'s `S(r)` and one more
+/// directly above its top digit.
+///
+/// Its bit length is `64r − 31`, and so is `O(r) + 1`'s, which makes its
+/// gamma code exactly `128r − 63` bits.
+fn gap_filling_height(r: usize) -> BigUint {
+    alternating_digits(2 * r, 1, 1)
+}
+
+/// Append the base-0 internal nodes of a complete binary tree whose `2^depth`
+/// bottom nodes lie `depth` levels below a root the caller has written, and
+/// each bottom node's children through `bottom`.
+///
+/// The tree is written in one pass over its bottom nodes rather than by
+/// recursion. In preorder, the nodes written just before bottom node `i` are
+/// its ancestors that bottom node `i − 1` does not share, `trailing_zeros(i)`
+/// of them, or the `depth − 1` below the root before the first bottom node;
+/// then comes the bottom node itself.
+///
+/// # Panics
+///
+/// Panics if `depth` is zero or at least 64.
+fn complete_tree_below_root(
+    bits: &mut BitsWriter,
+    depth: u32,
+    mut bottom: impl FnMut(&mut BitsWriter),
+) {
+    assert!(
+        (1..64).contains(&depth),
+        "the complete tree has bottom nodes below the root, and fewer than 2^64 of them"
+    );
+    for i in 0..1u64 << depth {
+        let opened = if i == 0 {
+            depth - 1
+        } else {
+            i.trailing_zeros()
+        };
+        // The new ancestors, then the bottom node itself, each at base 0.
+        for _ in 0..=opened {
+            bits.push(true);
+            bits.write_gamma(&BigUint::ZERO);
+        }
+        bottom(bits);
+    }
+}
+
+/// The depth of [`sparse_oscillation`]'s bottom nodes below the root.
+///
+/// Its 16 bottom nodes each carry two leaves, and [`sparse_fill`]'s 8 each
+/// carry two two-leaf nodes, so both families have 32 leaves at depth 5.
+const SPARSE_OSCILLATION_DEPTH: u32 = 4;
+
+/// The bottom-node depth of [`sparse_fill`]; see
+/// [`SPARSE_OSCILLATION_DEPTH`].
+const SPARSE_FILL_DEPTH: u32 = 3;
+
+/// The sparse oscillation `SO(r)`: 32 leaves at depth 5 whose heights
+/// alternate between [`sparse_height`]'s `S(r)` and 0, in exactly
+/// `2048r − 1858` bits.
+///
+/// Every change between neighboring leaves is `±S(r)`. A running height that
+/// receives `+S(r)` from zero writes `r` digit positions with a zero digit
+/// between each pair, so the accumulator's set of written positions takes
+/// its bitset form, and the next `−S(r)` cancels the top digit last: the
+/// descent to the next nonzero digit then crosses every one of the `r − 1`
+/// written positions below it, all zero, and removes each from the bitset.
+/// Each of the 16 rises and 16 falls repeats the insertions or the descent,
+/// so every operation that keeps a running height (decoding, comparison,
+/// join and meet, ticking, the rank and minimum folds) drives that set
+/// through its sparse form and its longest descent at every leaf, while the
+/// input pays one `S(r)` code per rise. One zero digit per gap is the
+/// densest sparse pattern: each written position costs the input two digits
+/// of code, and a wider gap would pay for more digits per position. Designed
+/// against `suanpan`'s written-position set.
+///
+/// Layout: the root `"11"` (internal flag + `gamma(0)`), then the complete
+/// tree's 30 base-0 internal nodes, `"11"` each, and under each of its 16
+/// bottom nodes the leaves `"0" · gamma(S(r))` (`128r − 122` bits) and
+/// `"01"`. Normal form: every bottom node has a 0 leaf, so every base is 0,
+/// and no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `r == 0`.
+fn sparse_oscillation(r: usize) -> Encoding {
+    assert!(r >= 1, "the sparse height needs at least one nonzero digit");
+    let wide = sparse_height(r);
+    let mut bits = BitsWriter::with_capacity((2048 * r - 1858) as u64);
+    bits.push(true); // the root
+    bits.write_gamma(&BigUint::ZERO);
+    complete_tree_below_root(&mut bits, SPARSE_OSCILLATION_DEPTH, |bits| {
+        ev_leaf_wide(bits, &wide); // the rise to S(r)
+        ev_leaf(bits, 0); // the fall back to 0
+    });
+    Encoding::from_bits(bits)
+}
+
+/// The sparse fill `SF(r)`: 32 leaves at depth 5 whose heights cycle through
+/// `S(r)`, `S(r) + O(r)`, `S(r)`, and 0, in exactly `3072r − 2370` bits,
+/// where `S(r)` is [`sparse_height`]'s and `O(r)` [`gap_filling_height`]'s.
+///
+/// `S(r)` leaves a zero digit between each pair of its nonzero digits, so a
+/// running height that receives it from zero takes its written-position set
+/// into bitset form, as [`sparse_oscillation`] does. `+O(r)` then writes the
+/// one digit inside every one of those gaps: each write lands below the
+/// set's run, where it costs one bitset insertion rather than the
+/// comparison a write within the run costs. `−O(r)` cancels the digit it
+/// wrote above `S(r)`'s top, and `−S(r)`
+/// then cancels the top and descends across all `2r − 2` written positions
+/// below it, every one zero. Each of the 8 cycles repeats this, while the
+/// input pays two `S(r)` codes and one `O(r)` code per cycle. Designed
+/// against `suanpan`'s written-position set.
+///
+/// Layout: the root `"11"`, then the complete tree's 14 base-0 internal
+/// nodes, and under each of its 8 bottom nodes two children: a node lifted
+/// by `S(r)` (`"1" · gamma(S(r))`) over the leaves `"01"` and
+/// `"0" · gamma(O(r))`, then a base-0 node `"11"` over the leaves
+/// `"0" · gamma(S(r))` and `"01"`. Normal form: every internal node has a
+/// child of base 0, and no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `r == 0`.
+fn sparse_fill(r: usize) -> Encoding {
+    assert!(r >= 1, "the sparse height needs at least one nonzero digit");
+    let wide = sparse_height(r);
+    let fill = gap_filling_height(r);
+    let mut bits = BitsWriter::with_capacity((3072 * r - 2370) as u64);
+    bits.push(true); // the root
+    bits.write_gamma(&BigUint::ZERO);
+    complete_tree_below_root(&mut bits, SPARSE_FILL_DEPTH, |bits| {
+        bits.push(true); // the first child, lifted to S(r)
+        bits.write_gamma(&wide);
+        ev_leaf(bits, 0); // S(r)
+        ev_leaf_wide(bits, &fill); // S(r) + O(r)
+        bits.push(true); // the second child, at base 0
+        bits.write_gamma(&BigUint::ZERO);
+        ev_leaf_wide(bits, &wide); // S(r)
+        ev_leaf(bits, 0); // 0
+    });
+    Encoding::from_bits(bits)
+}
+
 /// Mirror a construction-language event stream: every internal node's two
 /// children trade places.
 ///
