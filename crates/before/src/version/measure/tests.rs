@@ -806,7 +806,7 @@ proptest! {
         );
     }
 
-    /// One organic fork/tick/send/sync/join history agrees with the recursive
+    /// One organic op-trace history agrees with the recursive
     /// oracle on every measure fold.
     ///
     /// Projection runs onto the history's own parties — the operand pairing

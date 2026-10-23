@@ -492,7 +492,7 @@ proptest! {
     /// Organic histories grow byte-identically to the recursive oracle on the
     /// grow-branch pairs they produce.
     ///
-    /// Every clock from one fork/tick/send/sync/join history is exercised from
+    /// Every clock from one op-trace history is exercised from
     /// its own party — and from every *other* clock's party, the
     /// concurrent-editor shape.
     #[test]

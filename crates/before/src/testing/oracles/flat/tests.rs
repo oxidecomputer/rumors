@@ -122,27 +122,6 @@ fn assert_parties_agree(tp: &tree::Party, tq: &tree::Party) -> Result<(), TestCa
     Ok(())
 }
 
-/// The balanced partition of an oracle party into `n` shares, by the
-/// recursive oracle's own splits: the keeper's half takes `⌈n/2⌉` shares
-/// and the other half `⌊n/2⌋`, recursively.
-///
-/// A stack of pending `(party, count)` pairs, right half pushed first, keeps
-/// the shares in left-to-right order without recursing.
-fn oracle_shares(party: &tree::Party, n: usize) -> Vec<tree::Party> {
-    let mut shares = Vec::with_capacity(n);
-    let mut pending = vec![(party.clone(), n)];
-    while let Some((mut party, n)) = pending.pop() {
-        if n == 1 {
-            shares.push(party);
-            continue;
-        }
-        let give = party.fork();
-        pending.push((give, n / 2));
-        pending.push((party, n.div_ceil(2)));
-    }
-    shares
-}
-
 proptest! {
     /// On arbitrary normal-form versions and parties, the model's canonical
     /// form, join, meet, causal relation, rank, distance, lag, rank order,
@@ -186,7 +165,7 @@ proptest! {
         tp in arb_deep_party(),
         n in 1usize..=40,
     ) {
-        let expected: Vec<Party> = oracle_shares(&tp, n).iter().map(Party::from_oracle).collect();
+        let expected: Vec<Party> = tp.shares(n).iter().map(Party::from_oracle).collect();
         prop_assert_eq!(Party::from_oracle(&tp).shares(n), expected);
     }
 }

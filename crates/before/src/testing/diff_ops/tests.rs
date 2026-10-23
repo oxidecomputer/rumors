@@ -36,8 +36,9 @@ macro_rules! assert_diff_ops {
 // grid `fs_grid` derives from its operands' structural depths, so each such
 // arm's operands must come from a depth-capped source. The arbitrary and
 // organic populations satisfy it by construction — the arbitrary generators
-// recurse to `generators::ARB_DEPTH`, and the organic traces bound tree depth
-// by `optrace::MAX_TRACE_OPS` (one level per op at most) — and `fs_grid`'s
+// recurse to `generators::ARB_DEPTH`, and the organic traces keep tree depth
+// below `optrace::MAX_TRACE_OPS` (their steps' declared levels sum under it)
+// — and `fs_grid`'s
 // own assert holds the one representation bound (the `Dyadic` u64 index
 // width) against a population that escapes both derivations. The deep
 // population in `deep` escapes them by design, so its drivers skip the
@@ -241,9 +242,9 @@ proptest! {
     /// op-trace populations.
     ///
     /// The same descriptors the arbitrary drivers run, landed on the value
-    /// shapes real fork/tick/join/sync schedules produce: live sibling parties
-    /// and causally related versions, where domination and equality are
-    /// common rather than vanishing.
+    /// shapes rule-respecting operation schedules produce: live sibling
+    /// parties and causally related versions, where domination and equality
+    /// are common rather than vanishing.
     ///
     /// The drive list runs twice per case, over two pairings of the same
     /// picks. In the first, each version travels with its *own* clock's

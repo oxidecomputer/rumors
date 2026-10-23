@@ -14,12 +14,13 @@ use rand_chacha::ChaChaRng;
 
 use super::{
     descend, disjoint, ev_depth, ev_order, ev_res, event, id_depth, id_order, id_res, join,
-    lift_ev, lift_id, meet, rank, seed_id, sum, Dyadic, Event, FunctionClock, Id, GRID_N,
+    lift_ev, lift_id, meet, rank, seed_id, shares, sum, tabulate_ev, tabulate_id, Dyadic, Event,
+    FunctionClock, Id, GRID_N,
 };
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{
-    self, world_strategy, FunctionSpace, Production, Recursive, MAX_TRACE_OPS,
+    self, split_levels, world_strategy, FunctionSpace, Production, Recursive, MAX_TRACE_OPS,
 };
 use crate::testing::oracles::tree;
 use num_bigint::BigUint;
@@ -87,6 +88,13 @@ proptest! {
             .map(|c| id_res(&c.id).max(ev_res(&c.ev)))
             .max()
             .map_or(0, |d| d.min(GRID_N));
+        // Each member's functions are sampled once at that level, so the
+        // pairwise scans below read tables instead of re-evaluating every
+        // member's history once per pair.
+        let function_space: Vec<(Id, Event)> = function_space
+            .iter()
+            .map(|c| (tabulate_id(&c.id, g), tabulate_ev(&c.ev, g)))
+            .collect();
         for i in 0..n {
             for j in 0..n {
                 let (recursive_i, recursive_j) =
@@ -103,10 +111,8 @@ proptest! {
                     recursive_i.partial_cmp(&recursive_j),
                     recursive[i].party().is_disjoint(recursive[j].party()),
                 );
-                let function_observation = (
-                    ev_order(&function_space[i].ev, &function_space[j].ev, g),
-                    disjoint(&function_space[i].id, &function_space[j].id, g),
-                );
+                let ((id_i, ev_i), (id_j, ev_j)) = (&function_space[i], &function_space[j]);
+                let function_observation = (ev_order(ev_i, ev_j, g), disjoint(id_i, id_j, g));
                 prop_assert_eq!(
                     production_observation,
                     recursive_observation,
@@ -417,19 +423,22 @@ fn worked_value_samples_reject_a_mirrored_embedding() {
 
 /// Generated traces never reach the resolution cap used by function sampling.
 ///
-/// The test covers both the oracle's tree depth and the function space's probed
-/// resolution — the random `fork` refines up to two levels per call (vs. the
-/// paper's one), so its resolution can run ahead of the oracle's, and it is the
-/// binding constraint.
+/// The test reads both the oracle's tree depth and the function space's
+/// probed resolution. Each grows at most one level per fork, but the random
+/// `fork` deals pieces wherever it likes, so after later sums and forks the
+/// function space's resolution need not track the oracle's depth, and the
+/// larger of the two is the binding constraint.
 ///
 /// The structural guarantee lives in [`GRID_N`]'s derivation from the op cap
-/// (one level per op at most, so every in-support trace stays under); this
-/// generated sweep checks sampled traces, and
-/// [`fork_chain_raises_resolution_one_level_per_fork`] pins the derivation's
-/// growth-rate premise deterministically on the worst in-support schedule.
+/// (the trace strategy keeps its steps' levels summed under the cap, so every
+/// in-support trace stays under); this generated sweep checks sampled traces,
+/// and [`fork_chain_raises_resolution_one_level_per_fork`] and
+/// [`balanced_split_chain_raises_resolution_by_its_levels`] pin the
+/// derivation's growth-rate premise deterministically on the worst
+/// in-support schedules.
 ///
-/// Repeatedly forking one lineage is the worst case for its resolution growth.
-/// One seed therefore suffices and preserves the universe invariant.
+/// Repeatedly splitting one lineage is the worst case for its resolution
+/// growth. One seed therefore suffices and preserves the universe invariant.
 #[test]
 fn grid_cap_is_never_reached() {
     use proptest::test_runner::{Config, TestRunner};
@@ -510,5 +519,49 @@ fn fork_chain_raises_resolution_one_level_per_fork() {
             !disjoint(&child.id, &seed_id(), k + 1),
             "the split-off half went empty at fork {k}"
         );
+    }
+}
+
+/// The grid derivation's premise for balanced splits, met with equality on
+/// its worst schedule: splitting a single-piece lineage into `n` shares
+/// raises its deepest share's resolution by exactly `⌈log₂ n⌉` levels, the
+/// levels the op traces declare for that split, and leaves every share
+/// nonempty.
+///
+/// Every fork of a single-piece id bisects it, so a single-piece lineage is
+/// where a split's resolution grows fastest, and each split's deepest share
+/// is again a single piece. The chain splits three times at every share
+/// count a trace can draw, one to nine, staying strictly below [`GRID_N`].
+#[test]
+fn balanced_split_chain_raises_resolution_by_its_levels() {
+    let mut rng = ChaChaRng::seed_from_u64(0);
+    for n in 1..=9usize {
+        let mut lineage = seed_id();
+        let mut resolution = 0;
+        for round in 1..=3 {
+            let shares = shares(&lineage, n, &mut rng);
+            assert_eq!(shares.len(), n, "a split into {n} deals {n} shares");
+            for share in &shares {
+                assert!(
+                    !disjoint(share, &seed_id(), share.res_ceiling()),
+                    "a split into {n} dealt an empty share in round {round}"
+                );
+            }
+            resolution += split_levels(n);
+            assert!(
+                resolution < GRID_N,
+                "the chain itself must stay inside the grid"
+            );
+            let deepest = shares
+                .into_iter()
+                .max_by_key(id_res)
+                .expect("a split deals at least one share");
+            assert_eq!(
+                id_res(&deepest),
+                resolution,
+                "deepest share's resolution after round {round} of splits into {n}"
+            );
+            lineage = deepest;
+        }
     }
 }

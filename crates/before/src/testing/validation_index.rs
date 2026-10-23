@@ -24,11 +24,17 @@
 //! arbitrary shapes but not on causally related values, or the reverse.
 //!
 //! **The trace differential** ([`super::optrace`]). One operation vocabulary
-//! drives production and both oracles through the same stateful schedule. The
-//! model trait is mandatory: adding a generated trace operation cannot compile
-//! until all three implementations define it. What it alone catches:
-//! **sequence errors** — a locally correct operation that leaves later
-//! operations observing the wrong state.
+//! drives production, both oracles, and the flat model's parties through the
+//! same stateful schedule, over single-party steps and the multi-party
+//! ones: `forks`, array splits, `join_all`, `sync_all`, and byte round
+//! trips, in populations up to the trace's cap. The model trait is
+//! mandatory: adding a generated trace operation cannot compile until every
+//! implementation defines it. Every trace respects the crate's safety
+//! rules, so every consumer asserts that none of its steps fails. What it
+//! alone catches: **sequence errors** — a locally correct operation that
+//! leaves later operations observing the wrong state, such as a residual
+//! `forks` hands back or a share `sync_all` deals that a later step then
+//! splits or joins.
 //!
 //! **Focused behavioral properties** (the public types' sibling test modules).
 //! Public behavior outside that common vocabulary is tested at its natural

@@ -600,8 +600,8 @@ proptest! {
         assert_round_trip(&from_oracle_version(&t));
     }
 
-    /// Every version produced by an organic fork/tick/send/sync/join history
-    /// round-trips exactly.
+    /// Every version produced by an organic op-trace history round-trips
+    /// exactly.
     #[test]
     fn organic_histories_round_trip(ops in optrace::world_strategy_up_to(120)) {
         let mut clocks = vec![Clock::seed()];

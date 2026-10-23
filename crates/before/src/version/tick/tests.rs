@@ -1138,7 +1138,7 @@ proptest! {
     /// Organic histories tick byte-identically to the recursive oracle's event,
     /// with the changed flag agreeing with the oracle's fill.
     ///
-    /// Every clock produced by one fork/tick/send/sync/join history is
+    /// Every clock produced by one op-trace history is
     /// exercised from its own party — and from every *other* clock's party, the
     /// concurrent-editor shape.
     #[test]

@@ -1,6 +1,8 @@
 //! Independent checks of `Clock` behavior against the recursive oracle.
 
 use proptest::prelude::*;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
@@ -13,7 +15,9 @@ use crate::testing::generators::{
     arb_clock_family, deep_left_spine_party, deep_right_spine_party, deep_zigzag_party,
     STACK_SAFETY_DEPTH,
 };
-use crate::testing::optrace::{run, step_impl, world_strategy, Op};
+use crate::testing::optrace::{
+    apply, run, step_impl, world_strategy, FlatParties, Production, Recursive,
+};
 use crate::testing::oracles::flat::{self, check_party, check_version};
 use crate::testing::oracles::{function, tree};
 use crate::{Clock, Party, Version};
@@ -230,103 +234,65 @@ proptest! {
 // ───────────────────────────── master differential harness ─────────────────────────────
 
 proptest! {
-    /// A seed-derived op trace, applied in lockstep to the oracle and the impl,
-    /// agrees structurally on every live clock after every step, and all live
-    /// impl parties stay pairwise disjoint.
+    /// A seed-derived op trace keeps production, the recursive oracle, and
+    /// the flat model's parties in exact agreement after every step, and no
+    /// step fails in any of them.
     ///
-    /// Pairwise disjointness means `join`/`sync` never error in correct usage.
-    /// Agreement is by structural lowering — `to_oracle_clock` rebuilds the
-    /// oracle's tree shape from the impl's internal encoded bits — not via the
-    /// byte codec, which the per-trace round-trip below exercises separately.
+    /// After every step, each live production clock lowers to the oracle's
+    /// trees exactly, and each production party's bytes are the independent
+    /// encoder's spelling of the flat model's party. The flat parties
+    /// partition the seed's interval: pairwise disjoint, with the whole
+    /// interval as their union. No join, `join_all`, sync, `sync_all`, or
+    /// byte round trip fails in any of the three, which the crate page
+    /// promises of rule-respecting use (the `optrace` module doc quotes the
+    /// promise).
+    ///
+    /// The lowering (`to_oracle_clock`) rebuilds the oracle's trees from the
+    /// impl's internal encoded bits, not through the byte codec, which the
+    /// per-trace round trip at the end exercises separately.
     #[test]
     fn master_differential(ops in world_strategy()) {
-        let mut ora: Vec<tree::Clock> = vec![tree::Clock::seed()];
-        let mut imp: Vec<Clock> = vec![Clock::seed()];
+        let mut rng = ChaChaRng::seed_from_u64(0);
+        let mut production = vec![Clock::seed()];
+        let mut recursive = vec![tree::Clock::seed()];
+        let mut parties = vec![flat::Party::seed()];
 
         for op in &ops {
-            let n = ora.len();
-            match *op {
-                Op::Tick(i) => {
-                    let i = i.index(n);
-                    ora[i].tick();
-                    imp[i].tick();
-                }
-                Op::Ticks(i, k) => {
-                    let i = i.index(n);
-                    // The oracle iterates; the impl's one fused call must
-                    // land on the same structure.
-                    for _ in 0..k {
-                        ora[i].tick();
-                    }
-                    imp[i].ticks(u64::from(k));
-                }
-                Op::Fork(i) => {
-                    let i = i.index(n);
-                    let oc = ora[i].fork();
-                    let ic = imp[i].fork();
-                    ora.push(oc);
-                    imp.push(ic);
-                }
-                Op::Send(i, j) => {
-                    let (i, j) = (i.index(n), j.index(n));
-                    let om = ora[i].send();
-                    let im = imp[i].send().clone();
-                    ora[j].receive(om);
-                    imp[j].recv(&im);
-                }
-                Op::Sync(i, j) => {
-                    let (i, j) = (i.index(n), j.index(n));
-                    if i != j {
-                        let hi = i.max(j);
-                        let lo = i.min(j);
-                        {
-                            let (a, b) = ora.split_at_mut(hi);
-                            a[lo].sync(&mut b[0]).expect("seed-derived parties are disjoint");
-                        }
-                        {
-                            let (a, b) = imp.split_at_mut(hi);
-                            a[lo].sync(&mut b[0]).expect("seed-derived parties are disjoint");
-                        }
-                    }
-                }
-                Op::Join(i, j) => {
-                    if n > 1 {
-                        let (i, j) = (i.index(n), j.index(n));
-                        if i != j {
-                            let ov = ora.remove(j);
-                            let iv = imp.remove(j);
-                            let i2 = if j < i { i - 1 } else { i };
-                            ora[i2].join(ov).expect("seed-derived parties are disjoint");
-                            imp[i2].join(iv).expect("seed-derived parties are disjoint");
-                        }
-                    }
-                }
+            let mut verdicts = [Vec::new(), Vec::new(), Vec::new()];
+            apply::<Production>(&mut production, op, &mut rng, &mut verdicts[0]);
+            apply::<Recursive>(&mut recursive, op, &mut rng, &mut verdicts[1]);
+            apply::<FlatParties>(&mut parties, op, &mut rng, &mut verdicts[2]);
+            for (model, verdicts) in ["production", "recursive", "flat"].iter().zip(&verdicts) {
+                prop_assert!(
+                    verdicts.iter().all(|accepted| *accepted),
+                    "{} failed a step of a rule-respecting trace at {:?}", model, op
+                );
             }
 
-            // Structural agreement on every live clock.
-            prop_assert_eq!(ora.len(), imp.len());
-            for (o, m) in ora.iter().zip(imp.iter()) {
-                let (op_tree, ov_tree) = o.trees();
-                let (mp_tree, mv_tree) = to_oracle_clock(m);
-                prop_assert_eq!(&mp_tree, op_tree);
-                prop_assert_eq!(&mv_tree, ov_tree);
+            prop_assert_eq!(production.len(), recursive.len());
+            prop_assert_eq!(production.len(), parties.len());
+            for ((clock, oracle), party) in production.iter().zip(&recursive).zip(&parties) {
+                let (oracle_party, oracle_version) = oracle.trees();
+                let (party_tree, version_tree) = to_oracle_clock(clock);
+                prop_assert_eq!(&party_tree, oracle_party);
+                prop_assert_eq!(&version_tree, oracle_version);
+                check_party(clock.party(), party, "a live clock's party")?;
             }
 
-            // Disjointness invariant: all live impl parties pairwise disjoint.
-            for a in 0..imp.len() {
-                for b in (a + 1)..imp.len() {
-                    prop_assert!(imp[a].party().is_disjoint(imp[b].party()));
-                }
+            let mut union = flat::Party::empty();
+            for party in &parties {
+                prop_assert!(union.is_disjoint(party), "live flat parties overlap after {:?}", op);
+                union = union.union(party);
             }
+            prop_assert_eq!(&union, &flat::Party::seed(), "the live parties cover the seed");
         }
 
-        // Per-trace codec exercise: every live clock round-trips through
-        // decode∘encode and stays structurally identical (also confirms each
-        // encoding is canonical, since `decode` strictly rejects
-        // non-normal-form input).
-        for m in &imp {
-            let back = Clock::decode(&m.encode()[..]).expect("impl encodings are canonical");
-            prop_assert_eq!(to_oracle_clock(&back), to_oracle_clock(m));
+        // Every live clock round-trips through decode∘encode and stays
+        // structurally identical, which also confirms each encoding is
+        // canonical, since `decode` strictly rejects non-normal-form input.
+        for clock in &production {
+            let back = Clock::decode(&clock.encode()[..]).expect("impl encodings are canonical");
+            prop_assert_eq!(to_oracle_clock(&back), to_oracle_clock(clock));
         }
     }
 }

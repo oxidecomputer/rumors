@@ -401,7 +401,7 @@ proptest! {
     /// The whole law collection holds over organic op-trace populations.
     ///
     /// The same slices the arbitrary-normal-form drivers iterate, landed on
-    /// the value shapes real fork/tick/join/sync schedules produce (live
+    /// the value shapes rule-respecting operation schedules produce (live
     /// sibling parties, causally related versions, reachable clocks).
     #[test]
     fn laws_hold_on_organic_populations(

@@ -24,8 +24,8 @@
 //!   canonical pairing is a valid clock, including ones no op sequence
 //!   reaches.
 //! - **Organic op-trace populations**: [`crate::testing::optrace`] histories
-//!   land the same laws on the value shapes real fork/tick/join/sync
-//!   schedules produce.
+//!   land the same laws on the value shapes rule-respecting operation
+//!   schedules produce, multi-party splits, joins, and syncs included.
 //! - **Deep inputs**: [`crate::testing::generators::leaf_list`] and
 //!   [`crate::testing::generators::regions`] give every group versions to
 //!   depth 300, parties to depth 80, equal pairs, distinct pairs of equal
