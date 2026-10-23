@@ -6,8 +6,14 @@
 //! comparing again. Every write is one operand limb
 //! (amortized `O(1)` touches, shift-independent); every read
 //! flips the sign of a value whose decisive digits sit `d` bits apart.
-//! Re-scanning the gap on each flip would therefore cost `n × d/32`, while the
-//! intended bound is `O(n + d/32)`.
+//! Re-scanning the gap on each flip would therefore cost `n × d/32`. The
+//! crate's cost model, under "Raising the top across gaps", charges every
+//! raise after the first no growth and every crossing of the gap
+//! `O(1 + log d)`, so the documented bound is `O(n log d + d/32)` word
+//! operations. The touch meter counts no work on the record of written
+//! positions at all, so it reads `O(n + d/32)` regardless. Word operations
+//! stay `O(n + d/32)` too, for a separate reason: this value never needs
+//! more than one gap in that record, so each crossing costs `O(1)`.
 //!
 //! The test uses the mixed second difference over a 2×2 `(n, d)` grid:
 //! zero for any additive `a·n + b·d` cost, a quarter of the top cell

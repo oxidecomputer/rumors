@@ -77,8 +77,8 @@
 //!
 //! An update of `n` deposits writes only positions within O(`1 + log_B n`) of
 //! the higher of the receiver's top when it starts and its top when it ends.
-//! This is why `G`, the growth of the working width, bounds the storage an
-//! update adds, apart from a term its own deposits pay for.
+//! Together with "Storage growth" below, this is why `G` bounds the storage
+//! an update adds, apart from a term its own deposits pay for.
 //!
 //! Let `H` be the higher of the receiver's starting top `t` and the update's
 //! highest deposit position `h`. Every digit above `H` starts at zero and
@@ -173,9 +173,19 @@
 //! # Storage growth
 //!
 //! Growing the digit buffer to position `p` fills the new positions with
-//! zeros. The buffer never shrinks, and an update's writes reach past the
-//! higher of its starting and ending tops by O(`1 + log_B n`), so the update's
-//! `G` and its `n` deposits pay for that growth.
+//! zeros. The crate's `G` counts growth past the greatest working width
+//! reached in the receiver's *history*, the time since its storage was
+//! created or last received `clone_from`, and since its last nonzero `<<=`;
+//! call that span `G`'s *window*. The buffer never shrinks within a window:
+//! `clone_from` shortens it to the copy, and a shift of a value held in
+//! digits replaces it. The public list of events is deliberately broader
+//! than these: a shift of a small value keeps its storage, but counting it
+//! only shortens the window, which can only enlarge `G`, and it keeps the
+//! definition in terms a caller can see. So the buffer already reaches the
+//! greatest position written in the window, and an update's writes reach
+//! past the higher of the window's greatest top and its own ending top by
+//! O(`1 + log_B n`). The update's `G` and its `n` deposits therefore pay for
+//! the growth.
 //!
 //! Growing the bitset to cover `p` fills each new word with zeros, from level
 //! 0 upward, builds any new top level from the one below it, and stops at the
@@ -184,10 +194,11 @@
 //! at level 0, covering 64 new positions, so the uncovered-height term pays
 //! for the whole call at a constant weight. It can, because the bitset
 //! receives only positions at or below the top, which lie at or below `T`.
-//! An update raises `T` by at most its `G` plus O(`1 + log_B n`), a
-//! normalization by at most one position, and a comparison not at all. A
-//! shift or a clone builds a new written set whose `T` is at most its own
-//! width, which it pays for.
+//! The written set is created only where a window starts, so `T` already
+//! reaches the window's greatest top, and an update raises `T` by at most its
+//! `G` plus O(`1 + log_B n`), a normalization by at most one position, and a
+//! comparison not at all. A shift or a clone builds a new written set whose
+//! `T` is at most its own width, which it pays for.
 //!
 //! The digit buffer and each bitset level grow geometrically, as `Vec` does,
 //! so the copies their reallocations make total less than twice their final
@@ -397,6 +408,40 @@
 //!
 //! Comparisons therefore cost amortized O(1), and they allocate nothing.
 //!
+//! # Raising the top across gaps
+//!
+//! The crate states this case on its own, because a caller's cost argument
+//! can rest on it. A *gap* is a range of positions below the top that the
+//! written set does not hold: positions a jump skipped, or positions that a
+//! truncation removed after cancellation emptied them.
+//!
+//! Raising the top across a gap writes nothing in it. A deposit above the top
+//! starts a run where it lands, and the jump moves only the old run, whose
+//! positions the held-positions term prepaid. Beyond its deposits, the update
+//! pays logarithmic climbs and the growth of the digit buffer and of `T`, and
+//! by "Storage growth" those grow only past the window's greatest top. So
+//! an update that raises the top again, to a width reached earlier in the
+//! window, has a `G` of zero, however far its top moves.
+//!
+//! Descending through a gap is one run crossing, from the start of the run
+//! above the gap to the highest position held below it. By the bitset's
+//! distance bound it costs O(`1 + log_64 d`) for a gap of `d` positions, on
+//! every crossing, and O(1) in the prefix form. The positions of the run
+//! itself, which the descent visits, are paid for by the held-positions term.
+//! Crossings happen in three places, and each is charged once:
+//! - in an update's descent after it cancels the top, as one of the update's
+//!   far costs, which "Updates" bounds by O(`1 + log_64 (p + 1)`) at a
+//!   nonzero shift and by the deposit span's length at shift 0;
+//! - in a comparison's scan or truncation, which "Comparisons" charges to the
+//!   operation that wrote the highest position since the previous comparison,
+//!   whether or not a digit cancelled;
+//! - in the comparison a read begins with, charged the same way.
+//!
+//! A cycle that raises the top across a gap and cancels it again therefore
+//! costs, beyond its updates' deposits, a constant number of crossings of
+//! O(`1 + log_64 d`) each, which the nonzero-shift rows' log(`W` + 1) terms
+//! contain, and never the gap's width.
+//!
 //! # Reads
 //!
 //! A magnitude read, and a clone's normalization of its source, run one
@@ -447,8 +492,9 @@
 //!   value of at most six positions, which costs O(log(`W` + 1)).
 //! - A nonzero shift of a value stored in digits compares it with zero, then
 //!   moves it into new digits with one shifted accumulator update and
-//!   releases the old storage. The new digits have no history, so the update's
-//!   `G` and `W` are both at most `S`, and the accumulator row gives
+//!   releases the old storage. The new digits start empty, with a new
+//!   written set, so the update's growth and every climb it makes are
+//!   bounded by `S`, and the accumulator row gives
 //!   O(`A` log(`S` + 1) + `S`). A small value instead makes at most four
 //!   deposits of one sign into the receiver's own retained digits, all within
 //!   the shifted value's span, so the argument under "Updates" bounds their

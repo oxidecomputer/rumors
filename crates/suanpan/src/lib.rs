@@ -77,16 +77,21 @@
 //! storage at higher positions. Costs therefore use the *working width*
 //! rather than the value's bit length, through these quantities:
 //!
+//! - A receiver's *history* is the time since its storage was created or
+//!   last received [`clone_from`](Clone::clone_from). The result of an owned
+//!   operator continues the history of the input whose storage it reuses.
 //! - `V` is the receiver's working width when the operation starts, and `W`
-//!   the greatest working width it has reached. `W` counts the history of the
-//!   storage the receiver holds, so the result of an owned operator has the
-//!   `W` of the input whose storage it reuses.
+//!   the greatest working width it has reached in its history.
 //! - `A` is an accumulator operand's working width, and `L` the number of
 //!   input limbs.
-//! - `G` is the growth of the receiver's working width. A large shift can
-//!   make `G` large even for one input limb. At shift 0, `G` exceeds the
-//!   operand's own width by at most a constant, so it drops out of the
-//!   shift-0 bounds.
+//! - `G` is how far an update raises the receiver's working width beyond the
+//!   greatest it has reached in its *window*: the part of its history since
+//!   its last nonzero `<<=`, which can move the value into new storage. A
+//!   large shift can make `G` large even for one input limb, but raising the
+//!   width again to one reached in the window adds nothing to `G`; see
+//!   [Raising the top across gaps](#raising-the-top-across-gaps). At shift 0,
+//!   `G` exceeds the operand's own width by at most a constant, so it drops
+//!   out of the shift-0 bounds.
 //! - `R` is the receiver's *written span*, from the lowest position written
 //!   since creation or the last reset up to its working width. A shift moves
 //!   the written span with the value.
@@ -120,6 +125,32 @@
 //! Added at a shift that is not a multiple of 32 bits, an accumulator operand
 //! can pay the term once per 32 bits of its width, which is why that row
 //! multiplies `A` by it.
+//!
+//! ## Raising the top across gaps
+//!
+//! Cancellation can empty a long range of bit positions below the top, and a
+//! large shift skips a range that no update has written; call either range
+//! a *gap*. Raising the top across a gap, and finding the value's new top
+//! below it after the value above it cancels, never visits the gap:
+//!
+//! - An update that raises the working width again, to a width reached in
+//!   its window, has a `G` of zero however far the top moves, so its row's
+//!   bounds apply as they would to an update that does not widen the value.
+//! - When the value above the gap cancels, the update or comparison that
+//!   finds the value's new highest nonzero bit crosses a gap of `d` bits in
+//!   amortized O(1 + log(`d` + 1)) time, a base-64 logarithm, so no cycle of
+//!   raising and cancelling pays the gap's width.
+//!
+//! The rows above already pay for these crossings. An update at a nonzero
+//! shift pays, within its log(`W` + 1) term, for the crossings it makes
+//! itself and for those of the next comparison, which may cross the gap
+//! below the top the update left. An update at shift 0 reaches the top only
+//! through positions it writes, which its own width pays for. So a value
+//! whose top is raised across a gap and cancelled again, cycle after cycle,
+//! costs each cycle only the bounds of the updates it makes, never the gap's
+//! width.
+//!
+//! ## Retained space
 //!
 //! Every retained bound is amortized, because storage grows geometrically, as
 //! `Vec` does: an operation that extends a full allocation by one position can
