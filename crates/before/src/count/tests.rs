@@ -39,6 +39,99 @@ fn wide_counts_order_and_render() {
     assert!(wide > Count::from(u128::MAX));
 }
 
+/// Every unsigned primitive's boundary converts, renders, and respells
+/// exactly: 0, 1, and `MAX - 1`, `MAX`, and `MAX + 1` of each width.
+///
+/// Each count is built from its value's 64-bit digits through public
+/// addition alone. Its limbs must equal those digits, with the size hint
+/// equal to the limb count; its `Display` and `parse` must round-trip the
+/// decimal; and each `TryFrom`, borrowed and owned, must succeed exactly when
+/// the value is at most the destination's `MAX`, judged by comparing
+/// arbitrary-precision values rather than by the conversion `Count` delegates
+/// to, and must then yield the value and convert back to the count. The
+/// `usize` row repeats the `u64` row on a 64-bit host and the `u32` row on a
+/// 32-bit one, so the sweep keeps both meanings in view.
+#[test]
+fn every_primitive_boundary_converts_exactly() {
+    let maxima = [
+        BigUint::from(u8::MAX),
+        BigUint::from(u16::MAX),
+        BigUint::from(u32::MAX),
+        BigUint::from(u64::MAX),
+        BigUint::from(u128::MAX),
+        BigUint::from(usize::MAX),
+    ];
+    let mut values = vec![BigUint::ZERO, BigUint::from(1u8)];
+    for max in &maxima {
+        values.extend([max - 1u8, max.clone(), max + 1u8]);
+    }
+
+    let one = Count::from(1u8);
+    for value in &values {
+        let mut count = Count::ZERO;
+        for digit in value.iter_u64_digits().rev() {
+            for _ in 0..64 {
+                count += count.clone();
+            }
+            count += Count::from(digit);
+        }
+
+        let limbs: Vec<u64> = count.limbs().collect();
+        assert_eq!(
+            limbs,
+            value.iter_u64_digits().collect::<Vec<_>>(),
+            "limbs of {value}"
+        );
+        assert_eq!(
+            count.limbs().len(),
+            limbs.len(),
+            "exact size of {value}'s limbs"
+        );
+        assert_eq!(count.to_string(), value.to_string(), "Display of {value}");
+        assert_eq!(
+            count.to_string().parse::<Count>().ok(),
+            Some(count.clone()),
+            "parse of {value}"
+        );
+
+        // Each conversion, borrowed and owned, must succeed exactly when the
+        // value fits, and then yield the value and convert back to the count.
+        macro_rules! check_conversion {
+            ($t:ty) => {{
+                let fits = *value <= BigUint::from(<$t>::MAX);
+                let name = stringify!($t);
+                for converted in [
+                    <$t>::try_from(&count).ok(),
+                    <$t>::try_from(count.clone()).ok(),
+                ] {
+                    assert_eq!(converted.is_some(), fits, "{value} into {name}");
+                    if let Some(narrow) = converted {
+                        assert_eq!(BigUint::from(narrow), *value, "{value} through {name}");
+                        assert_eq!(Count::from(narrow), count, "{value} back from {name}");
+                    }
+                }
+            }};
+        }
+        check_conversion!(u8);
+        check_conversion!(u16);
+        check_conversion!(u32);
+        check_conversion!(u64);
+        check_conversion!(u128);
+        check_conversion!(usize);
+
+        assert_eq!(
+            count.checked_sub(&one).is_some(),
+            *value >= BigUint::from(1u8),
+            "{value} - 1"
+        );
+        assert_eq!(
+            (&count + &one).checked_sub(&one),
+            Some(count.clone()),
+            "{value} + 1 - 1"
+        );
+    }
+}
+
 proptest! {
     /// Addition is commutative, associative, and monotone, `ZERO` is the
     /// identity, and `Sum` equals the pairwise fold — the naturals' laws on
