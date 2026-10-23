@@ -5,7 +5,13 @@ use proptest::prelude::*;
 
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators;
-use crate::testing::shape_rows::fold_cells;
+use crate::testing::generators::divided_config;
+use crate::testing::generators::leaf_list::{
+    arb_deep_or_correlated_pair, arb_deep_version, THREE_VERSION_DIVISOR,
+};
+use crate::testing::generators::regions::arb_deep_party;
+use crate::testing::oracles::flat;
+use crate::testing::shape_rows::{fold_cells, fold_heights, fold_overlay, fold_regions};
 use crate::{Clock, Version};
 
 use super::{combine, Cell, Plateau, Rise};
@@ -144,4 +150,50 @@ fn trivial_values_walk_whole() {
             true
         )]
     );
+}
+
+proptest! {
+    #![proptest_config(divided_config(THREE_VERSION_DIVISOR))]
+
+    /// Every shape walk over deep operands folds into exactly the flat
+    /// model's rows.
+    ///
+    /// The walks are a deep version's plateaus, the cells of two and three
+    /// deep versions combined in either order, a clock's overlay over a deep
+    /// version and a deep party, and that party's regions; combining no
+    /// versions yields the one unit cell.
+    ///
+    /// The model's rows come from its own canonical form and refinement, and
+    /// every operand reaches production through the independent encoder, so
+    /// no expected row passes through a production writer or walk.
+    #[test]
+    fn shapes_match_the_flat_model_on_deep_versions(
+        (a, b) in arb_deep_or_correlated_pair(),
+        c in arb_deep_version(),
+        p in arb_deep_party(),
+    ) {
+        let (ma, mb, mc) = (
+            flat::Version::from_rows(a.leaves()),
+            flat::Version::from_rows(b.leaves()),
+            flat::Version::from_rows(c.leaves()),
+        );
+        let mp = flat::Party::from_oracle(&p);
+        let (va, vb, vc) = (ma.production(), mb.production(), mc.production());
+        prop_assert_eq!(fold_heights(va.shape()), ma.rows().to_vec(), "a.shape()");
+        prop_assert_eq!(
+            fold_cells(combine([&va, &vb, &vc])),
+            flat::Version::cells(&[&ma, &mb, &mc]),
+            "combine([a, b, c])"
+        );
+        prop_assert_eq!(
+            fold_cells(combine([&vb, &va])),
+            flat::Version::cells(&[&mb, &ma]),
+            "combine([b, a])"
+        );
+        prop_assert_eq!(fold_cells(combine::<0>([])), flat::Version::cells(&[]), "combine([])");
+        let party = mp.production();
+        prop_assert_eq!(fold_regions(party.shape()), mp.regions(), "p.shape()");
+        let clock = Clock::from_parts(party, va);
+        prop_assert_eq!(fold_overlay(clock.shape()), ma.overlay(&mp), "clock.shape()");
+    }
 }

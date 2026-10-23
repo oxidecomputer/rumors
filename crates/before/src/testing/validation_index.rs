@@ -128,9 +128,27 @@
 //! random topology where the arbitrary generators stop, accepted
 //! `join_all` families of more than four unrelated parties, and deferral
 //! in arbitrary rather than named shapes. The fixed deep families reach depth
-//! only along their chosen shapes. Their versions pass through
-//! production's writer on the way to every judge, so a canonicalization
-//! error the writer and the bridge share passes them.
+//! only along their chosen shapes. Their versions pass through production's
+//! writer on the way to the recursive oracle, so a canonicalization error
+//! the writer and the bridge share passes those comparisons; the flat model
+//! below judges the same populations without the writer.
+//!
+//! **The flat model** ([`super::oracles::flat`]). A third model of versions
+//! and parties, beside the recursive and function-space oracles: versions
+//! as leaf lists with absolute heights, parties as interval sets with
+//! `BigUint` endpoints, and every answer a loop over the operands' common
+//! refinement. Production meets it only through bytes: operands enter by
+//! decoding the independent encoder's ([`super::oracles::codec`]) spelling
+//! of the model's canonical form, and results are compared byte for byte
+//! with the encoder's spelling of the model's answers. The model is
+//! calibrated against the recursive oracle on arbitrary and deep inputs,
+//! and its differentials sit beside the operations they judge, fed by the
+//! deep populations above and by pairs built through the model whose joins
+//! and meets collapse in cascades. What it alone catches: **writer errors
+//! on deep inputs** — a canonicalization error in production's version
+//! writer, which every recursive-oracle comparison passes because the
+//! oracle's answers reach production through that same writer, and any
+//! wrong answer on an input too deep for the function space to scan.
 //!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:
