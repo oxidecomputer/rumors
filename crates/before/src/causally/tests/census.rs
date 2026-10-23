@@ -17,9 +17,11 @@
 //!   verdict.
 //! - [`antichain_holes_cover_exactly`] judges queries whose holes sit on an
 //!   antichain of bumps at pairwise disjoint deep cells.
+//! - [`deep_queries_cover_exactly`] judges conjunctions of every public form
+//!   over deep triples and their joins and meets.
 //!
 //! [`census_cases_keep_mass_on_their_regimes`] floors the
-//! regimes the production properties claim.
+//! regimes the two production properties claim.
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
@@ -31,7 +33,7 @@ use super::{
     up_clause_among, up_query, BoundClause, CausalOrder, DownClause, UpClause,
 };
 use crate::causally::{Polarity, Query};
-use crate::testing::generators::leaf_list::arb_deep_version;
+use crate::testing::generators::leaf_list::{arb_deep_version, arb_deep_version_triple};
 use crate::testing::generators::{divided_config, regime_floor, DEFAULT_CASES};
 use crate::testing::oracles::flat::census::{census, classify, Grid, Heights};
 use crate::testing::oracles::flat::Version as FlatVersion;
@@ -368,6 +370,47 @@ fn arb_antichain_case() -> impl Strategy<Value = QueryCase> {
         })
 }
 
+/// How many sites a deep-query case bumps its first version at.
+const QUERY_SITES: core::ops::RangeInclusive<usize> = 1..=3;
+
+/// Draws a case of conjunctions of every public form over a deep triple.
+///
+/// The pool is a deep triple, related by construction so equal and nearly
+/// equal versions are common, every pairwise join and meet, and an antichain
+/// of one to three bumps of the first version at deep sites, with `top`.
+/// Each query holds up to five inclusive bounds; the downward and upward
+/// queries also hold one to five forms of their polarity, anchored anywhere
+/// in the pool.
+fn arb_query_case() -> impl Strategy<Value = QueryCase> {
+    (
+        arb_deep_version_triple(),
+        arb_sites(QUERY_SITES),
+        arb_amounts(*QUERY_SITES.end()),
+        any::<bool>(),
+        arb_clauses(POOL_PICKS, 5, 5),
+        any::<u64>(),
+    )
+        .prop_map(|((a, b, c), sites, amounts, raise, clauses, sides)| {
+            let triple = [a, b, c].map(|list| FlatVersion::from_rows(list.leaves()));
+            let mut pool = triple.to_vec();
+            for (i, x) in triple.iter().enumerate() {
+                for y in &triple[i + 1..] {
+                    pool.push(x.join(y));
+                    pool.push(x.meet(y));
+                }
+            }
+            let (top, bumps) = sites.bumps(&triple[0], &amounts, raise);
+            pool.push(top);
+            pool.extend(bumps);
+            QueryCase {
+                pool,
+                clauses,
+                sides,
+                site_depths: sites.depths,
+            }
+        })
+}
+
 // ─────────────────────────────── judging ───────────────────────────────
 
 /// A pool as production reads it and as the census reads it.
@@ -626,6 +669,11 @@ proptest! {
 /// them.
 const ANTICHAIN_DIVISOR: u32 = 4;
 
+/// The case divisor of [`deep_queries_cover_exactly`]: each case holds a
+/// pool of deep versions and judges three queries on every segment between
+/// them.
+const QUERY_DIVISOR: u32 = 6;
+
 proptest! {
     #![proptest_config(divided_config(ANTICHAIN_DIVISOR))]
 
@@ -646,6 +694,27 @@ proptest! {
     /// separate copies.
     #[test]
     fn antichain_holes_cover_exactly(case in arb_antichain_case()) {
+        assert_case(&case)?;
+    }
+}
+
+proptest! {
+    #![proptest_config(divided_config(QUERY_DIVISOR))]
+
+    /// Neutral, downward, and upward conjunctions of every public form over
+    /// deep versions admit exactly what their clauses admit, and cover every
+    /// segment between pool versions exactly as the census says.
+    ///
+    /// Each case's pool is a deep triple to depth 300, with heights to
+    /// thousands of bits, every pairwise join and meet, and an antichain of
+    /// one to three bumps of the first version at cells to depth 160. Each
+    /// query conjoins up to five inclusive bounds and, at a polarity, one to
+    /// five forms of it in every public spelling, anchored anywhere in the
+    /// pool and conjoined in a drawn operand order. Membership is checked on
+    /// every pool version, and coverage on every segment between two, over
+    /// the pool's own buffers and over separate copies.
+    #[test]
+    fn deep_queries_cover_exactly(case in arb_query_case()) {
         assert_case(&case)?;
     }
 }
@@ -680,6 +749,8 @@ struct Reach {
     up_holes: usize,
     /// Some site lies deeper than [`DEEP_DEPTH`].
     deep_site: bool,
+    /// Some pool version's canonical depth exceeds [`DEEP_DEPTH`].
+    deep_version: bool,
     /// Some pool height is at least `2^64`.
     wide: bool,
 }
@@ -698,6 +769,7 @@ fn reach(case: &QueryCase) -> Reach {
         down_holes: rendered_holes(&down),
         up_holes: rendered_holes(&up),
         deep_site: case.site_depths.iter().any(|&depth| depth > DEEP_DEPTH),
+        deep_version: rows().any(|leaf| leaf.depth > DEEP_DEPTH),
         wide: rows().any(|leaf| leaf.height >= two64),
     }
 }
@@ -710,7 +782,10 @@ fn reach(case: &QueryCase) -> Reach {
 /// [`antichain_holes_cover_exactly`] claims antichains of three or more
 /// holes on deep cells, beside wide heights: its downward and its upward
 /// query each store three or more holes, on a pool whose sites reach past
-/// depth 32 and whose heights reach `2^64`. Each floor follows from that
+/// depth 32 and whose heights reach `2^64`. [`deep_queries_cover_exactly`]
+/// claims deep, wide pools and holed queries of both polarities: a pool
+/// version past depth 32 beside a height of `2^64` or more, and downward
+/// and upward queries that each store a hole. Each floor follows from that
 /// premise and its property's case count.
 #[test]
 fn census_cases_keep_mass_on_their_regimes() {
@@ -725,10 +800,12 @@ fn census_cases_keep_mass_on_their_regimes() {
         .iter()
         .map(reach)
         .collect();
+    let queries: Vec<Reach> = floor_corpus(arb_query_case()).iter().map(reach).collect();
     let count = |corpus: &[Reach], in_regime: fn(&Reach) -> bool| {
         corpus.iter().filter(|reach| in_regime(reach)).count()
     };
     let antichain_floor = regime_floor(FLOOR_CASES, ANTICHAIN_DIVISOR);
+    let query_floor = regime_floor(FLOOR_CASES, QUERY_DIVISOR);
     let regimes = [
         (
             "antichain cases: three or more downward holes, a deep site, a wide height",
@@ -739,6 +816,21 @@ fn census_cases_keep_mass_on_their_regimes() {
             "antichain cases: three or more upward holes, a deep site, a wide height",
             count(&antichains, |r| r.up_holes >= 3 && r.deep_site && r.wide),
             antichain_floor,
+        ),
+        (
+            "query cases: a version past depth 32 and a wide height",
+            count(&queries, |r| r.deep_version && r.wide),
+            query_floor,
+        ),
+        (
+            "query cases: a downward hole",
+            count(&queries, |r| r.down_holes >= 1),
+            query_floor,
+        ),
+        (
+            "query cases: an upward hole",
+            count(&queries, |r| r.up_holes >= 1),
+            query_floor,
         ),
     ];
     for (regime, count, floor) in &regimes {
