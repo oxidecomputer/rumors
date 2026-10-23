@@ -238,6 +238,28 @@ fn hash_of<T: Hash + ?Sized>(value: &T) -> u64 {
     hasher.finish()
 }
 
+/// Whether one comparison cell answers `expected` through every operator it
+/// implements: `partial_cmp`, `==`, `!=`, `<`, `<=`, `>`, and `>=`.
+///
+/// Generic over the operand types, so each call resolves to exactly the
+/// `PartialEq`/`PartialOrd` impl for `(L, R)`: passing `&x` instead of `x`
+/// selects the borrowed cell, and no auto-referencing can substitute another
+/// impl. The operators are checked one by one because `PartialEq` and
+/// `PartialOrd` let an impl override each of them, and the traits' documented
+/// contract requires every override to agree with `partial_cmp`.
+fn cmp_cell_agrees<L, R>(lhs: L, rhs: R, expected: Option<Ordering>) -> bool
+where
+    L: PartialOrd<R>,
+{
+    lhs.partial_cmp(&rhs) == expected
+        && (lhs == rhs) == (expected == Some(Ordering::Equal))
+        && (lhs != rhs) == (expected != Some(Ordering::Equal))
+        && (lhs < rhs) == (expected == Some(Ordering::Less))
+        && (lhs <= rhs) == matches!(expected, Some(Ordering::Less | Ordering::Equal))
+        && (lhs > rhs) == (expected == Some(Ordering::Greater))
+        && (lhs >= rhs) == matches!(expected, Some(Ordering::Greater | Ordering::Equal))
+}
+
 /// Whether `iter`'s size hint is exactly `(remaining, Some(remaining))` before
 /// every step and after exhaustion, for an iterator that yields `len` items.
 fn size_hints_are_exact<I: Iterator>(mut iter: I, len: usize) -> bool {

@@ -208,8 +208,10 @@ laws! {
     /// Laws over two versions and a live party.
     ///
     /// Projection as a lattice homomorphism, its monotonicity in the
-    /// version, its metric short-map property, and `ticks` as a monoid
-    /// action at the wide counts the operands' tick floors supply.
+    /// version, its metric short-map property, the view's comparisons with a
+    /// version at every owned and borrowed cell against the materialized
+    /// projection, and `ticks` as a monoid action at the wide counts the
+    /// operands' tick floors supply.
     pub static VERSION_PAIR_PARTY: (a: &Version, b: &Version, p: &Party);
 
     /// Projection is a homomorphism of the join: `(a | b) / p == (a/p) | (b/p)`
@@ -273,25 +275,25 @@ laws! {
     /// The view's heterogeneous comparisons are the materialized
     /// projection's, exactly: `(a/p) ⋚ b ≡ (a/p).to_version() ⋚ b`.
     ///
-    /// Checked in both operand orders and under `==` — the three-stream
-    /// differential law the fused co-walk is pinned by.
+    /// Checked in both operand orders, through every comparison operator, at
+    /// every owned and borrowed cell of the view/version matrix. This is the
+    /// three-stream differential law that checks the fused co-walk.
+    // Borrowing the `Copy` view is deliberate: `&view` selects the
+    // `&OwnVersion` impls, which passing the view by value would skip.
+    #[allow(clippy::needless_borrows_for_generic_args)]
     fn own_version_cmp_matches_materialized {
         let view = a / p;
         let materialized = view.to_version();
-        let cmp_agrees = view.partial_cmp(b) == materialized.partial_cmp(b);
-        let cmp_reversed_agrees = b.partial_cmp(&view) == b.partial_cmp(&materialized);
-        let directions_agree = (view < *b, view <= *b, view > *b, view >= *b)
-            == (materialized < *b, materialized <= *b, materialized > *b, materialized >= *b);
-        let reversed_directions_agree = (*b < view, *b <= view, *b > view, *b >= view)
-            == (*b < materialized, *b <= materialized, *b > materialized, *b >= materialized);
-        let eq_agrees = (view == *b) == (materialized == *b);
-        let eq_reversed_agrees = (*b == view) == (*b == materialized);
-        cmp_agrees
-            && cmp_reversed_agrees
-            && directions_agree
-            && reversed_directions_agree
-            && eq_agrees
-            && eq_reversed_agrees
+        let forward = materialized.partial_cmp(b);
+        let reversed = b.partial_cmp(&materialized);
+        cmp_cell_agrees(view, b.clone(), forward)
+            && cmp_cell_agrees(&view, b.clone(), forward)
+            && cmp_cell_agrees(view, b, forward)
+            && cmp_cell_agrees(&view, b, forward)
+            && cmp_cell_agrees(b.clone(), view, reversed)
+            && cmp_cell_agrees(b, view, reversed)
+            && cmp_cell_agrees(b.clone(), &view, reversed)
+            && cmp_cell_agrees(b, &view, reversed)
     }
 
     /// A heterogeneous comparison is the homogeneous comparison against the
@@ -465,16 +467,21 @@ laws! {
     pub static VERSION_PAIR_PARTY_PAIR: (a: &Version, b: &Version, p: &Party, q: &Party);
 
     /// The view's homogeneous comparisons are the materialized projections',
-    /// exactly: `(a/p) ⋚ (b/q) ≡ (a/p).to_version() ⋚ (b/q).to_version()`,
-    /// under `==` too — the four-stream differential law the fused co-walk is
-    /// pinned by.
+    /// exactly: `(a/p) ⋚ (b/q) ≡ (a/p).to_version() ⋚ (b/q).to_version()`.
+    ///
+    /// Checked through every comparison operator, at every owned and borrowed
+    /// cell. This is the four-stream differential law that checks the fused
+    /// co-walk.
+    // Borrowing the `Copy` views is deliberate, as in
+    // `own_version_cmp_matches_materialized`.
+    #[allow(clippy::needless_borrows_for_generic_args)]
     fn own_version_pair_cmp_matches_materialized {
         let (va, vb) = (a / p, b / q);
-        let (ma, mb) = (va.to_version(), vb.to_version());
-        va.partial_cmp(&vb) == ma.partial_cmp(&mb)
-            && (va < vb, va <= vb, va > vb, va >= vb)
-                == (ma < mb, ma <= mb, ma > mb, ma >= mb)
-            && (va == vb) == (ma == mb)
+        let expected = va.to_version().partial_cmp(&vb.to_version());
+        cmp_cell_agrees(va, vb, expected)
+            && cmp_cell_agrees(&va, vb, expected)
+            && cmp_cell_agrees(va, &vb, expected)
+            && cmp_cell_agrees(&va, &vb, expected)
     }
 }
 
