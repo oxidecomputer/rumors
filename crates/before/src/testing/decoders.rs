@@ -42,15 +42,13 @@
 //! alone. The one documented precedence, a span's structural errors before
 //! its endpoint ordering, is checked on inputs built to have both.
 
-use std::fmt::Debug;
-use std::io::Read;
-
 use borsh::BorshDeserialize;
 use proptest::prelude::*;
 use serde::de::DeserializeOwned;
 
 use crate::error::{Decode, ParseValue};
 use crate::testing::bridge::{to_oracle_party, to_oracle_version};
+use crate::testing::canonical::Canonical;
 use crate::testing::generators::near_valid::{
     arb_clock_encoding, arb_party_encoding, arb_rank_encoding, arb_ranked_encoding,
     arb_span_encoding, arb_version_encoding, Expect, NearValid,
@@ -59,11 +57,9 @@ use crate::testing::oracles::codec;
 use crate::testing::scripted_reader::{arb_read_schedule, ReadSchedule, ScriptedReader};
 use crate::{Clock, Party, Rank, Ranked, Span, Version};
 
-/// A type with a canonical encoding and the entry points that decode it.
-trait Wire: Sized + PartialEq + Debug + DeserializeOwned + BorshDeserialize {
-    /// Decodes one value from a reader, through the type's public `decode`.
-    fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode>;
-
+/// A type with a canonical encoding and the entry points that decode it,
+/// its reader `decode` included through [`Canonical`].
+trait Wire: Canonical + DeserializeOwned + BorshDeserialize {
     /// Parses the type's hexadecimal text form, if it has one.
     fn parse_hex(_text: &str) -> Option<Result<Self, ParseValue>> {
         None
@@ -100,10 +96,6 @@ fn flat_party(party: &Party) -> codec::Party {
 
 /// A version's spelling is its normalized flat form's encoding.
 impl Wire for Version {
-    fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode> {
-        Version::decode(reader)
-    }
-
     fn parse_hex(text: &str) -> Option<Result<Self, ParseValue>> {
         Some(text.parse())
     }
@@ -115,10 +107,6 @@ impl Wire for Version {
 
 /// A party's spelling is its normalized flat form's encoding.
 impl Wire for Party {
-    fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode> {
-        Party::decode(reader)
-    }
-
     fn parse_hex(text: &str) -> Option<Result<Self, ParseValue>> {
         Some(text.parse())
     }
@@ -131,10 +119,6 @@ impl Wire for Party {
 /// A rank's spelling is the encoding of its normalized numerator and
 /// exponent.
 impl Wire for Rank {
-    fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode> {
-        Rank::decode(reader)
-    }
-
     fn spelling(&self) -> Option<Vec<u8>> {
         let (num, exp) = self.raw_parts();
         let (num, exp) = codec::normalize_rank(num.clone(), exp);
@@ -144,10 +128,6 @@ impl Wire for Rank {
 
 /// A clock's spelling is its party's spelling followed by its version's.
 impl Wire for Clock {
-    fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode> {
-        Clock::decode(reader)
-    }
-
     fn spelling(&self) -> Option<Vec<u8>> {
         Some(
             [
@@ -165,10 +145,6 @@ impl Wire for Clock {
 /// It exists only when the lower endpoint lies at or below the upper, which
 /// the flat forms judge independently of production's comparison.
 impl Wire for Span<'static> {
-    fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode> {
-        Span::decode(reader)
-    }
-
     fn from_record(lo: &[u8], hi: &[u8]) -> Option<Result<Self, String>> {
         let record = format!(
             r#"{{"lo":"{}","hi":"{}"}}"#,
@@ -190,10 +166,6 @@ impl Wire for Span<'static> {
 /// The rank is the one the version's normalized flat form computes,
 /// independently of production's rank fold.
 impl Wire for Ranked<'static> {
-    fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode> {
-        Ranked::decode(reader)
-    }
-
     fn spelling(&self) -> Option<Vec<u8>> {
         let version = flat_version(self.version());
         let (num, exp) = version.rank();

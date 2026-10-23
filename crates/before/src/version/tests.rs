@@ -22,6 +22,7 @@ use crate::bits::BitsWriter;
 use crate::error::Decode;
 use crate::rank::DECODE_CHUNK_BYTES;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
+use crate::testing::canonical::Canonical;
 use crate::testing::generators::co_generated::arb_spine_case;
 use crate::testing::generators::{
     arb_dyadic, arb_oracle_party_nonempty, arb_oracle_version, arb_related_dyadic,
@@ -1743,11 +1744,11 @@ fn rank_decoding_rejects_each_malformed_input_class() {
     }
 }
 
-/// A decode result reduced to what the reader property compares: the decoded
-/// rank, or the error's variant, with the kind of an I/O error.
+/// A decode result reduced to what the reader properties compare: the decoded
+/// value, or the error's variant, with the kind of an I/O error.
 #[derive(Debug, PartialEq)]
-enum Verdict {
-    Decoded(Rank),
+enum Verdict<T> {
+    Decoded(T),
     Truncated,
     TrailingBits,
     NotCanonical,
@@ -1755,10 +1756,10 @@ enum Verdict {
 }
 
 /// Reduces a decode result to its variant, keeping only an I/O error's kind.
-impl From<Result<Rank, Decode>> for Verdict {
-    fn from(result: Result<Rank, Decode>) -> Self {
+impl<T> From<Result<T, Decode>> for Verdict<T> {
+    fn from(result: Result<T, Decode>) -> Self {
         match result {
-            Ok(rank) => Verdict::Decoded(rank),
+            Ok(value) => Verdict::Decoded(value),
             Err(Decode::Truncated) => Verdict::Truncated,
             Err(Decode::TrailingBits) => Verdict::TrailingBits,
             Err(Decode::NotCanonical) => Verdict::NotCanonical,
@@ -1769,11 +1770,11 @@ impl From<Result<Rank, Decode>> for Verdict {
 
 /// A decode input with the verdict it must receive, known before decoding.
 #[derive(Debug)]
-struct DecodeCase {
+struct DecodeCase<T> {
     /// The bytes to decode.
     input: Vec<u8>,
     /// The verdict a reader that never fails must produce.
-    verdict: Verdict,
+    verdict: Verdict<T>,
     /// Bounds from below how far into `input` a decoder must read before its
     /// verdict is settled, with the end of input counted as one position past
     /// the last byte.
@@ -1793,7 +1794,7 @@ fn rank_cases(
     rank: &Rank,
     suffix: &[u8],
     prefix_len: impl FnOnce(usize) -> usize,
-) -> Vec<DecodeCase> {
+) -> Vec<DecodeCase<Rank>> {
     let encoding = rank.encode();
     let rank_len = encoding.len();
     let prefix = encoding[..prefix_len(rank_len)].to_vec();
@@ -1817,10 +1818,10 @@ fn rank_cases(
     ]
 }
 
-/// An arbitrary byte string, judged by the in-memory decoder, which reads
-/// nothing through a reader.
-fn arbitrary_bytes_case(input: Vec<u8>) -> DecodeCase {
-    let verdict = Verdict::from(Rank::decode_bytes(&input));
+/// A byte string judged by `judge`, a decoder over the whole input in
+/// memory, such as `Rank::decode_bytes` or a reader `decode` over a slice.
+fn judged_case<T>(input: Vec<u8>, judge: impl FnOnce(&[u8]) -> Result<T, Decode>) -> DecodeCase<T> {
+    let verdict = Verdict::from(judge(&input));
     let decided_by = match verdict {
         // Acceptance and truncation both turn on where the input ends.
         Verdict::Decoded(_) | Verdict::Truncated => input.len() + 1,
@@ -1834,21 +1835,22 @@ fn arbitrary_bytes_case(input: Vec<u8>) -> DecodeCase {
     }
 }
 
-/// Decodes `case` through a [`ScriptedReader`] on `schedule` that fails at
-/// `fail_at`, if given, and checks the verdict.
+/// Decodes `case` with `decode` through a [`ScriptedReader`] on `schedule`
+/// that fails at `fail_at`, if given, and checks the verdict.
 ///
 /// The verdict must be `Decode::Io` with the reader's kind exactly when the
 /// reader returned its failure, and the case's verdict otherwise. A failure
 /// before `case.decided_by` leaves the verdict open, so the decoder must meet
 /// it.
-fn check_decode(
-    case: &DecodeCase,
+fn check_decode<T: core::fmt::Debug + PartialEq>(
+    case: &DecodeCase<T>,
     schedule: &ReadSchedule,
     fail_at: Option<usize>,
+    decode: impl FnOnce(&mut ScriptedReader<'_>) -> Result<T, Decode>,
 ) -> Result<(), TestCaseError> {
     let reader_failed = Verdict::Io(io::ErrorKind::Other);
     let mut reader = ScriptedReader::new(&case.input, schedule, fail_at);
-    let verdict = Verdict::from(Rank::decode(&mut reader));
+    let verdict = Verdict::from(decode(&mut reader));
     let expected = if reader.has_failed() {
         &reader_failed
     } else {
@@ -1925,7 +1927,7 @@ fn fraction_lengths_at_decode_boundaries() -> Vec<usize> {
 /// Generates decode inputs with known verdicts: the three cases of a rank
 /// ending at a read-path boundary, of a rank of any fraction length, or of a
 /// seeded rank, or else one arbitrary byte string.
-fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase>> {
+fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase<Rank>>> {
     let rank = prop_oneof![
         2 => prop::sample::select(fraction_lengths_at_decode_boundaries())
             .prop_flat_map(arb_fraction_rank),
@@ -1941,7 +1943,7 @@ fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase>> {
         4 => (rank, suffix, any::<Index>())
             .prop_map(|(rank, suffix, cut)| rank_cases(&rank, &suffix, |len| cut.index(len))),
         1 => prop::collection::vec(any::<u8>(), 0..256)
-            .prop_map(|input| vec![arbitrary_bytes_case(input)]),
+            .prop_map(|input| vec![judged_case(input, Rank::decode_bytes)]),
     ]
 }
 
@@ -1973,7 +1975,7 @@ proptest! {
         for case in &cases {
             let end = case.input.len();
             for fail_at in [None, Some(end), Some(failure.index(end + 1))] {
-                check_decode(case, &schedule, fail_at)?;
+                check_decode(case, &schedule, fail_at, |reader| Rank::decode(reader))?;
             }
         }
     }
@@ -1999,12 +2001,229 @@ fn rank_decode_retries_interrupts_at_every_read() -> Result<(), TestCaseError> {
         let rank = binary_fraction(&vec![true; len - 1]);
         for case in rank_cases(&rank, &[0], |rank_len| rank_len - 1) {
             for schedule in &schedules {
-                check_decode(&case, schedule, None)?;
-                check_decode(&case, schedule, Some(case.input.len()))?;
+                for fail_at in [None, Some(case.input.len())] {
+                    check_decode(&case, schedule, fail_at, |reader| Rank::decode(reader))?;
+                }
             }
         }
     }
     Ok(())
+}
+
+/// The ways the reader properties alter an encoding.
+#[derive(Debug)]
+struct Mangling {
+    /// Bytes appended after the encoding.
+    suffix: Vec<u8>,
+    /// Where the strict prefix cuts the encoding.
+    cut: Index,
+    /// Which bit of the encoding to flip.
+    flip: Index,
+}
+
+/// Generates manglings with suffixes of up to sixteen bytes.
+fn arb_mangling() -> impl Strategy<Value = Mangling> {
+    (
+        prop::collection::vec(any::<u8>(), 1..=16),
+        any::<Index>(),
+        any::<Index>(),
+    )
+        .prop_map(|(suffix, cut, flip)| Mangling { suffix, cut, flip })
+}
+
+/// The four inputs one nonempty encoding yields: the encoding itself, the
+/// encoding followed by the mangling's suffix, a strict prefix, and the
+/// encoding with one bit flipped.
+fn mangled_inputs(encoding: &[u8], mangling: &Mangling) -> [Vec<u8>; 4] {
+    let mut flipped = encoding.to_vec();
+    let bit = mangling.flip.index(8 * encoding.len());
+    flipped[bit / 8] ^= 0x80 >> (bit % 8);
+    [
+        encoding.to_vec(),
+        [encoding, &mangling.suffix].concat(),
+        encoding[..mangling.cut.index(encoding.len())].to_vec(),
+        flipped,
+    ]
+}
+
+/// Checks one type's reader `decode` on every input its value's encoding
+/// yields, judged by the slice decode over the input in memory, with the
+/// reader failing nowhere, at the input's end, and at a generated offset.
+fn check_reader_decoder<T: Canonical>(
+    value: &T,
+    mangling: &Mangling,
+    schedule: &ReadSchedule,
+    failure: Index,
+) -> Result<(), TestCaseError> {
+    for input in mangled_inputs(&value.encode_canonical(), mangling) {
+        let case = judged_case(input, |bytes| T::decode_reader(bytes));
+        let end = case.input.len();
+        for fail_at in [None, Some(end), Some(failure.index(end + 1))] {
+            check_decode(&case, schedule, fail_at, |reader| T::decode_reader(reader))?;
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    /// Every reader `decode` reaches the slice decode's verdict through any
+    /// read schedule, and every reader failure it meets comes back as
+    /// `Decode::Io`.
+    ///
+    /// Each [`Canonical`] type decodes a generated value's encoding, the encoding
+    /// with bytes appended, a strict prefix, and the encoding with one bit
+    /// flipped, through the scripted reader of
+    /// `rank_decode_is_independent_of_the_read_schedule`, with that property's
+    /// exact failure oracle: the verdict is `Decode::Io` with the reader's
+    /// kind exactly when the decoder met the failure, and the slice decode's
+    /// verdict otherwise, and a failure placed before the bytes that settle
+    /// the verdict must be met.
+    #[test]
+    fn decoders_are_independent_of_the_read_schedule(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        mangling in arb_mangling(),
+        schedule in arb_read_schedule(),
+        failure in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        let clock = Clock::from_parts(from_oracle_party(&party), a.clone());
+        let span = (&a & &b).span(&(&a | &b));
+        check_reader_decoder(&from_oracle_party(&party), &mangling, &schedule, failure)?;
+        check_reader_decoder(&a, &mangling, &schedule, failure)?;
+        check_reader_decoder(&clock, &mangling, &schedule, failure)?;
+        check_reader_decoder(&span, &mangling, &schedule, failure)?;
+        check_reader_decoder(&a.rank(), &mangling, &schedule, failure)?;
+        check_reader_decoder(&Ranked::from(a.clone()), &mangling, &schedule, failure)?;
+    }
+}
+
+/// Checks one borsh decoder on `input` through a [`ScriptedReader`] on
+/// `schedule` that fails at `fail_at`, if given, against the same decoder over
+/// the whole input in memory.
+///
+/// Borsh values compose inside a larger stream, so a decoder reads no byte
+/// past its value, and the bytes it requests do not depend on how they are
+/// served. A probe reader that serves the whole input at once and fails at its
+/// end measures them: the bytes it served, or every byte and one more when the
+/// decoder met its failure. A failure is met exactly when it lies before the
+/// requested bytes end, and must come back with the reader's kind. Otherwise
+/// the verdict must equal the in-memory one, and an accepted value must have
+/// consumed the same bytes; what a rejecting decode consumed is unspecified.
+#[cfg(feature = "borsh")]
+fn check_borsh<T: borsh::BorshDeserialize + core::fmt::Debug + PartialEq>(
+    input: &[u8],
+    schedule: &ReadSchedule,
+    fail_at: Option<usize>,
+) -> Result<(), TestCaseError> {
+    let mut whole = input;
+    let expected = T::deserialize_reader(&mut whole).map_err(|error| error.kind());
+    let consumed = input.len() - whole.len();
+    let at_once = ReadSchedule {
+        chunk: input.len().max(1),
+        interrupts: vec![0],
+    };
+    let mut probe = ScriptedReader::new(input, &at_once, Some(input.len()));
+    let _ = T::deserialize_reader(&mut probe);
+    let requested = if probe.has_failed() {
+        input.len() + 1
+    } else {
+        probe.served()
+    };
+
+    let mut reader = ScriptedReader::new(input, schedule, fail_at);
+    let verdict = T::deserialize_reader(&mut reader).map_err(|error| error.kind());
+    if fail_at.is_some_and(|offset| offset < requested) {
+        prop_assert!(
+            reader.has_failed(),
+            "a failure at {:?} went unmet; input {:?}",
+            fail_at,
+            input
+        );
+        prop_assert_eq!(verdict, Err(io::ErrorKind::Other), "input {:?}", input);
+    } else {
+        prop_assert!(
+            !reader.has_failed(),
+            "a read past the value met the failure at {:?}; input {:?}",
+            fail_at,
+            input
+        );
+        let accepted = expected.is_ok();
+        prop_assert_eq!(verdict, expected, "input {:?}", input);
+        if accepted {
+            prop_assert_eq!(
+                reader.served(),
+                consumed,
+                "bytes consumed; input {:?}",
+                input
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Checks one borsh decoder on every input its value's borsh bytes yield,
+/// with the reader failing nowhere, at the input's end, and at a generated
+/// offset.
+#[cfg(feature = "borsh")]
+fn check_borsh_decoder<T>(
+    value: &T,
+    mangling: &Mangling,
+    schedule: &ReadSchedule,
+    failure: Index,
+) -> Result<(), TestCaseError>
+where
+    T: borsh::BorshDeserialize + borsh::BorshSerialize + core::fmt::Debug + PartialEq,
+{
+    let encoding = borsh::to_vec(value).expect("serializing into memory succeeds");
+    for input in mangled_inputs(&encoding, mangling) {
+        let end = input.len();
+        for fail_at in [None, Some(end), Some(failure.index(end + 1))] {
+            check_borsh::<T>(&input, schedule, fail_at)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "borsh")]
+proptest! {
+    /// Every borsh decoder reaches the verdict it reaches over the whole input
+    /// in memory through any read schedule, and returns every reader failure
+    /// it meets.
+    ///
+    /// Each [`Canonical`] type, and `Count`, decodes a generated value's borsh
+    /// bytes, those bytes with more appended, a strict prefix, and the bytes
+    /// with one bit flipped, through the scripted reader of
+    /// `rank_decode_is_independent_of_the_read_schedule`. A decoder reads no
+    /// byte past its value, so a failure beyond the bytes it requests must go
+    /// unmet, one within them must come back with the reader's kind, and an
+    /// accepted value must consume exactly the bytes the in-memory decode did.
+    #[test]
+    fn borsh_decoders_are_independent_of_the_read_schedule(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        count in crate::testing::generators::arb_magnitude(),
+        mangling in arb_mangling(),
+        schedule in arb_read_schedule(),
+        failure in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        let clock = Clock::from_parts(from_oracle_party(&party), a.clone());
+        let span = (&a & &b).span(&(&a | &b));
+        check_borsh_decoder(&from_oracle_party(&party), &mangling, &schedule, failure)?;
+        check_borsh_decoder(&a, &mangling, &schedule, failure)?;
+        check_borsh_decoder(&clock, &mangling, &schedule, failure)?;
+        check_borsh_decoder(&span, &mangling, &schedule, failure)?;
+        check_borsh_decoder(&a.rank(), &mangling, &schedule, failure)?;
+        check_borsh_decoder(&Ranked::from(a.clone()), &mangling, &schedule, failure)?;
+        check_borsh_decoder(&Count(count), &mangling, &schedule, failure)?;
+    }
 }
 
 /// Every version-derived rank encoding is no larger than its source version.

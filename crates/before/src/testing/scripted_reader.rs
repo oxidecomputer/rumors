@@ -83,6 +83,12 @@ impl<'a> ScriptedReader<'a> {
     pub(crate) fn has_failed(&self) -> bool {
         self.failed
     }
+
+    /// The number of input bytes the reader has served so far.
+    #[cfg(feature = "borsh")]
+    pub(crate) fn served(&self) -> usize {
+        self.served
+    }
 }
 
 /// Returns the schedule's pending interrupt, or else the next answer.
