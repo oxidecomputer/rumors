@@ -5,12 +5,17 @@
 //! `min_ticks`, and projection (`/`).
 
 use crate::testing::meter::registry::Shape;
+use std::cell::Cell;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::io::{self, Write};
+use std::rc::Rc;
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use proptest::sample::Index;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 use super::{Ranked, Version};
 use crate::bits::BitsWriter;
@@ -20,7 +25,9 @@ use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_v
 use crate::testing::generators::co_generated::arb_spine_case;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
-use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
+use crate::testing::optrace::{
+    leq as oracle_leq, run, step, versions, world_strategy, Production, TraceModel,
+};
 use crate::testing::oracles::function;
 use crate::testing::scripted_reader::{arb_read_schedule, ReadSchedule, ScriptedReader};
 use crate::{Clock, Count, Party, Rank};
@@ -764,22 +771,121 @@ proptest! {
 
 // ─────────────────────────────── min_ticks ───────────────────────────────
 
-/// The number of `tick`s a trace performs against the impl population, derived
-/// straight from the op list.
+/// The tick batches in one clock's causal past: each batch's tick count, keyed
+/// by a batch number unique within one history.
 ///
-/// `Tick` advances once; `Send` advances twice (the sender `tick`s, the
-/// receiver `recv`s = join-then-`tick`); `Fork`, `Sync`, and `Join` never
-/// `tick`. Each `Tick`/`Send` always executes fully (no index guard can skip
-/// it), so this count is exact — it mirrors `step_impl`.
-fn trace_ticks(ops: &[Op]) -> u64 {
-    ops.iter()
-        .map(|op| match op {
-            Op::Tick(_) => 1,
-            Op::Ticks(_, k) => u64::from(*k),
-            Op::Send(..) => 2,
-            Op::Fork(_) | Op::Sync(..) | Op::Join(..) => 0,
-        })
-        .sum()
+/// A clock's causal past holds its own ticks and every tick it has heard of
+/// through a message, a sync, or a join, which together form one history that
+/// yields its version.
+#[derive(Clone)]
+struct CausalPast {
+    batches: BTreeMap<u64, u64>,
+    /// The history's next unused batch number, shared by every clock split
+    /// from its one seed.
+    next_batch: Rc<Cell<u64>>,
+    /// The ticks the whole history has recorded, shared the same way.
+    history_ticks: Rc<Cell<u64>>,
+}
+
+impl CausalPast {
+    /// Records one batch of `ticks` ticks under a fresh batch number.
+    fn record(&mut self, ticks: u64) {
+        let batch = self.next_batch.get();
+        self.next_batch.set(batch + 1);
+        self.batches.insert(batch, ticks);
+        self.history_ticks.set(self.history_ticks.get() + ticks);
+    }
+
+    /// Adds every batch in `other` that this past lacks.
+    fn absorb(&mut self, other: &CausalPast) {
+        self.batches.extend(&other.batches);
+    }
+
+    /// The number of ticks in this past.
+    fn ticks(&self) -> u64 {
+        self.batches.values().sum()
+    }
+}
+
+/// Production clocks paired with their causal pasts, driven through the trace
+/// schedule as one model.
+///
+/// Each operation calls [`Production`]'s and then updates the past: a tick or
+/// `ticks(k)` records a batch of 1 or `k`, a fork copies the past, a send
+/// records the sender's tick and carries its past, a receive absorbs that past
+/// and records its own tick, and a sync or join leaves the clocks it merges
+/// holding the union.
+struct WithCausalPast;
+
+impl TraceModel for WithCausalPast {
+    type Clock = (Clock, CausalPast);
+    type Message = (Version, CausalPast);
+
+    fn seed() -> Self::Clock {
+        let past = CausalPast {
+            batches: BTreeMap::new(),
+            next_batch: Rc::new(Cell::new(0)),
+            history_ticks: Rc::new(Cell::new(0)),
+        };
+        (Production::seed(), past)
+    }
+
+    fn tick((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) {
+        Production::tick(clock, rng);
+        past.record(1);
+    }
+
+    fn ticks((clock, past): &mut Self::Clock, count: u8, rng: &mut ChaChaRng) {
+        Production::ticks(clock, count, rng);
+        past.record(u64::from(count));
+    }
+
+    fn fork((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock {
+        (Production::fork(clock, rng), past.clone())
+    }
+
+    fn send((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message {
+        let message = Production::send(clock, rng);
+        past.record(1);
+        (message, past.clone())
+    }
+
+    fn receive(
+        (clock, past): &mut Self::Clock,
+        (message, sender): Self::Message,
+        rng: &mut ChaChaRng,
+    ) {
+        Production::receive(clock, message, rng);
+        past.absorb(&sender);
+        past.record(1);
+    }
+
+    fn sync(
+        (left, left_past): &mut Self::Clock,
+        (right, right_past): &mut Self::Clock,
+        rng: &mut ChaChaRng,
+    ) -> bool {
+        let synced = Production::sync(left, right, rng);
+        if synced {
+            left_past.absorb(right_past);
+            right_past.clone_from(left_past);
+        }
+        synced
+    }
+
+    fn join(
+        (clock, past): &mut Self::Clock,
+        (other, other_past): Self::Clock,
+        rng: &mut ChaChaRng,
+    ) -> Result<(), Self::Clock> {
+        match Production::join(clock, other, rng) {
+            Ok(()) => {
+                past.absorb(&other_past);
+                Ok(())
+            }
+            Err(other) => Err((other, other_past)),
+        }
+    }
 }
 
 /// `min_ticks` known values: the empty version, a single-party line (= the leaf
@@ -798,31 +904,42 @@ fn min_ticks_known_values() {
 }
 
 proptest! {
-    /// `min_ticks` is a true floor: for *every* live clock in *any* causal
-    /// history of fork/tick/send/sync/join, its version's `min_ticks` never
-    /// exceeds the ticks actually performed.
+    /// `min_ticks` floors each clock's own causal past: after every step of any
+    /// fork/tick/send/sync/join history, every live clock's `min_ticks` is at
+    /// most the number of ticks in that clock's causal past.
     ///
-    /// Cross-checks the fold itself against the recursive oracle's sum-of-bases
-    /// (`tree::Version::min_ticks`); the min_ticks descriptor's fs leg
-    /// supplies the independent second computation.
+    /// `min_ticks` is a floor over every history that yields a version, and a
+    /// clock's causal past is one such history. Checking each clock against its
+    /// own past after every step, rather than the final clocks against the
+    /// whole history's total, meets the bound where it is tight many times
+    /// per history. Each clock's past must also lie within the ticks the whole
+    /// history recorded, so the per-clock bound still implies the
+    /// whole-history one. Each step also checks the fold against the
+    /// recursive oracle's sum of bases; the min_ticks descriptor's
+    /// function-space leg supplies an independent second computation.
     #[test]
     fn min_ticks_floors_every_history(ops in world_strategy()) {
-        let total = trace_ticks(&ops);
-        let mut imp = vec![Clock::seed()];
+        let mut clocks = vec![WithCausalPast::seed()];
+        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
-            step_impl(&mut imp, op);
-        }
-        for c in &imp {
-            let v = c.version();
-            // The fold computes exactly the sum-of-bases.
-            prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
-            // And that minimum never exceeds the ticks the history performed.
-            prop_assert!(
-                v.min_ticks() <= Count::from(total),
-                "min_ticks {} exceeded the {} ticks performed",
-                v.min_ticks(),
-                total,
-            );
+            step::<WithCausalPast>(&mut clocks, op, &mut rng);
+            for (clock, past) in &clocks {
+                let v = clock.version();
+                prop_assert!(
+                    past.ticks() <= past.history_ticks.get(),
+                    "a clock's causal past holds {} ticks, more than the history's {}",
+                    past.ticks(),
+                    past.history_ticks.get(),
+                );
+                prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
+                prop_assert!(
+                    v.min_ticks() <= Count::from(past.ticks()),
+                    "min_ticks {} exceeded the {} ticks in its clock's causal past after {:?}",
+                    v.min_ticks(),
+                    past.ticks(),
+                    op,
+                );
+            }
         }
     }
 }
