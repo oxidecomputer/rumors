@@ -88,7 +88,12 @@
 //! equalities, empty regions, degenerate splits) that random generation hits
 //! with vanishing probability. Within its scope the verdict is total, not
 //! sampled; outside its scope it says nothing, which is exactly why the
-//! proptest legs exist.
+//! proptest legs exist. A verdict that counts only the enumerated values, as
+//! the exact-coverage censuses over the two-party grid and the boolean cube
+//! do, is exact only if the pool holds a witness for every answer; a companion
+//! test reruns each such census, in the pointwise order on height vectors,
+//! over a finer pool that realizes every verdict the covered versions can
+//! receive, so a pool missing a witness fails it.
 //!
 //! **The 32-bit boundary pins** (the `wasm32-pins` workspace under this
 //! crate). Public operations of this crate and of `suanpan` run in a wasm32

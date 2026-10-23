@@ -181,6 +181,64 @@ pub(crate) fn all_normal_events(depth: usize) -> Vec<tree::Version> {
     pool
 }
 
+/// Every height vector over `cells` cells with each height in
+/// `0..=max_height`, read as the digits of a counter in base
+/// `max_height + 1` with cell 0 least significant.
+///
+/// Paired with [`cell_event`], this enumerates every version that is constant
+/// on each cell of a uniform dyadic partition: the two-party tick grid is the
+/// two-cell, height-2 case, and the boolean cube is the four-cell, height-1
+/// case.
+///
+/// # Panics
+///
+/// If the count of vectors, `(max_height + 1)^cells`, overflows `u64`.
+pub(crate) fn cell_heights(cells: u32, max_height: u64) -> Vec<Vec<u64>> {
+    let radix = max_height + 1;
+    let count = radix
+        .checked_pow(cells)
+        .expect("an enumerable cell domain has fewer than 2^64 vectors");
+    (0..count)
+        .map(|mut code| {
+            (0..cells)
+                .map(|_| {
+                    let height = code % radix;
+                    code /= radix;
+                    height
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Builds the normal-form event tree whose height on cell `c` of the uniform
+/// dyadic partition into `heights.len()` cells is `heights[c]`.
+///
+/// The tree is built bottom-up, one level of sibling pairs at a time, through
+/// the oracle's normalizing constructor, so cells sharing a height merge into
+/// one leaf exactly as normal form requires.
+///
+/// # Panics
+///
+/// If `heights` is empty or its length is not a power of two: only those
+/// lengths tile the unit interval into uniform dyadic cells.
+pub(crate) fn cell_event(heights: &[u64]) -> tree::Version {
+    assert!(
+        heights.len().is_power_of_two(),
+        "a uniform dyadic partition has a power-of-two number of cells"
+    );
+    let mut level: Vec<tree::Version> = heights.iter().map(|&h| tree::Version::leaf(h)).collect();
+    while level.len() > 1 {
+        level = level
+            .chunks_exact(2)
+            .map(|pair| tree::Version::node(0u64, pair[0].clone(), pair[1].clone()))
+            .collect();
+    }
+    level
+        .pop()
+        .expect("pairing a power-of-two level leaves exactly one tree")
+}
+
 /// Injective preorder encoding of a (canonical) id tree, used only as a de-dup
 /// key.
 fn id_key(t: &tree::Party) -> Vec<u8> {
