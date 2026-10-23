@@ -26,16 +26,17 @@
 //! - **items** — associated consts and types, module-level consts,
 //!   statics, and macros, reconciled against the pinned
 //!   [`crate::census::ITEMS`];
-//! - **`usize` signatures** — every function-like item above, trait-impl
-//!   methods included, whose parameters, return type, or own generic
-//!   parameters mention `usize`; every impl, trait or inherent, whose header
-//!   does (its trait's arguments, implementing type, or generics); and every
-//!   module const or static, and every associated const or type of an impl or
-//!   a trait, whose type does. A `Self` inside an impl counts as its
+//! - **`usize` signatures** — every place a public `usize` can appear: a
+//!   function-like item's parameters, return type, or own generics, trait-impl
+//!   methods included; an impl's header, trait or inherent (its trait's
+//!   arguments, implementing type, or generics); a module const's or static's
+//!   type; an associated const's or type's type, in impls and traits; a public
+//!   field's type, of a struct, a union, or an enum variant's payload; and a
+//!   type definition's own generics. A `Self` inside an impl counts as its
 //!   implementing type. The rows reconcile against the pinned
 //!   [`crate::census::USIZE_SIGNATURES`]. A `usize` means something different
-//!   on a 32-bit target, so each one in a public signature is a reviewed
-//!   decision.
+//!   on a 32-bit target, so each one in a public signature or stored quantity
+//!   is a reviewed decision.
 //!
 //! `#[doc(hidden)]` items never appear in the JSON at all, so the ground
 //! truth here is the documented public surface.
@@ -44,7 +45,8 @@ use std::collections::BTreeSet;
 
 use rustdoc_types::{
     AssocItemConstraintKind, Crate, Function, GenericArg, GenericArgs, GenericBound,
-    GenericParamDefKind, Generics, Id, Item, ItemEnum, Path, Term, Type, WherePredicate,
+    GenericParamDefKind, Generics, Id, Item, ItemEnum, Path, StructKind, Term, Type, VariantKind,
+    WherePredicate,
 };
 
 #[cfg(test)]
@@ -70,9 +72,11 @@ pub(crate) struct Surface {
     ///
     /// The owner is a `functions` or `items` row; an `impls` row, alone for
     /// its header or followed by `:: method`, `:: const NAME`, or
-    /// `:: type NAME`; or `Type: inherent impl` for an inherent impl's
-    /// header. The sites are the parameters, `return`, `generics`, `header`,
-    /// or `type` that mention `usize`.
+    /// `:: type NAME`; `Type: inherent impl` for an inherent impl's header;
+    /// `Type.field` or `Enum::Variant.field` for a public field, a tuple
+    /// field named by its index; or `Type: definition` for a type
+    /// definition's generics. The sites are the parameters, `return`,
+    /// `generics`, `header`, or `type` that mention `usize`.
     pub usize_signatures: BTreeSet<String>,
 }
 
@@ -146,12 +150,39 @@ fn walk_named(
         }
         ItemEnum::Use(use_) => walk_use(krate, use_, prefix, surface, visited),
         ItemEnum::Struct(s) => {
+            let type_name = join(prefix, name.expect("a type has a name"));
+            record_usize_definition(&s.generics, &type_name, surface);
+            let fields = match &s.kind {
+                StructKind::Unit => Vec::new(),
+                StructKind::Tuple(fields) => fields.iter().flatten().copied().collect(),
+                StructKind::Plain { fields, .. } => fields.clone(),
+            };
+            record_usize_fields(krate, &fields, &type_name, surface);
             walk_type(krate, name, &s.impls, prefix, surface);
         }
         ItemEnum::Enum(e) => {
+            let type_name = join(prefix, name.expect("a type has a name"));
+            record_usize_definition(&e.generics, &type_name, surface);
+            for &variant in &e.variants {
+                let variant = item_of(krate, variant);
+                let ItemEnum::Variant(payload) = &variant.inner else {
+                    panic!("an enum's variants list must name variants, found {variant:?}");
+                };
+                let fields = match &payload.kind {
+                    VariantKind::Plain => Vec::new(),
+                    VariantKind::Tuple(fields) => fields.iter().flatten().copied().collect(),
+                    VariantKind::Struct { fields, .. } => fields.clone(),
+                };
+                let variant_name = variant.name.as_deref().expect("a variant has a name");
+                let owner = format!("{type_name}::{variant_name}");
+                record_usize_fields(krate, &fields, &owner, surface);
+            }
             walk_type(krate, name, &e.impls, prefix, surface);
         }
         ItemEnum::Union(u) => {
+            let type_name = join(prefix, name.expect("a type has a name"));
+            record_usize_definition(&u.generics, &type_name, surface);
+            record_usize_fields(krate, &u.fields, &type_name, surface);
             walk_type(krate, name, &u.impls, prefix, surface);
         }
         ItemEnum::Function(function) => {
@@ -400,6 +431,38 @@ fn record_usize_signature(
         surface
             .usize_signatures
             .insert(format!("{row}: usize in {}", sites.join(", ")));
+    }
+}
+
+/// Record a public field's `usize` row, `owner.field: usize in type`, for
+/// each of `fields` whose type mentions `usize`.
+///
+/// The owner is a struct or union path, or an enum variant's `Enum::Variant`;
+/// a tuple field's name is its index. Rustdoc's public JSON strips private
+/// fields, so every field listed here is public.
+fn record_usize_fields(krate: &Crate, fields: &[Id], owner: &str, surface: &mut Surface) {
+    for &field in fields {
+        let field = item_of(krate, field);
+        let ItemEnum::StructField(type_) = &field.inner else {
+            panic!("a fields list must name struct fields, found {field:?}");
+        };
+        if mentions_usize([Node::Type(type_)], None) {
+            let field_name = field.name.as_deref().expect("a field has a name");
+            surface
+                .usize_signatures
+                .insert(format!("{owner}.{field_name}: usize in type"));
+        }
+    }
+}
+
+/// Record a type definition's `usize` row, `Type: definition: usize in
+/// generics`, when its own generic parameters or where clauses mention
+/// `usize`.
+fn record_usize_definition(generics: &Generics, type_name: &str, surface: &mut Surface) {
+    if mentions_usize(generics_nodes(generics), None) {
+        surface
+            .usize_signatures
+            .insert(format!("{type_name}: definition: usize in generics"));
     }
 }
 

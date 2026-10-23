@@ -19,8 +19,10 @@
 //! - `usize` signatures: `owner: usize in sites`. The owner is a function or
 //!   item row (`Type::method`, `Type::NAME`); a trait impl row, alone for its
 //!   header or followed by `:: method`, `:: const NAME`, or `:: type NAME`;
-//!   or `Type: inherent impl` for an inherent impl's header. The sites are
-//!   `parameter name`, `return`, `generics`, `header`, or `type`.
+//!   `Type: inherent impl` for an inherent impl's header; `Type.field` or
+//!   `Enum::Variant.field` for a public field, a tuple field named by its
+//!   index; or `Type: definition` for a type definition's generics. The sites
+//!   are `parameter name`, `return`, `generics`, `header`, or `type`.
 //!
 //! The feature-gated instrument trees carry no pins here: the module
 //! exceptions in [`crate::check`] cover them, with the ruling of record
@@ -487,11 +489,13 @@ pub(crate) const TRAIT_IMPLS: &[&str] = &[
 /// macro outside the module-excepted trees.
 pub(crate) const ITEMS: &[&str] = &["Rank::ZERO", "Count::ZERO", "for_each_law_group"];
 
-/// Every signature outside the module-excepted trees that mentions `usize`.
+/// Every place outside the module-excepted trees where a public `usize`
+/// appears.
 ///
-/// A signature is a function-like item's parameters, return type, or
-/// generics; an impl's header; or the type of a module const or static, or of
-/// an associated const or type.
+/// The places are a function-like item's parameters, return type, or
+/// generics; an impl's header; the type of a module const or static, of an
+/// associated const or type, or of a public struct, union, or variant field;
+/// and a type definition's generics.
 ///
 /// A `usize` changes meaning with the target's pointer width, so each row is
 /// a reviewed decision that its `usize` indexes into memory or counts what
@@ -510,12 +514,14 @@ pub(crate) const USIZE_SIGNATURES: &[&str] = &[
     "Party: impl core::convert::From<Party> for [Party; N]: usize in header",
     "iter::ClockForks: impl core::iter::traits::iterator::Iterator for ClockForks :: size_hint: usize in return",
     "iter::PartyForks: impl core::iter::traits::iterator::Iterator for PartyForks :: size_hint: usize in return",
+    "shape::Cell: definition: usize in generics",
     "shape::Cell: impl core::clone::Clone for Cell<N>: usize in header",
     "shape::Cell: impl core::cmp::Eq for Cell<N>: usize in header",
     "shape::Cell: impl core::cmp::PartialEq for Cell<N>: usize in header",
     "shape::Cell: impl core::fmt::Debug for Cell<N>: usize in header",
     "shape::Cell: impl core::hash::Hash for Cell<N>: usize in header",
     "shape::Cell: impl core::marker::StructuralPartialEq for Cell<N>: usize in header",
+    "shape::Cells: definition: usize in generics",
     "shape::Cells: impl core::iter::traits::iterator::Iterator for Cells<N> :: size_hint: usize in return",
     "shape::Cells: impl core::iter::traits::iterator::Iterator for Cells<N>: usize in header",
     "shape::Cells: impl core::iter::traits::marker::FusedIterator for Cells<N>: usize in header",

@@ -12,11 +12,12 @@
 //!   trait family;
 //! - associated consts and types, module consts, statics, and macros: a
 //!   pinned row in [`census::ITEMS`], reconciled the same way;
-//! - signatures that mention `usize`, of function-like items (trait-impl
-//!   methods included), impl headers, module consts and statics, and
-//!   associated consts and types: a
-//!   pinned row in [`census::USIZE_SIGNATURES`], reconciled the same way, so
-//!   every `usize` in a public signature is reviewed for its meaning on
+//! - every place a public `usize` appears, in a function-like item's
+//!   signature (trait-impl methods included), an impl header, a const's,
+//!   static's, or associated item's type, a public field of a struct, union,
+//!   or enum variant, or a type definition's generics: a pinned row in
+//!   [`census::USIZE_SIGNATURES`], reconciled the same way, so every `usize`
+//!   in a public signature or stored quantity is reviewed for its meaning on
 //!   32-bit targets.
 //!
 //! Exit status is the verdict: zero with a one-line census on a clean
