@@ -8,11 +8,11 @@
 //! [`crate::testing::generators::co_generated`] build the two operands together
 //! and reach the intricate state instead: lookahead sites nested many levels
 //! deep, ranges holding several sites, pre-scans that reserve more than one
-//! memo block, and several such pre-scans in one walk. Each case supplies three
-//! versions for its party to tick ([`TickCase::versions`]): the drawn version,
-//! its fill-fixed successor, and a late perturbation of that successor. So the
-//! groups' tick laws meet ticks that fill and ticks that grow, where the walk's
-//! state is richest.
+//! memo block by width or by nesting, and several such pre-scans in one walk.
+//! Each case supplies three versions for its party to tick
+//! ([`TickCase::versions`]): the drawn version, its fill-fixed successor, and a
+//! late perturbation of that successor. So the groups' tick laws meet ticks
+//! that fill and ticks that grow, where the walk's state is richest.
 //!
 //! Each property runs the configured case count divided by its strategy's
 //! divisor, which reflects what one case costs; the co-generator's census
@@ -71,8 +71,8 @@ macro_rules! co_generated_group_drivers {
 
             use super::assert_case_laws;
             use crate::testing::generators::co_generated::{
-                arb_multi_scan_case, arb_spine_case, arb_wide_case, MULTI_SCAN_CASE_DIVISOR,
-                WIDE_CASE_DIVISOR,
+                arb_deep_spine_case, arb_multi_scan_case, arb_spine_case, arb_wide_case,
+                DEEP_SPINE_CASE_DIVISOR, MULTI_SCAN_CASE_DIVISOR, WIDE_CASE_DIVISOR,
             };
             use crate::testing::generators::divided_config;
             use crate::testing::laws;
@@ -83,6 +83,17 @@ macro_rules! co_generated_group_drivers {
                 /// sites in small side regions.
                 #[test]
                 fn spines(case in arb_spine_case()) {
+                    assert_case_laws(laws::$group, &case)?;
+                }
+            }
+
+            proptest! {
+                #![proptest_config(divided_config(DEEP_SPINE_CASE_DIVISOR))]
+                /// Every law in the group holds on co-generated spines a few
+                /// hundred levels deep, whose outermost pre-scan usually spans
+                /// more than one memo block through nested sites alone.
+                #[test]
+                fn deep_spines(case in arb_deep_spine_case()) {
                     assert_case_laws(laws::$group, &case)?;
                 }
             }

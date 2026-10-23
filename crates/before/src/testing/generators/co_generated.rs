@@ -24,6 +24,7 @@
 //! | Strategy | What it reaches |
 //! |---|---|
 //! | [`arb_spine_case`] | long chains of nested sites, and ranges holding several sites |
+//! | [`arb_deep_spine_case`] | chains of nested sites longer than one memo block holds |
 //! | [`arb_wide_case`] | one pre-scan that reserves more than one memo block |
 //! | [`arb_multi_scan_case`] | several such pre-scans in one walk, reusing memo blocks |
 //!
@@ -32,8 +33,8 @@
 //! construction. The census in this module's tests holds a liveness floor
 //! under each strategy's regime.
 //!
-//! A wide or multi-scan case costs many spine cases, so their properties run
-//! a fraction of the configured case count, set by
+//! A wide, multi-scan, or deep spine case costs many spine cases, so their
+//! properties run a fraction of the configured case count, set by
 //! [`divided_config`](super::divided_config).
 
 mod tests;
@@ -59,8 +60,33 @@ pub(crate) const WIDE_CASE_DIVISOR: u32 = 6;
 /// machine.
 pub(crate) const MULTI_SCAN_CASE_DIVISOR: u32 = 12;
 
-/// Exclusive bound on the number of levels in [`arb_spine_case`]'s spine.
-const SPINE_LEVELS: usize = 48;
+/// The case-count divisor for properties over [`arb_deep_spine_case`].
+///
+/// A deep spine case holds ten times a spine case's levels on average
+/// ([`DEEP_SPINE_LEVELS`] against [`SPINE_LEVELS`]), and checking it costs
+/// about ten times as much.
+pub(crate) const DEEP_SPINE_CASE_DIVISOR: u32 = 10;
+
+/// The level counts [`arb_spine_case`] draws for its spine.
+const SPINE_LEVELS: Range<usize> = 1..48;
+
+/// The level counts [`arb_deep_spine_case`] draws for its spine.
+///
+/// A level nests a site inside the one above when it continues right
+/// ([`SPINE_CONTINUES_RIGHT`]) and its side resolves to a wholly owned party.
+/// An owned side always does, and so do bushy sides whose regions are all
+/// owned and over-leaf sides whose two parties are both owned. The owned arm's
+/// share alone makes at least three levels in ten nest a site, so most spines
+/// in this range nest more sites than one memo block
+/// ([`BLOCK_SLOTS`](crate::version::tick::BLOCK_SLOTS)) holds.
+///
+/// The recursive oracle's unguarded tick, which computes each case's
+/// fill-fixed successor, recurses once per tree level, and a deep case is
+/// about as deep as its spine: a side region or the tip adds only a few
+/// levels. So the deepest case keeps the oracle within a few hundred native
+/// frames, the envelope in which the oracle differentials already run
+/// [`leaf_list`](super::leaf_list)'s deep versions.
+const DEEP_SPINE_LEVELS: Range<usize> = 160..320;
 
 /// Probability that a spine level continues into its right child.
 ///
@@ -152,10 +178,20 @@ fn aligned((left, right): (Region, Region)) -> Region {
     Region::Aligned(Box::new(left), Box::new(right))
 }
 
-/// Co-generated cases over a spine of up to [`SPINE_LEVELS`] levels, each
-/// placing a side region beside the rest of the spine.
+/// Co-generated cases over a spine of [`SPINE_LEVELS`] levels, each placing a
+/// side region beside the rest of the spine.
 pub(crate) fn arb_spine_case() -> impl Strategy<Value = TickCase> {
-    arb_case(arb_spine_region())
+    arb_case(arb_spine_region(SPINE_LEVELS))
+}
+
+/// Co-generated cases over a spine of [`DEEP_SPINE_LEVELS`] levels, built as
+/// [`arb_spine_case`] builds its spines.
+///
+/// Most draws nest more lookahead sites than one memo block holds, so the
+/// outermost site's pre-scan reserves more than one block by nesting alone,
+/// where [`arb_wide_case`] does it by width.
+pub(crate) fn arb_deep_spine_case() -> impl Strategy<Value = TickCase> {
+    arb_case(arb_spine_region(DEEP_SPINE_LEVELS))
 }
 
 /// Co-generated cases whose one outermost lookahead site covers a balanced tree
@@ -267,14 +303,14 @@ fn arb_bushy_region(depth: u32, regions: u32) -> impl Strategy<Value = Region> {
     })
 }
 
-/// A spine of co-generated levels folded around a small bushy tip.
+/// A spine of `levels` co-generated levels folded around a small bushy tip.
 ///
 /// Each level continues into its right child with probability
 /// [`SPINE_CONTINUES_RIGHT`] and places a side region on the other side:
 /// owned, unowned, a party branch over a leaf, or a small bushy region.
 /// Consecutive owned left sides nest lookahead sites along the spine, and a
 /// small bushy side beside a site's range puts a second site into that range.
-fn arb_spine_region() -> impl Strategy<Value = Region> {
+fn arb_spine_region(levels: Range<usize>) -> impl Strategy<Value = Region> {
     let side = prop_oneof![
         4 => arb_skeleton(2).prop_map(Region::Owned),
         2 => arb_skeleton(2).prop_map(Region::Unowned),
@@ -284,7 +320,7 @@ fn arb_spine_region() -> impl Strategy<Value = Region> {
     ];
     let level = (proptest::bool::weighted(SPINE_CONTINUES_RIGHT), side);
     (
-        proptest::collection::vec(level, 1..SPINE_LEVELS),
+        proptest::collection::vec(level, levels),
         arb_bushy_region(2, 4),
     )
         .prop_map(|(levels, tip)| {
