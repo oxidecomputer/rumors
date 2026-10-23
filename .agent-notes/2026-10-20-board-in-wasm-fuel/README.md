@@ -2,9 +2,11 @@
 
 # Running `before`'s amplification board in wasm under fuel (deferred)
 
-**Status: built, under review** (owner, 2026-10-20). The branch
-`audit/board-fuel` adds fuel as the board's time currency; its builder's
-report is [`build-report.md`](build-report.md). The audit tracks it.
+**Status: landed** on `main` as `86d101a71` (2026-10-23), after two review
+rounds and a recalibration at `main`. Fuel is the board's time currency, with
+one heap and one fuel ceiling per cell; the gate's `board-fuel` stream and
+the audit's landing check judge it. The builder's report is
+[`build-report.md`](build-report.md).
 
 ## The idea
 
