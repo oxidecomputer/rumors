@@ -429,14 +429,34 @@ impl SparseOp {
     }
 }
 
-/// One refinement cell's draws in a decomposition: how far the partner sits
-/// from the target, and which operand holds the target.
+/// Which result of a decomposed pair equals the target.
+#[derive(Clone, Copy, Debug)]
+enum Decomposition {
+    /// The pair's join is the target: off-target cells sit below it.
+    Join,
+    /// The pair's meet is the target: off-target cells sit above it.
+    Meet,
+}
+
+/// Which operand of a decomposed pair holds the target on one cell.
+#[derive(Clone, Copy, Debug)]
+enum Holder {
+    /// The first operand holds the target, and the second sits off it.
+    First,
+    /// The second operand holds the target, and the first sits off it.
+    Second,
+    /// Both operands hold the target.
+    Both,
+}
+
+/// One refinement cell's draws in a decomposition: how far the operand off
+/// the target sits from it, and which operand holds the target.
 #[derive(Clone, Debug)]
-struct Split {
-    /// The partner's distance from the target.
+struct CellDraw {
+    /// The off-target operand's distance from the target.
     delta: BigUint,
-    /// Which operand holds the target: the first, the second, or both.
-    holder: u8,
+    /// Which operand holds the target.
+    holder: Holder,
 }
 
 impl Size {
@@ -476,11 +496,15 @@ impl Size {
             SparseOp::Join,
             SparseOp::Meet,
         ]);
-        let split = (
+        let draw = (
             prop_oneof![(1u8..4).prop_map(BigUint::from), arb_boundary_level(widest)],
-            0u8..3,
+            prop_oneof![
+                Just(Holder::First),
+                Just(Holder::Second),
+                Just(Holder::Both)
+            ],
         )
-            .prop_map(|(delta, holder)| Split { delta, holder });
+            .prop_map(|(delta, holder)| CellDraw { delta, holder });
         prop_oneof![
             2 => (self.arb_version(), self.arb_sparse(), op, any::<bool>()).prop_map(
                 |(list, sparse, op, swap)| {
@@ -493,30 +517,31 @@ impl Size {
             2 => (
                 self.arb_version(),
                 self.arb_topology(),
-                proptest::collection::vec(split, 1..=32),
-                any::<bool>(),
+                proptest::collection::vec(draw, 1..=32),
+                prop_oneof![Just(Decomposition::Join), Just(Decomposition::Meet)],
             )
-                .prop_map(|(target, partition, splits, upper)| {
-                    decompose(&target, &partition.depths(), &splits, upper)
+                .prop_map(|(target, partition, draws, decomposition)| {
+                    decompose(&target, &partition.depths(), &draws, decomposition)
                 }),
         ]
         .boxed()
     }
 }
 
-/// Two operands whose join, or meet when `upper` is false, is exactly the
+/// Two operands whose join or meet, as `decomposition` says, is exactly the
 /// target.
 ///
-/// On each cell of the target's refinement by `partition`, one operand holds
-/// the target's height and the other sits `delta` below it (stopping at
-/// zero) for a join, or `delta` above it for a meet, or both hold it. The
+/// On each cell of the target's refinement by `partition`, the next draw,
+/// cycled, says which operand holds the target's height; the other sits
+/// `delta` below it (stopping at zero) for a join, or `delta` above it for a
+/// meet, unless both hold it. The
 /// result therefore collapses back to the target's leaves wherever the
 /// target is flat, while each operand keeps the partition's structure.
 fn decompose(
     target: &LeafList,
     partition: &[u64],
-    splits: &[Split],
-    upper: bool,
+    draws: &[CellDraw],
+    decomposition: Decomposition,
 ) -> (LeafList, LeafList) {
     let target_depths: Vec<u64> = target.leaves.iter().map(|leaf| leaf.depth).collect();
     let cells = flat::refine(&[target_depths, partition.to_vec()]);
@@ -524,17 +549,17 @@ fn decompose(
         Vec::with_capacity(cells.len()),
         Vec::with_capacity(cells.len()),
     );
-    for (cell, split) in cells.iter().zip(splits.iter().cycle()) {
+    for (cell, draw) in cells.iter().zip(draws.iter().cycle()) {
         let height = &target.leaves[cell.leaves[0]].height;
-        let partner = match upper {
-            true if *height > split.delta => height - &split.delta,
-            true => BigUint::ZERO,
-            false => height + &split.delta,
+        let off = match decomposition {
+            Decomposition::Join if *height > draw.delta => height - &draw.delta,
+            Decomposition::Join => BigUint::ZERO,
+            Decomposition::Meet => height + &draw.delta,
         };
-        let (a, b) = match split.holder {
-            0 => (height.clone(), partner),
-            1 => (partner, height.clone()),
-            _ => (height.clone(), height.clone()),
+        let (a, b) = match draw.holder {
+            Holder::First => (height.clone(), off),
+            Holder::Second => (off, height.clone()),
+            Holder::Both => (height.clone(), height.clone()),
         };
         first.push(Leaf {
             depth: cell.depth,
