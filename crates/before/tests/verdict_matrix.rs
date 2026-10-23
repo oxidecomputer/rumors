@@ -367,6 +367,8 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
         FamilyId::CrossPrefixComb => (vec![Shape::CrossPrefixComb.build1(2).version()], vec![]),
         // A comb above a wide outer minimum, on its own prefix.
         FamilyId::SamePrefixComb => (vec![Shape::SamePrefixComb.build1(2).version()], vec![]),
+        // A rank two digits above its units digit over a sparse fraction.
+        FamilyId::BelowRunSpine => (vec![Shape::BelowRunSpine.build1(1).version()], vec![]),
     };
     MatrixOperands { versions, masks }
 }

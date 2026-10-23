@@ -23,8 +23,8 @@ use super::{
     PROMOTION_REARM_ARM_BITS,
 };
 use super::{
-    cross_prefix_comb, gap_filling_height, rank_tie, same_prefix_comb, sparse_fill, sparse_height,
-    sparse_oscillation,
+    below_run_spine, cross_prefix_comb, gap_filling_height, rank_tie, same_prefix_comb,
+    sparse_fill, sparse_height, sparse_oscillation,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -1391,5 +1391,23 @@ proptest! {
         prop_assert_eq!(plateaus, plateaus_of(&leaves));
     }
 
-
+    /// `BR(m)` is canonical normal form at exactly `258m + 260` bits, and its
+    /// rank is `2^64 + Σ 2^(−32i)` over odd `i` up to `2m + 1`.
+    ///
+    /// That rank has a units digit and the digit above it zero under a top
+    /// digit of 1, over a fraction whose nonzero digits alternate with zero
+    /// ones.
+    #[test]
+    fn below_run_spine_ranks_two_digits_above_its_units_over_a_sparse_fraction(
+        m in 0usize..=6,
+    ) {
+        let shape = below_run_spine(m);
+        check_version(&shape, 258 * m + 260);
+        let depth = 32 * (2 * m + 1);
+        let fraction = (0..=2 * m)
+            .step_by(2)
+            .fold(BigUint::ZERO, |sum, i| sum + (BigUint::ONE << (32 * i)));
+        let numerator = (BigUint::ONE << (64 + depth)) + fraction;
+        prop_assert_eq!(shape.version().rank(), Rank::from_raw(numerator, depth as u64));
+    }
 }

@@ -7,7 +7,7 @@ use super::{FamilyId, Shape};
 /// Every shape constructor, for the citation pin below.
 ///
 /// The complete shape set used to check registry citations.
-const ALL_SHAPES: [Shape; 77] = [
+const ALL_SHAPES: [Shape; 78] = [
     Shape::Dense,
     Shape::Bigroot,
     Shape::Hugeleaf,
@@ -85,6 +85,7 @@ const ALL_SHAPES: [Shape; 77] = [
     Shape::RankTie,
     Shape::CrossPrefixComb,
     Shape::SamePrefixComb,
+    Shape::BelowRunSpine,
 ];
 
 /// The roster array and the per-variant index agree: every family sits in

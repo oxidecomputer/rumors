@@ -314,6 +314,13 @@ const SPARSE_HEIGHT_BASE_DIGITS: usize = 64;
 /// that remainder fixed across the level doubling.
 const WIDE_OFFSET_COMB_BASE_TEETH: usize = 256;
 
+/// Below-run spine fraction digits `m` at the default scale.
+///
+/// The spine's depth, `32(2m + 1)`, is its rank's exponent, a multiple of 32
+/// at every size, so `rank_sum`'s small summands land at one bit remainder
+/// across the ladder.
+const BELOW_RUN_BASE_DIGITS: usize = 256;
+
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
 ///
@@ -1257,6 +1264,13 @@ impl FamilyData {
                 kind,
                 Shape::SamePrefixComb
                     .build1(size(WIDE_OFFSET_COMB_BASE_TEETH))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::BelowRunSpine => Self::event(
+                kind,
+                Shape::BelowRunSpine
+                    .build1(size(BELOW_RUN_BASE_DIGITS))
                     .version()
                     .encode(),
             ),

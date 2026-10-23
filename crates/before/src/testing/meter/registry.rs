@@ -225,6 +225,8 @@ pub enum Shape {
     CrossPrefixComb,
     /// The same-prefix wide-offset comb `CS(k)`: [`Shape::build1`]`(k)`.
     SamePrefixComb,
+    /// The below-run spine `BR(m)`: [`Shape::build1`]`(m)`.
+    BelowRunSpine,
 }
 
 /// A registered constructor's signature class, binding one [`Shape`] to
@@ -348,6 +350,7 @@ impl Shape {
             Shape::RankTie => Builder::Pair2(super::rank_tie),
             Shape::CrossPrefixComb => Builder::P1(super::cross_prefix_comb),
             Shape::SamePrefixComb => Builder::P1(super::same_prefix_comb),
+            Shape::BelowRunSpine => Builder::P1(super::below_run_spine),
         }
     }
 
@@ -1009,6 +1012,15 @@ pub enum FamilyId {
     /// the wide outer minimum and the records measured from one height
     /// reference. Designed against `min_ticks`.
     SamePrefixComb,
+    /// The below-run spine `BR(m)`: a version whose rank tops out two digits
+    /// above its units digit over a fraction with a zero digit between each
+    /// pair of nonzero digits.
+    ///
+    /// Summing that rank first leaves its accumulator's written-position set
+    /// in bitset form with its run at the top digit, so each small integer
+    /// the `rank_sum` row adds after it writes below the run, into the
+    /// bitset. Designed against `Rank`'s `Sum`.
+    BelowRunSpine,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -1056,7 +1068,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 66] = [
+    pub const ALL: [FamilyId; 67] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1123,6 +1135,7 @@ impl FamilyId {
         FamilyId::SparseFill,
         FamilyId::CrossPrefixComb,
         FamilyId::SamePrefixComb,
+        FamilyId::BelowRunSpine,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1482,6 +1495,11 @@ impl FamilyId {
             FamilyId::SamePrefixComb => FamilySpec {
                 name: "same-prefix-comb",
                 shapes: &[Shape::SamePrefixComb],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::BelowRunSpine => FamilySpec {
+                name: "below-run-spine",
+                shapes: &[Shape::BelowRunSpine],
                 cells: VERSION_BUNDLE_CELLS,
             },
         }

@@ -4090,6 +4090,56 @@ fn same_prefix_comb(k: usize) -> Encoding {
     Encoding::from_bits(bits)
 }
 
+/// The integer part's lift in [`below_run_spine`]: `2^64`, whose one nonzero
+/// 32-bit digit sits two digits above the units digit.
+const BELOW_RUN_LIFT_BITS: usize = 64;
+
+/// The below-run spine `BR(m)`: a right spine of depth `D = 32(2m + 1)`
+/// under a root lifted by `2^64`, whose left leaf at every depth `32i`, `i`
+/// odd, sits one tick above the rest, in exactly `258m + 260` bits.
+///
+/// Its rank is `2^64 + Σ 2^(−32i)` over odd `i` from 1 to `2m + 1`: an
+/// integer part whose one nonzero digit sits two digits above the units
+/// digit, over a fraction with a nonzero digit at every other position.
+/// `Rank`'s `Sum` deposits a first summand of that rank as separate writes,
+/// one per fraction digit, which takes its accumulator's written-position
+/// set into bitset form and leaves the set's run at the top digit alone. A
+/// small integer summand after it then lands on the units digit: below the
+/// run, inside a gap of the bitset, the costliest path a single summand's
+/// write takes through the set. The board's `rank_sum` row adds one small
+/// integer per encoded byte after the family's rank, so it takes that path
+/// once per summand. Designed against `Rank`'s `Sum`.
+///
+/// Layout: the root `"1" · gamma(2^64)` (130 bits); then, for each depth `l`
+/// from 1 to `D − 1`, the leaf at depth `l` (`"0010"`, height `2^64 + 1`,
+/// where `l` is an odd multiple of 32; `"01"` otherwise) and the spine node
+/// below it, `"11"`; then the deepest node's leaves `"0010"` and `"01"`.
+/// Normal form: every internal node has a child of base 0, and the deepest
+/// node's two leaves differ.
+///
+/// # Panics
+///
+/// Panics if `m` is so large that `D` overflows a `usize`.
+fn below_run_spine(m: usize) -> Encoding {
+    let depth = m
+        .checked_mul(2)
+        .and_then(|twice| twice.checked_add(1))
+        .and_then(|odd| odd.checked_mul(32))
+        .expect("the below-run spine's depth fits a usize");
+    let lifted = |level: usize| level.is_multiple_of(32) && !(level / 32).is_multiple_of(2);
+    let mut bits = BitsWriter::with_capacity((258 * m + 260) as u64);
+    bits.push(true); // the root, lifted by 2^64
+    bits.write_gamma(&pow2(BELOW_RUN_LIFT_BITS));
+    for level in 1..depth {
+        ev_leaf(&mut bits, u64::from(lifted(level))); // the left leaf at `level`
+        bits.push(true); // the spine node at `level`
+        bits.write_gamma(&BigUint::ZERO);
+    }
+    ev_leaf(&mut bits, 1); // the deepest left leaf: `D` is an odd multiple of 32
+    ev_leaf(&mut bits, 0);
+    Encoding::from_bits(bits)
+}
+
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.
 fn pow2_minus_1(b: usize) -> BigUint {
     pow2(b) - &BigUint::from(1u8)
