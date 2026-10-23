@@ -20,16 +20,17 @@
 //!
 //! [`Grid::order_view`] then keeps only what the causal order reads. On each
 //! cell it replaces every height by its rank among the heights the pool takes
-//! there, and it merges cells on which every pool version has the same rank.
-//! The result is one [`Heights`] per pool version, a vector of small
-//! integers. The two steps preserve every answer the census needs: a join or
-//! meet of pool versions takes, on each cell, one of the pool's heights
-//! there, ranking is a monotone bijection on those heights that commutes
-//! with maximum and minimum, and merged cells carry equal values in every
-//! join and meet of pool versions. So for any two versions built from the
-//! pool by joins and meets, the ranked vectors compare, and are equal,
-//! exactly as the versions do. The census's cost therefore depends on the
-//! pool's size, not on its depth or the width of its heights.
+//! there, and it merges cells whose rank columns are identical, that is, cells
+//! on which every pool version takes one rank throughout. The result is one
+//! [`Heights`] per pool version, a vector of small integers. The two steps
+//! preserve every answer the census needs: a join or meet of pool versions
+//! takes, on each cell, one of the pool's heights there, ranking is a monotone
+//! bijection on those heights that commutes with maximum and minimum, and
+//! merged cells carry equal values in every join and meet of pool versions. So
+//! for any two versions built from the pool by joins and meets, the ranked
+//! vectors compare, and are equal, exactly as the versions do. The census's
+//! cost therefore depends on the pool's size, not on its depth or the width of
+//! its heights.
 //!
 //! # The census
 //!
@@ -57,12 +58,13 @@
 //!   up-closed `H`, has `hi` above it, so `hi` is rejected.
 //! - Let `t` be `hi` met with every upper bound. An admitted covered version
 //!   `v` lies at or below `t`. The meet of `hi` and the upper bounds' clamps
-//!   is `lo ∨ t` by distributivity, and `lo ∨ t` is `t` because
-//!   `lo <= v <= t`, so `t` is a meet of generators. When `H` is
-//!   down-closed, `t` is admitted: it lies in `U` above `v`, in `D`, and
-//!   outside `H`, which would hold `v` if it held `t`. When `H` is
-//!   up-closed, the dual point, `lo` joined with every lower bound, is
-//!   admitted, and it is a join of generators.
+//!   is `lo ∨ t` by distributivity, which holds pointwise for height vectors
+//!   as the laws `meet_distributes_over_join` and `join_distributes_over_meet`
+//!   state for versions, and `lo ∨ t` is `t` because `lo <= v <= t`, so `t` is
+//!   a meet of generators. When `H` is down-closed, `t` is admitted: it lies
+//!   in `U` above `v`, in `D`, and outside `H`, which would hold `v` if it
+//!   held `t`. When `H` is up-closed, the dual point, `lo` joined with every
+//!   lower bound, is admitted, and it is a join of generators.
 //!
 //! The census never learns which anchors are upper bounds, lower bounds, or
 //! holes: the set holds every meet and join of generators, so it holds the
@@ -84,12 +86,14 @@ use crate::causally::Coverage;
 
 mod tests;
 
-/// The most members a census may hold before it gives up.
+/// The most members either half of a census set, its meets or its joins,
+/// may hold; past it the census panics.
 ///
-/// The census set holds every meet and every join of a set of generators,
-/// so `g` generators can span up to `2^(g+1)` members. The worlds the
-/// census tests draw stay far below this; a world that reaches it is too
-/// large to judge exactly, and the census panics rather than skipping it.
+/// Each half holds the combination of every nonempty subset of `g`
+/// generators, so it can reach `2^g − 1` members, and the whole set twice
+/// that. The pools the census tests draw stay far below the cap; a pool
+/// that reaches it is too large to judge exactly, and the census panics
+/// rather than skipping it.
 pub(crate) const CENSUS_CAP: usize = 1 << 16;
 
 /// A pool of flat versions read on their common refinement.
@@ -126,11 +130,12 @@ impl Grid {
     /// The pool reduced to what the causal order reads: one [`Heights`] per
     /// pool version, in pool order.
     ///
-    /// On each cell, every height becomes its rank among the distinct
-    /// heights the pool takes there, and cells on which every pool version
-    /// has the same rank merge into one. The module docs give the argument
-    /// that order, equality, join, and meet survive the reduction for every
-    /// version built from the pool by joins and meets.
+    /// On each cell, every height becomes its rank among the distinct heights
+    /// the pool takes there, and cells whose rank columns are identical, so
+    /// that each pool version takes the same rank on all of them, merge into
+    /// one. The module docs give the argument that order, equality, join, and
+    /// meet survive the reduction for every version built from the pool by
+    /// joins and meets.
     pub(crate) fn order_view(&self) -> Vec<Heights> {
         let mut seen: HashSet<Vec<u64>> = HashSet::new();
         let mut columns: Vec<Vec<u64>> = Vec::new();
@@ -234,7 +239,7 @@ pub(crate) fn classify(admitted: usize, members: usize) -> Coverage {
 ///
 /// # Panics
 ///
-/// Panics if the set would exceed [`CENSUS_CAP`] members.
+/// Panics if the combinations would exceed [`CENSUS_CAP`] members.
 fn closure(items: &[Heights], combine: impl Fn(&Heights, &Heights) -> Heights) -> Vec<Heights> {
     let mut seen: HashSet<Heights> = HashSet::new();
     let mut members: Vec<Heights> = Vec::new();
@@ -245,7 +250,7 @@ fn closure(items: &[Heights], combine: impl Fn(&Heights, &Heights) -> Heights) -
                 members.push(member);
                 assert!(
                     members.len() <= CENSUS_CAP,
-                    "a census set passed {CENSUS_CAP} members: the world is too large to judge"
+                    "a census closure passed {CENSUS_CAP} members: the pool is too large to judge"
                 );
             }
         }
@@ -266,7 +271,8 @@ fn closure(items: &[Heights], combine: impl Fn(&Heights, &Heights) -> Heights) -
 /// # Panics
 ///
 /// Panics if `lo` does not lie at or below `hi`, if the vectors do not share
-/// a partition, or if the census set would exceed [`CENSUS_CAP`] members.
+/// a partition, or if the meets or the joins of the generators would exceed
+/// [`CENSUS_CAP`] members.
 pub(crate) fn census<'h>(
     lo: &Heights,
     hi: &Heights,

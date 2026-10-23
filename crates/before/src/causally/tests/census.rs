@@ -2,8 +2,8 @@
 //!
 //! The parent module's exact-coverage tests enumerate complete grids of
 //! shallow versions with small heights, whose antichains are narrow. This
-//! module judges queries over pools of deep versions with wide heights,
-//! whose holes form antichains of three to eight, against
+//! module judges queries over pools of deep versions with wide heights, and
+//! queries whose holes form antichains wider than a small grid holds, against
 //! [`census`](crate::testing::oracles::flat::census), which counts a finite
 //! set of covered versions holding a witness for every verdict. The pools
 //! are flat versions; production meets them only through the independent
@@ -163,7 +163,7 @@ fn arb_clauses(
         .prop_map(|(bounds, down, up)| Clauses { bounds, down, up })
 }
 
-/// The pool indices a clause strategy draws for the deep worlds, reduced
+/// The pool indices a clause strategy draws for the deep pools, reduced
 /// modulo each pool's size by [`selected`].
 const POOL_PICKS: Range<usize> = 0..64;
 
@@ -183,8 +183,12 @@ struct Sites {
     depths: Vec<u64>,
 }
 
-/// The path lengths [`arb_sites`] draws: deep enough that most sites lie
-/// past depth 32, where a cell's width is finer than a 32-bit fraction.
+/// The path lengths [`arb_sites`] draws, long enough that sites often lie
+/// past depth 32, where a cell is narrower than a 32-bit fraction resolves.
+///
+/// Each site's depth is uniform along a path of uniform length, so about
+/// half of all sites lie that deep; the floor census checks that the
+/// antichain cases keep placing one there.
 const SITE_PATH: RangeInclusive<usize> = 3..=160;
 
 impl Sites {
@@ -303,7 +307,7 @@ fn arb_amounts(count: usize) -> impl Strategy<Value = Vec<BigUint>> {
     proptest::collection::vec(amount, count)
 }
 
-// ─────────────────────────────── worlds ───────────────────────────────
+// ─────────────────────────────── cases ───────────────────────────────
 
 /// A pool of flat versions and the clauses of one neutral, one downward,
 /// and one upward query over it.
@@ -719,10 +723,12 @@ proptest! {
     /// thousands of bits, every pairwise join and meet, and an antichain of
     /// one to three bumps of the first version at cells to depth 160. Each
     /// query conjoins up to five inclusive bounds and, at a polarity, one to
-    /// five forms of it in every public spelling, anchored anywhere in the
-    /// pool and conjoined in a drawn operand order. Membership is checked on
-    /// every pool version, and coverage on every segment between two, over
-    /// the pool's own buffers and over separate copies.
+    /// five forms of it, each in a drawn public spelling, so every spelling
+    /// appears across cases. The forms are anchored anywhere in the pool and
+    /// conjoined in a drawn operand order. Membership is checked on every
+    /// pool version, and coverage on every segment between two, both over
+    /// the pool's own buffers and with the segment's top from a separate
+    /// copy.
     #[test]
     fn deep_queries_cover_exactly(case in arb_query_case()) {
         assert_case(&case)?;

@@ -153,19 +153,19 @@
 //! wrong answer on an input too deep for the function space to scan. It
 //! alone judges exact fork shares at counts wider than a machine word.
 //!
-//! **The coverage census** ([`super::oracles::flat::census`]). Exact
-//! coverage of a segment by a causal query, decided by counting a finite set
-//! of covered versions that provably holds a witness for every verdict: the
-//! segment's endpoints and every meet and join of the query's anchors
-//! clamped into it, read off the flat model's common refinement and reduced
-//! to the order of their heights. A brute force over every version small
-//! segments cover checks that set. The census never learns which anchor is a
-//! bound or a hole, and shares no code with production's comparison, fused
-//! walks, or endpoint refinement. What it alone catches: **coverage errors
-//! off a complete grid** — a wrong verdict for a query whose holes form an
-//! antichain of three or more, or whose operands are deep or wide, where the
-//! grid-enumerating exact checks have no versions and no other committed
-//! check judges a holed query's coverage exactly.
+//! **The coverage census** ([`super::oracles::flat::census`]). Exact coverage
+//! of a segment by a causal query, decided by counting a finite set of covered
+//! versions that provably holds a witness for every verdict: the segment's
+//! endpoints and every meet and join of the query's anchors clamped into it,
+//! read off the flat model's common refinement and reduced to the order of
+//! their heights. On small segments, a count over a finer pool, which realizes
+//! every verdict a covered version can receive, checks that set. The census
+//! never learns which anchor is a bound or a hole, and shares no code with
+//! production's comparison, fused walks, or endpoint refinement. What it alone
+//! catches: **coverage errors off a complete grid** — a wrong verdict for a
+//! query whose holes form an antichain of three or more, or whose operands are
+//! deep or wide, where the grid-enumerating exact checks have no versions and
+//! no other committed check judges a holed query's coverage exactly.
 //!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:
