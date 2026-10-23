@@ -152,10 +152,8 @@ pub fn fit(samples: &[(u64, u64)]) -> Option<Fit> {
         let slope = sxy / sxx;
         (slope, my - slope * mx)
     };
-    let (width_above, width_below) = logs.iter().fold((0.0f64, 0.0f64), |(wa, wb), &(x, y)| {
-        let residual = y - (intercept + slope * x);
-        (wa.max(residual), wb.max(-residual))
-    });
+    let (width_above, width_below) =
+        residual_widths(logs.iter().map(|&(x, y)| y - (intercept + slope * x)));
     Some(Fit {
         slope,
         intercept,
@@ -203,10 +201,7 @@ pub fn fit_constant(samples: &[(u64, u64)]) -> Option<Fit> {
         .map(|&(_, f)| (f.max(1) as f64).log10())
         .collect();
     let intercept = logs.iter().sum::<f64>() / logs.len() as f64;
-    let (width_above, width_below) = logs.iter().fold((0.0f64, 0.0f64), |(wa, wb), &y| {
-        let residual = y - intercept;
-        (wa.max(residual), wb.max(-residual))
-    });
+    let (width_above, width_below) = residual_widths(logs.iter().map(|&y| y - intercept));
     Some(Fit {
         slope: 0.0,
         intercept,
@@ -216,6 +211,27 @@ pub fn fit_constant(samples: &[(u64, u64)]) -> Option<Fit> {
         min_denom,
         max_denom,
         constant: true,
+    })
+}
+
+/// Returns the largest residual above the line and the largest residual
+/// magnitude below it, `(width_above, width_below)`, each at least `+0.0`.
+///
+/// Each width starts at `+0.0` and is replaced only by a strictly larger
+/// value, so it is either that `+0.0` or positive, never `-0.0`. `f64::max`
+/// would not guarantee this: it may return either zero when both arguments
+/// are zeros, and a sample lying exactly on the line has a residual of
+/// `+0.0`, whose negation is `-0.0`. With both operands computed at run
+/// time, as in a fold, x86-64 code returns `-0.0` there and aarch64 code
+/// `+0.0`. The calibrator prints these widths into `bands.rs`, where `-0.0`
+/// reads `-0.000000`, so the file would otherwise depend on the host that
+/// wrote it.
+fn residual_widths(residuals: impl Iterator<Item = f64>) -> (f64, f64) {
+    residuals.fold((0.0, 0.0), |(above, below), residual| {
+        (
+            if residual > above { residual } else { above },
+            if -residual > below { -residual } else { below },
+        )
     })
 }
 
