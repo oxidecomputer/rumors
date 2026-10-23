@@ -875,8 +875,10 @@ amp-board *args:
 
 # The board's one verdict of record. One invocation sweeps each cell's
 # whole ladder once — two sizes at each of the two sampling scales
-# (board::DEFAULT_SCALE and board::LADDER_TOP_SCALE), plus a small-input
-# pair for ceilings and liveness — and judges that sweep twice:
+# (board::DEFAULT_SCALE and board::LADDER_TOP_SCALE), plus two pairs for
+# ceilings and liveness alone: small inputs, and size knobs just past a
+# power of two (board::Sampling::PastPowerOfTwo), where a buffer that grows
+# by doubling holds its peak — and judges that sweep twice:
 #
 # - Acceptance judges every constant and floor per size and fits each
 #   exponent as one trend across the ladder. A red cell is an untriaged

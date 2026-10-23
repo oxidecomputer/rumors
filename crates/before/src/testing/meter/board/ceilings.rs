@@ -19,8 +19,8 @@
 //! its doc names; a fixed bound's denominator is one. Each sample therefore
 //! admits every `C` of at least `(reading - intercept) / denominator`. The
 //! rule takes the largest such value over every sample the release-profile
-//! acceptance board judges, at both ladder scales and at the small-input
-//! scale, adds 25% headroom, and rounds up to a whole number. That is,
+//! acceptance board judges, at every sampling of its ladder, adds 25%
+//! headroom, and rounds up to a whole number. That is,
 //! `C = ceil(1.25 * max((reading - intercept) / denominator))`.
 //!
 //! Subtracting the intercept lets one rule serve every ceiling. Fixed
@@ -172,9 +172,14 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 16.0;
 /// output, and, once a wide payload first collapses, the separate topology
 /// and payload streams that it interleaves once at the end. Each buffer grows
 /// by doubling, and sealing reallocates it to its exact size, which the heap
-/// meter counts beside the old buffer. The exponent remains judged
+/// meter counts beside the old buffer. Those buffers alone would bound the
+/// heap at five times the output, but the writer also keeps per-level
+/// stacks of branch directions and payload lengths, which that account does
+/// not bound per output byte, so the ceiling is measured by the module's
+/// rule rather than derived; the comb-scatter projection with its knob just
+/// past a power of two reads highest. The exponent remains judged
 /// independently.
-pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 5.0;
+pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 7.0;
 
 /// Heap ceiling for deserializing an owned serde buffer or a borsh stream, in
 /// bytes per input byte.

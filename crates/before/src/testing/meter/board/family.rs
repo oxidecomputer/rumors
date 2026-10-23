@@ -15,6 +15,7 @@ use num_bigint::BigUint;
 use crate::{Clock, Count, Party, Rank, Version};
 
 use super::operand::value_content_bytes;
+use super::sampling::Sampling;
 
 // ─── family sizes at the default scale ───────────────────────────────────────
 
@@ -649,20 +650,18 @@ impl FamilyData {
         }
     }
 
-    /// Build a shape's operand bundle at `scale`, doubled `level` times.
+    /// Build a shape's operand bundle with its knobs set by `sampling`,
+    /// doubled `level` times.
     ///
-    /// `level` 0 and 1 are the two measurement scales of every cell. The arm
+    /// `level` 0 and 1 are the two measured sizes of every cell. The arm
     /// fills the slots the shape natively has; the post-pass below derives the
     /// rest uniformly (a cross shape's version is its event side, its party
     /// pair is the disjoint-mount adapter over its id side; every version gains
     /// its rank pair, and its ticked counterpart wherever the arm built no
     /// pairing of its own), so a new shape reaches every operation its bundle
     /// supplies without naming any.
-    pub(super) fn build(kind: FamilyId, scale: f64, level: u32) -> FamilyData {
-        let size = |base: usize| -> usize {
-            let scaled = ((base as f64) * scale).round() as usize;
-            scaled.max(MIN_SIZE_PARAM) << level
-        };
+    pub(super) fn build(kind: FamilyId, sampling: Sampling, level: u32) -> FamilyData {
+        let size = |base: usize| -> usize { sampling.knob(base, MIN_SIZE_PARAM) << level };
         let mut data = match kind {
             FamilyId::Dense => Self::event(
                 kind,

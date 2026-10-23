@@ -13,8 +13,8 @@
 //! # The rule
 //!
 //! Each ceiling follows the measured-ceiling rule of the `ceilings` module,
-//! applied to one cell's six samples (both sizes at each of the ladder's
-//! three sampling scales), with two differences: [`CELL_CEILING_HEADROOM`]
+//! applied to all of one cell's samples (both sizes at each of the ladder's
+//! samplings), with two differences: [`CELL_CEILING_HEADROOM`]
 //! replaces the board-wide headroom, and the ceiling is rounded up to a
 //! thousandth ([`CEILING_RESOLUTION`]) rather than to a whole number. That
 //! is, `C = max(0, ceil(1000 * 1.10 * max((reading - intercept) / units)) /
@@ -383,7 +383,7 @@ fn derive_ceilings<'a>(
     let mut entries = Vec::with_capacity(ladder.base.len());
     for cell in 0..ladder.base.len() {
         let (op, family, ..) = ladder.base[cell];
-        let samples = ladder.by_scale().into_iter().flat_map(|(_, cells)| {
+        let samples = ladder.by_sampling().into_iter().flat_map(|(_, cells)| {
             let (_, _, s1, s2) = &cells[cell];
             [s1, s2]
         });

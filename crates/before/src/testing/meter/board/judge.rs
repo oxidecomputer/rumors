@@ -384,9 +384,14 @@ pub(super) fn constant_units(sample: &Sample, currency: Currency) -> u64 {
         .map_or(sample.denom_bytes as u64, |model| model.constant_units)
 }
 
-/// Check small inputs against ceilings and liveness without fitting growth
-/// across allocation minima and inline-storage thresholds.
-pub(super) fn evaluate_small(
+/// Check a pair of samples outside the growth ladder against ceilings and
+/// liveness, without fitting growth across them.
+///
+/// The ladder judges two such pairs: the small inputs, where allocation
+/// minima and inline-storage thresholds dominate, and the knobs just past a
+/// power of two, which sit at a different point of every doubling period
+/// than the growth samples.
+pub(super) fn evaluate_without_fit(
     calibration: &Calibration,
     op: &'static str,
     family: &'static str,

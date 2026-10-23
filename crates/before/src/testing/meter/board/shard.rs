@@ -17,7 +17,7 @@
 //! ([`merge_samples`]). Every consumer of a sweep reads that list, so the
 //! acceptance matrices, the worst-case fold, the ranking pin, and the exact
 //! capture judge or record the same samples (the `ladder` module holds one
-//! merged list per sampling scale for all of them).
+//! merged list per sampling for all of them).
 //!
 //! A cell's heap, scan, and touch readings are a function of the cell alone:
 //! each is a deterministic counter read from state a child owns privately (its
@@ -34,7 +34,8 @@
 //! # The wire form
 //!
 //! One stamped header line (protocol version, shard index and count, the
-//! scale's IEEE-754 bit pattern, and the child's build stamp: its target and
+//! sampling's token, which carries a scale as its IEEE-754 bit pattern, and
+//! the child's build stamp: its target and
 //! whether debug assertions were compiled in), one tab-separated `cell` line
 //! per measured cell carrying both samples' counters, denominators, and
 //! declarations (floats as bit patterns, so nothing rounds), and one trailing
@@ -79,7 +80,8 @@ use super::currency::{ByCurrency, Liveness};
 use super::judge::{evaluate, CellResult};
 use super::measure::{Meters, Model, Sample};
 use super::ops::ops;
-use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
+use super::render::{build_pair, measure_cell, render_results, Summary};
+use super::sampling::Sampling;
 use super::worst::render_map;
 use crate::testing::meter::registry::FamilyId;
 
@@ -89,19 +91,19 @@ mod tests;
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
 /// so a stale child binary can never be merged as current.
-const PROTOCOL: &str = "amp-board-shard v6";
+const PROTOCOL: &str = "amp-board-shard v7";
 
 /// One measured cell, as the merge returns it: its operation, its family, and
-/// its two samples at one sampling scale.
+/// its two samples at one sampling.
 pub(super) type Measured = (&'static str, &'static str, Sample, Sample);
 
-/// Runs every shard child at one scale and returns their raw stdout captures in
-/// shard-index order.
+/// Runs every shard child at one sampling and returns their raw stdout captures
+/// in shard-index order.
 ///
 /// Supplied by the runner binary (spawning `current_exe` is per-binary state
 /// the library cannot own, exactly like the [`Meters`]); the captures feed
 /// the merge, which validates each child's stamps.
-pub type ShardSpawner<'a> = &'a dyn Fn(f64) -> io::Result<Vec<Vec<u8>>>;
+pub type ShardSpawner<'a> = &'a dyn Fn(Sampling) -> io::Result<Vec<Vec<u8>>>;
 
 /// Whether shard `index` of `count` owns the grid cell at (`op_position`,
 /// `family_position`): the family-outer linearization of the operation × family
@@ -141,8 +143,8 @@ pub fn max_useful_shards() -> usize {
 }
 
 /// Child mode: measure shard `index` of `count`'s slice of the operation ×
-/// family grid at `scale` with `meters`, and emit the samples to `out` in the
-/// shard wire form.
+/// family grid at `sampling` with `meters`, and emit the samples to `out` in
+/// the shard wire form.
 ///
 /// Cells are measured under the single-threaded measurement discipline.
 ///
@@ -152,15 +154,16 @@ pub fn max_useful_shards() -> usize {
 ///
 /// # Panics
 ///
-/// Panics unless `index < count` and `scale` is strictly positive.
+/// Panics unless `index < count` and a scaled `sampling`'s scale is strictly
+/// positive.
 pub fn emit_shard(
-    scale: f64,
+    sampling: Sampling,
     index: usize,
     count: usize,
     meters: &Meters,
     out: &mut dyn Write,
 ) -> io::Result<()> {
-    assert_scale(scale);
+    sampling.assert_valid();
     let table = ops();
     let families: Vec<FamilyId> = FamilyId::board().collect();
     // The emission is staged in memory and written only after the last cell is
@@ -177,7 +180,7 @@ pub fn emit_shard(
         if owned.is_empty() {
             continue;
         }
-        let pair = build_pair(family, scale);
+        let pair = build_pair(family, sampling);
         for op_position in owned {
             let op = &table[op_position];
             let Some((s1, s2)) = measure_cell(meters, op, &pair) else {
@@ -198,7 +201,7 @@ pub fn emit_shard(
     writeln!(
         out,
         "{prefix}{stamp}",
-        prefix = header_prefix(scale, index, count),
+        prefix = header_prefix(sampling, index, count),
         stamp = BuildStamp::current()
     )?;
     out.write_all(&staged)?;
@@ -207,10 +210,10 @@ pub fn emit_shard(
 
 /// The wire header up to the child's build stamp, which follows it on the same
 /// line.
-fn header_prefix(scale: f64, index: usize, count: usize) -> String {
+fn header_prefix(sampling: Sampling, index: usize, count: usize) -> String {
     format!(
-        "{PROTOCOL} shard {index}/{count} scale {bits:016x} measured ",
-        bits = scale.to_bits()
+        "{PROTOCOL} shard {index}/{count} sampling {token} measured ",
+        token = sampling.token()
     )
 }
 
@@ -410,8 +413,8 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
 /// # Panics
 ///
 /// As [`merge_samples`].
-fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> (Calibration, Vec<CellResult>) {
-    let (stamp, cells) = merge_samples(scale, count, captures);
+fn merge(sampling: Sampling, count: usize, captures: &[Vec<u8>]) -> (Calibration, Vec<CellResult>) {
+    let (stamp, cells) = merge_samples(sampling, count, captures);
     let calibration = calibration(&stamp.arch);
     let results = cells
         .into_iter()
@@ -429,19 +432,16 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> (Calibration, Vec<Ce
 /// # Panics
 ///
 /// Panics on any protocol violation — the module doc's refusal list — and
-/// unless `scale` is strictly positive and `count` nonzero, checked before any
-/// child capture is trusted. Panics, too, if a sample carries a fuel reading
+/// unless a scaled `sampling`'s scale is strictly positive and `count`
+/// nonzero, checked before any child capture is trusted. Panics, too, if a sample carries a fuel reading
 /// and `count` is not [`max_useful_shards`]: such a reading would depend on the
 /// deal.
 pub(super) fn merge_samples(
-    scale: f64,
+    sampling: Sampling,
     count: usize,
     captures: &[Vec<u8>],
 ) -> (BuildStamp, Vec<Measured>) {
-    assert!(
-        scale > 0.0 && scale.is_finite(),
-        "amp-board: scale must be a positive finite number"
-    );
+    sampling.assert_valid();
     assert!(
         count > 0,
         "amp-board shard merge: a sweep needs at least one shard"
@@ -470,7 +470,7 @@ pub(super) fn merge_samples(
         let mut lines = text.lines();
         let header = lines.next().unwrap_or_default();
         let stamp = header
-            .strip_prefix(&header_prefix(scale, index, count))
+            .strip_prefix(&header_prefix(sampling, index, count))
             .and_then(BuildStamp::parse)
             .unwrap_or_else(|| {
                 panic!(
@@ -594,7 +594,8 @@ pub fn run(
     spawn: ShardSpawner<'_>,
     out: &mut dyn Write,
 ) -> io::Result<Summary> {
-    let (calibration, results) = merge(scale, shards, &spawn(scale)?);
+    let sampling = Sampling::Scaled(scale);
+    let (calibration, results) = merge(sampling, shards, &spawn(sampling)?);
     render_results(&calibration, &results, out)
 }
 
@@ -613,6 +614,7 @@ pub fn worst_map(
     spawn: ShardSpawner<'_>,
     out: &mut dyn Write,
 ) -> io::Result<()> {
-    let (_, results) = merge(scale, shards, &spawn(scale)?);
+    let sampling = Sampling::Scaled(scale);
+    let (_, results) = merge(sampling, shards, &spawn(sampling)?);
     render_map(label, scale, &results, out)
 }

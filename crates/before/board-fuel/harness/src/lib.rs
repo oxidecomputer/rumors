@@ -1,7 +1,7 @@
 //! Runs the amplification board in wasm guests under Wasmtime fuel and judges
 //! the readings with the board's own code.
 //!
-//! [`FuelBoard`] measures one sampling scale of the board by instantiating
+//! [`FuelBoard`] measures one sampling of the board by instantiating
 //! the guest afresh for every cell of the operation × family grid, on a work
 //! queue across threads. A fuel reading counts the allocator's instructions
 //! too, so a cell measured after other cells in the same instance would read
@@ -23,7 +23,7 @@ use std::io;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use before::testing::meter::board;
+use before::testing::meter::board::{self, Sampling};
 use wasmtime::{Caller, Config, Engine, Instance, Linker, Module, Store};
 
 /// Fuel loaded into each store: far above any cell's consumption, so the
@@ -179,7 +179,7 @@ impl FuelBoard {
         })
     }
 
-    /// Measures every cell of the board at `scale`, each in a fresh guest
+    /// Measures every cell of the board at `sampling`, each in a fresh guest
     /// instance, and returns the shard captures in shard order: the
     /// [`board::ShardSpawner`] a fuel ladder sweeps with.
     ///
@@ -190,7 +190,7 @@ impl FuelBoard {
     ///
     /// Returns the first guest failure: a trap, with the panic message the
     /// guest recorded if it recorded one.
-    pub fn spawn(&self, scale: f64) -> io::Result<Vec<Vec<u8>>> {
+    pub fn spawn(&self, sampling: Sampling) -> io::Result<Vec<Vec<u8>>> {
         let count = board::max_useful_shards();
         let next = AtomicUsize::new(0);
         let failed = AtomicBool::new(false);
@@ -207,7 +207,7 @@ impl FuelBoard {
                             if index >= count {
                                 return;
                             }
-                            let capture = self.run_shard(&linker, scale, index, count);
+                            let capture = self.run_shard(&linker, sampling, index, count);
                             failed.fetch_or(capture.is_err(), Ordering::Relaxed);
                             captures
                                 .lock()
@@ -244,12 +244,12 @@ impl FuelBoard {
         linker
     }
 
-    /// Runs shard `index` of `count` at `scale` in a fresh instance and
+    /// Runs shard `index` of `count` at `sampling` in a fresh instance and
     /// returns its capture.
     fn run_shard(
         &self,
         linker: &Linker<()>,
-        scale: f64,
+        sampling: Sampling,
         index: usize,
         count: usize,
     ) -> io::Result<Vec<u8>> {
@@ -260,9 +260,10 @@ impl FuelBoard {
             .instantiate(&mut store, &self.module)
             .map_err(io::Error::other)?;
         let shard = instance
-            .get_typed_func::<(u64, u32, u32), u32>(&mut store, "shard")
+            .get_typed_func::<(u32, u64, u32, u32), u32>(&mut store, "shard")
             .map_err(io::Error::other)?;
-        match shard.call(&mut store, (scale.to_bits(), wire(index)?, wire(count)?)) {
+        let (tag, word) = sampling.to_words();
+        match shard.call(&mut store, (tag, word, wire(index)?, wire(count)?)) {
             Ok(0) => read(&mut store, &instance, "output_ptr", "output_len"),
             Ok(status) => Err(io::Error::other(format!(
                 "board-fuel: shard {index}/{count} returned status {status}"
@@ -281,7 +282,7 @@ impl FuelBoard {
                     "recorded no panic, so it likely ran out of memory".to_owned()
                 };
                 Err(io::Error::other(format!(
-                    "board-fuel: shard {index}/{count} at scale {scale} trapped ({trap}) and \
+                    "board-fuel: shard {index}/{count} at sampling {sampling} trapped ({trap}) and \
                      {message}"
                 )))
             }

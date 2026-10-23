@@ -17,7 +17,7 @@ mod panic_record;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use before::testing::meter::board::{self, FuelMeter, Meters};
+use before::testing::meter::board::{self, FuelMeter, Meters, Sampling};
 
 // The fuel board's one `unsafe` item: a wasm import can only be declared in
 // an `unsafe extern` block, and fuel can only be read through an import. The
@@ -52,22 +52,26 @@ fn output() -> MutexGuard<'static, Vec<u8>> {
     OUTPUT.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Measures shard `index` of `count` at the scale whose IEEE-754 bits are
-/// `scale_bits`, keeping the shard wire form for [`output_ptr`] and
+/// Measures shard `index` of `count` at the sampling whose words, as
+/// [`Sampling::to_words`] writes them, are `sampling_tag` and
+/// `sampling_word`, keeping the shard wire form for [`output_ptr`] and
 /// [`output_len`].
 ///
-/// Returns 0. A board panic traps instead, with its message in the panic
-/// record.
+/// Returns 0, or 1 for words that name no sampling. A board panic traps
+/// instead, with its message in the panic record.
 #[no_mangle]
-pub extern "C" fn shard(scale_bits: u64, index: u32, count: u32) -> u32 {
+pub extern "C" fn shard(sampling_tag: u32, sampling_word: u64, index: u32, count: u32) -> u32 {
     panic_record::install();
+    let Some(sampling) = Sampling::from_words(sampling_tag, sampling_word) else {
+        return 1;
+    };
     let meters = Meters {
         heap: None,
         fuel: Some(FuelMeter { used: read_fuel }),
     };
     let mut emitted = Vec::new();
     board::emit_shard(
-        f64::from_bits(scale_bits),
+        sampling,
         usize::try_from(index).expect("a u32 fits in wasm32's usize"),
         usize::try_from(count).expect("a u32 fits in wasm32's usize"),
         &meters,

@@ -4,6 +4,7 @@ use super::super::compare::BuildStamp;
 use super::super::currency::{ByCurrency, Liveness};
 use super::super::measure::Sample;
 use super::super::ops::ops;
+use super::super::sampling::Sampling;
 use super::{emit_sample, header_prefix, max_useful_shards, merge_samples};
 use crate::testing::meter::registry::FamilyId;
 
@@ -41,7 +42,7 @@ fn merge_refuses_fuel_readings_from_shared_instances() {
         1,
         "the probe needs a deal other than one per cell"
     );
-    let scale = 1.0;
+    let sampling = Sampling::Scaled(1.0);
     let op = ops()[0].name;
     let family = FamilyId::board()
         .next()
@@ -49,11 +50,16 @@ fn merge_refuses_fuel_readings_from_shared_instances() {
         .name();
     let mut capture = Vec::new();
     capture.extend_from_slice(
-        format!("{}{}\n", header_prefix(scale, 0, 1), BuildStamp::current()).as_bytes(),
+        format!(
+            "{}{}\n",
+            header_prefix(sampling, 0, 1),
+            BuildStamp::current()
+        )
+        .as_bytes(),
     );
     capture.extend_from_slice(format!("cell\t{op}\t{family}").as_bytes());
     emit_sample(&mut capture, &fuel_sample(5)).expect("writing to a Vec succeeds");
     emit_sample(&mut capture, &fuel_sample(9)).expect("writing to a Vec succeeds");
     capture.extend_from_slice(b"\nend 1\n");
-    merge_samples(scale, 1, &[capture]);
+    merge_samples(sampling, 1, &[capture]);
 }
