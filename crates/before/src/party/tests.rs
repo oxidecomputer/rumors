@@ -909,7 +909,8 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
 
 proptest! {
     /// `fork` splits a deep party exactly as the flat model's split does,
-    /// and so does every later fork of either half, through four rounds.
+    /// and so does each later fork of a randomly chosen half, through four
+    /// rounds.
     ///
     /// The model finds the smallest dyadic interval holding the set and
     /// splits it at its midpoint, with no tree; the parties are deep and

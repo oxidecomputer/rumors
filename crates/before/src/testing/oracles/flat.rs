@@ -3,14 +3,14 @@
 //! their common refinement.
 //!
 //! The crate's other two models of the algebra each leave a region unjudged.
-//! The recursive
-//! oracle ([`tree`]) transcribes the paper's recursions over trees, so it
-//! shares production's tree representation, and the bridge that turns its
-//! answers into production values writes them through production's own
-//! version writer: a canonicalization error the writer and the bridge share
-//! passes every comparison against it. The function-space oracle shares
-//! neither, but it scans `2^g` grid points one past the operands' deepest
-//! boundary, so it judges nothing past a few dozen levels. This model is
+//! The recursive oracle ([`tree`]) transcribes the paper's recursions over
+//! trees, so it shares production's tree representation, and the bridge that
+//! turns its answers into production values writes them through production's
+//! own version writer: a canonicalization error the writer and the bridge
+//! share passes every comparison against it. The function-space oracle
+//! shares neither, but it samples every cell of a grid one level finer than
+//! the operands' deepest boundary, `2^(d + 1)` points for operands `d` levels
+//! deep, so it judges nothing past a few dozen levels. This model is
 //! independent of the tree recursion and of every production writer, and
 //! its cost grows with the number of leaves times the width of a position,
 //! not with `2^depth`, so it judges versions and parties hundreds of levels
@@ -48,27 +48,26 @@
 //! Set algebra is interval arithmetic. [`Party::fork`] is the paper's split,
 //! characterized without trees: it finds the smallest dyadic interval that
 //! holds the whole set and splits that interval at its midpoint: the keeper
-//! takes the part of the set left of the midpoint, and the new party the
-//! part right of it. A
-//! balanced partition into `n` shares places `⌈n/2⌉` shares in the keeper's
-//! half and `⌊n/2⌋` in the other, recursively; [`Party::share`] reaches any
-//! one share by a single descent, so counts far wider than a machine word
-//! cost only their bit length.
+//! takes the part of the set left of the midpoint, and the new party the part
+//! right of it. A balanced partition into `n` shares places `⌈n/2⌉` shares in
+//! the keeper's half and `⌊n/2⌋` in the other, recursively; [`Party::share`]
+//! reaches any one share by a single descent, so counts far wider than a
+//! machine word cost only their bit length.
 //!
 //! # Positions
 //!
-//! Versions and parties alike locate a dyadic interval by a *position*: the numerator of
-//! its start over `2^scale`, for a scale at least the deepest depth in
-//! play. A leaf at depth `d` is `2^(scale − d)` positions wide. Positions
-//! are `BigUint`s, so no depth is too deep to locate, and every traversal
-//! here is a loop, so no depth exhausts the stack.
+//! Versions and parties alike locate a dyadic interval by a *position*: the
+//! numerator of its start over `2^scale`, for a scale at least the deepest
+//! depth in play. A leaf at depth `d` is `2^(scale − d)` positions wide.
+//! Positions are `BigUint`s, so no depth is too deep to locate, and every
+//! traversal here is a loop, so no depth exhausts the stack.
 //!
 //! # What it does not model
 //!
 //! Ticks, `min_ticks`, and spans' storage sharing have no counterpart here,
 //! and [`Party::fork`] computes the paper's split, the one production and
-//! the recursive oracle compute, where the function-space oracle checks that
-//! the algebra holds under any valid split.
+//! the recursive oracle compute, whereas the function-space oracle checks
+//! that the algebra holds under any valid split.
 
 use core::cmp::Ordering;
 
@@ -202,8 +201,8 @@ pub(crate) struct Version {
     rows: Vec<Leaf>,
 }
 
-/// How often a canonicalization reached two of the version writer's
-/// collapse paths, as [`Version::collapses`] counts them.
+/// How many collapses in one canonicalization cascade, and how many of those
+/// keep a wide code, as [`Version::collapses`] counts them.
 ///
 /// Production's version writer collapses two equal leaf siblings into their
 /// parent, keeping the left leaf's code, and a collapse may repeat at the

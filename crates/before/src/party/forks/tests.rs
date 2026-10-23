@@ -487,7 +487,7 @@ proptest! {
 /// Counts around `usize::MAX` and far past it: across the word, just above
 /// twice it, at arbitrary widths through `2^100`, and at powers of two and
 /// their neighbors.
-fn arb_count_past_usize() -> impl Strategy<Value = BigUint> {
+fn arb_count_around_usize() -> impl Strategy<Value = BigUint> {
     let word = BigUint::from(usize::MAX);
     let twice = &word * 2u8;
     prop_oneof![
@@ -572,8 +572,9 @@ proptest! {
         check_split!(1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 16, 17);
     }
 
-    /// At counts past `usize::MAX`, `forks(k)` on a deep party yields the
-    /// flat model's shares and leaves the party exactly its residual.
+    /// At counts around `usize::MAX` and far past it, `forks(k)` on a deep
+    /// party yields the flat model's shares and leaves the party exactly its
+    /// residual.
     ///
     /// Shares 1, 2, … of `k + 1` arrive in order, the party keeps exactly
     /// what it had less the shares taken, which covers share 0, and a clock's
@@ -582,9 +583,9 @@ proptest! {
     /// The model reaches each share by one descent of about `log₂ k` splits, so
     /// counts to `2^100` cost it only their bit length.
     #[test]
-    fn wide_count_shares_match_the_flat_model(
+    fn shares_match_the_flat_model_around_and_past_usize(
         p in arb_deep_party(),
-        k in arb_count_past_usize(),
+        k in arb_count_around_usize(),
         taken in 0usize..40,
     ) {
         let model = flat::Party::from_oracle(&p);

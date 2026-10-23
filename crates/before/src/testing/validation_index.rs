@@ -128,10 +128,11 @@
 //! random topology where the arbitrary generators stop, accepted
 //! `join_all` families of more than four unrelated parties, and deferral
 //! in arbitrary rather than named shapes. The fixed deep families reach depth
-//! only along their chosen shapes. Their versions pass through production's
-//! writer on the way to the recursive oracle, so a canonicalization error
-//! the writer and the bridge share passes those comparisons; the flat model
-//! below judges the same populations without the writer.
+//! only along their chosen shapes. The generated versions reach production
+//! through the bridge, which writes them with production's own version
+//! writer, so a canonicalization error the writer and the bridge share passes
+//! every comparison against the recursive oracle; the flat model below judges
+//! the generated populations without the writer.
 //!
 //! **The flat model** ([`super::oracles::flat`]). A third model of versions
 //! and parties, beside the recursive and function-space oracles: versions

@@ -442,8 +442,9 @@ struct Split {
 impl Size {
     /// Draws a leaf list of this size whose heights are mostly zero.
     ///
-    /// Each leaf keeps its drawn height with probability a quarter, by its
-    /// own bit of a cycled mask, and otherwise sits at zero.
+    /// A mask of 1 to 16 bits, each set with probability a quarter, cycles
+    /// over the leaves: a leaf keeps its drawn height where its bit is set,
+    /// and otherwise sits at zero.
     fn arb_sparse(self) -> BoxedStrategy<LeafList> {
         (
             self.arb_version(),
@@ -554,12 +555,12 @@ fn decompose(
 /// The other half are two operands decomposing a target, whose join or meet
 /// is the target exactly: on every refinement cell one operand holds the
 /// target and the other sits below it, for a join, or above it, for a meet.
-/// Canonicalizing that join or meet collapses the refinement back to the
-/// target's leaves, often through cascades in which a collapsed pair
-/// collapses again with its sibling, the path production's version writer
-/// takes when it merges a run of equal leaves; the census in this module's
-/// sibling tests floors cascades, and cascades whose surviving code is wider
-/// than the writer's one-word limit.
+/// Canonicalizing that join or meet, from the cells of the operands' common
+/// refinement, collapses them back to the target's leaves, often through
+/// cascades in which a collapsed pair collapses again with its sibling. The
+/// census in this module's sibling tests floors those cascades, as the flat
+/// model's canonicalization counts them, and cascades whose surviving code is
+/// wider than the version writer's one-word limit.
 pub(crate) fn arb_correlated_pair() -> impl Strategy<Value = (LeafList, LeafList)> {
     arb_sized(Size::arb_correlated_pair)
 }
