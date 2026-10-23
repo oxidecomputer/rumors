@@ -344,6 +344,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
             "rank_checked_sub",
             "rank_cmp",
             "rank_sum",
+            "rank_sum_ascending",
             "rank_display",
             "rank_display_precision",
             "rank_parse",

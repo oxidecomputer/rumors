@@ -881,6 +881,40 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "rank_sum_ascending",
+            prepare: |f| {
+                // The family-derived rank, then the unit fractions 2^-1
+                // through 2^-k, `k = 2(⌊√w⌋ + 1)` for the rank's content
+                // width `w`. Each fraction's exponent exceeds the one before.
+                // Where the family rank's exponent is smaller than the
+                // first fraction's (an integer rank), that fraction makes the
+                // running sum shift by its whole held span, and every later
+                // fraction then lands below the run the shift left: the
+                // shift costs the held width once, where a shift by the
+                // exponent gap alone would move it once per fraction, `k · w`
+                // work on `w + k²/2` bits of input. Where the family rank's
+                // exponent is larger, the fractions land inside its span. The
+                // denominator is the summands' total value content.
+                let (a, _) = f.rank_pair.clone()?;
+                let k = 2 * (a.content_bits().isqrt() + 1);
+                let fractions: Vec<Rank> =
+                    (1..=k).map(|j| Rank::from_raw(BigUint::ONE, j)).collect();
+                let n = rank_content_bytes(&a)
+                    + fractions.iter().map(rank_content_bytes).sum::<usize>();
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    scan: na(NA_SCAN_NO_STREAM),
+                    touch: Liveness::Floor {
+                        min: k + 1,
+                        why: WHY_TOUCH_RANK_SUM,
+                    },
+                };
+                Some(Cell::new(n, floors, move || {
+                    std::iter::once(a).chain(fractions).sum::<Rank>()
+                }))
+            },
+        },
+        Op {
             name: "rank_encode",
             prepare: |f| {
                 // The family-derived rank (maximal exponent on the
