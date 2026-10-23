@@ -36,10 +36,9 @@ pub(super) const CLOSE_LEAD: usize = 2;
 /// # Complexity
 ///
 /// If one working width far exceeds the other, the comparison usually decides
-/// from the wider value's top in amortized O(log(`W` + 1)) time, without
-/// reading the narrower one. Otherwise it subtracts in amortized
-/// O(`A` log(`A` + 1)) time and O(`A`) temporary space, where `A` is the
-/// narrower working width.
+/// from the wider value's top in amortized O(1) time, without reading the
+/// narrower one. Otherwise it subtracts in amortized O(`A`) time and O(`A`)
+/// temporary space, where `A` is the narrower working width.
 impl Ord for Accumulator {
     fn cmp(&self, other: &Accumulator) -> Ordering {
         if core::ptr::eq(self, other) {

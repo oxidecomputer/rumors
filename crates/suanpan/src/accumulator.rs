@@ -168,10 +168,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`L` log(`W` + 1) + `G`) time and adds O(`L` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations.
+    /// model](crate#costs-and-storage), this takes amortized O(`L`) time at
+    /// shift 0 and amortized O(`L` + `G` + log(`W` + 1)) time at a nonzero
+    /// shift, and adds amortized O(`L` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations.
     ///
     /// # Panics
     ///
@@ -192,10 +193,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`L` log(`W` + 1) + `G`) time and adds O(`L` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations.
+    /// model](crate#costs-and-storage), this takes amortized O(`L`) time at
+    /// shift 0 and amortized O(`L` + `G` + log(`W` + 1)) time at a nonzero
+    /// shift, and adds amortized O(`L` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations.
     ///
     /// # Panics
     ///
@@ -222,11 +224,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations. A zero operand adds O(1) retained space at
-    /// any shift.
+    /// model](crate#costs-and-storage), this takes amortized O(`A`) time at
+    /// shift 0 and amortized O(`A` log(`W` + 1) + `G`) time at a nonzero
+    /// shift, and adds amortized O(`A` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations. A zero operand adds O(1) retained space at any shift.
     ///
     /// # Panics
     ///
@@ -252,11 +254,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations. A zero operand adds O(1) retained space at
-    /// any shift.
+    /// model](crate#costs-and-storage), this takes amortized O(`A`) time at
+    /// shift 0 and amortized O(`A` log(`W` + 1) + `G`) time at a nonzero
+    /// shift, and adds amortized O(`A` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations. A zero operand adds O(1) retained space at any shift.
     ///
     /// # Panics
     ///
@@ -269,10 +271,10 @@ impl Accumulator {
 
     /// Reset to zero, retaining allocated storage for reuse.
     ///
-    /// Clearing takes work proportional to the span written since creation or
-    /// the previous reset: like
-    /// [`scaled_signed_magnitude`](Self::scaled_signed_magnitude), it skips
-    /// the low positions that write history shows are still zero. Replacing
+    /// Reset skips the low positions that write history shows are still zero,
+    /// as [`scaled_signed_magnitude`](Self::scaled_signed_magnitude) does, so
+    /// its work is proportional to the span written since creation or the
+    /// previous reset, plus the logarithmic term below. Replacing
     /// the accumulator with [`new`](Self::new) releases its storage instead,
     /// and the replacement's first update at a large shift grows a buffer from
     /// position zero again. Reusing one accumulator through `reset` pays that
@@ -280,12 +282,14 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(`R`) time and O(1) additional space, where `R` is the
-    /// written span before the reset, as the [crate-level cost
-    /// model](crate#costs-and-storage) defines it; `R` is at most the working
-    /// width. The bound is amortized because a reset can also clear
-    /// bookkeeping that earlier writes built, work those writes pay for. The
-    /// accumulator retains its main allocation.
+    /// O(`R` + log(`W` + 1)) time and O(1) additional space, where `R` is the
+    /// written span before the reset and `W` the greatest working width
+    /// reached, as the [crate-level cost model](crate#costs-and-storage)
+    /// defines them; `R` is at most the working width. The logarithmic term
+    /// covers clearing the bookkeeping that lets comparisons skip unwritten
+    /// positions, and the next update's rebuilding of it, which keeps the
+    /// costs of later primitive updates and updates at shift 0 independent of
+    /// `W`. The accumulator retains its main allocation.
     pub fn reset(&mut self) {
         self.value.get_mut().reset();
     }
@@ -337,10 +341,9 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(log(`W` + 1)) time and O(1) additional space, where `W` is
-    /// the greatest working width reached. One call may finish cancellation left
-    /// by earlier updates; the bound holds over the sequence that produced that
-    /// work.
+    /// Amortized O(1) time and O(1) additional space. One call may finish
+    /// cancellation left by earlier updates; the bound holds over the sequence
+    /// that produced that work.
     #[inline]
     pub fn sign(&self) -> Ordering {
         self.read(Value::cmp_zero)
@@ -392,14 +395,14 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(`A` log(`W` + 1)) time, where `A` is the narrower operand's
-    /// working width and `W` the wider's, with O(1) additional space beyond
-    /// the wider operand's storage, which the result keeps. When the wider
-    /// operand is the smaller value, the result is negated in place, which
-    /// costs its working width after the sign read: O(`A`) when both operands
-    /// are nonnegative, since the result is then below the narrower operand's
-    /// magnitude, and up to O(`W`), the result's own width, when the wider
-    /// operand is negative.
+    /// Amortized O(`A`) time, where `A` is the narrower operand's working
+    /// width, with amortized O(1) additional retained space beyond the wider
+    /// operand's storage, which the result keeps. When the wider operand is the
+    /// smaller value, the result is negated in place, which costs its working
+    /// width after the sign read: O(`A`) when both operands are nonnegative,
+    /// since the result is then below the narrower operand's magnitude, and up
+    /// to O(`V`), the wider operand's working width, when the wider operand is
+    /// negative.
     pub fn abs_diff(self, other: Accumulator) -> (Ordering, Accumulator) {
         let (mut wide, narrow, swapped) = if other.stored_digit_count() > self.stored_digit_count()
         {
@@ -447,9 +450,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(log(`W` + 1)) time and O(1) additional space, where `W` is
-    /// the greatest working width reached. As with [`sign`](Self::sign), this
-    /// may finish work prepared by earlier updates.
+    /// Amortized O(1) time and O(1) additional space. As with
+    /// [`sign`](Self::sign), this may finish work prepared by earlier updates.
     pub fn cmp_zero_stable_under(&self, bits: u64) -> Option<Ordering> {
         self.read(|value| value.cmp_zero_stable_under(bits))
     }

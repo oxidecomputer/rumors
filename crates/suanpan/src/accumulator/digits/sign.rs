@@ -30,7 +30,7 @@ use core::cmp::Ordering;
 use super::{super::touch, Digits, DIGIT_BITS};
 
 /// Smallest whole partial whose ordering no lower digits can overturn.
-const COMPARISON_DECIDED: i128 = 3;
+pub(super) const COMPARISON_DECIDED: i128 = 3;
 
 /// Compare with zero while preserving both value and the amortized bound.
 impl Digits {
