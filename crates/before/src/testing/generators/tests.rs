@@ -7,7 +7,8 @@
 //! anywhere — every differential keeps passing, on less. The census samples
 //! the strategies under a committed seed and holds a positive floor for each
 //! named input class the suites rely on. The deep strategies' floors follow
-//! from [`regime_floor`]'s premise.
+//! from [`regime_floor`]'s premise; the multi-scale pairs' census lives with
+//! the measure tests, beside the deferral counter it reads.
 
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;

@@ -32,15 +32,23 @@
 //! leaves draws narrower heights than one of a few; [`Size::widest_exponent`]
 //! gives the budget.
 //!
-//! The composed strategies [`arb_deep_version`], [`arb_deep_version_pair`],
-//! [`arb_deep_version_triple`], and [`arb_deep_version_family`] draw one
-//! size, then leaf lists of that size with heights from any arm, for the
-//! law drivers and the tree-oracle differentials.
+//! The composed strategies are what the drivers use:
+//!
+//! - [`arb_deep_version`], [`arb_deep_version_pair`],
+//!   [`arb_deep_version_triple`], and [`arb_deep_version_family`] draw one
+//!   size, then leaf lists of that size with heights from any arm, for the
+//!   law drivers and the tree-oracle differentials.
+//! - [`arb_multiscale_pair`] draws a multi-scale topology with step heights
+//!   to 2,200 bits and a related second leaf list. Its pairs reach the rank
+//!   integral's deferral, in single folds and in the pair measures'
+//!   co-sweeps, and exact rank ties at freezing scale, which no arbitrary
+//!   pair reaches. The measure tests feed it to their tree-oracle checks, and
+//!   law drivers over one or two versions and over ranks take it too.
 //!
 //! [`LeafList::tree`] normalizes through the recursive oracle's constructors,
 //! so a leaf list's canonical depth can be less than its listed depth. The
-//! census in this module's sibling tests floors the regimes these docs claim,
-//! measured on canonical trees.
+//! censuses in this module's sibling tests and in the measure tests floor the
+//! regimes these docs claim, measured on canonical trees.
 
 use core::fmt::Debug;
 use core::ops::Range;
@@ -354,6 +362,36 @@ pub(crate) fn arb_deep_version_family() -> impl Strategy<Value = (tree::Version,
 {
     arb_deep_version_triple().prop_flat_map(|(a, b, c)| {
         family_picks(vec![a.tree(), b.tree(), c.tree(), tree::Version::new()])
+    })
+}
+
+/// Draws a multi-scale version with step heights to [`STEP_K_MAX`] bits.
+///
+/// Unlike the multi-scale arm of [`DEEP_SIZES`], whose heights stay within
+/// the size budget, these heights take the full width, which the
+/// integral's deferral needs: a parked height must be wider than a later
+/// drift by more than the 256-bit freeze allowance.
+pub(crate) fn arb_multiscale_version() -> impl Strategy<Value = LeafList> {
+    arb_leaf_list(arb_multiscale_topology(), arb_step_heights(STEP_K_MAX))
+}
+
+/// Draws a multi-scale version and a second one related to it.
+///
+/// Independent and mirrored second versions take extra weight: they are the
+/// relations under which the pair measures' co-sweeps defer, where the other
+/// relations change a few heights or none. Mirrored and rotated pairs tie
+/// exactly in rank, and step heights at several scales make the rank
+/// integral freeze its drift and defer parked heights. The measure tests'
+/// census floors deferral in single folds and in co-sweeps, and exact ties.
+pub(crate) fn arb_multiscale_pair() -> impl Strategy<Value = (LeafList, LeafList)> {
+    let relation = prop_oneof![
+        2 => arb_multiscale_version().prop_map(Relation::Independent),
+        3 => Just(Relation::Mirrored),
+        7 => arb_relation(arb_multiscale_version(), STEP_K_MAX),
+    ];
+    (arb_multiscale_version(), relation).prop_map(|(a, relation)| {
+        let b = a.related(&relation);
+        (a, b)
     })
 }
 

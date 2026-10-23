@@ -120,12 +120,15 @@
 //! zigzags, and combs, and parties as unions of dyadic intervals, to depth
 //! 80. Pairs are related by construction, so equal pairs and distinct pairs
 //! of equal rank are common, and party families of up to ten are pairwise
-//! disjoint or overlap in one inserted party. They feed every law group and
-//! every differential descriptor against the recursive oracle, and add no
-//! judge of their own. What they alone reach: **arbitrary shapes past depth
-//! four** — random topology where the arbitrary generators stop, and
-//! accepted `join_all` families of more than four unrelated parties. The
-//! fixed deep families reach depth only along their chosen shapes. Their versions pass through
+//! disjoint or overlap in one inserted party. They feed every law group,
+//! every differential descriptor against the recursive oracle, and the
+//! measure tests, whose multi-scale pairs freeze and defer parked heights in
+//! the rank integral, in single folds and in co-sweeps. They add no judge of
+//! their own. What they alone reach: **arbitrary shapes past depth four** —
+//! random topology where the arbitrary generators stop, accepted
+//! `join_all` families of more than four unrelated parties, and deferral
+//! in arbitrary rather than named shapes. The fixed deep families reach depth
+//! only along their chosen shapes. Their versions pass through
 //! production's writer on the way to every judge, so a canonicalization
 //! error the writer and the bridge share passes them.
 //!

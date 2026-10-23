@@ -31,6 +31,9 @@
 //!   depth 300, parties to depth 80, equal pairs, distinct pairs of equal
 //!   rank, and families of up to ten parties that are pairwise disjoint or
 //!   overlap in one.
+//! - **Multi-scale pairs**: the groups over one version, over two, and over
+//!   ranks also meet pairs whose rank folds freeze and defer parked heights,
+//!   at heights to 2,200 bits.
 //!
 //! The third consumer is the fuzz workspace's law target, which drives the
 //! same slices over decoded hostile-but-canonical values.

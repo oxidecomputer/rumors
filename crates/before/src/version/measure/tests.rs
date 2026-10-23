@@ -12,14 +12,18 @@
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::{Config, TestRunner};
 
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
-use crate::testing::generators::arb_oracle_version;
+use crate::testing::generators::leaf_list::{arb_multiscale_pair, TWO_VERSION_DIVISOR};
+use crate::testing::generators::{arb_oracle_version, regime_floor, DEFAULT_CASES};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::{Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS};
 use crate::testing::optrace;
 use crate::testing::oracles::function;
+use crate::testing::rng::strategy_rng;
 use crate::{Clock, Party, Rank, Version};
 
 /// Decode a meter-generated encoded shape as a [`Version`].
@@ -245,9 +249,30 @@ fn deferral_pool() -> Vec<Version> {
 /// family). The pair sweep crosses wide operands with wide operands — both
 /// sides deferring, orientation flips inside wide plateaus — which the meter
 /// bands' unit-twin mates never reach.
+///
+/// The [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors keep both
+/// claims live: the single folds defer, and so do the pair measures'
+/// co-sweeps, each counted around its own production calls alone.
 #[test]
 fn deferral_families_agree_with_the_oracle() {
     let pool = deferral_pool();
+    let (_, single_deferrals) = freezes_and_deferrals_during(|| {
+        for v in &pool {
+            v.rank();
+        }
+    });
+    let (_, cosweep_deferrals) = freezes_and_deferrals_during(|| {
+        for a in &pool {
+            for b in &pool {
+                run_cosweeps(a, b);
+            }
+        }
+    });
+    assert!(
+        single_deferrals > 0 && cosweep_deferrals > 0,
+        "liveness: the deferral pool must defer in single folds and in co-sweeps \
+         ({single_deferrals} and {cosweep_deferrals} deferrals)"
+    );
     for v in &pool {
         assert_single(v);
     }
@@ -255,6 +280,16 @@ fn deferral_families_agree_with_the_oracle() {
         for b in &pool {
             assert_pair(a, b);
         }
+    }
+}
+
+/// Runs the pair measures that sweep both operands together, `rank_cmp`,
+/// `distance`, and `lag`, in both operand orders, for their counter readings.
+fn run_cosweeps(a: &Version, b: &Version) {
+    for (x, y) in [(a, b), (b, a)] {
+        x.rank_cmp(y);
+        x.distance(y);
+        x.lag(y);
     }
 }
 
@@ -345,7 +380,7 @@ fn parked_cancellation_settles_exactly() {
     assert!(
         super::integral::FREEZE_HITS.with(|hits| hits.get()) >= hits_before + 4,
         "the cancellation schedule no longer parks four drifts: the zero-valued \
-         settlement and deferral paths it exists to drive are undriven"
+         settlement it exists to drive is undriven"
     );
 }
 
@@ -403,9 +438,11 @@ proptest! {
 /// each side of a fresh root fork, two distinct streams of exactly equal
 /// rank — pins the `Equal` answer, which demands that the signed settle cancel
 /// to zero through the whole parked, deferred, and settled pipeline. The
-/// [`FREEZE_HITS`](super::integral::FREEZE_HITS) floors make the regime claim
-/// non-vacuous: a pool or pair that never froze would pass any value pin
-/// while exercising none of the deferred reduction.
+/// [`FREEZE_HITS`](super::integral::FREEZE_HITS) and
+/// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors make the regime
+/// claim non-vacuous: a pool or pair that never froze, or froze without
+/// deferring, would pass any value pin while exercising none of the deferred
+/// reduction.
 #[test]
 fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
     let assert_cmp = |a: &Version, b: &Version| {
@@ -419,17 +456,18 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
             "rank_cmp reversed: {a:?} vs {b:?}"
         );
     };
-    let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
     let pool = deferral_pool();
-    for a in &pool {
-        for b in &pool {
-            assert_cmp(a, b);
+    let (pool_freezes, pool_deferrals) = freezes_and_deferrals_during(|| {
+        for a in &pool {
+            for b in &pool {
+                assert_cmp(a, b);
+            }
         }
-    }
-    let pool_hits = super::integral::FREEZE_HITS.with(|hits| hits.get());
+    });
     assert!(
-        pool_hits > hits_before,
-        "liveness: the deferral-pool cross must run freezes under rank_cmp"
+        pool_freezes > 0 && pool_deferrals > 0,
+        "liveness: the deferral-pool cross must freeze and defer under rank_cmp \
+         ({pool_freezes} freezes, {pool_deferrals} deferrals)"
     );
     let t = to_oracle_version(&version_of(
         &Shape::ArmingTrain.build_train(3, 19, 1, false),
@@ -447,12 +485,80 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
         to_oracle_version(&right).rank(),
         "the mirrored pair must tie exactly in rank"
     );
-    let mirror_hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
-    assert_cmp(&left, &right);
+    let (mirror_freezes, mirror_deferrals) =
+        freezes_and_deferrals_during(|| assert_cmp(&left, &right));
     assert!(
-        super::integral::FREEZE_HITS.with(|hits| hits.get()) > mirror_hits_before,
-        "liveness: the mirrored equal-rank pair must run freezes under rank_cmp"
+        mirror_freezes > 0 && mirror_deferrals > 0,
+        "liveness: the mirrored equal-rank pair must freeze and defer under rank_cmp \
+         ({mirror_freezes} freezes, {mirror_deferrals} deferrals)"
     );
+}
+
+/// The multi-scale census seed: names the sampled corpus (see
+/// [`crate::testing::rng::strategy_rng`]).
+const MULTISCALE_CENSUS_SEED: u64 = 17;
+
+/// Sampled pairs in the multi-scale census.
+const MULTISCALE_CENSUS_CASES: usize = 400;
+
+/// Multi-scale pairs keep generator mass on deferral, in single folds and in
+/// co-sweeps, and on exact rank ties.
+///
+/// Each default run of every property drawing them must expect
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
+/// pairs in each regime.
+///
+/// A pair defers in single folds when
+/// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) rises across either
+/// operand's rank, and in co-sweeps when it rises across `rank_cmp`,
+/// `distance`, and `lag`, counted apart. A pair ties when the recursive
+/// oracle finds its versions distinct and of equal rank. The law drivers
+/// draw the same pairs at the case count divided by
+/// [`TWO_VERSION_DIVISOR`], the fewest cases of any consumer, so the floors
+/// follow from that premise and their case count. A generator change that
+/// stops reaching a regime fails here whatever the census last read.
+#[test]
+fn multiscale_pairs_keep_mass_on_deferral_and_ties() {
+    if std::env::var_os("PROPTEST_CASES").is_none() {
+        assert_eq!(
+            Config::default().cases,
+            DEFAULT_CASES,
+            "the floors assume proptest's default case count"
+        );
+    }
+    let mut runner =
+        TestRunner::new_with_rng(Config::default(), strategy_rng(MULTISCALE_CENSUS_SEED));
+    let strategy = arb_multiscale_pair();
+    let (mut single_deferring, mut cosweep_deferring, mut tied) = (0usize, 0usize, 0usize);
+    for _ in 0..MULTISCALE_CENSUS_CASES {
+        let (a, b) = strategy.new_tree(&mut runner).expect("strategy").current();
+        let (ta, tb) = (a.tree(), b.tree());
+        let (a, b) = (from_oracle_version(&ta), from_oracle_version(&tb));
+        let (_, single_deferrals) = freezes_and_deferrals_during(|| {
+            a.rank();
+            b.rank();
+        });
+        let (_, cosweep_deferrals) = freezes_and_deferrals_during(|| run_cosweeps(&a, &b));
+        single_deferring += usize::from(single_deferrals > 0);
+        cosweep_deferring += usize::from(cosweep_deferrals > 0);
+        tied += usize::from(ta != tb && ta.rank() == tb.rank());
+    }
+    let floor = regime_floor(MULTISCALE_CENSUS_CASES, TWO_VERSION_DIVISOR);
+    eprintln!(
+        "census over {MULTISCALE_CENSUS_CASES} multi-scale pairs: deferring in single folds \
+         {single_deferring}, in co-sweeps {cosweep_deferring}, tied {tied} (floor {floor} each)"
+    );
+    for (regime, count) in [
+        ("deferral in single folds", single_deferring),
+        ("deferral in co-sweeps", cosweep_deferring),
+        ("an exact rank tie", tied),
+    ] {
+        assert!(
+            count >= floor,
+            "multi-scale pairs reach {regime} in {count} of {MULTISCALE_CENSUS_CASES} sampled \
+             pairs (floor {floor}): a relation or a height scale has gone dead"
+        );
+    }
 }
 
 /// Count the freezes and the deferrals the integral fires while `measure` runs.
@@ -740,72 +846,22 @@ proptest! {
         assert_pair(&v, &w);
     }
 
-    /// Arming trains at arbitrary dimensions agree with the oracle on every
-    /// measure fold, singly and as a deferring pair.
+    /// Multi-scale pairs agree with the oracle and the composed forms on
+    /// every measure fold.
     ///
-    /// The dimensions cover entry counts across several reduction shapes (a
-    /// lone entry, a full level, an odd drain), both sign schedules, and window
-    /// densities from trivial to multi-digit, beyond `arb_magnitude`'s
-    /// 128-bit ceiling keeps the arbitrary-tree sweep from ever arming. The
-    /// pair leg crosses the train against its opposite-schedule twin, so the
-    /// co-sweep defers on both operands with the difference's orientation
-    /// flipping inside wide plateaus.
+    /// Each pair is a version of bushy regions, a quarter of the time beside
+    /// a deep same-side spine, with heights moved by steps from a few bits to
+    /// 2,200, and a second version derived from it ([`arb_multiscale_pair`]).
+    /// These are arbitrary inputs, not named shapes, that drive the integral
+    /// through freezes and deferrals, in single folds and in co-sweeps, and
+    /// that tie exactly in rank while differing as versions;
+    /// `multiscale_pairs_keep_mass_on_deferral_and_ties` floors each regime.
     #[test]
-    fn arbitrary_arming_trains_agree(
-        n in 1usize..6,
-        w in 19usize..23,
-        g in 1usize..4,
-        alternate: bool,
-    ) {
-        let a = version_of(&Shape::ArmingTrain.build_train(n, w, g, alternate));
-        let b = version_of(&Shape::ArmingTrain.build_train(n, w, g, !alternate));
+    fn multiscale_pairs_agree((a, b) in arb_multiscale_pair()) {
+        let (a, b) = (from_oracle_version(&a.tree()), from_oracle_version(&b.tree()));
         assert_single(&a);
+        assert_single(&b);
         assert_pair(&a, &b);
-    }
-
-    /// An arming train mirrored across a fresh root fork yields two distinct
-    /// streams of exactly equal rank, and `rank_cmp` reads `Equal` on them in
-    /// both operand orders, freezing on both legs.
-    ///
-    /// The `Equal` generator arm of the signed co-sweep's freeze-regime
-    /// coverage: over the train dimensions, the signed settle must cancel to
-    /// zero through the parked, deferred, and settled pipeline — the one
-    /// answer the nonnegative pair measures can never exercise (their totals
-    /// are monotone differences), and one no organically drawn pair reaches
-    /// at freezing scale. Every train in the sampled box parks drift under the
-    /// co-sweep, so the property exercises the intended path.
-    #[test]
-    fn arbitrary_mirrored_arming_trains_cancel_to_equal(
-        n in 1usize..6,
-        w in 19usize..23,
-        g in 1usize..4,
-        alternate: bool,
-    ) {
-        let t = to_oracle_version(&version_of(&Shape::ArmingTrain.build_train(n, w, g, alternate)));
-        let zero = crate::testing::oracles::tree::Version::leaf(0u64);
-        let left = from_oracle_version(&crate::testing::oracles::tree::Version::node(0u64, t.clone(), zero.clone()));
-        let right = from_oracle_version(&crate::testing::oracles::tree::Version::node(0u64, zero, t));
-        prop_assert_ne!(&left, &right, "the mirrored pair must be distinct streams");
-        prop_assert_eq!(
-            to_oracle_version(&left).rank(),
-            to_oracle_version(&right).rank(),
-            "the mirrored pair must tie exactly in rank"
-        );
-        let hits_before = super::integral::FREEZE_HITS.with(|hits| hits.get());
-        prop_assert_eq!(
-            left.rank_cmp(&right),
-            core::cmp::Ordering::Equal,
-            "rank_cmp on the mirrored pair: {:?} vs {:?}", left, right
-        );
-        prop_assert_eq!(
-            right.rank_cmp(&left),
-            core::cmp::Ordering::Equal,
-            "rank_cmp on the mirrored pair reversed: {:?} vs {:?}", right, left
-        );
-        prop_assert!(
-            super::integral::FREEZE_HITS.with(|hits| hits.get()) > hits_before,
-            "liveness: the mirrored train must run freezes under rank_cmp"
-        );
     }
 
     /// The projection kernel agrees with the oracle's semantic mask over
@@ -889,6 +945,92 @@ proptest! {
             empty.lag(&v),
             v.rank(),
             "the empty version lags by the rank"
+        );
+    }
+}
+
+/// Returns every arming train the exhaustive train tests cover, as `(n, w, g,
+/// alternate)`.
+///
+/// The box spans entry counts across several reduction shapes (a lone entry,
+/// a full level, an odd drain), arming widths past `arb_magnitude`'s 128-bit
+/// ceiling, which keeps the arbitrary-tree sweep from ever arming, window
+/// densities from trivial to multi-digit, and both sign schedules.
+fn arming_train_box() -> impl Iterator<Item = (usize, usize, usize, bool)> {
+    (1usize..6).flat_map(|n| {
+        (19usize..23).flat_map(move |w| {
+            (1usize..4).flat_map(move |g| [false, true].map(move |alternate| (n, w, g, alternate)))
+        })
+    })
+}
+
+/// Every arming train in [`arming_train_box`] agrees with the oracle on every
+/// measure fold, singly and paired with its opposite-schedule twin.
+///
+/// A train's rank defers once per block, and the
+/// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floor keeps that regime
+/// live for every train. The pair leg crosses the train against its
+/// opposite-schedule twin, so the difference's orientation flips inside wide
+/// plateaus. That co-sweep freezes for trains of more than one block and
+/// defers for none: no nonzero parked height in the difference is wider than
+/// the drift after it by the freeze allowance. The mirrored trains and the
+/// multi-scale pairs drive deferral through the co-sweeps.
+#[test]
+fn arming_trains_agree_across_their_box() {
+    for (n, w, g, alternate) in arming_train_box() {
+        let a = version_of(&Shape::ArmingTrain.build_train(n, w, g, alternate));
+        let b = version_of(&Shape::ArmingTrain.build_train(n, w, g, !alternate));
+        let (_, deferrals) = freezes_and_deferrals_during(|| assert_single(&a));
+        assert!(
+            deferrals > 0,
+            "liveness: the rank of AT({n}, {w}, {g}, alternate {alternate}) must defer"
+        );
+        assert_pair(&a, &b);
+    }
+}
+
+/// Every arming train in [`arming_train_box`], mirrored across a fresh root
+/// fork, yields two distinct streams of exactly equal rank, and `rank_cmp`
+/// reads `Equal` on them in both operand orders, freezing and deferring.
+///
+/// The `Equal` generator arm of the signed co-sweep's freeze-regime
+/// coverage: over the train dimensions, the signed settle must cancel to
+/// zero through the parked, deferred, and settled pipeline — the one
+/// answer the nonnegative pair measures can never exercise (their totals
+/// are monotone differences), and one no organically drawn pair reaches
+/// at freezing scale. Every mirrored train parks and defers drift under the
+/// co-sweep, which the freeze and deferral floors check, so the test
+/// exercises the intended path.
+#[test]
+fn mirrored_arming_trains_cancel_to_equal_across_their_box() {
+    use crate::testing::oracles::tree::Version as V;
+    for (n, w, g, alternate) in arming_train_box() {
+        let train = format!("AT({n}, {w}, {g}, alternate {alternate})");
+        let t = to_oracle_version(&version_of(
+            &Shape::ArmingTrain.build_train(n, w, g, alternate),
+        ));
+        let left = from_oracle_version(&V::node(0u64, t.clone(), V::leaf(0u64)));
+        let right = from_oracle_version(&V::node(0u64, V::leaf(0u64), t));
+        assert_ne!(left, right, "the mirrored {train} must be distinct streams");
+        assert_eq!(
+            to_oracle_version(&left).rank(),
+            to_oracle_version(&right).rank(),
+            "the mirrored {train} must tie exactly in rank"
+        );
+        let mut orders = None;
+        let (freezes, deferrals) = freezes_and_deferrals_during(|| {
+            orders = Some((left.rank_cmp(&right), right.rank_cmp(&left)));
+        });
+        let orders = orders.expect("freezes_and_deferrals_during runs its closure once");
+        assert_eq!(
+            orders,
+            (core::cmp::Ordering::Equal, core::cmp::Ordering::Equal),
+            "rank_cmp on the mirrored {train}, in both orders"
+        );
+        assert!(
+            freezes > 0 && deferrals > 0,
+            "liveness: the mirrored {train} must freeze and defer under rank_cmp \
+             ({freezes} freezes, {deferrals} deferrals)"
         );
     }
 }
