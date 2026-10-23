@@ -13,7 +13,9 @@ laws! {
     /// `ticks`, each across its two spellings), the fused multi-tick's point
     /// laws (`ticks(0)` the identity, `ticks(1)` the tick, small counts
     /// against the iterated ground truth, a fresh line realizing the tick
-    /// floor at any width), and the projection (`/`) point laws.
+    /// floor at any width), the tick floor's step bounds (a tick or a run of
+    /// `n` raises it by at most one or `n`), and the projection (`/`) point
+    /// laws.
     pub static VERSION_PARTY: (a: &Version, p: &Party);
 
     /// `tick` strictly advances the causal order: `a < a.tick(p)`.
@@ -107,6 +109,51 @@ laws! {
         line.min_ticks() == n
     }
 
+    /// A tick raises the tick floor by at most one:
+    /// `a.tick(p).min_ticks() <= a.min_ticks() + 1`.
+    ///
+    /// The bound follows from `min_ticks`'s definition as the fewest ticks of
+    /// any history yielding a version. Take a history that yields `a` at some
+    /// clock in `a.min_ticks()` ticks. Each of its ticks lies in that clock's
+    /// causal past, since deleting one outside it would yield `a` from fewer
+    /// ticks. Versions grow only by those ticks and by joins, so every version
+    /// the history produces lies at or below `a`.
+    /// Joining every clock into that one therefore hands it the seed and
+    /// keeps its version `a`; forks and joins then carve `p` from the seed
+    /// without ticking, and one tick of `p` yields `a.tick(p)`. That history
+    /// performs `a.min_ticks() + 1` ticks, which bounds the successor's
+    /// floor.
+    ///
+    /// The floor can also fall, because a tick that fills can merge regions
+    /// the floor counted separately (`tick_can_lower_min_ticks` in the
+    /// version tests constructs one), so the law bounds the rise alone.
+    fn tick_raises_min_ticks_by_at_most_one {
+        let mut ticked = a.clone();
+        ticked.tick(p);
+        ticked.min_ticks() <= a.min_ticks() + Count::from(1u8)
+    }
+
+    /// `ticks(n)` raises the tick floor by at most `n`:
+    /// `a.ticks(p, n).min_ticks() <= a.min_ticks() + n`.
+    ///
+    /// The argument of [`tick_raises_min_ticks_by_at_most_one`] carries over:
+    /// carve `p` after a minimal history yielding `a`, then append `n` ticks
+    /// of `p`, which `ticks(p, n)` equals. The floor can fall here as there,
+    /// so this law also bounds the rise alone.
+    ///
+    /// Quantified over the version operand's own floor and over
+    /// [`wide_tick_counts`], all fused.
+    fn ticks_raise_min_ticks_by_at_most_the_count {
+        let floor = a.min_ticks();
+        core::iter::once(floor.clone())
+            .chain(wide_tick_counts())
+            .all(|n| {
+                let mut run = a.clone();
+                run.ticks(p, n.clone());
+                run.min_ticks() <= n + &floor
+            })
+    }
+
     /// Projection keeps at most the history it is given: `a / p <= a`.
     fn projection_is_sub_version {
         (a / p) <= *a
@@ -140,6 +187,19 @@ laws! {
     fn project_is_the_operator_spelling {
         a.project(p) == (a / p) && a.project(p).to_version() == (a / p).to_version()
     }
+}
+
+/// Returns tick counts occupying one, two, and three 64-bit limbs: the top of
+/// `u64`, just past `2^64`, and `2^129 - 2`.
+///
+/// A [`Count`] has no width limit, so laws over `ticks` quantify over counts
+/// past a machine word as well as within one.
+fn wide_tick_counts() -> [Count; 3] {
+    [
+        Count::from(u64::MAX),
+        Count::from((1u128 << 64) + 3),
+        Count::from(u128::MAX) + Count::from(u128::MAX),
+    ]
 }
 
 // ───────────────────────────── Version × Version × Party ─────────────────────────────
