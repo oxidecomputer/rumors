@@ -57,3 +57,16 @@ Leads not built: whether the mixed-sign mechanism reaches `before` through
 `Integrator::interval` or `Integrator::jump`; and the fuel board's small-input
 cells moving with heap state left by operand setup (seven cells whose measured
 code never reaches `suanpan` moved +9% to +34%).
+
+## The mixed-sign lead, answered
+
+`before` reaches the mixed-sign operand through `Version::rank`, by way of
+`Integrator::interval`: a right spine of depth `64n + 129` whose last three
+leaves leave exactly `[2^32, -1]^n, 3` in the integrator's live accumulator,
+added at a shift above the total's top. The probe that builds it is
+`mixed-sign-reach-probe.rs` (an in-crate test, never committed to the tree).
+Touches per encoded byte at n = 64 to 1024: 0.30 at every n with the written
+set; 0.98, 1.65, 2.98, 5.65, 10.98 without it (quadratic); a control with the
+same widths and no `2^32` digits stays flat in both trees. `jump`, `finish`,
+and shift-zero additions cannot produce the pattern (argued from the code in
+the small-items builder's report).
