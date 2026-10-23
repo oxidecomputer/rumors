@@ -713,6 +713,45 @@ fn id_spine(d: usize, divert: bool) -> Encoding {
     Encoding::from_bits(bits)
 }
 
+/// The zigzag id `ZZ(d, divert)`: a unary chain of depth `d` whose one
+/// child alternates sides, left at even depths and right at odd, `2d + 2`
+/// bits.
+///
+/// [`id_spine`]'s chain with its stored path turning at every level: the same
+/// node count and depth per input bit, but no two consecutive tags alike, so
+/// a walk that keeps one direction per open ancestor records a direction
+/// change at every level, and any reading or writing that batches runs of
+/// equal tags finds runs of length one. With `divert`, the last unary node
+/// points the other way, so `ZZ(d, false)` and `ZZ(d, true)` share their
+/// first `d − 1` levels and own disjoint regions, the pair that drives
+/// two-operand id walks to full lockstep depth.
+///
+/// Layout: at depth `i` below `d − 1`, `10` (left only) for even `i` and `01`
+/// (right only) for odd `i`; then the last unary node, the same rule's tag or
+/// its opposite when diverted; then the terminal `00`. Normal form: no node
+/// has two present children, and none has two absent ones.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+fn zigzag_id(d: usize, divert: bool) -> Encoding {
+    assert!(d >= 1, "zigzag id needs at least one unary node");
+    let mut bits = BitsWriter::with_capacity((2 * d + 2) as u64);
+    for depth in 0..d {
+        let right = depth % 2 == 1;
+        let right = if depth == d - 1 {
+            right != divert
+        } else {
+            right
+        };
+        bits.push(!right); // left child present, or ...
+        bits.push(right); // ... right child present
+    }
+    bits.push(false); // terminal tag "00": the single owned tip
+    bits.push(false);
+    Encoding::from_bits(bits)
+}
+
 /// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left spine,
 /// `4d + 4` bits.
 ///

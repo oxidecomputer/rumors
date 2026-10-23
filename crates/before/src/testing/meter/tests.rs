@@ -24,7 +24,7 @@ use super::{
 };
 use super::{
     below_run_spine, cross_prefix_comb, gap_filling_height, rank_tie, same_prefix_comb,
-    sparse_fill, sparse_height, sparse_oscillation,
+    sparse_fill, sparse_height, sparse_oscillation, zigzag_id,
 };
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
@@ -1409,5 +1409,34 @@ proptest! {
             .fold(BigUint::ZERO, |sum, i| sum + (BigUint::ONE << (32 * i)));
         let numerator = (BigUint::ONE << (64 + depth)) + fraction;
         prop_assert_eq!(shape.version().rank(), Rank::from_raw(numerator, depth as u64));
+    }
+}
+
+proptest! {
+    /// `ZZ(d, divert)` is canonical normal form at exactly `2d + 2` bits, with
+    /// its one owned region at depth `d` behind a path turning at every level.
+    ///
+    /// The diverted pair is disjoint, so their walks share every level but
+    /// the last.
+    #[test]
+    fn zigzag_id_decodes_canonically_as_a_turning_chain(d in 1usize..=500) {
+        let straight = check_party(&zigzag_id(d, false), 2 * d + 2);
+        let diverted = check_party(&zigzag_id(d, true), 2 * d + 2);
+        let bytes = zigzag_id(d, false).bytes;
+        let bit = |position: usize| bytes[position / 8] >> (7 - position % 8) & 1 == 1;
+        for depth in 0..d {
+            let (left, right) = (bit(2 * depth), bit(2 * depth + 1));
+            prop_assert!(left != right, "every level is unary");
+            prop_assert_eq!(right, depth % 2 == 1, "the path turns at every level");
+        }
+        for party in [&straight, &diverted] {
+            let owned: Vec<u64> = party
+                .shape()
+                .filter(|region| region.owned)
+                .map(|region| region.depth)
+                .collect();
+            prop_assert_eq!(owned, vec![d as u64], "one owned region, at depth d");
+        }
+        prop_assert!(straight.is_disjoint(&diverted));
     }
 }

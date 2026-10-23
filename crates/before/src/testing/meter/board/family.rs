@@ -34,6 +34,10 @@ const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 32_000;
 /// Id spine depth at the default scale.
 const ID_BASE_DEPTH: usize = 12_000;
 
+/// Zigzag id depth at the default scale: the id spine's, so the two party
+/// families differ only in their path's turns.
+const ZIGZAG_ID_BASE_DEPTH: usize = ID_BASE_DEPTH;
+
 /// Boundary-comb tooth magnitude (bits) and tooth count at the default scale;
 /// one parameter drives both, mirroring the meter suite's `k = n` convention.
 ///
@@ -1274,6 +1278,18 @@ impl FamilyData {
                     .version()
                     .encode(),
             ),
+            FamilyId::ZigzagPair => {
+                let mut data = Self::bare(kind);
+                data.parties = Some((
+                    Shape::ZigzagId
+                        .build_flagged(size(ZIGZAG_ID_BASE_DEPTH), false)
+                        .bytes,
+                    Shape::ZigzagId
+                        .build_flagged(size(ZIGZAG_ID_BASE_DEPTH), true)
+                        .bytes,
+                ));
+                data
+            }
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
         // A cross shape's primary version is its event side.

@@ -227,6 +227,9 @@ pub enum Shape {
     SamePrefixComb,
     /// The below-run spine `BR(m)`: [`Shape::build1`]`(m)`.
     BelowRunSpine,
+    /// The zigzag id `ZZ(d, divert)`, a unary chain turning at every level:
+    /// [`Shape::build_flagged`]`(d, divert)`.
+    ZigzagId,
 }
 
 /// A registered constructor's signature class, binding one [`Shape`] to
@@ -351,6 +354,7 @@ impl Shape {
             Shape::CrossPrefixComb => Builder::P1(super::cross_prefix_comb),
             Shape::SamePrefixComb => Builder::P1(super::same_prefix_comb),
             Shape::BelowRunSpine => Builder::P1(super::below_run_spine),
+            Shape::ZigzagId => Builder::Flag(super::zigzag_id),
         }
     }
 
@@ -1021,6 +1025,14 @@ pub enum FamilyId {
     /// the `rank_sum` row adds after it writes below the run, into the
     /// bitset. Designed against `Rank`'s `Sum`.
     BelowRunSpine,
+    /// The diverted zigzag pair `ZZ(d, ·)`: two deep unary id chains whose
+    /// path turns at every level, sharing all but the last.
+    ///
+    /// The id-pair family's walks, with no two consecutive levels stored
+    /// alike, so every per-level direction record and every run of equal tags
+    /// is as short as it can be. Designed against the identity operations'
+    /// deep walks.
+    ZigzagPair,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -1068,7 +1080,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 67] = [
+    pub const ALL: [FamilyId; 68] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1136,6 +1148,7 @@ impl FamilyId {
         FamilyId::CrossPrefixComb,
         FamilyId::SamePrefixComb,
         FamilyId::BelowRunSpine,
+        FamilyId::ZigzagPair,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1501,6 +1514,11 @@ impl FamilyId {
                 name: "below-run-spine",
                 shapes: &[Shape::BelowRunSpine],
                 cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::ZigzagPair => FamilySpec {
+                name: "zigzag-pair",
+                shapes: &[Shape::ZigzagId],
+                cells: PARTY_BUNDLE_CELLS,
             },
         }
     }

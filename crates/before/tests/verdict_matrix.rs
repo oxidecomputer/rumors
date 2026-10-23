@@ -369,6 +369,14 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
         FamilyId::SamePrefixComb => (vec![Shape::SamePrefixComb.build1(2).version()], vec![]),
         // A rank two digits above its units digit over a sparse fraction.
         FamilyId::BelowRunSpine => (vec![Shape::BelowRunSpine.build1(1).version()], vec![]),
+        // The diverted zigzag pair: mask parties turning at every level.
+        FamilyId::ZigzagPair => (
+            vec![],
+            vec![
+                decode_party(&Shape::ZigzagId.build_flagged(4, false)),
+                decode_party(&Shape::ZigzagId.build_flagged(4, true)),
+            ],
+        ),
     };
     MatrixOperands { versions, masks }
 }
