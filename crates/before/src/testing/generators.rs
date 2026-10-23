@@ -253,6 +253,27 @@ pub(crate) fn deep_right_spine_party(depth: usize) -> Party {
     Party::from_test_bits(bits)
 }
 
+/// Build a depth-`depth` zigzag [`Party`] directly as canonical encoded bits,
+/// with a single owned region at the tip of a unary spine that turns at every
+/// level.
+///
+/// The root descends left, the next level right, and so on: each spine node
+/// is a `Left-only` tag (`10`) or a `Right-only` tag (`01`), alternating, and
+/// the tip is a terminal (`00`). Its stored path changes direction at every
+/// level, where [`deep_left_spine_party`] and [`deep_right_spine_party`] each
+/// run in one direction throughout.
+pub(crate) fn deep_zigzag_party(depth: usize) -> Party {
+    let mut bits = bits::BitsWriter::with_capacity(2 * depth as u64 + 2);
+    for level in 0..depth {
+        let left = level % 2 == 0;
+        bits.push(left); // `10` on even levels: left child present ...
+        bits.push(!left); //   ... or `01` on odd levels: right child present
+    }
+    bits.push(false); // terminal tag `00`: the owned tip
+    bits.push(false);
+    Party::from_test_bits(bits)
+}
+
 /// Spine depth for the stack-safety tests: deep enough that any walk keeping
 /// one call frame per level overflows a test thread's stack.
 ///
