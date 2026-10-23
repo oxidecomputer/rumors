@@ -248,9 +248,9 @@ impl Digits {
         }
         // Every written position but zero lies in the span just zeroed, so
         // clearing the set costs that span too, not the width its retained
-        // storage covers.
+        // storage covers. The clear leaves position zero written, as the
+        // field requires while the buffer holds digits.
         self.written.clear(floor, self.highest_nonzero);
-        self.written.insert(0);
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
         self.debug_assert_valid();

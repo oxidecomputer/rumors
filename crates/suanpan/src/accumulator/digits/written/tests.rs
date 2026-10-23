@@ -2,8 +2,9 @@
 //!
 //! The set's subtle work lies where its top run meets the positions below it
 //! (extending the run, moving it down on a jump, shortening or dropping it on
-//! a truncation, parking it above what remains), and where the inline prefix
-//! gives way to a bitset. Positions are drawn near the bitset's word and level
+//! a truncation, parking it above what remains, sharing position zero with a
+//! bitset after a clear), and where the inline prefix gives way to a bitset.
+//! Positions are drawn near the bitset's word and level
 //! boundaries, in spans that extend the top run and fill whole words, and far
 //! enough apart to need several levels, so that the set's results also cross
 //! the bitset's own boundaries; the bitset's own model test covers those
@@ -44,7 +45,7 @@ enum Op {
     TruncateBelowLargest,
     /// Clear from the oracle's least position other than zero, less the first
     /// slack, through its largest position, plus the second, as `Digits`
-    /// clears from its floor through its top.
+    /// clears from its floor through its top, leaving position zero alone.
     Clear(usize, usize),
 }
 
@@ -123,7 +124,7 @@ fn apply(
                 .next()
                 .map_or(highest, |&least| least.saturating_sub(below));
             set.clear(lowest, highest);
-            oracle.clear();
+            *oracle = BTreeSet::from([0]);
             touched.extend([lowest, highest]);
         }
     }
@@ -324,6 +325,77 @@ fn converting_a_prefix_keeps_every_position() {
                 oracle.iter().copied().collect::<Vec<_>>(),
                 "positions after: {context}"
             );
+        }
+    }
+}
+
+/// A position high enough to give a bitset four levels.
+const TALL: usize = 64 * 64 * 64;
+
+/// Each form a set can hold its positions below the run in before a clear,
+/// named, with the operations that build it.
+const BEFORE_CLEAR: [(&str, &[Op]); 2] = [
+    // One gap, between the prefix 0..3 and the run at 10.
+    ("prefix", &[Op::InsertSpan(0, 3), Op::Insert(10)]),
+    // A second jump converts the prefix, and the run lands four levels up.
+    (
+        "bitset",
+        &[Op::InsertSpan(0, 3), Op::Insert(10), Op::Insert(TALL)],
+    ),
+];
+
+/// Operations that meet the position zero a clear leaves: writes at and
+/// from zero, writes just above it, jumps that move the run holding zero,
+/// truncations, and another clear.
+const AFTER_CLEAR: [Op; 11] = [
+    Op::Insert(0),
+    Op::Insert(1),
+    Op::Insert(2),
+    Op::InsertSpan(0, 70),
+    Op::InsertSpan(1, 64),
+    Op::Insert(64),
+    Op::Insert(4096),
+    Op::Insert(TALL),
+    Op::Truncate(0),
+    Op::TruncateBelowLargest,
+    Op::Clear(0, 0),
+];
+
+/// A clear leaves position zero alone in either form, keeps the form, and
+/// every pair of later operations leaves the set agreeing with the oracle.
+///
+/// Each set of [`BEFORE_CLEAR`] is cleared from its least nonzero position
+/// through its largest, as `Digits` clears its written span. The set must
+/// then hold exactly position zero, in the form it had, and after each
+/// ordered pair of operations from [`AFTER_CLEAR`], the positions,
+/// `contains`, and `last_below` must agree with the oracle at every probe.
+/// In the bitset form this covers the run and the bitset both holding zero:
+/// a write at zero or one extends the run, a jump moves the run into the
+/// bitset, and a truncation keeps zero.
+#[test]
+fn a_clear_leaves_zero_and_later_operations_match_an_ordered_set() {
+    for (form, setup) in BEFORE_CLEAR {
+        for first in &AFTER_CLEAR {
+            for second in &AFTER_CLEAR {
+                let mut set = WrittenPositions::default();
+                let mut oracle = BTreeSet::new();
+                let mut touched = BTreeSet::new();
+                let mut trace = setup.to_vec();
+                for op in setup {
+                    apply(op, &mut set, &mut oracle, &mut touched);
+                }
+                assert_eq!(set.form(), form, "the form built by {trace:?}");
+                trace.push(Op::Clear(0, 0));
+                apply(&Op::Clear(0, 0), &mut set, &mut oracle, &mut touched);
+                assert_eq!(set.positions(), [0], "position zero alone after {trace:?}");
+                assert_eq!(set.form(), form, "the form kept by {trace:?}");
+                assert_agrees(&set, &oracle, &touched, &trace);
+                for op in [first, second] {
+                    trace.push(op.clone());
+                    apply(op, &mut set, &mut oracle, &mut touched);
+                    assert_agrees(&set, &oracle, &touched, &trace);
+                }
+            }
         }
     }
 }

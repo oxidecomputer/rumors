@@ -68,6 +68,14 @@ pub struct Bitset {
     /// length, counted so that tests can check where growth stops.
     #[cfg(test)]
     unchanged_levels_examined: usize,
+    /// The levels [`clear`](Self::clear) has examined, counted so that tests
+    /// can check where its climb stops.
+    #[cfg(test)]
+    cleared_levels_examined: usize,
+    /// The levels [`insert`](Self::insert) has climbed, counted so that
+    /// tests can check where an insertion stops.
+    #[cfg(test)]
+    inserted_levels_climbed: usize,
 }
 
 /// Maintain positions and their summary bits, climbing only where a word
@@ -78,6 +86,10 @@ impl Bitset {
         self.cover(position);
         let mut index = position;
         for words in &mut self.levels {
+            #[cfg(test)]
+            {
+                self.inserted_levels_climbed += 1;
+            }
             let word = &mut words[index / WORD_BITS];
             let was_empty = *word == 0;
             *word |= bit(index);
@@ -163,42 +175,57 @@ impl Bitset {
         Some(index)
     }
 
-    /// Remove every position, given that each is zero or lies in
-    /// `lowest..=highest`, keeping the storage.
+    /// Reduce the set to position zero, given that every other position lies
+    /// in `lowest..=highest`, keeping the storage.
     ///
-    /// A position outside that span is left set while summary words above it
-    /// may be cleared, which breaks the summary invariant: every later
-    /// operation may then return a wrong result or panic.
+    /// A position other than zero outside that span is left set while
+    /// summary words above it may be cleared, which breaks the summary
+    /// invariant: every later operation may then return a wrong result or
+    /// panic.
     ///
-    /// Removing position zero alone leaves every remaining position in the
-    /// span, so every nonzero word, at every level, lies among the words that
-    /// summarize the span. If level 0 holds nothing there, the set is already
-    /// empty; otherwise each level clears exactly those words.
+    /// Position zero stays, inserted if absent, because the written set
+    /// always holds it again after a clear. Keeping it keeps word zero
+    /// nonempty at every level, so an insertion after the clear stops at the
+    /// first word it shares with position zero, as it would before the clear,
+    /// instead of climbing every level of an emptied hierarchy.
     ///
-    /// The cost is O(1 + (`highest` − `lowest`) / 64) word operations at level
-    /// 0, one more for each level above it, and the climb that removing
-    /// position zero makes. Each per-level term is charged to an insertion
-    /// that climbed the same levels: the first insertion since the set was
-    /// last empty, and the insertion of position zero.
+    /// Once zero is held, the clear works upward from level 0. Every position
+    /// other than zero lies in the span, so at each level, every nonempty
+    /// word other than word zero lies among the words that summarize the
+    /// span, and word zero holds the bit on position zero's path and
+    /// otherwise only bits standing for the span. The clear sets word zero to
+    /// that one bit, if word zero lies in the span, and empties the span's
+    /// other words. Word zero stays nonempty, so a level at which no other
+    /// word empties changes no summary bit above it, and the clear stops
+    /// there.
+    ///
+    /// The cost is the insertion of zero, one word operation when zero is
+    /// already held; O(1 + (`highest` − `lowest`) / 64) word operations at
+    /// level 0; and at each level above, O(1) plus the span's words there.
+    /// The clear reaches a level only after emptying a word other than word
+    /// zero on the level below. That word turned nonempty through an
+    /// insertion that climbed to the level reached, and the clear leaves it
+    /// empty, so each level's O(1) is charged once to that climb.
     pub fn clear(&mut self, lowest: usize, highest: usize) {
-        self.remove(0);
+        self.insert(0);
         let mut first_word = lowest / WORD_BITS;
         let mut last_word = highest / WORD_BITS;
-        let empty = self.levels.first().is_none_or(|words| {
-            let end = (last_word + 1).min(words.len());
-            words
-                .get(first_word..end)
-                .is_none_or(|span| span.iter().all(|&word| word == 0))
-        });
-        if empty {
-            return;
-        }
-        // A nonzero level-0 word in the span has its summary bit inside the
-        // span at every level above, so no level's span starts past its
-        // stored words.
         for words in &mut self.levels {
+            #[cfg(test)]
+            {
+                self.cleared_levels_examined += 1;
+            }
+            if first_word == 0 {
+                // Every bit of word zero but the one on position zero's path
+                // stands for a position, or a word, in the span.
+                words[0] = bit(0);
+            }
             let end = (last_word + 1).min(words.len());
-            words[first_word..end].fill(0);
+            let others = words.get_mut(first_word.max(1)..end).unwrap_or_default();
+            if others.iter().all(|&word| word == 0) {
+                return;
+            }
+            others.fill(0);
             first_word /= WORD_BITS;
             last_word /= WORD_BITS;
         }
