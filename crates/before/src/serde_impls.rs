@@ -87,13 +87,13 @@ struct SpanOwned {
 /// the strict decoder.
 fn deserialize_bytes<'de, D, T>(
     d: D,
-    decode: fn(bytes::Bytes) -> Result<T, Decode>,
+    decode: fn(Vec<u8>) -> Result<T, Decode>,
 ) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
 {
     let bytes = serde_bytes::ByteBuf::deserialize(d)?;
-    decode(bytes.into_vec().into()).map_err(D::Error::custom)
+    decode(bytes.into_vec()).map_err(D::Error::custom)
 }
 
 /// Human-readable formats use canonical hexadecimal; binary formats use the

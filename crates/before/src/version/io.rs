@@ -25,26 +25,24 @@ use crate::Version;
 use num_bigint::BigUint;
 
 impl Version {
-    /// Validate and adopt exactly one canonical Version encoding.
-    pub(crate) fn decode_bytes(bytes: bytes::Bytes) -> Result<Self, crate::error::Decode> {
+    /// Validates exactly one canonical Version encoding and adopts it as the
+    /// version's storage.
+    pub(crate) fn decode_bytes(bytes: Vec<u8>) -> Result<Self, crate::error::Decode> {
         let end = validate::prefix(BitsReader::from_bytes(&bytes))?;
         Bits::validate_padding(&bytes, end)?;
-        Ok(Self::from_canonical(Bits::from_canonical(bytes)))
+        Ok(Self::from_canonical(Bits::from_canonical_vec(bytes)))
     }
 
-    /// Validate and adopt the first byte-aligned Version in `bytes`.
+    /// Validates the byte-aligned Version at the head of `bytes` and splits it
+    /// off into storage of its own.
     ///
-    /// The returned byte count starts the next encoded field. The Version
-    /// shares its allocation with `bytes`.
-    pub(crate) fn decode_prefix(
-        bytes: &bytes::Bytes,
-    ) -> Result<(Self, usize), crate::error::Decode> {
-        let end = validate::prefix(BitsReader::from_bytes(bytes))?;
-        let len = Bits::padded_len(bytes, end)?;
-        Ok((
-            Self::from_canonical(Bits::from_canonical(bytes.slice(..len))),
-            len,
-        ))
+    /// Returns the version and the bytes after it, which start the next
+    /// encoded field. The two share no allocation.
+    pub(crate) fn decode_head(mut bytes: Vec<u8>) -> Result<(Self, Vec<u8>), crate::error::Decode> {
+        let end = validate::prefix(BitsReader::from_bytes(&bytes))?;
+        let len = Bits::padded_len(&bytes, end)?;
+        let rest = bytes.split_off(len);
+        Ok((Self::from_canonical(Bits::from_canonical_vec(bytes)), rest))
     }
 
     /// Adopt a test-built stream without validating the Version invariants.

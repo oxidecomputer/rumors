@@ -34,8 +34,8 @@ use crate::{
 /// already been read. Those bytes accumulate in `bytes`, which serves twice
 /// over: it is the decode window ([`read_bit`](BitRead::read_bit) is an
 /// index + mask into it; [`read_gamma`](BitRead::read_gamma) proves whole gamma
-/// codes from it through the word decoder), and at [`finish`] it becomes the
-/// value's stored bits without a copy.
+/// codes from it through the word decoder), and at [`finish`] it is handed to
+/// the value, which seals it to its length before storing it.
 ///
 /// [`finish`]: StreamBitsReader::finish
 struct StreamBitsReader<'a, R> {
@@ -76,8 +76,9 @@ impl<'a, R: Read> StreamBitsReader<'a, R> {
     /// bits end flush against a byte boundary, the padding is a whole
     /// `1000_0000` byte the parse never pulled, and leaving it unread would
     /// hand its bits to the next borsh field. After it, the buffered bytes
-    /// are exactly the tree's marker-padded canonical spelling, which the
-    /// decoded value adopts without a copy.
+    /// are exactly the tree's marker-padded canonical spelling. The vector
+    /// grew one byte at a time, so it usually has spare capacity; the decoded
+    /// value releases it when it seals the bytes, which may reallocate.
     fn finish(mut self) -> Result<Vec<u8>, Decode> {
         if !self.read_bit()? {
             return Err(Decode::TrailingBits);

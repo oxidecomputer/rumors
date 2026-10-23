@@ -142,7 +142,7 @@ fn marker_validation_agrees_with_storage_canonicality() {
             bytes[len - 1] = last;
             for pos in 0..=len as u64 * 8 {
                 if super::Bits::validate_padding(&bytes, pos).is_ok() {
-                    let bits = super::Bits::from_canonical(bytes.clone().into());
+                    let bits = super::Bits::from_canonical_vec(bytes.clone());
                     assert!(bits.has_canonical_padding());
                     assert_eq!(bits.reader().len(), pos);
                 }
@@ -217,13 +217,13 @@ fn ptr_eq_implies_equality_and_clones_share_nonempty_storage() {
 
 /// Freezing built bits and adopting their canonical bytes produce equal streams.
 #[test]
-fn from_canonical_matches_freeze() {
+fn from_canonical_vec_matches_freeze() {
     let frozen = bits_writer![1, 0, 1].finalize();
-    let adopted = super::Bits::from_canonical(bytes::Bytes::copy_from_slice(frozen.as_raw_slice()));
+    let adopted = super::Bits::from_canonical_vec(frozen.as_raw_slice().to_vec());
     assert!(frozen == adopted);
     assert!(!frozen.ptr_eq(&adopted)); // distinct buffers, equal content
 
-    let empty = super::Bits::from_canonical(bytes::Bytes::new());
+    let empty = super::Bits::from_canonical_vec(Vec::new());
     assert!(empty.as_raw_slice().is_empty());
     assert_eq!(empty.reader().len(), 0);
     assert!(empty == BitsWriter::new().finalize());

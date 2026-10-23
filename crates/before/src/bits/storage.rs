@@ -16,8 +16,11 @@ use crate::error::Decode;
 
 /// Immutable canonical bytes for a party or version.
 ///
-/// Clones share the refcounted byte buffer. Readers exclude the marker and
-/// padding.
+/// Each stream's buffer holds only that stream's bytes: the constructors take
+/// an owned vector, sealed to its length, or static bytes, and never a view
+/// into a larger buffer. A value built from these streams therefore keeps
+/// alive only its own encoding, however it was decoded or split. Clones share
+/// the refcounted byte buffer. Readers exclude the marker and padding.
 #[derive(Clone)]
 pub struct Bits {
     /// Live bits followed by the marker and zero padding.
@@ -50,7 +53,11 @@ impl Bits {
     /// [`validate_padding`](Self::validate_padding) accepts. Debug builds
     /// assert it; release builds trust the validator.
     ///
-    pub(crate) fn from_canonical(bytes: Bytes) -> Self {
+    /// This stays private so that every stream's buffer comes from
+    /// [`from_canonical_vec`](Self::from_canonical_vec) or
+    /// [`from_static`](Self::from_static), neither of which can adopt a view
+    /// into a larger buffer.
+    fn from_canonical(bytes: Bytes) -> Self {
         let bits = Bits { bytes };
         debug_assert!(
             bits.has_canonical_padding(),
@@ -68,6 +75,14 @@ impl Bits {
     pub(crate) fn from_canonical_vec(mut bytes: Vec<u8>) -> Self {
         bytes.shrink_to_fit();
         Self::from_canonical(Bytes::from(bytes))
+    }
+
+    /// Adopt static marker-padded bytes without allocating.
+    ///
+    /// The precondition is [`from_canonical`](Self::from_canonical)'s. Every
+    /// stream adopted from the same static shares its one buffer.
+    pub(crate) fn from_static(bytes: &'static [u8]) -> Self {
+        Self::from_canonical(Bytes::from_static(bytes))
     }
 
     /// Start reading at the first live bit.

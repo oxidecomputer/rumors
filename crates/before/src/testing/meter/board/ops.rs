@@ -3438,6 +3438,9 @@ fn serde_count_from_limbs(limbs: Vec<u64>) -> Count {
 fn serde_decode_ops() -> [Op; 7] {
     const OWNED_INPUT: &str = "serde transfers the caller's byte allocation into the decoded \
         value; only validation state may allocate";
+    const SPLIT_INPUT: &str = "serde transfers the caller's byte allocation to the decoder, \
+        which splits it so that each part owns storage sized to its encoding; only that split \
+        and validation state may allocate";
     [
         Op {
             name: "party_serde_deserialize",
@@ -3485,7 +3488,7 @@ fn serde_decode_ops() -> [Op; 7] {
                 let bytes = clock.encode();
                 let n = bytes.len();
                 let floors = Floors {
-                    heap: na(OWNED_INPUT),
+                    heap: na(SPLIT_INPUT),
                     scan: scan_examines(n),
                     touch: touch_wide_stream(clock.version()),
                 };
@@ -3519,7 +3522,7 @@ fn serde_decode_ops() -> [Op; 7] {
                 let (version, _) = f.version()?;
                 let bytes = Ranked::from(&version).encode();
                 let floors = Floors {
-                    heap: na(OWNED_INPUT),
+                    heap: na(SPLIT_INPUT),
                     scan: scan_examines(bytes.len()),
                     touch: touch_delta_fold(stored_nonzero_deltas(&version)),
                 };
@@ -3543,7 +3546,7 @@ fn serde_decode_ops() -> [Op; 7] {
                 let n = bytes.len();
                 let (lo, hi) = span.into_parts();
                 let floors = Floors {
-                    heap: na(OWNED_INPUT),
+                    heap: na(SPLIT_INPUT),
                     scan: scan_examines(n),
                     touch: touch_pair_fold(&lo, &hi),
                 };

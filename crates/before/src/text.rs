@@ -15,11 +15,15 @@ pub fn write_hex(bytes: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
 /// Decode an even-length hexadecimal component, then validate the resulting
 /// canonical bytes as `T`.
+///
+/// The bytes land in a vector allocated once at their exact length, so the
+/// value that adopts them needs no reallocation to drop spare capacity.
 pub fn decode_hex<T>(
     text: &str,
     decode: impl FnOnce(Vec<u8>) -> Result<T, Decode>,
 ) -> Result<T, ParseValue> {
-    let decoded = hex::decode(text).map_err(|_| ParseValue::InvalidSyntax)?;
+    let mut decoded = vec![0; text.len() / 2];
+    hex::decode_to_slice(text, &mut decoded).map_err(|_| ParseValue::InvalidSyntax)?;
     decode(decoded).map_err(ParseValue::InvalidEncoding)
 }
 
