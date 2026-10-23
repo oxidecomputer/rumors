@@ -1619,7 +1619,7 @@ fn ticks_composes_at_wide_n() {
 const ITERATED_TICKS: u8 = 4;
 
 /// Counts whose sums the composition check pairs: one, the top of `u64`, just
-/// past `2^64`, and a count three limbs wide.
+/// past `2^64`, and `2^200 - 1`, a count four 64-bit limbs wide.
 fn composition_counts() -> [BigUint; 4] {
     let one = BigUint::from(1u8);
     [

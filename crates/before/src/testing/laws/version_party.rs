@@ -316,16 +316,8 @@ laws! {
     /// the operands and the projected endpoints (reaching the at-endpoint
     /// corners). Every probe built from the operands dominates the projected
     /// start (projection only shrinks a version), so the concurrent-to-start
-    /// placements are this law's negative space: the committed law's negative
-    /// space, and overlapping arbitrary parties keep them inhabited under mass.
-    ///
-    /// When `q` carves nothing out of `p` (it covers `p`, or is disjoint from
-    /// it — every pair in a one-world population, whose parties are pairwise
-    /// disjoint), the law constructs the decomposition from `p`'s own fork half
-    /// through the same `without` entry points instead: the additivity equation
-    /// runs on every call, so no population can leave this law vacuous.
-    /// `own_span_place_reaches_every_concurrent_corner` witness beside the span
-    /// tests constructs them.
+    /// placements are this law's negative space: the span tests'
+    /// `own_span_place_reaches_every_concurrent_corner` constructs them.
     ///
     /// The eager side exists at all because projection is monotone
     /// (`projection_monotone_in_version`), which this law re-witnesses by
@@ -430,9 +422,16 @@ laws! {
     /// Projection is additive over any without-carved decomposition of a
     /// region: for `r = p \ q` and `inner = p \ r`, the two remainders
     /// partition `p`'s region and `(v/r) | (v/inner) == v / p`.
-
-
-
+    ///
+    /// [`projection_additive_over_fork`] states additivity for the balanced
+    /// fork geometry; the ragged region pairs `without` carves are that law's
+    /// negative space, and overlapping arbitrary parties keep them inhabited
+    /// under mass. When `q` carves nothing out of `p` (it covers `p`, or is
+    /// disjoint from it — every pair in a one-world population, whose parties
+    /// are pairwise disjoint), the law constructs the decomposition from `p`'s
+    /// own fork half through the same `without` entry points instead: the
+    /// additivity equation runs on every call, so no population can leave this
+    /// law vacuous.
     fn projection_additive_over_carved_regions {
         let carved = p
             .dangerously_alias()
