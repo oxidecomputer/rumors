@@ -143,6 +143,12 @@ likely the triggering input is: "unreachable in practice" carries no weight.
   - It also gives your worktree one build directory instead of two.
   - illumos's `env` has no `-u` flag; use `unset`.
 - Pass `--locked` to cargo on the box, so `Cargo.lock` changes only on the Mac.
+- When a command is denied by the permission system, stop and report it. Never
+  reach the same result by another command: the denial is the owner's
+  decision, and only the owner can change it.
+- Run a command that depends on another call's result only after that result
+  returns. Never send it in the same parallel batch: a failed edit followed by a
+  commit sent alongside it records the unedited file.
 - Never edit files in your worktree while a build or test of it is running on
   the box. A sync during a build can leave cargo with a fingerprint newer
   than the source it compiled, so the next run reuses a stale binary and
