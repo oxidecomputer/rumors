@@ -1734,6 +1734,24 @@ proptest! {
     }
 }
 
+proptest! {
+    #![proptest_config(generators::divided_config(co_generated::DEEP_SPINE_CASE_DIVISOR))]
+
+    /// Co-generated spines a few hundred levels deep, their fill-fixed
+    /// successors, and late perturbations tick byte-identically to the
+    /// recursive oracle through `tick` and `ticks`.
+    ///
+    /// The walk and its pre-scan keep one frame per open branch, so these
+    /// spines carry both frame stacks' bits past one 64-bit word while their
+    /// nested sites fill more than one memo block, over random content. A tick
+    /// that goes wrong there can still satisfy every algebraic law; the exact
+    /// oracle sees it.
+    #[test]
+    fn deep_co_generated_spines_tick_identically(case in co_generated::arb_deep_spine_case()) {
+        assert_co_generated(&case);
+    }
+}
+
 /// An owned leaf whose old maximum ties its memoized minimum keeps that
 /// height, and the case ticks byte-identically to the recursive oracle
 /// through `tick` and `ticks`.
