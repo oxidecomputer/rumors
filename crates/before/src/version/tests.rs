@@ -17,6 +17,7 @@ use crate::bits::BitsWriter;
 use crate::error::Decode;
 use crate::rank::DECODE_CHUNK_BYTES;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
+use crate::testing::generators::co_generated::arb_spine_case;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
@@ -823,6 +824,102 @@ proptest! {
                 total,
             );
         }
+    }
+}
+
+/// Reaches `target` by a single-seed history, returning the version reached
+/// and the ticks spent.
+///
+/// The history visits the normal-form tree in preorder, carrying a party that
+/// owns exactly the current node's interval. It spends the node's base `b` as
+/// `ticks(b)` by that party, then forks it and hands each child the half over
+/// that child's interval, rejoining the halves once both subtrees are done.
+/// `fork` keeps the left half, as the paper's split does; were that to change,
+/// the history would reach another version and the attainment properties
+/// would fail.
+///
+/// The version built so far is constant over the current node's interval,
+/// because only the node's ancestors have ticked there, so each tick's fill
+/// changes nothing and its grow raises exactly the party's interval. The ticks
+/// spent are therefore the sum of the bases. The traversal recurses on the
+/// tree's depth through `descend!`.
+fn realize(target: &crate::testing::oracles::tree::Version) -> (Version, BigUint) {
+    use crate::recurse::descend;
+    use crate::testing::oracles::tree::Version as V;
+
+    fn visit(
+        node: &V,
+        depth: usize,
+        mut party: Party,
+        built: &mut Version,
+        spent: &mut BigUint,
+    ) -> Party {
+        let (V::Leaf(base) | V::Node(base, ..)) = node;
+        if *base != BigUint::ZERO {
+            built.ticks(&party, Count(base.clone()));
+            *spent += base;
+        }
+        if let V::Node(_, left, right) = node {
+            let right_half = party.fork();
+            party = descend!(depth + 1, visit(left, depth + 1, party, built, spent));
+            let right_half = descend!(depth + 1, visit(right, depth + 1, right_half, built, spent));
+            party
+                .join(right_half)
+                .expect("the two halves of one interval are disjoint");
+        }
+        party
+    }
+
+    let mut built = Version::new();
+    let mut spent = BigUint::ZERO;
+    let seed = visit(target, 0, Party::seed(), &mut built, &mut spent);
+    assert!(seed.is_seed(), "the history's parties rejoin into the seed");
+    (built, spent)
+}
+
+/// Checks that [`realize`] reaches `target` and that `min_ticks` equals the
+/// ticks it spent.
+fn assert_min_ticks_attained(
+    target: &crate::testing::oracles::tree::Version,
+) -> Result<(), TestCaseError> {
+    let version = from_oracle_version(target);
+    let (built, spent) = realize(target);
+    prop_assert_eq!(
+        &built,
+        &version,
+        "the constructed history reaches another version"
+    );
+    prop_assert_eq!(
+        version.min_ticks(),
+        Count(spent),
+        "the constructed history spends another count"
+    );
+    Ok(())
+}
+
+proptest! {
+    /// `min_ticks` is attained on arbitrary canonical versions: a single-seed
+    /// history of forks, wide `ticks`, and joins reaches each one spending
+    /// exactly `min_ticks` ticks.
+    ///
+    /// `min_ticks` is a minimum over the histories that yield a version, and a
+    /// minimum is attained. `min_ticks_floors_every_history` checks the
+    /// floor half; this checks the attained half, on versions with many
+    /// regions, and shows that a rule-respecting history reaches every drawn
+    /// canonical version.
+    #[test]
+    fn min_ticks_is_attained_on_arbitrary_versions(target in arb_oracle_version()) {
+        assert_min_ticks_attained(&target)?;
+    }
+
+    /// `min_ticks` is attained on the co-generated spine versions: a
+    /// single-seed history reaches each one spending exactly `min_ticks` ticks.
+    ///
+    /// These versions nest regions far deeper than arbitrary versions and draw
+    /// heights just past `2^64` and `2^130`.
+    #[test]
+    fn min_ticks_is_attained_on_spine_versions(case in arb_spine_case()) {
+        assert_min_ticks_attained(&case.version)?;
     }
 }
 
