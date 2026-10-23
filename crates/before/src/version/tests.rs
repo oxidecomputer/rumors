@@ -33,7 +33,7 @@ use crate::testing::optrace::{
 };
 use crate::testing::oracles::dyadic::Dyadic;
 use crate::testing::oracles::function;
-use crate::testing::scripted_reader::{arb_read_schedule, ReadSchedule, ScriptedReader};
+use crate::testing::scripted_io::{arb_io_schedule, IoSchedule, ScriptedReader, ScriptedWriter};
 use crate::{Clock, Count, Party, Rank};
 
 /// Build a uniform version through the public tick operation.
@@ -1607,6 +1607,143 @@ proptest! {
     }
 }
 
+/// Runs one streaming encoder whose canonical bytes are `expected` against a
+/// [`ScriptedWriter`] on `schedule` with no limit, with a limit at the
+/// encoding's length, and with a limit inside the encoding at `cut`.
+///
+/// With room for the whole encoding, the encoder must return `Ok` having
+/// written exactly `expected`, so a limit at the length also catches an extra
+/// byte. With less room, it must meet the writer's failure and return it with
+/// the writer's kind, as every `encode_to` promises to return any error the
+/// writer reports. What the writer holds after a failure is left unchecked,
+/// because no encoder promises it.
+fn check_encoder(
+    expected: &[u8],
+    schedule: &IoSchedule,
+    cut: Index,
+    encode: impl Fn(&mut ScriptedWriter<'_>) -> io::Result<()>,
+) -> Result<(), TestCaseError> {
+    let len = expected.len();
+    let mut limits = vec![None, Some(len)];
+    if len > 0 {
+        limits.push(Some(cut.index(len)));
+    }
+    for limit in limits {
+        let mut writer = ScriptedWriter::new(schedule, limit);
+        let result = encode(&mut writer).map_err(|error| error.kind());
+        if limit.is_some_and(|limit| limit < len) {
+            prop_assert!(
+                writer.has_failed(),
+                "the encoder stopped before its writer's limit {:?}",
+                limit
+            );
+            prop_assert_eq!(result, Err(io::ErrorKind::Other), "limit {:?}", limit);
+        } else {
+            prop_assert!(
+                !writer.has_failed(),
+                "the encoder wrote past its {} bytes",
+                len
+            );
+            prop_assert_eq!(result, Ok(()), "limit {:?}", limit);
+            prop_assert_eq!(writer.written(), expected, "limit {:?}", limit);
+        }
+    }
+    Ok(())
+}
+
+/// Runs one [`Canonical`] type's streaming `encode_to` on `value` through
+/// [`check_encoder`], with its buffered `encode` as the reference bytes.
+fn check_streaming_encoder<T: Canonical>(
+    value: &T,
+    schedule: &IoSchedule,
+    cut: Index,
+) -> Result<(), TestCaseError> {
+    check_encoder(&value.encode_canonical(), schedule, cut, |writer| {
+        value.write_canonical(writer)
+    })
+}
+
+/// Runs one borsh serializer on `value` through [`check_encoder`], with
+/// `borsh::to_vec` as the reference bytes.
+#[cfg(feature = "borsh")]
+fn check_borsh_encoder(
+    value: &impl borsh::BorshSerialize,
+    schedule: &IoSchedule,
+    cut: Index,
+) -> Result<(), TestCaseError> {
+    let expected = borsh::to_vec(value).expect("serializing into memory succeeds");
+    check_encoder(&expected, schedule, cut, |writer| value.serialize(writer))
+}
+
+proptest! {
+    /// Every streaming encoder writes exactly its canonical bytes through a
+    /// writer that accepts short writes and returns `Interrupted`, and returns
+    /// the error a failing writer reports.
+    ///
+    /// Each [`Canonical`] type's `encode_to`, and `encode_rank_to` for `Version`
+    /// and `Ranked`, run against a scripted writer that accepts from one byte
+    /// per call to twice `Rank::decode`'s buffer of `DECODE_CHUNK_BYTES`,
+    /// returning `Interrupted` on a generated schedule, with no limit, a limit
+    /// at the encoding's length, and a limit inside it.
+    #[test]
+    fn streaming_encoders_survive_short_interrupted_and_failing_writers(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        schedule in arb_io_schedule(),
+        cut in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let clock = Clock::from_parts(from_oracle_party(&party), from_oracle_version(&a));
+        let party = from_oracle_party(&party);
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        let ranked = Ranked::from(a.clone());
+        check_streaming_encoder(&party, &schedule, cut)?;
+        check_streaming_encoder(&a, &schedule, cut)?;
+        check_streaming_encoder(&clock, &schedule, cut)?;
+        check_streaming_encoder(&a.span(&b), &schedule, cut)?;
+        check_streaming_encoder(&a.rank(), &schedule, cut)?;
+        check_streaming_encoder(&ranked, &schedule, cut)?;
+        check_encoder(&a.encode_rank(), &schedule, cut, |w| a.encode_rank_to(w))?;
+        check_encoder(&ranked.encode_rank(), &schedule, cut, |w| ranked.encode_rank_to(w))?;
+    }
+}
+
+#[cfg(feature = "borsh")]
+proptest! {
+    /// Every borsh serializer writes exactly its bytes through a writer that
+    /// accepts short writes and returns `Interrupted`, and returns the error a
+    /// failing writer reports.
+    ///
+    /// Each [`Canonical`] type, and `Count`, serializes against the scripted writer
+    /// of `streaming_encoders_survive_short_interrupted_and_failing_writers`,
+    /// under the same three limits, with `borsh::to_vec` as the reference
+    /// bytes.
+    #[test]
+    fn borsh_serializers_survive_short_interrupted_and_failing_writers(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        count in crate::testing::generators::arb_magnitude(),
+        schedule in arb_io_schedule(),
+        cut in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let clock = Clock::from_parts(from_oracle_party(&party), from_oracle_version(&a));
+        let party = from_oracle_party(&party);
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        check_borsh_encoder(&party, &schedule, cut)?;
+        check_borsh_encoder(&a, &schedule, cut)?;
+        check_borsh_encoder(&clock, &schedule, cut)?;
+        check_borsh_encoder(&a.span(&b), &schedule, cut)?;
+        check_borsh_encoder(&a.rank(), &schedule, cut)?;
+        check_borsh_encoder(&Ranked::from(a.clone()), &schedule, cut)?;
+        check_borsh_encoder(&Count(count), &schedule, cut)?;
+    }
+}
+
 /// The exhaustive small-scope sweep over **every** byte string of zero, one,
 /// and two bytes.
 ///
@@ -1844,7 +1981,7 @@ fn judged_case<T>(input: Vec<u8>, judge: impl FnOnce(&[u8]) -> Result<T, Decode>
 /// it.
 fn check_decode<T: core::fmt::Debug + PartialEq>(
     case: &DecodeCase<T>,
-    schedule: &ReadSchedule,
+    schedule: &IoSchedule,
     fail_at: Option<usize>,
     decode: impl FnOnce(&mut ScriptedReader<'_>) -> Result<T, Decode>,
 ) -> Result<(), TestCaseError> {
@@ -1969,7 +2106,7 @@ proptest! {
     #[test]
     fn rank_decode_is_independent_of_the_read_schedule(
         cases in arb_decode_cases(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         failure in any::<Index>(),
     ) {
         for case in &cases {
@@ -1993,7 +2130,7 @@ proptest! {
 /// reaches the probe after a full prefix only on some draws.
 #[test]
 fn rank_decode_retries_interrupts_at_every_read() -> Result<(), TestCaseError> {
-    let schedules = [1, DECODE_CHUNK_BYTES].map(|chunk| ReadSchedule {
+    let schedules = [1, DECODE_CHUNK_BYTES].map(|chunk| IoSchedule {
         chunk,
         interrupts: vec![1],
     });
@@ -2052,7 +2189,7 @@ fn mangled_inputs(encoding: &[u8], mangling: &Mangling) -> [Vec<u8>; 4] {
 fn check_reader_decoder<T: Canonical>(
     value: &T,
     mangling: &Mangling,
-    schedule: &ReadSchedule,
+    schedule: &IoSchedule,
     failure: Index,
 ) -> Result<(), TestCaseError> {
     for input in mangled_inputs(&value.encode_canonical(), mangling) {
@@ -2084,7 +2221,7 @@ proptest! {
         a in arb_oracle_version(),
         b in arb_oracle_version(),
         mangling in arb_mangling(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         failure in any::<Index>(),
     ) {
         use crate::Ranked;
@@ -2116,13 +2253,13 @@ proptest! {
 #[cfg(feature = "borsh")]
 fn check_borsh<T: borsh::BorshDeserialize + core::fmt::Debug + PartialEq>(
     input: &[u8],
-    schedule: &ReadSchedule,
+    schedule: &IoSchedule,
     fail_at: Option<usize>,
 ) -> Result<(), TestCaseError> {
     let mut whole = input;
     let expected = T::deserialize_reader(&mut whole).map_err(|error| error.kind());
     let consumed = input.len() - whole.len();
-    let at_once = ReadSchedule {
+    let at_once = IoSchedule {
         chunk: input.len().max(1),
         interrupts: vec![0],
     };
@@ -2172,7 +2309,7 @@ fn check_borsh<T: borsh::BorshDeserialize + core::fmt::Debug + PartialEq>(
 fn check_borsh_decoder<T>(
     value: &T,
     mangling: &Mangling,
-    schedule: &ReadSchedule,
+    schedule: &IoSchedule,
     failure: Index,
 ) -> Result<(), TestCaseError>
 where
@@ -2208,7 +2345,7 @@ proptest! {
         b in arb_oracle_version(),
         count in crate::testing::generators::arb_magnitude(),
         mangling in arb_mangling(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         failure in any::<Index>(),
     ) {
         use crate::Ranked;

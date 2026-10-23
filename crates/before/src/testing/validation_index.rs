@@ -47,6 +47,20 @@
 //! order is wrong but self-consistent pass every law, yet neither matches
 //! values rendered and compared outside production.
 //!
+//! **The scripted reader and writer** ([`super::scripted_io`]). Doubles
+//! that serve or accept bytes in chunks from one to more than a decoder's
+//! buffer, return `Interrupted` before their answers on a generated schedule,
+//! and fail at a chosen offset. Every reader `decode`, every borsh impl, and
+//! every streaming encoder runs through them, judged by the in-memory decode
+//! or the buffered encoding. A failure the operation must reach comes back
+//! with the double's kind; for borsh decoders and for encoders, which can
+//! read or write no byte past their value, a failure they need not reach
+//! goes unmet, while a reader `decode` may meet or skip a failure past the
+//! bytes that settle its verdict. What they alone catch: **I/O protocol errors** that
+//! a whole, infallible buffer never provokes, such as a read loop that treats
+//! `Interrupted` as the end of input, a borsh decoder that reads past its
+//! value, or an encoder that drops its writer's error.
+//!
 //! **Co-generated tick pairs** ([`super::generators::co_generated`]). These
 //! strategies build a tick's party and version together, region by region,
 //! and feed the tick module's differentials against the recursive oracle. One

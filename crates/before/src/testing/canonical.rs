@@ -2,12 +2,13 @@
 //! public codec.
 //!
 //! [`Canonical`] lists them once, for the properties that drive every reader
-//! `decode` through the scripted reader. It needs no codec feature, so those
-//! properties run in every test build. The codec-feature properties extend it
-//! with each type's serde and borsh entry points.
+//! `decode` and every streaming encoder through the scripted reader and
+//! writer. It needs no codec feature, so those properties run in every test
+//! build. The codec-feature properties extend it with each type's serde and
+//! borsh entry points.
 
 use std::fmt::Debug;
-use std::io::Read;
+use std::io::{self, Read, Write};
 
 use crate::error::Decode;
 use crate::{Clock, Party, Rank, Ranked, Span, Version};
@@ -20,6 +21,10 @@ pub(crate) trait Canonical: Sized + PartialEq + Debug {
 
     /// The value's canonical bytes, through the type's public `encode`.
     fn encode_canonical(&self) -> Vec<u8>;
+
+    /// Writes the value's canonical bytes to `writer`, through the type's
+    /// public `encode_to`.
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> io::Result<()>;
 }
 
 /// A version's codec.
@@ -30,6 +35,10 @@ impl Canonical for Version {
 
     fn encode_canonical(&self) -> Vec<u8> {
         self.encode()
+    }
+
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.encode_to(writer)
     }
 }
 
@@ -42,6 +51,10 @@ impl Canonical for Party {
     fn encode_canonical(&self) -> Vec<u8> {
         self.encode()
     }
+
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.encode_to(writer)
+    }
 }
 
 /// A rank's codec.
@@ -52,6 +65,10 @@ impl Canonical for Rank {
 
     fn encode_canonical(&self) -> Vec<u8> {
         self.encode()
+    }
+
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.encode_to(writer)
     }
 }
 
@@ -64,6 +81,10 @@ impl Canonical for Clock {
     fn encode_canonical(&self) -> Vec<u8> {
         self.encode()
     }
+
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.encode_to(writer)
+    }
 }
 
 /// A span's codec.
@@ -75,6 +96,10 @@ impl Canonical for Span<'static> {
     fn encode_canonical(&self) -> Vec<u8> {
         self.encode()
     }
+
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.encode_to(writer)
+    }
 }
 
 /// A ranked key's codec.
@@ -85,5 +110,9 @@ impl Canonical for Ranked<'static> {
 
     fn encode_canonical(&self) -> Vec<u8> {
         self.encode()
+    }
+
+    fn write_canonical<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.encode_to(writer)
     }
 }

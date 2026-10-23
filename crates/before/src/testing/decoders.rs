@@ -54,7 +54,7 @@ use crate::testing::generators::near_valid::{
     arb_span_encoding, arb_version_encoding, Expect, NearValid,
 };
 use crate::testing::oracles::codec;
-use crate::testing::scripted_reader::{arb_read_schedule, ReadSchedule, ScriptedReader};
+use crate::testing::scripted_io::{arb_io_schedule, IoSchedule, ScriptedReader};
 use crate::{Clock, Party, Rank, Ranked, Span, Version};
 
 /// A type with a canonical encoding and the entry points that decode it,
@@ -206,7 +206,7 @@ fn decoded<T>(entry: &'static str, result: Result<T, Decode>) -> Outcome<T> {
 /// The chunked reader serves the bytes on `schedule`. Postcard and CBOR read
 /// the bytes framed as one byte string; postcard's error drops the decoder's
 /// message, while CBOR's keeps it.
-fn entry_points<T: Wire>(bytes: &[u8], schedule: &ReadSchedule) -> Vec<Outcome<T>> {
+fn entry_points<T: Wire>(bytes: &[u8], schedule: &IoSchedule) -> Vec<Outcome<T>> {
     let mut outcomes = vec![
         decoded("the slice decode", T::decode_reader(bytes)),
         decoded(
@@ -297,7 +297,7 @@ fn agree<T: Wire>(entry: &str, slice: Option<&T>, other: Option<&T>) -> Result<(
 ///    encoding, borsh on the bytes alone reports a structural error.
 fn check_agreement<T: Wire>(
     input: &NearValid,
-    schedule: &ReadSchedule,
+    schedule: &IoSchedule,
     junk: &[u8],
 ) -> Result<(), TestCaseError> {
     let bytes = &input.bytes[..];
@@ -394,7 +394,7 @@ fn check_agreement<T: Wire>(
 
 /// Decodes `bytes` through every entry point of `T`, discarding the
 /// verdicts.
-fn decode_everywhere<T: Wire>(bytes: &[u8], schedule: &ReadSchedule) {
+fn decode_everywhere<T: Wire>(bytes: &[u8], schedule: &IoSchedule) {
     drop(entry_points::<T>(bytes, schedule));
     let _ = T::deserialize_reader(&mut &bytes[..]);
 }
@@ -428,7 +428,7 @@ proptest! {
     #[test]
     fn every_decoder_is_total_on_near_valid_encodings(
         input in arb_any_encoding(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
     ) {
         decode_everywhere::<Version>(&input.bytes, &schedule);
         decode_everywhere::<Party>(&input.bytes, &schedule);
@@ -447,7 +447,7 @@ proptest! {
     #[test]
     fn version_decoders_agree_on_near_valid_encodings(
         input in arb_version_encoding(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         junk in arb_junk(),
     ) {
         check_agreement::<Version>(&input, &schedule, &junk)?;
@@ -462,7 +462,7 @@ proptest! {
     #[test]
     fn party_decoders_agree_on_near_valid_encodings(
         input in arb_party_encoding(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         junk in arb_junk(),
     ) {
         check_agreement::<Party>(&input, &schedule, &junk)?;
@@ -477,7 +477,7 @@ proptest! {
     #[test]
     fn rank_decoders_agree_on_near_valid_encodings(
         input in arb_rank_encoding(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         junk in arb_junk(),
     ) {
         check_agreement::<Rank>(&input, &schedule, &junk)?;
@@ -492,7 +492,7 @@ proptest! {
     #[test]
     fn clock_decoders_agree_on_near_valid_encodings(
         input in arb_clock_encoding(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         junk in arb_junk(),
     ) {
         check_agreement::<Clock>(&input, &schedule, &junk)?;
@@ -509,7 +509,7 @@ proptest! {
     #[test]
     fn span_decoders_agree_on_near_valid_encodings(
         input in arb_span_encoding(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         junk in arb_junk(),
     ) {
         check_agreement::<Span<'static>>(&input, &schedule, &junk)?;
@@ -525,7 +525,7 @@ proptest! {
     #[test]
     fn ranked_decoders_agree_on_near_valid_encodings(
         input in arb_ranked_encoding(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         junk in arb_junk(),
     ) {
         check_agreement::<Ranked<'static>>(&input, &schedule, &junk)?;

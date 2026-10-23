@@ -32,7 +32,7 @@ pub(crate) mod optrace;
 #[cfg(test)]
 pub(crate) mod rng;
 #[cfg(test)]
-pub(crate) mod scripted_reader;
+pub(crate) mod scripted_io;
 #[cfg(test)]
 pub(crate) mod shape_rows;
 
