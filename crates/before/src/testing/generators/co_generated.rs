@@ -33,7 +33,8 @@
 //! under each strategy's regime.
 //!
 //! A wide or multi-scan case costs many spine cases, so their properties run
-//! a fraction of the configured case count, set by [`divided_config`].
+//! a fraction of the configured case count, set by
+//! [`divided_config`](super::divided_config).
 
 mod tests;
 
@@ -44,9 +45,6 @@ use proptest::prelude::*;
 
 use crate::recurse::descend;
 use crate::testing::oracles::tree;
-
-/// Proptest's default case count, at which the gate runs every property.
-pub(crate) const DEFAULT_CASES: u32 = 256;
 
 /// The case-count divisor for [`arb_wide_case`]'s property.
 ///
@@ -180,21 +178,6 @@ pub(crate) fn arb_multi_scan_case() -> impl Strategy<Value = TickCase> {
             .reduce(|later, earlier| aligned((earlier, later)))
             .expect("the scan count is at least two")
     }))
-}
-
-/// The proptest configuration for a property whose cases each cost about
-/// `divisor` ordinary cases: the configured case count divided by `divisor`,
-/// rounded up.
-///
-/// The property then finishes inside nextest's time limit in a debug build at
-/// the default count, and still scales with `PROPTEST_CASES` for longer
-/// investigative runs.
-pub(crate) fn divided_config(divisor: u32) -> ProptestConfig {
-    let configured = ProptestConfig::default();
-    ProptestConfig {
-        cases: configured.cases.div_ceil(divisor),
-        ..configured
-    }
 }
 
 /// Resolves drawn regions against a drawn palette, and draws the late

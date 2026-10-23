@@ -290,6 +290,48 @@ pub(crate) fn deep_zigzag_party(depth: usize) -> Party {
 /// weakens it.
 pub(crate) const STACK_SAFETY_DEPTH: usize = 1 << 18;
 
+// ───────────────────────── case counts and census floors ─────────────────────────
+
+/// Proptest's default case count, at which the gate runs every property.
+pub(crate) const DEFAULT_CASES: u32 = 256;
+
+/// The proptest configuration for a property whose cases each cost about
+/// `divisor` ordinary cases: the configured case count divided by `divisor`,
+/// rounded up.
+///
+/// The property then finishes inside nextest's time limit in a debug build at
+/// the default count, and still scales with `PROPTEST_CASES` for longer
+/// investigative runs.
+pub(crate) fn divided_config(divisor: u32) -> ProptestConfig {
+    let configured = ProptestConfig::default();
+    ProptestConfig {
+        cases: configured.cases.div_ceil(divisor),
+        ..configured
+    }
+}
+
+/// The regime cases each default run of a property must expect, under every
+/// census floor derived by [`regime_floor`].
+///
+/// A defect that every regime case exposes then escapes one default run with
+/// probability at most `e` to the minus this count: under a quarter of a
+/// percent.
+pub(crate) const REGIME_CASES_PER_RUN: usize = 6;
+
+/// Returns the census floor for a regime: the fewest regime cases among
+/// `census_cases` samples at which each default run of a property expects
+/// [`REGIME_CASES_PER_RUN`] of them.
+///
+/// The property runs the default case count divided by `divisor`. The floor
+/// follows from that premise and the property's case count, not
+/// from any measured reading, so a strategy whose regime mass falls below
+/// what its own property needs fails its census whatever it last measured.
+pub(crate) fn regime_floor(census_cases: usize, divisor: u32) -> usize {
+    let cases_per_run = usize::try_from(DEFAULT_CASES.div_ceil(divisor))
+        .expect("a case count fits in usize on every tested target");
+    (REGIME_CASES_PER_RUN * census_cases).div_ceil(cases_per_run)
+}
+
 // ───────────────────────── arbitrary normal-form ─────────────────────────
 //
 // BigUint magnitudes deliberately span small values AND values near/beyond
