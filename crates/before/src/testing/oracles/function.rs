@@ -459,12 +459,12 @@ pub(crate) fn fork(i: &Id, rng: &mut ChaChaRng) -> (Id, Id) {
 }
 
 /// A random §4-valid partition of `i` into `n` nonempty shares, freshly
-/// drawn each call, in the balanced shape production deals: one random
-/// [`fork`] gives the first `⌈n/2⌉` shares to one half and the rest to the
-/// other, recursively.
+/// drawn each call, in the balanced shape production deals.
 ///
-/// §4 pins only that the shares cover `⌈i⌉` disjointly, so any partition is
-/// valid; the balanced shape is kept because it bounds resolution growth.
+/// One random [`fork`] gives the first `⌈n/2⌉` shares to one half and the
+/// rest to the other, recursively. §4 pins only that the shares cover `⟦i⟧`
+/// disjointly, so any partition is valid; the balanced shape is kept because
+/// it bounds resolution growth.
 /// Each share descends through `⌈log₂ n⌉` forks, and each raises resolution
 /// by at most one level, which is the per-step bound the op traces budget
 /// for. A stack of pending `(id, count)` pairs, the second half pushed first,
@@ -801,9 +801,11 @@ impl FunctionClock {
     }
 
     /// The children `forks(count).take(taken)` collects from the crate's
-    /// clock, over a random partition ([`shares`]) of `count + 1` shares:
-    /// children take shares 1 through `taken`, each with this clock's event,
-    /// and `self` keeps share 0 summed with every untaken share.
+    /// clock, over a random partition of `count + 1` shares.
+    ///
+    /// Children take shares 1 through `taken` of the partition ([`shares`]),
+    /// each with this clock's event, and `self` keeps share 0 summed with
+    /// every untaken share.
     pub(crate) fn forks(
         &mut self,
         count: usize,
@@ -891,10 +893,12 @@ impl FunctionClock {
         }
     }
 
-    /// Reconcile `self` with every clock in `others`: when their ids are
-    /// pairwise disjoint, every participant takes the LUB of all their
-    /// events, and a random partition ([`shares`]) of their ids' union is
-    /// dealt in participant order, `self` first; otherwise nothing changes.
+    /// Reconcile `self` with every clock in `others`, keeping all of them,
+    /// or change nothing if any two ids overlap.
+    ///
+    /// When the ids are pairwise disjoint, every participant takes the LUB
+    /// of all their events, and a random partition ([`shares`]) of their
+    /// ids' union is dealt in participant order, `self` first.
     ///
     /// Each id is checked against the union of those before it, at the
     /// tracked ceilings, which resolve both exactly.

@@ -522,12 +522,12 @@ fn fork_chain_raises_resolution_one_level_per_fork() {
     }
 }
 
-/// The grid derivation's premise for balanced splits, met with equality on
-/// its worst schedule: splitting a single-piece lineage into `n` shares
-/// raises its deepest share's resolution by exactly `⌈log₂ n⌉` levels, the
-/// levels the op traces declare for that split, and leaves every share
-/// nonempty.
+/// Splitting a single-piece lineage into `n` shares raises its deepest
+/// share's resolution by exactly the `⌈log₂ n⌉` levels the op traces declare
+/// for that split, and leaves every share nonempty.
 ///
+/// This is the grid derivation's premise for balanced splits, met with
+/// equality on its worst schedule.
 /// Every fork of a single-piece id bisects it, so a single-piece lineage is
 /// where a split's resolution grows fastest, and each split's deepest share
 /// is again a single piece. The chain splits three times at every share

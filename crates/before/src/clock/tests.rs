@@ -16,7 +16,7 @@ use crate::testing::generators::{
     STACK_SAFETY_DEPTH,
 };
 use crate::testing::optrace::{
-    apply, run, step_impl, world_strategy, FlatParties, Production, Recursive,
+    run, step, step_impl, world_strategy, FlatParties, Production, Recursive,
 };
 use crate::testing::oracles::flat::{self, check_party, check_version};
 use crate::testing::oracles::{function, tree};
@@ -258,16 +258,10 @@ proptest! {
         let mut parties = vec![flat::Party::seed()];
 
         for op in &ops {
-            let mut verdicts = [Vec::new(), Vec::new(), Vec::new()];
-            apply::<Production>(&mut production, op, &mut rng, &mut verdicts[0]);
-            apply::<Recursive>(&mut recursive, op, &mut rng, &mut verdicts[1]);
-            apply::<FlatParties>(&mut parties, op, &mut rng, &mut verdicts[2]);
-            for (model, verdicts) in ["production", "recursive", "flat"].iter().zip(&verdicts) {
-                prop_assert!(
-                    verdicts.iter().all(|accepted| *accepted),
-                    "{} failed a step of a rule-respecting trace at {:?}", model, op
-                );
-            }
+            // Each `step` asserts that its model's step did not fail.
+            step::<Production>(&mut production, op, &mut rng);
+            step::<Recursive>(&mut recursive, op, &mut rng);
+            step::<FlatParties>(&mut parties, op, &mut rng);
 
             prop_assert_eq!(production.len(), recursive.len());
             prop_assert_eq!(production.len(), parties.len());

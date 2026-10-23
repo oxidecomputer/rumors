@@ -27,9 +27,9 @@
 //! "[`Clock`]s used linearly from one [`Clock::seed`] remain pairwise
 //! disjoint." So no join, `join_all`, sync, or `sync_all` in a trace may
 //! fail, and no clock, party, or version a trace encodes may fail to
-//! decode. [`run`] and [`step_impl`] assert this of every step they apply,
-//! so every consumer of a trace checks the promise on the histories it
-//! draws.
+//! decode. [`run`], [`step`], and [`step_impl`] assert this of every step
+//! they apply, so every consumer of a trace checks the promise on the
+//! histories it draws.
 //!
 //! # Populations and depth
 //!
@@ -842,10 +842,9 @@ pub(crate) struct Replay<C> {
 ///
 /// Population indexing, the population cap, and the restoration of rejected
 /// joins live here and in [`Op::resolve`], so this one schedule definition
-/// is used by every model and by tests that inspect a population after each
-/// step. A failed `join_all` appends the clocks it hands back to the end of
-/// the population.
-pub(crate) fn apply<M: TraceModel>(
+/// is used by every model, through [`replay`] and [`step`]. A failed
+/// `join_all` appends the clocks it hands back to the end of the population.
+fn apply<M: TraceModel>(
     clocks: &mut Vec<M::Clock>,
     op: &Op,
     rng: &mut ChaChaRng,
@@ -960,14 +959,16 @@ pub(crate) fn run(ops: &[Op]) -> Vec<tree::Clock> {
 
 /// Apply one operation to an existing population through any model.
 ///
-/// This incremental form lets tests assert after every step while delegating to
-/// the same scheduler as [`replay`]. A test can implement [`TraceModel`] for
-/// production paired with its own bookkeeping and step both through this one
-/// schedule, so the bookkeeping cannot drift from the clocks it describes.
+/// This incremental form lets tests assert after every step, or step several
+/// models in lockstep, while delegating to the same scheduler as [`replay`].
+/// A test can implement [`TraceModel`] for production paired with its own
+/// bookkeeping and step both through this one schedule, so the bookkeeping
+/// cannot drift from the clocks it describes.
 ///
 /// # Panics
 ///
-/// If the step rejects a join or sync, which no single-seed trace does.
+/// Panics if the step fails, which the crate page's safety rules promise no
+/// step of a rule-respecting trace does (see the module doc).
 pub(crate) fn step<M: TraceModel>(clocks: &mut Vec<M::Clock>, op: &Op, rng: &mut ChaChaRng) {
     let mut accepted = Vec::new();
     apply::<M>(clocks, op, rng, &mut accepted);
