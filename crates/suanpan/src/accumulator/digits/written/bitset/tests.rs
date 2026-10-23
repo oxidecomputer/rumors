@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::sample::Index;
 
-use super::Bitset;
+use super::{Bitset, WORD_BITS};
 
 /// Positions at and beside the boundaries where a word, a level-1 word, and a
 /// level-2 word end, so that operations climb and queries cross each level.
@@ -24,6 +24,13 @@ const FAR: usize = 1 << 19;
 /// The longest run of consecutive positions one operation inserts: enough to
 /// fill two whole words and part of a third.
 const MAX_RUN: usize = 160;
+
+/// Level-0 lengths, in words, at and beside each length where the levels
+/// change shape: a second level appears past 1 word, a third past 64, and a
+/// fourth past 4,096, and level 1 gains a word past 128 and past 4,160.
+const LEVEL_0_LENGTHS: &[usize] = &[
+    1, 2, 63, 64, 65, 66, 128, 129, 4095, 4096, 4097, 4098, 4160, 4161,
+];
 
 /// One operation applied to the bitset and the oracle alike.
 #[derive(Clone, Debug)]
@@ -171,6 +178,41 @@ proptest! {
                     trace
                 );
             }
+        }
+    }
+}
+
+/// Growing the levels stops at the first level already long enough, so an
+/// insertion examines at most one level it leaves at its length.
+///
+/// Each level holds one word per 64 words of the level below, rounded up, so
+/// every level above the first long-enough one is long enough too, and
+/// examining it would cost a word operation that changes nothing. From no
+/// levels and from every length in [`LEVEL_0_LENGTHS`], an insertion into the
+/// last word of every length in it examines exactly one unchanged level when
+/// some existing level keeps its length, and none when every level grows.
+#[test]
+fn growth_stops_at_the_first_level_long_enough() {
+    let starts = core::iter::once(None).chain(LEVEL_0_LENGTHS.iter().copied().map(Some));
+    for start in starts {
+        for &target in LEVEL_0_LENGTHS {
+            let mut set = Bitset::default();
+            if let Some(start) = start {
+                set.insert(start * WORD_BITS - 1);
+            }
+            let before: Vec<usize> = set.levels.iter().map(Vec::len).collect();
+            set.unchanged_levels_examined = 0;
+            set.insert(target * WORD_BITS - 1);
+            let examined = set.unchanged_levels_examined;
+            let after: Vec<usize> = set.levels.iter().map(Vec::len).collect();
+            let kept = before.iter().zip(&after).any(|(old, new)| old == new);
+            assert_eq!(
+                examined,
+                usize::from(kept),
+                "unchanged levels examined by an insertion into word {} that takes the \
+                 level lengths from {before:?} to {after:?}",
+                target - 1
+            );
         }
     }
 }

@@ -60,6 +60,10 @@ pub struct Bitset {
     /// `levels[0]` holds one bit per position; each later level holds the
     /// summary bits of the level before it.
     levels: Vec<Vec<u64>>,
+    /// The levels [`cover`](Self::cover) has examined and left at their
+    /// length, counted so that tests can check where growth stops.
+    #[cfg(test)]
+    unchanged_levels_examined: usize,
 }
 
 /// Maintain positions and their summary bits, climbing only where a word
@@ -225,12 +229,21 @@ impl Bitset {
             .first()
             .is_some_and(|words| words.len() >= needed)
         {
+            #[cfg(test)]
+            {
+                self.unchanged_levels_examined += 1;
+            }
             return;
         }
         for level in 0.. {
             if let Some(words) = self.levels.get_mut(level) {
                 if words.len() < needed {
                     words.resize(needed, 0);
+                } else {
+                    #[cfg(test)]
+                    {
+                        self.unchanged_levels_examined += 1;
+                    }
                 }
             } else {
                 let mut words = vec![0; needed];
