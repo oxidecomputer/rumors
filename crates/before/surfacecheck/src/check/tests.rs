@@ -4,7 +4,9 @@
 
 use std::collections::BTreeSet;
 
-use super::{ANCHORS, Exception, Findings, ITEM_EXCEPTIONS, MODULE_EXCEPTIONS, reconcile_with};
+use super::{
+    ANCHORS, Censuses, Exception, Findings, ITEM_EXCEPTIONS, MODULE_EXCEPTIONS, reconcile_with,
+};
 use crate::extract::Surface;
 
 /// A synthetic exception row for the pure-judgment tests.
@@ -42,6 +44,7 @@ fn exact_match_is_clean() {
         functions: names(&["A::f", "B::g", "Party::seed", "causally::all"]),
         impls: names(&["A: impl core::ops::Not for A"]),
         items: names(&["A::ZERO"]),
+        usize_signatures: names(&["A::len: usize in return"]),
     };
     let coverage = board(&["A::f", "B::g", "Party::seed", "causally::all"]);
     let findings = reconcile_with(
@@ -50,8 +53,11 @@ fn exact_match_is_clean() {
         &[],
         &[],
         ANCHORS,
-        &["A: impl core::ops::Not for A"],
-        &["A::ZERO"],
+        &Censuses {
+            impls: &["A: impl core::ops::Not for A"],
+            items: &["A::ZERO"],
+            usize_signatures: &["A::len: usize in return"],
+        },
     );
     assert!(findings.is_clean(), "{findings:?}");
 }
@@ -61,7 +67,7 @@ fn exact_match_is_clean() {
 fn uncovered_item_reads_red() {
     let surface = functions(&["A::f", "A::new_fn", "Party::seed", "causally::all"]);
     let coverage = board(&["A::f", "Party::seed", "causally::all"]);
-    let findings = reconcile_with(&surface, &coverage, &[], &[], ANCHORS, &[], &[]);
+    let findings = reconcile_with(&surface, &coverage, &[], &[], ANCHORS, &Censuses::default());
     assert_eq!(findings.uncovered_functions, vec!["A::new_fn".to_owned()]);
     assert!(!findings.is_clean());
 }
@@ -71,7 +77,7 @@ fn uncovered_item_reads_red() {
 fn orphaned_row_reads_red() {
     let surface = functions(&["Party::seed", "causally::all"]);
     let coverage = board(&["Party::seed", "causally::all", "A::removed"]);
-    let findings = reconcile_with(&surface, &coverage, &[], &[], ANCHORS, &[], &[]);
+    let findings = reconcile_with(&surface, &coverage, &[], &[], ANCHORS, &Censuses::default());
     assert_eq!(findings.stale_board_rows, vec!["A::removed".to_owned()]);
 }
 
@@ -82,7 +88,7 @@ fn impl_census_reconciles_both_ways() {
     let surface = Surface {
         functions: names(&["Party::seed", "causally::all"]),
         impls: names(&["Version: impl core::ops::Not for Version"]),
-        items: BTreeSet::new(),
+        ..Surface::default()
     };
     let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
@@ -91,8 +97,10 @@ fn impl_census_reconciles_both_ways() {
         &[],
         &[],
         ANCHORS,
-        &["Version: impl core::ops::Neg for Version"],
-        &[],
+        &Censuses {
+            impls: &["Version: impl core::ops::Neg for Version"],
+            ..Censuses::default()
+        },
     );
     assert_eq!(
         findings.unpinned_impls,
@@ -111,8 +119,8 @@ fn impl_census_reconciles_both_ways() {
 fn item_census_reconciles_both_ways() {
     let surface = Surface {
         functions: names(&["Party::seed", "causally::all"]),
-        impls: BTreeSet::new(),
         items: names(&["Rank::ZERO"]),
+        ..Surface::default()
     };
     let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
@@ -121,18 +129,56 @@ fn item_census_reconciles_both_ways() {
         &[],
         &[],
         ANCHORS,
-        &[],
-        &["Count::ZERO"],
+        &Censuses {
+            items: &["Count::ZERO"],
+            ..Censuses::default()
+        },
     );
     assert_eq!(findings.unpinned_items, vec!["Rank::ZERO".to_owned()]);
     assert_eq!(findings.orphaned_items, vec!["Count::ZERO".to_owned()]);
     assert!(!findings.is_clean());
 }
 
+/// A `usize` signature with no census pin and a pin naming no reachable
+/// signature both fail, and a module exception excuses a signature in its
+/// tree: the `usize` census reconciles in both directions.
+#[test]
+fn usize_census_reconciles_both_ways() {
+    let surface = Surface {
+        functions: names(&["Party::seed", "causally::all"]),
+        usize_signatures: names(&[
+            "Count::from_index: usize in parameter index",
+            "gated::f: usize in return",
+        ]),
+        ..Surface::default()
+    };
+    let coverage = board(&["Party::seed", "causally::all"]);
+    let findings = reconcile_with(
+        &surface,
+        &coverage,
+        &[],
+        &[exception("gated::")],
+        ANCHORS,
+        &Censuses {
+            usize_signatures: &["Count::len: usize in return"],
+            ..Censuses::default()
+        },
+    );
+    assert_eq!(
+        findings.unpinned_usize_signatures,
+        vec!["Count::from_index: usize in parameter index".to_owned()]
+    );
+    assert_eq!(
+        findings.orphaned_usize_signatures,
+        vec!["Count::len: usize in return".to_owned()]
+    );
+}
+
 /// An item exception excuses exactly its named item, and a module
-/// exception excuses exactly its `::`-terminated prefix — in every
-/// category: functions, impls, and items under an excepted module all
-/// pass without pins.
+/// exception excuses exactly its `::`-terminated prefix, in every category.
+///
+/// Functions, impls, items, and `usize` signatures under an excepted module
+/// all pass without pins.
 #[test]
 fn exceptions_excuse_their_scope() {
     let surface = Surface {
@@ -145,6 +191,7 @@ fn exceptions_excuse_their_scope() {
         ]),
         impls: names(&["gated::T: impl core::fmt::Debug for T"]),
         items: names(&["gated::CONST"]),
+        usize_signatures: names(&["gated::a: usize in return"]),
     };
     let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
@@ -153,8 +200,7 @@ fn exceptions_excuse_their_scope() {
         &[exception("lone::item")],
         &[exception("gated::")],
         ANCHORS,
-        &[],
-        &[],
+        &Censuses::default(),
     );
     assert!(findings.is_clean(), "{findings:?}");
 }
@@ -171,8 +217,7 @@ fn module_exception_does_not_leak_to_siblings() {
         &[],
         &[exception("gated::")],
         ANCHORS,
-        &[],
-        &[],
+        &Censuses::default(),
     );
     assert_eq!(
         findings.uncovered_functions,
@@ -193,8 +238,7 @@ fn dead_and_shadowing_exceptions_read_red() {
         &[exception("gone::item"), exception("Party::seed")],
         &[exception("gonemod::")],
         ANCHORS,
-        &[],
-        &[],
+        &Censuses::default(),
     );
     assert_eq!(
         findings.dead_item_exceptions,
@@ -215,6 +259,7 @@ fn module_exception_live_through_impls_and_items() {
         functions: names(&["Party::seed", "causally::all"]),
         impls: names(&["implonly::T: impl core::fmt::Debug for T"]),
         items: names(&["itemonly::CONST"]),
+        ..Surface::default()
     };
     let coverage = board(&["Party::seed", "causally::all"]);
     let findings = reconcile_with(
@@ -223,8 +268,7 @@ fn module_exception_live_through_impls_and_items() {
         &[],
         &[exception("implonly::"), exception("itemonly::")],
         ANCHORS,
-        &[],
-        &[],
+        &Censuses::default(),
     );
     assert!(findings.is_clean(), "{findings:?}");
 }
@@ -240,8 +284,7 @@ fn empty_extraction_trips_the_anchors() {
         &[],
         &[],
         ANCHORS,
-        &[],
-        &[],
+        &Censuses::default(),
     );
     assert_eq!(findings.missing_anchors.len(), ANCHORS.len());
     assert!(!findings.is_clean());
@@ -281,7 +324,14 @@ fn malformed_exceptions_read_red() {
         name: "c::z",
         reason: "a substantive reason of adequate length",
     };
-    let findings = reconcile_with(&surface, &coverage, &[thin], &[unscoped], ANCHORS, &[], &[]);
+    let findings = reconcile_with(
+        &surface,
+        &coverage,
+        &[thin],
+        &[unscoped],
+        ANCHORS,
+        &Censuses::default(),
+    );
     assert_eq!(
         findings.malformed_exceptions,
         vec!["a::x".to_owned(), "c::z".to_owned(),],
@@ -300,8 +350,7 @@ fn committed_exceptions_are_well_formed() {
         ITEM_EXCEPTIONS,
         MODULE_EXCEPTIONS,
         ANCHORS,
-        &[],
-        &[],
+        &Censuses::default(),
     );
     assert!(
         findings.malformed_exceptions.is_empty(),

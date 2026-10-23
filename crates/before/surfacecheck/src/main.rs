@@ -11,7 +11,13 @@
 //!   both directions. The board records their reviewed resource decisions by
 //!   trait family;
 //! - associated consts and types, module consts, statics, and macros: a
-//!   pinned row in [`census::ITEMS`], reconciled the same way.
+//!   pinned row in [`census::ITEMS`], reconciled the same way;
+//! - signatures that mention `usize`, of function-like items (trait-impl
+//!   methods included), impl headers, module consts and statics, and
+//!   associated consts and types: a
+//!   pinned row in [`census::USIZE_SIGNATURES`], reconciled the same way, so
+//!   every `usize` in a public signature is reviewed for its meaning on
+//!   32-bit targets.
 //!
 //! Exit status is the verdict: zero with a one-line census on a clean
 //! sweep, nonzero with every finding named otherwise. The check runs
@@ -135,7 +141,8 @@ fn main() -> ExitCode {
         println!(
             "surface totality: {} public function-like items = {} board-covered + {} \
              excepted ({} item exceptions, {} module-scope); {} trait impls = {} \
-             pinned + {} module-excepted; {} items = {} pinned + {} module-excepted",
+             pinned + {} module-excepted; {} items = {} pinned + {} module-excepted; \
+             {} usize signatures = {} pinned + {} module-excepted",
             surface.functions.len(),
             board.len(),
             surface.functions.len() - board.len(),
@@ -147,6 +154,9 @@ fn main() -> ExitCode {
             surface.items.len(),
             outside(&surface.items),
             surface.items.len() - outside(&surface.items),
+            surface.usize_signatures.len(),
+            outside(&surface.usize_signatures),
+            surface.usize_signatures.len() - outside(&surface.usize_signatures),
         );
         ExitCode::SUCCESS
     } else {
@@ -189,6 +199,12 @@ fn render_list(surface: &extract::Surface, board: &BTreeSet<&str>) {
     }
     for row in &surface.items {
         println!("{row:60} {}", census_disposition(row, census::ITEMS));
+    }
+    for row in &surface.usize_signatures {
+        println!(
+            "{row:100} {}",
+            census_disposition(row, census::USIZE_SIGNATURES)
+        );
     }
 }
 

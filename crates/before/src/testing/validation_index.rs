@@ -225,7 +225,9 @@
 //! mechanism, never both and never neither. Public trait implementations are
 //! pinned separately, with their resource decisions grouped into board
 //! families. A new public function therefore cannot land unmeasured and
-//! unexcused, and the board carries no orphan measurement.
+//! unexcused, and the board carries no orphan measurement. Every public
+//! signature that mentions `usize` is pinned as well, so a new one, whose
+//! meaning would change on a 32-bit target, cannot land unreviewed.
 //!
 //! # Reading the map
 //!

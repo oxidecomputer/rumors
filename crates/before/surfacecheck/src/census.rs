@@ -1,5 +1,6 @@
-//! The pinned censuses: every reachable trait impl and every reachable
-//! non-function item, by name.
+//! The pinned censuses: every reachable trait impl, every reachable
+//! non-function item, and every function-like signature that mentions
+//! `usize`, by name.
 //!
 //! These lists are tamper-evidence, not judgment: adding, removing, or
 //! reshaping an impl (a derive included) changes the extracted set, and
@@ -15,6 +16,11 @@
 //!   elided), and the implementing type. An impl reachable at two public
 //!   paths holds two rows, one per spelling.
 //! - items: the reachable path alone (`Rank::ZERO`).
+//! - `usize` signatures: `owner: usize in sites`. The owner is a function or
+//!   item row (`Type::method`, `Type::NAME`); a trait impl row, alone for its
+//!   header or followed by `:: method`, `:: const NAME`, or `:: type NAME`;
+//!   or `Type: inherent impl` for an inherent impl's header. The sites are
+//!   `parameter name`, `return`, `generics`, `header`, or `type`.
 //!
 //! The feature-gated instrument trees carry no pins here: the module
 //! exceptions in [`crate::check`] cover them, with the ruling of record
@@ -480,3 +486,41 @@ pub(crate) const TRAIT_IMPLS: &[&str] = &[
 /// Every reachable associated const or type, module const, static, or
 /// macro outside the module-excepted trees.
 pub(crate) const ITEMS: &[&str] = &["Rank::ZERO", "Count::ZERO", "for_each_law_group"];
+
+/// Every signature outside the module-excepted trees that mentions `usize`.
+///
+/// A signature is a function-like item's parameters, return type, or
+/// generics; an impl's header; or the type of a module const or static, or of
+/// an associated const or type.
+///
+/// A `usize` changes meaning with the target's pointer width, so each row is
+/// a reviewed decision that its `usize` indexes into memory or counts what
+/// memory holds, which behaves alike on every target. The const `N` of the
+/// array conversions and of `shape::Cell` and `shape::Cells` counts the
+/// versions an array holds.
+pub(crate) const USIZE_SIGNATURES: &[&str] = &[
+    "Clock: impl core::convert::From<Clock> for [Clock; N]: usize in header",
+    "Count: impl core::convert::From<usize> for Count :: from: usize in parameter n",
+    "Count: impl core::convert::From<usize> for Count: usize in header",
+    "Count: impl core::convert::TryFrom<&Count> for usize :: try_from: usize in return",
+    "Count: impl core::convert::TryFrom<&Count> for usize: usize in header",
+    "Count: impl core::convert::TryFrom<Count> for usize :: try_from: usize in return",
+    "Count: impl core::convert::TryFrom<Count> for usize: usize in header",
+    "Limbs: impl core::iter::traits::iterator::Iterator for Limbs :: size_hint: usize in return",
+    "Party: impl core::convert::From<Party> for [Party; N]: usize in header",
+    "iter::ClockForks: impl core::iter::traits::iterator::Iterator for ClockForks :: size_hint: usize in return",
+    "iter::PartyForks: impl core::iter::traits::iterator::Iterator for PartyForks :: size_hint: usize in return",
+    "shape::Cell: impl core::clone::Clone for Cell<N>: usize in header",
+    "shape::Cell: impl core::cmp::Eq for Cell<N>: usize in header",
+    "shape::Cell: impl core::cmp::PartialEq for Cell<N>: usize in header",
+    "shape::Cell: impl core::fmt::Debug for Cell<N>: usize in header",
+    "shape::Cell: impl core::hash::Hash for Cell<N>: usize in header",
+    "shape::Cell: impl core::marker::StructuralPartialEq for Cell<N>: usize in header",
+    "shape::Cells: impl core::iter::traits::iterator::Iterator for Cells<N> :: size_hint: usize in return",
+    "shape::Cells: impl core::iter::traits::iterator::Iterator for Cells<N>: usize in header",
+    "shape::Cells: impl core::iter::traits::marker::FusedIterator for Cells<N>: usize in header",
+    "shape::Overlay: impl core::iter::traits::iterator::Iterator for Overlay :: size_hint: usize in return",
+    "shape::Plateaus: impl core::iter::traits::iterator::Iterator for Plateaus :: size_hint: usize in return",
+    "shape::Regions: impl core::iter::traits::iterator::Iterator for Regions :: size_hint: usize in return",
+    "shape::combine: usize in generics",
+];
