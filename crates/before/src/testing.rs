@@ -30,6 +30,8 @@ pub(crate) mod optrace;
 #[cfg(test)]
 pub(crate) mod rng;
 #[cfg(test)]
+pub(crate) mod scripted_reader;
+#[cfg(test)]
 pub(crate) mod shape_rows;
 
 #[cfg(test)]
