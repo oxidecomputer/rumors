@@ -120,18 +120,21 @@ proptest! {
 }
 
 proptest! {
-    /// Tabulating an event or id at any level at or above its resolution
-    /// gives back the same function.
+    /// Tabulating an event or id at its resolution, or at any of the eight
+    /// levels above it, gives back the same function.
     ///
     /// The two agree at every grid point and every cell center of the next
     /// finer level, so inside each table cell and at its left end (the
     /// points the comparison scans sample), not only at the centers the
-    /// table was built from.
+    /// table was built from. The replay tabulates its shallowest members
+    /// further above their resolution than this samples; exactness there
+    /// rests on the same fact, that every cell of a level at or above the
+    /// resolution lies inside one constant piece of the function.
     #[test]
     fn tabulation_at_or_above_resolution_is_the_same_function(
         tv in arb_oracle_version(),
         tp in arb_oracle_party_nonempty(),
-        extra in 0u32..=2,
+        extra in 0u32..=8,
     ) {
         let (e, i) = (lift_ev(tv), lift_id(tp));
         let (g_ev, g_id) = (ev_res(&e) + extra, id_res(&i) + extra);

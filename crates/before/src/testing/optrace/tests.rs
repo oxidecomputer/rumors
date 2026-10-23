@@ -160,59 +160,98 @@ struct Reach {
     transmit: bool,
     /// A clock's party and version moved through their byte encodings.
     transmit_parts: bool,
-    /// A clock absorbed another clock's version.
+    /// A clock absorbed a different clock's version.
     absorb: bool,
-    /// A clock absorbed two or more versions in one step.
+    /// A clock absorbed the versions of two or more distinct other clocks in
+    /// one step, whatever repeated or self picks the step also held.
     absorb_all: bool,
     /// The population exceeded [`LARGE_POPULATION`] after some step.
     large_population: bool,
+    /// A `forks` step took fewer children, or an array split dealt fewer
+    /// shares, than it drew, because the population was near or past
+    /// [`MAX_POPULATION`].
+    clamped: bool,
+    /// Two clocks of the final population hold concurrent versions.
+    concurrent_pair: bool,
 }
 
 impl Reach {
-    /// Replays `ops` against the flat model's parties, recording what each
-    /// resolved step executes and how large the population grows.
+    /// Replays `ops` against production, recording what each resolved step
+    /// executes, how large the population grows, and whether any two final
+    /// clocks are concurrent.
     fn of(ops: &[Op]) -> Reach {
         let mut reach = Reach::default();
-        let mut parties = vec![flat::Party::seed()];
+        let mut clocks = vec![Clock::seed()];
         let mut rng = ChaChaRng::seed_from_u64(0);
         for op in ops {
-            match op.resolve(parties.len()) {
-                Some(Step::Forks { count, taken, .. }) => {
+            match (op, op.resolve(clocks.len())) {
+                (Op::Forks(_, count, take), Some(Step::Forks { taken, .. })) => {
                     reach.forks_taking |= taken >= 1;
-                    reach.forks_leaving |= taken < usize::from(count);
+                    reach.forks_leaving |= taken < usize::from(*count);
+                    reach.clamped |= taken < usize::from(*take.min(count));
                 }
-                Some(Step::Split { arity, .. }) => reach.split |= arity.shares() >= 2,
-                Some(Step::JoinAll { others, .. }) => reach.join_all |= others.len() >= 2,
-                Some(Step::SyncAll { others, .. }) => reach.sync_all |= others.len() >= 2,
-                Some(Step::Transmit(_)) => reach.transmit = true,
-                Some(Step::TransmitParts(_)) => reach.transmit_parts = true,
-                Some(Step::Absorb(..)) => reach.absorb = true,
-                Some(Step::AbsorbAll { sources, .. }) => reach.absorb_all |= sources.len() >= 2,
+                (Op::Split(_, drawn), Some(Step::Split { arity, .. })) => {
+                    reach.split |= arity.shares() >= 2;
+                    reach.clamped |= arity < *drawn;
+                }
+                (_, Some(Step::JoinAll { others, .. })) => reach.join_all |= others.len() >= 2,
+                (_, Some(Step::SyncAll { others, .. })) => reach.sync_all |= others.len() >= 2,
+                (_, Some(Step::Transmit(_))) => reach.transmit = true,
+                (_, Some(Step::TransmitParts(_))) => reach.transmit_parts = true,
+                (_, Some(Step::Absorb(i, j))) => reach.absorb |= i != j,
+                (_, Some(Step::AbsorbAll { receiver, sources })) => {
+                    let mut others: Vec<usize> =
+                        sources.into_iter().filter(|&k| k != receiver).collect();
+                    others.sort_unstable();
+                    others.dedup();
+                    reach.absorb_all |= others.len() >= 2;
+                }
                 _ => {}
             }
-            step::<FlatParties>(&mut parties, op, &mut rng);
-            reach.large_population |= parties.len() > LARGE_POPULATION;
+            step::<Production>(&mut clocks, op, &mut rng);
+            reach.large_population |= clocks.len() > LARGE_POPULATION;
         }
+        reach.concurrent_pair = clocks.iter().enumerate().any(|(i, a)| {
+            clocks[i + 1..]
+                .iter()
+                .any(|b| a.version().concurrent(b.version()))
+        });
         reach
+    }
+
+    /// Samples [`CENSUS_CASES`] traces from `strategy` under the census seed.
+    fn sample(strategy: impl Strategy<Value = Vec<Op>>) -> Vec<Reach> {
+        let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(CENSUS_SEED));
+        (0..CENSUS_CASES)
+            .map(|_| Reach::of(&strategy.new_tree(&mut runner).expect("strategy").current()))
+            .collect()
     }
 }
 
 /// The trace strategies keep enough generator mass on each regime their docs
-/// claim for every default run of a trace consumer.
+/// and their consumers rely on for every default run of a consumer.
 ///
-/// Each default run of a consumer of [`world_strategy`] or
-/// [`production_strategy`] expects
+/// Each default run of a consumer expects
 /// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
-/// traces reaching each regime. The regimes are a `forks` step that takes children and one that leaves
-/// some for the residual, an array split, a `join_all` of two or more
-/// clocks, a `sync_all` with two or more others, each byte round trip, an
-/// absorb and an `absorb_all` of two or more versions, a population past
-/// [`LARGE_POPULATION`], and, in production-side traces, a tick count wider
-/// than `u64`. The consumers run the default case count, so each floor
-/// follows from that premise alone, and a regime whose mass falls below it
-/// fails here whatever it last measured.
+/// traces reaching each regime it relies on:
+///
+/// - for [`world_strategy`], the regimes its doc claims: a `forks` step
+///   that takes children and one that leaves some for the residual, an
+///   array split, a `join_all` of two or more clocks, a `sync_all` with two
+///   or more others, each byte round trip, an absorb from a different clock
+///   and an `absorb_all` from two or more distinct others, a population past
+///   [`LARGE_POPULATION`], and a concurrent pair in the final population,
+///   which the step weights exist to preserve;
+/// - for [`production_strategy`], the one regime its doc claims beyond
+///   the shared steps, a tick count wider than `u64`;
+/// - for traces of [`CAP_REACHING_OPS`], a step the population cap clamps,
+///   which `multi_party_splits_respect_the_population_cap` exists to judge.
+///
+/// The consumers run the default case count, so each floor follows from
+/// that premise alone, and a regime whose mass falls below it fails here
+/// whatever it last measured.
 #[test]
-fn world_strategy_keeps_mass_on_its_regimes() {
+fn trace_strategies_keep_mass_on_their_regimes() {
     if std::env::var_os("PROPTEST_CASES").is_none() {
         assert_eq!(
             Config::default().cases,
@@ -220,11 +259,8 @@ fn world_strategy_keeps_mass_on_its_regimes() {
             "the floors assume proptest's default case count"
         );
     }
-    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(CENSUS_SEED));
-    let strategy = world_strategy();
-    let reaches: Vec<Reach> = (0..CENSUS_CASES)
-        .map(|_| Reach::of(&strategy.new_tree(&mut runner).expect("strategy").current()))
-        .collect();
+    let reaches = Reach::sample(world_strategy());
+    let capped = Reach::sample(world_strategy_up_to(CAP_REACHING_OPS));
     let count = |regime: fn(&Reach) -> bool| reaches.iter().filter(|reach| regime(reach)).count();
     let regimes = [
         ("a forks step taking children", count(|r| r.forks_taking)),
@@ -249,7 +285,15 @@ fn world_strategy_keeps_mass_on_its_regimes() {
             "a population past the large-population size",
             count(|r| r.large_population),
         ),
+        (
+            "a concurrent pair in the final population",
+            count(|r| r.concurrent_pair),
+        ),
         ("a tick count wider than u64", wide_tick_traces()),
+        (
+            "a step the population cap clamps, in cap-reaching traces",
+            capped.iter().filter(|reach| reach.clamped).count(),
+        ),
     ];
     let floor = regime_floor(CENSUS_CASES, 1);
     for (regime, count) in &regimes {

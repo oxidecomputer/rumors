@@ -38,11 +38,10 @@
 //! [`encode`](crate::Clock::encode)/[`encode_to`](crate::Clock::encode_to)
 //! emit them, and [`decode`](crate::Clock::decode) validates strictly", and
 //! each decoder accepts exactly canonical input, so no clock, party, or
-//! version a trace encodes may fail to decode. [`step`]
-//! asserts both of every step it applies, and every trace path ([`replay`],
-//! [`run`], [`step_production`], and [`step_impl`]) applies its steps
-//! through it, so every consumer of a trace checks the promise on the
-//! histories it draws.
+//! version a trace encodes may fail to decode. [`step`] asserts both of
+//! every step it applies, and every trace path applies its steps through
+//! it, so every consumer of a trace checks the promise on the histories it
+//! draws.
 //!
 //! # Populations and depth
 //!
@@ -463,9 +462,9 @@ impl TraceModel for FunctionSpace {
 pub(crate) struct FlatParties;
 
 impl FlatParties {
-    /// Join `other` into `party` when they are disjoint, reporting whether
+    /// Joins `other` into `party` when they are disjoint, reporting whether
     /// it did.
-    fn absorb(party: &mut flat::Party, other: &flat::Party) -> bool {
+    fn join_disjoint(party: &mut flat::Party, other: &flat::Party) -> bool {
         let disjoint = party.is_disjoint(other);
         if disjoint {
             *party = party.union(other);
@@ -523,7 +522,7 @@ impl TraceModel for FlatParties {
 
     fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ChaChaRng) -> bool {
         let mut whole = left.clone();
-        if !Self::absorb(&mut whole, right) {
+        if !Self::join_disjoint(&mut whole, right) {
             return false;
         }
         (*left, *right) = whole.fork();
@@ -536,7 +535,10 @@ impl TraceModel for FlatParties {
         _rng: &mut ChaChaRng,
     ) -> bool {
         let mut whole = clock.clone();
-        if !others.iter().all(|other| Self::absorb(&mut whole, other)) {
+        if !others
+            .iter()
+            .all(|other| Self::join_disjoint(&mut whole, other))
+        {
             return false;
         }
         let mut shares = whole.shares(others.len() + 1).into_iter();
@@ -551,7 +553,7 @@ impl TraceModel for FlatParties {
         other: Self::Clock,
         _rng: &mut ChaChaRng,
     ) -> Result<(), Self::Clock> {
-        if Self::absorb(clock, &other) {
+        if Self::join_disjoint(clock, &other) {
             Ok(())
         } else {
             Err(other)
@@ -565,7 +567,7 @@ impl TraceModel for FlatParties {
     ) -> Result<(), Vec<Self::Clock>> {
         let rejected: Vec<flat::Party> = others
             .into_iter()
-            .filter(|other| !Self::absorb(clock, other))
+            .filter(|other| !Self::join_disjoint(clock, other))
             .collect();
         if rejected.is_empty() {
             Ok(())
@@ -682,8 +684,10 @@ pub(crate) enum Op {
     TransmitParts(Index),
 }
 
-/// The most members besides the receiver a `sync_all`, `join_all`, or
-/// `absorb_all` step picks.
+/// The most members a `sync_all`, `join_all`, or `absorb_all` step picks.
+///
+/// `sync_all` and `join_all` drop a pick of the receiver, so at most this
+/// many others take part besides it; `absorb_all` keeps such a pick.
 const MAX_PICKS: usize = 5;
 
 /// The largest count a `forks` step draws: nine shares, the residual's and
@@ -846,9 +850,10 @@ enum Step {
 /// Ticks and sends weigh the most, so a trace carries most of its events in
 /// them with the splits and joins mixed in. Each step that leaves its
 /// participants holding one shared or dominating version weighs less than
-/// its neighbors: sync less than fork and join, `sync_all` less than
-/// `forks`, array splits, and `join_all`, and absorbs the least, since each
-/// thins the concurrent pairs consumers draw.
+/// its neighbors: sync less than fork and join, and `sync_all` and the
+/// absorbs less than `forks`, array splits, and `join_all`, since each thins
+/// the concurrent pairs consumers draw. The byte round trips, which change
+/// no value, share the lowest weight with them.
 fn op_strategy() -> impl Strategy<Value = Op> {
     let picks = || prop::collection::vec(any::<Index>(), 0..=MAX_PICKS);
     let arity = prop_oneof![
@@ -906,10 +911,13 @@ fn within_levels<T>(drawn: Vec<T>, budget: u32, levels: impl Fn(&T) -> u32) -> V
 /// [`MAX_TRACE_OPS`] tree levels, over a population that starts as a single
 /// seed clock.
 ///
-/// Its traces regularly reach every kind of [`Op`], including a `forks` step
-/// that leaves children untaken, a `join_all` of two or more clocks, a
-/// `sync_all` with two or more others, and a population past eight clocks;
-/// the census `world_strategy_keeps_mass_on_its_regimes` floors each.
+/// Every kind of [`Op`] is reachable, and its traces regularly hold a
+/// `forks` step that takes children and one that leaves some untaken, an
+/// array split, a `join_all` of two or more clocks, a `sync_all` with two or
+/// more others, each byte round trip, absorbs from other members, a
+/// population past the census's large-population size, and a concurrent
+/// pair in the final population; the census
+/// `trace_strategies_keep_mass_on_their_regimes` floors each of these.
 pub(crate) fn world_strategy() -> impl Strategy<Value = Vec<Op>> {
     world_strategy_up_to(MAX_TRACE_OPS)
 }
@@ -1130,7 +1138,7 @@ pub(crate) fn production_strategy() -> impl Strategy<Value = Vec<ProductionOp>> 
 /// with wide tick counts mixed in, under the same op cap and level budget.
 ///
 /// Its traces regularly hold a tick count wider than `u64`; the census
-/// `world_strategy_keeps_mass_on_its_regimes` floors that regime.
+/// `trace_strategies_keep_mass_on_their_regimes` floors that regime.
 pub(crate) fn production_strategy_up_to(
     max_ops: usize,
 ) -> impl Strategy<Value = Vec<ProductionOp>> {
