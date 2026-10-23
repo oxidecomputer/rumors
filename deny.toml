@@ -1,10 +1,11 @@
 # Configuration for the duplicate-dependency sweep (`just supply-chain`,
-# which runs `cargo deny check bans`). Scope: the root workspace's full
-# feature-and-target closure — exactly the graph Cargo.lock records. The
-# detached workspaces (fuzz, fuzzfit, fuelscape, surfacecheck) are
-# dev-tooling with their own lockfiles and are covered by the advisory
-# leg only: a duplicated dependency there costs one extra compile of a
-# tool, never a shipped byte.
+# which runs `cargo deny check bans`). Scope: the full feature-and-target
+# closure of every root-workspace member except the tool-side ones, which
+# the justfile lists in `tool_members` and excludes from the sweep.
+# Cargo.lock also records the tool-side members' graphs, and the detached
+# fuzz workspace has a lockfile of its own; the advisory leg covers both,
+# and the duplicate policy covers neither, because a dependency duplicated
+# only there costs one extra compile of a tool, never a shipped byte.
 
 [graph]
 all-features = true

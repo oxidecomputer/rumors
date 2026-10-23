@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# manifestlint — hold every workspace member's dependency declarations to the
-# workspace table.
+# manifestlint — hold the workspace's member manifests to the workspace table,
+# and the justfile's list of tool-side members to the workspace.
 #
 # The root Cargo.toml's [workspace.dependencies] is the version of record for
 # every dependency in the workspace: member manifests inherit an entry with
@@ -21,14 +21,27 @@
 # own Cargo.lock) are separate workspaces with their own tables, outside
 # this tool's scope.
 #
+# The justfile's `tool_members` is the one list of the workspace's tool-side
+# members, as the `--exclude NAME` pairs its workspace-wide cargo commands
+# pass. Cargo accepts an exclusion naming no member with only a warning,
+# still compiles an excluded member that an included one depends on, and
+# cannot tell a tool from any other member, so a stale name, an unlisted
+# dependent, or a tool dropped from the list would each bring the tools back
+# into the ordinary legs without failing anything. The tool evaluates the
+# variable with `just` and holds it to the same `cargo metadata` view: every
+# name a member, none a default member (which a plain cargo command at the
+# root builds), none listed twice, no unlisted member depending on a listed
+# one, and no unlisted member declaring a tool-only dependency.
+#
 # Usage:
-#   manifestlint --self-test   # pin the declarations the rule accepts and
-#                              # rejects
-#   manifestlint               # check every member manifest of the workspace
-#                              # containing the current directory
+#   manifestlint --self-test   # pin the declarations and exclusions the
+#                              # rules accept and reject
+#   manifestlint               # check the workspace containing the current
+#                              # directory
 #
 # Exits non-zero if any violation is found, printing `manifest: [table] name`
-# plus what offends, the way the rest of the gate names its failures.
+# or `justfile: tool_members` plus what offends, the way the rest of the gate
+# names its failures.
 
 import json
 import subprocess
@@ -45,6 +58,12 @@ ALLOWED_KEYS = {"workspace", "features", "optional", "default-features"}
 # The dependency tables a manifest may carry; each is also legal under a
 # `[target.'…'.<table>]` heading.
 DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+
+# Dependencies only tool-side members may declare: the reason they are kept
+# out of the ordinary legs. Membership in `tool_members` is otherwise a
+# judgment no manifest records, so this is what catches a Wasmtime-bearing
+# tool dropped from the list.
+TOOL_ONLY_DEPENDENCIES = {"wasmtime"}
 
 
 def violations(manifest):
@@ -75,19 +94,101 @@ def violations(manifest):
                     )
 
 
-def member_manifests():
-    """Every manifest cargo considers a member of the enclosing workspace,
-    from cargo's own discovery."""
+def exclusion_violations(tokens, members):
+    """Yield `(name, reason)` for every way the tool-member exclusions
+    disagree with the workspace, `name` being the member at fault (`None`
+    when the list itself is malformed).
+
+    `tokens` is the exclusion list as cargo receives it, split on
+    whitespace. `members` maps each member's package name to a triple:
+    whether it is a default member, the names of the members it depends on,
+    and the names of the other crates it depends on (normal, build, or dev
+    dependencies alike). Only cargo's own spelling, `--exclude NAME` pairs,
+    is understood; anything else is reported rather than guessed at."""
+    flags, names = tokens[0::2], tokens[1::2]
+    if len(tokens) % 2 or any(flag != "--exclude" for flag in flags):
+        yield None, f"is not a sequence of `--exclude NAME` pairs: {' '.join(tokens)!r}"
+        return
+    listed = set()
+    for name in names:
+        if name in listed:
+            yield name, f"lists {name} more than once"
+        listed.add(name)
+        if name not in members:
+            yield name, f"lists {name}, which is no workspace member, so cargo ignores its exclusion"
+        elif members[name][0]:
+            yield name, f"lists {name}, a default member, which a plain cargo command at the root builds"
+    for name, (_, member_deps, crate_deps) in sorted(members.items()):
+        if name not in listed:
+            for dep in sorted(member_deps & listed):
+                yield name, (
+                    f"leaves out {name}, which depends on the listed {dep}, "
+                    f"so the workspace-wide legs still compile {dep}"
+                )
+            for dep in sorted(crate_deps & TOOL_ONLY_DEPENDENCIES):
+                yield name, (
+                    f"leaves out {name}, which depends on the tool-only {dep}, "
+                    f"so the workspace-wide legs compile {dep}"
+                )
+
+
+def cargo_metadata():
+    """The enclosing workspace as `cargo metadata --no-deps` reports it."""
     # cargo's stderr passes through, so a discovery failure (a manifest
     # cargo itself rejects, say) surfaces as cargo's own diagnostic.
-    metadata = json.loads(
+    return json.loads(
         subprocess.run(
             ["cargo", "metadata", "--no-deps", "--format-version", "1"],
             check=True,
             stdout=subprocess.PIPE,
         ).stdout
     )
+
+
+def member_manifests(metadata):
+    """Every manifest cargo considers a member of the workspace."""
     return sorted(Path(package["manifest_path"]) for package in metadata["packages"])
+
+
+def workspace_members(metadata):
+    """Map each member's package name to whether it is a default member, the
+    names of the members it declares dependencies on, and the names of the
+    other crates it declares dependencies on: the shape
+    `exclusion_violations` reads. A dependency is on a member when it
+    carries a `path`, since every path dependency in this workspace is a
+    member."""
+    packages = {package["id"]: package for package in metadata["packages"]}
+    defaults = set(metadata["workspace_default_members"])
+    members = {}
+    for id in metadata["workspace_members"]:
+        deps = packages[id]["dependencies"]
+        members[packages[id]["name"]] = (
+            id in defaults,
+            {dep["name"] for dep in deps if "path" in dep},
+            {dep["name"] for dep in deps if "path" not in dep},
+        )
+    return members
+
+
+def tool_member_tokens(metadata):
+    """The justfile's `tool_members`, evaluated by `just` itself, split on
+    whitespace. A renamed or deleted variable fails here, by `just`'s own
+    diagnostic, rather than leaving nothing to check."""
+    root = Path(metadata["workspace_root"])
+    return subprocess.run(
+        [
+            "just",
+            "--justfile",
+            str(root / "justfile"),
+            "--working-directory",
+            str(root),
+            "--evaluate",
+            "tool_members",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout.split()
 
 
 def check(paths):
@@ -102,9 +203,19 @@ def check(paths):
     return found
 
 
+def check_exclusions(tokens, members):
+    """Print every violation of the tool-member list, returning how many
+    were found."""
+    found = 0
+    for _, reason in exclusion_violations(tokens, members):
+        print(f"justfile: tool_members {reason}")
+        found += 1
+    return found
+
+
 def self_test():
-    """Pin the declarations the rule accepts and rejects: each fixture must
-    red (or stay green) for exactly the entry it encodes."""
+    """Pin the declarations and exclusions the rules accept and reject: each
+    fixture must fail (or pass) for exactly the entry it encodes."""
     cases = [
         # The convention's shape: inherit, adding only feature selections
         # and optional flags.
@@ -151,6 +262,38 @@ def self_test():
         actual = [(table, name) for table, name, _ in violations(tomllib.loads(source))]
         if actual != expected:
             raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
+
+    # A workspace like this one: a default root package, a production crate
+    # it depends on, a Wasmtime harness, and a tool built on the harness.
+    members = {
+        "root": (True, {"core"}, set()),
+        "core": (False, set(), {"serde"}),
+        "tool": (False, {"core"}, {"wasmtime"}),
+        "tool-user": (False, {"tool"}, set()),
+    }
+    exclusion_cases = [
+        # Both tools listed, nothing else: the exclusions are sound.
+        ("--exclude tool --exclude tool-user", []),
+        # A name cargo would only warn about.
+        ("--exclude tool --exclude tool-user --exclude gone", ["gone"]),
+        # A repeated name.
+        ("--exclude tool --exclude tool --exclude tool-user", ["tool"]),
+        # A default member: plain cargo at the root still builds it.
+        ("--exclude root --exclude tool --exclude tool-user", ["root"]),
+        # A listed member an unlisted one depends on is still compiled.
+        ("--exclude tool-user --exclude tool --exclude core", ["root"]),
+        # A Wasmtime-bearing tool dropped from the list is compiled by the
+        # ordinary legs, and so is everything built on it.
+        ("--exclude tool-user", ["tool"]),
+        ("", ["tool"]),
+        # Only `--exclude NAME` pairs are understood, never guessed at.
+        ("--exclude tool tool-user", [None]),
+        ("-p tool", [None]),
+    ]
+    for source, expected in exclusion_cases:
+        actual = [name for name, _ in exclusion_violations(source.split(), members)]
+        if actual != expected:
+            raise AssertionError(f"expected {expected}, got {actual} for {source!r}")
     print("manifestlint: self-test ok")
 
 
@@ -161,7 +304,10 @@ def main():
     if sys.argv[1:]:
         print("usage: manifestlint [--self-test]", file=sys.stderr)
         return 2
-    return 1 if check(member_manifests()) else 0
+    metadata = cargo_metadata()
+    found = check(member_manifests(metadata))
+    found += check_exclusions(tool_member_tokens(metadata), workspace_members(metadata))
+    return 1 if found else 0
 
 
 if __name__ == "__main__":

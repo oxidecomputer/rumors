@@ -92,19 +92,18 @@ const MAX_WASM_STACK: usize = 48 * 1024 * 1024;
 /// Locate the compiled guest module.
 ///
 /// Precedence: the `FUZZFIT_GUEST_WASM` environment variable (explicit
-/// provenance), then `CARGO_TARGET_DIR`, then the workspace's configured
-/// target dir (`.cargo/config.toml` points it at the repo root's
-/// `target/fuzzfit`). The `just fuzzfit-*` recipes build the guest before
-/// anything queries this.
+/// provenance), then `CARGO_TARGET_DIR`, then the repo root's
+/// `target/fuzzfit`, where the `just fuzzfit-*` recipes build the guest, in
+/// the `fuel` profile, before anything queries this.
 pub fn guest_wasm_path() -> PathBuf {
     if let Ok(path) = std::env::var("FUZZFIT_GUEST_WASM") {
         return PathBuf::from(path);
     }
     if let Ok(target) = std::env::var("CARGO_TARGET_DIR") {
-        return PathBuf::from(target).join("wasm32-unknown-unknown/release/fuzzfit_guest.wasm");
+        return PathBuf::from(target).join("wasm32-unknown-unknown/fuel/fuzzfit_guest.wasm");
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../target/fuzzfit/wasm32-unknown-unknown/release/fuzzfit_guest.wasm")
+        .join("../../../../target/fuzzfit/wasm32-unknown-unknown/fuel/fuzzfit_guest.wasm")
 }
 
 /// The process-wide engine and compiled module.

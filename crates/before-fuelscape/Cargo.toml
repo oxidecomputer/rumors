@@ -1,10 +1,8 @@
-# The population atlas: a detached dev-tool workspace, the same idiom as
-# crates/before/fuzzfit — the empty `[workspace]` table keeps this crate out
-# of the parent workspace, so ordinary workspace builds never compile it and
-# wasmtime (pulled in through the fuzzfit harness, whose wasm driver this
-# crate reuses) stays out of the production crates' dependency graph. The
-# gate reaches it only through the `just fuelscape-*` recipes by name.
-[workspace]
+# The population atlas: a tool-side member of the root workspace, listed in
+# the justfile's `tool_members` like the fuzzfit crates, so the gate's
+# ordinary legs never compile it or the wasmtime it pulls in through the
+# fuzzfit harness, whose wasm driver this crate reuses. The gate reaches it
+# only through the `just fuelscape-*` recipes by name.
 
 [package]
 name = "before-fuelscape"
@@ -16,40 +14,41 @@ edition = "2021"
 # The subject under audit: the samplers target its encoded codecs, and the
 # `meter` feature exposes the committed adversarial family generators the
 # renders overlay as marked points.
-before = { path = "../before", features = ["meter"] }
+before = { workspace = true, features = ["meter"] }
 # The fuel apparatus of record: the fuzzfit harness's wasmtime driver runs
 # one public operation per guest call under deterministic instruction-count
 # fuel. Reused whole rather than duplicated, so the atlas and the band
 # enforcement read the same currency from the same guest.
-fuzzfit-harness = { path = "../before/fuzzfit/harness" }
+fuzzfit-harness = { workspace = true }
 # Canonical text panels stage the same lowercase hexadecimal accepted by the
 # subject's public parsers; conversion belongs to the standard hex crate, not a
 # second hand-rolled spelling in the instrument.
-hex = "0.4"
+hex = { workspace = true }
 # One progress bar per in-flight panel plus a run total, so an operator
 # can watch a long survey; bars draw only on a tty, so nohup logs keep
 # the plain per-panel lines.
-indicatif = "0.18"
+indicatif = { workspace = true }
 # Argument parsing for the runner binaries: per-flag help and defaults
 # beside their declarations, and the mode exclusions (a replay or a
 # compaction takes no measuring flags) enforced declaratively instead of
 # by hand-rolled asserts.
-clap = { version = "4", features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
 
 # Exact-integer counting tables and proportional choice: uniform sampling
 # is arithmetic over exact counts, never floats.
-num-bigint = { version = "0.4", features = ["rand"] }
-num-traits = "0.2"
+num-bigint = { workspace = true, features = ["rand"] }
+num-traits = { workspace = true }
 # Deterministic per-cell seed streams; the same documented-portable
-# generator the fuzzfit harness and the parent crate's sweeps use.
-rand = "0.8"
-rand_chacha = "0.3"
+# generator the fuzzfit harness and the parent crate's sweeps use, at the 0.8
+# releases num-bigint 0.4's `rand` feature speaks.
+rand08 = { workspace = true }
+rand_chacha03 = { workspace = true }
 # Host-side fan-out across sampling cells; every cell's RNG is seeded from
 # (op, size, sample index), so parallel order cannot change any draw.
-rayon = "1"
+rayon = { workspace = true }
 # SVG rendering only: the bitmap backend would pull font rasterization and
 # image codecs this tool has no use for.
-plotters = { version = "0.3", default-features = false, features = [
+plotters = { workspace = true, features = [
     "svg_backend",
     "line_series",
 ] }
@@ -58,26 +57,26 @@ plotters = { version = "0.3", default-features = false, features = [
 # (typst's `json()` loader) with no converter. serde already rides in
 # this graph through the wasmtime driver; serde_json adds only its two
 # tiny number formatters over the cost of hand-rolling a strict parser.
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true, default-features = true, features = ["derive"] }
 # float_roundtrip: the loader's grid verification compares stored f64
 # axis domains and medians bit-for-bit against a recomputation, so JSON
 # number parsing must be exact to the last ULP, not merely close.
-serde_json = { version = "1", features = ["float_roundtrip"] }
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 # The grid math (log2 bin geometry) must produce identical bits on every
 # host: a dump commits its HeatGrid, and the loader re-derives it
 # bit-for-bit wherever the dump is opened — and the compact widget
 # datasets are committed and re-derived the same way (fuelscape-verify).
 # Platform math libraries disagree by an ulp at bin boundaries; libm's
 # pure-Rust kernels do not.
-libm = "0.2"
+libm = { workspace = true }
 # The committed dump stores its documents gzipped for tree weight
 # (~242 MB of JSON → ~24 MB); the dump reader decompresses `.json.gz`
 # siblings transparently, so replays and verification read the committed
 # form directly.
-flate2 = "1"
+flate2 = { workspace = true }
 
 [dev-dependencies]
-proptest = "1"
+proptest = { workspace = true }
 
 # The sampler is an allocation storm — a fresh wasmtime store per sample
 # for measurement hygiene, big-integer temporaries per rejection draw —
@@ -90,4 +89,4 @@ proptest = "1"
 # illumos launcher preloads libumem, the platform's own per-CPU
 # allocator, for the same relief with no code.
 [target.'cfg(not(target_os = "illumos"))'.dependencies]
-mimalloc = "0.1"
+mimalloc = { workspace = true }

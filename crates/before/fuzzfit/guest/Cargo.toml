@@ -11,4 +11,4 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-before = { path = "../.." }
+before = { workspace = true }

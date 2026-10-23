@@ -1,11 +1,8 @@
-# Standalone surface-totality workspace. The empty `[workspace]` table
-# detaches it from the parent `rumors` workspace, so ordinary workspace
-# builds never compile it (the rustdoc-JSON schema tooling stays out of
-# the production crates' graph); the gate reaches it through the
-# `just surface-totality` recipe alone, which documents the check and the
-# toolchain-bump procedure.
-
-[workspace]
+# The surface-totality checker: a tool-side member of the root workspace,
+# listed in the justfile's `tool_members`, so the gate's ordinary legs never
+# compile it (the rustdoc-JSON schema tooling stays out of the production
+# crates' builds); the gate reaches it through the `just surface-totality`
+# recipe alone, which documents the check and the toolchain-bump procedure.
 
 [package]
 name = "surfacecheck"
@@ -16,13 +13,7 @@ publish = false
 [dependencies]
 # The `meter` feature exposes the board inventory, which this check reconciles
 # with rustdoc's compiler-derived surface.
-before = { path = "..", features = ["meter"] }
-# The official rustdoc JSON schema crate. Pinned exact because the crate
-# version IS the format pin: rustdoc-types 0.59.0 speaks format_version
-# 59, and main.rs refuses any document whose format_version differs from
-# `rustdoc_types::FORMAT_VERSION`, naming both numbers. Bumping the
-# nightly toolchain therefore means bumping this pin to the release
-# whose FORMAT_VERSION matches what the new nightly emits (the recipe
-# comment in the workspace justfile walks through it).
-rustdoc-types = "=0.59.0"
-serde_json = "1"
+before = { workspace = true, features = ["meter"] }
+# The rustdoc JSON schema; the root manifest's entry explains its exact pin.
+rustdoc-types = { workspace = true }
+serde_json = { workspace = true }

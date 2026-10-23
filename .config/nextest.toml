@@ -15,14 +15,14 @@
 # before it fails; we accept that cost so these two tests can finish under
 # load. Once they are cheaper, the limit can return to three periods.
 #
-# Nextest reads this file only in this workspace. Each detached workspace
-# (one with its own `[workspace]` manifest) that runs nextest has its own
-# `.config/nextest.toml` with the same period and a limit no lower than this
-# one. A workspace with slower tests sets its limit to about twice its slowest
+# Nextest reads configuration only at the root of the workspace it runs in,
+# so this file governs every member, the tool-side ones included; a
+# `.config/nextest.toml` inside a member's directory is never read. A
+# package with slower tests gets a per-package override below, with the
+# same period and a limit no lower than this one: about twice its slowest
 # passing run under heavy load, rounded up to a whole period, so a busy
 # machine does not kill passing tests. The commit that sets such a limit
-# records the readings; re-derive it when the tests' work grows. Keep those
-# files' period and policy in step with this one.
+# records the readings; re-derive it when the tests' work grows.
 #
 # The limit also bounds proptest shrinking. Proptest persists a failing
 # case's regression seed only after shrinking completes, so a failing
@@ -36,6 +36,21 @@
 # budget rather than raising the limit, which would stretch every hang.
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+# The 32-bit boundary pins walk inputs of hundreds of megabytes synthesized
+# inside the guest. This limit is the only bound on a pin: the harness
+# meters neither Wasmtime fuel nor epochs, so a guest loop that never exits
+# runs until nextest kills it, and a hang in a fast pin also runs to the
+# full limit.
+[[profile.default.overrides]]
+filter = 'package(wasm32-pins-harness)'
+slow-timeout = { period = "60s", terminate-after = 20 }
+
+# The fuelscape's slowest pin builds its exact counting tables twice, in
+# parallel and sequentially, and compares them entry by entry.
+[[profile.default.overrides]]
+filter = 'package(before-fuelscape)'
+slow-timeout = { period = "60s", terminate-after = 9 }
 
 # Four thousand property cases make the slowest Rumors tests take several
 # minutes in release. Ten minutes still turns a lost wakeup into a failure

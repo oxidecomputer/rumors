@@ -13,6 +13,6 @@ crate-type = ["cdylib"]
 [dependencies]
 # The meter feature exposes exact live bit lengths, which distinguish crossing
 # a bit-position boundary from merely allocating a buffer of nearby size.
-before = { path = "../..", features = ["meter"] }
-suanpan = { path = "../../../suanpan" }
-wasm32-pins-protocol = { path = "../protocol" }
+before = { workspace = true, features = ["meter"] }
+suanpan = { workspace = true }
+wasm32-pins-protocol = { workspace = true }

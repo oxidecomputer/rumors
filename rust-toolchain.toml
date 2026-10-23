@@ -1,7 +1,6 @@
-# The toolchain of record for the whole tree, detached workspaces
+# The toolchain of record for the whole tree, the detached fuzz workspace
 # included: rustup resolves this file by walking up from the working
-# directory, so the fuzz, fuzzfit, fuelscape, and surfacecheck
-# workspaces all take it too.
+# directory, so `crates/before/fuzz` takes it too.
 #
 # Pinned rather than tracking stable because the tree pins numbers
 # derived from the compiler. The fuzz-fit fuel bands are a function of

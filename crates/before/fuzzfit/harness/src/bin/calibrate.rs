@@ -348,7 +348,6 @@ pub const BANDS: &[Band] = &[
 /// commit with a dated movement annotation.
 pub const SMALL_BANDS: &[Band] = &[
 {small_rows}];
-
 "
     );
     let tmp = bands_path.with_extension("rs.tmp");

@@ -35,9 +35,9 @@
 //!   deliberately: the outcome is constant because there is no operand.
 
 use proptest::prelude::*;
-use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
-use rand_chacha::ChaChaRng;
+use rand08::seq::SliceRandom;
+use rand08::{Rng, SeedableRng};
+use rand_chacha03::ChaChaRng;
 
 use crate::ops::{Op, Reg};
 
