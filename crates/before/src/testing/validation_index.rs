@@ -88,10 +88,11 @@
 //!
 //! # The resource instruments
 //!
-//! Cost claims are guarded by three complementary instruments: a global board
-//! over chosen adversarial families, deterministic fuel over generated
-//! programs, and a population atlas for inspecting the broader distribution.
-//! A small focused suite remains for independent axes the board cannot vary.
+//! Cost claims are guarded by complementary instruments: boards over chosen
+//! adversarial families, judged in the native counters and in fuel;
+//! deterministic fuel over generated programs; and a population atlas for
+//! inspecting the broader distribution. A small focused suite remains for
+//! independent axes the boards cannot vary.
 //!
 //! **The amplification board** (`crate::testing::meter::board`; rendered by
 //! `just amp-board`).
@@ -106,8 +107,20 @@
 //! Red means untriaged, nothing else: every persistent contradiction
 //! resolves to a cure or a declared model, and any red cell fails the
 //! gate's board leg outright. It is the enforced per-operation record: every
-//! compatible family reaches every compatible operation, and its shared
-//! limits ratchet both growth and constant factors.
+//! compatible family reaches every compatible operation, its shared limits
+//! bound growth and constant factors, and each cell's own heap ceiling holds
+//! its worst calibrated reading per unit within 10% (its other samples to
+//! that same per-unit ceiling).
+//!
+//! **The fuel board** (the `board-fuel` crates under this one; `just
+//! amp-board-fuel`). The same cells, each run in a fresh wasm32 guest
+//! instance and judged in Wasmtime *fuel*, a count of every instruction the
+//! body executes, against the board's exponent bound, its declared models,
+//! and a fuel ceiling calibrated per cell. What it alone catches: **time no
+//! probe counts** — element moves inside a `Vec`, arithmetic inside
+//! `num-bigint`, buffer fills, and allocator work, which cost instructions
+//! while leaving heap, scan, and touch unchanged, on the adversarial families
+//! the fuzz-fit bands' generated programs do not reach.
 //!
 //! **The focused resource checks** (`tests/meter.rs`). These vary an axis the
 //! board deliberately holds fixed: an operation argument at fixed operands, a

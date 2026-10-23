@@ -19,29 +19,34 @@
 //! capture judge or record the same samples (the `ladder` module holds one
 //! merged list per sampling scale for all of them).
 //!
-//! A cell's reading is a function of the cell alone: every judged quantity is a
-//! deterministic counter read from state a child owns privately (its own global
-//! allocator, its own process globals), so neither the shard count nor which
-//! cells share a process with it can move a reading. The smoke suite exercises
-//! the round trip — emit, parse, reorder, re-judge — across two shard counts,
-//! so a break in the protocol or in the merge's board-order reconstruction is
-//! caught before any board of record is rendered.
+//! A cell's heap, scan, and touch readings are a function of the cell alone:
+//! each is a deterministic counter read from state a child owns privately (its
+//! own global allocator, its own process globals), so neither the shard count
+//! nor which cells share a process with it can move a reading. A fuel reading
+//! is not: it counts the allocator's instructions too, and those depend on what
+//! earlier cells left in the same instance. A fuel run therefore deals one cell
+//! to each shard ([`max_useful_shards`] shards, each a fresh guest instance),
+//! and the merge refuses fuel readings from any other deal. The smoke suite
+//! exercises the round trip — emit, parse, reorder, re-judge — across two shard
+//! counts, so a break in the protocol or in the merge's board-order
+//! reconstruction is caught before any board of record is rendered.
 //!
 //! # The wire form
 //!
 //! One stamped header line (protocol version, shard index and count, the
-//! scale's IEEE-754 bit pattern), one tab-separated `cell` line per measured
-//! cell carrying both samples' counters, denominators, and declarations (floats
-//! as bit patterns, so nothing rounds), and one trailing `end` count line
-//! guarding truncation. The parent refuses any mismatch — a header that is not
-//! byte-for-byte the one it requested, an unknown operation or family name,
-//! a cell outside the child's slice, a duplicate cell, a count that
-//! disagrees with the lines received, or a merged grid whose per-family
-//! cell counts differ from the reach each registered family declares
-//! (the one check on the *union*, so a child that
-//! silently under-measures is refused even when every capture is
-//! self-consistent). The protocol is internal to the runner
-//! (parent and children are the same binary), not a stable format.
+//! scale's IEEE-754 bit pattern, and the child's build stamp: its target and
+//! whether debug assertions were compiled in), one tab-separated `cell` line
+//! per measured cell carrying both samples' counters, denominators, and
+//! declarations (floats as bit patterns, so nothing rounds), and one trailing
+//! `end` count line guarding truncation. The parent refuses any mismatch — a
+//! header that is not byte-for-byte the one it requested followed by a build
+//! stamp every child shares, an unknown operation or family name, a cell
+//! outside the child's slice, a duplicate cell, a count that disagrees with the
+//! lines received, or a merged grid whose per-family cell counts differ from
+//! the reach each registered family declares (the one check on the *union*, so
+//! a child that silently under-measures is refused even when every capture is
+//! self-consistent). The protocol is internal to the runner (parent and
+//! children are the same binary), not a stable format.
 //!
 //! # Slicing
 //!
@@ -68,18 +73,23 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::sync::{Mutex, OnceLock};
 
+use super::cell_ceilings::{calibration, Calibration};
+use super::compare::BuildStamp;
 use super::currency::{ByCurrency, Liveness};
 use super::judge::{evaluate, CellResult};
-use super::measure::{HeapMeter, Model, Sample};
+use super::measure::{Meters, Model, Sample};
 use super::ops::ops;
 use super::render::{assert_scale, build_pair, measure_cell, render_results, Summary};
 use super::worst::render_map;
 use crate::testing::meter::registry::FamilyId;
 
+#[cfg(test)]
+mod tests;
+
 /// The wire header's protocol tag; bumped with any change to the cell line's
 /// field order or encoding, or to the slice deal the ownership check enforces,
 /// so a stale child binary can never be merged as current.
-const PROTOCOL: &str = "amp-board-shard v5";
+const PROTOCOL: &str = "amp-board-shard v6";
 
 /// One measured cell, as the merge returns it: its operation, its family, and
 /// its two samples at one sampling scale.
@@ -89,7 +99,7 @@ pub(super) type Measured = (&'static str, &'static str, Sample, Sample);
 /// shard-index order.
 ///
 /// Supplied by the runner binary (spawning `current_exe` is per-binary state
-/// the library cannot own, exactly like the [`HeapMeter`]); the captures feed
+/// the library cannot own, exactly like the [`Meters`]); the captures feed
 /// the merge, which validates each child's stamps.
 pub type ShardSpawner<'a> = &'a dyn Fn(f64) -> io::Result<Vec<Vec<u8>>>;
 
@@ -122,13 +132,19 @@ fn owns(
 /// The largest shard count that can still receive work: the size of the
 /// operation × family grid (a larger count would only spawn children with empty
 /// slices).
+///
+/// At this count each shard owns exactly one grid position, so each child
+/// measures at most one cell: the deal a fuel run requires (the module doc's
+/// reading-independence argument).
 pub fn max_useful_shards() -> usize {
     ops().len() * FamilyId::board().count()
 }
 
 /// Child mode: measure shard `index` of `count`'s slice of the operation ×
-/// family grid at `scale` under the single-threaded measurement discipline and
-/// emit the measured samples to `out` in the shard wire form.
+/// family grid at `scale` with `meters`, and emit the samples to `out` in the
+/// shard wire form.
+///
+/// Cells are measured under the single-threaded measurement discipline.
 ///
 /// Cells are grouped family-outer so each owned family's operand bundles are
 /// built once and dropped before the next family's; the parent restores board
@@ -141,7 +157,7 @@ pub fn emit_shard(
     scale: f64,
     index: usize,
     count: usize,
-    heap: &HeapMeter,
+    meters: &Meters,
     out: &mut dyn Write,
 ) -> io::Result<()> {
     assert_scale(scale);
@@ -163,23 +179,39 @@ pub fn emit_shard(
         }
         let pair = build_pair(family, scale);
         for op_position in owned {
-            let Some(r) = measure_cell(heap, &table[op_position], &pair) else {
+            let op = &table[op_position];
+            let Some((s1, s2)) = measure_cell(meters, op, &pair) else {
                 continue;
             };
-            write!(staged, "cell\t{op}\t{family}", op = r.op, family = r.family)?;
-            emit_sample(&mut staged, &r.s1)?;
-            emit_sample(&mut staged, &r.s2)?;
+            write!(
+                staged,
+                "cell\t{op}\t{family}",
+                op = op.name,
+                family = family.name()
+            )?;
+            emit_sample(&mut staged, &s1)?;
+            emit_sample(&mut staged, &s2)?;
             writeln!(staged)?;
             emitted += 1;
         }
     }
     writeln!(
         out,
-        "{PROTOCOL} shard {index}/{count} scale {bits:016x}",
-        bits = scale.to_bits()
+        "{prefix}{stamp}",
+        prefix = header_prefix(scale, index, count),
+        stamp = BuildStamp::current()
     )?;
     out.write_all(&staged)?;
     writeln!(out, "end {emitted}")
+}
+
+/// The wire header up to the child's build stamp, which follows it on the same
+/// line.
+fn header_prefix(scale: f64, index: usize, count: usize) -> String {
+    format!(
+        "{PROTOCOL} shard {index}/{count} scale {bits:016x} measured ",
+        bits = scale.to_bits()
+    )
 }
 
 /// An `f64` as its IEEE-754 bit pattern, so the parent reconstructs the child's
@@ -352,24 +384,11 @@ fn parse_liveness(text: &str, line: &str) -> Liveness {
 fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> Sample {
     let denom_bytes = number(field(fields, line), line);
     let exp_denom_bytes = number(field(fields, line), line);
-    let mut model = || parse_model(field(fields, line), line);
-    let models = ByCurrency {
-        heap: model(),
-        scan: model(),
-        touch: model(),
-    };
-    let mut reading = || opt_number(field(fields, line), line);
-    let readings = ByCurrency {
-        heap: reading(),
-        scan: reading(),
-        touch: reading(),
-    };
-    let mut floor = || parse_liveness(field(fields, line), line);
-    let floors = ByCurrency {
-        heap: floor(),
-        scan: floor(),
-        touch: floor(),
-    };
+    // `from_fn` visits the currencies in display order, the order
+    // `emit_sample` writes them through `ByCurrency::each`.
+    let models = ByCurrency::from_fn(|_| parse_model(field(fields, line), line));
+    let readings = ByCurrency::from_fn(|_| opt_number(field(fields, line), line));
+    let floors = ByCurrency::from_fn(|_| parse_liveness(field(fields, line), line));
     Sample {
         denom_bytes,
         exp_denom_bytes,
@@ -391,15 +410,18 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
 /// # Panics
 ///
 /// As [`merge_samples`].
-fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
-    merge_samples(scale, count, captures)
+fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> (Calibration, Vec<CellResult>) {
+    let (stamp, cells) = merge_samples(scale, count, captures);
+    let calibration = calibration(&stamp.arch);
+    let results = cells
         .into_iter()
-        .map(|(op, family, s1, s2)| evaluate(op, family, s1, s2))
-        .collect()
+        .map(|(op, family, s1, s2)| evaluate(&calibration, op, family, s1, s2))
+        .collect();
+    (calibration, results)
 }
 
 /// Merge `count` children's captures into one whole board's measured cells in
-/// board row order, unjudged.
+/// board row order, unjudged, with the build stamp every child reported.
 ///
 /// Validates every stamp, parses the samples, and reorders by the parent's
 /// own operation table and family roster.
@@ -407,12 +429,22 @@ fn merge(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<CellResult> {
 /// # Panics
 ///
 /// Panics on any protocol violation — the module doc's refusal list — and
-/// unless `scale` is strictly positive, checked before any child capture is
-/// trusted.
-pub(super) fn merge_samples(scale: f64, count: usize, captures: &[Vec<u8>]) -> Vec<Measured> {
+/// unless `scale` is strictly positive and `count` nonzero, checked before any
+/// child capture is trusted. Panics, too, if a sample carries a fuel reading
+/// and `count` is not [`max_useful_shards`]: such a reading would depend on the
+/// deal.
+pub(super) fn merge_samples(
+    scale: f64,
+    count: usize,
+    captures: &[Vec<u8>],
+) -> (BuildStamp, Vec<Measured>) {
     assert!(
         scale > 0.0 && scale.is_finite(),
         "amp-board: scale must be a positive finite number"
+    );
+    assert!(
+        count > 0,
+        "amp-board shard merge: a sweep needs at least one shard"
     );
     assert_eq!(
         captures.len(),
@@ -430,19 +462,26 @@ pub(super) fn merge_samples(scale: f64, count: usize, captures: &[Vec<u8>]) -> V
         .map(|(position, family)| (family.name(), position))
         .collect();
     let mut cells: BTreeMap<(usize, usize), Measured> = BTreeMap::new();
+    let mut shared_stamp: Option<BuildStamp> = None;
     for (index, capture) in captures.iter().enumerate() {
         let text = std::str::from_utf8(capture).unwrap_or_else(|_| {
             panic!("amp-board shard merge: shard {index}/{count} emitted non-UTF-8 output")
         });
         let mut lines = text.lines();
-        let expected_header = format!(
-            "{PROTOCOL} shard {index}/{count} scale {bits:016x}",
-            bits = scale.to_bits()
-        );
         let header = lines.next().unwrap_or_default();
+        let stamp = header
+            .strip_prefix(&header_prefix(scale, index, count))
+            .and_then(BuildStamp::parse)
+            .unwrap_or_else(|| {
+                panic!(
+                    "amp-board shard merge: shard {index}/{count} stamp mismatch: refused: \
+                     {header:?}"
+                )
+            });
+        let shared = shared_stamp.get_or_insert_with(|| stamp.clone());
         assert_eq!(
-            header, expected_header,
-            "amp-board shard merge: shard {index}/{count} stamp mismatch: refused"
+            *shared, stamp,
+            "amp-board shard merge: shard {index}/{count} was built differently from shard 0"
         );
         let mut emitted = 0usize;
         let mut ended = false;
@@ -501,6 +540,16 @@ pub(super) fn merge_samples(scale: f64, count: usize, captures: &[Vec<u8>]) -> V
             "amp-board shard merge: shard {index}/{count} capture is truncated: no end line"
         );
     }
+    let fuel_measured = cells
+        .values()
+        .any(|(_, _, s1, s2)| s1.readings.fuel.is_some() || s2.readings.fuel.is_some());
+    assert!(
+        !fuel_measured || count == max_useful_shards(),
+        "amp-board shard merge: fuel readings from {count} shards, but fuel depends on the \
+         cells measured before it in the same instance, so a fuel run deals one cell per \
+         shard ({max} shards)",
+        max = max_useful_shards()
+    );
     // The completeness refusal: the merged grid must realize, family by
     // family, exactly the cell count the registry
     // declaration commits that family to. Every per-shard check above
@@ -523,7 +572,8 @@ pub(super) fn merge_samples(scale: f64, count: usize, captures: &[Vec<u8>]) -> V
             name = family.name()
         );
     }
-    cells.into_values().collect()
+    let stamp = shared_stamp.expect("a merge reads at least one capture");
+    (stamp, cells.into_values().collect())
 }
 
 /// Sweep the whole board across `shards` child processes at `scale` and render
@@ -544,7 +594,8 @@ pub fn run(
     spawn: ShardSpawner<'_>,
     out: &mut dyn Write,
 ) -> io::Result<Summary> {
-    render_results(&merge(scale, shards, &spawn(scale)?), out)
+    let (calibration, results) = merge(scale, shards, &spawn(scale)?);
+    render_results(&calibration, &results, out)
 }
 
 /// Sweep the whole board across `shards` child processes at `scale` and render
@@ -562,5 +613,6 @@ pub fn worst_map(
     spawn: ShardSpawner<'_>,
     out: &mut dyn Write,
 ) -> io::Result<()> {
-    render_map(label, scale, &merge(scale, shards, &spawn(scale)?), out)
+    let (_, results) = merge(scale, shards, &spawn(scale)?);
+    render_map(label, scale, &results, out)
 }

@@ -1,12 +1,17 @@
 //! The judgment: score a cell's measured samples against the exponent trend
 //! bound, the ceilings, the declared models, and the committed liveness
 //! floors, per currency.
+//!
+//! A currency the run did not measure reads `None` in every sample and is
+//! skipped by every check, so one judgment serves the native board (heap,
+//! scan, and touch) and the fuel board (fuel alone).
 
 use super::ceilings::{
-    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE,
-    MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE,
-    MIN_EXPONENT_DENOM_GROWTH,
+    FUEL_INTERCEPT, FUEL_TREND_RESOLUTION, HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES,
+    MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE,
+    MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
 };
+use super::cell_ceilings::Calibration;
 use super::currency::{ByCurrency, Currency, Liveness};
 use super::measure::Sample;
 
@@ -16,7 +21,7 @@ use super::measure::Sample;
 /// to keep logarithms defined; all-zero readings and constant denominators
 /// yield zero. A finite fit can reveal scaling regressions but cannot establish
 /// an asymptotic bound or the liveness of a quiet counter.
-pub(super) fn trend(points: &[(usize, u64)]) -> f64 {
+pub(super) fn trend(points: &[(u64, u64)]) -> f64 {
     if points.iter().all(|&(_, m)| m == 0) {
         return 0.0;
     }
@@ -45,6 +50,9 @@ pub(super) const SCAN_FLOOR_TRIP: &str =
 /// The touch column's floor-trip message.
 pub(super) const TOUCH_FLOOR_TRIP: &str =
     "touch floor: counter reads below floor: the meter is not watching this work";
+/// The fuel column's floor-trip message.
+pub(super) const FUEL_FLOOR_TRIP: &str =
+    "fuel floor: counter reads below floor: the meter is not watching this work";
 
 /// Whether `count` sits below a committed floor (an NA declaration never
 /// trips).
@@ -66,19 +74,27 @@ struct Fit {
     judged: bool,
 }
 
+/// The reading below which `currency`'s growth fit does not resolve growth:
+/// readings below it are clamped to it for the fit alone, or `None` where
+/// every reading enters the fit unchanged.
+pub(super) fn trend_resolution(currency: Currency) -> Option<u64> {
+    match currency {
+        Currency::Heap => Some(HEAP_TREND_RESOLUTION_BYTES as u64),
+        Currency::Fuel => Some(FUEL_TREND_RESOLUTION),
+        Currency::Scan | Currency::Touch => None,
+    }
+}
+
 /// Fit a scaling trend where the denominator spans enough sizes to distinguish
-/// growth. Heap uses its declared resolution; other readings are unchanged.
+/// growth. Heap and fuel use their declared resolutions; other readings are
+/// unchanged.
 fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
-    let points: Option<Vec<(usize, u64)>> = samples
+    let points: Option<Vec<(u64, u64)>> = samples
         .iter()
         .map(|s| {
             s.readings.get(c).map(|m| {
                 let units = trend_units(s, c);
-                let reading = if c == Currency::Heap {
-                    m.max(HEAP_TREND_RESOLUTION_BYTES as u64)
-                } else {
-                    m
-                };
+                let reading = trend_resolution(c).map_or(m, |resolution| m.max(resolution));
                 (units, reading)
             })
         })
@@ -89,7 +105,7 @@ fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
             judged: false,
         };
     };
-    let spans = |points: &[(usize, u64)]| -> bool {
+    let spans = |points: &[(u64, u64)]| -> bool {
         let first = points.first().map_or(0, |&(n, _)| n);
         let last = points.last().map_or(0, |&(n, _)| n);
         last as f64 >= first as f64 * MIN_EXPONENT_DENOM_GROWTH
@@ -149,10 +165,32 @@ fn validate_models(samples: &[&Sample]) {
 /// Every currency's fitted trend over a run's measured samples.
 fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
     validate_models(samples);
-    ByCurrency {
-        heap: fit_currency(Currency::Heap, samples),
-        scan: fit_currency(Currency::Scan, samples),
-        touch: fit_currency(Currency::Touch, samples),
+    ByCurrency::from_fn(|currency| fit_currency(currency, samples))
+}
+
+/// The board-wide proportional ceiling of `currency`, the outer bound of
+/// every cell that declares no model ceiling; `None` for fuel.
+///
+/// Fuel has no board-wide ceiling: an instruction count carries every
+/// constant factor of the code that runs, so cells differ in fuel per byte by
+/// orders of magnitude, and one ceiling would bind only the costliest of
+/// them. Its per-cell ceilings are its only proportional bound.
+pub(super) fn board_ceiling(currency: Currency) -> Option<f64> {
+    match currency {
+        Currency::Heap => Some(MAX_HEAP_BYTES_PER_INPUT_BYTE),
+        Currency::Scan => Some(MAX_SCAN_BITS_PER_INPUT_BYTE),
+        Currency::Touch => Some(MAX_TOUCHES_PER_INPUT_BYTE),
+        Currency::Fuel => None,
+    }
+}
+
+/// The additive term in every proportional ceiling of `currency`: the
+/// reading a sample may carry beyond the ceiling times its units.
+pub(super) fn currency_intercept(currency: Currency) -> f64 {
+    match currency {
+        Currency::Heap => HEAP_INTERCEPT_BYTES as f64,
+        Currency::Fuel => FUEL_INTERCEPT as f64,
+        Currency::Scan | Currency::Touch => 0.0,
     }
 }
 
@@ -198,6 +236,7 @@ pub(super) struct CellResult {
 /// ([`ByCurrency::each`]), so adding a currency fails to compile until every
 /// cell judges it.
 fn judge_window(
+    calibration: &Calibration,
     op: &'static str,
     family: &'static str,
     s1: Sample,
@@ -223,50 +262,53 @@ fn judge_window(
             per_unit: Some(per_unit),
         }
     };
-    let scores = ByCurrency {
-        heap: score(Currency::Heap),
-        scan: score(Currency::Scan),
-        touch: score(Currency::Touch),
-    };
+    let scores = ByCurrency::from_fn(score);
 
     let mut red = Vec::new();
     for (c, s) in scores.each() {
-        let (global_ceiling, exp_label, const_label) = match c {
-            Currency::Heap => (
-                MAX_HEAP_BYTES_PER_INPUT_BYTE,
-                "heap exponent",
-                "heap constant",
-            ),
-            Currency::Scan => (
-                MAX_SCAN_BITS_PER_INPUT_BYTE,
-                "scan exponent",
-                "scan constant",
-            ),
-            Currency::Touch => (
-                MAX_TOUCHES_PER_INPUT_BYTE,
-                "touch exponent",
-                "touch constant",
-            ),
+        // An unmeasured currency has no reading to judge, and a per-cell
+        // table holds only the cells its currency's runs measure.
+        if s.per_unit.is_none() {
+            continue;
+        }
+        let (exp_label, const_label, cell_label) = match c {
+            Currency::Heap => ("heap exponent", "heap constant", "heap cell constant"),
+            Currency::Scan => ("scan exponent", "scan constant", "scan cell constant"),
+            Currency::Touch => ("touch exponent", "touch constant", "touch cell constant"),
+            Currency::Fuel => ("fuel exponent", "fuel constant", "fuel cell constant"),
         };
-        let ceiling = s2
-            .models
-            .get(c)
-            .and_then(|model| model.ceiling)
-            .unwrap_or(global_ceiling);
         if s.exp_judged && s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
             red.push(exp_label);
         }
-        let intercept = if c == Currency::Heap {
-            HEAP_INTERCEPT_BYTES as f64
-        } else {
-            0.0
-        };
-        if [&s1, &s2].iter().any(|sample| {
-            sample.readings.get(c).is_some_and(|reading| {
-                reading as f64 > intercept + ceiling * constant_units(sample, c) as f64
+        // The outer bound is the row's model ceiling or the board-wide one;
+        // the cell's own ceiling comes from its per-cell table (the
+        // `cell_ceilings` module doc's rule). A sample over the outer bound
+        // reads `constant`; one within it but over the cell's own ceiling
+        // reads `cell constant`, a move from the cell's calibrated reading.
+        let outer = s2
+            .models
+            .get(c)
+            .and_then(|model| model.ceiling)
+            .or(board_ceiling(c));
+        let own = calibration.table(c).map(|table| table.ceiling(op, family));
+        assert!(
+            outer.is_some() || own.is_some(),
+            "amp-board: {op} x {family} has no {} ceiling: the currency has no board-wide \
+             ceiling and no per-cell table for the measured architecture",
+            c.label()
+        );
+        let intercept = currency_intercept(c);
+        let exceeds = |ceiling: f64| {
+            [&s1, &s2].iter().any(|sample| {
+                sample.readings.get(c).is_some_and(|reading| {
+                    reading as f64 > intercept + ceiling * constant_units(sample, c) as f64
+                })
             })
-        }) {
+        };
+        if outer.is_some_and(exceeds) {
             red.push(const_label);
+        } else if own.is_some_and(exceeds) {
+            red.push(cell_label);
         }
     }
     // The liveness floors bind in this same pass, at both sizes: a counter
@@ -277,6 +319,7 @@ fn judge_window(
             Currency::Heap => HEAP_FLOOR_TRIP,
             Currency::Scan => SCAN_FLOOR_TRIP,
             Currency::Touch => TOUCH_FLOOR_TRIP,
+            Currency::Fuel => FUEL_FLOOR_TRIP,
         };
         if [&s1, &s2].iter().any(|s| {
             s.readings
@@ -299,47 +342,50 @@ fn judge_window(
 
 /// Resolve one sample's units for its growth trend: the axis its exponent is
 /// fitted against, which an exact capture also records beside each reading.
-pub(super) fn trend_units(sample: &Sample, currency: Currency) -> usize {
+pub(super) fn trend_units(sample: &Sample, currency: Currency) -> u64 {
     sample
         .models
         .get(currency)
-        .map_or(sample.exp_denom_bytes, |model| model.trend_units)
+        .map_or(sample.exp_denom_bytes as u64, |model| model.trend_units)
 }
 
 /// Resolve one sample's units for its proportional ceiling and displayed cost.
-fn constant_units(sample: &Sample, currency: Currency) -> usize {
+pub(super) fn constant_units(sample: &Sample, currency: Currency) -> u64 {
     sample
         .models
         .get(currency)
-        .map_or(sample.denom_bytes, |model| model.constant_units)
+        .map_or(sample.denom_bytes as u64, |model| model.constant_units)
 }
 
 /// Check small inputs against ceilings and liveness without fitting growth
 /// across allocation minima and inline-storage thresholds.
 pub(super) fn evaluate_small(
+    calibration: &Calibration,
     op: &'static str,
     family: &'static str,
     s1: Sample,
     s2: Sample,
 ) -> CellResult {
-    let mut fits = fit_exponents(&[&s1, &s2]);
-    fits.heap.judged = false;
-    fits.scan.judged = false;
-    fits.touch.judged = false;
-    judge_window(op, family, s1, s2, fits)
+    let fitted = fit_exponents(&[&s1, &s2]);
+    let fits = ByCurrency::from_fn(|currency| Fit {
+        judged: false,
+        ..*fitted.get(currency)
+    });
+    judge_window(calibration, op, family, s1, s2, fits)
 }
 
 /// Score one window at a single sampling scale: the exponent legs are the
 /// trend over the window's own two points (all this run measured), the
 /// ceilings, models, and floors exactly [`judge_window`]'s.
 pub(super) fn evaluate(
+    calibration: &Calibration,
     op: &'static str,
     family: &'static str,
     s1: Sample,
     s2: Sample,
 ) -> CellResult {
     let fits = fit_exponents(&[&s1, &s2]);
-    judge_window(op, family, s1, s2, fits)
+    judge_window(calibration, op, family, s1, s2, fits)
 }
 
 /// Score one cell across its whole measurement ladder.
@@ -352,6 +398,7 @@ pub(super) fn evaluate(
 /// binds both windows (the trend is one judgment), so it renders on both
 /// matrices.
 pub(super) fn evaluate_acceptance(
+    calibration: &Calibration,
     op: &'static str,
     family: &'static str,
     lo: (Sample, Sample),
@@ -361,7 +408,7 @@ pub(super) fn evaluate_acceptance(
     let (h1, h2) = hi;
     let fits = fit_exponents(&[&l1, &l2, &h1, &h2]);
     (
-        judge_window(op, family, l1, l2, fits),
-        judge_window(op, family, h1, h2, fits),
+        judge_window(calibration, op, family, l1, l2, fits),
+        judge_window(calibration, op, family, h1, h2, fits),
     )
 }

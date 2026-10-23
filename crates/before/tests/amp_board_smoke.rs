@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard};
 
-use before::testing::meter::board::{self, HeapMeter, BOARD_PRICED};
+use before::testing::meter::board::{self, HeapMeter, Meters, BOARD_PRICED};
 use before::testing::meter::registry::FamilyId;
 
 /// Serializes in-process board sweeps, whose scan and touch counters are
@@ -18,15 +18,19 @@ static MEASUREMENT: Mutex<()> = Mutex::new(());
 /// stays well under a second.
 const SMOKE_SCALE: f64 = 0.02;
 
-/// The peak-heap readers over this thread's `alloc_meter` ledger.
+/// The native board's meters: peak heap over this thread's `alloc_meter`
+/// ledger, and no fuel.
 ///
 /// The in-process sweep measures every cell on the test's own thread, and the
 /// ledger counts only that thread's allocator requests, so allocations the
 /// test harness makes on its own threads cannot enter a reading.
-fn heap_meter() -> HeapMeter {
-    HeapMeter {
-        reset_peak: alloc_meter::reset,
-        peak: || alloc_meter::reading().peak_bytes,
+fn native_meters() -> Meters {
+    Meters {
+        heap: Some(HeapMeter {
+            reset_peak: alloc_meter::reset,
+            peak: || alloc_meter::reading().peak_bytes,
+        }),
+        fuel: None,
     }
 }
 
@@ -46,13 +50,13 @@ fn measurement_guard() -> MutexGuard<'static, ()> {
 /// same either way, so the smoke suite drives it without processes.
 fn in_process_spawn(
     shards: usize,
-    heap: &HeapMeter,
+    meters: &Meters,
 ) -> impl Fn(f64) -> std::io::Result<Vec<Vec<u8>>> + '_ {
     move |scale: f64| {
         (0..shards)
             .map(|index| {
                 let mut capture = Vec::new();
-                board::emit_shard(scale, index, shards, heap, &mut capture)?;
+                board::emit_shard(scale, index, shards, meters, &mut capture)?;
                 Ok(capture)
             })
             .collect()
@@ -66,7 +70,7 @@ fn in_process_spawn(
 fn retaining_results_does_not_allocate_measured_heap() {
     let _guard = measurement_guard();
     let captures =
-        in_process_spawn(1, &heap_meter())(SMOKE_SCALE).expect("the in-process sweep succeeds");
+        in_process_spawn(1, &native_meters())(SMOKE_SCALE).expect("the in-process sweep succeeds");
     let text = std::str::from_utf8(&captures[0]).expect("the shard protocol is UTF-8");
     let mut checked = 0;
     for line in text.lines() {
@@ -74,10 +78,17 @@ fn retaining_results_does_not_allocate_measured_heap() {
         if fields.get(1) != Some(&"version_eq") {
             continue;
         }
-        // Each sample carries two denominators, three models, three readings,
-        // and three floors. Heap is the first reading in the internal protocol.
-        for sample in fields[3..].chunks_exact(11) {
-            assert_eq!(sample[5], "0", "{} equality allocates no heap", fields[2]);
+        // Each sample carries two denominators, then a model, a reading, and
+        // a floor for each currency, in that order; heap is the first
+        // currency in the internal protocol.
+        let currencies = board::ByCurrency::from_fn(|_| ()).each().len();
+        let heap_reading = 2 + currencies;
+        for sample in fields[3..].chunks_exact(2 + 3 * currencies) {
+            assert_eq!(
+                sample[heap_reading], "0",
+                "{} equality allocates no heap",
+                fields[2]
+            );
             checked += 1;
         }
     }
@@ -110,8 +121,8 @@ fn expected_cells_per_family() -> BTreeMap<&'static str, usize> {
 #[test]
 fn board_runs_to_completion() {
     let _guard = measurement_guard();
-    let heap = heap_meter();
-    let spawn = in_process_spawn(1, &heap);
+    let meters = native_meters();
+    let spawn = in_process_spawn(1, &meters);
     let mut rendered = Vec::new();
     let summary =
         board::run(SMOKE_SCALE, 1, &spawn, &mut rendered).expect("writing to a Vec succeeds");
@@ -162,9 +173,9 @@ fn board_runs_to_completion() {
 #[test]
 fn shard_protocol_round_trips() {
     let _guard = measurement_guard();
-    let heap = heap_meter();
+    let meters = native_meters();
     let mut whole = Vec::new();
-    board::run(SMOKE_SCALE, 1, &in_process_spawn(1, &heap), &mut whole)
+    board::run(SMOKE_SCALE, 1, &in_process_spawn(1, &meters), &mut whole)
         .expect("writing to a Vec succeeds");
 
     // Three shards over the cell grid: uneven slices unless the grid
@@ -174,7 +185,7 @@ fn shard_protocol_round_trips() {
     board::run(
         SMOKE_SCALE,
         SHARDS,
-        &in_process_spawn(SHARDS, &heap),
+        &in_process_spawn(SHARDS, &meters),
         &mut split,
     )
     .expect("writing to a Vec succeeds");
@@ -210,8 +221,8 @@ fn shard_protocol_round_trips() {
 #[test]
 fn worst_map_covers_every_operation_row() {
     let _guard = measurement_guard();
-    let heap = heap_meter();
-    let spawn = in_process_spawn(1, &heap);
+    let meters = native_meters();
+    let spawn = in_process_spawn(1, &meters);
     let mut rendered = Vec::new();
     board::worst_map("smoke", SMOKE_SCALE, 1, &spawn, &mut rendered)
         .expect("writing to a Vec succeeds");
@@ -262,8 +273,8 @@ fn worst_map_covers_every_operation_row() {
 #[test]
 fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
     let _guard = measurement_guard();
-    let heap = heap_meter();
-    let captures = in_process_spawn(1, &heap)(SMOKE_SCALE).expect("in-process capture succeeds");
+    let meters = native_meters();
+    let captures = in_process_spawn(1, &meters)(SMOKE_SCALE).expect("in-process capture succeeds");
     let text = String::from_utf8(captures[0].clone()).expect("shard captures are UTF-8");
     let lines: Vec<&str> = text.lines().collect();
     let declared: usize = lines

@@ -4,6 +4,8 @@ members = [
     "crates/before",
     "crates/before-fuelscape",
     "crates/before-viz",
+    "crates/before/board-fuel/guest",
+    "crates/before/board-fuel/harness",
     "crates/before/fuzzfit/guest",
     "crates/before/fuzzfit/harness",
     "crates/before/surfacecheck",
@@ -242,16 +244,17 @@ opt-level = 2
 [profile.dev.package.suanpan]
 opt-level = 2
 
-# The fuzz-fit guest's profile, part of what fuel measures: fuel counts the
-# instructions of this codegen. One codegen unit keeps function layout
-# independent of build parallelism, and it must reach every crate compiled
-# into the guest, `before` and its dependencies included. A per-package
-# override cannot confine that to the guest, since it applies to the crates
-# it names in every release build; a profile of its own leaves `release`
-# unchanged for every other build. `panic = "abort"` restates
-# wasm32-unknown-unknown's default strategy, which keeps unwinding tables,
-# and their instructions, out of the measured code. Debug assertions stay
-# off, as in `release`, so fuel prices the production work alone.
+# The fuel guests' profile (the fuzz-fit guest's and the fuel board's), part
+# of what fuel measures: fuel counts the instructions of this codegen. One
+# codegen unit keeps function layout independent of build parallelism, and it
+# must reach every crate compiled into each guest, `before` and its
+# dependencies included. A per-package override cannot confine that to the
+# guest, since it applies to the crates it names in every release build; a
+# profile of its own leaves `release` unchanged for every other build.
+# `panic = "abort"` restates wasm32-unknown-unknown's default strategy,
+# which keeps unwinding tables, and their instructions, out of the measured
+# code. Debug assertions stay off, as in `release`, so fuel prices the
+# production work alone.
 [profile.fuel]
 inherits = "release"
 codegen-units = 1

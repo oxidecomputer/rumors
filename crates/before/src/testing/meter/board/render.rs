@@ -8,14 +8,14 @@
 use std::io::{self, Write};
 
 use super::ceilings::{
-    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE,
-    MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE,
-    MIN_EXPONENT_DENOM_GROWTH,
+    HEAP_INTERCEPT_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
+    MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
 };
-use super::currency::{Currency, Liveness};
+use super::cell_ceilings::Calibration;
+use super::currency::{ByCurrency, Currency, Liveness};
 use super::family::FamilyData;
-use super::judge::{evaluate, CellResult, Score};
-use super::measure::{measure, HeapMeter};
+use super::judge::{currency_intercept, trend_resolution, CellResult, Score};
+use super::measure::{measure, Meters, Sample};
 use super::ops::Op;
 use crate::testing::meter::registry::FamilyId;
 
@@ -58,13 +58,66 @@ fn mechanism(red: &[&'static str]) -> String {
     kinds.join("+")
 }
 
-/// Render one result row.
+/// Which currencies the board measured: those with a reading in some cell.
+///
+/// A currency no cell measured (a feature-gated counter not compiled in, or a
+/// meter the runner does not supply) gets no column.
+fn measured(results: &[CellResult]) -> ByCurrency<bool> {
+    ByCurrency::from_fn(|currency| {
+        results
+            .iter()
+            .any(|r| r.scores.get(currency).per_unit.is_some())
+    })
+}
+
+/// One currency's ceiling, as the matrix's preamble states it: its
+/// board-wide ceiling, and the per-cell table that tightens it, if any.
+///
+/// A currency whose table does not hold for the run's architecture is judged
+/// without one, and the text names the missing table.
+pub(super) fn ceiling_text(currency: Currency, calibration: &Calibration) -> String {
+    let label = currency.label();
+    let board = match currency {
+        Currency::Heap => Some(format!(
+            "heap <= {HEAP_INTERCEPT_BYTES} + {MAX_HEAP_BYTES_PER_INPUT_BYTE} * units bytes"
+        )),
+        Currency::Scan => Some(format!("scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B")),
+        Currency::Touch => Some(format!("touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B")),
+        Currency::Fuel => None,
+    };
+    let own = calibration.table(currency).map(|table| {
+        format!(
+            "{label} <= {intercept} + the cell's own ceiling * units (calibrated from {archs})",
+            intercept = currency_intercept(currency),
+            archs = table.archs.join(" and ")
+        )
+    });
+    let missing = calibration.missing(currency).map(|archs| {
+        format!(
+            "no per-cell {label} table for {arch}; the table is calibrated from {archs}",
+            arch = calibration.arch,
+            archs = archs.join(" and ")
+        )
+    });
+    match (board, own, missing) {
+        (Some(board), Some(own), _) => format!("{board} and {own}"),
+        (Some(board), None, Some(missing)) => format!("{board} ({missing})"),
+        (Some(board), None, None) => board,
+        (None, Some(own), _) => own,
+        (None, None, missing) => format!(
+            "{label} unbounded: {}",
+            missing.unwrap_or_else(|| "no per-cell table".to_owned())
+        ),
+    }
+}
+
+/// Render one result row, with a column for each `measured` currency.
 ///
 /// The byte range is the cell's denominator. The `flr` column shows the larger
 /// scale's committed liveness floors
 /// per judged column (`-` where not applicable; derivations in the legend above
 /// the matrix).
-fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
+fn row(out: &mut dyn Write, r: &CellResult, measured: &ByCurrency<bool>) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
     // An exponent the guards leave unjudged renders -.-- : printing the
     // fitted digits would invite reading noise as a measurement.
@@ -75,38 +128,35 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
             None => "     ".to_string(),
         }
     };
-    let custom_constant_units = |currency: Currency| {
-        let ordinary = r.s2.denom_bytes;
-        r.s2.models
-            .get(currency)
-            .is_some_and(|model| model.constant_units != ordinary)
-    };
-    let heap_unit = if custom_constant_units(Currency::Heap) {
-        "/u"
-    } else {
-        "/B"
-    };
-    let scan_unit = if custom_constant_units(Currency::Scan) {
-        "/u"
-    } else {
-        "/B"
-    };
-    let touch_unit = if custom_constant_units(Currency::Touch) {
-        "/u"
-    } else {
-        "/B"
-    };
-    let scan = match (r.scores.scan.exp, r.scores.scan.per_unit) {
-        (Some(_), Some(c)) => format!("scan[e{} {c:>10.1}{scan_unit}]", exp_text(&r.scores.scan)),
-        _ => "scan[      off      ]".to_string(),
-    };
-    let touch = match (r.scores.touch.exp, r.scores.touch.per_unit) {
-        (Some(_), Some(c)) => format!(
-            "touch[e{} {c:>10.1}{touch_unit}]",
-            exp_text(&r.scores.touch)
-        ),
-        _ => "touch[      off      ]".to_string(),
-    };
+    let columns: Vec<String> = r
+        .scores
+        .each()
+        .into_iter()
+        .filter(|(currency, _)| *measured.get(*currency))
+        .map(|(currency, score)| {
+            let label = currency.label();
+            let ordinary = r.s2.denom_bytes as u64;
+            let custom_constant_units =
+                r.s2.models
+                    .get(currency)
+                    .is_some_and(|model| model.constant_units != ordinary);
+            let unit = if custom_constant_units { "/u" } else { "/B" };
+            match (score.exp, score.per_unit) {
+                (Some(_), Some(c)) => format!("{label}[e{} {c:>10.1}{unit}]", exp_text(score)),
+                _ => format!("{label}[      off      ]"),
+            }
+        })
+        .collect();
+    let floors: Vec<String> =
+        r.s2.floors
+            .each()
+            .into_iter()
+            .filter(|(currency, _)| *measured.get(*currency))
+            .map(|(currency, liveness)| {
+                let initial = &currency.label()[..1];
+                format!("{initial} {:>6}", floor_value(*liveness))
+            })
+            .collect();
     // A red cell's mechanism tag: which judgment kinds put it on the red list,
     // mirroring the tags a red-buffer triage entry commits.
     let reasons = if r.red.is_empty() {
@@ -132,16 +182,17 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         r.s2.models
             .each()
             .into_iter()
+            .filter(|(currency, _)| *measured.get(*currency))
             .filter_map(|(currency, second)| {
                 let second = second.as_ref()?;
                 let first =
                     r.s1.models.get(currency).as_ref().expect(
                         "a cell's resource-model applicability is independent of sample size",
                     );
-                let first_default_constant = r.s1.denom_bytes;
-                let second_default_constant = r.s2.denom_bytes;
-                let custom_trend = first.trend_units != r.s1.exp_denom_bytes
-                    || second.trend_units != r.s2.exp_denom_bytes;
+                let first_default_constant = r.s1.denom_bytes as u64;
+                let second_default_constant = r.s2.denom_bytes as u64;
+                let custom_trend = first.trend_units != r.s1.exp_denom_bytes as u64
+                    || second.trend_units != r.s2.exp_denom_bytes as u64;
                 let custom_constant = first.constant_units != first_default_constant
                     || second.constant_units != second_default_constant;
                 let mut parts = Vec::new();
@@ -181,18 +232,14 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
     };
     writeln!(
         out,
-        "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  \
-         heap[e{he} {hc:>10.1}{heap_unit}]  {scan}  {touch}  \
-         flr[h {fh:>6} s {fs:>6} t {ft:>6}]{expd}{model}{reasons}",
+        "{verdict:<5} {op:<24} {family:<12} {n1:>8}->{n2:<8} B  {columns}  \
+         flr[{floors}]{expd}{model}{reasons}",
         op = r.op,
         family = r.family,
         n1 = r.s1.denom_bytes,
         n2 = r.s2.denom_bytes,
-        he = exp_text(&r.scores.heap),
-        hc = r.scores.heap.per_unit.unwrap_or(0.0),
-        fh = floor_value(r.s2.floors.heap),
-        fs = floor_value(r.s2.floors.scan),
-        ft = floor_value(r.s2.floors.touch),
+        columns = columns.join("  "),
+        floors = floors.join(" "),
     )
 }
 
@@ -212,31 +259,60 @@ pub(super) fn build_pair(kind: FamilyId, scale: f64) -> (FamilyData, FamilyData)
     )
 }
 
-/// Measure and judge one grid cell — or nothing, where the family's bundle
-/// supplies no operand for the operation's signature.
+/// Measure one grid cell's two samples — or nothing, where the family's
+/// bundle supplies no operand for the operation's signature.
 ///
 /// The board's one measurement discipline, driven by every shard child (the
 /// `shard` module): single-threaded, the cell at the scaled size and its
-/// double, the peak-heap counter reset between samples.
+/// double, the peak-heap counter reset between samples. Judgment stays with
+/// the parent that merges the children's samples.
 pub(super) fn measure_cell(
-    heap: &HeapMeter,
+    meters: &Meters,
     op: &Op,
     (small, large): &(FamilyData, FamilyData),
-) -> Option<CellResult> {
+) -> Option<(Sample, Sample)> {
     let c1 = (op.prepare)(small)?;
     let c2 =
         (op.prepare)(large).expect("a cell's applicability depends on the family, never the size");
-    let s1 = measure(heap, c1, small.content_bytes);
-    let s2 = measure(heap, c2, large.content_bytes);
-    Some(evaluate(op.name, small.name, s1, s2))
+    let s1 = measure(meters, c1, small.content_bytes);
+    let s2 = measure(meters, c2, large.content_bytes);
+    Some((s1, s2))
 }
 
 /// Render one full sweep's judged cells as the matrix: the legend derived from
 /// the results themselves, red rows first, the summary line last.
 ///
 /// `results` must be a whole board's cells in board row order (operation outer,
-/// family inner): a shard merge's reconstruction of one sweep.
-pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io::Result<Summary> {
+/// family inner): a shard merge's reconstruction of one sweep, judged under
+/// `calibration`.
+pub(super) fn render_results(
+    calibration: &Calibration,
+    results: &[CellResult],
+    out: &mut dyn Write,
+) -> io::Result<Summary> {
+    let measured = measured(results);
+    let ceilings: Vec<String> = measured
+        .each()
+        .into_iter()
+        .filter(|(_, measured)| **measured)
+        .map(|(currency, _)| ceiling_text(currency, calibration))
+        .collect();
+    let clamps: Vec<String> = measured
+        .each()
+        .into_iter()
+        .filter(|(_, measured)| **measured)
+        .filter_map(|(currency, _)| {
+            let resolution = trend_resolution(currency)?;
+            let unit = match currency {
+                Currency::Heap => "B",
+                Currency::Scan | Currency::Touch | Currency::Fuel => currency.label(),
+            };
+            Some(format!(
+                "{} readings are clamped to {resolution} {unit}",
+                currency.label()
+            ))
+        })
+        .collect();
     writeln!(
         out,
         "amplification board: peak additional heap and work vs each cell's model \
@@ -246,21 +322,24 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
     writeln!(
         out,
         "green iff every meter's exponent <= {MAX_SCALING_EXPONENT}, constants within: \
-         heap <= {HEAP_INTERCEPT_BYTES} + {MAX_HEAP_BYTES_PER_INPUT_BYTE} * units bytes, \
-         scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B, \
-         touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B; \
+         {ceilings}; \
          and every liveness floor met. All ceilings and floors apply at both sample sizes. \
-         Growth fits require denominator span >= x{MIN_EXPONENT_DENOM_GROWTH}; heap readings \
-         are clamped to {HEAP_TREND_RESOLUTION_BYTES} B only for that fit. Growth below that \
-         resolution is unobserved by the fit. Small-input samples check only ceilings and \
-         floors. An unjudged exponent renders -.--. These finite checks are regression \
-         evidence, not universal resource guarantees."
+         Growth fits require denominator span >= x{MIN_EXPONENT_DENOM_GROWTH}; {clamps} \
+         only for that fit. Growth below that resolution is unobserved by the fit. \
+         Small-input samples check only ceilings and floors. An unjudged exponent renders \
+         -.--. These finite checks are regression evidence, not universal resource \
+         guarantees.",
+        ceilings = ceilings.join(", "),
+        clamps = clamps.join(" and "),
     )?;
     writeln!(out)?;
     writeln!(out, "liveness declarations on this board:")?;
     let mut legend = std::collections::BTreeSet::new();
     for r in results {
         for (currency, liveness) in r.s2.floors.each() {
+            if !*measured.get(currency) {
+                continue;
+            }
             legend.insert(match liveness {
                 Liveness::Floor { why, .. } => format!("  {} floor: {why}", currency.label()),
                 Liveness::NotApplicable { reason } => {
@@ -278,7 +357,7 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
             .models
             .each()
             .iter()
-            .any(|(_, model)| model.is_some())
+            .any(|(currency, model)| *measured.get(*currency) && model.is_some())
     }) {
         writeln!(
             out,
@@ -294,7 +373,7 @@ pub(super) fn render_results(results: &[CellResult], out: &mut dyn Write) -> io:
     let red: Vec<&CellResult> = results.iter().filter(|r| !r.red.is_empty()).collect();
     let green: Vec<&CellResult> = results.iter().filter(|r| r.red.is_empty()).collect();
     for r in red.iter().chain(green.iter()) {
-        row(out, r)?;
+        row(out, r, &measured)?;
     }
 
     writeln!(out)?;

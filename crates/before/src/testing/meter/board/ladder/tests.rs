@@ -11,10 +11,10 @@
 //! the fixture stays green, and its rankings hold, whatever values those
 //! constants take.
 
-use super::super::compare::capture;
-use super::super::currency::ByCurrency;
+use super::super::compare::{capture, BuildStamp};
+use super::super::currency::{ByCurrency, Currency};
 use super::super::floors::na;
-use super::super::measure::Sample;
+use super::super::measure::{Model, Sample};
 use super::super::shard::Measured;
 use super::super::{
     HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE,
@@ -59,16 +59,19 @@ fn sample(denom: usize, heap: u64) -> Sample {
             heap: na("no liveness obligation in this probe"),
             scan: na("no liveness obligation in this probe"),
             touch: na("no liveness obligation in this probe"),
+            fuel: na("no liveness obligation in this probe"),
         },
         models: ByCurrency {
             heap: None,
             scan: None,
             touch: None,
+            fuel: None,
         },
         readings: ByCurrency {
             heap: Some(heap),
             scan: Some(0),
             touch: Some(0),
+            fuel: None,
         },
     }
 }
@@ -105,9 +108,20 @@ fn alpha_readings() -> [u64; 3] {
 fn ladder() -> Ladder {
     let [small, base, top] = alpha_readings();
     Ladder {
+        measured_on: uncalibrated_build(),
         small: sweep(SMALL_DENOM, small, small),
         base: sweep(BASE_DENOM, base, base / 2),
         top: sweep(TOP_DENOM, top, green_cap(TOP_DENOM)),
+    }
+}
+
+/// A release build for an architecture no per-cell table covers, so the
+/// board-wide ceilings alone judge the synthetic cells.
+fn uncalibrated_build() -> BuildStamp {
+    BuildStamp {
+        debug_assertions: false,
+        arch: "uncalibrated".to_owned(),
+        os: "test".to_owned(),
     }
 }
 
@@ -121,7 +135,11 @@ const PINS: &[(&str, &str, [&str; 3])] = &[
 fn judge(ladder: &Ladder, pins: &[(&str, &str, [&str; 3])]) -> (Verdict, String) {
     let mut out = Vec::new();
     let verdict = ladder
-        .judge_with(pins, &mut out)
+        .judge_with(
+            &[Currency::Heap, Currency::Scan, Currency::Touch],
+            pins,
+            &mut out,
+        )
         .expect("writing to a Vec succeeds");
     (
         verdict,
@@ -258,7 +276,7 @@ fn capture_writes_each_sweep_under_its_own_scale() {
     );
 
     let mut out = Vec::new();
-    capture(&ladder(), &mut out).expect("writing to a Vec succeeds");
+    capture(&ladder(), "tree-a", &mut out).expect("writing to a Vec succeeds");
     let text = String::from_utf8(out).expect("a capture is UTF-8");
     let alpha_heap: Vec<(String, String, String)> = text
         .lines()
@@ -282,4 +300,73 @@ fn capture_writes_each_sweep_under_its_own_scale() {
         alpha_heap, expected,
         "the capture's alpha heap row:\n{text}"
     );
+}
+
+/// A verdict that requires a currency the run did not measure is refused
+/// before anything is judged.
+///
+/// A run whose build left a counter out, or whose runner supplied no meter,
+/// reads `None` in that currency everywhere, and the judgment skips it; were
+/// the verdict not refused, such a run would pass while judging nothing in
+/// that currency.
+#[test]
+fn verdicts_refuse_runs_missing_a_required_currency() {
+    let mut out = Vec::new();
+    let refused = ladder()
+        .accept(&[Currency::Heap, Currency::Fuel], &mut out)
+        .expect_err("the fixture measures no fuel");
+    assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(out.is_empty(), "nothing is rendered for a refused run");
+    ladder()
+        .judge_with(&[Currency::Fuel], PINS, &mut out)
+        .expect_err("judge refuses as accept does");
+}
+
+/// `ladder` with every sample's heap measured against a model that restates
+/// the defaults: the sample's own growth and proportional axes, and no
+/// ceiling of its own.
+fn restating_models(mut ladder: Ladder) -> Ladder {
+    let cells = ladder
+        .small
+        .iter_mut()
+        .chain(&mut ladder.base)
+        .chain(&mut ladder.top);
+    for (_, _, first, second) in cells {
+        for sample in [first, second] {
+            sample.models.heap = Some(Model {
+                trend_units: sample.exp_denom_bytes as u64,
+                constant_units: sample.denom_bytes as u64,
+                ceiling: None,
+            });
+        }
+    }
+    ladder
+}
+
+/// An operation whose heap model restates the defaults at every sample of its
+/// ladder is refused: the rendered row would disclose an override that
+/// changes nothing.
+#[test]
+#[should_panic(expected = "probe_op's heap model must change a unit axis or the ceiling")]
+fn a_model_restating_the_defaults_everywhere_is_refused() {
+    restating_models(ladder()).assert_models_override();
+}
+
+/// A model that departs from the defaults at one sample of one sweep, and
+/// restates them everywhere else, passes the guard.
+///
+/// A model whose units are a function of the operands coincides with the
+/// defaults on families whose operands stay small, so the guard judges an
+/// operation's model across its whole ladder, never per sample.
+#[test]
+fn a_model_departing_from_the_defaults_at_one_sample_passes() {
+    let mut ladder = restating_models(ladder());
+    let model = ladder.top[1]
+        .3
+        .models
+        .heap
+        .as_mut()
+        .expect("every sample is modeled");
+    model.constant_units += 1;
+    ladder.assert_models_override();
 }

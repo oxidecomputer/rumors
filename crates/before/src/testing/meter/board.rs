@@ -18,9 +18,7 @@
 //!
 //! The last two counters are feature-gated because they instrument hot
 //! primitives. They cover work that allocation measurements cannot
-//! see: streaming traversal and arithmetic over wide running values. Wasmtime
-//! fuel separately checks total execution cost without depending on internal
-//! counters or wall-clock timing.
+//! see: streaming traversal and arithmetic over wide running values.
 //!
 //! For each quantity, the board fits a log-log scaling trend across the measured
 //! sizes and checks the largest per-byte cost. A cell is green only when every
@@ -33,7 +31,10 @@
 //! units. Query evaluation has a separate coefficient
 //! ([`QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE`]) because it keeps one cursor
 //! and comparison state per bound. No bytes are subtracted from reported
-//! readings.
+//! readings. Beneath that bound, each cell's heap also faces a ceiling of its
+//! own ([`CellCeilings`]), 10% above its worst calibrated reading per unit;
+//! its other samples are held to that same per-unit ceiling, so they may grow
+//! by more than 10% before the cell turns red.
 //!
 //! The heap growth fit has a resolution of [`HEAP_TREND_RESOLUTION_BYTES`] to
 //! accommodate allocation thresholds on the finite ladder. It cannot detect growth entirely below
@@ -44,6 +45,26 @@
 //! Operand preparation and the board's result containers precede the heap
 //! baseline. Measuring the maximum live heap above that baseline includes
 //! operation scratch and newly allocated results; it does not separate them.
+//!
+//! # The fuel board
+//!
+//! The same cells also run inside a wasm guest under Wasmtime fuel metering
+//! (the tool-side `board-fuel` crates under this one; `just amp-board-fuel`),
+//! where a fourth currency, *fuel*, counts every wasm instruction the cell
+//! body executes. Heap, scan, and touch see only the work that passes through
+//! their probes; fuel also sees element moves inside a `Vec`, arithmetic
+//! inside `num-bigint`, and buffer fills, which none of them counts. The guest
+//! builds without the scan and touch probes and installs no counting
+//! allocator, so fuel prices the production code alone, and a fuel run judges
+//! fuel alone. The native board stays the measure of record for heap, scan,
+//! and touch.
+//!
+//! Fuel is judged by the same exponent bound and declared models as every
+//! other currency. Its proportional ceilings are calibrated per cell
+//! ([`CellCeilings`]), because fuel per byte differs between cells by orders
+//! of magnitude. A fuel reading also depends on the allocator state that
+//! earlier cells leave in the same instance, so a fuel run measures each cell
+//! in a fresh guest instance; the `shard` module's docs give the deal.
 //!
 //! # The verdict of record
 //!
@@ -93,9 +114,11 @@
 //!
 //! # Target dependence
 //!
-//! Every reading is deterministic for a given build target, and the board's
-//! ceilings and its worst-case pin are taken and checked on 64-bit hosts. A
-//! reading differs between those hosts only when the measured operation
+//! Every reading is deterministic for a given build target. The native board's
+//! heap, scan, and touch ceilings and its worst-case pin are taken and checked
+//! on 64-bit hosts; fuel is taken and checked in a wasm32 guest, whose readings
+//! depend on the guest's bytes and not on the host that runs it. A native
+//! reading differs between 64-bit hosts only when the measured operation
 //! reaches a target-conditional code path that changes allocation or what the
 //! scan and touch meters count. Architecture-specific code that only selects
 //! instructions, such as an intrinsic or an assembly routine, changes neither.
@@ -103,22 +126,26 @@
 //! architecture, so formatting a [`Count`](crate::Count) allocates differently
 //! on x86_64 than on aarch64.
 //!
-//! The ceilings judge such a reading on every host. Where the path also
-//! changes which family reads worst, the worst-case pin declares the cell
-//! target-dependent, checks only that some family drives it, and names the
-//! path in a comment at the entry. The pin's table (`WORST_RANKINGS`) is
-//! therefore the record of which rankings depend on the target, and why.
+//! The ceilings judge such a reading on every host; the per-cell heap ceiling
+//! is calibrated from the larger of a cell's aarch64 and x86_64 readings for
+//! that reason. Where the path also changes which family reads worst, the
+//! worst-case pin declares the cell target-dependent, checks only that some
+//! family drives it, and names the path in a comment at the entry. The pin's
+//! table (`WORST_RANKINGS`) is therefore the record of which rankings depend on
+//! the target, and why.
 //!
 //! A 32-bit target changes heap readings broadly: `num-bigint` stores 32-bit
 //! digits there, and every pointer-sized field halves.
 
 mod ceilings;
 mod cell;
+mod cell_ceilings;
 mod compare;
 mod coverage;
 mod currency;
 mod defect;
 mod family;
+mod files;
 mod floors;
 mod judge;
 mod ladder;
@@ -133,21 +160,25 @@ mod worst;
 
 pub use ceilings::{
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, DEFAULT_SCALE,
-    DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
-    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, LADDER_TOP_SCALE,
+    DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, FUEL_INTERCEPT,
+    FUEL_TREND_RESOLUTION, HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, LADDER_TOP_SCALE,
     MACHINE_WORD_MAGNITUDE_BITS, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
     MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
     QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE, RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE,
     RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, SCAN_FLOOR_BITS_PER_INPUT_BYTE,
     SCAN_TOUCH_FLOOR_BITS, SMALL_INPUT_SCALE, TICKS_BOARD_COUNT,
 };
-pub use compare::{capture, compare};
+pub use cell_ceilings::{
+    cell_ceilings, recalibrate, write_recalibrations, CellCeilings, Recalibration,
+    CEILING_RESOLUTION, CELL_CEILING_HEADROOM, FUEL_ARCHS, HEAP_ARCHS,
+};
+pub use compare::{capture, capture_file, compare, source_tree, SOURCE_TREE_ENV};
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
-pub use currency::{ByCurrency, Currency, Floors, Liveness};
+pub use currency::{ByCurrency, Currency, Floors, Liveness, FUEL_FLOOR};
 #[cfg(test)]
 pub(crate) use family::WIDE_STEP_PAIRS_STEP_BITS;
 pub use ladder::{Ladder, Verdict};
-pub use measure::HeapMeter;
+pub use measure::{FuelMeter, HeapMeter, Meters};
 pub use operand::stored_nonzero_deltas;
 pub use render::Summary;
 pub use shard::{emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
