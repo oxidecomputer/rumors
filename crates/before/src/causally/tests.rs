@@ -118,6 +118,12 @@ impl CausalOrder for Heights {
     }
 }
 
+/// Whether bit `k` of `sides` puts the `k`th conjoined item on the left of
+/// the conjunction so far, rather than on its right.
+fn on_left(sides: u64, k: usize) -> bool {
+    sides >> (k % 64) & 1 == 1
+}
+
 impl BoundClause {
     /// Conjoins this bound with a neutral query.
     fn add_to_neutral<'a>(&self, query: Query<'a>, grid: &'a [Version]) -> Query<'a> {
@@ -140,6 +146,15 @@ impl BoundClause {
         match *self {
             Self::After(at) => query & after(selected(grid, at)),
             Self::Before(at) => query & before(selected(grid, at)),
+        }
+    }
+
+    /// Conjoins this bound in front of a neutral query, the operand order
+    /// [`Self::add_to_neutral`] reverses.
+    fn prepend_to_neutral<'a>(&self, query: Query<'a>, grid: &'a [Version]) -> Query<'a> {
+        match *self {
+            Self::After(at) => after(selected(grid, at)) & query,
+            Self::Before(at) => before(selected(grid, at)) & query,
         }
     }
 
@@ -199,9 +214,13 @@ fn bound_clause() -> impl Strategy<Value = BoundClause> {
 }
 
 /// One public downward-polar query form.
+///
+/// `Since` and `NotBefore` denote one predicate in its two public
+/// spellings, `since(v)` and `!before(v)`.
 #[derive(Clone, Debug)]
 enum DownClause {
     Since(usize),
+    NotBefore(usize),
     StrictlyAfter(usize),
     AfterOrConcurrent(usize),
     Delta(usize, usize),
@@ -212,6 +231,7 @@ impl DownClause {
     fn query<'a>(&self, grid: &'a [Version]) -> Query<'a, Down> {
         match *self {
             Self::Since(at) => since(selected(grid, at)),
+            Self::NotBefore(at) => !before(selected(grid, at)),
             Self::StrictlyAfter(at) => strictly_after(selected(grid, at)),
             Self::AfterOrConcurrent(at) => after(selected(grid, at)).or_concurrent(),
             Self::Delta(start, end) => delta(selected(grid, start), selected(grid, end)),
@@ -221,7 +241,7 @@ impl DownClause {
     /// Evaluates this clause directly from the order.
     fn admits<T: CausalOrder>(&self, probe: &T, grid: &[T]) -> bool {
         match *self {
-            Self::Since(at) => {
+            Self::Since(at) | Self::NotBefore(at) => {
                 let at_or_before = probe.le(selected(grid, at));
                 !at_or_before
             }
@@ -242,6 +262,7 @@ impl DownClause {
 fn down_clause() -> impl Strategy<Value = DownClause> {
     prop_oneof![
         (0usize..9).prop_map(DownClause::Since),
+        (0usize..9).prop_map(DownClause::NotBefore),
         (0usize..9).prop_map(DownClause::StrictlyAfter),
         (0usize..9).prop_map(DownClause::AfterOrConcurrent),
         (0usize..9, 0usize..9).prop_map(|(start, end)| DownClause::Delta(start, end)),
@@ -249,9 +270,13 @@ fn down_clause() -> impl Strategy<Value = DownClause> {
 }
 
 /// One public upward-polar query form.
+///
+/// `Until` and `NotAfter` denote one predicate in its two public spellings,
+/// `until(v)` and `!after(v)`.
 #[derive(Clone, Debug)]
 enum UpClause {
     Until(usize),
+    NotAfter(usize),
     StrictlyBefore(usize),
     BeforeOrConcurrent(usize),
     Toward(usize, usize),
@@ -262,6 +287,7 @@ impl UpClause {
     fn query<'a>(&self, grid: &'a [Version]) -> Query<'a, Up> {
         match *self {
             Self::Until(at) => until(selected(grid, at)),
+            Self::NotAfter(at) => !after(selected(grid, at)),
             Self::StrictlyBefore(at) => strictly_before(selected(grid, at)),
             Self::BeforeOrConcurrent(at) => before(selected(grid, at)).or_concurrent(),
             Self::Toward(start, end) => toward(selected(grid, start), selected(grid, end)),
@@ -271,7 +297,7 @@ impl UpClause {
     /// Evaluates this clause directly from the order.
     fn admits<T: CausalOrder>(&self, probe: &T, grid: &[T]) -> bool {
         match *self {
-            Self::Until(at) => {
+            Self::Until(at) | Self::NotAfter(at) => {
                 let at_or_after = selected(grid, at).le(probe);
                 !at_or_after
             }
@@ -292,6 +318,7 @@ impl UpClause {
 fn up_clause() -> impl Strategy<Value = UpClause> {
     prop_oneof![
         (0usize..9).prop_map(UpClause::Until),
+        (0usize..9).prop_map(UpClause::NotAfter),
         (0usize..9).prop_map(UpClause::StrictlyBefore),
         (0usize..9).prop_map(UpClause::BeforeOrConcurrent),
         (0usize..9, 0usize..9).prop_map(|(start, end)| UpClause::Toward(start, end)),
@@ -376,47 +403,85 @@ fn assert_denotes<P: Polarity>(
     Ok(())
 }
 
-/// Builds a neutral conjunction from public inclusive bounds.
-fn neutral_query<'a>(bounds: &[BoundClause], versions: &'a [Version]) -> Query<'a> {
-    bounds
-        .iter()
-        .fold(all(), |query, bound| bound.add_to_neutral(query, versions))
+/// Builds a neutral conjunction from public inclusive bounds, starting from
+/// `all()`.
+///
+/// Bound `k` joins the conjunction on the side [`on_left`] reads from bit
+/// `k` of `sides`, so both operand orders of each typed `&` occur.
+fn neutral_query<'a>(bounds: &[BoundClause], sides: u64, versions: &'a [Version]) -> Query<'a> {
+    bounds.iter().enumerate().fold(all(), |query, (k, bound)| {
+        if on_left(sides, k) {
+            bound.prepend_to_neutral(query, versions)
+        } else {
+            bound.add_to_neutral(query, versions)
+        }
+    })
 }
 
 /// Builds a downward-polar conjunction from public forms and inclusive bounds.
+///
+/// The first form seeds the conjunction. Each later form, then each bound,
+/// joins it on the side [`on_left`] reads from the next bit of `sides`, so
+/// both operand orders of each typed `&` occur.
 fn down_query<'a>(
     clauses: &[DownClause],
     bounds: &[BoundClause],
+    sides: u64,
     versions: &'a [Version],
 ) -> Query<'a, Down> {
-    let mut clauses = clauses.iter();
-    let first = clauses
-        .next()
+    let (first, rest) = clauses
+        .split_first()
         .expect("the strategy always generates a downward clause");
-    let query = clauses.fold(first.query(versions), |query, clause| {
-        query & clause.query(versions)
-    });
-    bounds
+    let query = rest
         .iter()
-        .fold(query, |query, bound| bound.add_to_down(query, versions))
+        .enumerate()
+        .fold(first.query(versions), |query, (k, clause)| {
+            if on_left(sides, k) {
+                clause.query(versions) & query
+            } else {
+                query & clause.query(versions)
+            }
+        });
+    bounds.iter().enumerate().fold(query, |query, (k, bound)| {
+        if on_left(sides, rest.len() + k) {
+            bound.prepend_to_down(query, versions)
+        } else {
+            bound.add_to_down(query, versions)
+        }
+    })
 }
 
 /// Builds an upward-polar conjunction from public forms and inclusive bounds.
+///
+/// The first form seeds the conjunction. Each later form, then each bound,
+/// joins it on the side [`on_left`] reads from the next bit of `sides`, so
+/// both operand orders of each typed `&` occur.
 fn up_query<'a>(
     clauses: &[UpClause],
     bounds: &[BoundClause],
+    sides: u64,
     versions: &'a [Version],
 ) -> Query<'a, Up> {
-    let mut clauses = clauses.iter();
-    let first = clauses
-        .next()
+    let (first, rest) = clauses
+        .split_first()
         .expect("the strategy always generates an upward clause");
-    let query = clauses.fold(first.query(versions), |query, clause| {
-        query & clause.query(versions)
-    });
-    bounds
+    let query = rest
         .iter()
-        .fold(query, |query, bound| bound.add_to_up(query, versions))
+        .enumerate()
+        .fold(first.query(versions), |query, (k, clause)| {
+            if on_left(sides, k) {
+                clause.query(versions) & query
+            } else {
+                query & clause.query(versions)
+            }
+        });
+    bounds.iter().enumerate().fold(query, |query, (k, bound)| {
+        if on_left(sides, rest.len() + k) {
+            bound.prepend_to_up(query, versions)
+        } else {
+            bound.add_to_up(query, versions)
+        }
+    })
 }
 
 proptest! {
@@ -447,10 +512,14 @@ proptest! {
     }
 
     /// Public query expressions denote the conjunction of their causal
-    /// relations, independently of normalization and fused evaluation.
+    /// relations, independently of normalization, operand order, and fused
+    /// evaluation.
     ///
-    /// Every case first exhausts a complete small two-party interval, making
-    /// both membership and exact coverage enumerable. The same expression is
+    /// Each expression joins every operand after its first on the side
+    /// `sides` picks, and spells each negation in either public form
+    /// (`since(v)` or `!before(v)`, `until(v)` or `!after(v)`). Every case
+    /// first exhausts a complete small two-party interval, making both
+    /// membership and exact coverage enumerable. The same expression is
     /// then applied to arbitrary normal-form versions whose shapes and numeric
     /// magnitudes cross the skyline walk's representation thresholds; those
     /// versions and their lattice corners exercise membership beyond the
@@ -461,21 +530,22 @@ proptest! {
         bounds in prop::collection::vec(bound_clause(), 0..=6),
         down in prop::collection::vec(down_clause(), 1..=6),
         up in prop::collection::vec(up_clause(), 1..=6),
+        sides in any::<u64>(),
         a in arb_oracle_version(),
         b in arb_oracle_version(),
         c in arb_oracle_version(),
     ) {
         let small = two_party_grid();
-        let neutral = neutral_query(&bounds, &small);
+        let neutral = neutral_query(&bounds, sides, &small);
         assert_denotes(&neutral, &small, |probe| {
             bounds.iter().all(|bound| bound.admits(probe, &small))
         })?;
-        let small_down = down_query(&down, &bounds, &small);
+        let small_down = down_query(&down, &bounds, sides, &small);
         assert_denotes(&small_down, &small, |probe| {
             bounds.iter().all(|bound| bound.admits(probe, &small))
                 && down.iter().all(|clause| clause.admits(probe, &small))
         })?;
-        let small_up = up_query(&up, &bounds, &small);
+        let small_up = up_query(&up, &bounds, sides, &small);
         assert_denotes(&small_up, &small, |probe| {
             bounds.iter().all(|bound| bound.admits(probe, &small))
                 && up.iter().all(|clause| clause.admits(probe, &small))
@@ -490,9 +560,9 @@ proptest! {
         large.push(&large[1] & &large[2]);
         large.push(&large[1] | &large[2]);
 
-        let neutral = neutral_query(&bounds, &large);
-        let down_query = down_query(&down, &bounds, &large);
-        let up_query = up_query(&up, &bounds, &large);
+        let neutral = neutral_query(&bounds, sides, &large);
+        let down_query = down_query(&down, &bounds, sides, &large);
+        let up_query = up_query(&up, &bounds, sides, &large);
         for probe in &large {
             prop_assert_eq!(
                 neutral.contains(probe),
