@@ -567,14 +567,17 @@ laws! {
                 }
             }
             // A version operand is its coincident point span, on either
-            // side of the symbol, in the binary, assigning, and variadic
-            // forms alike.
+            // side of the symbol (every owned and borrowed cell when it is
+            // the receiver), in the binary, assigning, and variadic forms
+            // alike.
             let expected = s + &Span::at(a);
             let mut assigned = s.clone();
             assigned += a;
             let point = (s + a) == expected
                 && (a + s) == expected
                 && (a.clone() + s.clone()) == expected
+                && (a.clone() + s) == expected
+                && (a + s.clone()) == expected
                 && s.union(a) == expected
                 && s.union_all([a]) == expected
                 && assigned == expected;
@@ -677,14 +680,17 @@ laws! {
                 }
             }
             // A version operand is its coincident point span, on either
-            // side of the symbol, in the binary, assigning, and variadic
-            // forms alike.
+            // side of the symbol (every owned and borrowed cell when it is
+            // the receiver), in the binary, assigning, and variadic forms
+            // alike.
             let expected = s | &Span::at(a);
             let mut assigned = s.clone();
             assigned |= a;
             let point = (s | a) == expected
                 && (a | s) == expected
                 && (a.clone() | s.clone()) == expected
+                && (a.clone() | s) == expected
+                && (a | s.clone()) == expected
                 && s.join(a) == expected
                 && s.join_all([a]) == expected
                 && assigned == expected;
@@ -745,14 +751,17 @@ laws! {
                 }
             }
             // A version operand is its coincident point span, on either
-            // side of the symbol, in the binary, assigning, and variadic
-            // forms alike.
+            // side of the symbol (every owned and borrowed cell when it is
+            // the receiver), in the binary, assigning, and variadic forms
+            // alike.
             let expected = s & &Span::at(a);
             let mut assigned = s.clone();
             assigned &= a;
             let point = (s & a) == expected
                 && (a & s) == expected
                 && (a.clone() & s.clone()) == expected
+                && (a.clone() & s) == expected
+                && (a & s.clone()) == expected
                 && s.meet(a) == expected
                 && s.meet_all([a]) == expected
                 && assigned == expected;

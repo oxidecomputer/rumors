@@ -300,13 +300,29 @@ laws! {
     }
 
     /// The anonymous joins `Clock | Version` and `Version | Clock` merge the
-    /// versions and keep the clock's party, and agree with each other.
+    /// versions and keep the clock's party, and every spelling agrees: both
+    /// operand orders with an owned or borrowed version, and `|=` with
+    /// either.
     fn anonymous_join_merges_versions {
         let clock_version = c.dangerously_alias() | msg.clone();
-        let version_clock = msg.clone() | c.dangerously_alias();
+        let spellings = [
+            c.dangerously_alias() | msg,
+            msg.clone() | c.dangerously_alias(),
+            msg | c.dangerously_alias(),
+            {
+                let mut assigned = c.dangerously_alias();
+                assigned |= msg.clone();
+                assigned
+            },
+            {
+                let mut assigned = c.dangerously_alias();
+                assigned |= msg;
+                assigned
+            },
+        ];
         clock_version.party() == c.party()
             && *clock_version.version() == (c.version() | msg)
-            && version_clock == clock_version
+            && spellings.iter().all(|spelled| *spelled == clock_version)
     }
 
     /// `absorb` is the anonymous join without recording an event: the version
