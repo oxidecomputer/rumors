@@ -130,6 +130,5 @@ fn damaged_rank(num: &BigUint, exp: u64, damage: Option<RankDamage>) -> NearVali
         bytes,
         expect,
         regimes: regime.into_iter().collect(),
-        split: None,
     }
 }

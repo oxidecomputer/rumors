@@ -7,10 +7,12 @@
 //! than any pair alone can provide.
 //!
 //! The test-only codec module models the wire formats rather than the
-//! algebra. It shares no code with production's writers, so the near-valid
-//! generators can spell the non-canonical encodings no production writer
-//! emits; its canonical spellings are calibrated against production, which
-//! is the only authority for the version and party bit layouts.
+//! algebra. It shares no code with production's writers or decoders, so the
+//! near-valid generators can spell the non-canonical encodings no production
+//! writer emits, and its specification can give an independent verdict on
+//! any byte string. Its canonical spellings are calibrated against
+//! production, which is the only authority for the version and party bit
+//! layouts.
 //!
 //! The test-only dyadic oracle models an exact rank as an unnormalized dyadic
 //! rational, so rank values, order, and text are judged without production's
