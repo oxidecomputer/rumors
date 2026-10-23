@@ -1,4 +1,4 @@
-//! Liveness census for the arbitrary-input strategies.
+//! Liveness census for the arbitrary-input and deep strategies.
 //!
 //! The exhaustive corpus has a totality pin (`corpus_counts_are_exact`); this
 //! is its analog for the sampled tier. Every bound proved over generated
@@ -6,17 +6,28 @@
 //! silently dead arm or depth regression shrinks that universe with no red
 //! anywhere — every differential keeps passing, on less. The census samples
 //! the strategies under a committed seed and holds a positive floor for each
-//! named input class the suites rely on.
+//! named input class the suites rely on. The deep strategies' floors follow
+//! from [`regime_floor`]'s premise.
 
-use proptest::strategy::{Strategy, ValueTree};
+use proptest::prelude::*;
+use proptest::strategy::ValueTree;
 use proptest::test_runner::{Config, TestRunner};
 
 use crate::testing::oracles::function::{ev_depth, id_depth};
 use crate::testing::oracles::tree;
 use crate::testing::rng::strategy_rng;
+use crate::testing::shape_rows::{oracle_plateaus, version_from_rows, Leaf};
 use num_bigint::BigUint;
 
-use super::{arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic, ARB_DEPTH};
+use super::leaf_list::{
+    arb_deep_version, arb_deep_version_pair, arb_deep_version_triple, ONE_VERSION_DIVISOR,
+    THREE_VERSION_DIVISOR, TWO_VERSION_DIVISOR,
+};
+use super::regions::{arb_deep_party, arb_deep_party_family};
+use super::{
+    arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic, divided_config,
+    regime_floor, ARB_DEPTH, DEFAULT_CASES,
+};
 
 /// The census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
@@ -194,5 +205,208 @@ fn dyadic_generators_reach_their_claimed_regimes() {
             "generator mass on `{class}` fell to {count} of {CENSUS_DYADICS} sampled pairs \
              (liveness floor {floor}): an arm has gone dead"
         );
+    }
+}
+
+/// The deep census seed: names the sampled corpus (see
+/// [`crate::testing::rng::strategy_rng`]).
+const DEEP_CENSUS_SEED: u64 = 13;
+
+/// Sampled cases per deep strategy.
+const DEEP_CENSUS_CASES: usize = 400;
+
+/// The depth past which the deep strategies claim their reach.
+///
+/// Past 32 levels a leaf's width, `2^-depth`, is finer than a 32-bit
+/// fraction can hold.
+const DEEP_DEPTH: u32 = 32;
+
+/// Samples `strategy` [`DEEP_CENSUS_CASES`] times under the deep census seed.
+///
+/// Each corpus draws from a fresh runner, so one strategy's draws never shift
+/// another's, and every regime over one strategy is judged on one corpus.
+fn deep_corpus<T>(strategy: impl Strategy<Value = T>) -> Vec<T> {
+    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(DEEP_CENSUS_SEED));
+    (0..DEEP_CENSUS_CASES)
+        .map(|_| strategy.new_tree(&mut runner).expect("strategy").current())
+        .collect()
+}
+
+/// Counts the corpus members `in_regime` accepts.
+fn regime_count<T>(corpus: &[T], in_regime: impl Fn(&T) -> bool) -> usize {
+    corpus.iter().filter(|member| in_regime(member)).count()
+}
+
+/// Whether a canonical tree is deeper than [`DEEP_DEPTH`].
+fn is_deep(version: &tree::Version) -> bool {
+    ev_depth(version) > DEEP_DEPTH
+}
+
+/// Whether a family's parties are pairwise disjoint, by the recursive
+/// oracle's judgment.
+fn pairwise_disjoint((receiver, items): &(tree::Party, Vec<tree::Party>)) -> bool {
+    let family: Vec<&tree::Party> = core::iter::once(receiver).chain(items).collect();
+    family
+        .iter()
+        .enumerate()
+        .all(|(i, a)| family[i + 1..].iter().all(|b| a.is_disjoint(b)))
+}
+
+/// Every deep strategy keeps enough generator mass on the regime its docs
+/// claim that each default run of the properties relying on it expects
+/// [`REGIME_CASES_PER_RUN`](super::REGIME_CASES_PER_RUN) cases there.
+///
+/// The regimes: canonical depth past [`DEEP_DEPTH`] for deep versions,
+/// pairs, triples, and parties; equal pairs, and distinct pairs of equal
+/// rank, which independent draws never produce; and, for party families,
+/// both pairwise disjoint families of two or more parties, which `join_all`
+/// must accept, and overlapping ones, which it must reject. Each floor
+/// follows from that premise and the case count of the most demanding
+/// property that draws the strategy: the clock-family driver holds deep
+/// versions and deep parties beside a family, so a deep version, party, or
+/// family takes the two-version drivers' case count.
+#[test]
+fn deep_strategies_keep_mass_on_their_regimes() {
+    if std::env::var_os("PROPTEST_CASES").is_none() {
+        assert_eq!(
+            Config::default().cases,
+            DEFAULT_CASES,
+            "the floors assume proptest's default case count"
+        );
+    }
+    let versions = deep_corpus(arb_deep_version().prop_map(|v| v.tree()));
+    let pairs = deep_corpus(arb_deep_version_pair().prop_map(|(a, b)| (a.tree(), b.tree())));
+    let triples =
+        deep_corpus(arb_deep_version_triple().prop_map(|(a, b, c)| [a.tree(), b.tree(), c.tree()]));
+    let parties = deep_corpus(arb_deep_party());
+    let families = deep_corpus(arb_deep_party_family());
+    let two_version_floor = regime_floor(DEEP_CENSUS_CASES, TWO_VERSION_DIVISOR);
+    let regimes = [
+        (
+            "deep versions: canonical depth past 32",
+            regime_count(&versions, is_deep),
+            two_version_floor,
+        ),
+        (
+            "deep version pairs: an operand past depth 32",
+            regime_count(&pairs, |(a, b)| is_deep(a) || is_deep(b)),
+            two_version_floor,
+        ),
+        (
+            "deep version pairs: equal",
+            regime_count(&pairs, |(a, b)| a == b),
+            two_version_floor,
+        ),
+        (
+            "deep version pairs: distinct with equal ranks",
+            regime_count(&pairs, |(a, b)| a != b && a.rank() == b.rank()),
+            two_version_floor,
+        ),
+        (
+            "deep version triples: an operand past depth 32",
+            regime_count(&triples, |triple| triple.iter().any(is_deep)),
+            regime_floor(DEEP_CENSUS_CASES, THREE_VERSION_DIVISOR),
+        ),
+        (
+            "deep parties: canonical depth past 32",
+            regime_count(&parties, |p| id_depth(p) > DEEP_DEPTH),
+            two_version_floor,
+        ),
+        (
+            "deep party families: pairwise disjoint, two or more parties",
+            regime_count(&families, pairwise_disjoint),
+            two_version_floor,
+        ),
+        (
+            "deep party families: overlapping",
+            regime_count(&families, |family| !pairwise_disjoint(family)),
+            two_version_floor,
+        ),
+    ];
+    for (regime, count, floor) in &regimes {
+        eprintln!("census: `{regime}` in {count} of {DEEP_CENSUS_CASES} cases (floor {floor})");
+    }
+    for (regime, count, floor) in regimes {
+        assert!(
+            count >= floor,
+            "generator mass on `{regime}` fell to {count} of {DEEP_CENSUS_CASES} sampled cases \
+             (floor {floor}): an arm has gone dead or normalization collapses its depth"
+        );
+    }
+}
+
+/// Checks that every leaf lies inside one plateau, at that plateau's height,
+/// and that the plateaus cover exactly the leaves.
+///
+/// Both listings tile `[0, 1)` in stream order, so one pass walks them in
+/// step. Widths count cells of the finest leaf depth, as `BigUint` because
+/// depths pass 128: a leaf at depth `d` spans `2^(finest − d)` cells. A leaf
+/// wider than what remains of the current plateau straddles a plateau
+/// boundary; a plateau deeper than the finest leaf splits a leaf.
+fn assert_leaves_lie_in_plateaus(leaves: &[Leaf], plateaus: &[Leaf]) -> Result<(), TestCaseError> {
+    let finest = leaves
+        .iter()
+        .map(|leaf| leaf.depth)
+        .max()
+        .expect("a leaf list holds at least the root leaf");
+    let cells = |depth: u64| -> Result<BigUint, TestCaseError> {
+        let below = finest.checked_sub(depth).ok_or_else(|| {
+            TestCaseError::fail(format!(
+                "a plateau at depth {depth} is finer than the finest leaf, at {finest}"
+            ))
+        })?;
+        Ok(BigUint::from(1u8) << below)
+    };
+    let mut plateaus = plateaus.iter();
+    let mut current = plateaus.next();
+    let mut remaining = BigUint::ZERO;
+    if let Some(plateau) = current {
+        remaining = cells(plateau.depth)?;
+    }
+    for leaf in leaves {
+        let Some(plateau) = current else {
+            return Err(TestCaseError::fail("the plateaus end before the leaves"));
+        };
+        prop_assert_eq!(
+            &leaf.height,
+            &plateau.height,
+            "a leaf's height differs from its plateau's"
+        );
+        let width = cells(leaf.depth)?;
+        prop_assert!(
+            width <= remaining,
+            "a leaf at depth {} straddles a plateau boundary",
+            leaf.depth
+        );
+        remaining -= width;
+        if remaining == BigUint::ZERO {
+            current = plateaus.next();
+            if let Some(next) = current {
+                remaining = cells(next.depth)?;
+            }
+        }
+    }
+    prop_assert!(current.is_none(), "the leaves end before the plateaus");
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(divided_config(ONE_VERSION_DIVISOR))]
+
+    /// A deep leaf list's rows and its closed tree's plateau rows close to
+    /// one normal-form tree, and normalization only merges rows: every leaf
+    /// lies inside one plateau, at that plateau's height.
+    ///
+    /// [`version_from_rows`] and [`oracle_plateaus`] are the conversion pair
+    /// between row listings and oracle trees that the leaf lists, the
+    /// differential table's function-space legs, and any model over rows
+    /// rely on; on normal-form trees they are inverse, at every depth the
+    /// deep strategies reach.
+    #[test]
+    fn leaf_list_rows_and_plateau_rows_close_to_one_tree(list in arb_deep_version()) {
+        let tree = version_from_rows(list.leaves());
+        let plateaus = oracle_plateaus(&tree);
+        assert_leaves_lie_in_plateaus(list.leaves(), &plateaus)?;
+        prop_assert_eq!(version_from_rows(&plateaus), tree);
     }
 }

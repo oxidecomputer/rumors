@@ -113,6 +113,20 @@
 //! the generators' `ARB_DEPTH` and a few small fixed shapes, and judge an
 //! accepted mutation against production's own writer.
 //!
+//! **Deep generated populations** ([`super::generators::leaf_list`] and
+//! [`super::generators::regions`]). These strategies draw versions as leaf
+//! lists with absolute heights, to depth 300 as bushy trees, spines,
+//! zigzags, and combs, and parties as unions of dyadic intervals, to depth
+//! 80. Pairs are related by construction, so equal pairs and distinct pairs
+//! of equal rank are common, and party families of up to ten are pairwise
+//! disjoint or overlap in one inserted party. They feed every law group, and
+//! add no judge of their own. What they alone reach: **arbitrary shapes past
+//! depth four** — random topology where the arbitrary generators stop, and
+//! accepted `join_all` families of more than four unrelated parties. The
+//! fixed deep families reach depth only along their chosen shapes. Their versions pass through
+//! production's writer on the way to every judge, so a canonicalization
+//! error the writer and the bridge share passes them.
+//!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:
 //! lattice identities, monotonicity, the distance metric's axioms, order/rank

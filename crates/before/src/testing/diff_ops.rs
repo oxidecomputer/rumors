@@ -34,8 +34,9 @@
 
 use std::cmp::Ordering;
 
+use crate::testing::bridge;
 use crate::testing::oracles::{function, tree};
-use crate::testing::{bridge, shape_rows};
+use crate::testing::shape_rows::{self, Leaf};
 use crate::{Count, Party, Rank, Version};
 use num_bigint::BigUint;
 
@@ -118,8 +119,8 @@ impl Matches<Rank> for Rank {
 /// Shape rows — plateau, region, overlay, and refinement-cell listings —
 /// compare directly: both sides are already folded into the same
 /// absolute vocabulary.
-impl Matches<Vec<(BigUint, u64)>> for Vec<(BigUint, u64)> {
-    fn matches(&self, reference: &Vec<(BigUint, u64)>) -> bool {
+impl Matches<Vec<Leaf>> for Vec<Leaf> {
+    fn matches(&self, reference: &Vec<Leaf>) -> bool {
         self == reference
     }
 }
@@ -210,8 +211,8 @@ impl FunctionMatches<Rank> for Rank {
 /// collapses any refinement fragments), and the existing
 /// recursive-versus-function scans decide. The rows come from the
 /// descriptor's recursive spelling, whose depths the grid already covers.
-impl FunctionMatches<Vec<(BigUint, u64)>> for function::Event {
-    fn function_matches(&self, reference: &Vec<(BigUint, u64)>, grid: u32) -> bool {
+impl FunctionMatches<Vec<Leaf>> for function::Event {
+    fn function_matches(&self, reference: &Vec<Leaf>, grid: u32) -> bool {
         let tree = shape_rows::version_from_rows(reference);
         <function::Event as FunctionMatches<tree::Version>>::function_matches(self, &tree, grid)
     }
@@ -226,9 +227,12 @@ impl FunctionMatches<Vec<(bool, u64)>> for function::Id {
 
 impl FunctionMatches<Vec<(u64, BigUint, bool)>> for function::FunctionClock {
     fn function_matches(&self, reference: &Vec<(u64, BigUint, bool)>, grid: u32) -> bool {
-        let heights: Vec<(BigUint, u64)> = reference
+        let heights: Vec<Leaf> = reference
             .iter()
-            .map(|(depth, height, _)| (height.clone(), *depth))
+            .map(|(depth, height, _)| Leaf {
+                depth: *depth,
+                height: height.clone(),
+            })
             .collect();
         let owned: Vec<(bool, u64)> = reference
             .iter()
@@ -240,10 +244,13 @@ impl FunctionMatches<Vec<(u64, BigUint, bool)>> for function::FunctionClock {
 
 impl FunctionMatches<Vec<(u64, Vec<BigUint>)>> for (function::Event, function::Event) {
     fn function_matches(&self, reference: &Vec<(u64, Vec<BigUint>)>, grid: u32) -> bool {
-        let column = |index: usize| -> Vec<(BigUint, u64)> {
+        let column = |index: usize| -> Vec<Leaf> {
             reference
                 .iter()
-                .map(|(depth, heights)| (heights[index].clone(), *depth))
+                .map(|(depth, heights)| Leaf {
+                    depth: *depth,
+                    height: heights[index].clone(),
+                })
                 .collect()
         };
         self.0.function_matches(&column(0), grid) && self.1.function_matches(&column(1), grid)

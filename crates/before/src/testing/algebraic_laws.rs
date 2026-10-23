@@ -11,7 +11,7 @@
 //! The laws themselves live in [`crate::testing::laws`] as named predicates, grouped
 //! by signature; this suite is one of their consumers. [`tests`] holds one
 //! generic driver per signature group, each iterating its whole slice so a
-//! failure names the violated law, over two input regimes:
+//! failure names the violated law, over these input regimes:
 //!
 //! - **Arbitrary normal forms**: the [`crate::testing::generators`]
 //!   generators (`arb_oracle_version` / `arb_oracle_party_nonempty`) cover
@@ -26,6 +26,11 @@
 //! - **Organic op-trace populations**: [`crate::testing::optrace`] histories
 //!   land the same laws on the value shapes real fork/tick/join/sync
 //!   schedules produce.
+//! - **Deep inputs**: [`crate::testing::generators::leaf_list`] and
+//!   [`crate::testing::generators::regions`] give every group versions to
+//!   depth 300, parties to depth 80, equal pairs, distinct pairs of equal
+//!   rank, and families of up to ten parties that are pairwise disjoint or
+//!   overlap in one.
 //!
 //! The third consumer is the fuzz workspace's law target, which drives the
 //! same slices over decoded hostile-but-canonical values.

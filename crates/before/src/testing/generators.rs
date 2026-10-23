@@ -7,9 +7,13 @@
 //! [`co_generated`] builds a tick's party and version together, for the walk
 //! states that independently drawn operands do not reach. [`near_valid`]
 //! spells deep trees as encodings, canonical and damaged, for the decoders.
+//! [`leaf_list`] and [`regions`] draw random versions and parties tens to
+//! hundreds of levels deep, past the arbitrary generators' depth cap of four.
 
 pub(crate) mod co_generated;
+pub(crate) mod leaf_list;
 pub(crate) mod near_valid;
+pub(crate) mod regions;
 mod tests;
 
 use num_bigint::BigUint;
