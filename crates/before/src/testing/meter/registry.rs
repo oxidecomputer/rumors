@@ -1049,13 +1049,13 @@ const DESERIALIZATION_FORMATS: usize =
 const VERSION_BUNDLE_CELLS: usize = 83 + 6 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with party operands.
-const PARTY_BUNDLE_CELLS: usize = 39 + 2 * DESERIALIZATION_FORMATS;
+const PARTY_BUNDLE_CELLS: usize = 40 + 2 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with version, party, and clock operands.
-const CROSS_BUNDLE_CELLS: usize = 104 + 7 * DESERIALIZATION_FORMATS;
+const CROSS_BUNDLE_CELLS: usize = 106 + 7 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 121 + 7 * DESERIALIZATION_FORMATS;
+const FULL_BUNDLE_CELLS: usize = 123 + 7 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a population family.
 ///

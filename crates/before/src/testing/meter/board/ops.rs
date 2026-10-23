@@ -2200,6 +2200,63 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "party_forks_count",
+            prepare: |f| {
+                // The family's party forked into a count as wide as its
+                // version's encoded bits: the count's width follows the
+                // version side rather than the party's own size, so the fork
+                // plan's arithmetic on a wide count meets parties of shapes
+                // independent of it. The count is a power of two, so the
+                // plan's extra-share test compares every bit of its index
+                // before it decides.
+                let (mut party, _, _) = f.party_pair()?;
+                let party_bytes = f.parties.as_ref().map(|(party, _)| party.len())?;
+                let (_, version_bytes) = f.version()?;
+                let (count, count_bytes) = wide_fork_count(version_bytes);
+                let child_bytes = {
+                    let mut probe = party.dangerously_alias();
+                    probe
+                        .forks(count.clone())
+                        .next()
+                        .expect("the board requests a nonzero child count")
+                        .as_bytes()
+                        .len()
+                };
+                let floors = Floors {
+                    heap: heap_materializes(child_bytes),
+                    scan: scan_touch(),
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                // A count `w` bits wide gives the first share a path about
+                // `w` levels deep, and the residual party keeps the sibling
+                // of each level, so the required output is several times the
+                // count's own bytes: the row is I/O-denominated. Charged to
+                // its input alone, it would read about 17.6 heap bytes per
+                // input byte, above the board-wide 15. The `party_forks` row
+                // meters the same mechanism input-denominated, with a count
+                // only as wide as the party, so its output stays near its
+                // input.
+                Some(Cell::io(
+                    party_bytes + count_bytes,
+                    floors,
+                    |result| {
+                        let (residual, first) = result
+                            .downcast_ref::<(Party, Option<Party>)>()
+                            .expect("the counted party-forks cell keeps its residual and share");
+                        residual.as_bytes().len()
+                            + first.as_ref().map_or(0, |share| share.as_bytes().len())
+                    },
+                    move || {
+                        let first = {
+                            let mut forks = party.forks(count);
+                            forks.next()
+                        };
+                        (party, first)
+                    },
+                ))
+            },
+        },
+        Op {
             name: "party_split_array",
             prepare: |f| {
                 let (party, _, _) = f.party_pair()?;
@@ -3124,6 +3181,32 @@ pub(super) fn ops() -> Vec<Op> {
                     assert!(gone.is_none(), "removing a covering region leaves nothing");
                     (gone, b)
                 }))
+            },
+        },
+        Op {
+            name: "party_without_overlap",
+            prepare: |f| {
+                // A deep receiver: the overlap-mounted pair, whose one shared
+                // region sits at both operands' preorder ends. The
+                // disjointness check that `without` runs first reads both
+                // streams to that region, and the difference walk then reads
+                // both again and writes the receiver's remainder.
+                let (a_bytes, b_bytes) = f.overlap.clone()?;
+                let n = a_bytes.len() + b_bytes.len();
+                let a = decode_party(&a_bytes);
+                let b = decode_party(&b_bytes);
+                let remainder_bytes = a
+                    .dangerously_alias()
+                    .without(&b)
+                    .expect("the receiver keeps its left subtree, which the other operand lacks")
+                    .as_bytes()
+                    .len();
+                let floors = Floors {
+                    heap: heap_materializes(remainder_bytes),
+                    scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                Some(Cell::new(n, floors, move || (a.without(&b), b)))
             },
         },
     ];

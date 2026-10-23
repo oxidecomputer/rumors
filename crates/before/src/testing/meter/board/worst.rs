@@ -442,6 +442,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     // highest, and memo-comb reads within `NEAR_TIE_RATIO` below them.
     ("default", "party_forks", ["ascend-cliff,ascend-plateau", "id-pair", "-"]),
     ("default", "party_forks_full", ["stagger", "meet-shade", "-"]),
+    ("default", "party_forks_count", ["copy-hole", "nested-full", "-"]),
     ("default", "party_split_array", ["raise-hole", "pure-comb", "-"]),
     ("default", "party_join", ["mirror-narrow,nested-full", "benign", "-"]),
     ("default", "party_join_all", ["meet-shade", "stagger-size", "-"]),
@@ -483,6 +484,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("default", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("default", "party_without_none", ["copy-hole", "id-pair", "-"]),
+    ("default", "party_without_overlap", ["copy-hole", "id-pair", "-"]),
     #[cfg(feature = "serde")]
     ("default", "party_serde_deserialize", ["id-pair", "id-pair", "-"]),
     #[cfg(feature = "serde")]
@@ -596,6 +598,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "party_fork", ["id-pair", "id-pair", "-"]),
     ("acceptance", "party_forks", ["ascend-cliff,ascend-plateau", "id-pair", "-"]),
     ("acceptance", "party_forks_full", ["stagger", "meet-shade", "-"]),
+    ("acceptance", "party_forks_count", ["copy-hole", "nested-full", "-"]),
     ("acceptance", "party_split_array", ["collapse-hole", "pure-comb", "-"]),
     ("acceptance", "party_join", ["mirror-narrow,nested-full", "benign", "-"]),
     ("acceptance", "party_join_all", ["weave", "stagger-size", "-"]),
@@ -637,6 +640,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 3])] = &[
     ("acceptance", "clock_join_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "clock_sync_overlap", ["id-pair", "id-pair", "-"]),
     ("acceptance", "party_without_none", ["copy-hole", "id-pair", "-"]),
+    ("acceptance", "party_without_overlap", ["id-pair", "id-pair", "-"]),
     #[cfg(feature = "serde")]
     ("acceptance", "party_serde_deserialize", ["copy-hole", "id-pair", "-"]),
     #[cfg(feature = "serde")]

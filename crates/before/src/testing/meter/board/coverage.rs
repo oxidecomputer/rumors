@@ -25,7 +25,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::fork", &["party_fork"]),
     (
         "Party::forks",
-        &["party_forks", "party_forks_full"],
+        &["party_forks", "party_forks_full", "party_forks_count"],
     ),
     ("Party::join", &["party_join", "party_join_overlap"]),
     ("Party::join_all", &["party_join_all"]),
@@ -33,7 +33,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::covers", &["party_covers"]),
     (
         "Party::without",
-        &["party_without", "party_without_none"],
+        &["party_without", "party_without_none", "party_without_overlap"],
     ),
     ("Party::encode", &["party_encode"]),
     ("Party::encode_to", &["party_encode"]),
@@ -382,6 +382,7 @@ pub const BOARD_PRICED: &[(&str, &[&str])] = &[
         &[
             "party_forks",
             "party_forks_full",
+            "party_forks_count",
             "clock_forks",
             "clock_forks_full",
         ],
