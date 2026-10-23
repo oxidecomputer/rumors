@@ -26,6 +26,20 @@ fn zero_forms_agree() {
     assert_eq!(Count::ZERO.to_string(), "0");
 }
 
+/// `Sum` over no owned counts is [`Count::ZERO`], as the `Sum<Count>` impl
+/// documents.
+#[test]
+fn empty_owned_sum_is_zero() {
+    assert_eq!(core::iter::empty::<Count>().sum::<Count>(), Count::ZERO);
+}
+
+/// `Sum` over no borrowed counts is [`Count::ZERO`], as the `Sum<&Count>` impl
+/// documents.
+#[test]
+fn empty_borrowed_sum_is_zero() {
+    assert_eq!(core::iter::empty::<&Count>().sum::<Count>(), Count::ZERO);
+}
+
 /// Addition constructs counts wider than `u128`, which retain their order and
 /// decimal rendering.
 #[test]
