@@ -14,7 +14,8 @@ laws! {
     /// the [`causally`] query and placement laws: conjunction as pointwise
     /// intersection across every atomic operand pairing and every typed `&`
     /// form, coverage's sound arms and its point degeneracy to membership, the
-    /// segment-query/span-placement tie, the nine-way [`Span::place`] verdict
+    /// segment-query/span-placement tie, the segment query's coverage of
+    /// other spans by containment, the nine-way [`Span::place`] verdict
     /// as a pure transcription of the two endpoint comparisons, its
     /// coarsening to `dominance`, and the span operators' associativity in
     /// both of the span algebra's lattices.
@@ -441,6 +442,43 @@ laws! {
             }
         }
         true
+    }
+
+    /// A span's segment query covers another span as the containment algebra
+    /// says: `Full` when the segment contains it, `Empty` when the two do not
+    /// meet, and `Partial` otherwise. A version's query admits exactly that
+    /// version.
+    ///
+    /// The span `t` lies inside the segment `s` exactly when `s.contains(&t)`,
+    /// and some version lies in both exactly when they meet, `s * t` being the
+    /// segment they share. Otherwise `t` holds versions both inside and
+    /// outside `s`. The borrowed and consuming conversions answer alike.
+    fn segment_query_coverage_matches_span_containment {
+        for s in &operand_spans(b, c) {
+            let borrowed = Query::from(s);
+            let consumed = Query::from(s.clone());
+            for t in &operand_spans(a, c) {
+                let expected = if s.contains(t) {
+                    Coverage::Full
+                } else if (s * t).is_none() {
+                    Coverage::Empty
+                } else {
+                    Coverage::Partial
+                };
+                if borrowed.coverage(t) != expected || consumed.coverage(t) != expected {
+                    return false;
+                }
+            }
+        }
+        let meet = b & c;
+        let probes = [a, b, c, &meet];
+        probes.iter().all(|&v| {
+            let borrowed = Query::from(v);
+            let consumed = Query::from(v.clone());
+            probes
+                .iter()
+                .all(|&p| borrowed.contains(p) == (v == p) && consumed.contains(p) == (v == p))
+        })
     }
 
     /// Span composite encodings are prefix-free: distinct spans' encodings
