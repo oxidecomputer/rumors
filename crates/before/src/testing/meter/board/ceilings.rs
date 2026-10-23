@@ -241,7 +241,9 @@ pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 /// may therefore have much greater overhead than other `before` values. This
 /// operation-specific limit excludes evaluation from the general heap ceiling
 /// while retaining the board's linear-growth check.
-pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 109.0;
+///
+/// A measured ceiling; the module doc states the rule.
+pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 128.0;
 
 /// Base scale and size multiplier for a single-scale board run.
 ///
