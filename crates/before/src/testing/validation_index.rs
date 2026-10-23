@@ -148,7 +148,8 @@
 //! on deep inputs** — a canonicalization error in production's version
 //! writer, which every recursive-oracle comparison passes because the
 //! oracle's answers reach production through that same writer, and any
-//! wrong answer on an input too deep for the function space to scan.
+//! wrong answer on an input too deep for the function space to scan. It
+//! alone judges exact fork shares at counts wider than a machine word.
 //!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:

@@ -572,6 +572,14 @@ pub(crate) struct Party {
 }
 
 impl Party {
+    /// The empty set, which no production party represents.
+    pub(crate) fn empty() -> Party {
+        Party {
+            scale: 0,
+            intervals: Vec::new(),
+        }
+    }
+
     /// Builds a party from sorted, disjoint intervals at `scale`, dropping
     /// empty ones, merging adjacent ones, and lowering the scale while every
     /// endpoint is even.
@@ -856,6 +864,22 @@ impl Party {
 pub(crate) fn check_version(
     got: &crate::Version,
     want: &Version,
+    what: &str,
+) -> Result<(), TestCaseError> {
+    prop_assert!(
+        got.as_bytes() == want.encode().as_slice(),
+        "{}: production's {:?} is not the flat model's {:?}",
+        what,
+        got,
+        want
+    );
+    Ok(())
+}
+
+/// Checks that a production party is the model's, byte for byte.
+pub(crate) fn check_party(
+    got: &crate::Party,
+    want: &Party,
     what: &str,
 ) -> Result<(), TestCaseError> {
     prop_assert!(

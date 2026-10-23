@@ -7,7 +7,10 @@ use super::{Party, PartyForks, Plan};
 use crate::party::io::PartySnapshot;
 use crate::testing::bridge::from_oracle_party;
 use crate::testing::generators::arb_oracle_party_nonempty;
-use crate::Count;
+use crate::testing::generators::regions::arb_deep_party;
+use crate::testing::oracles::flat::{self, check_party};
+use crate::{Clock, Count, Version};
+use proptest::sample::Index;
 
 /// Arbitrary counts whose representation is wider than a machine word.
 fn arb_wide_count() -> impl Strategy<Value = Count> {
@@ -478,5 +481,123 @@ proptest! {
         plan.skip_shares(&(&count - &remaining));
         let expected = usize::try_from(&remaining).map_or((usize::MAX, None), |r| (r, Some(r)));
         prop_assert_eq!(plan.size_hint(), expected);
+    }
+}
+
+/// Counts around `usize::MAX` and far past it: across the word, just above
+/// twice it, at arbitrary widths through `2^100`, and at powers of two and
+/// their neighbors.
+fn arb_count_past_usize() -> impl Strategy<Value = BigUint> {
+    let word = BigUint::from(usize::MAX);
+    let twice = &word * 2u8;
+    prop_oneof![
+        (0u8..80).prop_map(move |d| &word + d - 3u8),
+        (0u8..8).prop_map(move |d| &twice + d - 2u8),
+        (1u32..=100, any::<u128>()).prop_map(|(bits, x)| BigUint::from(x >> (128 - bits)) + 1u8),
+        (1u32..=100, 0u8..3).prop_map(|(e, d)| (BigUint::from(1u8) << e) + d - 1u8),
+    ]
+}
+
+proptest! {
+    /// `forks(k)` on a deep party yields the flat model's balanced shares and
+    /// leaves the party exactly its residual.
+    ///
+    /// Shares 1 to `k` of `k + 1` arrive in order, with an exact size hint
+    /// before each; after any prefix the party holds exactly share 0 and the
+    /// untaken shares, and a clock's `forks` pairs the same shares with its
+    /// version.
+    #[test]
+    fn forks_match_the_flat_model_on_deep_parties(
+        p in arb_deep_party(),
+        k in prop_oneof![0usize..=20, 0usize..=300],
+        taken in any::<Index>(),
+    ) {
+        let model = flat::Party::from_oracle(&p);
+        let taken = taken.index(k + 1);
+        let shares = model.shares(k + 1);
+        let mut party = model.production();
+        let mut clock = Clock::from_parts(model.production(), Version::new());
+        clock.tick();
+        let version = clock.version().clone();
+        {
+            let mut forks = party.forks(k);
+            for (i, share) in shares.iter().enumerate().skip(1).take(taken) {
+                let left = k + 1 - i;
+                prop_assert_eq!(forks.size_hint(), (left, Some(left)), "the size hint before share {}", i);
+                let got = forks.next().expect("the count is not exhausted");
+                check_party(&got, share, "a share")?;
+            }
+        }
+        let residual = core::iter::once(&shares[0])
+            .chain(&shares[taken + 1..])
+            .fold(flat::Party::empty(), |acc, share| acc.union(share));
+        check_party(&party, &residual, "the residual")?;
+        let children: Vec<Clock> = clock.forks(k).take(taken).collect();
+        for (child, share) in children.iter().zip(&shares[1..]) {
+            check_party(child.party(), share, "a child clock's share")?;
+            prop_assert_eq!(child.version(), &version, "a child clock's version");
+        }
+        check_party(clock.party(), &residual, "the forking clock's residual")?;
+    }
+
+    /// Converting a deep party or clock into an array of `N` parties or
+    /// clocks deals exactly the flat model's balanced shares of `N`, in
+    /// order, for every `N` from 1 to 9 and for 13, 16, and 17.
+    #[test]
+    fn array_splits_match_the_flat_model_on_deep_parties(p in arb_deep_party()) {
+        let model = flat::Party::from_oracle(&p);
+        macro_rules! check_split {
+            ($($n:literal),*) => {$(
+                let shares = model.shares($n);
+                let parties: [Party; $n] = model.production().into();
+                for (got, share) in parties.iter().zip(&shares) {
+                    check_party(got, share, concat!("a party split into ", $n))?;
+                }
+                let clocks: [Clock; $n] = Clock::from_parts(model.production(), Version::new()).into();
+                for (got, share) in clocks.iter().zip(&shares) {
+                    check_party(got.party(), share, concat!("a clock split into ", $n))?;
+                }
+            )*};
+        }
+        check_split!(1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 16, 17);
+    }
+
+    /// At counts past `usize::MAX`, `forks(k)` on a deep party yields the
+    /// flat model's shares and leaves the party exactly its residual.
+    ///
+    /// Shares 1, 2, … of `k + 1` arrive in order, the party keeps exactly
+    /// what it had less the shares taken, which covers share 0, and a clock's
+    /// `forks` pairs the same shares with its version.
+    ///
+    /// The model reaches each share by one descent of about `log₂ k` splits, so
+    /// counts to `2^100` cost it only their bit length.
+    #[test]
+    fn wide_count_shares_match_the_flat_model(
+        p in arb_deep_party(),
+        k in arb_count_past_usize(),
+        taken in 0usize..40,
+    ) {
+        let model = flat::Party::from_oracle(&p);
+        let n = &k + 1u8;
+        let share = |i: usize| model.share(&n, &BigUint::from(i));
+        let taken = usize::try_from(&k).map_or(taken, |k| taken.min(k));
+        let mut party = model.production();
+        let got: Vec<Party> = party.forks(Count(k.clone())).take(taken).collect();
+        let mut residual = model.clone();
+        for (i, got) in got.iter().enumerate() {
+            let want = share(i + 1);
+            check_party(got, &want, "a share")?;
+            residual = residual.difference(&want);
+        }
+        check_party(&party, &residual, "the residual")?;
+        prop_assert!(residual.covers(&share(0)), "the residual covers share 0");
+        let mut clock = Clock::from_parts(model.production(), Version::new());
+        clock.tick();
+        let version = clock.version().clone();
+        let children: Vec<Clock> = clock.forks(Count(k.clone())).take(taken.min(6)).collect();
+        for (i, child) in children.iter().enumerate() {
+            check_party(child.party(), &share(i + 1), "a child clock's share")?;
+            prop_assert_eq!(child.version(), &version, "a child clock's version");
+        }
     }
 }
