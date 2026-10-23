@@ -20,8 +20,10 @@
 //! - [`deep_queries_cover_exactly`] judges conjunctions of every public form
 //!   over deep triples and their joins and meets.
 //!
-//! [`census_cases_keep_mass_on_their_regimes`] floors the
-//! regimes the two production properties claim.
+//! [`census_cases_keep_mass_on_their_regimes`] floors the regimes the
+//! production properties claim.
+
+use core::ops::{Range, RangeInclusive};
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
@@ -32,7 +34,7 @@ use super::{
     bound_clause_among, down_clause_among, down_query, neutral_query, rendered_holes, selected,
     up_clause_among, up_query, BoundClause, CausalOrder, DownClause, UpClause,
 };
-use crate::causally::{Polarity, Query};
+use crate::causally::{Down, Polarity, Query, Up};
 use crate::testing::generators::leaf_list::{arb_deep_version, arb_deep_version_triple};
 use crate::testing::generators::{divided_config, regime_floor, DEFAULT_CASES};
 use crate::testing::oracles::flat::census::{census, classify, Grid, Heights};
@@ -56,7 +58,8 @@ impl CausalOrder for Heights {
 // ─────────────────────────────── anchors ───────────────────────────────
 
 impl BoundClause {
-    /// The pool index of the version this bound compares a probe with.
+    /// The pool indices of the versions this bound compares a probe with:
+    /// its one anchor.
     fn anchors(&self) -> Vec<usize> {
         match *self {
             Self::After(at) | Self::Before(at) => vec![at],
@@ -147,7 +150,7 @@ impl Clauses {
 /// Draws clauses anchored at the pool indices `anchors` draws: up to
 /// `bounds` inclusive bounds, and one to `forms` forms of each polarity.
 fn arb_clauses(
-    anchors: core::ops::Range<usize>,
+    anchors: Range<usize>,
     bounds: usize,
     forms: usize,
 ) -> impl Strategy<Value = Clauses> {
@@ -161,7 +164,7 @@ fn arb_clauses(
 
 /// The pool indices a clause strategy draws for the deep worlds, reduced
 /// modulo each pool's size by [`selected`].
-const POOL_PICKS: core::ops::Range<usize> = 0..64;
+const POOL_PICKS: Range<usize> = 0..64;
 
 // ─────────────────────────────── sites ───────────────────────────────
 
@@ -181,7 +184,7 @@ struct Sites {
 
 /// The path lengths [`arb_sites`] draws: deep enough that most sites lie
 /// past depth 32, where a cell's width is finer than a 32-bit fraction.
-const SITE_PATH: core::ops::RangeInclusive<usize> = 3..=160;
+const SITE_PATH: RangeInclusive<usize> = 3..=160;
 
 impl Sites {
     /// The partition the path cuts: every sibling off the path, and the
@@ -261,7 +264,7 @@ impl Sites {
 
 /// Draws a path from [`SITE_PATH`] and `count` distinct site depths along
 /// it, as many as the path allows.
-fn arb_sites(count: core::ops::RangeInclusive<usize>) -> impl Strategy<Value = Sites> {
+fn arb_sites(count: RangeInclusive<usize>) -> impl Strategy<Value = Sites> {
     SITE_PATH.prop_flat_map(move |len| {
         let depths: Vec<u64> =
             (1..=u64::try_from(len).expect("a path length fits in u64")).collect();
@@ -308,7 +311,7 @@ struct QueryCase {
 }
 
 /// How many sites an antichain case places holes on.
-const ANTICHAIN_SITES: core::ops::RangeInclusive<usize> = 3..=8;
+const ANTICHAIN_SITES: RangeInclusive<usize> = 3..=8;
 
 /// One antichain site's hole spellings: downward `since`, `!before`, or the
 /// strict `after(..).or_concurrent()`, and upward `until`, `!after`, or the
@@ -371,7 +374,7 @@ fn arb_antichain_case() -> impl Strategy<Value = QueryCase> {
 }
 
 /// How many sites a deep-query case bumps its first version at.
-const QUERY_SITES: core::ops::RangeInclusive<usize> = 1..=3;
+const QUERY_SITES: RangeInclusive<usize> = 1..=3;
 
 /// Draws a case of conjunctions of every public form over a deep triple.
 ///
@@ -502,11 +505,7 @@ fn assert_exact<P: Polarity>(
 fn queries<'a>(
     case: &QueryCase,
     versions: &'a [Version],
-) -> (
-    Query<'a>,
-    Query<'a, crate::causally::Down>,
-    Query<'a, crate::causally::Up>,
-) {
+) -> (Query<'a>, Query<'a, Down>, Query<'a, Up>) {
     let Clauses { bounds, down, up } = &case.clauses;
     (
         neutral_query(bounds, case.sides, versions),
@@ -579,7 +578,7 @@ fn arb_small_grid() -> impl Strategy<Value = Vec<FlatVersion>> {
 
 /// The anchor indices the census check's clauses draw, reduced modulo the
 /// grid's size by [`selected`].
-const GRID_PICKS: core::ops::Range<usize> = 0..32;
+const GRID_PICKS: Range<usize> = 0..32;
 
 /// The case divisor of [`census_agrees_with_a_finer_pool`]: each case
 /// judges every segment of its grid against a finer pool of hundreds of
