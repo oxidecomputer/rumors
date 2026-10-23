@@ -447,8 +447,10 @@ impl Judged {
 /// coverage of every segment between pool versions, against the census.
 ///
 /// Each segment is spelled twice: over the pool's own buffers, so a point
-/// segment takes production's shared-buffer shortcut, and over separately
-/// decoded copies, so it takes the walk.
+/// segment borrows one version twice and takes production's shared-buffer
+/// shortcut, and with its top from a separately decoded copy, so no two
+/// endpoints share a buffer and every segment, points included, takes the
+/// coverage walk.
 fn assert_exact<P: Polarity>(
     query: &Query<'_, P>,
     which: Which,
@@ -478,8 +480,8 @@ fn assert_exact<P: Polarity>(
                 continue;
             }
             let want = census(lo, hi, anchors.iter().copied(), admits);
-            for (spelling, pool) in [("shared", versions), ("fresh", fresh)] {
-                let span = Span::new(&pool[i], &pool[j]).map_err(|_| {
+            for (spelling, upper_pool) in [("shared", versions), ("crossed", fresh)] {
+                let span = Span::new(&versions[i], &upper_pool[j]).map_err(|_| {
                     TestCaseError::fail(format!(
                         "production refuses the segment from pool version {i} to {j}, \
                          which the flat model orders"
@@ -688,9 +690,9 @@ proptest! {
     /// `after(..).or_concurrent()` downward and `until`, `!after`, or
     /// `before(..).or_concurrent()` upward, beside up to two inclusive
     /// bounds, conjoined in a drawn operand order. Membership is checked on
-    /// every pool version, and coverage on
-    /// every segment between two, over the pool's own buffers and over
-    /// separate copies.
+    /// every pool version, and coverage on every segment between two, both
+    /// over the pool's own buffers and with the segment's top from a
+    /// separate copy.
     #[test]
     fn antichain_holes_cover_exactly(case in arb_antichain_case()) {
         assert_case(&case)?;
