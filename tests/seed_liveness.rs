@@ -14,11 +14,14 @@
 //! `<the anchor's parent>/proptest-regressions/<suffix>.txt`, where the
 //! suffix is the source's path below the anchor; where no anchor exists
 //! on the walk, it falls back to the sibling
-//! `<source>.proptest-regressions` file (this tree pins an anchor over
-//! every proptest suite — `tests/main.rs` is the integration suites' —
-//! so the fallback is never a sanctioned seed location here). A seed anywhere else —
-//! however plausible the path looks — is never read: it sits committed,
-//! looking like coverage, replaying nothing. This sweep reconstructs
+//! `<source>.proptest-regressions` file. The sweep accepts a sibling file
+//! whose source exists exactly when the walk from its source's directory up
+//! to the repository root finds no anchor, as for a suite in a crate's
+//! `tests/` directory that holds no `main.rs`. The root `tests/main.rs` anchors the root
+//! integration suites, so their seeds live under the root
+//! `proptest-regressions/`. A seed anywhere else — however plausible the
+//! path looks — is never read: it sits committed, looking like coverage,
+//! replaying nothing. This sweep reconstructs
 //! that resolution in reverse for every committed file under a seed
 //! location and fails on any whose owning source is missing or whose
 //! location proptest would not derive.
