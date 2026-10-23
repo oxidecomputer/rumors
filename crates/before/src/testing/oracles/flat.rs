@@ -867,3 +867,28 @@ pub(crate) fn check_version(
     );
     Ok(())
 }
+
+/// Checks that a production rank is the model's `(num, exp)` exactly: the
+/// same normalized parts, and the rank format's spelling of them.
+pub(crate) fn check_rank(
+    got: &crate::Rank,
+    want: &(BigUint, u64),
+    what: &str,
+) -> Result<(), TestCaseError> {
+    let (num, exp) = got.raw_parts();
+    prop_assert!(
+        (num, exp) == (&want.0, want.1),
+        "{}: production's rank {} is not the flat model's {} / 2^{}",
+        what,
+        got,
+        want.0,
+        want.1
+    );
+    prop_assert_eq!(
+        got.encode(),
+        codec::encode_rank(&want.0, want.1),
+        "{}: rank bytes",
+        what
+    );
+    Ok(())
+}
