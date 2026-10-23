@@ -25,16 +25,21 @@
 //!
 //! **The trace differential** ([`super::optrace`]). One operation vocabulary
 //! drives production, both oracles, and the flat model's parties through the
-//! same stateful schedule, over single-party steps and the multi-party
-//! ones: `forks`, array splits, `join_all`, `sync_all`, and byte round
-//! trips, in populations up to the trace's cap. The model trait is
+//! same stateful schedule. Its steps include the multi-party splits and joins
+//! (`forks`, array splits, `join_all`, `sync_all`), absorbs, and byte round
+//! trips; no `forks` step or array split grows a population past
+//! `MAX_POPULATION`, though single forks may. Production-side drivers also
+//! draw tick counts too wide for the oracles to iterate. The model trait is
 //! mandatory: adding a generated trace operation cannot compile until every
 //! implementation defines it. Every trace respects the crate's safety
-//! rules, so every consumer asserts that none of its steps fails. What it
-//! alone catches: **sequence errors** — a locally correct operation that
-//! leaves later operations observing the wrong state, such as a residual
-//! `forks` hands back or a share `sync_all` deals that a later step then
-//! splits or joins.
+//! rules, and every trace path asserts that none of its steps fails. The
+//! function-space replay compares a population through tables of each
+//! member's functions (`function::tabulate_id` and `tabulate_ev`), which a
+//! property shows equal the functions at any level at or above their
+//! resolution. What it alone catches: **sequence errors** — a locally
+//! correct operation that leaves later operations observing the wrong
+//! state, such as a residual `forks` hands back or a share `sync_all` deals
+//! that a later step then splits or joins.
 //!
 //! **Focused behavioral properties** (the public types' sibling test modules).
 //! Public behavior outside that common vocabulary is tested at its natural

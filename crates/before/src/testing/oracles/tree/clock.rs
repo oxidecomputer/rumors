@@ -52,8 +52,8 @@ impl Clock {
         }
     }
 
-    /// The children `forks(count).take(taken)` collects from production's
-    /// clock, leaving `self` the residual.
+    /// Collects the children `forks(count).take(taken)` yields from
+    /// production's clock, leaving `self` the residual.
     ///
     /// The party splits into the balanced partition of `count + 1` shares.
     /// Children take shares 1 through `taken`, each with this clock's
@@ -81,9 +81,9 @@ impl Clock {
         children
     }
 
-    /// The clocks the array conversion `<[Clock; n]>::from` deals: the
-    /// balanced partition of the party into `n` shares, in order, each with
-    /// this clock's version.
+    /// Splits the clock as the array conversion `<[Clock; n]>::from` does:
+    /// the balanced partition of the party into `n` shares, in order, each
+    /// with this clock's version.
     ///
     /// # Panics
     ///

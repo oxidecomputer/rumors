@@ -15,13 +15,15 @@
 //! and the recursive oracle would share.
 
 use proptest::prelude::*;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 use crate::testing::generators::{
     arb_clock_family, arb_fold_arity, arb_oracle_party_nonempty, arb_oracle_version,
     arb_party_family, arb_version_family,
 };
 use crate::testing::laws;
-use crate::testing::optrace::{run, step_impl, world_strategy};
+use crate::testing::optrace::{run, step, world_strategy, Production};
 use crate::testing::oracles::tree;
 use crate::{Clock, Party, Rank, Version};
 
@@ -429,8 +431,9 @@ proptest! {
 
         // Clocks: replay the trace on the impl for real, reachable clocks.
         let mut imp = vec![Clock::seed()];
+        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
-            step_impl(&mut imp, op);
+            step::<Production>(&mut imp, op, &mut rng);
         }
         let ca = &imp[picks[0] % imp.len()];
         let cb = &imp[picks[1] % imp.len()];

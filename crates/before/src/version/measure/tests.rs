@@ -812,7 +812,7 @@ proptest! {
     /// Projection runs onto the history's own parties — the operand pairing
     /// production code actually builds.
     #[test]
-    fn organic_histories_agree(ops in optrace::world_strategy_up_to(40)) {
+    fn organic_histories_agree(ops in optrace::production_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);

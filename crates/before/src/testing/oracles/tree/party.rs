@@ -161,9 +161,9 @@ impl Party {
         b
     }
 
-    /// The balanced partition into `n` shares, in order, by the paper's
-    /// splits: the keeper's half takes the first `⌈n/2⌉` shares and the
-    /// other half the rest, recursively.
+    /// Splits the party into its balanced partition of `n` shares, in order,
+    /// by the paper's splits: the keeper's half takes the first `⌈n/2⌉`
+    /// shares and the other half the rest, recursively.
     ///
     /// This is the partition production's `forks`, array conversions, and
     /// `sync_all` deal. A stack of pending `(party, count)` pairs, the other

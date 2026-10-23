@@ -603,7 +603,7 @@ proptest! {
     /// Every version produced by an organic op-trace history round-trips
     /// exactly.
     #[test]
-    fn organic_histories_round_trip(ops in optrace::world_strategy_up_to(120)) {
+    fn organic_histories_round_trip(ops in optrace::production_strategy_up_to(120)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);

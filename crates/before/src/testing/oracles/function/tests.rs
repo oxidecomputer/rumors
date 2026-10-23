@@ -20,7 +20,8 @@ use super::{
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{
-    self, split_levels, world_strategy, FunctionSpace, Production, Recursive, MAX_TRACE_OPS,
+    self, split_levels, world_strategy, FunctionSpace, Production, Recursive, MAX_FORKS_COUNT,
+    MAX_TRACE_OPS,
 };
 use crate::testing::oracles::tree;
 use num_bigint::BigUint;
@@ -49,7 +50,8 @@ fn grid_for(parts: &[u32]) -> u32 {
 
 proptest! {
     /// All three implementations produce the same causal ordering and party
-    /// disjointness after any generated single-universe trace.
+    /// disjointness after any generated single-universe trace, and no step of
+    /// it fails in any of them (`replay` asserts that of every step).
     ///
     /// The function-space model chooses valid fork and event policies from the
     /// supplied random seed. Agreement therefore covers many valid policies,
@@ -61,21 +63,6 @@ proptest! {
         let function_space = optrace::replay::<FunctionSpace>(
             &ops,
             &mut ChaChaRng::seed_from_u64(seed),
-        );
-        prop_assert_eq!(
-            &production.accepted,
-            &recursive.accepted,
-            "production vs recursive verdicts",
-        );
-        prop_assert_eq!(
-            &recursive.accepted,
-            &function_space.accepted,
-            "recursive vs function-space verdicts",
-        );
-        let (production, recursive, function_space) = (
-            production.clocks,
-            recursive.clocks,
-            function_space.clocks,
         );
         let n = production.len();
         // One granularity for all the function-space scans: the finest boundary
@@ -127,6 +114,36 @@ proptest! {
                     i,
                     j,
                 );
+            }
+        }
+    }
+}
+
+proptest! {
+    /// Tabulating an event or id at any level at or above its resolution
+    /// gives back the same function.
+    ///
+    /// The two agree at every grid point and every cell center of the next
+    /// finer level, so inside each table cell and at its left end (the
+    /// points the comparison scans sample), not only at the centers the
+    /// table was built from.
+    #[test]
+    fn tabulation_at_or_above_resolution_is_the_same_function(
+        tv in arb_oracle_version(),
+        tp in arb_oracle_party_nonempty(),
+        extra in 0u32..=2,
+    ) {
+        let (e, i) = (lift_ev(tv), lift_id(tp));
+        let (g_ev, g_id) = (ev_res(&e) + extra, id_res(&i) + extra);
+        let (te, ti) = (tabulate_ev(&e, g_ev), tabulate_id(&i, g_id));
+        for k in 0..(1u64 << (g_ev + 1)) {
+            for x in [Dyadic::grid(k, g_ev + 1), Dyadic::center(k, g_ev + 1)] {
+                prop_assert_eq!(te.at(x), e.at(x), "event at {:?}, level {}", x, g_ev);
+            }
+        }
+        for k in 0..(1u64 << (g_id + 1)) {
+            for x in [Dyadic::grid(k, g_id + 1), Dyadic::center(k, g_id + 1)] {
+                prop_assert_eq!(ti.at(x), i.at(x), "id at {:?}, level {}", x, g_id);
             }
         }
     }
@@ -449,12 +466,11 @@ fn grid_cap_is_never_reached() {
         .run(&(world_strategy(), any::<u64>()), |(ops, seed)| {
             let or = optrace::replay::<Recursive>(&ops, &mut ChaChaRng::seed_from_u64(0));
             let se = optrace::replay::<FunctionSpace>(&ops, &mut ChaChaRng::seed_from_u64(seed));
-            assert_eq!(or.accepted, se.accepted);
-            for c in &or.clocks {
+            for c in &or {
                 max_d.fetch_max(ev_depth(&c.version()), AOrd::Relaxed);
                 max_d.fetch_max(id_depth(c.party()), AOrd::Relaxed);
             }
-            for c in &se.clocks {
+            for c in &se {
                 max_d.fetch_max(id_res(&c.id), AOrd::Relaxed);
                 max_d.fetch_max(ev_res(&c.ev), AOrd::Relaxed);
             }
@@ -531,11 +547,12 @@ fn fork_chain_raises_resolution_one_level_per_fork() {
 /// Every fork of a single-piece id bisects it, so a single-piece lineage is
 /// where a split's resolution grows fastest, and each split's deepest share
 /// is again a single piece. The chain splits three times at every share
-/// count a trace can draw, one to nine, staying strictly below [`GRID_N`].
+/// count a step can deal, from one to one more than [`MAX_FORKS_COUNT`],
+/// staying strictly below [`GRID_N`].
 #[test]
 fn balanced_split_chain_raises_resolution_by_its_levels() {
     let mut rng = ChaChaRng::seed_from_u64(0);
-    for n in 1..=9usize {
+    for n in 1..=usize::from(MAX_FORKS_COUNT) + 1 {
         let mut lineage = seed_id();
         let mut resolution = 0;
         for round in 1..=3 {

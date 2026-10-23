@@ -12,11 +12,11 @@ use crate::testing::generators::{regime_floor, DEFAULT_CASES};
 use crate::testing::oracles::function::{ev_res, id_res, FunctionClock};
 use crate::testing::oracles::{flat, function, tree};
 use crate::testing::rng::strategy_rng;
-use crate::{Clock, Version};
+use crate::{Clock, Count, Version};
 
 use super::{
-    step, step_impl, world_strategy, FlatParties, FunctionSpace, Op, Recursive, Step,
-    MAX_POPULATION, MAX_TRACE_OPS,
+    production_strategy, step, world_strategy, world_strategy_up_to, FlatParties, FunctionSpace,
+    Op, Production, ProductionOp, Recursive, Step, MAX_PICKS, MAX_POPULATION, MAX_TRACE_OPS,
 };
 
 proptest! {
@@ -35,7 +35,7 @@ proptest! {
 
         let selected = selector.index(population);
         let before: Vec<Version> = clocks.iter().map(|clock| clock.version().clone()).collect();
-        step_impl(&mut clocks, &Op::Tick(selector));
+        step::<Production>(&mut clocks, &Op::Tick(selector), &mut ChaChaRng::seed_from_u64(0));
 
         for (index, (old, clock)) in before.iter().zip(&clocks).enumerate() {
             if index == selected {
@@ -51,9 +51,11 @@ proptest! {
     /// always adds its child.
     ///
     /// Each step's population change is read from the flat model's
-    /// replay, which keeps one party per live clock.
+    /// replay, which keeps one party per live clock. The traces run to
+    /// [`CAP_REACHING_OPS`] steps, so many of them reach the cap and clamp
+    /// steps there; [`world_strategy`]'s shorter traces seldom do.
     #[test]
-    fn multi_party_splits_respect_the_population_cap(ops in world_strategy()) {
+    fn multi_party_splits_respect_the_population_cap(ops in world_strategy_up_to(CAP_REACHING_OPS)) {
         let mut parties = vec![flat::Party::seed()];
         let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
@@ -108,11 +110,36 @@ proptest! {
     }
 }
 
+/// The op cap for traces that test the population cap, four times
+/// [`MAX_TRACE_OPS`], long enough that many traces reach [`MAX_POPULATION`].
+const CAP_REACHING_OPS: usize = 4 * MAX_TRACE_OPS;
+
+/// The population size past which a `sync_all` or `join_all` with the most
+/// picks leaves at least three clocks outside it, so the census's
+/// large-population regime holds steps that act on part of a population.
+const LARGE_POPULATION: usize = MAX_PICKS + 3;
+
 /// The number of traces the census samples.
 const CENSUS_CASES: usize = 2048;
 
 /// The census's fixed strategy seed, so its counts are reproducible.
 const CENSUS_SEED: u64 = 19;
+
+/// Counts the production-side traces, of [`CENSUS_CASES`] sampled, holding a
+/// tick count wider than `u64`.
+fn wide_tick_traces() -> usize {
+    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(CENSUS_SEED));
+    let strategy = production_strategy();
+    let past_u64 = Count::from(u64::MAX);
+    (0..CENSUS_CASES)
+        .filter(|_| {
+            let trace = strategy.new_tree(&mut runner).expect("strategy").current();
+            trace
+                .iter()
+                .any(|op| matches!(op, ProductionOp::WideTicks(_, count) if *count > past_u64))
+        })
+        .count()
+}
 
 /// What one sampled trace executes, read from its steps as resolved against
 /// the live population.
@@ -133,8 +160,12 @@ struct Reach {
     transmit: bool,
     /// A clock's party and version moved through their byte encodings.
     transmit_parts: bool,
-    /// The population exceeded eight clocks after some step.
-    population_past_eight: bool,
+    /// A clock absorbed another clock's version.
+    absorb: bool,
+    /// A clock absorbed two or more versions in one step.
+    absorb_all: bool,
+    /// The population exceeded [`LARGE_POPULATION`] after some step.
+    large_population: bool,
 }
 
 impl Reach {
@@ -155,29 +186,33 @@ impl Reach {
                 Some(Step::SyncAll { others, .. }) => reach.sync_all |= others.len() >= 2,
                 Some(Step::Transmit(_)) => reach.transmit = true,
                 Some(Step::TransmitParts(_)) => reach.transmit_parts = true,
+                Some(Step::Absorb(..)) => reach.absorb = true,
+                Some(Step::AbsorbAll { sources, .. }) => reach.absorb_all |= sources.len() >= 2,
                 _ => {}
             }
             step::<FlatParties>(&mut parties, op, &mut rng);
-            reach.population_past_eight |= parties.len() > 8;
+            reach.large_population |= parties.len() > LARGE_POPULATION;
         }
         reach
     }
 }
 
-/// [`world_strategy`] keeps enough generator mass on each multi-party regime
-/// that each default run of a trace consumer expects
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
-/// traces reaching it.
+/// The trace strategies keep enough generator mass on each regime their docs
+/// claim for every default run of a trace consumer.
 ///
-/// The regimes are the ones the module doc claims for every consumer: a
-/// `forks` step that takes children and one that leaves some for the
-/// residual, an array split, a `join_all` of two or more clocks, a
-/// `sync_all` with two or more others, each byte round trip, and a
-/// population past eight clocks. The consumers run the default case count,
-/// so each floor follows from that premise alone, and a regime whose mass
-/// falls below it fails here whatever it last measured.
+/// Each default run of a consumer of [`world_strategy`] or
+/// [`production_strategy`] expects
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
+/// traces reaching each regime. The regimes are a `forks` step that takes children and one that leaves
+/// some for the residual, an array split, a `join_all` of two or more
+/// clocks, a `sync_all` with two or more others, each byte round trip, an
+/// absorb and an `absorb_all` of two or more versions, a population past
+/// [`LARGE_POPULATION`], and, in production-side traces, a tick count wider
+/// than `u64`. The consumers run the default case count, so each floor
+/// follows from that premise alone, and a regime whose mass falls below it
+/// fails here whatever it last measured.
 #[test]
-fn world_strategy_keeps_mass_on_multi_party_regimes() {
+fn world_strategy_keeps_mass_on_its_regimes() {
     if std::env::var_os("PROPTEST_CASES").is_none() {
         assert_eq!(
             Config::default().cases,
@@ -205,10 +240,16 @@ fn world_strategy_keeps_mass_on_multi_party_regimes() {
             "a party and version's byte round trips",
             count(|r| r.transmit_parts),
         ),
+        ("an absorb", count(|r| r.absorb)),
         (
-            "a population past eight clocks",
-            count(|r| r.population_past_eight),
+            "an absorb_all of two or more versions",
+            count(|r| r.absorb_all),
         ),
+        (
+            "a population past the large-population size",
+            count(|r| r.large_population),
+        ),
+        ("a tick count wider than u64", wide_tick_traces()),
     ];
     let floor = regime_floor(CENSUS_CASES, 1);
     for (regime, count) in &regimes {

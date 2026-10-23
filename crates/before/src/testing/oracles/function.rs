@@ -458,16 +458,16 @@ pub(crate) fn fork(i: &Id, rng: &mut ChaChaRng) -> (Id, Id) {
     )
 }
 
-/// A random §4-valid partition of `i` into `n` nonempty shares, freshly
-/// drawn each call, in the balanced shape production deals.
+/// Draws a random §4-valid partition of `i` into `n` nonempty shares, in the
+/// balanced shape production deals.
 ///
 /// One random [`fork`] gives the first `⌈n/2⌉` shares to one half and the
-/// rest to the other, recursively. §4 pins only that the shares cover `⟦i⟧`
-/// disjointly, so any partition is valid; the balanced shape is kept because
-/// it bounds resolution growth.
-/// Each share descends through `⌈log₂ n⌉` forks, and each raises resolution
-/// by at most one level, which is the per-step bound the op traces budget
-/// for. A stack of pending `(id, count)` pairs, the second half pushed first,
+/// rest to the other, recursively, freshly drawn each call. §4 pins only
+/// that the shares cover `⟦i⟧` disjointly, so any partition is valid; the
+/// balanced shape is kept because it bounds resolution growth. Each share
+/// descends through at most `⌈log₂ n⌉` forks, and each raises resolution by
+/// at most one level, which is the per-step bound the op traces budget for.
+/// A stack of pending `(id, count)` pairs, the second half pushed first,
 /// keeps the shares in order without recursing.
 ///
 /// # Panics
@@ -527,15 +527,18 @@ pub(crate) fn ev_res(e: &Event) -> u32 {
     resolution(&samples, ceiling)
 }
 
-/// `i` read from a table of its values on the `2^g` cells of level `g`: the
-/// same function whenever `g` is at least `i`'s resolution, evaluated by one
-/// lookup.
+/// Tabulates `i` on the `2^g` cells of level `g`, returning the function
+/// that reads each point's value from its cell.
 ///
-/// A function built by many sums evaluates every path through its history
-/// at each point, so comparing a population pair by pair pays that cost once
-/// per pair and point. Tabulating each member first pays it once per member
-/// and point. One interior sample per cell decides the cell, as in
-/// [`owned_cells`].
+/// When `g` is at least `i`'s resolution, `⟦i⟧` is constant on every cell,
+/// so one interior sample decides each cell (as in [`owned_cells`]) and the
+/// result is the same function. When `g` is coarser, the result is a
+/// different, coarsened function: each cell takes its center's value. The
+/// trade is memory for time. A function built by many sums evaluates every
+/// path through its history at each point, so comparing a population pair
+/// by pair pays that cost once per pair and point; the table holds `2^g`
+/// entries per member, and comparing tables pays the cost once per member
+/// and point.
 pub(crate) fn tabulate_id(i: &Id, g: u32) -> Id {
     let table: Vec<bool> = (0..(1u64 << g))
         .map(|k| i.at(Dyadic::center(k, g)))
@@ -543,9 +546,12 @@ pub(crate) fn tabulate_id(i: &Id, g: u32) -> Id {
     Id::new(g, move |x| table[cell_at(x, g)])
 }
 
-/// `e` read from a table of its values on the `2^g` cells of level `g`: the
-/// same step function whenever `g` is at least `e`'s resolution, evaluated by
-/// one lookup (see [`tabulate_id`]).
+/// Tabulates `e` on the `2^g` cells of level `g`, returning the step
+/// function that reads each point's value from its cell.
+///
+/// The result is the same step function when `g` is at least `e`'s
+/// resolution, and a coarsened one otherwise, for `2^g` entries of memory;
+/// [`tabulate_id`] explains the hazard and the trade.
 pub(crate) fn tabulate_ev(e: &Event, g: u32) -> Event {
     let table: Vec<BigUint> = (0..(1u64 << g))
         .map(|k| e.at(Dyadic::center(k, g)))
@@ -800,8 +806,8 @@ impl FunctionClock {
         }
     }
 
-    /// The children `forks(count).take(taken)` collects from the crate's
-    /// clock, over a random partition of `count + 1` shares.
+    /// Collects the children `forks(count).take(taken)` yields from the
+    /// crate's clock, over a random partition of `count + 1` shares.
     ///
     /// Children take shares 1 through `taken` of the partition ([`shares`]),
     /// each with this clock's event, and `self` keeps share 0 summed with
@@ -826,7 +832,7 @@ impl FunctionClock {
         children
     }
 
-    /// The clocks the crate's array conversion deals, over a random
+    /// Splits the clock as the crate's array conversion does, over a random
     /// partition ([`shares`]) of `n` shares, each with this clock's event.
     pub(crate) fn split(self, n: usize, rng: &mut ChaChaRng) -> Vec<FunctionClock> {
         shares(&self.id, n, rng)

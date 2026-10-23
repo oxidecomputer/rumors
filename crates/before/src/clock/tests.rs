@@ -16,7 +16,7 @@ use crate::testing::generators::{
     STACK_SAFETY_DEPTH,
 };
 use crate::testing::optrace::{
-    run, step, step_impl, world_strategy, FlatParties, Production, Recursive,
+    production_strategy, run, step, step_impl, world_strategy, FlatParties, Production, Recursive,
 };
 use crate::testing::oracles::flat::{self, check_party, check_version};
 use crate::testing::oracles::{function, tree};
@@ -297,7 +297,7 @@ proptest! {
     /// For each clock in the generated history, `as_bytes` equals `encode` for
     /// both components, and decoding either view recovers the value.
     #[test]
-    fn encoding_views_agree_over_impl_history(ops in world_strategy()) {
+    fn encoding_views_agree_over_impl_history(ops in production_strategy()) {
         let mut imp = vec![Clock::seed()];
         for op in &ops {
             step_impl(&mut imp, op);
@@ -504,10 +504,11 @@ proptest! {
 
 proptest! {
     /// Every value produced by every op is in canonical normal form, checked
-    /// after every step of a seed-derived impl-only trace (lowered to oracle
-    /// trees, which carry the `is_normal` predicate).
+    /// after every step of a seed-derived production-side trace, wide tick
+    /// counts included (lowered to oracle trees, which carry the `is_normal`
+    /// predicate).
     #[test]
-    fn ops_preserve_normal_form(ops in world_strategy()) {
+    fn ops_preserve_normal_form(ops in production_strategy()) {
         let mut imp = vec![Clock::seed()];
         for op in &ops {
             step_impl(&mut imp, op);
