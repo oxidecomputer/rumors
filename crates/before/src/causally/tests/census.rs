@@ -595,10 +595,91 @@ fn arb_small_grid() -> impl Strategy<Value = Vec<FlatVersion>> {
 /// grid's size by [`selected`].
 const GRID_PICKS: Range<usize> = 0..32;
 
-/// The case divisor of [`census_agrees_with_a_finer_pool`]: each case
-/// judges every segment of its grid against a finer pool of hundreds of
-/// versions.
-const VALIDATOR_DIVISOR: u32 = 4;
+/// A segment between two versions of a small grid.
+struct Segment {
+    /// The grid index of the segment's bottom.
+    lo: usize,
+    /// The grid index of the segment's top.
+    hi: usize,
+    /// The indices of the finer pool's members inside the segment.
+    inside: Vec<usize>,
+}
+
+/// A small grid read two ways: through its order view, by the census, and
+/// on its cells halved, by the finer pool.
+struct FinerPool {
+    /// The grid's order view, which the census reads.
+    view: Vec<Heights>,
+    /// Each grid version's heights on the halved cells.
+    lifted: Vec<Heights>,
+    /// Every height vector on the halved cells with heights up to the
+    /// grid's largest.
+    fine: Vec<Heights>,
+    /// Every segment between grid versions.
+    segments: Vec<Segment>,
+}
+
+impl FinerPool {
+    /// Reads a small grid both ways and lists its segments.
+    fn new(pool: &[FlatVersion]) -> FinerPool {
+        let grid = Grid::new(pool);
+        let view = grid.order_view();
+        let height = |h: &BigUint| u64::try_from(h).expect("a small grid's heights fit in u64");
+        let lifted: Vec<Heights> = (0..pool.len())
+            .map(|i| {
+                Heights(
+                    grid.heights(i)
+                        .iter()
+                        .flat_map(|h| [height(h), height(h)])
+                        .collect(),
+                )
+            })
+            .collect();
+        let max = lifted
+            .iter()
+            .flat_map(|h| h.0.iter().copied())
+            .max()
+            .unwrap_or(0);
+        let fine = every_heights(2 * grid.depths().len(), max);
+        let indices = 0..view.len();
+        let segments = indices
+            .clone()
+            .flat_map(|lo| indices.clone().map(move |hi| (lo, hi)))
+            .filter(|&(lo, hi)| view[lo].le(&view[hi]))
+            .map(|(lo, hi)| Segment {
+                lo,
+                hi,
+                inside: (0..fine.len())
+                    .filter(|&m| lifted[lo].le(&fine[m]) && fine[m].le(&lifted[hi]))
+                    .collect(),
+            })
+            .collect();
+        FinerPool {
+            view,
+            lifted,
+            fine,
+            segments,
+        }
+    }
+
+    /// Whether some segment rejects both its endpoints under query `which`
+    /// yet holds a finer member the query admits: a segment on which a
+    /// census that missed its interior witness would answer `Empty` for
+    /// `Partial`.
+    fn has_interior_witness(&self, clauses: &Clauses, which: Which) -> bool {
+        let admits = |probe: &Heights| clauses.admits(which, probe, &self.lifted);
+        self.segments.iter().any(|segment| {
+            !admits(&self.lifted[segment.lo])
+                && !admits(&self.lifted[segment.hi])
+                && segment.inside.iter().any(|&m| admits(&self.fine[m]))
+        })
+    }
+}
+
+/// The case divisor of [`census_agrees_with_a_finer_pool`]: one, so it runs
+/// the full case count. Each case is cheap, and only a minority of cases
+/// hold a segment that can expose a census missing its witness.
+const VALIDATOR_DIVISOR: u32 = 1;
 
 proptest! {
     #![proptest_config(divided_config(VALIDATOR_DIVISOR))]
@@ -634,23 +715,9 @@ proptest! {
         pool in arb_small_grid(),
         clauses in arb_clauses(GRID_PICKS, 3, 3),
     ) {
-        let grid = Grid::new(&pool);
-        let view = grid.order_view();
-        let height = |h: &BigUint| u64::try_from(h).expect("a small grid's heights fit in u64");
-        let lifted: Vec<Heights> = (0..pool.len())
-            .map(|i| Heights(grid.heights(i).iter().flat_map(|h| [height(h), height(h)]).collect()))
-            .collect();
-        let max = lifted.iter().flat_map(|h| h.0.iter().copied()).max().unwrap_or(0);
-        let fine = every_heights(2 * grid.depths().len(), max);
-
-        for (lo, hi) in (0..pool.len()).flat_map(|lo| (0..pool.len()).map(move |hi| (lo, hi))) {
-            if !view[lo].le(&view[hi]) {
-                continue;
-            }
-            let inside: Vec<&Heights> = fine
-                .iter()
-                .filter(|probe| lifted[lo].le(probe) && probe.le(&lifted[hi]))
-                .collect();
+        let FinerPool { view, lifted, fine, segments } = FinerPool::new(&pool);
+        for Segment { lo, hi, inside } in &segments {
+            let (lo, hi) = (*lo, *hi);
             for which in EVERY_QUERY {
                 let anchors = clauses.anchors(which);
                 let coarse = census(
@@ -661,7 +728,7 @@ proptest! {
                 );
                 let admitted = inside
                     .iter()
-                    .filter(|&&probe| clauses.admits(which, probe, &lifted))
+                    .filter(|&&m| clauses.admits(which, &fine[m], &lifted))
                     .count();
                 prop_assert_eq!(
                     coarse,
@@ -749,7 +816,7 @@ const FLOOR_CASES: usize = 400;
 const DEEP_DEPTH: u64 = 32;
 
 /// Samples `strategy` [`FLOOR_CASES`] times under [`FLOOR_SEED`].
-fn floor_corpus(strategy: impl Strategy<Value = QueryCase>) -> Vec<QueryCase> {
+fn floor_corpus<T>(strategy: impl Strategy<Value = T>) -> Vec<T> {
     let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(FLOOR_SEED));
     (0..FLOOR_CASES)
         .map(|_| strategy.new_tree(&mut runner).expect("strategy").current())
@@ -790,10 +857,14 @@ fn reach(case: &QueryCase) -> Reach {
     }
 }
 
-/// Each production property's strategy keeps enough mass on the regimes its
-/// docs claim that each default run expects
+/// Each census property's strategy keeps enough mass on the regimes its docs
+/// claim that each default run expects
 /// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
 /// cases there.
+///
+/// [`census_agrees_with_a_finer_pool`] claims the segments that can expose a
+/// census missing its witness: for each query, a segment that rejects both
+/// its endpoints yet holds a version the query admits.
 ///
 /// [`antichain_holes_cover_exactly`] claims antichains of three or more
 /// holes on deep cells, beside wide heights: its downward and its upward
@@ -817,12 +888,39 @@ fn census_cases_keep_mass_on_their_regimes() {
         .map(reach)
         .collect();
     let queries: Vec<Reach> = floor_corpus(arb_query_case()).iter().map(reach).collect();
+    let grids: Vec<(FinerPool, Clauses)> =
+        floor_corpus((arb_small_grid(), arb_clauses(GRID_PICKS, 3, 3)))
+            .into_iter()
+            .map(|(pool, clauses)| (FinerPool::new(&pool), clauses))
+            .collect();
     let count = |corpus: &[Reach], in_regime: fn(&Reach) -> bool| {
         corpus.iter().filter(|reach| in_regime(reach)).count()
     };
+    let with_interior = |which: Which| {
+        grids
+            .iter()
+            .filter(|(finer, clauses)| finer.has_interior_witness(clauses, which))
+            .count()
+    };
+    let validator_floor = regime_floor(FLOOR_CASES, VALIDATOR_DIVISOR);
     let antichain_floor = regime_floor(FLOOR_CASES, ANTICHAIN_DIVISOR);
     let query_floor = regime_floor(FLOOR_CASES, QUERY_DIVISOR);
     let regimes = [
+        (
+            "census check cases: a segment whose neutral query rejects both ends but admits inside",
+            with_interior(Which::Neutral),
+            validator_floor,
+        ),
+        (
+            "census check cases: a segment whose downward query rejects both ends but admits inside",
+            with_interior(Which::Downward),
+            validator_floor,
+        ),
+        (
+            "census check cases: a segment whose upward query rejects both ends but admits inside",
+            with_interior(Which::Upward),
+            validator_floor,
+        ),
         (
             "antichain cases: three or more downward holes, a deep site, a wide height",
             count(&antichains, |r| r.down_holes >= 3 && r.deep_site && r.wide),
