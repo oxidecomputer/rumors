@@ -46,13 +46,13 @@ use proptest::prelude::*;
 use crate::recurse::descend;
 use crate::testing::oracles::tree;
 
-/// The case-count divisor for [`arb_wide_case`]'s property.
+/// The case-count divisor for properties over [`arb_wide_case`].
 ///
 /// A wide case ticks a tree of hundreds of regions, many times the work of a
 /// spine case.
 pub(crate) const WIDE_CASE_DIVISOR: u32 = 6;
 
-/// The case-count divisor for [`arb_multi_scan_case`]'s property.
+/// The case-count divisor for properties over [`arb_multi_scan_case`].
 ///
 /// A multi-scan case joins several wide trees ([`MULTI_SCANS`]), and a failing
 /// case's shrink must still finish inside nextest's time limit on a loaded

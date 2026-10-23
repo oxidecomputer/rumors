@@ -116,15 +116,16 @@ fn census(strategy: impl Strategy<Value = TickCase>, in_regime: impl Fn(&Sites) 
 }
 
 /// Every co-generated strategy keeps enough generator mass on its pre-scan
-/// regime that each default run of its property expects
+/// regime that each default run of every property over it expects
 /// [`REGIME_CASES_PER_RUN`](super::super::REGIME_CASES_PER_RUN) cases there.
 ///
 /// The regimes: sites nested three deep and a range holding two sites side by
 /// side (spine), a pre-scan reserving more slots than one memo block holds
-/// (wide), and two such pre-scans in one walk (multi-scan). Each floor follows
-/// from that premise and its property's case count, so a strategy whose
-/// regime mass falls below what its own runs need reads as a failure here,
-/// whatever its count was when last measured.
+/// (wide), and two such pre-scans in one walk (multi-scan). Every property
+/// over a strategy runs the default case count divided by that strategy's
+/// divisor, and each floor follows from that premise and that case count, so
+/// a strategy whose regime mass falls below what its own runs need reads as a
+/// failure here, whatever its count was when last measured.
 #[test]
 fn co_generated_strategies_keep_mass_on_their_regimes() {
     if std::env::var_os("PROPTEST_CASES").is_none() {

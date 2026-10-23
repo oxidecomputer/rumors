@@ -34,6 +34,11 @@
 //! - **Multi-scale pairs**: the groups over one version, over two, and over
 //!   ranks also meet pairs whose rank folds freeze and defer parked heights,
 //!   at heights to 2,200 bits.
+//! - **Co-generated tick cases**: the groups over one version and one party
+//!   also meet [`crate::testing::generators::co_generated`]'s cases, whose
+//!   party and version are built together so the tick walk's pre-scan meets
+//!   nested lookahead sites, ranges holding several sites, and more than one
+//!   memo block.
 //!
 //! The third consumer is the fuzz workspace's law target, which drives the
 //! same slices over decoded hostile-but-canonical values.
