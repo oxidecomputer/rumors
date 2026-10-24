@@ -70,7 +70,7 @@ impl Integrator {
                         } else {
                             side.other()
                         };
-                        toward.fold(&mut integral.live, step);
+                        integral.fold_change(toward, step);
                     }
                 }
             }

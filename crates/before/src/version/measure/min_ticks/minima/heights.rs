@@ -1,6 +1,6 @@
 //! Frozen references for the running leaf height.
 //!
-//! The surrounding fold keeps recent height changes in one live accumulator
+//! [`HeightReferences`] keeps recent height changes in one live accumulator
 //! `L`. Freezing moves `L` into a new *reference*: the height `F_j`, measured
 //! from the first leaf's height, that the leaves had reached when it froze. A
 //! leaf is then recorded as an offset from the newest reference, and a
@@ -185,8 +185,11 @@ struct Top {
     referenced: bool,
 }
 
-/// The references of the running height and their coefficients.
+/// The references of the running height, their coefficients, and the
+/// recent change above the newest.
 pub struct HeightReferences {
+    /// `L`: the height changes since the newest reference froze.
+    live: Accumulator,
     /// The newest reference.
     top: Top,
     /// Coefficient of the reference directly below the top, if one exists.
@@ -209,6 +212,7 @@ impl HeightReferences {
     /// reference measures height above it.
     pub fn new() -> Self {
         Self {
+            live: Accumulator::new(),
             top: Top {
                 chunk: Accumulator::new(),
                 coefficient: 0,
@@ -221,39 +225,40 @@ impl HeightReferences {
         }
     }
 
+    /// Advance the running height by one height change, folding it into the
+    /// live change `L`.
+    pub fn advance(&mut self, change: &BigInt) {
+        self.live += change;
+    }
+
     /// Add one leaf's offset to `total` and return it, freezing first if the
     /// offset would exceed the record allowance.
     ///
     /// A live change whose working width exceeds `change`'s bits by more than
     /// [`UNREAD_FREEZE_BITS`] freezes without being read.
     ///
-    /// `change` is the height change that reached this leaf; the first leaf
-    /// passes zero.
-    pub fn add_leaf(
-        &mut self,
-        live: &mut Accumulator,
-        change: &BigInt,
-        total: &mut Accumulator,
-    ) -> LeafHeight {
+    /// `change` is the height change that reached this leaf, already folded
+    /// in by [`advance`](Self::advance); the first leaf passes zero.
+    pub fn add_leaf(&mut self, change: &BigInt, total: &mut Accumulator) -> LeafHeight {
         let change_bits = change.bits();
-        let leaf = if live.stored_bits() > change_bits + UNREAD_FREEZE_BITS {
+        let leaf = if self.live.stored_bits() > change_bits + UNREAD_FREEZE_BITS {
             #[cfg(test)]
             bump(&UNREAD_FREEZES);
-            self.freeze(live, total);
+            self.freeze(total);
             LeafHeight::at_new_reference()
         } else {
             #[cfg(test)]
             MAX_READ_EXCESS.with(|most| {
                 most.set(
                     most.get()
-                        .max(live.stored_bits().saturating_sub(change_bits)),
+                        .max(self.live.stored_bits().saturating_sub(change_bits)),
                 )
             });
-            let (sign, magnitude) = live.signed_magnitude();
+            let (sign, magnitude) = self.live.signed_magnitude();
             if bit_length(&magnitude) > change_bits + RECORD_SLACK_BITS {
                 #[cfg(test)]
                 bump(&RECORD_FREEZES);
-                self.freeze(live, total);
+                self.freeze(total);
                 LeafHeight::at_new_reference()
             } else {
                 add_signed_limbs(total, sign, &magnitude);
@@ -272,10 +277,10 @@ impl HeightReferences {
     /// A referenced top is buried beneath the new one. An unreferenced top
     /// instead absorbs the change, so every reference below the top stays
     /// referenced.
-    fn freeze(&mut self, live: &mut Accumulator, total: &mut Accumulator) {
+    fn freeze(&mut self, total: &mut Accumulator) {
         #[cfg(test)]
         bump(&FREEZE_HITS);
-        let drift = core::mem::take(live);
+        let drift = core::mem::take(&mut self.live);
         let previous = core::mem::replace(
             &mut self.top,
             Top {

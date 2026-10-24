@@ -163,6 +163,8 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint};
 use suanpan::Accumulator;
 
+use crate::version::overlay::Side;
+
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
 
@@ -195,14 +197,16 @@ thread_local! {
 /// Integrates consecutive regions whose widths sum to one whole domain.
 ///
 /// The driver opens at the first height, adds each region with [`Self::interval`],
-/// folds the next boundary's changes into [`Self::live`], and calls
-/// [`Self::boundary`] before adding another region. [`Self::finish`] accounts
-/// for the constant and deferred components and returns the exact numerator.
+/// folds the next boundary's changes into the live change with
+/// [`Self::add_change`] or [`Self::fold_change`], and calls [`Self::boundary`]
+/// before adding another region. [`Self::finish`] accounts for the constant
+/// and deferred components and returns the exact numerator.
 pub struct Integrator {
     /// Contributions already integrated at the driver's common power-of-two scale.
     total: Accumulator,
-    /// Changes since the last freeze. The driver folds boundary deltas here.
-    pub live: Accumulator,
+    /// Changes since the last freeze, into which the driver folds each
+    /// boundary's deltas.
+    live: Accumulator,
     /// The sum of the frozen drifts not yet deferred, which applies throughout
     /// the current segment.
     parked: Accumulator,
@@ -248,6 +252,17 @@ impl Integrator {
             -1 => self.base -= opening,
             _ => panic!("an active orientation is either -1 or 1"),
         }
+    }
+
+    /// Add one boundary's height change to the live change.
+    pub fn add_change(&mut self, delta: &BigInt) {
+        self.live += delta;
+    }
+
+    /// Fold one boundary's delta into the live change from `side` of the
+    /// difference `a - b` that a pair driver integrates.
+    pub fn fold_change(&mut self, side: Side, delta: &BigInt) {
+        side.fold(&mut self.live, delta);
     }
 
     /// Add the next region, whose width at the common scale is `2^weight_shift`.

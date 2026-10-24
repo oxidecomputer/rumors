@@ -27,10 +27,9 @@ impl Count {
     pub(crate) fn min_ticks_for(version: &Version) -> Count {
         let (mut leaves, first_height) = VersionRegionReader::open(version);
 
-        // Recent changes stay in one accumulator. Wider, older changes are
-        // frozen as shared references, so a narrow next delta never has to
-        // copy the absolute height built before it.
-        let mut recent_height_change = Accumulator::new();
+        // The references keep recent changes in one accumulator and freeze
+        // wider, older changes as shared references, so a narrow next delta
+        // never has to copy the absolute height built before it.
         let mut height_references = minima::HeightReferences::new();
         let mut subtree_minima = minima::SubtreeMinima::new();
 
@@ -44,8 +43,7 @@ impl Count {
         // The first leaf lies inside one open subtree for each ancestor on its
         // path. Its live offset is zero.
         subtree_minima.open_subtrees(leaves.depth());
-        let first_leaf =
-            height_references.add_leaf(&mut recent_height_change, &BigInt::ZERO, &mut answer);
+        let first_leaf = height_references.add_leaf(&BigInt::ZERO, &mut answer);
         subtree_minima.observe_leaf(&first_leaf, &mut answer, &mut height_references);
 
         while !leaves.done() {
@@ -55,7 +53,7 @@ impl Count {
             // Both trackers advance to the next leaf height. The first holds
             // the leaf contribution; the second compares that height with the
             // minima of the subtrees that remain open.
-            recent_height_change += &height_change;
+            height_references.advance(&height_change);
             subtree_minima.advance_height(&height_change);
 
             // The turn keeps the ancestor at `turn_depth` open. It closes the
@@ -66,8 +64,7 @@ impl Count {
             }
             subtree_minima.open_subtrees(leaves.depth() - turn_depth);
 
-            let leaf =
-                height_references.add_leaf(&mut recent_height_change, &height_change, &mut answer);
+            let leaf = height_references.add_leaf(&height_change, &mut answer);
             subtree_minima.observe_leaf(&leaf, &mut answer, &mut height_references);
         }
 

@@ -5,7 +5,6 @@ use core::cmp::Ordering;
 use num_bigint::BigUint;
 
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
-use crate::version::overlay::Side;
 use crate::{Rank, Version};
 
 use super::integral::Integrator;
@@ -27,7 +26,7 @@ impl Rank {
                 break;
             }
             let (_, step) = cursor.step();
-            Side::A.fold(&mut integral.live, &step);
+            integral.add_change(&step);
             integral.boundary(step.magnitude().bits());
         }
 
