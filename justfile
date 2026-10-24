@@ -934,14 +934,18 @@ amp-board-acceptance *args:
 #
 # Fuel is deterministic for a given guest build and cost table, so the
 # verdict is unaffected by machine load and by the worker count
-# (AMP_BOARD_FUEL_THREADS): every cell runs in its own fresh guest instance,
-# because a fuel reading would otherwise depend on what earlier cells left in
-# the allocator. The ceilings record the compiler (read from the guest's own
-# `producers` section), Wasmtime version, and cost table they were calibrated
-# under, and the run refuses to judge a guest built under any other, or one
-# that embeds a path under the home directory; after a toolchain or Wasmtime
-# bump, re-derive them with `just amp-board-calibrate-fuel`. The members'
-# clippy runs here, since the workspace-wide clippy excludes them.
+# (AMP_BOARD_FUEL_THREADS): the guest gives each measured body a fresh heap,
+# so a reading never depends on what the cell's preparation left in the
+# heap, and every cell runs in its own fresh guest instance, so no other
+# state an earlier cell left reaches it. The harness's window test, run here
+# before the judgment, checks the first property on representative cells.
+# The ceilings record the compiler (read from the guest's own `producers`
+# section), Wasmtime version, and cost table they were calibrated under, and
+# the run refuses to judge a guest built under any other, or one that embeds
+# a path under the home directory; after a toolchain or Wasmtime bump,
+# re-derive them with `just amp-board-calibrate-fuel`. The members' clippy
+# runs here, since the workspace-wide clippy excludes them; the guest's runs
+# for wasm32, the only target it builds for.
 #
 # `--capture <file>` also writes the sweep's exact fuel readings, which
 # `just amp-board compare` compares like any board capture.
@@ -963,7 +967,9 @@ amp-board-fuel-build:
 amp-board-fuel *args: amp-board-fuel-build
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo clippy -p board-fuel-guest -p board-fuel-harness --all-targets --target-dir {{ board_fuel_target }} -- -D warnings
+    cargo clippy -p board-fuel-guest --target wasm32-unknown-unknown --target-dir {{ board_fuel_target }} -- -D warnings
+    cargo clippy -p board-fuel-harness --all-targets --target-dir {{ board_fuel_target }} -- -D warnings
+    BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo nextest run --release -p board-fuel-harness --target-dir {{ board_fuel_target }}
     if [[ ${1-} == --capture ]]; then
         tree="$({{ source_tree }})"
         export AMP_BOARD_SOURCE_TREE="$tree"

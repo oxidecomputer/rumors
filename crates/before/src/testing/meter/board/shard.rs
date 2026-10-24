@@ -23,13 +23,15 @@
 //! each is a deterministic counter read from state a child owns privately (its
 //! own global allocator, its own process globals), so neither the shard count
 //! nor which cells share a process with it can move a reading. A fuel reading
-//! is not: it counts the allocator's instructions too, and those depend on what
-//! earlier cells left in the same instance. A fuel run therefore deals one cell
-//! to each shard ([`max_useful_shards`] shards, each a fresh guest instance),
-//! and the merge refuses fuel readings from any other deal. The smoke suite
-//! exercises the round trip — emit, parse, reorder, re-judge — across two shard
-//! counts, so a break in the protocol or in the merge's board-order
-//! reconstruction is caught before any board of record is rendered.
+//! need not be: the guest gives each measured body a fresh heap, but state
+//! outside the heap, such as a lazily initialized static, carries from one
+//! cell to the next within an instance and would move whichever cell first
+//! touched it. A fuel run therefore deals one cell to each shard
+//! ([`max_useful_shards`] shards, each a fresh guest instance), and the merge
+//! refuses fuel readings from any other deal. The smoke suite exercises the
+//! round trip — emit, parse, reorder, re-judge — across two shard counts, so a
+//! break in the protocol or in the merge's board-order reconstruction is
+//! caught before any board of record is rendered.
 //!
 //! # The wire form
 //!
@@ -128,7 +130,27 @@ fn owns(
         index < count,
         "amp-board shard: index {index} out of range for {count} shards"
     );
-    (family_position * op_count + op_position) % count == index
+    deal_position(op_position, family_position, op_count) % count == index
+}
+
+/// The position of the grid cell at (`op_position`, `family_position`) in the
+/// family-outer linearization that [`owns`] deals round-robin.
+fn deal_position(op_position: usize, family_position: usize, op_count: usize) -> usize {
+    family_position * op_count + op_position
+}
+
+/// Returns the index of the shard that owns the cell of operation `op` and
+/// family `family` in the one-cell deal ([`max_useful_shards`] shards), or
+/// `None` if the board has no operation or family of that name.
+///
+/// In that deal every grid position is its own shard, so the index is the
+/// cell's deal position. The shard measures nothing when the family supplies
+/// no operand for the operation.
+pub fn cell_shard(op: &str, family: &str) -> Option<usize> {
+    let table = ops();
+    let op_position = table.iter().position(|candidate| candidate.name == op)?;
+    let family_position = FamilyId::board().position(|candidate| candidate.name() == family)?;
+    Some(deal_position(op_position, family_position, table.len()))
 }
 
 /// The largest shard count that can still receive work: the size of the

@@ -19,3 +19,5 @@ doctest = false
 # keep the operation table, and so the cell grid, identical to the native
 # board's.
 before = { workspace = true, features = ["meter", "serde", "borsh"] }
+# The heaps behind the guest's global allocator (the `window` module).
+dlmalloc = { workspace = true }

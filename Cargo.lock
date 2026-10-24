@@ -276,6 +276,7 @@ name = "board-fuel-guest"
 version = "0.0.0"
 dependencies = [
  "before",
+ "dlmalloc",
 ]
 
 [[package]]
@@ -780,6 +781,17 @@ checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "const-oid",
  "crypto-common 0.2.2",
+]
+
+[[package]]
+name = "dlmalloc"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-sys",
 ]
 
 [[package]]
