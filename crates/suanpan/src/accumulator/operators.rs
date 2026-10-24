@@ -231,7 +231,7 @@ macro_rules! forwarded_primitive_operators {
         }
 
         /// Subtract the owned right operand, as `-rhs + self`, reusing its
-        /// storage: the cost of `+=` plus O(`V`) for the negation.
+        /// storage: the cost of `+=` plus negating `rhs`, its value's width.
         impl Sub<Accumulator> for $operand {
             type Output = Accumulator;
 
@@ -404,7 +404,8 @@ impl Add<Accumulator> for &Accumulator {
 
 /// Subtract the owned right operand, as `-(rhs - self)`, reusing its storage.
 ///
-/// Takes the cost of `-=` with a borrowed operand plus O(`V`) for the negation.
+/// Takes the cost of `-=` with a borrowed operand plus negating the
+/// difference, its value's width.
 impl Sub<Accumulator> for &Accumulator {
     type Output = Accumulator;
 
@@ -457,7 +458,8 @@ impl<'a> Sum<&'a Accumulator> for Accumulator {
     }
 }
 
-/// Negate in place in O(`V`) time and O(1) additional space.
+/// Negate in place, in amortized O(1 + `Q`) time for a value `Q` limbs
+/// wide, and O(1) additional space.
 impl Neg for Accumulator {
     type Output = Accumulator;
 

@@ -229,9 +229,13 @@ impl Digits {
         self.highest_nonzero == 0 && self.digits[0] == 0
     }
 
-    /// Negate each stored digit; the symmetric range needs no carries.
+    /// Negate the value, compacting a cancelled top first.
+    ///
+    /// The comparison with zero leaves the top within two digits of the
+    /// value's width, and each stored digit through the top is then negated.
+    /// The symmetric digit range needs no carries.
     pub fn negate(&mut self) {
-        self.debug_assert_valid();
+        self.cmp_zero();
         for digit in &mut self.digits[..=self.highest_nonzero] {
             touch(1);
             *digit = -*digit;

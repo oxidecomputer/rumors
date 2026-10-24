@@ -397,7 +397,8 @@ fn merge_tie_reads_the_operand() {
 /// held digits, and shift assignment's total is independent of the shift.
 ///
 /// With `d` held digits:
-/// - unary `-` touches each digit once: `d`;
+/// - unary `-` reads the top digit to compare with zero, which settles on
+///   that digit, then touches each digit once: `d + 1`;
 /// - `clear` after `<<= 32` touches each written position once: the `d`
 ///   positions the shift wrote, and position zero, which every written set
 ///   holds: `d + 1`;
@@ -422,8 +423,8 @@ fn held_width_rows_cost_the_held_digits() {
         acc = -acc;
         assert_eq!(
             touch_meter::touches(),
-            held_digits,
-            "negation at {held_digits} held digits: one touch per digit"
+            held_digits + 1,
+            "negation at {held_digits} held digits: one deciding touch and one per digit"
         );
         acc = -acc;
 
@@ -880,17 +881,20 @@ fn accumulator_operands_cost_their_value_width() {
 }
 
 /// A value of 5 whose stored top cancels `k` digits up costs the same at
-/// every `k` to compare, round after round, and to add or `abs_diff` as an
-/// owned operand, because each of these asks its operands' signs, which
-/// compacts the cancelled top, before it chooses which operand to read.
+/// every `k` to compare, round after round, to add or `abs_diff` as an owned
+/// operand, and to negate.
+///
+/// Each of these compares with zero, which compacts the cancelled top, before
+/// it chooses what to read.
 ///
 /// The comparison runs three rounds on one accumulator, each rebuilding the
 /// cancelled top with the two writes of `cancelled_top` and then asking
 /// `five < 2^(32k)`; the rounds' writes cost O(1) once the storage reaches
 /// `k`. Owned addition and `abs_diff` meet `2^(32·(k/2))`, which is wider in
 /// value but narrower in stored width than the uncompacted 5, so reading the
-/// operand of narrower stored width would read `k/2` digits. Each count must
-/// be equal at `k` of 1,000 and 2,000, and far below either.
+/// operand of narrower stored width would read `k/2` digits. Negating the
+/// uncompacted 5 would otherwise negate `k` digits. Each count must be equal
+/// at `k` of 1,000 and 2,000, and far below either.
 #[test]
 fn a_cancelled_top_never_widens_what_a_choice_of_operand_reads() {
     let counts_at = |position: u64| -> Vec<u64> {
@@ -928,12 +932,18 @@ fn a_cancelled_top_never_widens_what_a_choice_of_operand_reads() {
         counts.push(touch_meter::touches());
         assert_eq!(order, Ordering::Less);
         assert_value(&gap, &(&half_value - 5));
+
+        let operand = five_under_top();
+        touch_meter::reset();
+        let negated = -operand;
+        counts.push(touch_meter::touches());
+        assert_value(&negated, &IBig::from(-5));
         counts
     };
     let (at_1_000, at_2_000) = (counts_at(1_000), counts_at(2_000));
     assert_eq!(
         at_1_000, at_2_000,
-        "comparisons, owned addition, and abs_diff cost the same at both widths"
+        "comparisons, owned addition, abs_diff, and negation cost the same at both widths"
     );
     assert!(
         at_1_000.iter().all(|&count| count <= 32),
@@ -1087,7 +1097,8 @@ fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
 /// value of `−2^(32p)` is wider and smaller: comparing it with zero folds the
 /// top digit into the one below (5), after which it is still the wider, the
 /// subtraction costs `1 + 2n`, the result's sign decides on the folded digit
-/// (1), and negation walks the `p` remaining digits: `p + 2n + 7`.
+/// (1), and negation decides once more (1) and walks the `p` remaining
+/// digits: `p + 2n + 8`.
 #[test]
 fn abs_diff_negates_within_the_result_width() {
     for position in [1_000u64, 2_000] {
@@ -1118,7 +1129,7 @@ fn abs_diff_negates_within_the_result_width() {
             assert_eq!(order, Ordering::Less);
             assert_eq!(
                 touch_meter::touches(),
-                position + 2 * narrow_digits + 7,
+                position + 2 * narrow_digits + 8,
                 "-2^(32·{position}) against {narrow_digits} digits"
             );
             assert_value(

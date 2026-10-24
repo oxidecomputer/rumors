@@ -116,7 +116,7 @@ is paid for twice. Additional space excludes inputs and returned output.
 | `clone` / `clone_from` | The magnitude read plus O(`Q`) | O(`Q`) for the copy; `clone_from` reuses the receiver's allocation |
 | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 | Working-width and known-zero queries | O(1) | O(1) |
-| Unary `-` | O(`V`) | O(1) |
+| Unary `-` | Amortized O(1 + `Q`), `Q` the value's width | O(1) |
 | `clear` | Amortized O(1) | O(1) |
 
 The logarithmic terms appear only in the rows for updates at a nonzero
