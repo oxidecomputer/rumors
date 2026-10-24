@@ -164,7 +164,8 @@ impl Grid {
 }
 
 /// A version's heights on the cells of one partition, as small integers
-/// ordered as the heights are: what [`Grid::order_view`] keeps.
+/// ordered as the heights are: what [`Grid::order_view`] keeps, or small
+/// heights themselves.
 ///
 /// Every operation compares two vectors over one partition, cell by cell,
 /// and panics if their lengths differ.

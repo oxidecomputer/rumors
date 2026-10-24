@@ -33,9 +33,10 @@ use proptest::test_runner::{Config, TestCaseError, TestRunner};
 
 use super::{
     bound_clause_among, down_clause_among, down_query, neutral_query, rendered_holes, selected,
-    up_clause_among, up_query, BoundClause, CausalOrder, DownClause, UpClause,
+    up_clause_among, up_query, BoundClause, CausalOrder, DownClause, FinerPool, Segment, UpClause,
 };
 use crate::causally::{Down, Polarity, Query, Up};
+use crate::testing::exhaustive::cell_heights;
 use crate::testing::generators::leaf_list::{arb_deep_version, arb_deep_version_triple};
 use crate::testing::generators::{divided_config, regime_floor, DEFAULT_CASES};
 use crate::testing::oracles::flat::census::{census, classify, Grid, Heights};
@@ -43,18 +44,6 @@ use crate::testing::oracles::flat::Version as FlatVersion;
 use crate::testing::rng::strategy_rng;
 use crate::testing::shape_rows::Leaf;
 use crate::{Span, Version};
-
-/// The pointwise order on height vectors over one partition, which on an
-/// order view equals the causal order of the versions read.
-impl CausalOrder for Heights {
-    fn le(&self, other: &Self) -> bool {
-        Heights::le(self, other)
-    }
-
-    fn lt(&self, other: &Self) -> bool {
-        Heights::le(self, other) && self != other
-    }
-}
 
 // ─────────────────────────────── anchors ───────────────────────────────
 
@@ -550,36 +539,20 @@ const SMALL_PARTITIONS: [(&[u64], u64); 4] = [
     (&[2, 2, 2, 2], 1),
 ];
 
-/// Every height vector over `cells` cells with each height in `0..=max`.
-fn every_heights(cells: usize, max: u64) -> Vec<Heights> {
-    let mut all = vec![Heights(Vec::with_capacity(cells))];
-    for _ in 0..cells {
-        all = all
-            .into_iter()
-            .flat_map(|prefix| {
-                (0..=max).map(move |height| {
-                    let mut next = prefix.clone();
-                    next.0.push(height);
-                    next
-                })
-            })
-            .collect();
-    }
-    all
-}
-
 /// Draws one of [`SMALL_PARTITIONS`] and returns every version on it with
 /// heights up to its largest: a complete grid, so segments between grid
 /// versions nest in every arrangement and hold grid versions strictly
 /// inside them.
 fn arb_small_grid() -> impl Strategy<Value = Vec<FlatVersion>> {
     prop::sample::select(SMALL_PARTITIONS.to_vec()).prop_map(|(depths, max)| {
-        every_heights(depths.len(), max)
+        let cells =
+            u32::try_from(depths.len()).expect("a small partition's cell count fits in u32");
+        cell_heights(cells, max)
             .iter()
             .map(|heights| {
                 let rows: Vec<Leaf> = depths
                     .iter()
-                    .zip(&heights.0)
+                    .zip(heights)
                     .map(|(&depth, &height)| Leaf {
                         depth,
                         height: BigUint::from(height),
@@ -595,85 +568,31 @@ fn arb_small_grid() -> impl Strategy<Value = Vec<FlatVersion>> {
 /// grid's size by [`selected`].
 const GRID_PICKS: Range<usize> = 0..32;
 
-/// A segment between two versions of a small grid.
-struct Segment {
-    /// The grid index of the segment's bottom.
-    lo: usize,
-    /// The grid index of the segment's top.
-    hi: usize,
-    /// The indices of the finer pool's members inside the segment.
-    inside: Vec<usize>,
+/// Reads a small grid on its cells halved, beside its [`FinerPool`].
+///
+/// # Panics
+///
+/// If a height does not fit in `u64`, which no small grid's does.
+fn finer_pool(pool: &[FlatVersion]) -> FinerPool {
+    let grid = Grid::new(pool);
+    let height = |h: &BigUint| u64::try_from(h).expect("a small grid's heights fit in u64");
+    let heights: Vec<Vec<u64>> = (0..pool.len())
+        .map(|i| grid.heights(i).iter().map(height).collect())
+        .collect();
+    FinerPool::new(&heights)
 }
 
-/// A small grid read two ways: through its order view, by the census, and
-/// on its cells halved, by the finer pool.
-struct FinerPool {
-    /// The grid's order view, which the census reads.
-    view: Vec<Heights>,
-    /// Each grid version's heights on the halved cells.
-    lifted: Vec<Heights>,
-    /// Every height vector on the halved cells with heights up to the
-    /// grid's largest.
-    fine: Vec<Heights>,
-    /// Every segment between grid versions.
-    segments: Vec<Segment>,
-}
-
-impl FinerPool {
-    /// Reads a small grid both ways and lists its segments.
-    fn new(pool: &[FlatVersion]) -> FinerPool {
-        let grid = Grid::new(pool);
-        let view = grid.order_view();
-        let height = |h: &BigUint| u64::try_from(h).expect("a small grid's heights fit in u64");
-        let lifted: Vec<Heights> = (0..pool.len())
-            .map(|i| {
-                Heights(
-                    grid.heights(i)
-                        .iter()
-                        .flat_map(|h| [height(h), height(h)])
-                        .collect(),
-                )
-            })
-            .collect();
-        let max = lifted
-            .iter()
-            .flat_map(|h| h.0.iter().copied())
-            .max()
-            .unwrap_or(0);
-        let fine = every_heights(2 * grid.depths().len(), max);
-        let indices = 0..view.len();
-        let segments = indices
-            .clone()
-            .flat_map(|lo| indices.clone().map(move |hi| (lo, hi)))
-            .filter(|&(lo, hi)| view[lo].le(&view[hi]))
-            .map(|(lo, hi)| Segment {
-                lo,
-                hi,
-                inside: (0..fine.len())
-                    .filter(|&m| lifted[lo].le(&fine[m]) && fine[m].le(&lifted[hi]))
-                    .collect(),
-            })
-            .collect();
-        FinerPool {
-            view,
-            lifted,
-            fine,
-            segments,
-        }
-    }
-
-    /// Whether some segment rejects both its endpoints under query `which`
-    /// yet holds a finer member the query admits: a segment on which a
-    /// census that missed its interior witness would answer `Empty` for
-    /// `Partial`.
-    fn has_interior_witness(&self, clauses: &Clauses, which: Which) -> bool {
-        let admits = |probe: &Heights| clauses.admits(which, probe, &self.lifted);
-        self.segments.iter().any(|segment| {
-            !admits(&self.lifted[segment.lo])
-                && !admits(&self.lifted[segment.hi])
-                && segment.inside.iter().any(|&m| admits(&self.fine[m]))
-        })
-    }
+/// Whether some segment of `finer` rejects both its endpoints under query
+/// `which` yet holds a finer member the query admits: a segment on which a
+/// census that missed its interior witness would answer `Empty` for
+/// `Partial`.
+fn has_interior_witness(finer: &FinerPool, clauses: &Clauses, which: Which) -> bool {
+    let admits = |probe: &Heights| clauses.admits(which, probe, &finer.lifted);
+    finer.segments.iter().any(|segment| {
+        !admits(&finer.lifted[segment.lo])
+            && !admits(&finer.lifted[segment.hi])
+            && segment.fine_members.iter().any(|&m| admits(&finer.fine[m]))
+    })
 }
 
 /// The case divisor of [`census_agrees_with_a_finer_pool`]: one, so it runs
@@ -685,8 +604,8 @@ proptest! {
     #![proptest_config(divided_config(VALIDATOR_DIVISOR))]
 
     /// The census holds a witness for every coverage verdict: on small
-    /// grids it agrees with a count over a finer pool that realizes every
-    /// verdict a covered version can receive.
+    /// grids it agrees with the count over a [`FinerPool`], which realizes
+    /// every verdict a covered version can receive.
     ///
     /// Each case takes every version on a partition of two to four cells,
     /// with heights up to a small maximum, and conjunctions from the parent
@@ -699,24 +618,14 @@ proptest! {
     /// the query admits strictly inside, between rejected endpoints; a
     /// complete grid holds such segments for every anchor that falls
     /// strictly inside one.
-    ///
-    /// The finer pool is complete for these verdicts. Each clause compares
-    /// a probe with an anchor constant on every cell of the partition, and
-    /// `p <= a` holds exactly when `p`'s maximum on each cell is at most
-    /// `a`'s height there, `a <= p` exactly when `p`'s minimum is at least
-    /// it; the strict forms and equality combine the two. So a conjunction's
-    /// verdict depends only on the probe's minimum and maximum on each cell.
-    /// A version inside a segment takes integer heights between the
-    /// endpoints' on each cell, and the two halves of a cell realize every
-    /// such pair. The finer count judges membership by the clauses'
-    /// relations in the pointwise order, so no production code takes part.
     #[test]
     fn census_agrees_with_a_finer_pool(
         pool in arb_small_grid(),
         clauses in arb_clauses(GRID_PICKS, 3, 3),
     ) {
-        let FinerPool { view, lifted, fine, segments } = FinerPool::new(&pool);
-        for Segment { lo, hi, inside } in &segments {
+        let view = Grid::new(&pool).order_view();
+        let FinerPool { lifted, fine, segments } = finer_pool(&pool);
+        for Segment { lo, hi, fine_members, .. } in &segments {
             let (lo, hi) = (*lo, *hi);
             for which in EVERY_QUERY {
                 let anchors = clauses.anchors(which);
@@ -726,13 +635,13 @@ proptest! {
                     anchors.iter().map(|&at| selected(&view, at)),
                     |probe| clauses.admits(which, probe, &view),
                 );
-                let admitted = inside
+                let admitted = fine_members
                     .iter()
                     .filter(|&&m| clauses.admits(which, &fine[m], &lifted))
                     .count();
                 prop_assert_eq!(
                     coarse,
-                    classify(admitted, inside.len()),
+                    classify(admitted, fine_members.len()),
                     "{:?} census of the segment from grid version {} to {}",
                     which,
                     lo,
@@ -891,7 +800,7 @@ fn census_cases_keep_mass_on_their_regimes() {
     let grids: Vec<(FinerPool, Clauses)> =
         floor_corpus((arb_small_grid(), arb_clauses(GRID_PICKS, 3, 3)))
             .into_iter()
-            .map(|(pool, clauses)| (FinerPool::new(&pool), clauses))
+            .map(|(pool, clauses)| (finer_pool(&pool), clauses))
             .collect();
     let count = |corpus: &[Reach], in_regime: fn(&Reach) -> bool| {
         corpus.iter().filter(|reach| in_regime(reach)).count()
@@ -899,7 +808,7 @@ fn census_cases_keep_mass_on_their_regimes() {
     let with_interior = |which: Which| {
         grids
             .iter()
-            .filter(|(finer, clauses)| finer.has_interior_witness(clauses, which))
+            .filter(|(finer, clauses)| has_interior_witness(finer, clauses, which))
             .count()
     };
     let validator_floor = regime_floor(FLOOR_CASES, VALIDATOR_DIVISOR);
