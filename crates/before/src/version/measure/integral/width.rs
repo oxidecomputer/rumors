@@ -216,9 +216,9 @@ impl SparseWidth {
                 let offset = usize::try_from(index - floor_index).expect("inside the cluster span");
                 parts[usize::from(digit.is_negative())].insert(offset, digit.unsigned_abs() as u32);
             }
-            for (part_sign, part) in [Sign::Plus, Sign::Minus].into_iter().zip(&parts) {
+            for (part_sign, part) in [Sign::Plus, Sign::Minus].into_iter().zip(parts) {
                 if !part.is_empty {
-                    let product = height * &BigUint::from_bytes_le(&part.bytes);
+                    let product = height * &BigUint::new(part.digits);
                     if sign == part_sign {
                         total.add_shifted_limbs(32 * floor_index, product.iter_u64_digits());
                     } else {
@@ -230,41 +230,40 @@ impl SparseWidth {
     }
 }
 
-/// One unsigned sign-part of a dense cluster, stored as little-endian bytes.
+/// One unsigned sign-part of a dense cluster, as little-endian base-2^32
+/// digits.
 struct DensePart {
-    /// Four bytes per base-2^32 digit, including interior zeros.
-    bytes: Vec<u8>,
+    /// One digit per position of the cluster's span, including interior zeros.
+    digits: Vec<u32>,
     /// No multiplication is needed until a digit has been inserted.
     is_empty: bool,
 }
 
 /// Fill only the selected sign's digits within a cluster's relative span.
 impl DensePart {
-    /// Allocate zero-filled bytes for a cluster's digit span.
+    /// Allocate zeroed digits for a cluster's span.
     ///
-    /// The byte length `4 * span` cannot overflow on any target. A width sums
-    /// disjoint region widths `2^(S - d)`, where `S` is the integral's common
-    /// tree depth, so it never exceeds `2^S`. Its balanced digits therefore sit
-    /// at indices `0..=S/32 + 1`, and `span <= S/32 + 2`. The deepest version's
-    /// stream stores at least one bit per level of depth, so
-    /// `4 * span <= S/8 + 8` exceeds that stream's byte length by at most
-    /// eight, and no stored byte length exceeds `isize::MAX`.
+    /// The allocation, `4 * span` bytes, cannot exceed `isize::MAX` on any
+    /// target. A width sums disjoint region widths `2^(S - d)`, where `S` is
+    /// the integral's common tree depth, so it never exceeds `2^S`. Its
+    /// balanced digits therefore sit at indices `0..=S/32 + 1`, so
+    /// `span <= S/32 + 2` and `4 * span <= S/8 + 8`. The deepest version has
+    /// depth `S`, so it has at least `S` internal nodes and `S + 1` leaves;
+    /// its stream spends a topology bit on every node and at least one
+    /// payload bit on every leaf, at least `3S + 2` bits in all. For
+    /// `S >= 31`, `S/8 + 8` is at most `(3S + 2)/8`, so the allocation is no
+    /// larger than that stream, whose byte length is at most `isize::MAX`;
+    /// for smaller `S`, `span <= 2`.
     fn new(span: usize) -> Self {
-        let len = span
-            .checked_mul(4)
-            .expect("4 * span <= S/8 + 8, at most eight past the deepest stream's byte length, so it fits usize");
-        let bytes = vec![0; len];
         Self {
-            bytes,
+            digits: vec![0; span],
             is_empty: true,
         }
     }
 
     /// Place a nonzero digit. Sparse digit indices are unique, so slots never overlap.
     fn insert(&mut self, index: usize, digit: u32) {
-        // `index < span`, so `offset + 4 <= 4 * span`, which `new` checked.
-        let offset = index * 4;
-        self.bytes[offset..offset + 4].copy_from_slice(&digit.to_le_bytes());
+        self.digits[index] = digit;
         self.is_empty = false;
     }
 }
