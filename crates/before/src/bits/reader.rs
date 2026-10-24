@@ -232,10 +232,9 @@ impl<'a> BitsReader<'a> {
     /// unary read plus a bit discard.
     pub(crate) fn skip_gamma(&mut self) -> Result<(), Truncated> {
         let k = self.unary_raw()?;
-        let code_len = 2 * k + 1;
-        if self.position + code_len > self.len {
+        let Some(code_len) = gamma::code_len_within(k, self.len - self.position) else {
             return Err(self.truncated());
-        }
+        };
         let mut remaining = k;
         while remaining > 0 {
             let chunk = remaining.min(u64::from(u64::BITS));

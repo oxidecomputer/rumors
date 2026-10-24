@@ -42,6 +42,20 @@ where
     Ok(mantissa - 1u32)
 }
 
+/// The length of a gamma code with `zeros` leading zeros, `2 · zeros + 1`,
+/// if it fits within `remaining` bits.
+///
+/// A run of 2^63 zeros or more fits in a stream of fewer than 2^64 bits, but
+/// its code's length does not fit a `u64`, so the length is computed with
+/// checked arithmetic and compared against the remainder rather than summed
+/// with a position.
+pub(super) fn code_len_within(zeros: u64, remaining: u64) -> Option<u64> {
+    zeros
+        .checked_mul(2)
+        .and_then(|prefix_and_mantissa| prefix_and_mantissa.checked_add(1))
+        .filter(|&code_len| code_len <= remaining)
+}
+
 /// Decode with table, word, and arbitrary-width paths over a bounded reader.
 pub(super) fn decode(reader: &mut BitsReader<'_>) -> Result<BigUint, Decode> {
     if reader.len - reader.position >= gamma_tables::READ_BITS as u64 {
@@ -53,11 +67,10 @@ pub(super) fn decode(reader: &mut BitsReader<'_>) -> Result<BigUint, Decode> {
     }
 
     let zeros = reader.unary_raw().map_err(|_| Decode::Truncated)?;
-    let code_len = 2 * zeros + 1;
-    if reader.position + code_len > reader.len {
+    let Some(code_len) = code_len_within(zeros, reader.len - reader.position) else {
         reader.truncated();
         return Err(Decode::Truncated);
-    }
+    };
 
     if zeros < u64::from(u64::BITS) {
         let rest = reader
