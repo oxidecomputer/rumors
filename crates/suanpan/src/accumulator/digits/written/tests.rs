@@ -46,8 +46,9 @@ enum Op {
     /// Clear from the oracle's least position other than zero, less the first
     /// slack, through its largest position, plus the second, as `Digits`
     /// clears from its floor through its top, leaving position zero alone.
-    /// Nothing happens unless the history's first insertion was of position
-    /// zero, which `clear` requires.
+    ///
+    /// Nothing happens unless the history was seeded with position zero,
+    /// which `clear` requires.
     Clear(usize, usize),
 }
 
