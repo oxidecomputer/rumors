@@ -484,9 +484,9 @@ macro_rules! shifts {
         ///
         /// # Complexity
         ///
-        /// Let `A` be the old working width and `S` the result's. A nonzero
-        /// value shifts in amortized O(`A` log(`S` + 1) + `S`) time and O(`S`)
-        /// temporary space, because the old and new allocations may coexist.
+        /// Let `S` be the result's working width. A nonzero value shifts in
+        /// amortized O(`S`) time and O(`S`) temporary space, because the old
+        /// and new allocations may coexist.
         /// A zero shifts in O(1) space and in the amortized time of
         /// [`sign`](Accumulator::sign).
         ///
@@ -517,8 +517,9 @@ macro_rules! shifts {
 
         /// Multiply a borrowed accumulator by `2^shift` into a new one.
         ///
-        /// Takes the cost of [`add_shifted`](Accumulator::add_shifted) into
-        /// zero.
+        /// Takes the time of `<<=`, and the result's O(`S`) space. The shift
+        /// is a read: it normalizes the borrowed accumulator in place, as a
+        /// magnitude read does, and builds the result in new storage.
         ///
         /// # Panics
         ///
@@ -527,11 +528,7 @@ macro_rules! shifts {
             type Output = Accumulator;
 
             fn shl(self, shift: $integer) -> Accumulator {
-                let mut shifted = Accumulator::new();
-                if let Some(shift) = self.read(|value| value.addressable_shift(shift_count(shift))) {
-                    shifted.add_shifted(shift, self);
-                }
-                shifted
+                Accumulator::from_value(self.read(|value| value.shifted(shift_count(shift))))
             }
         }
 

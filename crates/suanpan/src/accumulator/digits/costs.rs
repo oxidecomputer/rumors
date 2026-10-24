@@ -524,16 +524,30 @@
 //!   position 5, leaving a value of at most six positions, and the read that
 //!   follows costs O(1) by "Reads". The comparison it begins with decides at
 //!   once on the form the query left.
-//! - A nonzero shift of a value stored in digits compares it with zero, then
-//!   moves it into new digits with one shifted accumulator update and
-//!   releases the old storage. The new digits start empty, with a new
-//!   written set, so the update's growth and every climb it makes are
-//!   bounded by `S`, and the accumulator row gives
-//!   O(`A` log(`S` + 1) + `S`). A small value instead makes at most four
-//!   deposits of one sign into the receiver's own retained digits, all within
-//!   the shifted value's span, so the argument under "Updates" bounds their
-//!   far costs by that span. The first of them jumps over the run `0..1` that
-//!   activation or the last reset left, which costs O(1) by "Clears".
+//! - A nonzero shift of a value stored in digits, in any spelling of `<<`,
+//!   normalizes the value in place, then moves it into new digits with one
+//!   shifted accumulator update. `<<=` and an owned `<<` then release the old
+//!   storage; a borrowed `<<` leaves it, normalized, with its owner. The
+//!   normalization is a read of the whole value, amortized O(1 + `S`) by
+//!   "Reads", since the value's width is at most `S`. Every normalized digit
+//!   has the value's sign, so the update is of one sign, and it starts from
+//!   zero in new digits with a new written set. As in "Updates of one sign",
+//!   its top never falls, so it descends nowhere and truncates nothing, and
+//!   each bitset word it fills it fills once; those words number at most one
+//!   per 63 positions of the result. Its deposits, its buffer and bitset
+//!   growth, and the potential it leaves are each O(`S`) as well, so the shift
+//!   costs amortized O(`S`). Normalizing can fill a run of zero digits with
+//!   digits of magnitude `B - 1`, where a borrow crosses it, so the update
+//!   deposits at positions that the stored digits left at zero; it still
+//!   deposits at most once per position of the value's width. The normalization
+//!   can also add one digit to the old buffer, which reallocates a full buffer;
+//!   that buffer then ends at the old top, so the copy and the two buffers held
+//!   during it are the value's width, within O(`S`). A small value instead
+//!   makes at most four deposits of one sign into the digits it activates, the
+//!   receiver's retained ones for `<<=` and new ones for a borrowed `<<`, all
+//!   within the shifted value's span, so the argument under "Updates" bounds
+//!   their far costs by that span. The first of them jumps over the run `0..1`
+//!   that activation or the last reset left, which costs O(1) by "Clears".
 //! - A clone normalizes its source, a read, then copies the `Q` positions of
 //!   the value into a written set of position zero and one run, which needs
 //!   no bitset. The copy's potential, at most 1/2 per digit and one per held

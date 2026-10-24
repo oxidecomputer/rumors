@@ -99,7 +99,8 @@ rather than the value's bit length, through these quantities:
 - `R` is the receiver's *written span*, from the lowest position written
   since creation or the last reset up to its working width. A shift moves
   the written span with the value.
-- `Q` is the width of a read's result.
+- `Q` is the width of a read's result, and `S` the working width of a
+  shift's result.
 
 Amortized bounds hold over the whole sequence of operations: one call may
 finish carry or cancellation work that earlier calls prepared, but no work
@@ -110,6 +111,7 @@ is paid for twice. Additional space excludes inputs and returned output.
 | `+=` / `-=` a primitive | Amortized O(1) | Amortized O(1) retained |
 | Add or subtract `L` limbs | Amortized O(`L`) at shift 0; amortized O(`L` + `G` + log(`W` + 1)) at a nonzero shift | Amortized O(`L` + `G`) retained |
 | Add or subtract an accumulator | Amortized O(`A`) at shift 0; amortized O(`A` log(`W` + 1) + `G`) at a nonzero shift | Amortized O(`A` + `G`) retained |
+| Nonzero `<<` or `<<=`, any spelling | Amortized O(`S`) | O(`S`) temporary |
 | Sign queries, `cmp_zero_stable_under`, comparison with a primitive, and primitive `TryFrom` | Amortized O(1) | O(1) |
 | `abs_diff` | Amortized O(`A`), `A` the narrower; plus O(`V`), `V` the wider operand's working width, to negate the result when the wider operand is negative and the smaller | Amortized O(1) retained beyond the wider operand's storage |
 | Compare two accumulators | Amortized O(`A`), `A` the narrower; amortized O(1) when one is far wider and its top decides the order | O(`A`) temporary |

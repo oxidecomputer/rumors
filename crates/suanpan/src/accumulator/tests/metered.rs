@@ -390,14 +390,15 @@ fn merge_tie_reads_the_operand() {
 /// - unary `-` touches each digit once: `d`;
 /// - `reset` after `<<= 32` touches each written digit once: `d`, because
 ///   the shift moved the span up one position and left digit zero unwritten;
-/// - `<<=` reads the top digit to rule out zero, then reads and re-deposits
-///   each digit: `2d + 1`. The top digit, `2^32 - 1`, settles the zero check
-///   alone, and the total is the same at a thousandfold larger shift;
+/// - `<<=` reads the top digit to rule out zero, normalizes the held digits
+///   in one pass, then reads and re-deposits each digit: `3d + 1`. The top
+///   digit, `2^32 - 1`, settles the zero check alone, and the total is the
+///   same at a thousandfold larger shift;
 /// - a magnitude read decides the sign on that same top digit, then
 ///   normalizes the span in one pass: `d + 1`.
 ///
 /// Exact equality across the width doubling is the linearity claim, with no
-/// slack for a hidden second pass.
+/// slack for a pass the list above does not name.
 #[test]
 fn held_width_rows_cost_the_held_digits() {
     for bits in [2_048u32, 4_096] {
@@ -440,9 +441,10 @@ fn held_width_rows_cost_the_held_digits() {
         acc <<= 32;
         assert_eq!(
             touch_meter::touches(),
-            2 * held_digits + 1,
+            3 * held_digits + 1,
             "shift assignment at {held_digits} held digits: one read of the top digit \
-             to rule out zero, then one read and one re-deposit per digit"
+             to rule out zero, one normalizing touch per digit, then one read and one \
+             re-deposit per digit"
         );
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
@@ -468,8 +470,8 @@ fn held_width_rows_cost_the_held_digits() {
     acc <<= 32_000;
     assert_eq!(
         touch_meter::touches(),
-        129,
-        "<<= 32_000 at 64 held digits: the same top-digit read and 2 touches \
+        193,
+        "<<= 32_000 at 64 held digits: the same top-digit read and 3 touches \
          per held digit as <<= 32"
     );
     let (sign, magnitude) = acc.sign_biguint();
