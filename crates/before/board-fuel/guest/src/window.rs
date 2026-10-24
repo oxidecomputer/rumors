@@ -24,10 +24,9 @@
 //! - a block belongs to the window heap if it lies at or above the window's
 //!   *base*, the linear-memory size in pages when the window opened;
 //! - freeing a window-heap block returns it to the window heap;
-//! - freeing an older block is *deferred*: the block is queued, and freed only
-//!   after the window closes;
+//! - freeing an older block does nothing: the block stays allocated;
 //! - reallocating an older block allocates the new block from the window
-//!   heap, copies the contents, and defers freeing the old block.
+//!   heap, copies the contents, and leaves the old block allocated.
 //!
 //! Ownership by address is sound because nothing but the window heap grows
 //! linear memory while a window is open: the ordinary heap receives no calls
@@ -49,19 +48,20 @@
 //! The fuel spent inside a window is thus the window heap's work for the
 //! body's own allocations; a copy of each older block the body reallocates,
 //! whose cost grows with the block's size; and a fixed cost on every
-//! allocator call, a few dozen instructions for the lock, the routing, the
-//! ownership or base check, and queueing a deferred free. It depends only on
-//! the sequence of allocator calls the body makes.
+//! allocator call, a few dozen instructions for the lock, the routing, and the
+//! ownership or base check. It depends only on the sequence of allocator calls
+//! the body makes.
 //!
 //! When a window closes, its heap retires: the pages it grew are recorded, and
 //! a later free of one of its blocks is dropped, because a retired heap never
 //! allocates again and returning a block to it would serve nothing. The
-//! retired memory stays allocated until the instance ends. The harness runs
-//! one cell per instance, and each of the cell's samples opens one window, so
-//! the retired heaps keep at most the memory those windows grew. The deferred
-//! frees are then replayed against the ordinary heap, in the order the body
-//! made them, so the ordinary heap ends as if those frees had followed the
-//! window.
+//! retired memory stays allocated until the instance ends, and so does every
+//! older block the body freed or reallocated, such as an operand it consumed:
+//! the ordinary heap never reuses it. Neither costs the reading anything, and
+//! the memory comes back when the instance ends. The harness runs one cell per
+//! instance, and each of the cell's samples opens one window, so the memory an
+//! instance holds but no longer uses is at most what that cell's windows grew,
+//! plus the older blocks their bodies freed or reallocated.
 
 use std::alloc::{GlobalAlloc, Layout};
 use std::arch::wasm32;
@@ -92,7 +92,6 @@ static HEAPS: SpinMutex<Heaps> = SpinMutex::new(Heaps {
         retired: RetiredPages([0; MAX_PAGES / 64]),
     },
     window: None,
-    live: 0,
 });
 
 /// Locks the heaps.
@@ -126,10 +125,6 @@ struct Heaps {
     ordinary: OrdinaryHeap,
     /// The open window, if one is open.
     window: Option<Window>,
-    /// The number of blocks allocated and not yet freed, from any heap.
-    ///
-    /// [`enter`] sizes the deferred-free queue by it.
-    live: usize,
 }
 
 /// The heap that serves every call outside a measured window.
@@ -150,23 +145,6 @@ struct Window {
     /// heap's blocks lie on this page or above it; every older block lies
     /// below it.
     base: usize,
-    /// The frees of older blocks made inside the window, to replay once it
-    /// closes.
-    ///
-    /// [`enter`] gives it room for one entry per block live when the window
-    /// opened, and a block is freed at most once, so no push reallocates.
-    deferred: Vec<Deferred>,
-}
-
-/// A deferred free: the block's address and the layout it was allocated with.
-///
-/// The address is kept as an integer with its provenance exposed, because a
-/// raw pointer is not `Send` and the queue lives in a `static`.
-struct Deferred {
-    /// The block's address.
-    address: usize,
-    /// The block's layout.
-    layout: Layout,
 }
 
 /// A set of wasm pages, one bit per page.
@@ -239,27 +217,6 @@ impl Window {
         block
     }
 
-    /// Queues the free of `block`, an older block, for replay after the
-    /// window closes.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the queue is full. It cannot be: [`enter`] gives the queue
-    /// room for every block live when the window opened, and each of them is
-    /// freed at most once.
-    fn defer(&mut self, block: *mut u8, layout: Layout) {
-        assert!(
-            self.deferred.len() < self.deferred.capacity(),
-            "a window defers at most one free per block live when it opened"
-        );
-        // `Vec` never reallocates while its capacity suffices, so this push
-        // allocates nothing.
-        self.deferred.push(Deferred {
-            address: block.expose_provenance(),
-            layout,
-        });
-    }
-
     /// Reallocates `block` to `new_size` bytes inside the window.
     ///
     /// # Safety
@@ -277,17 +234,28 @@ impl Window {
             return self.checked(moved);
         }
         // SAFETY: The caller upholds `realloc`'s contract for `block`,
-        // `layout`, and `new_size`.
+        // `layout`, and `new_size`. The older block is left allocated.
         let moved = unsafe { reallocate_by_copy(&mut self.heap, block, layout, new_size) };
-        let moved = self.checked(moved);
-        if !moved.is_null() {
-            self.defer(block, layout);
-        }
-        moved
+        self.checked(moved)
     }
 }
 
 impl OrdinaryHeap {
+    /// Makes one allocation from the ordinary heap and frees it.
+    ///
+    /// An empty heap's first allocation always reaches `dlmalloc`'s backend,
+    /// so afterwards the ordinary heap has asked the backend for memory before
+    /// any window heap does (the module docs' premise).
+    fn prime(&mut self) {
+        // SAFETY: One byte at alignment one is a layout of nonzero size.
+        let block = unsafe { self.heap.malloc(1, 1) };
+        if !block.is_null() {
+            // SAFETY: `block` is live, and the ordinary heap allocated it with
+            // size one and alignment one.
+            unsafe { self.heap.free(block, 1, 1) };
+        }
+    }
+
     /// Frees `block` outside any window: into the ordinary heap, or nowhere if
     /// it belongs to a retired window heap.
     ///
@@ -368,7 +336,7 @@ impl Heaps {
     #[inline(always)]
     unsafe fn allocate(&mut self, layout: Layout, zeroed: bool) -> *mut u8 {
         let (size, align) = (layout.size(), layout.align());
-        let block = match &mut self.window {
+        match &mut self.window {
             Some(window) => {
                 // SAFETY: The caller guarantees `layout` has a nonzero size.
                 let block = unsafe {
@@ -388,11 +356,7 @@ impl Heaps {
                     self.ordinary.heap.malloc(size, align)
                 }
             },
-        };
-        if !block.is_null() {
-            self.live += 1;
         }
-        block
     }
 }
 
@@ -419,15 +383,16 @@ unsafe impl GlobalAlloc for WindowAllocator {
     unsafe fn dealloc(&self, block: *mut u8, layout: Layout) {
         let mut guard = lock();
         let heaps = &mut *guard;
-        heaps.live -= 1;
         match &mut heaps.window {
-            Some(window) if window.owns(block.addr()) => {
-                // SAFETY: The caller guarantees `block` is live and was
-                // allocated with `layout`, and it lies at or above the base,
-                // so the window heap allocated it.
-                unsafe { window.heap.free(block, layout.size(), layout.align()) }
+            Some(window) => {
+                // An older block stays allocated (the module docs say why).
+                if window.owns(block.addr()) {
+                    // SAFETY: The caller guarantees `block` is live and was
+                    // allocated with `layout`, and it lies at or above the
+                    // base, so the window heap allocated it.
+                    unsafe { window.heap.free(block, layout.size(), layout.align()) }
+                }
             }
-            Some(window) => window.defer(block, layout),
             // SAFETY: The caller guarantees `block` is live and was allocated
             // with `layout`, and no window is open.
             None => unsafe { heaps.ordinary.release(block, layout) },
@@ -457,54 +422,34 @@ unsafe impl GlobalAlloc for WindowAllocator {
 ///
 /// Panics if a window is already open.
 pub fn enter() {
-    let live = lock().live;
-    // The queue is allocated from the ordinary heap, before the window opens,
-    // with room for every block live now: each can be freed at most once
-    // inside the window. It holds at least one entry, so that the ordinary
-    // heap has always allocated before a window heap first asks for memory
-    // (the module docs' premise about `dlmalloc`'s wasm backend).
-    let deferred = Vec::with_capacity(live.max(1));
+    let mut heaps = lock();
+    assert!(heaps.window.is_none(), "measured windows do not nest");
+    heaps.ordinary.prime();
+    // The base is read after the ordinary heap's priming, which can grow
+    // linear memory.
     let mut window = Window {
         heap: Dlmalloc::new(),
         base: memory_pages(),
-        deferred,
     };
     window.prime();
-    let mut heaps = lock();
-    assert!(heaps.window.is_none(), "measured windows do not nest");
     heaps.window = Some(window);
 }
 
-/// Closes the measured window: retires its heap, and replays the frees it
-/// deferred against the ordinary heap.
+/// Closes the measured window and retires its heap.
 ///
 /// The guest's `exit_window` hook calls this just after the final fuel read,
-/// so the replay stays out of the reading.
+/// so retiring the heap stays out of the reading.
 ///
 /// # Panics
 ///
 /// Panics unless a window is open.
 pub fn exit() {
-    let deferred = {
-        let mut guard = lock();
-        let heaps = &mut *guard;
-        // Dropping the window heap leaves its memory allocated: `Dlmalloc`
-        // has no destructor.
-        let Some(Window { base, deferred, .. }) = heaps.window.take() else {
-            panic!("a measured window closes only after it opens");
-        };
-        heaps.ordinary.retired.insert(base..memory_pages());
-        for entry in &deferred {
-            let block = ptr::with_exposed_provenance_mut(entry.address);
-            // SAFETY: `block` was live, allocated with `entry.layout`, when
-            // the window deferred its free; nothing else frees a block whose
-            // free was deferred; and it lies below the base, so the closed
-            // window's heap does not own it.
-            unsafe { heaps.ordinary.release(block, entry.layout) };
-        }
-        deferred
+    let mut guard = lock();
+    let heaps = &mut *guard;
+    // Dropping the window heap leaves its memory allocated: `Dlmalloc` has no
+    // destructor.
+    let Some(Window { base, .. }) = heaps.window.take() else {
+        panic!("a measured window closes only after it opens");
     };
-    // The queue is freed here, through the global allocator, once the lock is
-    // released.
-    drop(deferred);
+    heaps.ordinary.retired.insert(base..memory_pages());
 }

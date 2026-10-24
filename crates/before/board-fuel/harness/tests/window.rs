@@ -20,7 +20,7 @@ const CELLS: [(&str, &str); 6] = [
     // Folds many spans: a long sequence of allocations and frees.
     ("span_join_all", "scatter"),
     // Decodes a version, then drops its input bytes inside the window: a
-    // deferred free of a block allocated before the window.
+    // free of a block allocated before the window, which stays allocated.
     ("version_decode", "hugeleaf"),
     // Deserializes a clock, likewise dropping its input bytes in the window.
     ("clock_borsh_deserialize", "hoisted-window"),
