@@ -106,10 +106,9 @@ pub fn run(program: &Program) -> Run {
         .instantiate(&mut store, module)
         .expect("the guest instantiates");
 
-    let words = program.encode();
-    let length = u32::try_from(words.len()).expect("an encoded program fits a wasm32 buffer");
+    let bytes = program.encode();
+    let length = u32::try_from(bytes.len()).expect("an encoded program fits a wasm32 buffer");
     let address = call::<u32, u32>(&mut store, &instance, "input_buffer", length);
-    let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
     memory(&mut store, &instance)
         .write(&mut store, address as usize, &bytes)
         .expect("the input buffer holds the program");

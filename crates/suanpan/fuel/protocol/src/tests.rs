@@ -2,6 +2,9 @@ use proptest::prelude::*;
 
 use super::*;
 
+/// The most members a generated sum names.
+const SUM_TERMS: usize = 5;
+
 /// Generates any member.
 fn arb_member() -> impl Strategy<Value = Member> {
     (0..POOL).prop_map(|index| Member::new(index).expect("an index below POOL names a member"))
@@ -95,7 +98,7 @@ fn arb_step() -> impl Strategy<Value = Step> {
         }),
         (
             arb_member(),
-            proptest::collection::vec(arb_member(), 0..=MAX_SUM_TERMS),
+            proptest::collection::vec(arb_member(), 0..=SUM_TERMS),
             any::<bool>()
         )
             .prop_map(|(receiver, members, owned)| Step::Sum {
@@ -121,60 +124,96 @@ proptest! {
         prop_assert_eq!(Program::decode(&program.encode()), Ok(program));
     }
 
-    /// An encoding with words removed from its end, or with a word appended,
-    /// is refused rather than decoded as some other program.
+    /// An encoding with any number of bytes removed from its end is refused
+    /// as truncated, and one with a byte appended is refused as trailing,
+    /// rather than either decoding as some other program.
     #[test]
-    fn decoding_refuses_a_wrong_length(program in arb_program(), cut in 1usize..8) {
-        let words = program.encode();
-        let cut = cut.min(words.len());
+    fn decoding_refuses_a_wrong_length(
+        program in arb_program(),
+        cut in any::<proptest::sample::Index>(),
+    ) {
+        let bytes = program.encode();
+        let cut = cut.index(bytes.len()) + 1;
         prop_assert_eq!(
-            Program::decode(&words[..words.len() - cut]),
+            Program::decode(&bytes[..bytes.len() - cut]),
             Err(DecodeError::Truncated)
         );
-        let mut longer = words;
+        let mut longer = bytes;
         longer.push(0);
-        prop_assert_eq!(Program::decode(&longer), Err(DecodeError::TrailingWords));
+        prop_assert_eq!(Program::decode(&longer), Err(DecodeError::TrailingBytes));
+    }
+
+    /// The limb pattern's lowest and highest limbs do not depend on the
+    /// operand's length, for every pattern and every pair of lengths of at
+    /// least two limbs, so an
+    /// operand's ends behave alike at every scale.
+    #[test]
+    fn a_patterns_end_limbs_do_not_depend_on_its_length(
+        pattern in prop_oneof![
+            Just(Pattern::Ones),
+            Just(Pattern::TopBit),
+            Just(Pattern::Alternating),
+            Just(Pattern::Sparse),
+            any::<u64>().prop_map(Pattern::Word),
+            any::<u64>().prop_map(Pattern::Mixed),
+        ],
+        short in 2u64..1 << 20,
+        long in 2u64..1 << 40,
+    ) {
+        let (a, b) = (LimbInput { pattern, count: short }, LimbInput { pattern, count: long });
+        prop_assert_eq!(a.limb(0), b.limb(0));
+        prop_assert_eq!(a.limb(short - 1), b.limb(long - 1));
     }
 }
 
-/// A step naming a member outside the pool, or carrying an unknown tag, is
-/// refused as malformed at its own index.
-#[test]
-fn decoding_refuses_a_step_that_names_nothing() {
-    let program = Program {
+/// Returns the encoding of a program holding one clear of `member`, and the
+/// position of the step's tag byte and of its member byte.
+fn one_clear(member: Member) -> (Vec<u8>, usize, usize) {
+    let bytes = Program {
         repetitions: 1,
-        steps: vec![
-            Step::Clear {
-                member: Member::ALL[0],
-            },
-            Step::Clear {
-                member: Member::ALL[1],
-            },
-        ],
-    };
-    let words = program.encode();
-    let second_head = 2 + STEP_WORDS;
-
-    let mut bad_member = words.clone();
-    bad_member[second_head] = Head {
-        tag: tag::CLEAR,
-        first: POOL as u8,
-        ..Head::default()
+        steps: vec![Step::Clear { member }],
     }
-    .word();
-    assert_eq!(
-        Program::decode(&bad_member),
-        Err(DecodeError::Malformed { step: 1 })
-    );
+    .encode();
+    // The repetition count and the step count are one byte each here, so
+    // the tag and the member are the last two bytes.
+    let tag = bytes.len() - 2;
+    (bytes, tag, tag + 1)
+}
 
-    let mut bad_tag = words;
-    bad_tag[second_head] = Head {
-        tag: tag::SUM + 1,
-        ..Head::default()
+/// Every value of a step's member byte decodes exactly when it names a pool
+/// member, and then to that member.
+#[test]
+fn a_member_byte_decodes_exactly_when_it_names_a_member() {
+    let (bytes, _, member_at) = one_clear(Member::ALL[0]);
+    for value in 0..=u8::MAX {
+        let mut mutated = bytes.clone();
+        mutated[member_at] = value;
+        let decoded = Program::decode(&mutated);
+        match Member::new(usize::from(value)) {
+            Some(member) => assert_eq!(
+                decoded.map(|program| program.steps),
+                Ok(vec![Step::Clear { member }]),
+                "member byte {value}"
+            ),
+            None => assert_eq!(decoded, Err(DecodeError::Malformed), "member byte {value}"),
+        }
     }
-    .word();
-    assert_eq!(
-        Program::decode(&bad_tag),
-        Err(DecodeError::Malformed { step: 1 })
-    );
+}
+
+/// Every value of a step's tag byte either is refused or decodes to a step
+/// whose encoding is exactly the bytes decoded, so changing a step's tag
+/// never decodes to a step whose encoding differs from the bytes.
+#[test]
+fn a_tag_byte_decodes_only_to_the_step_it_encodes() {
+    let (bytes, tag_at, _) = one_clear(Member::ALL[0]);
+    let mut accepted = 0;
+    for value in 0..=u8::MAX {
+        let mut mutated = bytes.clone();
+        mutated[tag_at] = value;
+        if let Ok(program) = Program::decode(&mutated) {
+            accepted += 1;
+            assert_eq!(program.encode(), mutated, "tag byte {value}");
+        }
+    }
+    assert!(accepted >= 1, "the unmutated tag byte decodes");
 }

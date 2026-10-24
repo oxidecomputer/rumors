@@ -65,7 +65,7 @@ unsafe extern "C" {
 }
 
 /// The encoded program the host writes before calling [`run`].
-static INPUT: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+static INPUT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 /// The readings and observations [`run`] leaves for the host.
 static OUTPUT: Mutex<Vec<u64>> = Mutex::new(Vec::new());
@@ -75,7 +75,7 @@ static OUTPUT: Mutex<Vec<u64>> = Mutex::new(Vec::new());
 /// A panic aborts this guest without unwinding, so no guard is dropped
 /// mid-panic and the lock is never poisoned; recovering the inner buffer
 /// keeps the exports total regardless.
-fn lock(buffer: &'static Mutex<Vec<u64>>) -> MutexGuard<'static, Vec<u64>> {
+fn lock<T>(buffer: &'static Mutex<Vec<T>>) -> MutexGuard<'static, Vec<T>> {
     buffer.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -84,12 +84,12 @@ fn wire(value: usize) -> u32 {
     u32::try_from(value).expect("a wasm32 address or length fits in u32")
 }
 
-/// Makes the input buffer `words` words long, zeroed, and returns its
+/// Makes the input buffer `bytes` bytes long, zeroed, and returns its
 /// linear-memory address, for the host to write an encoded program into.
 #[no_mangle]
-pub extern "C" fn input_buffer(words: u32) -> u32 {
+pub extern "C" fn input_buffer(bytes: u32) -> u32 {
     let mut input = lock(&INPUT);
-    *input = vec![0; usize::try_from(words).expect("a u32 fits in wasm32's usize")];
+    *input = vec![0; usize::try_from(bytes).expect("a u32 fits in wasm32's usize")];
     wire(input.as_ptr().addr())
 }
 
@@ -106,8 +106,8 @@ pub extern "C" fn input_buffer(words: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn run() -> u32 {
     panic_record::install();
-    let words = mem::take(&mut *lock(&INPUT));
-    let Ok(program) = Program::decode(&words) else {
+    let bytes = mem::take(&mut *lock(&INPUT));
+    let Ok(program) = Program::decode(&bytes) else {
         return 1;
     };
     let output = execute(&program);

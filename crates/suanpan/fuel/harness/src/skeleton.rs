@@ -37,8 +37,7 @@
 
 use proptest::prelude::*;
 use suanpan_fuel_protocol::{
-    Direction, Form, LimbInput, Member, Pattern, Primitive, Program, Read, SignQuery, Step,
-    MAX_SUM_TERMS, POOL,
+    Direction, Form, LimbInput, Member, Pattern, Primitive, Program, Read, SignQuery, Step, POOL,
 };
 
 use crate::model::{width, written_member, Model};
@@ -51,6 +50,9 @@ pub const UNIT_BITS: u64 = 1024;
 
 /// The widest a value may grow, in units, at the base unit.
 pub const HEIGHT_BUDGET_UNITS: u64 = 4;
+
+/// The most members one generated [`Step::Sum`] adds.
+pub const MAX_SUM_TERMS: usize = 5;
 
 /// The farthest a position in a value's structure may lie from a multiple of
 /// the unit, in bits.
