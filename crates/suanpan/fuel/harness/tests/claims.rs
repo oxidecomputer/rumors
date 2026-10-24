@@ -8,7 +8,7 @@
 //! `32 · p`.
 
 use suanpan_fuel_harness::claims::{
-    assert_equal, assert_flat, assert_less, assert_no_product, assert_saving_grows,
+    assert_equal, assert_flat, assert_less, assert_mixed_below, assert_saving_grows,
     assert_spread_below, measure,
 };
 use suanpan_fuel_protocol::{
@@ -191,7 +191,7 @@ fn alternating_shifted_writes_cost_the_operand_not_the_gap() {
 /// gap costs the same at every height of the gap.
 ///
 /// `2^(32(p + 1)) − 2^32 · 2^(32p)` is zero, stored as two digits above `p`
-/// unwritten ones. The query reads and clears the two digits and crosses the
+/// unwritten digits. The query reads and clears the two digits and crosses the
 /// gap in one skip, so its reading is equal at `p` of 1,000, 2,000, and
 /// 4,000.
 #[test]
@@ -299,33 +299,62 @@ fn an_accumulator_operand_costs_its_digits_at_any_receiver_width_and_shift() {
     }
 }
 
-/// (F-lt) An owned addition of two values with equal digit counts reads its
-/// right operand and keeps the left one's storage.
+/// (F-lt, F-bound) An owned addition of two values with equal digit counts
+/// reads its right operand and keeps the left one's storage.
 ///
 /// Of two `n`-limb values whose top digits share a position, one is dense,
 /// with all `2n` digits nonzero, and one is sparse, with only its lowest and
-/// highest digits nonzero. Reading an operand costs a deposit per nonzero
-/// digit, so the sum with the sparse value on the right is the cheaper one,
-/// and by more at 32 limbs than at 16. Were a tie routed to read the left
-/// operand, the order of the two programs would reverse.
+/// highest digits nonzero. Reading an operand into a receiver costs a
+/// deposit per nonzero digit of the operand, and an insertion into the
+/// receiver's record of written positions for each digit it writes that the
+/// receiver never wrote. So the sum with the sparse value on the right is
+/// the cheaper one, and by more at 32 limbs than at 16; were a tie routed to
+/// read the left operand, the order of the two programs would reverse.
+///
+/// Each owned sum also lies closer to `left += &right`, the same reading
+/// routed through a borrow, than to `right += &left`, the reading the other
+/// routing would do: its distance from the first is less than half the
+/// distance between the two. That bound sits midway between the two
+/// routings, so it holds whatever fixed cost the owned addition adds, as
+/// long as that cost stays below half of what the routings differ by.
 #[test]
 fn an_owned_addition_on_a_tie_reads_the_right_operand() {
-    let rows: Vec<(u64, u64, u64)> = [16, 32]
-        .iter()
-        .map(|&count| {
-            let dense = |member| limbs(member, Add, 0, Pattern::Word(0x5_0000_0005), count);
-            let sparse = |member| {
-                [
-                    word(member, Add, 0, 5),
-                    word(member, Add, 64 * count - 32, 5),
-                ]
-            };
-            let sum = [operand(A, B, Add, Form::OwnedTake)];
-            let sparse_read = measure(&join(&[&[dense(A)], &sparse(B)]), &sum).total();
-            let dense_read = measure(&join(&[&sparse(A), &[dense(B)]]), &sum).total();
-            (count, sparse_read, dense_read)
-        })
-        .collect();
+    let mut rows = Vec::new();
+    for count in [16, 32] {
+        let dense = |member| vec![limbs(member, Add, 0, Pattern::Word(0x5_0000_0005), count)];
+        let sparse = |member| {
+            vec![
+                word(member, Add, 0, 5),
+                word(member, Add, 64 * count - 32, 5),
+            ]
+        };
+        let mut owned_sums = Vec::new();
+        for (name, setup) in [
+            (
+                "a dense left and a sparse right",
+                join(&[&dense(A), &sparse(B)]),
+            ),
+            (
+                "a sparse left and a dense right",
+                join(&[&sparse(A), &dense(B)]),
+            ),
+        ] {
+            let reading = |step| measure(&setup, &[step]).total();
+            let owned = reading(operand(A, B, Add, Form::OwnedTake));
+            let reads_right = reading(operand(A, B, Add, Form::Borrowed));
+            let reads_left = reading(operand(B, A, Add, Form::Borrowed));
+            assert_less(
+                &format!(
+                    "twice the owned sum's distance from `left += &right` vs the routings' \
+                     distance, {name}, {count} limbs"
+                ),
+                2 * owned.abs_diff(reads_right),
+                reads_left.abs_diff(reads_right),
+            );
+            owned_sums.push(owned);
+        }
+        rows.push((count, owned_sums[0], owned_sums[1]));
+    }
     assert_saving_grows(
         "the tie reading the sparse right operand below the tie reading the dense one",
         &rows,
@@ -333,12 +362,16 @@ fn an_owned_addition_on_a_tie_reads_the_right_operand() {
 }
 
 /// (F-lin, F-eq) A magnitude read, `<<=`, and a clear cost the held digits,
-/// and `<<=` costs the same at a shift of 32 bits and of 33.
+/// `<<=` costs the same at a shift of 32 bits and of 33, and a wide shift
+/// costs the result's width.
 ///
 /// `2^k − 1` fills `k / 32` digits. A `signed_magnitude` read, a shift by 32
 /// bits, and a clear each cost at most 1.25 times as much per held digit at
 /// 128 digits as at 64. A shift by 33 bits, which moves every digit by one
 /// bit more than a digit boundary, costs what a shift by 32 bits costs.
+/// Shifting the 64 digits by 128,000 bits costs at most 1.25 times as much
+/// per result digit as shifting them by 64,000, since `<<=` costs the width
+/// of the value it produces, its zeroed low digits included.
 #[test]
 fn width_producing_operations_cost_the_held_digits() {
     let readings = |bits: u64| {
@@ -368,6 +401,16 @@ fn width_producing_operations_cost_the_held_digits() {
         })
         .collect();
     assert_equal("<<= by shift, at 64 held digits", &rows);
+    let per_result_digit = |shift: u64| {
+        let measured = [Step::Shift { member: A, shift }];
+        let fuel = measure(&[ones(A, 2_048)], &measured).total();
+        (fuel, (2_048 + shift) / 32)
+    };
+    assert_flat(
+        "<<= per result digit, by shift",
+        per_result_digit(64_000),
+        per_result_digit(128_000),
+    );
 }
 
 /// (F-eq) Negating an owned accumulator held in digits costs the same at any
@@ -912,10 +955,13 @@ fn abs_diff_costs_the_narrower_operand_whichever_is_smaller() {
 ///
 /// Holding `−1`, each round adds `2^d`, asks the sign, subtracts `2^d`, and
 /// asks again, so every query flips the sign of a value whose deciding
-/// digits lie `d` bits apart. Over `n` of 2,048 and 4,096 rounds and `d` of
-/// 32,768 and 65,536 bits, the mixed second difference of the totals is at
-/// most a tenth of the top cell: rescanning the gap on every flip would
-/// cost `n · d / 32` and put a quarter of the top cell there.
+/// digits lie `d` bits apart. The grid runs `n` of 64 and 128 rounds and `d`
+/// of `2^22` and `2^23` bits. A fixed cost per round and storage growth to
+/// `d`, paid once, are additive and add nothing to the mixed second
+/// difference. A rescan of the gap on one query per round, at one fuel per
+/// digit, would add `n · d / 32` to it; the bound is half that. The gap is
+/// wide and the rounds few so that such a rescan would outweigh the rounds'
+/// fixed cost in every cell.
 #[test]
 fn a_sign_flip_across_a_gap_has_no_width_product() {
     let total = |rounds: usize, gap: u64| {
@@ -928,8 +974,9 @@ fn a_sign_flip_across_a_gap_has_no_width_product() {
         let setup = [primitive(A, Sub, Primitive::U64(1))];
         measure(&setup, &repeat(&round, rounds)).total()
     };
-    let (rounds, gap) = (2_048, 32_768);
-    assert_no_product(
+    let (rounds, gap) = (64, 1 << 22);
+    let rescan = i128::try_from(rounds).expect("a round count fits i128") * i128::from(gap / 32);
+    assert_mixed_below(
         "a sign flip across a gap, over (rounds, gap)",
         [
             total(rounds, gap),
@@ -937,5 +984,6 @@ fn a_sign_flip_across_a_gap_has_no_width_product() {
             total(rounds, 2 * gap),
             total(2 * rounds, 2 * gap),
         ],
+        rescan / 2,
     );
 }

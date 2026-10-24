@@ -37,16 +37,12 @@
 //! of the focused claims.
 //!
 //! What the interleaving property samples that no other instrument does is
-//! *order*. The focused claims and `suanpan`'s touch tests measure chosen
-//! operation sequences, and the amplification board measures each operation
-//! on chosen worst-case families. All fix the sequence. Here the sequence is
-//! drawn, over every regular operation (updates by primitives, limbs, and
-//! accumulators in every owned and borrowed spelling, a primitive on the
-//! left of `+` or `-`, shifted updates and shifts, negation, clear, sign
-//! queries, comparisons, conversions, magnitude reads
-//! and hashes, clones, `clone_from`, `abs_diff`, and sums), on operands
-//! shaped to cancel, borrow across long runs, and leave sparse high digits,
-//! so a cost that depends on which operation follows which is reachable.
+//! *order*. The focused claims measure chosen operation sequences, and the
+//! amplification board measures each operation on chosen worst-case
+//! families; both fix the sequence. Here the sequence is drawn, over every
+//! step kind the generator knows ([`skeleton::Kind`]), on operands shaped to
+//! cancel, borrow across long runs, and leave sparse high digits, so a cost
+//! that depends on which operation follows which is reachable.
 //!
 //! What the checks see, by the shape of the excess work (the [`judge`]
 //! module states each bound and what it rests on):

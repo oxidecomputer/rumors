@@ -116,12 +116,13 @@ pub struct Record {
     /// The floor counts one for the step itself; one for each limb of a limb
     /// update's operand; and one for each limb of the value that a
     /// `signed_magnitude` read returns, a hash consumes, or a clone,
-    /// `clone_from`, or borrowed negation copies. The step touches each of
-    /// those limbs at least once, and each touch costs at least one wasm
-    /// instruction or one byte of bulk memory traffic. Other work counts
-    /// nothing toward the floor, which only proves that fuel is counting: a
-    /// scaled read, which may leave out a span no update wrote, and the
-    /// clones inside composite steps add nothing.
+    /// `clone_from`, borrowed negation, or borrowed primitive on the left
+    /// copies. The step touches each of those limbs at least once, and each
+    /// touch costs at least one wasm instruction or one byte of bulk memory
+    /// traffic. Other work counts nothing toward the floor, which only proves
+    /// that fuel is counting: a scaled read, which may leave out a span no
+    /// update wrote, and the clones inside accumulator operands, sums, and
+    /// `abs_diff` add nothing.
     pub floor: u64,
     /// The hard regimes the step realized; all false unless the model counts
     /// them.

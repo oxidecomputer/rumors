@@ -26,9 +26,10 @@
 //! - *Flat per unit* (F-lin): fuel per unit of work at a larger size is at
 //!   most 1.25 times fuel per unit at the smaller size ([`assert_flat`]).
 //! - *No product term* (F-mix): over a two-by-two grid of two parameters,
-//!   the mixed second difference is at most a tenth of the top cell, which
-//!   any cost additive in the parameters meets and a product of them does
-//!   not ([`assert_no_product`]).
+//!   the mixed second difference, which is zero for any cost additive in the
+//!   parameters, stays below half the smallest product term the claim rules
+//!   out, derived from the mechanism and stated beside the test
+//!   ([`assert_mixed_below`]).
 //! - *Derived bound* (F-bound): readings across a parameter stay within a
 //!   spread derived from the operation's mechanism, stated beside the test
 //!   ([`assert_spread_below`]).
@@ -203,24 +204,25 @@ pub fn assert_flat(name: &str, small: (u64, u64), large: (u64, u64)) {
 }
 
 /// Asserts the *no product term* form over `grid`, the readings at
-/// `(x, y)`, `(2x, y)`, `(x, 2y)`, and `(2x, 2y)` in that order: the mixed
-/// second difference is at most a tenth of the top cell.
+/// `(x, y)`, `(x', y)`, `(x, y')`, and `(x', y')` in that order: the mixed
+/// second difference is below `bound`.
 ///
 /// A cost `p·x + q·y + r` has a mixed second difference of zero, and a cost
-/// `s·x·y` one of a quarter of the top cell, so the bound tells them apart
-/// with room for amortized costs that wobble between cells.
+/// `s·x·y` one of `s·(x' − x)·(y' − y)`. The claim derives `bound` as half
+/// the smallest such term it rules out, which leaves room for amortized costs
+/// that wobble between cells by less than that half.
 ///
 /// # Panics
 ///
-/// Panics if the bound fails.
-pub fn assert_no_product(name: &str, grid: [u64; 4]) {
+/// Panics if the mixed difference reaches `bound`.
+pub fn assert_mixed_below(name: &str, grid: [u64; 4], bound: i128) {
     let [base, x2, y2, both] = grid.map(i128::from);
     let mixed = both - x2 - y2 + base;
-    eprintln!("MEASURED {name}: grid {grid:?} mixed {mixed}");
+    eprintln!("MEASURED {name}: grid {grid:?} mixed {mixed} bound {bound}");
     assert!(
-        mixed.abs() * 10 <= both,
-        "{name}: the mixed second difference {mixed} exceeds a tenth of the top cell {both}: \
-         the cost has a product term"
+        mixed < bound,
+        "{name}: the mixed second difference {mixed} reaches the bound {bound}: the cost has a \
+         product term"
     );
 }
 
