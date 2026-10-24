@@ -11,27 +11,87 @@ use crate::{Rank, Version};
 
 use super::Integrator;
 
+/// A function of the pointwise difference `D = a - b` that a pair measure
+/// integrates: `sigma(sign(D)) * D`, for a coefficient `sigma` in `{-1, 0, 1}`.
+///
+/// Each integrand is a type, not a value, so that the traversal is compiled
+/// once per integrand with its coefficient known: the rank comparison's
+/// constant coefficient folds away, and so does every test of it.
+///
+/// Every implementor's `sigma` must be monotone over `Less`, `Equal`,
+/// `Greater`, so that when `D` changes sign the correction
+/// `(sigma' - sigma) * D'` that [`Integrator::jump`] adds is never negative.
+/// The trait is private to the measures, and a test checks every sign change
+/// of each implementor it lists; a new implementor joins that list.
+pub trait Integrand {
+    /// Return `sigma`, the coefficient this integrand applies to a
+    /// difference of sign `sign`.
+    fn sigma(sign: Ordering) -> i8;
+}
+
+/// `|D|`, which distance integrates.
+pub struct Absolute;
+
+impl Integrand for Absolute {
+    fn sigma(sign: Ordering) -> i8 {
+        match sign {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        }
+    }
+}
+
+/// The negative part of `D`, `max(-D, 0)`, which lag integrates.
+pub struct NegativePart;
+
+impl Integrand for NegativePart {
+    fn sigma(sign: Ordering) -> i8 {
+        if sign == Ordering::Less {
+            -1
+        } else {
+            0
+        }
+    }
+}
+
+/// `D` itself, whose integral's sign compares ranks.
+pub struct Signed;
+
+impl Integrand for Signed {
+    fn sigma(_: Ordering) -> i8 {
+        1
+    }
+}
+
+/// Return the side from which a delta of `side` folds into an integrand of
+/// coefficient `sigma`: `side` itself when `sigma` is positive, the other
+/// side when it is negative, and none when it is zero.
+fn oriented(side: Side, sigma: i8) -> Option<Side> {
+    match sigma.cmp(&0) {
+        Ordering::Greater => Some(side),
+        Ordering::Less => Some(side.other()),
+        Ordering::Equal => None,
+    }
+}
+
 /// Drive the integral from two Versions while retaining their running height difference.
 impl Integrator {
     /// Integrate a nonnegative function of the pointwise height difference.
-    ///
-    /// `orientation` chooses which signed part of `a - b` contributes. Its
-    /// result must be monotone over `Less`, `Equal`, `Greater` and lie in
-    /// `-1..=1`; this ensures that crossing zero adds a nonnegative correction.
-    pub fn pair_rank(a: &Version, b: &Version, orientation: impl Fn(Ordering) -> i8) -> Rank {
-        let (total, scale) = Self::pair(a, b, orientation);
+    pub fn pair_rank<I: Integrand>(a: &Version, b: &Version) -> Rank {
+        let (total, scale) = Self::pair::<I>(a, b);
         let total = BigUint::try_from(&total)
-            .expect("orientation keeps every integrated difference nonnegative");
+            .expect("a nonnegative integrand keeps every integrated difference nonnegative");
         Rank::from_raw(total, scale)
     }
 
     /// Compare ranks by integrating the signed pointwise difference.
     pub fn pair_order(a: &Version, b: &Version) -> Ordering {
-        Self::pair(a, b, |_| 1).0.sign()
+        Self::pair::<Signed>(a, b).0.sign()
     }
 
-    /// Integrate `orientation(sign(a - b)) * (a - b)` in one overlay walk.
-    fn pair(a: &Version, b: &Version, orientation: impl Fn(Ordering) -> i8) -> (Accumulator, u64) {
+    /// Integrate `I` over `a - b` in one overlay traversal.
+    fn pair<I: Integrand>(a: &Version, b: &Version) -> (Accumulator, u64) {
         // Every overlap region lies inside a leaf of each operand. Scaling both
         // streams to the deeper maximum depth therefore gives every region an
         // integer power-of-two width and one common denominator.
@@ -42,11 +102,11 @@ impl Integrator {
             mut diff,
             ..
         } = OpenedPair::open(a, b);
-        let mut current_orientation = orientation(diff.sign());
+        let mut sigma = I::sigma(diff.sign());
         let mut integral = Integrator::new();
 
-        if current_orientation != 0 {
-            integral.open_difference(&diff, current_orientation);
+        if let Some(toward) = oriented(Side::A, sigma) {
+            integral.open_difference(&diff, toward);
         }
 
         loop {
@@ -57,30 +117,23 @@ impl Integrator {
 
             let (step_a, step_b) = advance_diff(&mut cursor_a, &mut cursor_b, &mut diff);
             let diff_order = diff.sign();
-            let new_orientation = orientation(diff_order);
+            let new_sigma = I::sigma(diff_order);
 
             // While the selected part is active, fold each input delta into the
-            // integrand. Reversing orientation reverses which operand adds and
+            // integrand. A negative coefficient reverses which operand adds and
             // which subtracts.
-            if current_orientation != 0 {
-                for (side, step) in [(Side::A, &step_a), (Side::B, &step_b)] {
-                    if let Some(step) = step {
-                        let toward = if current_orientation > 0 {
-                            side
-                        } else {
-                            side.other()
-                        };
-                        integral.fold_change(toward, step);
-                    }
+            for (side, step) in [(Side::A, &step_a), (Side::B, &step_b)] {
+                if let (Some(step), Some(toward)) = (step, oriented(side, sigma)) {
+                    integral.fold_change(toward, step);
                 }
             }
 
-            if new_orientation != current_orientation {
-                // The delta folds above use the old orientation. This correction
-                // applies the orientation change to the updated signed difference.
+            if new_sigma != sigma {
+                // The delta folds above use the old coefficient. This correction
+                // applies the change of coefficient to the updated difference.
                 // A sign crossing bounds its magnitude by the deltas just consumed.
-                integral.jump(new_orientation - current_orientation, diff_order, &diff);
-                current_orientation = new_orientation;
+                integral.jump(new_sigma - sigma, diff_order, &diff);
+                sigma = new_sigma;
             }
 
             // At least one stream advances at every boundary. Its widest decoded
@@ -97,3 +150,6 @@ impl Integrator {
         (integral.finish(scale), scale)
     }
 }
+
+#[cfg(test)]
+mod tests;

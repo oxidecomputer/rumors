@@ -97,9 +97,10 @@
 //! # Pairwise measures and their cost
 //!
 //! For two versions the driver maintains their difference `D`. The height to
-//! integrate is `sigma * D`: `sigma` selects the positive part, absolute value,
-//! or unchanged signed difference. At a boundary, with new values `D'` and
-//! `sigma'`, its change is
+//! integrate is `sigma * D`: `sigma` selects the negative part, the absolute
+//! value, or the unchanged signed difference, as the implementors of
+//! [`Integrand`](pair::Integrand) name them. At a boundary, with new values
+//! `D'` and `sigma'`, its change is
 //!
 //! `sigma * (D' - D) + (sigma' - sigma) * D'`.
 //!
@@ -179,6 +180,8 @@ mod deferred;
 mod pair;
 mod width;
 
+pub use pair::{Absolute, NegativePart};
+
 #[cfg(feature = "meter")]
 pub use width::{densified_digits, reset_densified_digits};
 
@@ -243,14 +246,14 @@ impl Integrator {
 
     /// Set the opening difference before adding any regions or boundary changes.
     ///
-    /// `orientation` is `1` when the difference contributes as stored and `-1`
-    /// when it contributes with the opposite sign. Reading the accumulator
-    /// directly avoids normalizing the opening value merely to copy it here.
-    pub fn open_difference(&mut self, opening: &Accumulator, orientation: i8) {
-        match orientation {
-            1 => self.base += opening,
-            -1 => self.base -= opening,
-            _ => panic!("an active orientation is either -1 or 1"),
+    /// The difference folds from `side` as [`Side::fold`] folds a delta: as
+    /// stored from [`Side::A`], and with the opposite sign from [`Side::B`].
+    /// Reading the accumulator directly avoids normalizing the opening value
+    /// merely to copy it here.
+    pub fn open_difference(&mut self, opening: &Accumulator, side: Side) {
+        match side {
+            Side::A => self.base += opening,
+            Side::B => self.base -= opening,
         }
     }
 
@@ -279,22 +282,23 @@ impl Integrator {
 
     /// Add `(sigma' - sigma) * D'` after the pairwise driver's sign change.
     ///
-    /// The orientation `sigma` is monotone in the sign of `D` and lies in
-    /// `{-1, 0, 1}`. A nonzero correction is therefore positive: the coefficient
-    /// and the new difference have the same sign. Its coefficient has magnitude
-    /// one or two. Applying the signed accumulator directly avoids normalizing
-    /// it into a temporary magnitude merely to stream that magnitude back into
-    /// another accumulator.
+    /// Every [`Integrand`](pair::Integrand)'s `sigma` is monotone in the sign
+    /// of `D` and lies in `{-1, 0, 1}`. A nonzero correction is therefore
+    /// positive: the coefficient and the new difference have the same sign. Its
+    /// coefficient has magnitude one or two. Applying the signed accumulator
+    /// directly avoids normalizing it into a temporary magnitude merely to
+    /// stream that magnitude back into another accumulator.
     pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &Accumulator) {
         if order == Ordering::Equal {
             return;
         }
-        // Keep the sign check in release builds: an invalid orientation must
-        // not silently turn subtraction into addition.
-        assert_eq!(
+        // Every coefficient is a difference of one `Integrand`'s `sigma`
+        // values, and a test checks every sign change of each implementor it
+        // lists, showing that the correction is nonnegative.
+        debug_assert_eq!(
             coefficient < 0,
             order == Ordering::Less,
-            "the orientation correction must be nonnegative"
+            "the coefficient correction must be nonnegative"
         );
         let shift = if coefficient.abs() == 2 { 1 } else { 0 };
         if order == Ordering::Less {
