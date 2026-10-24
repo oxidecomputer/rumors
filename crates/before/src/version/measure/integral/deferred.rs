@@ -3,6 +3,8 @@
 //! An entry records a height and the width *preceding* it. Its height applies
 //! to every later entry's width. A final zero-height entry supplies the width
 //! after the last deferral. The answer is therefore `sum(P_i * w_j, i < j)`.
+//! No pair has `j = 0`, so the first entry's width enters no product, and
+//! none is collected: that entry records a zero width.
 //!
 //! A reduction over adjacent entry groups computes this sum without revisiting
 //! each suffix: an internal node adds the sum of its left heights times the
@@ -17,7 +19,7 @@ use super::width::{ScaledWidth, SparseWidth};
 
 /// Deferred heights, ordered by the boundary where each began to apply.
 pub struct DeferredIntegral {
-    /// Width since the latest deferral, or since width tracking began.
+    /// Width since the latest deferral; zero until the first deferral.
     width: Accumulator,
     /// Heights already deferred, each paired with the width preceding it.
     entries: Vec<Entry>,
@@ -27,7 +29,8 @@ pub struct DeferredIntegral {
 struct Entry {
     /// Applies to subsequent intervals; its preceding interval is already settled.
     height: BigInt,
-    /// Width behind this entry, retained separately from its power-of-two scale.
+    /// Width behind this entry, retained separately from its power-of-two
+    /// scale; zero for the first entry.
     width: ScaledWidth,
 }
 
@@ -47,14 +50,22 @@ impl DeferredIntegral {
     }
 
     /// Extend the interval preceding the next deferral by a completed segment.
+    ///
+    /// Before the first deferral this collects nothing, since that interval
+    /// would be the first entry's width, which no product reads.
     pub fn add_width(&mut self, width: &ScaledWidth) {
-        width.add_to(&mut self.width);
+        if !self.is_empty() {
+            width.add_to(&mut self.width);
+        }
     }
 
     /// Defer a nonzero height from the current boundary onward.
     pub fn push(&mut self, height: BigInt) {
         let width = ScaledWidth::read(&self.width);
-        debug_assert!(!width.is_zero(), "a deferral follows at least one interval");
+        debug_assert!(
+            self.is_empty() || !width.is_zero(),
+            "a later deferral follows at least one interval"
+        );
         self.entries.push(Entry { height, width });
 
         // Keep the buffer, as `Integrator::freeze` keeps the segment width's:
