@@ -17,10 +17,17 @@
 //! of the board's cells; here the one measured window is one probe's
 //! operation.
 
+mod directed;
+mod duplicates;
 mod early_exit;
+mod folds;
+mod history;
 mod identity;
 #[path = "../../../board-fuel/guest/src/panic_record.rs"]
 mod panic_record;
+mod parties;
+mod queries;
+mod reanchor;
 #[path = "../../../board-fuel/guest/src/window.rs"]
 mod window;
 
@@ -51,6 +58,10 @@ unsafe extern "C" {
 /// The fuel the last measured window consumed.
 static READING: AtomicU64 = AtomicU64::new(0);
 
+/// The units of work the last measured probe stated, or zero if it stated
+/// none.
+static UNITS: AtomicU64 = AtomicU64::new(0);
+
 /// Measures probe `number` with parameters `a` and `b`, keeping the reading
 /// for [`reading`].
 ///
@@ -73,11 +84,28 @@ pub extern "C" fn reading() -> u64 {
     READING.load(Ordering::Relaxed)
 }
 
+/// Returns the units of work the last measured probe stated, such as its
+/// operands' encoded bytes, or zero if it stated none.
+#[no_mangle]
+pub extern "C" fn units() -> u64 {
+    UNITS.load(Ordering::Relaxed)
+}
+
 /// Dispatches `probe` to the function that builds its operands and measures
 /// it.
 fn run(probe: Probe, a: u64, b: u64) -> u64 {
     match probe {
         Probe::EqRefutedAtFirstInterval => early_exit::eq_refuted_at_first_interval(only(a, b)),
+        Probe::ExitDominanceConcurrentStart => early_exit::dominance_concurrent_start(only(a, b)),
+        Probe::ExitDominanceDominatingStart => early_exit::dominance_dominating_start(only(a, b)),
+        Probe::ExitPrecedenceConcurrentEnd => early_exit::precedence_concurrent_end(only(a, b)),
+        Probe::ExitPrecedencePrecededEnd => early_exit::precedence_preceded_end(only(a, b)),
+        Probe::ExitContainsAboveEnd => early_exit::contains_above_end(only(a, b)),
+        Probe::ExitContainsBelowStart => early_exit::contains_below_start(only(a, b)),
+        Probe::ExitDominanceDropsTheEnd => early_exit::dominance_drops_the_end(only(a, b)),
+        Probe::ExitPrecedenceDropsTheStart => early_exit::precedence_drops_the_start(only(a, b)),
+        Probe::ExitCeilingRefuted => early_exit::ceiling_refuted(only(a, b)),
+        Probe::ExitHoleSatisfied => early_exit::hole_satisfied(only(a, b)),
         Probe::CloneCompare => identity::clone_compare(only(a, b)),
         Probe::CloneJoin => identity::clone_join(only(a, b)),
         Probe::CloneMeet => identity::clone_meet(only(a, b)),
@@ -107,6 +135,80 @@ fn run(probe: Probe, a: u64, b: u64) -> u64 {
         Probe::EmptyJoinAllLeft => identity::empty_join_all_left(only(a, b)),
         Probe::EmptyMeetAllRight => identity::empty_meet_all_right(only(a, b)),
         Probe::EmptyMeetAllLeft => identity::empty_meet_all_left(only(a, b)),
+        Probe::HistoryCompare => queries::compare(size(a), b),
+        Probe::HistoryBefore => queries::before(size(a), b),
+        Probe::HistoryBeforeBound => queries::before_bound(size(a), b),
+        Probe::HistoryAfterBound => queries::after_bound(size(a), b),
+        Probe::HistorySince => queries::since(size(a), b),
+        Probe::HistorySinceBefore => queries::since_before(size(a), b),
+        Probe::HistoryMeet => queries::meet(size(a), b),
+        Probe::HistoryJoin => queries::join(size(a), b),
+        Probe::HistorySpan => queries::pair_span(size(a), b),
+        Probe::HistorySpanAll => queries::pair_span_all(size(a), b),
+        Probe::SpanPlace => queries::span_place(size(a), b),
+        Probe::SpanDominance => queries::span_dominance(size(a), b),
+        Probe::SpanPrecedence => queries::span_precedence(size(a), b),
+        Probe::SpanContains => queries::span_contains(size(a), b),
+        Probe::SpanContainsOwned => queries::span_contains_owned(size(a), b),
+        Probe::SpanContainsPoint => queries::span_contains_point(size(a), b),
+        Probe::SpanContainsDistinctPoint => queries::span_contains_distinct_point(size(a), b),
+        Probe::CoincidentPlace => queries::coincident_place(size(a), b),
+        Probe::CoincidentDominance => queries::coincident_dominance(size(a), b),
+        Probe::DistinctPlace => queries::distinct_place(size(a), b),
+        Probe::DistinctDominance => queries::distinct_dominance(size(a), b),
+        Probe::PopulationSpanAll => queries::population_span_all(only(a, b)),
+        Probe::PopulationMeetAll => queries::population_meet_all(only(a, b)),
+        Probe::PopulationJoinAll => queries::population_join_all(only(a, b)),
+        Probe::HistoryRedecodedCompare => queries::redecoded_compare(size(a), b),
+        Probe::SpanDecode => queries::span_decode(size(a), b),
+        Probe::SpanDecodeLower => queries::span_decode_lower(size(a), b),
+        Probe::SpanDecodeUpper => queries::span_decode_upper(size(a), b),
+        Probe::DuplicateVersionJoinAll
+        | Probe::DuplicateVersionMeetAll
+        | Probe::DuplicateVersionSpanAll
+        | Probe::DuplicateSumBorrowed
+        | Probe::DuplicateSumOwned
+        | Probe::DuplicateCollectOwned
+        | Probe::DuplicateCollectBorrowed
+        | Probe::DuplicateSpanUnionAll
+        | Probe::DuplicateSpanIntersectAll
+        | Probe::DuplicateSpanJoinAll
+        | Probe::DuplicateSpanMeetAll
+        | Probe::DuplicatePointJoinAll
+        | Probe::DuplicateOptionSpanSumBorrowedSpans
+        | Probe::DuplicateOptionSpanSumOwnedSpans
+        | Probe::DuplicateOptionSpanSumBorrowedVersions
+        | Probe::DuplicateOptionSpanSumOwnedVersions
+        | Probe::DuplicateOptionSpanCollectBorrowedSpans
+        | Probe::DuplicateOptionSpanCollectOwnedSpans
+        | Probe::DuplicateOptionSpanCollectBorrowedVersions
+        | Probe::DuplicateOptionSpanCollectOwnedVersions
+        | Probe::DuplicateOptionSpanProductBorrowedSpans
+        | Probe::DuplicateOptionSpanProductOwnedSpans => {
+            duplicates::measure(probe, size(a), size(b))
+        }
+        Probe::SyncDelegated => parties::sync_delegated(only(a, b)),
+        Probe::SyncSplice => parties::sync_splice(only(a, b)),
+        Probe::SyncAdjacent => parties::sync_adjacent(only(a, b)),
+        Probe::JoinForkDelegated => parties::join_fork_delegated(only(a, b)),
+        Probe::JoinForkSplice => parties::join_fork_splice(only(a, b)),
+        Probe::JoinForkAdjacent => parties::join_fork_adjacent(only(a, b)),
+        Probe::WithoutSplice => parties::without_splice(only(a, b)),
+        Probe::WithoutBlock => parties::without_block(only(a, b)),
+        Probe::WithoutComplement => parties::without_complement(only(a, b)),
+        Probe::DirectedLe => directed::le(only(a, b)),
+        Probe::DirectedFullCompare => directed::full_compare(only(a, b)),
+        Probe::DirectedPointDominance => directed::point_dominance(only(a, b)),
+        Probe::DirectedFloorContains => directed::floor_contains(only(a, b)),
+        Probe::DirectedProjectedLe => directed::projected_le(only(a, b)),
+        Probe::DirectedProjectedCompare => directed::projected_compare(only(a, b)),
+        Probe::ReanchorJoinFlatFirst => reanchor::join_flat_first(only(a, b)),
+        Probe::ReanchorJoinSpineFirst => reanchor::join_spine_first(only(a, b)),
+        Probe::StaggerJoinAll => folds::join_all(only(a, b)),
+        Probe::StaggerMeetAll => folds::meet_all(only(a, b)),
+        Probe::StaggerSpanAll => folds::span_all(only(a, b)),
+        Probe::StaggerPartyJoinAll => folds::party_join_all(only(a, b)),
+        Probe::StaggerClockJoinAll => folds::clock_join_all(only(a, b)),
     }
 }
 
@@ -144,6 +246,13 @@ fn measured<R>(body: impl FnOnce() -> R, check: impl FnOnce(R)) -> u64 {
         .expect("an instance's consumed fuel never decreases");
     check(result);
     used
+}
+
+/// Runs `body` in a measured window as [`measured`] does, recording `units`
+/// as the work it performs, for a claim that judges fuel per unit.
+fn measured_per<R>(units: u64, body: impl FnOnce() -> R, check: impl FnOnce(R)) -> u64 {
+    UNITS.store(units, Ordering::Relaxed);
+    measured(body, check)
 }
 
 /// Opens a measured window, then returns this instance's consumed fuel.

@@ -33,8 +33,10 @@
 //!   identical at every size, so the first costs the second plus an amount
 //!   independent of size ([`assert_equal_difference`]).
 //! - *Strict saving* (F-lt): one operation reads strictly less than another
-//!   on the same operands ([`assert_less`]).
-//! - *Flat per unit* (F-lin): fuel per unit of work at a doubled size is at
+//!   on the same operands ([`assert_less`]), and where the claim is that the
+//!   saved work scales with the operands, the saving grows with them
+//!   ([`assert_saving_grows`]).
+//! - *Flat per unit* (F-lin): fuel per unit of work at a larger size is at
 //!   most 1.25 times fuel per unit at the smaller size ([`assert_flat`]).
 //! - *No product term* (F-mix): over a two-by-two grid of two parameters,
 //!   the mixed second difference is at most a tenth of the top cell, which
@@ -42,8 +44,12 @@
 //!   ([`assert_no_product`]).
 //! - *Growth floor* (F-grow): fuel grows by at least a stated factor across a
 //!   stated growth of the input ([`assert_grows`]).
+//! - *Different paths* (F-ne): two readings differ, showing that two calls
+//!   take different paths, where the direction of the difference is not part
+//!   of the claim ([`assert_differ`]).
 //! - *Derived bound* (F-bound): a reading stays within a bound derived from
-//!   the operation's mechanism, stated beside the test.
+//!   the operation's mechanism, stated beside the test; where the bound is
+//!   another operation's reading, [`assert_at_most`] checks it.
 //!
 //! Every checker prints its readings on a `MEASURED` line, so a failure and a
 //! thin margin can be read from the test's output.
@@ -118,6 +124,24 @@ fn compiled() -> &'static Compiled {
 /// answer from the measured operation, or parameters the probe cannot use.
 /// Also panics if the guest does not know the probe.
 pub fn measure(probe: Probe, a: u64, b: u64) -> u64 {
+    run(probe, a, b).0
+}
+
+/// Measures `probe` as [`measure`] does and returns its fuel with the units
+/// of work the probe states, such as its operands' encoded bytes.
+///
+/// # Panics
+///
+/// Panics as [`measure`] does, or if the probe states no units.
+pub fn measure_per(probe: Probe, a: u64, b: u64) -> (u64, u64) {
+    let (fuel, units) = run(probe, a, b);
+    assert!(units > 0, "{probe:?} states no units of work");
+    (fuel, units)
+}
+
+/// Runs `probe` in a fresh guest instance and returns its fuel and the units
+/// it states, zero if none.
+fn run(probe: Probe, a: u64, b: u64) -> (u64, u64) {
     let Compiled { engine, module } = compiled();
     let mut store = Store::new(engine, ());
     store.set_fuel(FUEL_TANK).expect("fuel is enabled");
@@ -139,7 +163,10 @@ pub fn measure(probe: Probe, a: u64, b: u64) -> u64 {
         .expect("the guest exports `measure`")
         .call(&mut store, (u32::from(probe), a, b));
     match status {
-        Ok(MEASURED) => call(&mut store, &instance, "reading"),
+        Ok(MEASURED) => (
+            call(&mut store, &instance, "reading"),
+            call(&mut store, &instance, "units"),
+        ),
         Ok(UNKNOWN_PROBE) => panic!("the guest does not know {probe:?}; rebuild it"),
         Ok(status) => panic!("the guest returned unknown status {status} for {probe:?}"),
         Err(trap) => panic!(
@@ -175,27 +202,31 @@ pub fn assert_equal(probe: Probe, sizes: &[u64]) -> u64 {
     readings[0]
 }
 
-/// Asserts the *equal difference* form: `probe` minus `reference`, both at
-/// the same `a` with `b` zero, is the same at every size in `sizes`, and
-/// returns that difference.
+/// Asserts the *equal difference* form: `probe` minus `reference`, each a
+/// probe with its parameter `b`, both at the same `a`, is the same at every
+/// value of `a` in `sizes`, and returns that difference, which may be
+/// negative.
 ///
 /// # Panics
 ///
-/// Panics if `probe` ever reads less than `reference`, or if two differences
-/// differ.
-pub fn assert_equal_difference(probe: Probe, reference: Probe, sizes: &[u64]) -> u64 {
+/// Panics if two differences differ.
+pub fn assert_equal_difference(
+    probe: (Probe, u64),
+    reference: (Probe, u64),
+    sizes: &[u64],
+) -> i128 {
+    let ((probe, b), (reference, reference_b)) = (probe, reference);
     let rows: Vec<(u64, u64, u64)> = sizes
         .iter()
-        .map(|&a| (a, measure(probe, a, 0), measure(reference, a, 0)))
+        .map(|&a| (a, measure(probe, a, b), measure(reference, a, reference_b)))
         .collect();
-    eprintln!("MEASURED {probe:?} - {reference:?}: (size, probe, reference) {rows:?}");
-    let differences: Vec<u64> = rows
+    eprintln!(
+        "MEASURED {probe:?}({b:#x}) - {reference:?}({reference_b:#x}): (size, probe, reference) \
+         {rows:?}"
+    );
+    let differences: Vec<i128> = rows
         .iter()
-        .map(|&(a, measured, base)| {
-            measured.checked_sub(base).unwrap_or_else(|| {
-                panic!("{probe:?} read {measured} below {reference:?}'s {base} at size {a}")
-            })
-        })
+        .map(|&(_, measured, base)| i128::from(measured) - i128::from(base))
         .collect();
     assert!(
         differences.windows(2).all(|pair| pair[0] == pair[1]),
@@ -220,6 +251,50 @@ pub fn assert_less(name: &str, smaller: u64, larger: u64) {
         smaller < larger,
         "{name}: {smaller} must be strictly less than {larger}"
     );
+}
+
+/// Asserts the *derived bound* form for a bound that is another reading:
+/// `reading` is at most `bound`, with `name` describing the comparison.
+///
+/// # Panics
+///
+/// Panics unless `reading <= bound`.
+pub fn assert_at_most(name: &str, reading: u64, bound: u64) {
+    eprintln!(
+        "MEASURED {name}: {reading} <= {bound} (ratio {:.3})",
+        reading as f64 / bound as f64
+    );
+    assert!(
+        reading <= bound,
+        "{name}: {reading} must be at most {bound}"
+    );
+}
+
+/// Asserts the *strict saving* form across sizes: at every size, the first
+/// reading of the row is strictly less than the second, and the saving, the
+/// second minus the first, grows strictly from each size to the next.
+///
+/// Each row is `(size, smaller, larger)`, in increasing size. A growing
+/// saving shows that the work saved scales with the operands, as a stream
+/// decoded once instead of twice does, rather than being a fixed cost.
+///
+/// # Panics
+///
+/// Panics if either bound fails.
+pub fn assert_saving_grows(name: &str, rows: &[(u64, u64, u64)]) {
+    let mut previous: Option<(u64, u64)> = None;
+    for &(size, smaller, larger) in rows {
+        assert_less(&format!("{name} at size {size}"), smaller, larger);
+        let saving = larger - smaller;
+        if let Some((earlier, earlier_saving)) = previous {
+            assert!(
+                earlier_saving < saving,
+                "{name}: the saving must grow with the operands, but it read \
+                 {earlier_saving} at size {earlier} and {saving} at size {size}"
+            );
+        }
+        previous = Some((size, saving));
+    }
 }
 
 /// Asserts the *flat per unit* form: `large`'s fuel per unit is at most 1.25
@@ -261,6 +336,19 @@ pub fn assert_no_product(name: &str, grid: [u64; 4]) {
         mixed.abs() * 10 <= both,
         "{name}: the mixed second difference {mixed} exceeds a tenth of the top cell \
          {both}: the cost has a product term"
+    );
+}
+
+/// Asserts the *different paths* form: `first` and `second` differ.
+///
+/// # Panics
+///
+/// Panics if the two readings are equal.
+pub fn assert_differ(name: &str, first: u64, second: u64) {
+    eprintln!("MEASURED {name}: {first} vs {second}");
+    assert_ne!(
+        first, second,
+        "{name}: the two calls read the same fuel, so they take one path"
     );
 }
 
