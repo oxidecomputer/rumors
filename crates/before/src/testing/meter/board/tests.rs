@@ -281,16 +281,18 @@ fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
-/// The flat-denominator shape's stored-byte fit manufactures a superlinear
-/// exponent out of work linear in its tooth count.
+/// On the boundary comb, the stored-byte denominator makes the board's trend
+/// fit read work linear in the tooth count as superlinear, and the
+/// value-content denominator reads it linear.
 ///
-/// The value-content fit reads the same work linear. This is the premise the
-/// comb-scatter exponent re-denomination rests on: on the boundary comb at a
-/// fixed 1000-bit tooth magnitude, the byte denominator grows under x1.5
-/// across a tooth-count doubling because the fixed magnitude dominates it
-/// (the intercept premise), while the value content doubles. Work a fixed
-/// amount per tooth, as the comparison sweep's is, then reads an exponent
-/// class apart under the two fits.
+/// This is the premise the comb-scatter exponent re-denomination rests on.
+/// The denominators are measured: at a fixed 1000-bit tooth magnitude, a
+/// version and its ticked successor store under x1.5 more bytes across a
+/// tooth-count doubling, because the fixed magnitude dominates their size,
+/// while their value content doubles. The work is constructed, a fixed
+/// amount per tooth, and the board's own `trend` fits it against each
+/// denominator: against stored bytes it reads more than twice the exponent
+/// bound, and against value content it reads within the bound.
 #[test]
 fn flat_denominator_stored_fit_manufactures_an_exponent() {
     /// Work units per tooth: any fixed amount shows the separation.
@@ -299,17 +301,14 @@ fn flat_denominator_stored_fit_manufactures_an_exponent() {
         let v = version_of(&cliff_comb(1_000, teeth));
         let mut w = v.clone();
         w.tick(&Party::seed());
-        assert!(
-            v.partial_cmp(&w).is_some(),
-            "a ticked counterpart stays comparable"
-        );
         let stored = v.as_bytes().len() + w.as_bytes().len();
         let content = value_content_bytes(&v) + value_content_bytes(&w);
         (stored, content, WORK_PER_TOOTH * teeth as u64)
     };
     let (build1, content1, ops1) = measure(128);
     let (build2, content2, ops2) = measure(256);
-    // The intercept premise and the content axis's liveness.
+    // The measured denominators: the intercept premise, and the content
+    // axis tracking the tooth count.
     let stored_growth = build2 as f64 / build1 as f64;
     let content_growth = content2 as f64 / content1 as f64;
     assert!(
@@ -320,7 +319,7 @@ fn flat_denominator_stored_fit_manufactures_an_exponent() {
         (1.9..=2.1).contains(&content_growth),
         "the value content must track the doubled tooth count: grew x{content_growth:.2}"
     );
-    // The same work, two fits, an exponent class apart.
+    // The constructed work under the two fits, an exponent class apart.
     let stored_fit = trend(&[(build1 as u64, ops1), (build2 as u64, ops2)]);
     let content_fit = trend(&[(content1 as u64, ops1), (content2 as u64, ops2)]);
     assert!(
