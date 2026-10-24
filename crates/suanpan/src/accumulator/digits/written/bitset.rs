@@ -76,6 +76,25 @@ pub struct Bitset {
     /// tests can check where an insertion stops.
     #[cfg(test)]
     inserted_levels_climbed: usize,
+    /// The calls of [`insert`](Self::insert), counted so that tests can
+    /// separate an insertion's one level from the words it fills.
+    #[cfg(test)]
+    insertions: usize,
+}
+
+/// A snapshot of a bitset's test-only work counters.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClimbCounts {
+    /// Calls of [`Bitset::insert`].
+    pub insertions: usize,
+    /// Levels those insertions climbed, each counting the level it stopped
+    /// at, so the climbs exceed the insertions by the words they filled.
+    pub inserted_levels_climbed: usize,
+    /// Levels [`Bitset::clear`] examined.
+    pub cleared_levels_examined: usize,
+    /// Levels the bitset holds now.
+    pub levels: usize,
 }
 
 /// Maintain positions and their summary bits, climbing only where a word
@@ -83,6 +102,10 @@ pub struct Bitset {
 impl Bitset {
     /// Add `position`, growing the levels to cover it.
     pub fn insert(&mut self, position: usize) {
+        #[cfg(test)]
+        {
+            self.insertions += 1;
+        }
         self.cover(position);
         let mut index = position;
         for words in &mut self.levels {
@@ -265,6 +288,17 @@ impl Bitset {
             .iter()
             .enumerate()
             .flat_map(|(word_index, &word)| word_positions(word_index, word))
+    }
+
+    /// Read the test-only work counters.
+    #[cfg(test)]
+    pub fn climb_counts(&self) -> ClimbCounts {
+        ClimbCounts {
+            insertions: self.insertions,
+            inserted_levels_climbed: self.inserted_levels_climbed,
+            cleared_levels_examined: self.cleared_levels_examined,
+            levels: self.levels.len(),
+        }
     }
 
     /// Count the words of storage the levels retain, by capacity.

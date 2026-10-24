@@ -461,6 +461,95 @@
 //! O(`1 + log_64 d`) each, which the nonzero-shift rows' log(`W` + 1) terms
 //! contain, and never the gap's width.
 //!
+//! # Updates of one sign
+//!
+//! The crate states this case on its own, because `before`'s `Sum` rests on
+//! it. A *stretch* begins where `G`'s window begins: at creation, including
+//! the creation of a borrowed `<<`'s result, at `clone_from`, or at a nonzero
+//! shift by `<<=` or an owned `<<`. Every update
+//! in it is a primitive or a limb stream whose contributions all have one
+//! sign `s`, and the value at its start is zero or has sign `s`. Nothing else
+//! happens in it but working-width and known-zero queries, which change
+//! nothing.
+//!
+//! Call the stored form *sign-led* when the value is zero, or its top digit
+//! has sign `s` and no digit `d` has `s · d < -B / 2`. Every stretch begins
+//! sign-led. A new accumulator and a shift of zero leave every digit zero,
+//! and a primitive's construction deposits that primitive, of sign `s`, into
+//! zeroed digits. `clone_from` copies a normalized value, whose digits all
+//! have its sign. A nonzero shift in any spelling, a borrowed `<<`'s result
+//! included, deposits the value's normalized digits, all of sign `s`, into
+//! zeroed storage, so recentering is the only source of a digit of the other
+//! sign, and it leaves that digit within `B / 2` of zero. A small value's
+//! shift deposits the value itself, of sign `s`, into zeroed digits.
+//!
+//! A one-sign update keeps the form sign-led. Its contributions and carries
+//! all have sign `s`, so each digit moves in direction `s` until it
+//! recenters, which leaves it in `[-B / 2, B / 2)` and carries in sign `s`
+//! to the position above. The top digit therefore keeps sign `s`: a carry
+//! out of it lands higher and starts a new top of sign `s`. So the top never
+//! falls: no update in the stretch descends, and nothing truncates the
+//! written set. With no truncation and no clear, no bitset word empties
+//! during the stretch, so each word turns nonempty at most once, and the
+//! predecessor queries and run crossings of "Bitset climbs" never occur.
+//!
+//! The updates' work is then the work of "Updates" without its far costs:
+//! deposits, paid by the carry potential; positions newly inserted or moved,
+//! paid by the held-positions term or prepaid by it; buffer and bitset
+//! growth, paid by `G`, the deposits, and the uncovered-height term; and
+//! insertion climbs. By the second fact of "Bitset climbs", an insertion
+//! climbs at most one level more than the number of words it fills. A word
+//! other than word zero at level `k` covers no position below
+//! `64^(k + 1)`, and word zero is nonempty at every level by the first fact,
+//! so every word the stretch fills covers a held position at or below the
+//! stretch's highest top `P`, and there are at most `P / 63` such words. `P`
+//! is at most the window's greatest width, which is the width the stretch
+//! began with plus the updates' `G`. The operation that began the stretch is
+//! allowed that starting width: creation starts at one position or a
+//! primitive's width, `clone_from`'s row includes O(`Q`) for the copy, and a
+//! shift's row is amortized O(`S`) whatever its actual work. A small value's
+//! `<<=` into storage a reset kept writes only a few digits, yet its row
+//! still allows O(`S`), and the fills are charged against that allowance.
+//!
+//! So each update costs O(1) beyond its deposits, its `L`, and its `G`, and
+//! the fills total at most what the updates' `G` and the starting width pay
+//! for. Each primitive update costs amortized O(1), and each limb stream
+//! amortized O(`L` + `G`), at any shift. The potential the stretch leaves is
+//! within the same sum. The test
+//! `a_one_sign_stretch_after_a_shift_climbs_once_per_insertion_and_fill`
+//! measures the fill bound with the bitset's level counters.
+//!
+//! The first comparison after the stretch can still have far costs: at most
+//! two run crossings below its top, each O(`1 + log_64 (V + 1)`).
+//! "Comparisons" would charge them to the update that wrote the highest
+//! position, whose bound in the stretch no longer covers them, so that
+//! comparison pays them itself, once. A top digit of 1 whose position below
+//! was never written, left by a limb whose low half was zero, is such a
+//! case: the scan steps below the top, stops there, and its truncation
+//! crosses to the highest position held further down. Later comparisons
+//! charge operations after the stretch.
+//!
+//! A stretch cannot begin at a reset or a read, although each leaves the form
+//! sign-led. Both clear the written set, which empties the bitset's words but
+//! keeps its storage, and both leave `G`'s window running, so the words a
+//! later update refills are paid for by nothing it is allowed. Repeat this
+//! round, with `q = 64^m` below a width the window reached earlier:
+//!
+//! 1. reset;
+//! 2. add one limb at position `q + 2`, which re-raises the top with a `G` of
+//!    zero and a jump that finds position zero held, one level;
+//! 3. add one limb at position `q`, in the gap below that run and apart from
+//!    position zero, which fills one word at each level from 0 to `m - 1`
+//!    and stops at level `m`, at word zero: `m + 1` levels.
+//!
+//! The next round's reset clears the span `q..=q + 2`, three positions, and
+//! climbs `m + 1` levels emptying those words again. Each round costs
+//! Θ(`m`), a base-64 logarithm of the width, while each update's `L` + `G`
+//! and the reset's `R` stay constant. So those updates need the limb row's
+//! log(`W` + 1), and a stretch that began at a reset would promise too
+//! little. `reset_cycle_climbs_a_level_per_base_64_digit_each_round` in the
+//! tests measures `m + 1` levels per round at each `m` it draws.
+//!
 //! # Clears
 //!
 //! A read and a reset each *clear* the written set over a span that holds

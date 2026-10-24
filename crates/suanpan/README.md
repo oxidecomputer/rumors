@@ -154,6 +154,45 @@ whose top is raised across a gap and cancelled again, cycle after cycle,
 costs each cycle only the bounds of the updates it makes, never the gap's
 width.
 
+### Updates of one sign
+
+Updates that only add, or only subtract, never cancel the value's top,
+and cost less than the rows above say. Call a sequence of operations on
+one accumulator a *stretch of one sign* when:
+
+- it begins where the receiver's window begins: at its creation
+  (including the result of a borrowed `<<`, a new accumulator), at its
+  last `clone_from`, or at its last nonzero `<<=` or
+  owned `<<`;
+- every update in it adds or subtracts a primitive or limbs, all their
+  contributions have one sign, and the value at its start is zero or has
+  that sign;
+- its only other operations are working-width and known-zero queries.
+
+Any other operation ends the stretch. Then:
+
+- each primitive update in the stretch costs amortized O(1), and each
+  update of `L` limbs amortized O(`L` + `G`), at any shift;
+- the first comparison with zero after the stretch, which every read,
+  sign query, comparison, and nonzero shift begins with, can cost
+  O(log(`V` + 1)) beyond its own row, once.
+
+That is, a stretch of one sign pays the logarithmic term of the limb row
+at most once, after it ends, instead of on every update at a nonzero
+shift. A nonzero shift in any spelling of `<<` costs amortized O(`S`)
+and starts a new stretch, so a sum of terms of one sign can shift its
+total to a finer scale between stretches and pay each shift only its
+width.
+
+A `reset` or a read does not begin a stretch of one
+sign: it leaves the window running, and it empties the bookkeeping that
+lets comparisons skip unwritten positions while keeping that
+bookkeeping's storage. Repeating a reset, an update at a large shift that
+reaches a width the window reached before, and a one-limb update below
+it costs a base-64 logarithm of that width per round, while each update's
+`L` + `G` and the reset's `R` stay constant. Updates after a reset or a
+read therefore get only the rows above.
+
 ### Retained space
 
 Every retained bound is amortized, because storage grows geometrically, as
