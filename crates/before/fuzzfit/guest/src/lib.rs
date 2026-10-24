@@ -295,7 +295,7 @@ pub extern "C" fn ff_reset() -> i32 {
 /// register-machine bookkeeping billed to a public operation. The
 /// enforcement suite caught exactly that as a false above-band flag on
 /// `ff_party_seed` (the committed seed in
-/// `harness/tests/enforce.proptest-regressions` replays it); with the file
+/// `harness/proptest-regressions/enforce.txt` replays it); with the file
 /// pre-reserved to the program budget, `put` fills at most one fresh slot
 /// per call, O(1) forever.
 #[no_mangle]
