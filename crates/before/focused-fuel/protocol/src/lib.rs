@@ -368,6 +368,77 @@ pub enum Probe {
     /// staggered version, the first as the receiver; the units are their
     /// encoded bytes.
     StaggerClockJoinAll = 604,
+    /// `span_all` over sixteen forks of one dense spine of depth
+    /// `2000 · 2^a`, each ticked once, so every operand is the whole
+    /// skeleton; the units are the population's encoded bytes.
+    SharedSkeletonSpanAll = 605,
+
+    /// `partial_cmp` of the boundary comb `C(a, a)` against the empty
+    /// version, whose running difference crosses the `2^a` carry boundary at
+    /// every delta; the units are the comb's `2a` delta codes.
+    CliffCompareEmpty = 700,
+    /// The join emission (`testing::meter::version::join`, which bypasses the
+    /// public identity shortcuts) of the boundary comb `C(a, a)` with a
+    /// one-tick version; the units are the comb's `2a` delta codes.
+    CliffJoinOneTick = 701,
+    /// `rank` (`testing::meter::version::rank`) of the wide-tooth comb
+    /// `W(9600 · a, b, 128 · a)`, whose teeth are `b` bits wide; the units are
+    /// its encoded bytes.
+    RankWideTooth = 702,
+    /// `distance` and both `lag`s of the freeze-position family `FP(a)`
+    /// against its descending unit spine; the units are the pair's encoded
+    /// bytes.
+    DistanceFreezePosition = 703,
+    /// `distance` and both `lag`s of the promotion re-arm spine `PR(a)`
+    /// against its unit-climb mate `PRM(a)`; the units are the pair's encoded
+    /// bytes.
+    DistancePromotionRearm = 704,
+    /// `min_ticks` of the seam plunge `SP(a, b)`: `a` three-digit boundaries
+    /// dying into one residue `b` digits wide; the units are its encoded
+    /// bytes.
+    SeamPlunge = 705,
+    /// `min_ticks` of the seam plunge's leveled control `SPC(a, b)`; the
+    /// units are its encoded bytes.
+    SeamPlungeControl = 706,
+    /// `min_ticks` of the seam stop `SS(a)`: `a` three-digit residues dying
+    /// against one five-digit survivor; the units are its encoded bytes.
+    SeamStop = 707,
+    /// `min_ticks` of the seam stop's control `SSC(a)`; the units are its
+    /// encoded bytes.
+    SeamStopControl = 708,
+    /// `min_ticks` of the latent ladder `LL(a, b)`: a parked latent `a` digits
+    /// wide, then `b` decision leaves; the units are its encoded bytes.
+    LatentLadder = 709,
+    /// `distance` and both `lag`s of the plateau puncture `PP(400a, 400a)`
+    /// against the same-sign arming train of `8a` blocks; the units are the
+    /// pair's encoded bytes.
+    PairPlateauTrain = 710,
+    /// `rank` of the same-sign arming train of `a` blocks, each arming 50
+    /// digits wide over 100 window gaps; the units are its encoded bytes.
+    SameSignTrainRank = 711,
+    /// `min_ticks` of the wide-base tiny-tail version `WT(a, b)`: one raise
+    /// by `10^b` over the whole space, then `a` single ticks on alternating
+    /// forked leaves; the units are its encoded bytes.
+    WideBaseTinyTailMinTicks = 712,
+    /// `rank` of the wide-base tiny-tail version `WT(a, b)`; the units are
+    /// its encoded bytes.
+    WideBaseTinyTailRank = 713,
+    /// `min_ticks` of the wide ladder `WL(a, b)`: `a` forked parties each
+    /// raised by `10^b` plus their index; the units are its encoded bytes.
+    WideLadderMinTicks = 714,
+    /// `rank` of the wide ladder `WL(a, b)`; the units are its encoded
+    /// bytes.
+    WideLadderRank = 715,
+    /// `ticks(2^a)` on the dense spine of depth 125,000 through the seed;
+    /// with `b` one, a public tick first, so the measured call is the pure
+    /// grow branch.
+    TicksDense = 716,
+    /// `ticks(2^a)` on the big-root version `B(4000, 4000)` through the
+    /// nested-full id `N(4000)`; with `b` one, a public tick first.
+    TicksNestedWide = 717,
+    /// `ticks(2^a)` on the wide-tail version `T(4000, 4000)` through the
+    /// mirror nested-full id `M(4000)`; with `b` one, a public tick first.
+    TicksMirrorWide = 718,
 }
 
 /// A snapshot of the history fixture, which a history probe's parameter

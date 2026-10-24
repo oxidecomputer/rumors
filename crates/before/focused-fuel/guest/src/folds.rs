@@ -132,3 +132,42 @@ pub fn clock_join_all(size: usize) -> u64 {
         |(joined, _)| assert!(joined, "staggered ids are pairwise disjoint"),
     )
 }
+
+/// The forks of the shared skeleton population.
+const SKELETON_FORKS: usize = 16;
+
+/// Measures `span_all` over sixteen forks of one dense spine of depth
+/// `2000 · 2^level`, each ticked once, so meets never shrink and every
+/// combine carries the whole skeleton; the units are the population's
+/// encoded bytes.
+pub fn shared_skeleton_span_all(level: usize) -> u64 {
+    let base = Shape::Dense.build1(2_000 << level).version();
+    let mut parties = vec![Party::seed()];
+    while parties.len() < SKELETON_FORKS {
+        let mut next = Vec::with_capacity(2 * parties.len());
+        for mut party in parties {
+            let other = party.fork();
+            next.push(party);
+            next.push(other);
+        }
+        parties = next;
+    }
+    let population: Vec<Version> = parties
+        .iter()
+        .map(|party| {
+            let mut version = base.clone();
+            party.tick(&mut version);
+            version
+        })
+        .collect();
+    let units = bytes(&population);
+    let (first, rest) = population
+        .split_first()
+        .expect("the population is nonempty");
+    let join = first.join_all(rest);
+    measured_per(
+        units,
+        || first.span_all(rest),
+        |span| assert_eq!(span.hi(), &join, "the hull's end is the join"),
+    )
+}

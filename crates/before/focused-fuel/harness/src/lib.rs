@@ -37,11 +37,15 @@
 //!   saved work scales with the operands, the saving grows with them
 //!   ([`assert_saving_grows`]).
 //! - *Flat per unit* (F-lin): fuel per unit of work at a larger size is at
-//!   most 1.25 times fuel per unit at the smaller size ([`assert_flat`]).
+//!   most 1.25 times fuel per unit at the smaller size ([`assert_flat`]). A
+//!   claim whose own band differs states it, with its rationale, beside the
+//!   test ([`assert_flat_within`]).
 //! - *No product term* (F-mix): over a two-by-two grid of two parameters,
 //!   the mixed second difference is at most a tenth of the top cell, which
 //!   any cost additive in the parameters meets and a product of them does not
-//!   ([`assert_no_product`]).
+//!   ([`assert_no_product`]). Where a product would hide under that tenth,
+//!   the claim derives a bound on the mixed difference from the mechanism
+//!   instead and states it beside the test ([`assert_mixed_below`]).
 //! - *Growth floor* (F-grow): fuel grows by at least a stated factor across a
 //!   stated growth of the input ([`assert_grows`]).
 //! - *Different paths* (F-ne): two readings differ, showing that two calls
@@ -304,16 +308,32 @@ pub fn assert_saving_grows(name: &str, rows: &[(u64, u64, u64)]) {
 ///
 /// Panics if the bound fails or either unit count is zero.
 pub fn assert_flat(name: &str, small: (u64, u64), large: (u64, u64)) {
+    assert_flat_within(name, small, large, (FLAT_NUM, FLAT_DEN));
+}
+
+/// Asserts the *flat per unit* form within `band`, a ratio `(numerator,
+/// denominator)`: `large`'s fuel per unit is at most that ratio times
+/// `small`'s, where each argument is `(fuel, units)`.
+///
+/// For a claim whose own band differs from the ×1.25 convention.
+///
+/// # Panics
+///
+/// Panics if the bound fails or either unit count is zero.
+pub fn assert_flat_within(name: &str, small: (u64, u64), large: (u64, u64), band: (u128, u128)) {
     let ((fuel1, units1), (fuel2, units2)) = (small, large);
+    let (numerator, denominator) = band;
     assert!(units1 > 0 && units2 > 0, "{name}: unit counts are positive");
     eprintln!(
-        "MEASURED {name}: small={fuel1}/{units1} large={fuel2}/{units2} growth per unit {:.3}",
-        (fuel2 as f64 / units2 as f64) / (fuel1 as f64 / units1 as f64)
+        "MEASURED {name}: small={fuel1}/{units1} large={fuel2}/{units2} growth per unit {:.3} \
+         (band {:.3})",
+        (fuel2 as f64 / units2 as f64) / (fuel1 as f64 / units1 as f64),
+        numerator as f64 / denominator as f64,
     );
     assert!(
-        u128::from(fuel2) * u128::from(units1) * FLAT_DEN
-            <= u128::from(fuel1) * u128::from(units2) * FLAT_NUM,
-        "{name}: fuel per unit grew more than ×1.25: {fuel1}/{units1} -> {fuel2}/{units2}"
+        u128::from(fuel2) * u128::from(units1) * denominator
+            <= u128::from(fuel1) * u128::from(units2) * numerator,
+        "{name}: fuel per unit grew past the band: {fuel1}/{units1} -> {fuel2}/{units2}"
     );
 }
 
@@ -336,6 +356,27 @@ pub fn assert_no_product(name: &str, grid: [u64; 4]) {
         mixed.abs() * 10 <= both,
         "{name}: the mixed second difference {mixed} exceeds a tenth of the top cell \
          {both}: the cost has a product term"
+    );
+}
+
+/// Asserts the *no product term* form with a derived bound: the mixed second
+/// difference over `grid` is below `bound`.
+///
+/// `grid` holds the readings at `(x, y)`, `(2x, y)`, `(x, y')`, and
+/// `(2x, y')` in that order, and the claim derives `bound` from the smallest
+/// product term it rules out.
+///
+/// # Panics
+///
+/// Panics if the mixed difference reaches `bound`.
+pub fn assert_mixed_below(name: &str, grid: [u64; 4], bound: i128) {
+    let [base, x2, y2, both] = grid.map(i128::from);
+    let mixed = both - x2 - y2 + base;
+    eprintln!("MEASURED {name}: grid {grid:?} mixed {mixed} bound {bound}");
+    assert!(
+        mixed < bound,
+        "{name}: the mixed second difference {mixed} reaches the bound {bound}: the cost has a \
+         product term"
     );
 }
 

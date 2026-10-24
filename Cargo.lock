@@ -870,6 +870,7 @@ dependencies = [
  "before",
  "dlmalloc",
  "focused-fuel-protocol",
+ "num-bigint",
  "spin",
 ]
 

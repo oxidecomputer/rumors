@@ -20,6 +20,7 @@
 mod directed;
 mod duplicates;
 mod early_exit;
+mod families;
 mod folds;
 mod history;
 mod identity;
@@ -209,6 +210,28 @@ fn run(probe: Probe, a: u64, b: u64) -> u64 {
         Probe::StaggerSpanAll => folds::span_all(only(a, b)),
         Probe::StaggerPartyJoinAll => folds::party_join_all(only(a, b)),
         Probe::StaggerClockJoinAll => folds::clock_join_all(only(a, b)),
+        Probe::SharedSkeletonSpanAll => folds::shared_skeleton_span_all(only(a, b)),
+        Probe::CliffCompareEmpty => families::cliff_compare_empty(only(a, b)),
+        Probe::CliffJoinOneTick => families::cliff_join_one_tick(only(a, b)),
+        Probe::RankWideTooth => families::rank_wide_tooth(size(a), size(b)),
+        Probe::DistanceFreezePosition => families::distance_freeze_position(only(a, b)),
+        Probe::DistancePromotionRearm => families::distance_promotion_rearm(only(a, b)),
+        Probe::SeamPlunge => families::seam_plunge(size(a), size(b)),
+        Probe::SeamPlungeControl => families::seam_plunge_control(size(a), size(b)),
+        Probe::SeamStop => families::seam_stop(only(a, b)),
+        Probe::SeamStopControl => families::seam_stop_control(only(a, b)),
+        Probe::LatentLadder => families::latent_ladder(size(a), size(b)),
+        Probe::PairPlateauTrain => families::pair_plateau_train(only(a, b)),
+        Probe::SameSignTrainRank => families::same_sign_train_rank(only(a, b)),
+        Probe::WideBaseTinyTailMinTicks => {
+            families::wide_base_tiny_tail_min_ticks(size(a), size(b))
+        }
+        Probe::WideBaseTinyTailRank => families::wide_base_tiny_tail_rank(size(a), size(b)),
+        Probe::WideLadderMinTicks => families::wide_ladder_min_ticks(size(a), size(b)),
+        Probe::WideLadderRank => families::wide_ladder_rank(size(a), size(b)),
+        Probe::TicksDense => families::ticks_dense(size(a), flag(b)),
+        Probe::TicksNestedWide => families::ticks_nested_wide(size(a), flag(b)),
+        Probe::TicksMirrorWide => families::ticks_mirror_wide(size(a), flag(b)),
     }
 }
 
@@ -220,6 +243,19 @@ fn run(probe: Probe, a: u64, b: u64) -> u64 {
 fn only(a: u64, b: u64) -> usize {
     assert_eq!(b, 0, "this probe takes one parameter, so `b` must be zero");
     size(a)
+}
+
+/// Returns a parameter that selects between two cases.
+///
+/// # Panics
+///
+/// Panics unless the parameter is zero or one.
+fn flag(parameter: u64) -> bool {
+    match parameter {
+        0 => false,
+        1 => true,
+        _ => panic!("this probe's flag parameter is zero or one, not {parameter}"),
+    }
 }
 
 /// Returns a parameter as a size.
