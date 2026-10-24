@@ -49,7 +49,7 @@ impl Anchor {
     pub(super) fn initialize(&mut self, gap: Accumulator) {
         debug_assert!(self.followers.iter().all(Option::is_none));
         debug_assert!(self.deferred.is_none());
-        drop(core::mem::replace(&mut self.gap, gap));
+        self.gap = gap;
     }
 
     /// Forget the final minimum after clients have detached their followers.
@@ -58,8 +58,8 @@ impl Anchor {
             self.followers.iter().all(Option::is_none),
             "followers are removed before the last range closes"
         );
-        drop(self.deferred.take());
-        drop(core::mem::take(&mut self.gap));
+        self.deferred = None;
+        self.gap = Accumulator::new();
     }
 
     /// Advance the running height, reading only the supplied difference.
