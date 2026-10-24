@@ -118,7 +118,7 @@ fn stability_covers_extreme_accumulator_operands() {
         "partial 3 at index floor + 2 is the decision edge"
     );
     // operand: an accumulator stored in digits 0..=floor at the digit limit
-    // edge — magnitude (2^33 − 1)(2^32 + 1), far beyond any u64.
+    // edge, magnitude (2^33 − 1)(2^32 + 1), far beyond any u64.
     let mut operand = Accumulator::new();
     park_extreme_negative_digit(&mut operand, 0);
     park_extreme_negative_digit(&mut operand, 1);
@@ -159,7 +159,7 @@ fn small_value_stability_threshold_is_tight_from_below() {
         "2^65 remains in the small representation"
     );
     assert_value(&larger, &(IBig::from(1) << 65usize));
-    // operand: every digit 0..=floor parked at the digit limit —
+    // operand: every digit 0..=floor parked at the digit limit,
     // magnitude 2^65 + 2^32 − 1, strictly above the larger value 2^65.
     let mut operand = Accumulator::new();
     park_extreme_negative_digit(&mut operand, 0);
@@ -625,7 +625,7 @@ fn reserve_bits_is_value_neutral() {
     let mut oracle = IBig::from(7);
     assert_value(&acc, &oracle);
 
-    // In the digit representation, before and after the covered writes — and a
+    // In the digit representation, before and after the covered writes; and a
     // reservation smaller than the stored width is a no-op.
     acc.add_limb_value(&(UBig::from(1u8) << 3_200usize));
     oracle += IBig::from(UBig::from(1u8) << 3_200usize);

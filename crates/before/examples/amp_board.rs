@@ -1,14 +1,14 @@
 //! Runs the amplification board and prints the red-green matrix to stdout.
 //!
-//! The board itself — the operation × input-family sweep, the meters, the
-//! green/red criterion, and the not-applicable coverage list — lives in
+//! The board itself (the operation × input-family sweep, the meters, the
+//! green/red criterion, and the not-applicable coverage list) lives in
 //! `before::testing::meter::board`; this binary installs the counting allocator
 //! the board's peak-heap column reads (a global allocator is per-binary
 //! state the library cannot own), parses the size knob, and orchestrates
 //! the process sharding below.
 //!
-//! Usage: `just amp-board` (release, the profile of record — dev runs are
-//! a debugging view whose readings are never pinned), or directly
+//! Usage: `just amp-board` (release, the profile of record; dev runs are
+//! a debugging view whose readings are never committed), or directly
 //! `cargo run -p before --example amp_board --features touch-meter,scan-meter
 //! -- [scale]` where the optional `scale` (a positive number, default
 //! `board::DEFAULT_SCALE`) multiplies every input family's base size and
@@ -79,9 +79,9 @@
 //!
 //! # Process sharding
 //!
-//! The sweep is single-threaded within a process by design — the
+//! The sweep is single-threaded within a process by design (the
 //! peak-heap column reads the process-global allocator, so concurrent
-//! threads would blend live sets — and parallelizes by process instead:
+//! threads would blend live sets) and parallelizes by process instead:
 //! every mode that sweeps (all but `compare`, which reads two captures)
 //! spawns one copy of this binary per slice of the operation
 //! × family cell grid (`--shard i/N`, an internal protocol;

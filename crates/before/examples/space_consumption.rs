@@ -10,13 +10,13 @@
 //! number of operations performed, for entity populations of 4, 8, 16, 32, 64,
 //! and 128, averaged across 100 runs, in two regimes:
 //!
-//! * **Data causality, dynamic setting** — ids churn constantly. Each iteration
+//! * **Data causality, dynamic setting**: ids churn constantly. Each iteration
 //!   performs a `fork`, an `event`, and a `join`, each on randomly chosen
 //!   replicas (paper §6). `fork` grows the population by one, `join` shrinks it
 //!   by one, so the population is held constant while the id tree is reshaped
 //!   continuously. Run to 100,000 iterations.
 //!
-//! * **Process causality, static setting** — a fixed set of processes exchange
+//! * **Process causality, static setting**: a fixed set of processes exchange
 //!   messages (via `peek` + `join`) and record internal `event`s. Because
 //!   messages are anonymous stamps `(0, e)` (paper §3, `peek`), ids never
 //!   change; only the event component grows. Run to 25,000 iterations.
@@ -37,8 +37,8 @@
 //! own canonical binary encoding ([`Clock::encode`]). We deliberately measure
 //! *ours*: the byte counts here run below the paper's in the process/static
 //! regime and within the paper's charted band in the data/dynamic regime, and
-//! the curve shapes — rapid early growth followed by stabilization with only a
-//! faint logarithmic creep — reproduce the paper's qualitative result, which is
+//! the curve shapes (rapid early growth followed by stabilization with only a
+//! faint logarithmic creep) reproduce the paper's qualitative result, which is
 //! the point of the experiment.
 //!
 //! # Output
@@ -57,7 +57,7 @@
 //!
 //! Bits are the exact pre-pad encoded length ([`Clock::encoded_bits`]); bytes are
 //! `encode().len()` = `⌈bits/8⌉` per stamp. The bit column is the smooth quantity
-//! to fit — averaging per-stamp byte ceilings biases small stamps upward and adds
+//! to fit: averaging per-stamp byte ceilings biases small stamps upward and adds
 //! quantization noise; the byte column is what a real deployment stores.
 //!
 //! # Running
@@ -66,7 +66,7 @@
 //! cargo run --release --example space_consumption > space.csv
 //! ```
 //!
-//! With the paper's parameters (100 runs) this is a long simulation — the
+//! With the paper's parameters (100 runs) this is a long simulation: the
 //! 128-replica dynamic case builds multi-kilobyte stamps and reshapes them
 //! 100,000 times per run. Runs are parallelized across cores with rayon. For a
 //! quick look, reduce the work:
@@ -326,7 +326,7 @@ fn build_population(n: usize) -> Vec<Clock> {
     clocks
 }
 
-/// Mean encoded size over all live stamps, as `(bits, bytes)` — this crate's
+/// Mean encoded size over all live stamps, as `(bits, bytes)`, in this crate's
 /// binary encoding, not the paper's Appendix A encoding.
 ///
 /// Bits are the exact

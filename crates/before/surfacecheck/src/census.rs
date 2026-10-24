@@ -11,7 +11,7 @@
 //! Row format, produced by [`crate::extract`]:
 //!
 //! - trait impls: `ReachablePath: impl trait::def::Path<Args> for ForType`
-//!   — the reachable path of the type (or trait) the impl was found at,
+//!   giving the reachable path of the type (or trait) the impl was found at,
 //!   the trait's definition path with generic arguments (lifetimes
 //!   elided), and the implementing type. An impl reachable at two public
 //!   paths holds two rows, one per spelling.

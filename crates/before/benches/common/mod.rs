@@ -49,7 +49,7 @@ pub struct Plan {
     pub schedule: Vec<usize>,
     /// `label[m]` assigns universe member `m` to a preserve group or [`DISCARD`].
     pub label: Vec<u8>,
-    /// `ticks[m]` is how many events member `m` records before any join — giving the
+    /// `ticks[m]` is how many events member `m` records before any join, giving the
     /// versions/clocks real history. Unused by the party-only builders.
     pub ticks: Vec<u32>,
 }
@@ -117,7 +117,7 @@ pub fn impl_parties(plan: &Plan, groups: u8) -> Vec<Party> {
         .collect()
 }
 
-/// The oracle counterpart of [`impl_parties`] — same plan, structurally identical trees.
+/// The oracle counterpart of [`impl_parties`]: same plan, structurally identical trees.
 pub fn oracle_parties(plan: &Plan, groups: u8) -> Vec<oracle::Party> {
     let mut universe = vec![oracle::Party::seed()];
     for &i in &plan.schedule {
@@ -172,7 +172,7 @@ pub fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
 }
 
 /// The ownership-hole pair for `plan`: the whole universe joined into
-/// one version, against one late-forked member's party — a peer owning
+/// one version, against one late-forked member's party: a peer owning
 /// a vanishing custody fraction operating on a fully-received version.
 ///
 /// The aliased party never re-enters protocol use, so linearity holds
@@ -236,7 +236,7 @@ pub fn oracle_clocks(plan: &Plan, groups: u8) -> Vec<oracle::Clock> {
 
 // ───────────────────────────── version corpora ─────────────────────────────
 
-/// The versions of the preserved [`impl_clocks`] — randomized event trees with history.
+/// The versions of the preserved [`impl_clocks`]: randomized event trees with history.
 pub fn impl_versions(plan: &Plan, groups: u8) -> Vec<Version> {
     impl_clocks(plan, groups)
         .into_iter()

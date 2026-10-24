@@ -46,7 +46,7 @@ fn measurement_guard() -> MutexGuard<'static, ()> {
 /// spawning children.
 ///
 /// The runner's spawner launches one copy of the `amp_board` binary per
-/// slice; the seam it feeds — emit, parse, reorder, re-judge — is the
+/// slice; the protocol it feeds (emit, parse, reorder, re-judge) is the
 /// same either way, so the smoke suite drives it without processes.
 fn in_process_spawn(
     shards: usize,
@@ -111,8 +111,8 @@ fn expected_cells_per_family() -> BTreeMap<&'static str, usize> {
         .collect()
 }
 
-/// The board runs to completion at tiny sizes — every cell prepares,
-/// measures, and renders — and the matrix keeps covering the full
+/// The board runs to completion at tiny sizes: every cell prepares,
+/// measures, and renders, and the matrix keeps covering the full
 /// operation sweep, family by family.
 ///
 /// Each shape's cell count must match the bundle reach its registry
@@ -164,8 +164,8 @@ fn board_runs_to_completion() {
 /// emits, parses, reorders, and re-judges into the same matrix as one
 /// undivided shard.
 ///
-/// This is the merge's coverage — the wire form's field order, the
-/// ownership and count guards, and the board-order reconstruction — and
+/// This is the merge's coverage (the wire form's field order, the
+/// ownership and count guards, and the board-order reconstruction), and
 /// byte-identity is how it asserts, since every judged quantity is a
 /// deterministic counter over state each shard owns privately. Three
 /// shards deal the operation × family grid unevenly, so the
@@ -262,12 +262,12 @@ fn worst_map_covers_every_operation_row() {
 /// This is the completeness refusal's committed known-bad artifact: each
 /// tampered capture is well-formed shard output whose only defect is one
 /// missing cell, and the merge must refuse it rather than render the
-/// shrunk board. The sweep quantifies over the family axis — the axis the
+/// shrunk board. The sweep quantifies over the family axis (the axis the
 /// per-family refusal discriminates on; positions within one family short
-/// the same count — by dropping each family's first cell, plus the
+/// the same count) by dropping each family's first cell, plus the
 /// grid's last cell (the boundary the end-count restatement is easiest to
 /// forge at). Being a merge-layer check it fires at every scale,
-/// including the release acceptance ladder — the completeness the
+/// including the release acceptance ladder: the completeness the
 /// per-family smoke pin (`board_runs_to_completion`) can only attest at
 /// its own scale.
 #[test]

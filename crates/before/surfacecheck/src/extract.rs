@@ -1,9 +1,9 @@
 //! The reachability walk: every public item, named as its check names it.
 //!
 //! The walk starts at the crate's root module and follows exactly what a
-//! user of the public API can reach — public modules, `pub use`
+//! user of the public API can reach: public modules, `pub use`
 //! re-exports (named and glob), public types and their impls, and public
-//! traits — recording each item under the path it is *reachable* at
+//! traits, recording each item under the path it is *reachable* at
 //! (`Party::seed` for a root re-export,
 //! `causally::since` inside a public module). The `paths` table's
 //! definition paths are deliberately not used for reachable naming: they
@@ -12,10 +12,10 @@
 //!
 //! Three categories come back, each checked against its owning inventory:
 //!
-//! - **functions** — free functions, inherent methods, and public-trait
+//! - **functions**: free functions, inherent methods, and public-trait
 //!   -declared methods, reconciled against the board's operation inventory and
 //!   the exception lists in [`crate::check`];
-//! - **impls** — every reachable trait impl, one row per
+//! - **impls**: every reachable trait impl, one row per
 //!   `type: impl Trait for For` spelling, reconciled against the pinned
 //!   [`crate::census::TRAIT_IMPLS`]. Compiler-synthesized auto-trait
 //!   impls are excluded here because `before` pins those guarantees
@@ -23,10 +23,10 @@
 //!   every public API type at compile time); blanket impls are excluded
 //!   because they are foreign library plumbing (`From<T> for T`,
 //!   `Borrow`, `Any`, …), not API decisions made in this crate;
-//! - **items** — associated consts and types, module-level consts,
+//! - **items**: associated consts and types, module-level consts,
 //!   statics, and macros, reconciled against the pinned
 //!   [`crate::census::ITEMS`];
-//! - **`usize` signatures** — every place a public `usize` can appear: a
+//! - **`usize` signatures**: every place a public `usize` can appear: a
 //!   function-like item's parameters, return type, or own generics, trait-impl
 //!   methods included; an impl's header, trait or inherent (its trait's
 //!   arguments, implementing type, or generics); a module const's or static's
@@ -281,7 +281,7 @@ fn walk_use(
     // `id` is `None` only for primitive re-exports; an id absent from the
     // index is another crate's item (recorded in the `paths` table), which
     // is not `before` surface. An id in neither table is malformed rustdoc
-    // JSON, and a malformed input must never read as a smaller surface —
+    // JSON, and a malformed input must never read as a smaller surface,
     // same discipline as `item_of`'s dangling-reference panic.
     let Some(id) = use_.id else { return };
     let Some(target) = krate.index.get(&id) else {
@@ -362,9 +362,9 @@ fn walk_type(
 /// found at (`owner`: the implementing type's path, or the trait's path
 /// for impls reached from a trait page).
 ///
-/// Compiler-synthesized auto-trait impls are excluded — `before` pins
+/// Compiler-synthesized auto-trait impls are excluded (`before` pins
 /// `Send`/`Sync`/`Unpin` on every public API type at compile time in
-/// `src/testing/auto_traits.rs`, which is where that guarantee is reviewed —
+/// `src/testing/auto_traits.rs`, which is where that guarantee is reviewed),
 /// and blanket impls are excluded as foreign library plumbing, not API
 /// decisions of this crate. Everything else, derives included, is a
 /// row: deriving a trait is exactly the kind of API event the census
@@ -679,7 +679,7 @@ fn render_trait(krate: &Crate, trait_: &Path) -> String {
 /// definition path): census rows are keyed under the reachable path of
 /// the type they were found at, which carries the disambiguation, and
 /// bare names keep the pinned census legible. A type shape this crate's
-/// surface never uses panics rather than rendering approximately — a
+/// surface never uses panics rather than rendering approximately; a
 /// new shape must be named here before it can be pinned.
 ///
 /// Recurses, with [`render_args`], once per level of type nesting, a depth

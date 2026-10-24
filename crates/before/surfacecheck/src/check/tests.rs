@@ -23,7 +23,7 @@ fn names(entries: &[&str]) -> BTreeSet<String> {
 }
 
 /// A surface whose functions are the given names, with no impls and no
-/// items — the shape most function-coverage tests need.
+/// items, the form most function-coverage tests need.
 fn functions(entries: &[&str]) -> Surface {
     Surface {
         functions: names(entries),

@@ -3,14 +3,14 @@
 //!
 //! Functions reconcile against the board's per-operation inventory.
 //! Trait impls, non-function items, and `usize` signatures reconcile against
-//! the pinned lists in [`crate::census`]. Every exception is named and reasoned —
-//! the registry exemption-list discipline — and every exception and
+//! the pinned lists in [`crate::census`]. Every exception is named and reasoned,
+//! the registry exemption-list discipline, and every exception and
 //! census entry must still *match* something: an entry whose item
 //! vanished is a dead entry this check fails on, so the lists are
 //! self-pruning. The anchors are the extractor's liveness floor: a walk
 //! that returns nothing (or the wrong tree) cannot pass, because two
 //! known-public items must be present by name; the censuses need no
-//! separate anchor because their reconciliation is two-way — an impl
+//! separate anchor because their reconciliation is two-way: an impl
 //! walk that goes silent orphans every pinned row at once.
 
 use std::collections::BTreeSet;

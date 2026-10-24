@@ -2,7 +2,7 @@
 //!
 //! `fuzz/seeds/<target>/<name>` holds canonical encodings that seed the
 //! libFuzzer corpus. Hand-authored seed bytes rot silently when the wire
-//! format moves — a stale seed fails no gate, it just stops representing
+//! format moves: a stale seed fails no gate, it just stops representing
 //! the values it was written for and quietly degrades the corpus. This
 //! module is the cure: [`seed_set`] derives every seed from the live
 //! public API, the `fuzz_seeds` example writes the files, and the
@@ -130,12 +130,12 @@ pub fn seed_set() -> Vec<Seed> {
     // per skyline-validator arm, driven through the version entry point (the
     // span differential's fused admission walk subsumes both cases
     // under its dominance refutation, so only a version-kind seed
-    // reaches these arms). Neither stream is derivable from the API —
-    // no encode produces them — so the bytes carry their derivations.
+    // reaches these arms). Neither stream is derivable from the API
+    // (no encode produces them), so the bytes carry their derivations.
     //
     // A running height that dips negative mid-stream: root internal
     // `0`, left leaf `1` with height gamma(0) `1`, right leaf `1` with
-    // delta zigzag(-1) `010`, then the padding marker — 0b0111_0101.
+    // delta zigzag(-1) `010`, then the padding marker: 0b0111_0101.
     seeds.push(Seed {
         target: Target::Decode,
         name: "version_negative_height",
@@ -143,7 +143,7 @@ pub fn seed_set() -> Vec<Seed> {
     });
     // A collapsible sibling pair (zero right delta): root internal `0`,
     // left leaf `1` with height gamma(5) `00110`, right leaf `1` with
-    // delta zigzag(0) `1` — nine live bits, 0b0100_1101 then `1`, the
+    // delta zigzag(0) `1`: nine live bits, 0b0100_1101 then `1`, the
     // padding marker, and six zeros.
     seeds.push(Seed {
         target: Target::Decode,
@@ -208,8 +208,8 @@ pub fn seed_set() -> Vec<Seed> {
         bytes: [newer.encode(), older.encode()].concat(),
     });
     // The minimal coincident composite (two empty versions): the accept
-    // path that dispatches the span storage dedup — the admission
-    // walk's Equal verdict — plus both static stream buffers, through
+    // path that dispatches the span storage dedup (the admission
+    // walk's Equal verdict), plus both static stream buffers, through
     // every differential arm.
     seeds.push(Seed {
         target: Target::DecodeDifferential,
@@ -227,7 +227,7 @@ pub fn seed_set() -> Vec<Seed> {
     });
     // A join whose running height dips negative: root internal `0`, left
     // leaf `1` with height gamma(0) `1`, right leaf `1` with delta
-    // zigzag(-1) `010`, then the padding marker — 0b0111_0101. Not
+    // zigzag(-1) `010`, then the padding marker: 0b0111_0101. Not
     // derivable from the API (no encode produces it); it seeds the one
     // documented fused/composed divergence, the height-dip
     // subsumption.
@@ -253,7 +253,7 @@ pub fn seed_set() -> Vec<Seed> {
     // A canonical encoding cut exactly at a flush byte boundary: the live
     // bits of the uniform version at 7 (leaf flag `1`, gamma(7) `0001000`)
     // fill its first byte, so its whole `1000_0000` padding byte is the
-    // second — and the first byte alone is a complete tree whose required
+    // second, and the first byte alone is a complete tree whose required
     // padding is missing entirely. It seeds the truncation agreement
     // between the reader and slice entry points (`UnexpectedEof` is exactly raw
     // `Truncated`).
@@ -344,7 +344,7 @@ pub fn seed_set() -> Vec<Seed> {
     });
 
     // Wide-gamma bases: values past `u64::MAX` open their gamma codes with
-    // a 64+-zero unary prefix — about `2^-64` per random byte stream — so
+    // a 64+-zero unary prefix (about `2^-64` per random byte stream), so
     // random fuzzing essentially never reaches the wide-value decode tier.
     // These seeds fix that thin tail. The parties nest a level deeper than
     // the family seed's, and the clock pairs a wide history with a quarter
@@ -389,7 +389,7 @@ pub fn seed_set() -> Vec<Seed> {
 
     // The wide tier for the rank-bearing decoders: rank streams
     // with mantissas past the machine word, a span whose endpoints carry
-    // wide bases — shapes random bytes essentially never reach (the same
+    // wide bases: shapes random bytes essentially never reach (the same
     // ~2^-64 unary-prefix argument as the laws seeds above).
     seeds.push(Seed {
         target: Target::Decode,

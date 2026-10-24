@@ -4,9 +4,9 @@
 //! nothing (or as the wrong value) and quietly stops seeding the fuzzer with
 //! what it was written to represent. These tests hold `fuzz/seeds/`
 //! byte-identical to the live derivation (`tests/support/fuzz_seed_set.rs`) and
-//! hold every seed to the contract it seeds — the decode targets' round-trips,
-//! the differential target's rejection witnesses — so format drift is a red
-//! gate with a one-command fix (`cargo run -p before --example fuzz_seeds`).
+//! hold every seed to the contract it seeds (the decode targets' round-trips,
+//! the differential target's rejection witnesses), so format drift fails the
+//! suite with a one-command fix (`cargo run -p before --example fuzz_seeds`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -44,7 +44,7 @@ fn committed_seeds_match_the_live_derivation() {
     }
 }
 
-/// The seed directories hold exactly the set of record — no strays.
+/// The seed directories hold exactly the set of record, with no strays.
 ///
 /// A leftover file from a renamed or retired seed (or a whole directory
 /// for a renamed or retired target) would seed the fuzzer with bytes
@@ -102,7 +102,7 @@ fn seed_directories_hold_exactly_the_set_of_record() {
 }
 
 /// Every `fuzz_decode` seed decodes as the type its name declares and
-/// re-encodes byte-identically — or, for the corpus's non-canonical
+/// re-encodes byte-identically or, for the corpus's non-canonical
 /// frontier, rejects with exactly its named error class.
 ///
 /// Either way the seeds actually exercise the decode paths they were
@@ -117,7 +117,7 @@ fn decode_seeds_decode_as_named_and_round_trip() {
         // The rejection witnesses, by full name: each must reject with
         // the exact named error (never fail an earlier
         // parse), so the corpus keeps seeding the validator arm it was
-        // written for — the fused span walk cannot reach these arms, so
+        // written for: the fused span walk cannot reach these arms, so
         // these version-entry point seeds are their only corpus coverage.
         match seed.name {
             "version_negative_height" => {
@@ -176,7 +176,7 @@ fn decode_seeds_decode_as_named_and_round_trip() {
 ///
 /// The accept-frontier seeds decode and round-trip, and each rejection
 /// witness rejects with the exact error class whose precedence the
-/// differential oracle guards — so the committed corpus keeps seeding
+/// differential oracle guards, so the committed corpus keeps seeding
 /// the error boundaries it was written for, and an incorrect
 /// verdict-before-padding ordering reddens this gate directly.
 #[test]
@@ -314,7 +314,7 @@ fn operation_seeds_drive_both_modes_and_every_operation() {
     }
 }
 
-/// Every `fuzz_laws` seed decodes positionally per the target's framing —
+/// Every `fuzz_laws` seed decodes positionally per the target's framing:
 /// three versions, two parties, a clock, then the three variadic list
 /// scripts (version, party, clock pools), nothing left over.
 ///
