@@ -34,12 +34,12 @@
 //! ([`fold_heights`](crate::testing::shape_rows::fold_heights)). Its rows
 //! are always canonical: no two sibling leaves share a height.
 //!
-//! Every binary operation works on the operands' *common refinement*: the
-//! coarsest partition of `[0, 1)` into dyadic cells that each lies inside one
-//! leaf of every operand. Join and meet are the pointwise maximum and
-//! minimum on it, the order is the pointwise order, and projection zeroes the
-//! cells a party does not own. Each result is then canonicalized by
-//! collapsing equal siblings, bottom up.
+//! Every binary operation works on the operands' *common refinement*
+//! ([`refine`]): the coarsest partition of `[0, 1)` into dyadic cells that each
+//! lies inside one leaf of every operand. Join and meet are the pointwise
+//! maximum and minimum on it, the order is the pointwise order, and projection
+//! zeroes the cells a party does not own. Each result is then canonicalized by
+//! collapsing equal siblings, bottom up ([`collapse`]).
 //!
 //! # Parties
 //!
@@ -75,123 +75,10 @@ use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 
 use crate::testing::oracles::{codec, tree};
-use crate::testing::shape_rows::{assert_tiles, Leaf};
+use crate::testing::shape_rows::{assert_tiles, collapse, refine, Leaf};
 
 pub(crate) mod census;
 mod tests;
-
-// ─────────────────────────────── refinement ───────────────────────────────
-
-/// One cell of a common refinement: its depth, and for each input the index
-/// of the input's leaf that holds it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Cell {
-    /// The cell's depth; it is `2^-depth` wide.
-    pub(crate) depth: u64,
-    /// For each input, in input order, the index of its leaf holding the
-    /// cell.
-    pub(crate) leaves: Vec<usize>,
-}
-
-/// The common refinement of leaf depth lists, each tiling `[0, 1)`, as cells
-/// left to right.
-///
-/// The traversal keeps each input's current leaf and the position where it
-/// ends. At each cell boundary, the inputs' current leaves all hold the
-/// boundary point, so they are nested dyadic intervals, and one of them
-/// starts there: the input whose leaf ended at the boundary advanced to it.
-/// The deepest of the nested leaves is therefore the next cell, whole.
-/// Zero inputs refine to the single cell `[0, 1)`.
-///
-/// # Panics
-///
-/// Panics if a depth list does not tile `[0, 1)`.
-pub(crate) fn refine(inputs: &[Vec<u64>]) -> Vec<Cell> {
-    for depths in inputs {
-        assert_tiles(depths.iter().copied());
-    }
-    let scale = inputs.iter().flatten().copied().max().unwrap_or(0);
-    let width = |depth: u64| BigUint::from(1u8) << (scale - depth);
-    let one = width(0);
-    let mut index = vec![0usize; inputs.len()];
-    let mut end: Vec<BigUint> = inputs.iter().map(|depths| width(depths[0])).collect();
-    let mut at = BigUint::ZERO;
-    let mut cells = Vec::new();
-    loop {
-        let depth = inputs
-            .iter()
-            .zip(&index)
-            .map(|(depths, &i)| depths[i])
-            .max()
-            .unwrap_or(0);
-        cells.push(Cell {
-            depth,
-            leaves: index.clone(),
-        });
-        at += width(depth);
-        if at == one {
-            return cells;
-        }
-        for ((depths, i), end) in inputs.iter().zip(&mut index).zip(&mut end) {
-            if *end == at {
-                *i += 1;
-                *end += width(depths[*i]);
-            }
-        }
-    }
-}
-
-/// Collapses every pair of sibling leaves of equal height into their parent,
-/// bottom up, until none remains: the canonical rows of the same step
-/// function.
-///
-/// A stack holds the completed subtrees still waiting for a sibling, each as
-/// its depth and whether it is a single leaf, the last row written. When the
-/// incoming subtree and the stack's top sit at one depth they are siblings,
-/// and they close into their parent; two single leaves of one height
-/// collapse into one leaf there, which may collapse again with the next
-/// subtree down the stack. `on_collapse` hears each collapse: the surviving
-/// left leaf, and whether the collapse cascaded from one just before it.
-///
-/// # Panics
-///
-/// Panics if the rows do not tile `[0, 1)`.
-fn collapse(
-    rows: impl IntoIterator<Item = Leaf>,
-    mut on_collapse: impl FnMut(&[Leaf], bool),
-) -> Vec<Leaf> {
-    let mut out: Vec<Leaf> = Vec::new();
-    let mut open: Vec<(u64, bool)> = Vec::new();
-    for leaf in rows {
-        let mut depth = leaf.depth;
-        let mut single = true;
-        let mut cascade = false;
-        out.push(leaf);
-        while open.last().is_some_and(|&(top, _)| top == depth) {
-            let (_, left_single) = open.pop().expect("the loop condition saw a top entry");
-            let parent = depth
-                .checked_sub(1)
-                .expect("rows tile the unit interval: two subtrees close above the root");
-            let n = out.len();
-            if left_single && single && out[n - 2].height == out[n - 1].height {
-                out.pop();
-                out[n - 2].depth = parent;
-                on_collapse(&out, cascade);
-                cascade = true;
-            } else {
-                single = false;
-                cascade = false;
-            }
-            depth = parent;
-        }
-        open.push((depth, single));
-    }
-    assert!(
-        matches!(open.as_slice(), [(0, _)]),
-        "rows tile the unit interval: some subtree is left without a sibling"
-    );
-    out
-}
 
 // ─────────────────────────────── versions ───────────────────────────────
 
@@ -270,14 +157,24 @@ impl Version {
     /// Only the tree's structure is read, never an oracle operation, so a
     /// tree that is not in normal form still yields its canonical version.
     pub(crate) fn from_oracle(version: &tree::Version) -> Version {
-        let rows: Vec<Leaf> = codec::Version::from_oracle(version)
+        Version::from_spelling(&codec::Version::from_oracle(version))
+    }
+
+    /// The canonical version of a tree the independent encoder spells, in
+    /// normal form or not.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a height is negative: no version has one.
+    pub(crate) fn from_spelling(version: &codec::Version) -> Version {
+        let rows: Vec<Leaf> = version
             .leaves()
             .iter()
             .map(|(depth, height)| Leaf {
                 depth: *depth,
                 height: height
                     .to_biguint()
-                    .expect("an oracle tree's heights are sums of nonnegative bases"),
+                    .expect("a version's heights are nonnegative"),
             })
             .collect();
         Version::from_rows(&rows)
@@ -519,7 +416,7 @@ impl Version {
     }
 
     /// The encoder's flat spelling of the canonical rows.
-    fn spelled(&self) -> codec::Version {
+    pub(crate) fn spelled(&self) -> codec::Version {
         codec::Version::from_leaves(
             self.rows
                 .iter()

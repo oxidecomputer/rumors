@@ -14,10 +14,19 @@
 //! then scan.
 //!
 //! A version's rows are [`Leaf`]s. [`oracle_plateaus`] reads them off an
-//! oracle tree and [`version_from_rows`] closes them back into one, through
-//! the one bottom-up closer every row listing here shares; on normal-form
-//! trees the two are inverse. The deep version strategies
+//! oracle tree and [`version_from_rows`] closes them back into one through
+//! `close_rows`, the bottom-up closer that also checks tiling; on
+//! normal-form trees the two are inverse. The deep version strategies
 //! ([`crate::testing::generators::leaf_list`]) draw versions as such rows.
+//!
+//! The flat-tree models share two loops over row listings: [`collapse`],
+//! which brings any listing to its normal form, and [`refine`], which cuts
+//! several listings into their common refinement. [`collapse`] keeps a
+//! closing stack of its own rather than building on `close_rows`, because
+//! it rewrites the listing it closes. The flat model
+//! ([`crate::testing::oracles::flat`]) builds its lattice on both loops, and
+//! the independent encoder ([`crate::testing::oracles::codec`]) normalizes
+//! its trees with the first.
 
 use std::sync::Arc;
 
@@ -86,6 +95,166 @@ pub(crate) fn apply_rise(height: &mut BigUint, rise: &Option<Rise>) {
 /// whole sequence must close to the single depth-0 interval.
 pub(crate) fn assert_tiles(depths: impl IntoIterator<Item = u64>) {
     close_rows(depths.into_iter().map(|depth| (depth, ())), |(), ()| ());
+}
+
+/// A row of a flat tree's leaf listing: a leaf's depth and the value it
+/// holds, which [`collapse`] compares between siblings.
+pub(crate) trait Row {
+    /// The value two sibling leaves must share to collapse.
+    type Value: PartialEq;
+    /// The leaf's depth below the root.
+    fn depth(&self) -> u64;
+    /// Moves the leaf to `depth`, as a collapse raises its survivor.
+    fn set_depth(&mut self, depth: u64);
+    /// The value the leaf holds.
+    fn value(&self) -> &Self::Value;
+}
+
+/// A version's row: its value is its absolute height.
+impl Row for Leaf {
+    type Value = BigUint;
+
+    fn depth(&self) -> u64 {
+        self.depth
+    }
+
+    fn set_depth(&mut self, depth: u64) {
+        self.depth = depth;
+    }
+
+    fn value(&self) -> &BigUint {
+        &self.height
+    }
+}
+
+/// A `(depth, value)` pair, the leaf form of the independent encoder's flat
+/// trees.
+impl<T: PartialEq> Row for (u64, T) {
+    type Value = T;
+
+    fn depth(&self) -> u64 {
+        self.0
+    }
+
+    fn set_depth(&mut self, depth: u64) {
+        self.0 = depth;
+    }
+
+    fn value(&self) -> &T {
+        &self.1
+    }
+}
+
+/// Collapses every pair of sibling leaves of equal value into their parent,
+/// bottom up, until none remains: the normal form of the same flat tree.
+///
+/// A stack holds the completed subtrees still waiting for a sibling, each as
+/// its depth and whether it is a single leaf, the last row written. When the
+/// incoming subtree and the stack's top sit at one depth they are siblings,
+/// and they close into their parent; two single leaves of one value collapse
+/// into one leaf there, which may collapse again with the next subtree down
+/// the stack. `on_collapse` hears each collapse: the rows so far, ending with
+/// the surviving left leaf, and whether the collapse cascaded from one just
+/// before it.
+///
+/// # Panics
+///
+/// Panics if the rows do not tile `[0, 1)`.
+pub(crate) fn collapse<R: Row>(
+    rows: impl IntoIterator<Item = R>,
+    mut on_collapse: impl FnMut(&[R], bool),
+) -> Vec<R> {
+    let mut out: Vec<R> = Vec::new();
+    let mut open: Vec<(u64, bool)> = Vec::new();
+    for row in rows {
+        let mut depth = row.depth();
+        let mut single = true;
+        let mut cascade = false;
+        out.push(row);
+        while open.last().is_some_and(|&(top, _)| top == depth) {
+            let (_, left_single) = open.pop().expect("the loop condition saw a top entry");
+            let parent = depth
+                .checked_sub(1)
+                .expect("rows tile the unit interval: two subtrees close above the root");
+            let n = out.len();
+            if left_single && single && out[n - 2].value() == out[n - 1].value() {
+                out.pop();
+                out[n - 2].set_depth(parent);
+                on_collapse(&out, cascade);
+                cascade = true;
+            } else {
+                single = false;
+                cascade = false;
+            }
+            depth = parent;
+        }
+        open.push((depth, single));
+    }
+    assert!(
+        matches!(open.as_slice(), [(0, _)]),
+        "rows tile the unit interval: some subtree is left without a sibling"
+    );
+    out
+}
+
+/// One cell of a common refinement: its depth, and for each input the index
+/// of the input's leaf that holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RefinedCell {
+    /// The cell's depth; it is `2^-depth` wide.
+    pub(crate) depth: u64,
+    /// For each input, in input order, the index of its leaf holding the
+    /// cell.
+    pub(crate) leaves: Vec<usize>,
+}
+
+/// The common refinement of leaf depth lists, each tiling `[0, 1)`, as cells
+/// left to right: the coarsest partition into dyadic cells that each lies
+/// inside one leaf of every input.
+///
+/// The traversal keeps each input's current leaf and the position where it
+/// ends. At each cell boundary, the inputs' current leaves all hold the
+/// boundary point, so they are nested dyadic intervals, and one of them
+/// starts there: the input whose leaf ended at the boundary advanced to it.
+/// The deepest of the nested leaves is therefore the next cell, whole.
+/// Zero inputs refine to the single cell `[0, 1)`.
+///
+/// # Panics
+///
+/// Panics if a depth list does not tile `[0, 1)`.
+pub(crate) fn refine(inputs: &[Vec<u64>]) -> Vec<RefinedCell> {
+    for depths in inputs {
+        assert_tiles(depths.iter().copied());
+    }
+    let scale = inputs.iter().flatten().copied().max().unwrap_or(0);
+    let width = |depth: u64| BigUint::from(1u8) << (scale - depth);
+    let one = width(0);
+    let mut index = vec![0usize; inputs.len()];
+    let mut end: Vec<BigUint> = inputs.iter().map(|depths| width(depths[0])).collect();
+    let mut at = BigUint::ZERO;
+    let mut cells = Vec::new();
+    loop {
+        let depth = inputs
+            .iter()
+            .zip(&index)
+            .map(|(depths, &i)| depths[i])
+            .max()
+            .unwrap_or(0);
+        cells.push(RefinedCell {
+            depth,
+            leaves: index.clone(),
+        });
+        at += width(depth);
+        if at == one {
+            return cells;
+        }
+        for ((depths, i), end) in inputs.iter().zip(&mut index).zip(&mut end) {
+            if *end == at {
+                *i += 1;
+                *end += width(depths[*i]);
+            }
+        }
+    }
 }
 
 /// Fold a plateau stream into absolute [`Leaf`] rows, asserting

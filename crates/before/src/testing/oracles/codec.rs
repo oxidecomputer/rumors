@@ -67,6 +67,7 @@
 use num_bigint::{BigInt, BigUint, Sign};
 
 use crate::testing::oracles::tree;
+use crate::testing::shape_rows::collapse;
 
 mod tests;
 // The decoder properties read the specification, and the near-valid census
@@ -163,100 +164,6 @@ fn is_tree<T>(leaves: &[(u64, T)]) -> bool {
     preorder(leaves.iter().map(|&(depth, _)| depth)).is_some()
 }
 
-/// Collapses every pair of sibling leaves with equal values into one leaf at
-/// their parent's depth, bottom up, until no such pair remains.
-///
-/// The traversal rebuilds the tree subtree by subtree. A completed subtree is
-/// the run of output leaves from its start index; when a branch completes and
-/// both its subtrees are single leaves with equal values, the right leaf is
-/// dropped and the left rises to the branch's depth. Collapsing can make the
-/// branch's parent collapsible in turn, which the same fold handles as the
-/// traversal unwinds.
-fn collapse<T: Clone + PartialEq>(leaves: &[(u64, T)]) -> Vec<(u64, T)> {
-    enum Frame {
-        /// A branch waiting for its left subtree.
-        NeedLeft,
-        /// A branch waiting for its right subtree; its left subtree starts at
-        /// this output index.
-        NeedRight(usize),
-    }
-    let steps = preorder(leaves.iter().map(|&(depth, _)| depth))
-        .expect("a flat tree's depths describe a full binary tree");
-    let mut out: Vec<(u64, T)> = Vec::with_capacity(leaves.len());
-    let mut frames = Vec::new();
-    for step in steps {
-        let Step::Leaf(index) = step else {
-            frames.push(Frame::NeedLeft);
-            continue;
-        };
-        out.push(leaves[index].clone());
-        let mut done = out.len() - 1;
-        while let Some(frame) = frames.pop() {
-            match frame {
-                Frame::NeedLeft => {
-                    frames.push(Frame::NeedRight(done));
-                    break;
-                }
-                Frame::NeedRight(left) => {
-                    let both_leaves = out.len() == left + 2;
-                    if both_leaves && out[left].1 == out[left + 1].1 {
-                        out.pop();
-                        out[left].0 -= 1;
-                    }
-                    done = left;
-                }
-            }
-        }
-    }
-    out
-}
-
-/// The common refinement of two flat trees: one leaf for each nonempty
-/// intersection of a leaf of `a` with a leaf of `b`, carrying both values.
-///
-/// Positions are counted in units of `2⁻ᵗ` for the deeper tree's depth `t`.
-/// Two dyadic intervals that start together are nested, so each step's piece
-/// is the narrower of the two current leaves, whole; the wider leaf keeps its
-/// remainder for the next step.
-fn refine<'a, T, U>(a: &'a [(u64, T)], b: &'a [(u64, U)]) -> Vec<(u64, &'a T, &'a U)> {
-    let top = a
-        .iter()
-        .map(|&(depth, _)| depth)
-        .chain(b.iter().map(|&(depth, _)| depth))
-        .max()
-        .expect("flat trees are nonempty");
-    let width = |depth: u64| BigUint::from(1u8) << (top - depth);
-    let mut out = Vec::with_capacity(a.len() + b.len());
-    let (mut i, mut j) = (0, 0);
-    let (mut rest_a, mut rest_b) = (width(a[0].0), width(b[0].0));
-    loop {
-        let piece = rest_a.clone().min(rest_b.clone());
-        debug_assert_eq!(
-            piece.count_ones(),
-            1,
-            "a refinement piece is one dyadic leaf"
-        );
-        out.push((top - (piece.bits() - 1), &a[i].1, &b[j].1));
-        rest_a -= &piece;
-        rest_b -= &piece;
-        if rest_b == BigUint::ZERO {
-            j += 1;
-            if j < b.len() {
-                rest_b = width(b[j].0);
-            }
-        }
-        if rest_a == BigUint::ZERO {
-            i += 1;
-            if i == a.len() {
-                break;
-            }
-            rest_a = width(a[i].0);
-        }
-    }
-    assert_eq!(j, b.len(), "two flat trees cover the same unit interval");
-    out
-}
-
 // ───────────────────────────── versions ─────────────────────────────
 
 /// A version as a flat tree of absolute leaf heights.
@@ -300,50 +207,12 @@ impl Version {
     }
 
     /// The normal form of the same step function: every sibling pair of equal
-    /// heights collapsed into its parent.
+    /// heights collapsed into its parent, by the flat models' shared
+    /// [`collapse`].
     pub(crate) fn normalized(&self) -> Version {
         Version {
-            leaves: collapse(&self.leaves),
+            leaves: collapse(self.leaves.iter().cloned(), |_, _| ()),
         }
-    }
-
-    /// Combines two step functions pointwise with `f`, in normal form.
-    pub(crate) fn zip(&self, other: &Version, f: impl Fn(&BigInt, &BigInt) -> BigInt) -> Version {
-        let pieces = refine(&self.leaves, &other.leaves)
-            .into_iter()
-            .map(|(depth, a, b)| (depth, f(a, b)))
-            .collect::<Vec<_>>();
-        Version {
-            leaves: collapse(&pieces),
-        }
-    }
-
-    /// Whether this step function lies at or below `other` everywhere: the
-    /// versions' causal order.
-    pub(crate) fn le(&self, other: &Version) -> bool {
-        refine(&self.leaves, &other.leaves)
-            .into_iter()
-            .all(|(_, a, b)| a <= b)
-    }
-
-    /// The area under the step function as a normalized `(num, exp)`, the
-    /// rank `num / 2^exp`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a height is negative: ranks are areas of nonnegative
-    /// functions.
-    pub(crate) fn rank(&self) -> (BigUint, u64) {
-        let exp = self.depth();
-        let area: BigInt = self
-            .leaves
-            .iter()
-            .map(|(depth, height)| height << (exp - depth))
-            .sum();
-        let num = area
-            .to_biguint()
-            .expect("a rank is the area of a nonnegative step function");
-        normalize_rank(num, exp)
     }
 
     /// The version stream's live bits, before sealing.
@@ -443,10 +312,11 @@ impl Party {
     }
 
     /// The normal form of the same region: every sibling pair of equal
-    /// ownership collapsed into its parent.
+    /// ownership collapsed into its parent, by the flat models' shared
+    /// [`collapse`].
     pub(crate) fn normalized(&self) -> Party {
         Party {
-            leaves: collapse(&self.leaves),
+            leaves: collapse(self.leaves.iter().cloned(), |_, _| ()),
         }
     }
 
