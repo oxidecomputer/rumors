@@ -13,14 +13,13 @@
 //! `outer_min <= ... <= inner_min`.
 //!
 //! Store adjacent differences `inner_min - outer_min` as *boundaries*. Equal
-//! minima form counted zero runs. Positive boundaries use space proportional
-//! to their working widths: once a deeper boundary covers it, a boundary wider
-//! than a word is copied into packed limbs, or kept whole only when it is
-//! wider than [`INLINE_BOUNDARY_BITS`](boundaries::INLINE_BOUNDARY_BITS), wide
-//! enough that its accumulator's fixed size is at most a constant per bit.
-//! Thus deep nesting does not duplicate a wide absolute minimum at every
-//! level. Expanding the zero runs gives exactly one boundary per adjacent pair
-//! of armed ranges.
+//! minima form counted zero runs. Positive boundaries use space proportional to
+//! their working widths: once a deeper boundary covers it, a boundary wider
+//! than a word is copied into packed limbs, or kept whole only when it is wider
+//! than [`INLINE_BOUNDARY_BITS`], wide enough that its accumulator's fixed size
+//! is at most a constant per bit. Thus deep nesting does not duplicate a wide
+//! absolute minimum at every level. Expanding the zero runs gives exactly one
+//! boundary per adjacent pair of armed ranges.
 //!
 //! # Distinct minima, in stack order
 //!
