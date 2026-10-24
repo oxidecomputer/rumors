@@ -1,10 +1,10 @@
 //! Minima of properly nested ranges in a stream of values.
 //!
-//! A [`Version`](crate::Version) walk opens subtree ranges, emits heights in
-//! leaf order, and closes ranges from inner to outer. [`RangeMinima`] maintains
-//! the minimum emitted inside each open range. A range is *pending* until its
-//! first emission, then *armed* until it closes; pending ranges are always
-//! inside all armed ranges.
+//! A [`Version`](crate::Version) traversal opens subtree ranges, emits heights
+//! in leaf order, and closes ranges from inner to outer. [`RangeMinima`]
+//! maintains the minimum emitted inside each open range. A range is *pending*
+//! until its first emission, then *armed* until it closes; pending ranges are
+//! always inside all armed ranges.
 //!
 //! # Store differences, not repeated absolute minima
 //!
@@ -66,10 +66,13 @@
 //!
 //! Version heights have arbitrary precision. A wide early delta followed by
 //! many tiny deltas must not cause a full-width traversal for every later
-//! event. Accumulator folds read their operand rather than their receiver;
-//! sign reads are amortized constant time. Comparisons use leading digits for
-//! well-separated widths, and consuming merges retain the wider buffer while
-//! reading the narrower one.
+//! event. Under `suanpan`'s [cost rules](suanpan#costs), an accumulator
+//! update costs what it adds, not its receiver's width, and a sign read
+//! costs amortized O(1). Every update here is at shift zero, which adds no
+//! logarithm, except the rebuild of a copied boundary: shifted updates into a
+//! fresh accumulator of at most five limbs. Comparisons use leading digits
+//! for well-separated widths, and consuming merges retain the wider buffer
+//! while reading the narrower one.
 //!
 //! Each crossed boundary is consumed permanently; each closed boundary moves
 //! into the deferred distance once. Storing or retrieving a boundary costs a
@@ -157,11 +160,12 @@ impl RangeMinima {
         }
     }
 
-    /// Advance the running height from an accumulator already owned by the walk.
+    /// Advance the running height by a change the caller already holds in an
+    /// accumulator.
     ///
-    /// Block scans consume their net change here. This lets a zero anchor adopt
-    /// the supplied storage directly, without either normalizing or rereading
-    /// the value merely to accumulate it again.
+    /// A caller that sums a block of deltas passes the net change here. A zero
+    /// anchor adopts the supplied storage directly, without normalizing or
+    /// rereading the value merely to accumulate it again.
     pub fn fold_accumulator(&mut self, delta: Accumulator) {
         if self.armed() {
             self.anchor.fold_accumulator(delta);
