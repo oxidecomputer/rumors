@@ -67,9 +67,9 @@ use std::alloc::{GlobalAlloc, Layout};
 use std::arch::wasm32;
 use std::ops::Range;
 use std::ptr;
-use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use dlmalloc::Dlmalloc;
+use spin::mutex::{SpinMutex, SpinMutexGuard};
 
 /// The size of a wasm page in bytes, the unit in which linear memory grows.
 const PAGE_BYTES: usize = 64 * 1024;
@@ -86,7 +86,7 @@ const MAX_PAGES: usize = 1 << 16;
 pub struct WindowAllocator;
 
 /// Every heap and the bookkeeping that routes calls among them.
-static HEAPS: Mutex<Heaps> = Mutex::new(Heaps {
+static HEAPS: SpinMutex<Heaps> = SpinMutex::new(Heaps {
     ordinary: OrdinaryHeap {
         heap: Dlmalloc::new(),
         retired: RetiredPages([0; MAX_PAGES / 64]),
@@ -97,12 +97,27 @@ static HEAPS: Mutex<Heaps> = Mutex::new(Heaps {
 
 /// Locks the heaps.
 ///
-/// A panic aborts this guest without unwinding, so no guard is dropped
-/// mid-panic and the lock is never poisoned; recovering the inner state keeps
-/// the allocator total regardless. The guest is single-threaded, so the lock
-/// is never contended: it exists because a `static` must be `Sync`.
-fn lock() -> MutexGuard<'static, Heaps> {
-    HEAPS.lock().unwrap_or_else(PoisonError::into_inner)
+/// The lock exists because a `static` must be `Sync`. The guest is
+/// single-threaded, so the lock is free whenever a call takes it, unless that
+/// call re-entered the allocator while an outer call held it, which no method
+/// here does. One attempt therefore suffices, and a failed attempt panics
+/// instead of spinning forever.
+///
+/// The lock is `spin`'s rather than `std`'s `Mutex` because fuel counts it on
+/// every allocator call inside a measured window. On this target `std`'s
+/// `Mutex` checks for re-entry with an assertion whose operand it keeps on
+/// the shadow stack, so every allocator call would also set up a stack frame.
+///
+/// # Panics
+///
+/// Panics if the heaps are already locked. The message is a literal, so the
+/// panic allocates nothing.
+#[inline]
+fn lock() -> SpinMutexGuard<'static, Heaps> {
+    let Some(heaps) = HEAPS.try_lock() else {
+        panic!("the window allocator is never re-entered");
+    };
+    heaps
 }
 
 /// The allocator's state.
@@ -173,6 +188,7 @@ impl RetiredPages {
 }
 
 /// Returns the index of the wasm page that holds `address`.
+#[inline]
 fn page_of(address: usize) -> usize {
     address / PAGE_BYTES
 }
@@ -201,6 +217,7 @@ impl Window {
     }
 
     /// Returns whether the block at `address` belongs to this window's heap.
+    #[inline]
     fn owns(&self, address: usize) -> bool {
         page_of(address) >= self.base
     }
@@ -213,6 +230,7 @@ impl Window {
     ///
     /// Panics if `block` is a block below the base. The message is a literal,
     /// so the panic allocates nothing while the heaps are locked.
+    #[inline]
     fn checked(&self, block: *mut u8) -> *mut u8 {
         assert!(
             block.is_null() || self.owns(block.addr()),
@@ -343,6 +361,11 @@ impl Heaps {
     /// # Safety
     ///
     /// `layout` has a nonzero size, as [`GlobalAlloc::alloc`] requires.
+    //
+    // Inlined into `alloc` and `alloc_zeroed`, so that `zeroed` folds to a
+    // constant and no call is added to every allocation: fuel counts these
+    // instructions inside every measured window.
+    #[inline(always)]
     unsafe fn allocate(&mut self, layout: Layout, zeroed: bool) -> *mut u8 {
         let (size, align) = (layout.size(), layout.align());
         let block = match &mut self.window {

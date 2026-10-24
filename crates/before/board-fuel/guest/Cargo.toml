@@ -21,3 +21,5 @@ doctest = false
 before = { workspace = true, features = ["meter", "serde", "borsh"] }
 # The heaps behind the guest's global allocator (the `window` module).
 dlmalloc = { workspace = true }
+# The lock around those heaps.
+spin = { workspace = true }
