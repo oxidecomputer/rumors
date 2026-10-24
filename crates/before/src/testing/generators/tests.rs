@@ -16,7 +16,7 @@ use crate::testing::oracles::tree;
 use crate::testing::rng::strategy_rng;
 use num_bigint::BigUint;
 
-use super::{arb_oracle_party, arb_oracle_version, ARB_DEPTH};
+use super::{arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic, ARB_DEPTH};
 
 /// The census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
@@ -140,6 +140,59 @@ fn generator_classes_stay_under_mass() {
             count >= floor,
             "generator mass on `{class}` fell to {count} of {CENSUS_TREES} sampled trees \
              (liveness floor {floor}): an arm or the depth recursion has gone dead"
+        );
+    }
+}
+
+/// Dyadic rationals sampled for the census.
+const CENSUS_DYADICS: usize = 1000;
+
+/// [`arb_dyadic`] and [`arb_related_dyadic`] keep their claimed regimes
+/// alive: zero ranks, nonzero integral ranks, and pairs that spell one value
+/// two ways.
+///
+/// Each floor is a quarter of the least count the strategies' weights imply
+/// over [`CENSUS_DYADICS`] draws. The zero arm has weight 1 in 13, so zero is
+/// at least 1 in 13 of draws. Two arms never draw zero: a power of two or its
+/// successor, at least 2 in 13, and a small value from 1 to 15, at least 15 in
+/// 104; with an exponent of zero, weight 3 in 11, nonzero integral values are
+/// at least 93 in 1144. The respelling mode has weight 1 in 7 and shifts by a
+/// nonzero amount in 69 of 70 draws, so a second spelling of the first value
+/// arrives in at least 69 in 490 pairs.
+#[test]
+fn dyadic_generators_reach_their_claimed_regimes() {
+    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(CENSUS_SEED));
+    let pairs = arb_dyadic().prop_flat_map(arb_related_dyadic);
+    let (mut zero, mut integral, mut respelled) = (0usize, 0, 0);
+    for _ in 0..CENSUS_DYADICS {
+        let (first, second) = pairs.new_tree(&mut runner).expect("strategy").current();
+        let is_zero = first.num == BigUint::ZERO;
+        let is_integral = first
+            .num
+            .trailing_zeros()
+            .is_some_and(|zeros| zeros >= first.exp);
+        zero += usize::from(is_zero);
+        integral += usize::from(!is_zero && is_integral);
+        let same_value = first.cmp_value(&second).is_eq();
+        respelled +=
+            usize::from(same_value && (first.num != second.num || first.exp != second.exp));
+    }
+    eprintln!(
+        "census over {CENSUS_DYADICS} dyadic pairs: zero {zero}, nonzero integral {integral}, \
+         respelled {respelled}"
+    );
+
+    let floor = |numerator: usize, denominator: usize| CENSUS_DYADICS * numerator / denominator / 4;
+    let floors = [
+        ("a zero value", zero, floor(1, 13)),
+        ("a nonzero integral value", integral, floor(93, 1144)),
+        ("one value in two spellings", respelled, floor(69, 490)),
+    ];
+    for (class, count, floor) in floors {
+        assert!(
+            count >= floor,
+            "generator mass on `{class}` fell to {count} of {CENSUS_DYADICS} sampled pairs \
+             (liveness floor {floor}): an arm has gone dead"
         );
     }
 }

@@ -81,10 +81,13 @@ fn invalid_canonical_bytes_are_an_encoding_error() {
     ));
 }
 
-/// Count syntax rejects empty text, signs, leading zeroes, and whitespace.
+/// Count syntax rejects empty text, signs, leading zeroes, whitespace,
+/// separators, radix prefixes, and digits outside ASCII.
 #[test]
 fn count_rejects_noncanonical_decimal() {
-    for text in ["", "+1", "-1", "00", "01", " 1", "1 ", "1_0"] {
+    for text in [
+        "", "+1", "-1", "00", "01", " 1", "1 ", "1_0", "0x1", "\u{661}",
+    ] {
         assert!(matches!(
             text.parse::<Count>(),
             Err(ParseValue::InvalidSyntax)

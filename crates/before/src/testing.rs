@@ -22,6 +22,8 @@ pub(crate) mod version;
 #[cfg(test)]
 pub(crate) mod bridge;
 #[cfg(test)]
+pub(crate) mod canonical;
+#[cfg(test)]
 pub(crate) mod generators;
 #[cfg(test)]
 pub(crate) mod grow_brute_force;
@@ -30,7 +32,7 @@ pub(crate) mod optrace;
 #[cfg(test)]
 pub(crate) mod rng;
 #[cfg(test)]
-pub(crate) mod scripted_reader;
+pub(crate) mod scripted_io;
 #[cfg(test)]
 pub(crate) mod shape_rows;
 

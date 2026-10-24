@@ -350,3 +350,133 @@ fn stored_remainder_matches_the_plan_position() {
         assert!(plan.next().is_none(), "count 2^{depth} drains");
     }
 }
+
+/// The deepest power-of-two plan whose tail the tail tests drain: past every
+/// target's `usize` width and past `u128`.
+const MAX_TAIL_DEPTH: u64 = 140;
+
+/// The most shares before a plan's end that the tail tests drain.
+const TAIL_SHARES: u8 = 40;
+
+/// The rightmost leaf `depth` levels below the seed, built by repeated forks
+/// that each keep the half given away.
+fn rightmost_leaf(depth: u64) -> Party {
+    let mut party = Party::seed();
+    for _ in 0..depth {
+        party = party.fork();
+    }
+    party
+}
+
+/// Every power-of-two plan of depth 0 to [`MAX_TAIL_DEPTH`] reports an exact
+/// size hint and yields exactly its remaining shares over its last
+/// [`TAIL_SHARES`] shares, and its last share is the rightmost leaf at its
+/// depth.
+///
+/// Each plan takes one real step from its start, skips through
+/// `skip_shares` to its last [`TAIL_SHARES`] shares or every share left, and
+/// drains them through real steps, checking the hint before every step and
+/// exhaustion at the end. A balanced split hands out the rightmost leaf last.
+#[test]
+fn every_power_of_two_plan_drains_its_tail_exactly() {
+    let party = Party::seed();
+    for depth in 0..=MAX_TAIL_DEPTH {
+        let count = BigUint::from(1u8) << depth;
+        let mut plan = Plan::new(PartySnapshot::new(&party), Count(count.clone()));
+        let mut last = plan.next();
+        assert!(last.is_some(), "depth {depth}: a plan yields a first share");
+        let left = &count - 1u8;
+        let tail = left.clone().min(BigUint::from(TAIL_SHARES));
+        plan.skip_shares(&(&left - &tail));
+        let tail = usize::try_from(&tail).expect("the tail is at most `TAIL_SHARES`");
+        for remaining in (1..=tail).rev() {
+            assert_eq!(
+                plan.size_hint(),
+                (remaining, Some(remaining)),
+                "depth {depth}, {remaining} shares left"
+            );
+            last = plan.next();
+            assert!(last.is_some(), "depth {depth}: {remaining} shares left");
+        }
+        assert_eq!(plan.size_hint(), (0, Some(0)), "depth {depth}, drained");
+        assert!(plan.next().is_none(), "depth {depth}: the plan ends");
+        assert_eq!(
+            last,
+            Some(rightmost_leaf(depth)),
+            "depth {depth}: the last share"
+        );
+    }
+}
+
+/// A borrowing fork iterator of `2^d - 1` children, at every depth to
+/// [`MAX_TAIL_DEPTH`], drains its last [`TAIL_SHARES`] children exactly and
+/// leaves the borrower holding every region it has not handed out.
+///
+/// The size hint before each step must be the exact remainder, and the
+/// iterator must yield exactly that many children.
+///
+/// Each iterator yields one child through a real step, skips its plan through
+/// `skip_shares` to the last [`TAIL_SHARES`] children or every child left, and
+/// drains them through real steps. The skipped children were never handed
+/// out, so joining the children produced back into the borrowed party must
+/// rebuild the seed.
+#[test]
+fn every_power_of_two_party_forks_drains_its_tail_and_conserves() {
+    for depth in 1..=MAX_TAIL_DEPTH {
+        let count = BigUint::from(1u8) << depth;
+        let mut keeper = Party::seed();
+        let shares = {
+            let mut forks = PartyForks::new(&mut keeper, Count(&count - 1u8));
+            let mut shares: Vec<Party> = forks.next().into_iter().collect();
+            assert_eq!(shares.len(), 1, "depth {depth}: a first child");
+            let left = forks.plan.remaining.clone();
+            let tail = left.clone().min(BigUint::from(TAIL_SHARES));
+            forks.plan.skip_shares(&(&left - &tail));
+            let tail = usize::try_from(&tail).expect("the tail is at most `TAIL_SHARES`");
+            for remaining in (1..=tail).rev() {
+                assert_eq!(
+                    forks.size_hint(),
+                    (remaining, Some(remaining)),
+                    "depth {depth}, {remaining} children left"
+                );
+                shares.push(forks.next().expect("a child remains"));
+            }
+            assert_eq!(forks.size_hint(), (0, Some(0)), "depth {depth}, drained");
+            assert!(forks.next().is_none(), "depth {depth}: the iterator ends");
+            shares
+        };
+        keeper
+            .join_all(shares)
+            .expect("the children produced are disjoint from what the borrower kept");
+        assert!(
+            keeper.is_seed(),
+            "depth {depth}: the borrower and children rebuild the seed"
+        );
+    }
+}
+
+proptest! {
+    /// A power-of-two plan of any depth to 200 reports `(usize::MAX, None)`
+    /// exactly while more than `usize::MAX` shares remain, and the exact
+    /// remainder otherwise, wherever `skip_shares` positions it.
+    ///
+    /// The remainders sit just above zero or just above `usize::MAX`, clipped
+    /// to the plan's count, with offsets of 0 and 1 drawn often, so the
+    /// remainders `usize::MAX` and `usize::MAX + 1` on either side of the
+    /// representable boundary meet counts of every width.
+    #[test]
+    fn plan_size_hint_follows_one_rule_at_every_position(
+        depth in 0u64..=200,
+        offset in prop_oneof![Just(0u16), Just(1), 0u16..1024],
+        near_word in any::<bool>(),
+    ) {
+        let count = BigUint::from(1u8) << depth;
+        let base = if near_word { BigUint::from(usize::MAX) } else { BigUint::ZERO };
+        let remaining = (base + offset).min(count.clone());
+        let party = Party::seed();
+        let mut plan = Plan::new(PartySnapshot::new(&party), Count(count.clone()));
+        plan.skip_shares(&(&count - &remaining));
+        let expected = usize::try_from(&remaining).map_or((usize::MAX, None), |r| (r, Some(r)));
+        prop_assert_eq!(plan.size_hint(), expected);
+    }
+}

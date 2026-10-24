@@ -679,6 +679,55 @@ fn gamma_window_declines_conservatively() {
     );
 }
 
+/// The smallest value whose gamma code is 59 bits long, the shortest code
+/// that can end in a window's ninth loaded byte at an unaligned start.
+const SHORTEST_NINTH_BYTE_CODE_VALUE: u64 = (1 << 29) - 1;
+
+/// The largest value whose gamma code fits one window: its code is 63 bits.
+const WIDEST_WINDOW_CODE_VALUE: u64 = (1 << 32) - 2;
+
+proptest! {
+    /// The window decoder reads every gamma code of 59 to 63 bits at every
+    /// unaligned start, returning the exact value and end position.
+    ///
+    /// The window shifts nine loaded bytes by the start's offset within its
+    /// byte, so a code this long, started at offset 1 to 7, takes its last
+    /// bits from the ninth byte whenever it ends past bit 64. The bits before
+    /// the start and after the code are arbitrary, and the stream may end
+    /// exactly where the code does. The oracle is the production writer,
+    /// which the codec suites check against canonical bytes.
+    #[test]
+    fn gamma_window_reads_long_codes_at_every_unaligned_start(
+        value in prop_oneof![
+            Just(SHORTEST_NINTH_BYTE_CODE_VALUE),
+            Just(WIDEST_WINDOW_CODE_VALUE),
+            SHORTEST_NINTH_BYTE_CODE_VALUE..=WIDEST_WINDOW_CODE_VALUE,
+        ],
+        lead in prop::collection::vec(any::<bool>(), 7),
+        trail in prop::collection::vec(any::<bool>(), 0..=16),
+    ) {
+        for start in 1..8u64 {
+            let mut bits = BitsWriter::new();
+            for &bit in &lead[..start as usize] {
+                bits.push(bit);
+            }
+            bits.write_gamma(&BigUint::from(value));
+            let code_len = bits.len() - start;
+            prop_assert!((59..=63).contains(&code_len), "a {code_len}-bit code");
+            for &bit in &trail {
+                bits.push(bit);
+            }
+            prop_assert_eq!(
+                BitsReader::gamma_from_window(bits.as_raw_slice(), bits.len(), start),
+                Some((value, start + code_len)),
+                "value {} at start {}",
+                value,
+                start,
+            );
+        }
+    }
+}
+
 /// A gamma code wide enough to spill machine-word decoding round-trips exactly
 /// and remains self-delimiting (the whole mantissa is one spilled value,
 /// byte-unaligned on both ends).

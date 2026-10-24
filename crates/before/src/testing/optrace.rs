@@ -7,8 +7,9 @@
 //! splitting or recombining it; independently seeded universes are therefore
 //! unrepresentable.
 //!
-//! [`run`] and [`step_impl`] are the narrower adapters used by tests that need
-//! recursive-oracle populations or production state after each step.
+//! [`run`], [`step`], and [`step_impl`] are the narrower adapters used by tests
+//! that need recursive-oracle populations, or a model's or production's state
+//! after each step.
 
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -25,8 +26,8 @@ use crate::{Clock, Version};
 /// The trace driver is generic over this trait. Consequently, every operation
 /// it can generate has one implementation for production, the recursive tree
 /// model, and the function-space model; adding a method fails to compile until
-/// all three are supplied. The trait deliberately contains only their common
-/// semantic vocabulary.
+/// every implementation supplies it. The trait deliberately contains only their
+/// common semantic vocabulary.
 pub(crate) trait TraceModel {
     /// This model's clock value.
     type Clock;
@@ -334,17 +335,30 @@ pub(crate) fn run(ops: &[Op]) -> Vec<tree::Clock> {
     replay.clocks
 }
 
-/// Apply one operation to an existing production population.
+/// Apply one operation to an existing population through any model.
 ///
 /// This incremental form lets tests assert after every step while delegating to
-/// the same scheduler as [`replay`].
-pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
+/// the same scheduler as [`replay`]. A test can implement [`TraceModel`] for
+/// production paired with its own bookkeeping and step both through this one
+/// schedule, so the bookkeeping cannot drift from the clocks it describes.
+///
+/// # Panics
+///
+/// If the step rejects a join or sync, which no single-seed trace does.
+pub(crate) fn step<M: TraceModel>(clocks: &mut Vec<M::Clock>, op: &Op, rng: &mut ChaChaRng) {
     let mut accepted = Vec::new();
-    apply::<Production>(imp, op, &mut ChaChaRng::seed_from_u64(0), &mut accepted);
+    apply::<M>(clocks, op, rng, &mut accepted);
     assert!(
         accepted.iter().all(|accepted| *accepted),
         "single-seed trace produced overlapping live parties"
     );
+}
+
+/// Apply one operation to an existing production population.
+///
+/// Production draws no randomness, so each call seeds a fresh generator.
+pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &Op) {
+    step::<Production>(imp, op, &mut ChaChaRng::seed_from_u64(0));
 }
 
 /// Every live clock's current version.

@@ -2,8 +2,8 @@
 //! committed exceptions, and scan-liveness anchors.
 //!
 //! Functions reconcile against the board's per-operation inventory.
-//! Trait impls and non-function items reconcile against the pinned lists in
-//! [`crate::census`]. Every exception is named and reasoned —
+//! Trait impls, non-function items, and `usize` signatures reconcile against
+//! the pinned lists in [`crate::census`]. Every exception is named and reasoned —
 //! the registry exemption-list discipline — and every exception and
 //! census entry must still *match* something: an entry whose item
 //! vanished is a dead entry this check fails on, so the lists are
@@ -74,6 +74,17 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
 /// both naming paths (bare `Type::fn`, `module::fn`) are proven live.
 pub(crate) const ANCHORS: &[&str] = &["Party::seed", "causally::all"];
 
+/// The pinned censuses a sweep reconciles against, one list per category.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Censuses<'a> {
+    /// The trait impl rows, as [`census::TRAIT_IMPLS`] pins them.
+    pub impls: &'a [&'a str],
+    /// The non-function item rows, as [`census::ITEMS`] pins them.
+    pub items: &'a [&'a str],
+    /// The `usize` signature rows, as [`census::USIZE_SIGNATURES`] pins them.
+    pub usize_signatures: &'a [&'a str],
+}
+
 /// Everything a sweep can find; empty on a clean tree.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Findings {
@@ -90,6 +101,11 @@ pub(crate) struct Findings {
     pub unpinned_items: Vec<String>,
     /// Census item pins naming no reachable item.
     pub orphaned_items: Vec<String>,
+    /// Signatures that mention `usize`, with no census pin and no module
+    /// exception.
+    pub unpinned_usize_signatures: Vec<String>,
+    /// Census `usize` pins naming no reachable signature.
+    pub orphaned_usize_signatures: Vec<String>,
     /// Item exceptions matching no extracted item, or also covered by a
     /// board row.
     pub dead_item_exceptions: Vec<String>,
@@ -161,6 +177,20 @@ impl Findings {
             &self.orphaned_items,
         );
         block(
+            "signatures that mention usize, with no census pin and no exception",
+            "a usize changes meaning on 32-bit targets: confirm it indexes or \
+             counts memory, then pin the row in USIZE_SIGNATURES \
+             (crates/before/surfacecheck/src/census.rs); otherwise use a \
+             fixed-width type",
+            &self.unpinned_usize_signatures,
+        );
+        block(
+            "census usize pins naming no reachable signature",
+            "remove or rename the pin in \
+             crates/before/surfacecheck/src/census.rs",
+            &self.orphaned_usize_signatures,
+        );
+        block(
             "dead or coverage-shadowing item exceptions",
             "remove the exception, or resolve the conflict with its board row",
             &self.dead_item_exceptions,
@@ -195,8 +225,11 @@ pub(crate) fn reconcile(surface: &Surface, board: &BTreeSet<&str>) -> Findings {
         ITEM_EXCEPTIONS,
         MODULE_EXCEPTIONS,
         ANCHORS,
-        census::TRAIT_IMPLS,
-        census::ITEMS,
+        &Censuses {
+            impls: census::TRAIT_IMPLS,
+            items: census::ITEMS,
+            usize_signatures: census::USIZE_SIGNATURES,
+        },
     )
 }
 
@@ -209,8 +242,7 @@ pub(crate) fn reconcile_with(
     item_exceptions: &[Exception],
     module_exceptions: &[Exception],
     anchors: &[&str],
-    impl_census: &[&str],
-    item_census: &[&str],
+    censuses: &Censuses<'_>,
 ) -> Findings {
     let extracted = &surface.functions;
     let excepted_items: BTreeSet<&str> = item_exceptions.iter().map(|e| e.name).collect();
@@ -232,8 +264,10 @@ pub(crate) fn reconcile_with(
             .collect();
         (unpinned, orphaned)
     };
-    let (unpinned_impls, orphaned_impls) = census_diff(&surface.impls, impl_census);
-    let (unpinned_items, orphaned_items) = census_diff(&surface.items, item_census);
+    let (unpinned_impls, orphaned_impls) = census_diff(&surface.impls, censuses.impls);
+    let (unpinned_items, orphaned_items) = census_diff(&surface.items, censuses.items);
+    let (unpinned_usize_signatures, orphaned_usize_signatures) =
+        census_diff(&surface.usize_signatures, censuses.usize_signatures);
     let mut malformed_exceptions: Vec<String> = item_exceptions
         .iter()
         .chain(module_exceptions)
@@ -265,6 +299,8 @@ pub(crate) fn reconcile_with(
         orphaned_impls,
         unpinned_items,
         orphaned_items,
+        unpinned_usize_signatures,
+        orphaned_usize_signatures,
         dead_item_exceptions: item_exceptions
             .iter()
             .map(|e| e.name)

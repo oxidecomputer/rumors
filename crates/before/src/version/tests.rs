@@ -5,23 +5,35 @@
 //! `min_ticks`, and projection (`/`).
 
 use crate::testing::meter::registry::Shape;
+use std::cell::Cell;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::io::{self, Write};
+use std::rc::Rc;
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use proptest::sample::Index;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 use super::{Ranked, Version};
 use crate::bits::BitsWriter;
 use crate::error::Decode;
 use crate::rank::DECODE_CHUNK_BYTES;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version, to_oracle_version};
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
+use crate::testing::canonical::Canonical;
+use crate::testing::generators::co_generated::arb_spine_case;
+use crate::testing::generators::{
+    arb_dyadic, arb_oracle_party_nonempty, arb_oracle_version, arb_related_dyadic,
+};
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
-use crate::testing::optrace::{leq as oracle_leq, run, step_impl, versions, world_strategy, Op};
+use crate::testing::optrace::{
+    leq as oracle_leq, run, step, versions, world_strategy, Production, TraceModel,
+};
+use crate::testing::oracles::dyadic::Dyadic;
 use crate::testing::oracles::function;
-use crate::testing::scripted_reader::{arb_read_schedule, ReadSchedule, ScriptedReader};
+use crate::testing::scripted_io::{arb_io_schedule, IoSchedule, ScriptedReader, ScriptedWriter};
 use crate::{Clock, Count, Party, Rank};
 
 /// Build a uniform version through the public tick operation.
@@ -763,22 +775,121 @@ proptest! {
 
 // ─────────────────────────────── min_ticks ───────────────────────────────
 
-/// The number of `tick`s a trace performs against the impl population, derived
-/// straight from the op list.
+/// The tick batches in one clock's causal past: each batch's tick count, keyed
+/// by a batch number unique within one history.
 ///
-/// `Tick` advances once; `Send` advances twice (the sender `tick`s, the
-/// receiver `recv`s = join-then-`tick`); `Fork`, `Sync`, and `Join` never
-/// `tick`. Each `Tick`/`Send` always executes fully (no index guard can skip
-/// it), so this count is exact — it mirrors `step_impl`.
-fn trace_ticks(ops: &[Op]) -> u64 {
-    ops.iter()
-        .map(|op| match op {
-            Op::Tick(_) => 1,
-            Op::Ticks(_, k) => u64::from(*k),
-            Op::Send(..) => 2,
-            Op::Fork(_) | Op::Sync(..) | Op::Join(..) => 0,
-        })
-        .sum()
+/// A clock's causal past holds its own ticks and every tick it has heard of
+/// through a message, a sync, or a join, which together form one history that
+/// yields its version.
+#[derive(Clone)]
+struct CausalPast {
+    batches: BTreeMap<u64, u64>,
+    /// The history's next unused batch number, shared by every clock split
+    /// from its one seed.
+    next_batch: Rc<Cell<u64>>,
+    /// The ticks the whole history has recorded, shared the same way.
+    history_ticks: Rc<Cell<u64>>,
+}
+
+impl CausalPast {
+    /// Records one batch of `ticks` ticks under a fresh batch number.
+    fn record(&mut self, ticks: u64) {
+        let batch = self.next_batch.get();
+        self.next_batch.set(batch + 1);
+        self.batches.insert(batch, ticks);
+        self.history_ticks.set(self.history_ticks.get() + ticks);
+    }
+
+    /// Adds every batch in `other` that this past lacks.
+    fn absorb(&mut self, other: &CausalPast) {
+        self.batches.extend(&other.batches);
+    }
+
+    /// The number of ticks in this past.
+    fn ticks(&self) -> u64 {
+        self.batches.values().sum()
+    }
+}
+
+/// Production clocks paired with their causal pasts, driven through the trace
+/// schedule as one model.
+///
+/// Each operation calls [`Production`]'s and then updates the past: a tick or
+/// `ticks(k)` records a batch of 1 or `k`, a fork copies the past, a send
+/// records the sender's tick and carries its past, a receive absorbs that past
+/// and records its own tick, and a sync or join leaves the clocks it merges
+/// holding the union.
+struct WithCausalPast;
+
+impl TraceModel for WithCausalPast {
+    type Clock = (Clock, CausalPast);
+    type Message = (Version, CausalPast);
+
+    fn seed() -> Self::Clock {
+        let past = CausalPast {
+            batches: BTreeMap::new(),
+            next_batch: Rc::new(Cell::new(0)),
+            history_ticks: Rc::new(Cell::new(0)),
+        };
+        (Production::seed(), past)
+    }
+
+    fn tick((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) {
+        Production::tick(clock, rng);
+        past.record(1);
+    }
+
+    fn ticks((clock, past): &mut Self::Clock, count: u8, rng: &mut ChaChaRng) {
+        Production::ticks(clock, count, rng);
+        past.record(u64::from(count));
+    }
+
+    fn fork((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock {
+        (Production::fork(clock, rng), past.clone())
+    }
+
+    fn send((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message {
+        let message = Production::send(clock, rng);
+        past.record(1);
+        (message, past.clone())
+    }
+
+    fn receive(
+        (clock, past): &mut Self::Clock,
+        (message, sender): Self::Message,
+        rng: &mut ChaChaRng,
+    ) {
+        Production::receive(clock, message, rng);
+        past.absorb(&sender);
+        past.record(1);
+    }
+
+    fn sync(
+        (left, left_past): &mut Self::Clock,
+        (right, right_past): &mut Self::Clock,
+        rng: &mut ChaChaRng,
+    ) -> bool {
+        let synced = Production::sync(left, right, rng);
+        if synced {
+            left_past.absorb(right_past);
+            right_past.clone_from(left_past);
+        }
+        synced
+    }
+
+    fn join(
+        (clock, past): &mut Self::Clock,
+        (other, other_past): Self::Clock,
+        rng: &mut ChaChaRng,
+    ) -> Result<(), Self::Clock> {
+        match Production::join(clock, other, rng) {
+            Ok(()) => {
+                past.absorb(&other_past);
+                Ok(())
+            }
+            Err(other) => Err((other, other_past)),
+        }
+    }
 }
 
 /// `min_ticks` known values: the empty version, a single-party line (= the leaf
@@ -797,32 +908,139 @@ fn min_ticks_known_values() {
 }
 
 proptest! {
-    /// `min_ticks` is a true floor: for *every* live clock in *any* causal
-    /// history of fork/tick/send/sync/join, its version's `min_ticks` never
-    /// exceeds the ticks actually performed.
+    /// `min_ticks` floors each clock's own causal past: after every step of any
+    /// fork/tick/send/sync/join history, every live clock's `min_ticks` is at
+    /// most the number of ticks in that clock's causal past.
     ///
-    /// Cross-checks the fold itself against the recursive oracle's sum-of-bases
-    /// (`tree::Version::min_ticks`); the min_ticks descriptor's fs leg
-    /// supplies the independent second computation.
+    /// `min_ticks` is a floor over every history that yields a version, and a
+    /// clock's causal past is one such history. Checking each clock against its
+    /// own past after every step, rather than the final clocks against the
+    /// whole history's total, meets the bound where it is tight many times
+    /// per history. Each clock's past must also lie within the ticks the whole
+    /// history recorded, so the per-clock bound still implies the
+    /// whole-history one. Each step also checks the fold against the
+    /// recursive oracle's sum of bases; the min_ticks descriptor's
+    /// function-space leg supplies an independent second computation.
     #[test]
     fn min_ticks_floors_every_history(ops in world_strategy()) {
-        let total = trace_ticks(&ops);
-        let mut imp = vec![Clock::seed()];
+        let mut clocks = vec![WithCausalPast::seed()];
+        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
-            step_impl(&mut imp, op);
+            step::<WithCausalPast>(&mut clocks, op, &mut rng);
+            for (clock, past) in &clocks {
+                let v = clock.version();
+                prop_assert!(
+                    past.ticks() <= past.history_ticks.get(),
+                    "a clock's causal past holds {} ticks, more than the history's {}",
+                    past.ticks(),
+                    past.history_ticks.get(),
+                );
+                prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
+                prop_assert!(
+                    v.min_ticks() <= Count::from(past.ticks()),
+                    "min_ticks {} exceeded the {} ticks in its clock's causal past after {:?}",
+                    v.min_ticks(),
+                    past.ticks(),
+                    op,
+                );
+            }
         }
-        for c in &imp {
-            let v = c.version();
-            // The fold computes exactly the sum-of-bases.
-            prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
-            // And that minimum never exceeds the ticks the history performed.
-            prop_assert!(
-                v.min_ticks() <= Count::from(total),
-                "min_ticks {} exceeded the {} ticks performed",
-                v.min_ticks(),
-                total,
-            );
+    }
+}
+
+/// Reaches `target` by a single-seed history, returning the version reached
+/// and the ticks spent.
+///
+/// The history visits the normal-form tree in preorder, carrying a party that
+/// owns exactly the current node's interval. It spends the node's base `b` as
+/// `ticks(b)` by that party, then forks it and hands each child the half over
+/// that child's interval, rejoining the halves once both subtrees are done.
+/// `fork` keeps the left half, as the paper's split does; were that to change,
+/// the history would reach another version and the attainment properties
+/// would fail.
+///
+/// The version built so far is constant over the current node's interval,
+/// because only the node's ancestors have ticked there, so each tick's fill
+/// changes nothing and its grow raises exactly the party's interval. The ticks
+/// spent are therefore the sum of the bases. The traversal recurses on the
+/// tree's depth through `descend!`.
+fn realize(target: &crate::testing::oracles::tree::Version) -> (Version, BigUint) {
+    use crate::recurse::descend;
+    use crate::testing::oracles::tree::Version as V;
+
+    fn visit(
+        node: &V,
+        depth: usize,
+        mut party: Party,
+        built: &mut Version,
+        spent: &mut BigUint,
+    ) -> Party {
+        let (V::Leaf(base) | V::Node(base, ..)) = node;
+        if *base != BigUint::ZERO {
+            built.ticks(&party, Count(base.clone()));
+            *spent += base;
         }
+        if let V::Node(_, left, right) = node {
+            let right_half = party.fork();
+            party = descend!(depth + 1, visit(left, depth + 1, party, built, spent));
+            let right_half = descend!(depth + 1, visit(right, depth + 1, right_half, built, spent));
+            party
+                .join(right_half)
+                .expect("the two halves of one interval are disjoint");
+        }
+        party
+    }
+
+    let mut built = Version::new();
+    let mut spent = BigUint::ZERO;
+    let seed = visit(target, 0, Party::seed(), &mut built, &mut spent);
+    assert!(seed.is_seed(), "the history's parties rejoin into the seed");
+    (built, spent)
+}
+
+/// Checks that [`realize`] reaches `target` and that `min_ticks` equals the
+/// ticks it spent.
+fn assert_min_ticks_attained(
+    target: &crate::testing::oracles::tree::Version,
+) -> Result<(), TestCaseError> {
+    let version = from_oracle_version(target);
+    let (built, spent) = realize(target);
+    prop_assert_eq!(
+        &built,
+        &version,
+        "the constructed history reaches another version"
+    );
+    prop_assert_eq!(
+        version.min_ticks(),
+        Count(spent),
+        "the constructed history spends another count"
+    );
+    Ok(())
+}
+
+proptest! {
+    /// `min_ticks` is attained on arbitrary canonical versions: a single-seed
+    /// history of forks, wide `ticks`, and joins reaches each one spending
+    /// exactly `min_ticks` ticks.
+    ///
+    /// `min_ticks` is a minimum over the histories that yield a version, and a
+    /// minimum is attained. `min_ticks_floors_every_history` checks the
+    /// floor half; this checks the attained half, on versions with many
+    /// regions, and shows that a rule-respecting history reaches every drawn
+    /// canonical version.
+    #[test]
+    fn min_ticks_is_attained_on_arbitrary_versions(target in arb_oracle_version()) {
+        assert_min_ticks_attained(&target)?;
+    }
+
+    /// `min_ticks` is attained on the co-generated spine versions: a
+    /// single-seed history reaches each one spending exactly `min_ticks` ticks.
+    ///
+    /// These versions nest regions far deeper than arbitrary versions and draw
+    /// heights just past `2^64` and `2^130`.
+    #[test]
+    fn min_ticks_is_attained_on_spine_versions(case in arb_spine_case()) {
+        assert_min_ticks_attained(&case.version)?;
     }
 }
 
@@ -1119,12 +1337,37 @@ proptest! {
     #[test]
     fn rank_sum_equals_the_pairwise_fold(seeds in proptest::collection::vec(any::<u64>(), 0..24)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
-        let reference = ranks
-            .iter()
-            .fold(super::Rank::ZERO, |acc, r| acc + r);
-        prop_assert_eq!(&ranks.iter().sum::<super::Rank>(), &reference);
-        prop_assert_eq!(&ranks.into_iter().sum::<super::Rank>(), &reference);
+        assert_sum_is_the_pairwise_fold(ranks, None)?;
     }
+
+    /// `Sum` is the pairwise fold and the exact rational sum, over multisets
+    /// of dyadic ranks.
+    ///
+    /// [`arb_dyadic`] draws integral ranks, zero, and equal values, which the
+    /// seeded ranks of `rank_sum_equals_the_pairwise_fold` almost never are.
+    /// The reference is [`Dyadic::add`]'s sum, rendered to text and parsed, so
+    /// no production arithmetic computes the reference.
+    #[test]
+    fn rank_sum_equals_the_dyadic_sum(values in proptest::collection::vec(arb_dyadic(), 0..10)) {
+        let total = values.iter().fold(Dyadic::zero(), |sum, value| sum.add(value));
+        let ranks: Vec<super::Rank> = values.iter().map(Dyadic::rank).collect();
+        assert_sum_is_the_pairwise_fold(ranks, Some(&total.rank()))?;
+    }
+}
+
+/// Checks that both `Sum` impls return the value of the pairwise
+/// `fold(ZERO, +)`, and that this value is `expected` when one is given.
+fn assert_sum_is_the_pairwise_fold(
+    ranks: Vec<super::Rank>,
+    expected: Option<&super::Rank>,
+) -> Result<(), TestCaseError> {
+    let reference = ranks.iter().fold(super::Rank::ZERO, |acc, r| acc + r);
+    if let Some(expected) = expected {
+        prop_assert_eq!(&reference, expected);
+    }
+    prop_assert_eq!(&ranks.iter().sum::<super::Rank>(), &reference);
+    prop_assert_eq!(&ranks.into_iter().sum::<super::Rank>(), &reference);
+    Ok(())
 }
 
 /// A rank's numerator width for the tie construction above.
@@ -1142,6 +1385,50 @@ proptest! {
     #[test]
     fn rank_triple_laws_on_seeded_ranks(seeds in proptest::collection::vec(any::<u64>(), 3)) {
         let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
+        let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
+        for (name, law) in crate::testing::laws::RANK_TRIPLE {
+            prop_assert!(law(a, b, c), "law violated: {}", name);
+        }
+    }
+}
+
+proptest! {
+    /// Every `laws::RANK_TRIPLE` law holds on ranks of dyadic rationals, and
+    /// each rank agrees with its rational in value, text, and order.
+    ///
+    /// `rank_triple_laws_on_seeded_ranks` draws odd numerators at exponents
+    /// below 100,000, so it almost never builds an integral rank, and never
+    /// zero or one rank reached from two spellings of a value. [`arb_dyadic`]
+    /// and [`arb_related_dyadic`] build all three often. Each rank comes from
+    /// parsing [`Dyadic::render`]'s text, which no production code writes. It
+    /// must equal `Rank::from_raw` of the same pair, production's `Display`
+    /// must print exactly that text, and any two ranks must order as their
+    /// rationals do by cross-multiplication.
+    #[test]
+    fn rank_triple_laws_on_dyadic_ranks(
+        (qa, qb) in arb_dyadic().prop_flat_map(arb_related_dyadic),
+        qc in arb_dyadic(),
+    ) {
+        let values = [&qa, &qb, &qc];
+        let ranks: Vec<super::Rank> = values.iter().map(|value| value.rank()).collect();
+        for (value, rank) in values.iter().zip(&ranks) {
+            prop_assert_eq!(
+                &super::Rank::from_raw(value.num.clone(), value.exp),
+                rank,
+                "the parsed and raw routes disagree on {:?}",
+                value,
+            );
+            prop_assert_eq!(rank.to_string(), value.render(), "the printer on {:?}", value);
+        }
+        for (i, j) in [(0, 1), (1, 0), (0, 2), (1, 2)] {
+            prop_assert_eq!(
+                ranks[i].cmp(&ranks[j]),
+                values[i].cmp_value(values[j]),
+                "order of {:?} against {:?}",
+                values[i],
+                values[j],
+            );
+        }
         let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
         for (name, law) in crate::testing::laws::RANK_TRIPLE {
             prop_assert!(law(a, b, c), "law violated: {}", name);
@@ -1320,6 +1607,143 @@ proptest! {
     }
 }
 
+/// Runs one streaming encoder whose canonical bytes are `expected` against a
+/// [`ScriptedWriter`] on `schedule` with no limit, with a limit at the
+/// encoding's length, and with a limit inside the encoding at `cut`.
+///
+/// With room for the whole encoding, the encoder must return `Ok` having
+/// written exactly `expected`, so a limit at the length also catches an extra
+/// byte. With less room, it must meet the writer's failure and return it with
+/// the writer's kind, as every `encode_to` promises to return any error the
+/// writer reports. What the writer holds after a failure is left unchecked,
+/// because no encoder promises it.
+fn check_encoder(
+    expected: &[u8],
+    schedule: &IoSchedule,
+    cut: Index,
+    encode: impl Fn(&mut ScriptedWriter<'_>) -> io::Result<()>,
+) -> Result<(), TestCaseError> {
+    let len = expected.len();
+    let mut limits = vec![None, Some(len)];
+    if len > 0 {
+        limits.push(Some(cut.index(len)));
+    }
+    for limit in limits {
+        let mut writer = ScriptedWriter::new(schedule, limit);
+        let result = encode(&mut writer).map_err(|error| error.kind());
+        if limit.is_some_and(|limit| limit < len) {
+            prop_assert!(
+                writer.has_failed(),
+                "the encoder stopped before its writer's limit {:?}",
+                limit
+            );
+            prop_assert_eq!(result, Err(io::ErrorKind::Other), "limit {:?}", limit);
+        } else {
+            prop_assert!(
+                !writer.has_failed(),
+                "the encoder wrote past its {} bytes",
+                len
+            );
+            prop_assert_eq!(result, Ok(()), "limit {:?}", limit);
+            prop_assert_eq!(writer.written(), expected, "limit {:?}", limit);
+        }
+    }
+    Ok(())
+}
+
+/// Runs one [`Canonical`] type's streaming `encode_to` on `value` through
+/// [`check_encoder`], with its buffered `encode` as the reference bytes.
+fn check_streaming_encoder<T: Canonical>(
+    value: &T,
+    schedule: &IoSchedule,
+    cut: Index,
+) -> Result<(), TestCaseError> {
+    check_encoder(&value.encode_canonical(), schedule, cut, |writer| {
+        value.write_canonical(writer)
+    })
+}
+
+/// Runs one borsh serializer on `value` through [`check_encoder`], with
+/// `borsh::to_vec` as the reference bytes.
+#[cfg(feature = "borsh")]
+fn check_borsh_encoder(
+    value: &impl borsh::BorshSerialize,
+    schedule: &IoSchedule,
+    cut: Index,
+) -> Result<(), TestCaseError> {
+    let expected = borsh::to_vec(value).expect("serializing into memory succeeds");
+    check_encoder(&expected, schedule, cut, |writer| value.serialize(writer))
+}
+
+proptest! {
+    /// Every streaming encoder writes exactly its canonical bytes through a
+    /// writer that accepts short writes and returns `Interrupted`, and returns
+    /// the error a failing writer reports.
+    ///
+    /// Each [`Canonical`] type's `encode_to`, and `encode_rank_to` for `Version`
+    /// and `Ranked`, run against a scripted writer that accepts from one byte
+    /// per call to twice `Rank::decode`'s buffer of `DECODE_CHUNK_BYTES`,
+    /// returning `Interrupted` on a generated schedule, with no limit, a limit
+    /// at the encoding's length, and a limit inside it.
+    #[test]
+    fn streaming_encoders_survive_short_interrupted_and_failing_writers(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        schedule in arb_io_schedule(),
+        cut in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let clock = Clock::from_parts(from_oracle_party(&party), from_oracle_version(&a));
+        let party = from_oracle_party(&party);
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        let ranked = Ranked::from(a.clone());
+        check_streaming_encoder(&party, &schedule, cut)?;
+        check_streaming_encoder(&a, &schedule, cut)?;
+        check_streaming_encoder(&clock, &schedule, cut)?;
+        check_streaming_encoder(&a.span(&b), &schedule, cut)?;
+        check_streaming_encoder(&a.rank(), &schedule, cut)?;
+        check_streaming_encoder(&ranked, &schedule, cut)?;
+        check_encoder(&a.encode_rank(), &schedule, cut, |w| a.encode_rank_to(w))?;
+        check_encoder(&ranked.encode_rank(), &schedule, cut, |w| ranked.encode_rank_to(w))?;
+    }
+}
+
+#[cfg(feature = "borsh")]
+proptest! {
+    /// Every borsh serializer writes exactly its bytes through a writer that
+    /// accepts short writes and returns `Interrupted`, and returns the error a
+    /// failing writer reports.
+    ///
+    /// Each [`Canonical`] type, and `Count`, serializes against the scripted writer
+    /// of `streaming_encoders_survive_short_interrupted_and_failing_writers`,
+    /// under the same three limits, with `borsh::to_vec` as the reference
+    /// bytes.
+    #[test]
+    fn borsh_serializers_survive_short_interrupted_and_failing_writers(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        count in crate::testing::generators::arb_magnitude(),
+        schedule in arb_io_schedule(),
+        cut in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let clock = Clock::from_parts(from_oracle_party(&party), from_oracle_version(&a));
+        let party = from_oracle_party(&party);
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        check_borsh_encoder(&party, &schedule, cut)?;
+        check_borsh_encoder(&a, &schedule, cut)?;
+        check_borsh_encoder(&clock, &schedule, cut)?;
+        check_borsh_encoder(&a.span(&b), &schedule, cut)?;
+        check_borsh_encoder(&a.rank(), &schedule, cut)?;
+        check_borsh_encoder(&Ranked::from(a.clone()), &schedule, cut)?;
+        check_borsh_encoder(&Count(count), &schedule, cut)?;
+    }
+}
+
 /// The exhaustive small-scope sweep over **every** byte string of zero, one,
 /// and two bytes.
 ///
@@ -1457,11 +1881,11 @@ fn rank_decoding_rejects_each_malformed_input_class() {
     }
 }
 
-/// A decode result reduced to what the reader property compares: the decoded
-/// rank, or the error's variant, with the kind of an I/O error.
+/// A decode result reduced to what the reader properties compare: the decoded
+/// value, or the error's variant, with the kind of an I/O error.
 #[derive(Debug, PartialEq)]
-enum Verdict {
-    Decoded(Rank),
+enum Verdict<T> {
+    Decoded(T),
     Truncated,
     TrailingBits,
     NotCanonical,
@@ -1469,10 +1893,10 @@ enum Verdict {
 }
 
 /// Reduces a decode result to its variant, keeping only an I/O error's kind.
-impl From<Result<Rank, Decode>> for Verdict {
-    fn from(result: Result<Rank, Decode>) -> Self {
+impl<T> From<Result<T, Decode>> for Verdict<T> {
+    fn from(result: Result<T, Decode>) -> Self {
         match result {
-            Ok(rank) => Verdict::Decoded(rank),
+            Ok(value) => Verdict::Decoded(value),
             Err(Decode::Truncated) => Verdict::Truncated,
             Err(Decode::TrailingBits) => Verdict::TrailingBits,
             Err(Decode::NotCanonical) => Verdict::NotCanonical,
@@ -1483,11 +1907,11 @@ impl From<Result<Rank, Decode>> for Verdict {
 
 /// A decode input with the verdict it must receive, known before decoding.
 #[derive(Debug)]
-struct DecodeCase {
+struct DecodeCase<T> {
     /// The bytes to decode.
     input: Vec<u8>,
     /// The verdict a reader that never fails must produce.
-    verdict: Verdict,
+    verdict: Verdict<T>,
     /// Bounds from below how far into `input` a decoder must read before its
     /// verdict is settled, with the end of input counted as one position past
     /// the last byte.
@@ -1507,7 +1931,7 @@ fn rank_cases(
     rank: &Rank,
     suffix: &[u8],
     prefix_len: impl FnOnce(usize) -> usize,
-) -> Vec<DecodeCase> {
+) -> Vec<DecodeCase<Rank>> {
     let encoding = rank.encode();
     let rank_len = encoding.len();
     let prefix = encoding[..prefix_len(rank_len)].to_vec();
@@ -1531,10 +1955,10 @@ fn rank_cases(
     ]
 }
 
-/// An arbitrary byte string, judged by the in-memory decoder, which reads
-/// nothing through a reader.
-fn arbitrary_bytes_case(input: Vec<u8>) -> DecodeCase {
-    let verdict = Verdict::from(Rank::decode_bytes(&input));
+/// A byte string judged by `judge`, a decoder over the whole input in
+/// memory, such as `Rank::decode_bytes` or a reader `decode` over a slice.
+fn judged_case<T>(input: Vec<u8>, judge: impl FnOnce(&[u8]) -> Result<T, Decode>) -> DecodeCase<T> {
+    let verdict = Verdict::from(judge(&input));
     let decided_by = match verdict {
         // Acceptance and truncation both turn on where the input ends.
         Verdict::Decoded(_) | Verdict::Truncated => input.len() + 1,
@@ -1548,21 +1972,22 @@ fn arbitrary_bytes_case(input: Vec<u8>) -> DecodeCase {
     }
 }
 
-/// Decodes `case` through a [`ScriptedReader`] on `schedule` that fails at
-/// `fail_at`, if given, and checks the verdict.
+/// Decodes `case` with `decode` through a [`ScriptedReader`] on `schedule`
+/// that fails at `fail_at`, if given, and checks the verdict.
 ///
 /// The verdict must be `Decode::Io` with the reader's kind exactly when the
 /// reader returned its failure, and the case's verdict otherwise. A failure
 /// before `case.decided_by` leaves the verdict open, so the decoder must meet
 /// it.
-fn check_decode(
-    case: &DecodeCase,
-    schedule: &ReadSchedule,
+fn check_decode<T: core::fmt::Debug + PartialEq>(
+    case: &DecodeCase<T>,
+    schedule: &IoSchedule,
     fail_at: Option<usize>,
+    decode: impl FnOnce(&mut ScriptedReader<'_>) -> Result<T, Decode>,
 ) -> Result<(), TestCaseError> {
     let reader_failed = Verdict::Io(io::ErrorKind::Other);
     let mut reader = ScriptedReader::new(&case.input, schedule, fail_at);
-    let verdict = Verdict::from(Rank::decode(&mut reader));
+    let verdict = Verdict::from(decode(&mut reader));
     let expected = if reader.has_failed() {
         &reader_failed
     } else {
@@ -1639,7 +2064,7 @@ fn fraction_lengths_at_decode_boundaries() -> Vec<usize> {
 /// Generates decode inputs with known verdicts: the three cases of a rank
 /// ending at a read-path boundary, of a rank of any fraction length, or of a
 /// seeded rank, or else one arbitrary byte string.
-fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase>> {
+fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase<Rank>>> {
     let rank = prop_oneof![
         2 => prop::sample::select(fraction_lengths_at_decode_boundaries())
             .prop_flat_map(arb_fraction_rank),
@@ -1655,7 +2080,7 @@ fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase>> {
         4 => (rank, suffix, any::<Index>())
             .prop_map(|(rank, suffix, cut)| rank_cases(&rank, &suffix, |len| cut.index(len))),
         1 => prop::collection::vec(any::<u8>(), 0..256)
-            .prop_map(|input| vec![arbitrary_bytes_case(input)]),
+            .prop_map(|input| vec![judged_case(input, Rank::decode_bytes)]),
     ]
 }
 
@@ -1681,13 +2106,13 @@ proptest! {
     #[test]
     fn rank_decode_is_independent_of_the_read_schedule(
         cases in arb_decode_cases(),
-        schedule in arb_read_schedule(),
+        schedule in arb_io_schedule(),
         failure in any::<Index>(),
     ) {
         for case in &cases {
             let end = case.input.len();
             for fail_at in [None, Some(end), Some(failure.index(end + 1))] {
-                check_decode(case, &schedule, fail_at)?;
+                check_decode(case, &schedule, fail_at, |reader| Rank::decode(reader))?;
             }
         }
     }
@@ -1705,7 +2130,7 @@ proptest! {
 /// reaches the probe after a full prefix only on some draws.
 #[test]
 fn rank_decode_retries_interrupts_at_every_read() -> Result<(), TestCaseError> {
-    let schedules = [1, DECODE_CHUNK_BYTES].map(|chunk| ReadSchedule {
+    let schedules = [1, DECODE_CHUNK_BYTES].map(|chunk| IoSchedule {
         chunk,
         interrupts: vec![1],
     });
@@ -1713,12 +2138,229 @@ fn rank_decode_retries_interrupts_at_every_read() -> Result<(), TestCaseError> {
         let rank = binary_fraction(&vec![true; len - 1]);
         for case in rank_cases(&rank, &[0], |rank_len| rank_len - 1) {
             for schedule in &schedules {
-                check_decode(&case, schedule, None)?;
-                check_decode(&case, schedule, Some(case.input.len()))?;
+                for fail_at in [None, Some(case.input.len())] {
+                    check_decode(&case, schedule, fail_at, |reader| Rank::decode(reader))?;
+                }
             }
         }
     }
     Ok(())
+}
+
+/// The ways the reader properties alter an encoding.
+#[derive(Debug)]
+struct Mangling {
+    /// Bytes appended after the encoding.
+    suffix: Vec<u8>,
+    /// Where the strict prefix cuts the encoding.
+    cut: Index,
+    /// Which bit of the encoding to flip.
+    flip: Index,
+}
+
+/// Generates manglings with suffixes of up to sixteen bytes.
+fn arb_mangling() -> impl Strategy<Value = Mangling> {
+    (
+        prop::collection::vec(any::<u8>(), 1..=16),
+        any::<Index>(),
+        any::<Index>(),
+    )
+        .prop_map(|(suffix, cut, flip)| Mangling { suffix, cut, flip })
+}
+
+/// The four inputs one nonempty encoding yields: the encoding itself, the
+/// encoding followed by the mangling's suffix, a strict prefix, and the
+/// encoding with one bit flipped.
+fn mangled_inputs(encoding: &[u8], mangling: &Mangling) -> [Vec<u8>; 4] {
+    let mut flipped = encoding.to_vec();
+    let bit = mangling.flip.index(8 * encoding.len());
+    flipped[bit / 8] ^= 0x80 >> (bit % 8);
+    [
+        encoding.to_vec(),
+        [encoding, &mangling.suffix].concat(),
+        encoding[..mangling.cut.index(encoding.len())].to_vec(),
+        flipped,
+    ]
+}
+
+/// Checks one type's reader `decode` on every input its value's encoding
+/// yields, judged by the slice decode over the input in memory, with the
+/// reader failing nowhere, at the input's end, and at a generated offset.
+fn check_reader_decoder<T: Canonical>(
+    value: &T,
+    mangling: &Mangling,
+    schedule: &IoSchedule,
+    failure: Index,
+) -> Result<(), TestCaseError> {
+    for input in mangled_inputs(&value.encode_canonical(), mangling) {
+        let case = judged_case(input, |bytes| T::decode_reader(bytes));
+        let end = case.input.len();
+        for fail_at in [None, Some(end), Some(failure.index(end + 1))] {
+            check_decode(&case, schedule, fail_at, |reader| T::decode_reader(reader))?;
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    /// Every reader `decode` reaches the slice decode's verdict through any
+    /// read schedule, and every reader failure it meets comes back as
+    /// `Decode::Io`.
+    ///
+    /// Each [`Canonical`] type decodes a generated value's encoding, the encoding
+    /// with bytes appended, a strict prefix, and the encoding with one bit
+    /// flipped, through the scripted reader of
+    /// `rank_decode_is_independent_of_the_read_schedule`, with that property's
+    /// exact failure oracle: the verdict is `Decode::Io` with the reader's
+    /// kind exactly when the decoder met the failure, and the slice decode's
+    /// verdict otherwise, and a failure placed before the bytes that settle
+    /// the verdict must be met.
+    #[test]
+    fn decoders_are_independent_of_the_read_schedule(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        mangling in arb_mangling(),
+        schedule in arb_io_schedule(),
+        failure in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        let clock = Clock::from_parts(from_oracle_party(&party), a.clone());
+        let span = (&a & &b).span(&(&a | &b));
+        check_reader_decoder(&from_oracle_party(&party), &mangling, &schedule, failure)?;
+        check_reader_decoder(&a, &mangling, &schedule, failure)?;
+        check_reader_decoder(&clock, &mangling, &schedule, failure)?;
+        check_reader_decoder(&span, &mangling, &schedule, failure)?;
+        check_reader_decoder(&a.rank(), &mangling, &schedule, failure)?;
+        check_reader_decoder(&Ranked::from(a.clone()), &mangling, &schedule, failure)?;
+    }
+}
+
+/// Checks one borsh decoder on `input` through a [`ScriptedReader`] on
+/// `schedule` that fails at `fail_at`, if given, against the same decoder over
+/// the whole input in memory.
+///
+/// Borsh values compose inside a larger stream, so a decoder reads no byte
+/// past its value, and the bytes it requests do not depend on how they are
+/// served. A probe reader that serves the whole input at once and fails at its
+/// end measures them: the bytes it served, or every byte and one more when the
+/// decoder met its failure. A failure is met exactly when it lies before the
+/// requested bytes end, and must come back with the reader's kind. Otherwise
+/// the verdict must equal the in-memory one, and an accepted value must have
+/// consumed the same bytes; what a rejecting decode consumed is unspecified.
+#[cfg(feature = "borsh")]
+fn check_borsh<T: borsh::BorshDeserialize + core::fmt::Debug + PartialEq>(
+    input: &[u8],
+    schedule: &IoSchedule,
+    fail_at: Option<usize>,
+) -> Result<(), TestCaseError> {
+    let mut whole = input;
+    let expected = T::deserialize_reader(&mut whole).map_err(|error| error.kind());
+    let consumed = input.len() - whole.len();
+    let at_once = IoSchedule {
+        chunk: input.len().max(1),
+        interrupts: vec![0],
+    };
+    let mut probe = ScriptedReader::new(input, &at_once, Some(input.len()));
+    let _ = T::deserialize_reader(&mut probe);
+    let requested = if probe.has_failed() {
+        input.len() + 1
+    } else {
+        probe.served()
+    };
+
+    let mut reader = ScriptedReader::new(input, schedule, fail_at);
+    let verdict = T::deserialize_reader(&mut reader).map_err(|error| error.kind());
+    if fail_at.is_some_and(|offset| offset < requested) {
+        prop_assert!(
+            reader.has_failed(),
+            "a failure at {:?} went unmet; input {:?}",
+            fail_at,
+            input
+        );
+        prop_assert_eq!(verdict, Err(io::ErrorKind::Other), "input {:?}", input);
+    } else {
+        prop_assert!(
+            !reader.has_failed(),
+            "a read past the value met the failure at {:?}; input {:?}",
+            fail_at,
+            input
+        );
+        let accepted = expected.is_ok();
+        prop_assert_eq!(verdict, expected, "input {:?}", input);
+        if accepted {
+            prop_assert_eq!(
+                reader.served(),
+                consumed,
+                "bytes consumed; input {:?}",
+                input
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Checks one borsh decoder on every input its value's borsh bytes yield,
+/// with the reader failing nowhere, at the input's end, and at a generated
+/// offset.
+#[cfg(feature = "borsh")]
+fn check_borsh_decoder<T>(
+    value: &T,
+    mangling: &Mangling,
+    schedule: &IoSchedule,
+    failure: Index,
+) -> Result<(), TestCaseError>
+where
+    T: borsh::BorshDeserialize + borsh::BorshSerialize + core::fmt::Debug + PartialEq,
+{
+    let encoding = borsh::to_vec(value).expect("serializing into memory succeeds");
+    for input in mangled_inputs(&encoding, mangling) {
+        let end = input.len();
+        for fail_at in [None, Some(end), Some(failure.index(end + 1))] {
+            check_borsh::<T>(&input, schedule, fail_at)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "borsh")]
+proptest! {
+    /// Every borsh decoder reaches the verdict it reaches over the whole input
+    /// in memory through any read schedule, and returns every reader failure
+    /// it meets.
+    ///
+    /// Each [`Canonical`] type, and `Count`, decodes a generated value's borsh
+    /// bytes, those bytes with more appended, a strict prefix, and the bytes
+    /// with one bit flipped, through the scripted reader of
+    /// `rank_decode_is_independent_of_the_read_schedule`. A decoder reads no
+    /// byte past its value, so a failure beyond the bytes it requests must go
+    /// unmet, one within them must come back with the reader's kind, and an
+    /// accepted value must consume exactly the bytes the in-memory decode did.
+    #[test]
+    fn borsh_decoders_are_independent_of_the_read_schedule(
+        party in arb_oracle_party_nonempty(),
+        a in arb_oracle_version(),
+        b in arb_oracle_version(),
+        count in crate::testing::generators::arb_magnitude(),
+        mangling in arb_mangling(),
+        schedule in arb_io_schedule(),
+        failure in any::<Index>(),
+    ) {
+        use crate::Ranked;
+
+        let (a, b) = (from_oracle_version(&a), from_oracle_version(&b));
+        let clock = Clock::from_parts(from_oracle_party(&party), a.clone());
+        let span = (&a & &b).span(&(&a | &b));
+        check_borsh_decoder(&from_oracle_party(&party), &mangling, &schedule, failure)?;
+        check_borsh_decoder(&a, &mangling, &schedule, failure)?;
+        check_borsh_decoder(&clock, &mangling, &schedule, failure)?;
+        check_borsh_decoder(&span, &mangling, &schedule, failure)?;
+        check_borsh_decoder(&a.rank(), &mangling, &schedule, failure)?;
+        check_borsh_decoder(&Ranked::from(a.clone()), &mangling, &schedule, failure)?;
+        check_borsh_decoder(&Count(count), &mangling, &schedule, failure)?;
+    }
 }
 
 /// Every version-derived rank encoding is no larger than its source version.

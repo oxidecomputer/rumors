@@ -37,6 +37,30 @@
 //! What they alone catch: **surface composition errors** that no independent
 //! model represents, such as omitting one component from a streamed encoding.
 //!
+//! **The dyadic rank oracle** ([`super::oracles::dyadic`]). An exact rank is
+//! modeled as an unnormalized dyadic rational: order by cross-multiplication,
+//! sums by aligned exponents, and canonical text rendered from the pair alone.
+//! Its generators feed the rank laws and the `Sum` property integral ranks,
+//! zero, and one value in several spellings. What it alone catches: **rank
+//! errors that production's arithmetic, order, and text agree on** — a parser
+//! and printer that err consistently pass the text round trip, and ranks whose
+//! order is wrong but self-consistent pass every law, yet neither matches
+//! values rendered and compared outside production.
+//!
+//! **The scripted reader and writer** ([`super::scripted_io`]). Doubles
+//! that serve or accept bytes in chunks from one to more than a decoder's
+//! buffer, return `Interrupted` before their answers on a generated schedule,
+//! and fail at a chosen offset. Every reader `decode`, every borsh impl, and
+//! every streaming encoder runs through them, judged by the in-memory decode
+//! or the buffered encoding. A failure the operation must reach comes back
+//! with the double's kind; for borsh decoders and for encoders, which can
+//! read or write no byte past their value, a failure they need not reach
+//! goes unmet, while a reader `decode` may meet or skip a failure past the
+//! bytes that settle its verdict. What they alone catch: **I/O protocol errors** that
+//! a whole, infallible buffer never provokes, such as a read loop that treats
+//! `Interrupted` as the end of input, a borsh decoder that reads past its
+//! value, or an encoder that drops its writer's error.
+//!
 //! **Co-generated tick pairs** ([`super::generators::co_generated`]). These
 //! strategies build a tick's party and version together, region by region,
 //! and feed the tick module's differentials against the recursive oracle. One
@@ -88,7 +112,12 @@
 //! equalities, empty regions, degenerate splits) that random generation hits
 //! with vanishing probability. Within its scope the verdict is total, not
 //! sampled; outside its scope it says nothing, which is exactly why the
-//! proptest legs exist.
+//! proptest legs exist. A verdict that counts only the enumerated values, as
+//! the exact-coverage censuses over the two-party grid and the boolean cube
+//! do, is exact only if the pool holds a witness for every answer; a companion
+//! test reruns each such census, in the pointwise order on height vectors,
+//! over a finer pool that realizes every verdict the covered versions can
+//! receive, so a pool missing a witness fails it.
 //!
 //! **The 32-bit boundary pins** (the `wasm32-pins` workspace under this
 //! crate). Public operations of this crate and of `suanpan` run in a wasm32
@@ -196,7 +225,9 @@
 //! mechanism, never both and never neither. Public trait implementations are
 //! pinned separately, with their resource decisions grouped into board
 //! families. A new public function therefore cannot land unmeasured and
-//! unexcused, and the board carries no orphan measurement.
+//! unexcused, and the board carries no orphan measurement. Every public
+//! signature that mentions `usize` is pinned as well, so a new one, whose
+//! meaning would change on a 32-bit target, cannot land unreviewed.
 //!
 //! # Reading the map
 //!

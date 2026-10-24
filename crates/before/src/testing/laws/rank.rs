@@ -14,8 +14,9 @@ laws! {
     /// order's duality, and cross-path normalization (value-equal ranks built
     /// along different operation paths are one structural value, equal under
     /// `Eq` and `Hash`). The wire form's laws ride the same group: the codec
-    /// round-trip, byte order equal to `Ord`, and prefix-freedom. So does
-    /// `Debug`'s documented format, which is `Display`'s.
+    /// round-trip, byte order equal to `Ord`, and prefix-freedom. So do
+    /// `Debug`'s documented format, which is `Display`'s, and `Display`'s
+    /// formatting flags, which apply to the whole rendered text.
     pub static RANK_TRIPLE: (a: &Rank, b: &Rank, c: &Rank);
 
     /// Addition is commutative: `a + b == b + a`.
@@ -127,6 +128,38 @@ laws! {
     /// `write!(f, "{self}")`, matches only the default format.
     fn rank_debug_is_display(a, _b, _c) {
         format!("{a:?}") == a.to_string() && format!("{a:>40.8?}") == format!("{a:>40.8}")
+    }
+
+    /// `Display` formats the whole rendered text as `str` would under the same
+    /// width, fill, alignment, and precision, and ignores the sign and
+    /// zero-padding flags, as its documentation states.
+    ///
+    /// The widths fall at zero, at the text's length, and past it, under the
+    /// default, centered, and right alignments with a multibyte and an ASCII
+    /// fill; the precisions cut the text to nothing, inside it, and at its
+    /// middle. `std::fmt` accepts widths and precisions up to `u16::MAX` only.
+    /// Padding applies only past the text's length, so a text longer than
+    /// that limit can meet no padded case: there the law checks the widths it
+    /// can name, at which every alignment and fill writes the text unchanged,
+    /// and skips the padded formats rather than rendering a long text again
+    /// to no effect.
+    fn rank_display_flags_format_the_plain_text(a, _b, _c) {
+        let text = a.to_string();
+        let len = text.len();
+        let limit = usize::from(u16::MAX);
+        let at = len.min(limit);
+        let unpadded = format!("{a:0$}", 0) == text && format!("{a:at$}") == format!("{text:at$}");
+        let padded = len + 3 > limit || {
+            let past = len + 3;
+            format!("{a:é^past$}") == format!("{text:é^past$}")
+                && format!("{a:*>past$}") == format!("{text:*>past$}")
+        };
+        let (wide, middle) = ((len + 2).min(limit), (len / 2).min(limit));
+        let cut = format!("{a:.0}") == format!("{text:.0}")
+            && format!("{a:*^7.2}") == format!("{text:*^7.2}")
+            && format!("{a:>wide$.middle$}") == format!("{text:>wide$.middle$}");
+        let unsigned = format!("{a:+}") == text && format!("{a:+08}") == format!("{text:8}");
+        unpadded && padded && cut && unsigned
     }
 }
 

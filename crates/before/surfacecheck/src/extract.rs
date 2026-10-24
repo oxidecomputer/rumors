@@ -25,14 +25,32 @@
 //!   `Borrow`, `Any`, …), not API decisions made in this crate;
 //! - **items** — associated consts and types, module-level consts,
 //!   statics, and macros, reconciled against the pinned
-//!   [`crate::census::ITEMS`].
+//!   [`crate::census::ITEMS`];
+//! - **`usize` signatures** — every place a public `usize` can appear: a
+//!   function-like item's parameters, return type, or own generics, trait-impl
+//!   methods included; an impl's header, trait or inherent (its trait's
+//!   arguments, implementing type, or generics); a module const's or static's
+//!   type; an associated const's or type's type, in impls and traits; a public
+//!   field's type, of a struct, a union, or an enum variant's payload; and a
+//!   type definition's own generics. A `Self` inside an impl counts as its
+//!   implementing type. The rows reconcile against the pinned
+//!   [`crate::census::USIZE_SIGNATURES`]. A `usize` means something different
+//!   on a 32-bit target, so each one in a public signature or stored quantity
+//!   is a reviewed decision.
 //!
 //! `#[doc(hidden)]` items never appear in the JSON at all, so the ground
 //! truth here is the documented public surface.
 
 use std::collections::BTreeSet;
 
-use rustdoc_types::{Crate, GenericArg, GenericArgs, Id, Item, ItemEnum, Path, Type};
+use rustdoc_types::{
+    AssocItemConstraintKind, Crate, Function, GenericArg, GenericArgs, GenericBound,
+    GenericParamDefKind, Generics, Id, Item, ItemEnum, Path, StructKind, Term, Type, VariantKind,
+    WherePredicate,
+};
+
+#[cfg(test)]
+mod tests;
 
 /// The publicly reachable surface, by category.
 ///
@@ -50,6 +68,16 @@ pub(crate) struct Surface {
     /// named by reachable path alone (`Rank::ZERO`,
     /// `testing::laws::VERSION_SOLO`).
     pub items: BTreeSet<String>,
+    /// Signatures that mention `usize`, named as `owner: usize in sites`.
+    ///
+    /// The owner is a `functions` or `items` row; an `impls` row, alone for
+    /// its header or followed by `:: method`, `:: const NAME`, or
+    /// `:: type NAME`; `Type: inherent impl` for an inherent impl's header;
+    /// `Type.field` or `Enum::Variant.field` for a public field, a tuple
+    /// field named by its index; or `Type: definition` for a type
+    /// definition's generics. The sites are the parameters, `return`,
+    /// `generics`, `header`, or `type` that mention `usize`.
+    pub usize_signatures: BTreeSet<String>,
 }
 
 /// Walk the publicly reachable item tree and collect every public item
@@ -122,18 +150,45 @@ fn walk_named(
         }
         ItemEnum::Use(use_) => walk_use(krate, use_, prefix, surface, visited),
         ItemEnum::Struct(s) => {
+            let type_name = join(prefix, name.expect("a type has a name"));
+            record_usize_definition(&s.generics, &type_name, surface);
+            let fields = match &s.kind {
+                StructKind::Unit => Vec::new(),
+                StructKind::Tuple(fields) => fields.iter().flatten().copied().collect(),
+                StructKind::Plain { fields, .. } => fields.clone(),
+            };
+            record_usize_fields(krate, &fields, &type_name, surface);
             walk_type(krate, name, &s.impls, prefix, surface);
         }
         ItemEnum::Enum(e) => {
+            let type_name = join(prefix, name.expect("a type has a name"));
+            record_usize_definition(&e.generics, &type_name, surface);
+            for &variant in &e.variants {
+                let variant = item_of(krate, variant);
+                let ItemEnum::Variant(payload) = &variant.inner else {
+                    panic!("an enum's variants list must name variants, found {variant:?}");
+                };
+                let fields = match &payload.kind {
+                    VariantKind::Plain => Vec::new(),
+                    VariantKind::Tuple(fields) => fields.iter().flatten().copied().collect(),
+                    VariantKind::Struct { fields, .. } => fields.clone(),
+                };
+                let variant_name = variant.name.as_deref().expect("a variant has a name");
+                let owner = format!("{type_name}::{variant_name}");
+                record_usize_fields(krate, &fields, &owner, surface);
+            }
             walk_type(krate, name, &e.impls, prefix, surface);
         }
         ItemEnum::Union(u) => {
+            let type_name = join(prefix, name.expect("a type has a name"));
+            record_usize_definition(&u.generics, &type_name, surface);
+            record_usize_fields(krate, &u.fields, &type_name, surface);
             walk_type(krate, name, &u.impls, prefix, surface);
         }
-        ItemEnum::Function(_) => {
-            surface
-                .functions
-                .insert(join(prefix, name.expect("a function has a name")));
+        ItemEnum::Function(function) => {
+            let row = join(prefix, name.expect("a function has a name"));
+            record_usize_signature(function, &row, None, surface);
+            surface.functions.insert(row);
         }
         ItemEnum::Trait(t) => {
             let trait_name = name.expect("a trait has a name");
@@ -142,13 +197,17 @@ fn walk_named(
                 let member = item_of(krate, member);
                 let member_name = member.name.as_deref();
                 match &member.inner {
-                    ItemEnum::Function(_) => {
+                    ItemEnum::Function(function) => {
                         let fn_name = member_name.expect("a trait method has a name");
-                        surface.functions.insert(format!("{owner}::{fn_name}"));
+                        let row = format!("{owner}::{fn_name}");
+                        record_usize_signature(function, &row, None, surface);
+                        surface.functions.insert(row);
                     }
                     ItemEnum::AssocConst { .. } | ItemEnum::AssocType { .. } => {
                         let item_name = member_name.expect("a trait member has a name");
-                        surface.items.insert(format!("{owner}::{item_name}"));
+                        let row = format!("{owner}::{item_name}");
+                        record_usize_associated(&member.inner, &row, None, surface);
+                        surface.items.insert(row);
                     }
                     _ => {}
                 }
@@ -161,10 +220,15 @@ fn walk_named(
                 record_impl(krate, impl_id, &owner, surface);
             }
         }
-        ItemEnum::Constant { .. } | ItemEnum::Static(_) => {
-            surface
-                .items
-                .insert(join(prefix, name.expect("a const or static has a name")));
+        ItemEnum::Constant { type_, .. }
+        | ItemEnum::Static(rustdoc_types::Static { type_, .. }) => {
+            let row = join(prefix, name.expect("a const or static has a name"));
+            if mentions_usize([Node::Type(type_)], None) {
+                surface
+                    .usize_signatures
+                    .insert(format!("{row}: usize in type"));
+            }
+            surface.items.insert(row);
         }
         ItemEnum::Macro(_) | ItemEnum::ProcMacro(_) => {
             surface
@@ -242,17 +306,29 @@ fn walk_type(
             record_impl(krate, impl_id, &type_name, surface);
             continue;
         }
+        let self_type = Some(&impl_.for_);
+        let mut header = vec![Node::Type(&impl_.for_)];
+        header.extend(generics_nodes(&impl_.generics));
+        if mentions_usize(header, self_type) {
+            surface
+                .usize_signatures
+                .insert(format!("{type_name}: inherent impl: usize in header"));
+        }
         for &member in &impl_.items {
             let member = item_of(krate, member);
             let member_name = member.name.as_deref();
             match &member.inner {
-                ItemEnum::Function(_) => {
+                ItemEnum::Function(function) => {
                     let fn_name = member_name.expect("a method has a name");
-                    surface.functions.insert(format!("{type_name}::{fn_name}"));
+                    let row = format!("{type_name}::{fn_name}");
+                    record_usize_signature(function, &row, self_type, surface);
+                    surface.functions.insert(row);
                 }
                 ItemEnum::AssocConst { .. } | ItemEnum::AssocType { .. } => {
                     let item_name = member_name.expect("an associated item has a name");
-                    surface.items.insert(format!("{type_name}::{item_name}"));
+                    let row = format!("{type_name}::{item_name}");
+                    record_usize_associated(&member.inner, &row, self_type, surface);
+                    surface.items.insert(row);
                 }
                 _ => {}
             }
@@ -283,11 +359,281 @@ fn record_impl(krate: &Crate, impl_id: Id, owner: &str, surface: &mut Surface) {
         .trait_
         .as_ref()
         .expect("record_impl is called on trait impls only");
-    surface.impls.insert(format!(
+    let row = format!(
         "{owner}: impl {} for {}",
         render_trait(krate, trait_),
         render_type(krate, &impl_.for_),
-    ));
+    );
+    let self_type = Some(&impl_.for_);
+    let mut header = vec![Node::Type(&impl_.for_)];
+    header.extend(trait_.args.as_deref().map(Node::Args));
+    header.extend(generics_nodes(&impl_.generics));
+    if mentions_usize(header, self_type) {
+        surface
+            .usize_signatures
+            .insert(format!("{row}: usize in header"));
+    }
+    for &member in &impl_.items {
+        let member = item_of(krate, member);
+        let member_name = member.name.as_deref().expect("an impl member has a name");
+        match &member.inner {
+            ItemEnum::Function(function) => {
+                let row = format!("{row} :: {member_name}");
+                record_usize_signature(function, &row, self_type, surface);
+            }
+            ItemEnum::AssocConst { .. } => {
+                let row = format!("{row} :: const {member_name}");
+                record_usize_associated(&member.inner, &row, self_type, surface);
+            }
+            ItemEnum::AssocType { .. } => {
+                let row = format!("{row} :: type {member_name}");
+                record_usize_associated(&member.inner, &row, self_type, surface);
+            }
+            _ => {}
+        }
+    }
+    surface.impls.insert(row);
+}
+
+/// Record `function`'s `usize` signature row under the function-like row
+/// `row`, when any parameter, the return type, or the function's own generic
+/// parameters mention `usize`.
+///
+/// `self_type` is the implementing type when the function lives in an impl,
+/// so a `Self` in the signature counts as that type; inside a trait
+/// definition `Self` is unknown. The enclosing impl's own generics belong to
+/// its header row, which [`record_impl`] and the inherent-impl walk record.
+fn record_usize_signature(
+    function: &Function,
+    row: &str,
+    self_type: Option<&Type>,
+    surface: &mut Surface,
+) {
+    let mut sites: Vec<String> = function
+        .sig
+        .inputs
+        .iter()
+        .filter(|(_, ty)| mentions_usize([Node::Type(ty)], self_type))
+        .map(|(name, _)| format!("parameter {name}"))
+        .collect();
+    if function
+        .sig
+        .output
+        .as_ref()
+        .is_some_and(|ty| mentions_usize([Node::Type(ty)], self_type))
+    {
+        sites.push("return".to_owned());
+    }
+    if mentions_usize(generics_nodes(&function.generics), self_type) {
+        sites.push("generics".to_owned());
+    }
+    if !sites.is_empty() {
+        surface
+            .usize_signatures
+            .insert(format!("{row}: usize in {}", sites.join(", ")));
+    }
+}
+
+/// Record a public field's `usize` row, `owner.field: usize in type`, for
+/// each of `fields` whose type mentions `usize`.
+///
+/// The owner is a struct or union path, or an enum variant's `Enum::Variant`;
+/// a tuple field's name is its index. Rustdoc's public JSON strips private
+/// fields, so every field listed here is public.
+fn record_usize_fields(krate: &Crate, fields: &[Id], owner: &str, surface: &mut Surface) {
+    for &field in fields {
+        let field = item_of(krate, field);
+        let ItemEnum::StructField(type_) = &field.inner else {
+            panic!("a fields list must name struct fields, found {field:?}");
+        };
+        if mentions_usize([Node::Type(type_)], None) {
+            let field_name = field.name.as_deref().expect("a field has a name");
+            surface
+                .usize_signatures
+                .insert(format!("{owner}.{field_name}: usize in type"));
+        }
+    }
+}
+
+/// Record a type definition's `usize` row, `Type: definition: usize in
+/// generics`, when its own generic parameters or where clauses mention
+/// `usize`.
+fn record_usize_definition(generics: &Generics, type_name: &str, surface: &mut Surface) {
+    if mentions_usize(generics_nodes(generics), None) {
+        surface
+            .usize_signatures
+            .insert(format!("{type_name}: definition: usize in generics"));
+    }
+}
+
+/// Record an associated const's or type's `usize` row under `row`, when its
+/// type, its bounds, or its generics mention `usize`.
+fn record_usize_associated(
+    member: &ItemEnum,
+    row: &str,
+    self_type: Option<&Type>,
+    surface: &mut Surface,
+) {
+    let nodes: Vec<Node<'_>> = match member {
+        ItemEnum::AssocConst { type_, .. } => vec![Node::Type(type_)],
+        ItemEnum::AssocType {
+            generics,
+            bounds,
+            type_,
+        } => bounds
+            .iter()
+            .map(Node::Bound)
+            .chain(type_.iter().map(Node::Type))
+            .chain(generics_nodes(generics))
+            .collect(),
+        other => panic!("record_usize_associated takes associated items, found {other:?}"),
+    };
+    if mentions_usize(nodes, self_type) {
+        surface
+            .usize_signatures
+            .insert(format!("{row}: usize in type"));
+    }
+}
+
+/// The pieces of a generics list that can contain types: each type
+/// parameter's bounds and default, each const parameter's type, and each
+/// where clause.
+fn generics_nodes(generics: &Generics) -> Vec<Node<'_>> {
+    let params = generics.params.iter().flat_map(|param| match &param.kind {
+        GenericParamDefKind::Lifetime { .. } => Vec::new(),
+        GenericParamDefKind::Type {
+            bounds, default, ..
+        } => bounds
+            .iter()
+            .map(Node::Bound)
+            .chain(default.iter().map(Node::Type))
+            .collect(),
+        GenericParamDefKind::Const { type_, .. } => vec![Node::Type(type_)],
+    });
+    let predicates = generics
+        .where_predicates
+        .iter()
+        .flat_map(|predicate| match predicate {
+            WherePredicate::BoundPredicate { type_, bounds, .. } => {
+                let mut nodes = vec![Node::Type(type_)];
+                nodes.extend(bounds.iter().map(Node::Bound));
+                nodes
+            }
+            WherePredicate::LifetimePredicate { .. } => Vec::new(),
+            WherePredicate::EqPredicate { lhs, rhs } => {
+                let mut nodes = vec![Node::Type(lhs)];
+                if let Term::Type(rhs) = rhs {
+                    nodes.push(Node::Type(rhs));
+                }
+                nodes
+            }
+        });
+    params.chain(predicates).collect()
+}
+
+/// A piece of a signature that can contain types.
+#[derive(Clone, Copy)]
+pub(crate) enum Node<'a> {
+    /// A type.
+    Type(&'a Type),
+    /// A path's generic arguments, associated-item constraints included.
+    Args(&'a GenericArgs),
+    /// A bound on a generic parameter or an `impl Trait`.
+    Bound(&'a GenericBound),
+}
+
+/// Whether any of `nodes` mentions the primitive `usize` anywhere inside it,
+/// reading `Self` as `self_type` when one is given.
+///
+/// The traversal keeps its pending pieces on an explicit stack, so a deeply
+/// nested type cannot overflow the call stack. An implementing type never
+/// mentions `Self`, so resolving it adds no cycle.
+pub(crate) fn mentions_usize<'a>(
+    nodes: impl IntoIterator<Item = Node<'a>>,
+    self_type: Option<&'a Type>,
+) -> bool {
+    let mut pending: Vec<Node<'a>> = nodes.into_iter().collect();
+    while let Some(node) = pending.pop() {
+        match node {
+            Node::Type(ty) => match ty {
+                Type::Primitive(name) => {
+                    if name == "usize" {
+                        return true;
+                    }
+                }
+                Type::ResolvedPath(path) => pending.extend(path.args.as_deref().map(Node::Args)),
+                Type::DynTrait(dyn_trait) => pending.extend(
+                    dyn_trait
+                        .traits
+                        .iter()
+                        .filter_map(|poly| poly.trait_.args.as_deref().map(Node::Args)),
+                ),
+                Type::FunctionPointer(pointer) => {
+                    let sig = &pointer.sig;
+                    pending.extend(sig.inputs.iter().map(|(_, ty)| Node::Type(ty)));
+                    pending.extend(sig.output.iter().map(Node::Type));
+                }
+                Type::Tuple(parts) => pending.extend(parts.iter().map(Node::Type)),
+                Type::Slice(inner) => pending.push(Node::Type(inner)),
+                Type::Array { type_, .. }
+                | Type::Pat { type_, .. }
+                | Type::RawPointer { type_, .. }
+                | Type::BorrowedRef { type_, .. } => pending.push(Node::Type(type_)),
+                Type::ImplTrait(bounds) => pending.extend(bounds.iter().map(Node::Bound)),
+                Type::QualifiedPath {
+                    args,
+                    self_type,
+                    trait_,
+                    ..
+                } => {
+                    pending.push(Node::Type(self_type));
+                    pending.extend(args.as_deref().map(Node::Args));
+                    pending.extend(
+                        trait_
+                            .iter()
+                            .filter_map(|path| path.args.as_deref().map(Node::Args)),
+                    );
+                }
+                Type::Generic(name) => {
+                    if name == "Self" {
+                        pending.extend(self_type.map(Node::Type));
+                    }
+                }
+                Type::Infer => {}
+            },
+            Node::Args(args) => match args {
+                GenericArgs::AngleBracketed { args, constraints } => {
+                    pending.extend(args.iter().filter_map(|arg| match arg {
+                        GenericArg::Type(ty) => Some(Node::Type(ty)),
+                        GenericArg::Lifetime(_) | GenericArg::Const(_) | GenericArg::Infer => None,
+                    }));
+                    for constraint in constraints {
+                        pending.extend(constraint.args.as_deref().map(Node::Args));
+                        match &constraint.binding {
+                            AssocItemConstraintKind::Equality(Term::Type(ty)) => {
+                                pending.push(Node::Type(ty));
+                            }
+                            AssocItemConstraintKind::Equality(Term::Constant(_)) => {}
+                            AssocItemConstraintKind::Constraint(bounds) => {
+                                pending.extend(bounds.iter().map(Node::Bound));
+                            }
+                        }
+                    }
+                }
+                GenericArgs::Parenthesized { inputs, output } => {
+                    pending.extend(inputs.iter().map(Node::Type));
+                    pending.extend(output.iter().map(Node::Type));
+                }
+                GenericArgs::ReturnTypeNotation => {}
+            },
+            Node::Bound(bound) => {
+                if let GenericBound::TraitBound { trait_, .. } = bound {
+                    pending.extend(trait_.args.as_deref().map(Node::Args));
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Render a trait reference for a census row: the definition path from
