@@ -59,6 +59,9 @@ use suanpan::Accumulator;
 
 use crate::error::{Decode, ParseRank};
 
+#[cfg(test)]
+mod tests;
+
 /// An exact nonnegative measure of causal history.
 ///
 /// Conceptually, a [`Version`](crate::Version) records an event count at every
@@ -527,8 +530,8 @@ impl Rank {
         // and the group order numeric (the module doc's argument).
         for g in 0..groups {
             sink.push(true)?;
-            for j in g * FRACTION_GROUP_BITS + 1..=(g + 1) * FRACTION_GROUP_BITS {
-                sink.push(j <= exp && num.bit(exp - j))?;
+            for bit in fraction_group_bits(exp, g) {
+                sink.push(bit.is_some_and(|i| num.bit(i)))?;
             }
         }
         sink.push(false)?;
@@ -551,6 +554,21 @@ impl Rank {
 /// each opened by a continuation bit, so the fraction costs nine bits per eight
 /// expansion bits plus the one closing bit.
 const FRACTION_GROUP_BITS: u64 = 8;
+
+/// The numerator bits that fraction group `group` of a rank with exponent
+/// `exp` carries, most significant first: `Some(i)` for numerator bit `i`,
+/// `None` for the zero padding past the expansion's end.
+///
+/// `group` must be below `exp.div_ceil(FRACTION_GROUP_BITS)`, the number of
+/// groups the encoder writes. Expansion bit `j`, counting from the binary
+/// point, is numerator bit `exp - j`, and the group holds `j` from `8g + 1`
+/// to `8g + 8`. That upper end reaches 2^64 in the last group of an exponent
+/// of `2^64 - 7` or more, so we measure from `exp` instead: the precondition
+/// gives `8g < exp`, so `exp - 8g` neither underflows nor overflows.
+fn fraction_group_bits(exp: u64, group: u64) -> impl Iterator<Item = Option<u64>> {
+    let after_previous_groups = exp - group * FRACTION_GROUP_BITS;
+    (1..=FRACTION_GROUP_BITS).map(move |k| after_previous_groups.checked_sub(k))
+}
 
 /// Bytes examined directly before decoding falls back to incremental reads.
 ///
