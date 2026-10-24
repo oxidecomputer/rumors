@@ -139,11 +139,6 @@ impl BitsWriter {
 
     /// Append one bit.
     pub(crate) fn push(&mut self, bit: bool) {
-        self.append_bit(bit);
-    }
-
-    /// Append one bit: the body of [`push`](Self::push).
-    fn append_bit(&mut self, bit: bool) {
         let within = (self.live % 8) as u32;
         if within == 0 {
             self.bytes.push(if bit { 0x80 } else { 0x00 });
@@ -161,11 +156,6 @@ impl BitsWriter {
             len == 64 || value >> len == 0,
             "append value has bits above its stated width"
         );
-        self.append_bits(value, len);
-    }
-
-    /// Append one word: the body of [`push_bits`](Self::push_bits).
-    fn append_bits(&mut self, value: u64, len: u32) {
         if len == 0 {
             return;
         }
@@ -305,7 +295,7 @@ impl BitsWriter {
     /// Append the canonical marker bit after the live stream.
     fn seal_padding(&mut self) {
         if !self.is_empty() {
-            self.append_bit(true);
+            self.push(true);
         }
         debug_assert!(
             self.tail_is_zeroed(),
@@ -355,7 +345,7 @@ impl BitsWriter {
         );
         let mut position = start;
         while position < end && !position.is_multiple_of(8) {
-            self.append_bit(bit(bytes, position));
+            self.push(bit(bytes, position));
             position += 1;
         }
         let whole = ((end - position) / 8) as usize;
@@ -365,7 +355,7 @@ impl BitsWriter {
             position += whole as u64 * 8;
         }
         while position < end {
-            self.append_bit(bit(bytes, position));
+            self.push(bit(bytes, position));
             position += 1;
         }
     }
