@@ -43,13 +43,12 @@ enum Op {
     TruncateToHeld(Index),
     /// Remove the largest position alone, as a descent of one step does.
     TruncateBelowLargest,
-    /// Clear from the oracle's least position other than zero, less the first
-    /// slack, through its largest position, plus the second, as `Digits`
-    /// clears from its floor through its top, leaving position zero alone.
+    /// Clear, which must pass exactly the oracle's positions other than zero
+    /// and leave position zero.
     ///
     /// Nothing happens unless the history was seeded with position zero,
     /// which `clear` requires.
-    Clear(usize, usize),
+    Clear,
 }
 
 /// A position near a word or level boundary, in the first few words, or far up.
@@ -70,7 +69,7 @@ fn op() -> impl Strategy<Value = Op> {
         1 => position().prop_map(Op::Truncate),
         1 => any::<Index>().prop_map(Op::TruncateToHeld),
         2 => Just(Op::TruncateBelowLargest),
-        1 => (0..=130_usize, 0..=130_usize).prop_map(|(below, above)| Op::Clear(below, above)),
+        1 => Just(Op::Clear),
     ]
 }
 
@@ -122,16 +121,18 @@ fn apply(
                 truncate(largest.saturating_sub(1), set, oracle, touched);
             }
         }
-        Op::Clear(..) if !zero_first => {}
-        Op::Clear(below, above) => {
-            let highest = oracle.last().copied().unwrap_or(0) + above;
-            let lowest = oracle
-                .range(1..)
-                .next()
-                .map_or(highest, |&least| least.saturating_sub(below));
-            set.clear(lowest, highest);
+        Op::Clear if !zero_first => {}
+        Op::Clear => {
+            let mut removed = Vec::new();
+            set.clear(|position| removed.push(position));
+            removed.sort_unstable();
+            assert_eq!(
+                removed,
+                oracle.range(1..).copied().collect::<Vec<_>>(),
+                "a clear passes each position but zero once"
+            );
+            touched.extend(oracle.iter().copied());
             *oracle = BTreeSet::from([0]);
-            touched.extend([lowest, highest]);
         }
     }
 }
@@ -375,17 +376,17 @@ const AFTER_CLEAR: [Op; 11] = [
     Op::Insert(TALL),
     Op::Truncate(0),
     Op::TruncateBelowLargest,
-    Op::Clear(0, 0),
+    Op::Clear,
 ];
 
 /// A clear leaves position zero alone in either form, keeps the form, and
 /// every pair of later operations leaves the set agreeing with the oracle.
 ///
-/// Each set of [`BEFORE_CLEAR`] is cleared from its least nonzero position
-/// through its largest, as `Digits` clears its written span. The set must
-/// then hold exactly position zero, in the form it had, and after each
-/// ordered pair of operations from [`AFTER_CLEAR`], the positions,
-/// `contains`, and `last_below` must agree with the oracle at every probe.
+/// Each set of [`BEFORE_CLEAR`] is cleared, passing each of its positions
+/// but zero. The set must then hold exactly position zero, in the form it
+/// had, and after each ordered pair of operations from [`AFTER_CLEAR`], the
+/// positions, `contains`, and `last_below` must agree with the oracle at
+/// every probe.
 /// In the bitset form this covers the run and the bitset both holding zero:
 /// a write at zero or one extends the run, a jump moves the run into the
 /// bitset, and a truncation keeps zero.
@@ -402,8 +403,8 @@ fn a_clear_leaves_zero_and_later_operations_match_an_ordered_set() {
                     apply(op, &mut set, &mut oracle, &mut touched, true);
                 }
                 assert_eq!(set.form(), form, "the form built by {trace:?}");
-                trace.push(Op::Clear(0, 0));
-                apply(&Op::Clear(0, 0), &mut set, &mut oracle, &mut touched, true);
+                trace.push(Op::Clear);
+                apply(&Op::Clear, &mut set, &mut oracle, &mut touched, true);
                 assert_eq!(set.positions(), [0], "position zero alone after {trace:?}");
                 assert_eq!(set.form(), form, "the form kept by {trace:?}");
                 assert_agrees(&set, &oracle, &touched, &trace);

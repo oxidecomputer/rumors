@@ -116,8 +116,8 @@ proptest! {
 /// its jump finds position zero held: one level. The limb at `q = 64^m`
 /// lands in the gap below, fills one word at each level from 0 to `m - 1`,
 /// and stops at word zero of level `m`. The clear that follows zeroes the
-/// span `q..=q + 2`, three positions, and examines `m + 1` levels emptying
-/// those words again. The first round differs, while the storage grows, so
+/// held positions `q` and `q + 2` and examines `m + 1` levels, emptying those
+/// words again. The first round differs, while the storage grows, so
 /// the exact counts are asserted from the second round on.
 #[test]
 fn clear_cycle_climbs_a_level_per_base_64_digit_each_round() {
@@ -155,7 +155,7 @@ fn clear_cycle_climbs_a_level_per_base_64_digit_each_round() {
             assert_eq!(
                 cleared.cleared - filled.cleared,
                 m as usize + 1,
-                "m = {m}, round {round}: the clear of three positions examines m + 1 levels"
+                "m = {m}, round {round}: the clear examines m + 1 levels"
             );
         }
     }

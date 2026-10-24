@@ -96,9 +96,6 @@ rather than the value's bit length, through these quantities:
   [Raising the top across gaps](#raising-the-top-across-gaps). At shift 0,
   `G` exceeds the operand's own width by at most a constant, so it drops
   out of the shift-0 bounds.
-- `R` is the receiver's *written span*, from the lowest position written
-  since creation or the last clear up to its working width. A shift moves
-  the written span with the value.
 - `Q` is the width of a read's result, and `S` the working width of a
   shift's result.
 
@@ -120,7 +117,7 @@ is paid for twice. Additional space excludes inputs and returned output.
 | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 | Working-width and known-zero queries | O(1) | O(1) |
 | Unary `-` | O(`V`) | O(1) |
-| `clear` | Amortized O(`R`) | O(1) |
+| `clear` | Amortized O(1) | O(1) |
 
 The logarithmic terms appear only in the rows for updates at a nonzero
 shift. They pay for the bookkeeping that lets comparisons skip positions
@@ -190,7 +187,8 @@ lets comparisons skip unwritten positions while keeping that
 bookkeeping's storage. Repeating a clear, an update at a large shift that
 reaches a width the window reached before, and a one-limb update below
 it costs a base-64 logarithm of that width per round, while each update's
-`L` + `G` and the clear's `R` stay constant. Updates after a clear or a
+`L` + `G` stays constant and the clear costs amortized O(1). Updates after
+a clear or a
 read therefore get only the rows above.
 
 ### Retained space

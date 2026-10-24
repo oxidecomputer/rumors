@@ -5,6 +5,12 @@ use super::{Digits, DIGIT_LIMIT};
 
 /// Inspect signed digits and their written set without exposing mutable fields.
 impl Digits {
+    /// The positions the written set holds, in ascending order.
+    #[cfg(feature = "touch-meter")]
+    pub fn written_positions(&self) -> Vec<usize> {
+        self.written.positions()
+    }
+
     /// The words of bitset storage the written set retains.
     pub fn written_storage_words(&self) -> usize {
         self.written.storage_words()
@@ -74,8 +80,8 @@ impl Digits {
             written[1..]
                 .iter()
                 .all(|&position| position >= self.lowest_written),
-            "a written position other than zero lies below watermark {}, so a clear \
-             would leave it written, after {schedule:?}",
+            "a written position other than zero lies below watermark {}, outside the span \
+             a normalizing read rewrites, after {schedule:?}",
             self.lowest_written
         );
         for (index, &digit) in self.digits[..=self.highest_nonzero].iter().enumerate() {

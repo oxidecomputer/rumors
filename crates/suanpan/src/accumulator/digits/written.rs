@@ -6,7 +6,8 @@
 //! ([`last_below`](WrittenPositions::last_below)), and, once the scan stops,
 //! drop everything above it ([`truncate`](WrittenPositions::truncate)). It
 //! also takes the spans that writes add
-//! ([`insert_span`](WrittenPositions::insert_span)) and clears a known span
+//! ([`insert_span`](WrittenPositions::insert_span)), and empties itself down
+//! to position zero, passing each position it held to its caller
 //! ([`clear`](WrittenPositions::clear)). What membership means for the digits
 //! is [`Digits`](super::Digits)' concern; this module promises only set
 //! semantics and the costs below.
@@ -67,11 +68,12 @@
 //! - [`truncate`](WrittenPositions::truncate) costs O(1) on the run or the
 //!   prefix, and one bitset predecessor query and removal for each bitset
 //!   position it removes, plus one query to find the remaining top;
-//! - [`clear`](WrittenPositions::clear) costs O(1) inline and one bitset span
-//!   clear otherwise. That clear is amortized: besides the words covering the
-//!   span, it climbs above a level only after emptying a word there, and
-//!   each such climb is charged to the insertion that filled that word, as
-//!   [`Bitset::clear`] explains.
+//! - [`clear`](WrittenPositions::clear) costs O(1) plus one step per
+//!   position it removes from the run or the prefix, and one bitset clear in
+//!   the bitset form. That clear costs O(1) plus one word operation per word
+//!   it empties and per position it removes, as [`Bitset::clear`] explains,
+//!   and each of those was paid for by the insertion that filled the word or
+//!   inserted the position.
 //!
 //! Space is four words inline, and the bitset's [storage](bitset#space) once
 //! converted.
@@ -302,32 +304,34 @@ impl WrittenPositions {
         }
     }
 
-    /// Reduce the set to position zero, given that the set's first insertion
-    /// included position zero and that every other position lies in
-    /// `lowest..=highest`.
+    /// Reduce the set to position zero, which its first insertion must have
+    /// included, and pass every other position it held to `removed`.
     ///
-    /// Costs O(1) in the prefix form, and in the bitset form an amortized
-    /// cost proportional to the span, as the [module](self#costs) explains;
-    /// a bitset keeps its storage, and position zero, for reuse. The bitset
+    /// Each position other than zero is passed exactly once, in no particular
+    /// order. A bitset keeps its storage, and position zero, for reuse; it
     /// clears without inserting zero first, because in such a set it already
-    /// holds zero ([`Below::Bitset`]). `Digits` inserts zero first into
-    /// every set it writes. A set without position zero, or with a position
-    /// outside the span, fails an assertion in a debug build, as does a
-    /// bitset without zero; in a release build, every later operation on the
-    /// set may then return a wrong result or panic.
-    pub fn clear(&mut self, lowest: usize, highest: usize) {
+    /// holds zero ([`Below::Bitset`]). `Digits` inserts zero first into every
+    /// set it writes. A set without position zero fails an assertion in a
+    /// debug build, as does a bitset without zero; in a release build, every
+    /// later operation on the set may then return a wrong result or panic.
+    pub fn clear(&mut self, mut removed: impl FnMut(usize)) {
         debug_assert!(
             self.last_below(1) == Some(0),
             "clear's caller guarantees that the set holds position zero"
         );
-        debug_assert!(
-            self.last_below(usize::MAX) <= Some(highest)
-                && self.last_below(lowest).is_none_or(|position| position == 0),
-            "clear's caller guarantees that every position is zero or lies in `lowest..=highest`"
-        );
+        // Every position below the run lies in `below`, apart from a zero
+        // that a bitset shares with a run starting at zero, so passing the
+        // run, then `below` without zero, passes each position once.
+        self.run
+            .clone()
+            .filter(|&position| position != 0)
+            .for_each(&mut removed);
         match &mut self.below {
-            Below::Prefix(end) => *end = 0,
-            Below::Bitset(bitset) => bitset.clear(lowest, highest),
+            Below::Prefix(end) => {
+                (1..*end).for_each(&mut removed);
+                *end = 0;
+            }
+            Below::Bitset(bitset) => bitset.clear(removed),
         }
         // In either form the run holds position zero, so that writes from
         // zero upward extend it; a bitset holds zero as well.

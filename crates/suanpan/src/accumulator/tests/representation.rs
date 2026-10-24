@@ -163,7 +163,7 @@ fn representation_invariants_hold_exhaustively() {
 /// zero. Together they leave runs, gaps, cancelled tops, and digits of both
 /// signs, the varied stored forms that the normalization and shift
 /// properties below start from.
-fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u64)>> {
+pub(super) fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u64)>> {
     proptest::collection::vec(
         (
             0u8..5,
@@ -176,7 +176,7 @@ fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u64)>> {
 
 /// Apply one step of a [`run_forming_stream`] to the accumulator and the
 /// oracle in lockstep; the comparison arm checks the sign against the oracle.
-fn apply_stream_step(
+pub(super) fn apply_stream_step(
     acc: &mut Accumulator,
     oracle: &mut IBig,
     (arm, limbs, shift): &(u8, Vec<u64>, u64),
@@ -348,6 +348,46 @@ proptest! {
             if step % 32 == 0 {
                 assert_value(&acc, &oracle);
             }
+        }
+        assert_value(&acc, &oracle);
+    }
+
+    /// Clearing after any stream zeroes every retained digit, keeps the
+    /// buffer, and leaves the written set holding position zero alone.
+    ///
+    /// A second stream after the clear stays exact, with every invariant
+    /// after every step.
+    ///
+    /// The clear zeroes only the positions the written set holds, which
+    /// suffices because the set holds every nonzero digit. The first stream
+    /// leaves runs, gaps, cancelled tops, and bitsets for it to clear.
+    #[test]
+    fn clearing_any_stream_zeroes_every_digit_and_keeps_the_buffer(
+        first in run_forming_stream(),
+        second in run_forming_stream(),
+    ) {
+        let mut acc = fresh(true);
+        let mut oracle = IBig::from(0);
+        for (step, op) in first.iter().enumerate() {
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
+        }
+        let retained = acc.stored().digits.retained_len();
+        acc.clear();
+        // The cleared value is small, so this checks that every retained
+        // digit is zero and that the written set holds nothing but zero.
+        acc.stored().assert_invariants(&[]);
+        prop_assert!(acc.is_known_zero(), "a clear leaves zero");
+        prop_assert_eq!(
+            acc.stored().digits.retained_len(),
+            retained,
+            "a clear keeps the buffer"
+        );
+        let mut oracle = IBig::from(0);
+        let mut schedule: Vec<u8> = Vec::new();
+        for (step, op) in second.iter().enumerate() {
+            schedule.push(op.0);
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
+            acc.stored().assert_invariants(&schedule);
         }
         assert_value(&acc, &oracle);
     }

@@ -121,12 +121,10 @@
 //! width; relative segment widths are bounded by the tree structure traversed
 //! inside them. A width's absolute position is not bounded that way, so the
 //! segment and deferred widths each keep one buffer for the whole sweep, and
-//! growing it to a high position happens once. Each clear of either width
-//! follows a scaled read of the same accumulator (`close_segment` and
-//! `DeferredIntegral::push`), with no write between, so it clears no more
-//! than the span that read already covered. The trade is
-//! space: each kept buffer holds up to the scale's digits for the rest of the
-//! sweep, `O(n)` and inside the space bound below. The deferred reduction
+//! growing it to a high position happens once; clearing either between
+//! segments keeps the buffer and costs amortized O(1). The trade is space:
+//! each kept buffer holds up to the scale's digits for the rest of the sweep,
+//! `O(n)` and inside the space bound below. The deferred reduction
 //! bounds repeated reads by its data-weighted depth. Its clustered integer
 //! products give the overall `O(M(n))` time and `O(n)` transient-space
 //! bounds in `n` input bits, where `M(n)` is the cost of multiplying `n`-bit
@@ -331,7 +329,7 @@ impl Integrator {
 
         // Keep the buffer. A fresh accumulator would grow from digit 0 to the
         // next segment's weight shift at every freeze, and that shift can sit
-        // Θ(n) digits up. The clear zeroes only the span this segment wrote.
+        // Θ(n) digits up. Clearing keeps the buffer, at amortized O(1).
         self.segment_width.clear();
     }
 

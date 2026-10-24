@@ -292,12 +292,10 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(`R`) time and O(1) additional space, where `R` is the
-    /// written span before the clear, as the [crate-level cost
-    /// model](crate#costs-and-storage) defines it; `R` is at most the working
-    /// width. The bound is amortized because a clear can also clear
-    /// bookkeeping that earlier writes built, work those writes pay for. The
-    /// accumulator retains its main allocation.
+    /// Amortized O(1) time, with no allocation. One call can take time
+    /// proportional to the bits written since the previous clear, which the
+    /// updates that wrote them paid for, as the [crate-level cost
+    /// model](crate#costs-and-storage) explains.
     pub fn clear(&mut self) {
         self.value.get_mut().clear();
     }

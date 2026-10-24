@@ -79,14 +79,16 @@ pub struct Digits {
     /// At every completed operation:
     ///
     /// - every position at or below `highest_nonzero` that the set does not
-    ///   hold is zero, which is what lets a scan skip it; a held position may
-    ///   hold zero after cancellation;
+    ///   hold is zero, which is what lets a scan skip it, and lets
+    ///   [`clear`](Self::clear) zero only the positions the set holds; a held
+    ///   position may hold zero after cancellation;
     /// - the set holds nothing above `highest_nonzero`;
     /// - while the buffer holds digits, the set holds position zero and
     ///   `highest_nonzero`, so a descent always finds a position to stop at;
     /// - apart from position zero, the set holds nothing below
-    ///   `lowest_written`, which is what lets [`clear`](Self::clear) clear it
-    ///   at the cost of the written span.
+    ///   `lowest_written`, so every position a normalizing read clears from
+    ///   the set lies in the span its pass rewrote, which pays for clearing
+    ///   it.
     ///
     /// Storage left by `clear` holds exactly position zero; storage emptied
     /// by [`discard`](Self::discard) holds nothing. Every set this field holds
@@ -111,13 +113,13 @@ impl Digits {
     /// Activate zeroed storage, retaining any reservation from an earlier use.
     ///
     /// Every retained digit must already be zero. Inactive storage is either
-    /// fresh, and so empty, or left by [`clear`](Self::clear), which zeroes the
-    /// written span; every digit outside that span is already zero. Activation
-    /// reinitializes only the scan metadata, so a stale digit would enter the next
-    /// value. After a clear, `pooled_reuse_after_clear_matches_the_oracle`
-    /// checks the reused accumulator against an oracle, and
-    /// `complete_surface_matches_bigint` checks that the idle buffer holds only
-    /// zeros.
+    /// fresh, and so empty, or left by [`clear`](Self::clear), which zeroes
+    /// every digit the written set holds, and so every nonzero one.
+    /// Activation reinitializes only the scan metadata, so a stale digit would
+    /// enter the next value. After a clear,
+    /// `pooled_reuse_after_clear_matches_the_oracle` checks the reused
+    /// accumulator against an oracle, and `complete_surface_matches_bigint`
+    /// checks that the idle buffer holds only zeros.
     pub fn activate(&mut self) {
         if self.digits.is_empty() {
             self.digits.reserve_exact(1);
@@ -179,9 +181,9 @@ impl Digits {
         // The copy writes every position from that floor to its top, so its
         // set is position zero and that one run, held inline, and takes no
         // bitset sized to the source's. The target's old set is replaced
-        // rather than cleared: clearing costs the target's written span,
-        // which `clone_from`'s bound, the read plus O(Q), does not include.
-        // Position zero goes in first, as the set's `clear` requires.
+        // rather than cleared, so the copy keeps no bitset storage sized to
+        // the target's former width. Position zero goes in first, as the
+        // set's `clear` requires.
         target.written = WrittenPositions::default();
         target.written.insert(0);
         target
@@ -237,28 +239,27 @@ impl Digits {
         self.debug_assert_valid();
     }
 
-    /// Zero the written span and reduce the written set to position zero,
-    /// retaining capacity.
+    /// Zero every digit and reduce the written set to position zero, keeping
+    /// the buffer and the set's storage.
     ///
-    /// Every position outside [`written_floor`](Self::written_floor) through
-    /// `highest_nonzero` is already zero, so clearing covers only that span.
-    /// When cancellation leaves the watermark above `highest_nonzero`, clearing
-    /// covers only position `highest_nonzero`. A clear therefore costs the span
-    /// written since activation, not the position where that span starts.
-    /// The written set's [`clear`](WrittenPositions::clear) costs that span
-    /// too, amortized as its module explains.
+    /// Only the positions the set holds are zeroed: every digit above
+    /// `highest_nonzero` is zero, and so is every digit at or below it that
+    /// the set does not hold, as the field `written` guarantees. Each held
+    /// position was put there by a write, which pays for zeroing it once, so a
+    /// clear costs amortized O(1), however wide the positions it zeroes lie
+    /// apart; the written set's [`clear`](WrittenPositions::clear) explains
+    /// the cost of finding them.
     pub fn clear(&mut self) {
         self.debug_assert_valid();
-        let floor = self.written_floor();
-        for digit in &mut self.digits[floor..=self.highest_nonzero] {
-            touch(1);
-            *digit = 0;
-        }
-        // Every written position but zero lies in the span just zeroed, so
-        // clearing the set costs that span too, not the width its retained
-        // storage covers. The clear leaves position zero written, as the
+        let digits = &mut self.digits;
+        // The set passes every position but zero, which it keeps, as the
         // field requires while the buffer holds digits.
-        self.written.clear(floor, self.highest_nonzero);
+        touch(1);
+        digits[0] = 0;
+        self.written.clear(|position| {
+            touch(1);
+            digits[position] = 0;
+        });
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
         self.debug_assert_valid();
@@ -270,7 +271,7 @@ impl Digits {
     /// that watermark above `highest_nonzero`, so the floor clamps it to the
     /// top. Every digit below the floor is zero, and the floor never exceeds
     /// `highest_nonzero`, so `floor..=highest_nonzero` is the span a scaled
-    /// read, a clear, or a copy must cover.
+    /// read or a copy must cover.
     fn written_floor(&self) -> usize {
         self.lowest_written.min(self.highest_nonzero)
     }

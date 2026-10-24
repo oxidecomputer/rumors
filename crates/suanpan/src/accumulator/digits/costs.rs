@@ -18,7 +18,7 @@
 //! them query the written set.
 //!
 //! Positions are digit positions of 32 bits. The public quantities count bits
-//! (`V`, `W`, `A`, `G`, `R`, `Q`, `S`) or 64-bit limbs (`L`), which differ from
+//! (`V`, `W`, `A`, `G`, `Q`, `S`) or 64-bit limbs (`L`), which differ from
 //! position counts by constant factors. The *top* is `highest_nonzero`. A
 //! *deposit* is one call of [`add_at`](super::Digits::add_at); every update
 //! makes its deposits at ascending positions. The *run*, the *prefix*, and the
@@ -44,13 +44,14 @@
 //! 2. *Held positions* is the number of positions in the written set. Each
 //!    position pays for one later move from the run to the positions below
 //!    it, one move from a prefix into a new bitset, and one visit and removal
-//!    by a descending scan. Each happens at most once per insertion: a
-//!    position below the run never rejoins a run, a set converts its prefix
-//!    once, and a removed position returns only by being written again.
+//!    by a descending scan or by a clear. Each happens at most once per
+//!    insertion: a position below the run never rejoins a run, a set
+//!    converts its prefix once, and a removed position returns only by being
+//!    written again.
 //! 3. *Nonempty words* is the number of nonzero words, at every level, of the
 //!    bitset. It pays for a removal's climb, for the climbs of predecessor
 //!    queries from positions that the scan then removes (see "Bitset climbs"
-//!    below), and for a clear's climb (see "Clears").
+//!    below), and for the words a clear empties (see "Clears").
 //! 4. *Uncovered height* is `max(0, T - C) / 64`, where `T` is the highest
 //!    position written since the written set was created, and `C` is the
 //!    number of positions the bitset's storage covers, zero without a bitset.
@@ -542,29 +543,29 @@
 //!    position zero, which fills one word at each level from 0 to `m - 1`
 //!    and stops at level `m`, at word zero: `m + 1` levels.
 //!
-//! The next round's clear zeroes the span `q..=q + 2`, three positions, and
-//! climbs `m + 1` levels emptying those words again. Each round costs
-//! Θ(`m`), a base-64 logarithm of the width, while each update's `L` + `G`
-//! and the clear's `R` stay constant. So those updates need the limb row's
+//! The next round's clear zeroes the held positions `q` and `q + 2` and
+//! examines `m + 1` levels, emptying those words again, which the limb that
+//! filled them paid for. Each round costs Θ(`m`), a base-64 logarithm of
+//! the width, while each update's `L` + `G` stays constant. So those updates need the limb row's
 //! log(`W` + 1), and a stretch that began at a clear would promise too
 //! little. `clear_cycle_climbs_a_level_per_base_64_digit_each_round` in the
 //! tests measures `m + 1` levels per round at each `m` it draws.
 //!
 //! # Clears
 //!
-//! A read and a clear each *clear* the written set over a span that holds
-//! every position but zero, reducing the set to position zero, held by the
-//! run `0..1` and, in the bitset form, by the bitset too. In the prefix form
-//! a clear costs O(1). In the bitset form, which holds zero by the first
-//! fact, it costs O(`1 + s / 64`) word operations at level 0 for a span of
-//! `s` positions, and at each level `k` above, O(1) plus the span's words
-//! there, at most `s / 64^(k + 1) + 2`. The clear reaches level `k + 1` only
-//! after emptying a word other than word zero at level `k`, which lowers the
-//! nonempty-words term by one and pays for the level's O(1) and its two edge
-//! words. The rest of the spans above level 0 total at most the sum of
-//! `s / 64^(k + 1)` over `k >= 1`, which is `s / 4032` words, so a clear
-//! costs amortized O(`1 + s / 64`). It raises no term: word zero
-//! was already nonempty at every level, and the set only shrinks.
+//! A read and a clear each *clear* the written set: they reduce it to
+//! position zero, held by the run `0..1` and, in the bitset form, by the
+//! bitset too, and the set passes every other position it held to its
+//! caller. The run and the prefix are ranges, so the set passes their
+//! positions one step each. The bitset passes its positions by a walk upward
+//! from level 0 that empties each nonempty word below the level it reaches,
+//! enters no empty word, and climbs past a level only while a position
+//! remains above that level's word zero, a position whose word at that level
+//! the walk later empties. Its module states the cost: O(1), plus one word
+//! operation per word it empties and per position it passes. Each passed
+//! position spends its held-positions unit, and each emptied word its
+//! nonempty-words unit, so a clear costs amortized O(1). It raises no term:
+//! word zero was already nonempty at every level, and the set only shrinks.
 //!
 //! The words a clear empties were paid for when they turned nonempty. An
 //! insertion that fills a word pays the nonempty-words term for it. Growth
@@ -587,21 +588,22 @@
 //! top, so the pass covers at most a constant more positions than the result
 //! has, which is O(`Q`). The pass leaves every digit below `B`, raising the
 //! carry potential by at most 1/2 per position. It then clears the written
-//! set over the pass's span, amortized O(`1 + Q / 64`) by "Clears", and
-//! inserts one run from the lowest written position to the new top, which
-//! costs O(1) by the same section. It leaves O(`Q`) held positions, raises
+//! set, whose positions other than zero all lie in the pass's span, so that
+//! clear passes O(`Q`) positions, and inserts one run from the lowest
+//! written position to the new top, which costs O(1) by the same section. It leaves O(`Q`) held positions, raises
 //! the uncovered height by at most one position, and raises no other term.
 //! "Comparisons" never charges it. A read therefore costs amortized
 //! O(1 + `Q`), including its comparison's amortized O(1).
 //!
 //! # Clear
 //!
-//! Clear zeroes the digits from the written floor through the top, which
-//! takes O(`R`), and clears the written set over that span, amortized
-//! O(`1 + R / 64`) by "Clears". It raises no term, so it costs amortized
-//! O(`R`). A single clear can still take O(`R` + log(`W` + 1)) when its clear
-//! climbs every level, work that the insertions that filled those levels'
-//! words paid for.
+//! An accumulator's clear zeroes digit zero and each position the written
+//! set passes as it clears. That zeroes every digit: the set holds every
+//! nonzero digit at or below the top, and every digit above the top is zero.
+//! Each zeroing is paid by the position's held-positions unit, which the
+//! set's clear spends, so the accumulator's clear costs amortized O(1). One
+//! call can take time proportional to the positions and nonempty words it
+//! finds, at most O(1 + `W`), work the writes that made them paid for.
 //!
 //! # Other operations
 //!

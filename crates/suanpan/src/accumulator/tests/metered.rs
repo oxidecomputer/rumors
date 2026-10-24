@@ -10,6 +10,9 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 
+use proptest::prelude::*;
+
+use super::representation::{apply_stream_step, run_forming_stream};
 use super::{
     assert_value, cancelled_top, fresh, from_limbs, read_value, Accumulator, TestBig as _,
 };
@@ -23,13 +26,13 @@ fn scaled_reading(acc: &Accumulator) -> (Ordering, UBig, u64) {
     (sign, from_limbs(limbs.as_ref()), shift)
 }
 
-/// A scaled read and a clear skip an untouched low prefix; an unscaled read
-/// visits it.
+/// A scaled read skips an untouched low prefix, and a clear touches only the
+/// written positions; an unscaled read visits the prefix.
 ///
 /// A two-limb value at bit 32,000 takes at most sixteen scaled-read touches
 /// but more than a thousand unscaled-read touches. Both reconstruct the same
-/// integer. The clear then also takes at most sixteen touches, and clears the
-/// value and its remembered scale.
+/// integer. The clear then also takes at most sixteen touches, and leaves
+/// zero at scale zero.
 #[test]
 fn scaled_read_costs_the_written_span() {
     let mut acc = Accumulator::new();
@@ -64,8 +67,8 @@ fn scaled_read_costs_the_written_span() {
     let cleared = touch_meter::touches();
     assert!(
         cleared <= 16,
-        "the clear touched {cleared} digits: the write watermark is not \
-         skipping the never-written prefix"
+        "the clear touched {cleared} digits: it is not limited to the \
+         written positions"
     );
     assert!(acc.is_known_zero());
     let (sign, magnitude, shift) = scaled_reading(&acc);
@@ -391,8 +394,9 @@ fn merge_tie_reads_the_operand() {
 ///
 /// With `d` held digits:
 /// - unary `-` touches each digit once: `d`;
-/// - `clear` after `<<= 32` touches each written digit once: `d`, because
-///   the shift moved the span up one position and left digit zero unwritten;
+/// - `clear` after `<<= 32` touches each written position once: the `d`
+///   positions the shift wrote, and position zero, which every written set
+///   holds: `d + 1`;
 /// - `<<=` reads the top digit to rule out zero, normalizes the held digits
 ///   in one pass, then reads and re-deposits each digit: `3d + 1`. The top
 ///   digit, `2^32 - 1`, settles the zero check alone, and the total is the
@@ -457,9 +461,9 @@ fn held_width_rows_cost_the_held_digits() {
         acc.clear();
         assert_eq!(
             touch_meter::touches(),
-            held_digits,
-            "clear at {held_digits} held digits: one touch per written digit \
-             (the shift left digit zero unwritten)"
+            held_digits + 1,
+            "clear at {held_digits} held digits: one touch per written position, \
+             position zero included"
         );
         assert!(acc.is_known_zero());
     }
@@ -1049,5 +1053,29 @@ fn abs_diff_negates_within_the_result_width() {
                 &((IBig::from(1) << usize::try_from(32 * position).unwrap()) + &narrow_value),
             );
         }
+    }
+}
+
+proptest! {
+    /// A clear touches each position the written set holds once, and no
+    /// other digit, whatever span those positions cover and however a stream
+    /// of updates and comparisons left them.
+    #[test]
+    fn clear_touches_each_written_position_once(ops in run_forming_stream()) {
+        let mut acc = fresh(true);
+        let mut oracle = IBig::from(0);
+        for (step, op) in ops.iter().enumerate() {
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
+        }
+        let held = acc.stored().digits.written_positions().len();
+        touch_meter::reset();
+        acc.clear();
+        prop_assert_eq!(
+            touch_meter::touches(),
+            u64::try_from(held).unwrap(),
+            "a clear of {} written positions",
+            held
+        );
+        prop_assert!(acc.is_known_zero());
     }
 }
