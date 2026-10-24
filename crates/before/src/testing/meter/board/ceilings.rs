@@ -16,8 +16,7 @@
 //! The rule inverts the judge's test. The board finds a sample within a
 //! ceiling `C` when the sample's reading is at most the ceiling's intercept
 //! plus `C` times the sample's denominator. The intercept is
-//! [`HEAP_INTERCEPT_BYTES`] for heap ceilings and zero for scan and touch
-//! ceilings. The denominator is the quantity the ceiling is stated per, which
+//! [`HEAP_INTERCEPT_BYTES`] for heap ceilings. The denominator is the quantity the ceiling is stated per, which
 //! its doc names; a fixed bound's denominator is one. Each sample therefore
 //! admits every `C` of at least `(reading - intercept) / denominator`. The
 //! rule takes the largest such value over every sample the release-profile
@@ -104,45 +103,8 @@ pub const FUEL_TREND_RESOLUTION: u64 = 1_000;
 /// sizes dominate them, but the affine bound must still hold.
 pub const SMALL_INPUT_SCALE: f64 = 0.01;
 
-/// Green requires at most this many bits scanned per denominator
-/// byte (asserted only when the `scan-meter` feature is lit).
-///
-/// One complete walk reads about eight bits per input byte. The higher limit
-/// admits operations that make several bounded passes while rejecting repeated
-/// scans whose count grows with the input.
-pub const MAX_SCAN_BITS_PER_INPUT_BYTE: f64 = 90.0;
-
-/// Green requires at most this many accumulator digit touches per denominator
-/// byte (asserted only when the `touch-meter` feature is lit).
-///
-/// Validation, comparison, emission, and query folds normally touch a small
-/// number of digits per input delta. Balanced reductions may revisit digits
-/// at each reduction level, so their rows use level-adjusted units while
-/// retaining this proportional limit. Crossing it requires rechecking the
-/// implementation and the limit against the board's worst-case map.
-pub const MAX_TOUCHES_PER_INPUT_BYTE: f64 = 24.0;
-
-/// Scan liveness floor: an operation that must examine its operands scans at
-/// least this many bits per input byte.
-///
-/// The floor is well below a complete walk's eight bits per byte, but
-/// above the zero reading produced by a disconnected counter.
-pub const SCAN_FLOOR_BITS_PER_INPUT_BYTE: f64 = 1.0;
-
-/// Scan liveness floor for legitimate early-exit operations: even an immediate
-/// divergence answer reads the operands' root codes.
-pub const SCAN_TOUCH_FLOOR_BITS: u64 = 2;
-
-/// Scan liveness floor for the tick-cross rows: all 8 bits of every input byte.
-///
-/// The paired tick walk examines every topology bit and payload code of both
-/// operands at least once. `WHY_SCAN_TICK_WALK` explains this floor in board
-/// output.
-pub(super) const TICK_WALK_SCAN_FLOOR_BITS_PER_BYTE: u64 = 8;
-
-/// Magnitudes at most this wide may legitimately be handled in machine words;
-/// wider values enter the accumulator word by word, so touch floors bind only
-/// on them.
+/// Magnitudes at most this wide may legitimately be held in machine words, so
+/// a result this narrow may use inline storage and has no heap floor.
 pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 
 /// The fixed count the `version_ticks` cell registers per measurement.
@@ -161,11 +123,6 @@ pub const TICKS_BOARD_COUNT: u64 = 512;
 /// Below this threshold the board omits the exponent and still applies its
 /// proportional limits and liveness floors.
 pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
-
-/// Maximum scan bits per input byte and balanced-reduction level.
-///
-/// For `k` operands, the board allows this coefficient times `log2(2k)`.
-pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 16.0;
 
 /// Heap ceiling for materializing the output-dominated comb-scatter
 /// projection, in bytes per total-I/O byte.

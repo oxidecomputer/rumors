@@ -95,14 +95,13 @@ touch-meter = ["meter", "suanpan/touch-meter"]
 # assert it.
 scan-meter = ["meter"]
 
-# The board example judges scan and touch work against pinned floors and
-# ceilings; built without the counter features those columns
-# read `off` and every one of their verdicts silently renders green.
-# Requiring the features makes the unfeatured invocation a loud cargo
-# error instead of a board that looks judged and isn't.
+# The board example's deserialization rows compile only under `serde` and
+# `borsh`; built without them the board would omit those rows while still
+# rendering verdicts. Requiring the features makes the unfeatured invocation
+# a loud cargo error instead of a board that looks complete and isn't.
 [[example]]
 name = "amp_board"
-required-features = ["touch-meter", "scan-meter", "serde", "borsh"]
+required-features = ["serde", "borsh"]
 
 [[bench]]
 name = "party"

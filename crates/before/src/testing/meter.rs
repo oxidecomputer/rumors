@@ -1320,8 +1320,8 @@ fn memo_comb_id(d: usize) -> Encoding {
 /// memo differences are all zero (and therefore unstored), while only the first
 /// site's deferred difference from the covering minimum carries the width — paid
 /// once, independent of `k`. A recording discipline that anchors each site to
-/// the covering floor instead materializes `k` wide records; the pinned
-/// absolute touch ceiling is what such a fan-out blows. Normal form: leaf pairs
+/// the covering floor instead materializes `k` wide records, work that grows
+/// with `k` at a fixed width. Normal form: leaf pairs
 /// `(2^b − 2, 2^b − 1)`, every subtree minimum 0 via the zero terminal under
 /// the root.
 ///
@@ -1356,8 +1356,8 @@ fn memo_fanout(k: usize, b: usize) -> Encoding {
 /// for even. Crossed with [`memo_chain_id`], every sibling memo difference is wide
 /// — but each site's range leaf codes the same width in the input, so the links
 /// are funded one-for-one by the oscillation the input already paid for: the
-/// control for the funding argument (flat touches per input byte, unlike the
-/// fan-out, whose input pays its width once). Normal form: as [`memo_chain`]'s.
+/// control for the funding argument (flat digit work per input byte, unlike
+/// the fan-out, whose input pays its width once). Normal form: as [`memo_chain`]'s.
 ///
 /// # Panics
 ///
@@ -2298,9 +2298,9 @@ fn weight_comb(n: usize) -> Encoding {
 /// `Θ(k)` digits above digit 0 (the blocks are shallow; the deep spine only
 /// sets the scale). The write watermark is what lets each scaled read start at
 /// the written span; a read that starts at digit 0 walks the `Θ(k)`-digit
-/// never-written prefix per freeze — `Θ(k²)` touches on linear input, the
-/// zero-padded magnitudes with it. The meter suite's rank bands over this
-/// family measure its touches and allocation. The block is
+/// never-written prefix per freeze — `Θ(k²)` digit operations on linear
+/// input, the zero-padded magnitudes with it. The board's rank cells over
+/// this family measure its time and allocation. The block is
 /// min-lifted over a strictly descending run, every
 /// node's minimum its last leaf, so right children code base 0 and left
 /// children the difference of the halves' minima; `min_ticks(FZ(k))` is the
@@ -2937,13 +2937,12 @@ fn dominated_undercut_id(k: usize) -> Encoding {
 ///
 /// The smallest magnitude that is three base-2^32 digits wide with its top
 /// digit at the sign fold's decision bound (a top digit of 5 decides a
-/// domination read at its first touch).
+/// domination read at the first digit it reads).
 ///
 /// Every stacked boundary and every dying residue the seam shapes create holds
 /// exactly this width: wide enough that the compact boundary representation cannot
 /// store it inline (`u64` covers two digits), narrow enough that the dying
-/// side's one fold is three digit touches — the unit the seam bands' floors
-/// count in.
+/// side's one fold reads three digits.
 fn seam_rung() -> BigUint {
     pow2(66) + pow2(64)
 }
@@ -2954,8 +2953,7 @@ fn seam_rung() -> BigUint {
 /// The top digit of 5 makes every domination read a closed form: the sign
 /// fold's running partial reaches the decision bound (magnitude 3) at the top
 /// digit itself, so `cmp_zero_stable_under` decides, or returns `None`, based on
-/// the digit-index clearance alone, with no descent, in one digit touch
-/// (suanpan's witness `decision_bound_top_decides_on_the_first_touch`).
+/// the digit-index clearance alone, with no descent, reading one digit.
 fn seam_wide(w: usize) -> BigUint {
     pow2(32 * (w - 1) + 2) + pow2(32 * (w - 1))
 }
@@ -3638,8 +3636,8 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
 /// deltas — and the zero-check `sign(h_plateau)` on unowned intervals. An
 /// integrator that materializes either read pays `Θ(k)` word operations per 3-bit
 /// code; the balanced signed-digit accumulator answers both in amortized O(1)
-/// touches (the board measures the correlated triple, while the focused suite
-/// checks the independent-width axis). The verdict is `Less` — the projected comb sits under the plateau
+/// digit operations (the board measures the correlated triple, while the
+/// focused suite checks the independent-width axis). The verdict is `Less` — the projected comb sits under the plateau
 /// everywhere and strictly under it outside the mask — so the walk never exits
 /// early and the measurement prices the whole overlay.
 ///
@@ -3766,8 +3764,8 @@ fn scattered_id_offset(e: usize) -> Encoding {
 /// function of `h` alone, however deep the spine grows. The plateau
 /// strictly dominates every spine height, so the projected verdict is
 /// `Less` at every elementary interval and the walk never exits early. The
-/// board measures this correlated triple under a fixed touch ceiling across a
-/// spine-depth ladder — the bound a per-boundary walk cannot satisfy.
+/// board measures this correlated triple across a spine-depth ladder, where
+/// a per-boundary walk would grow with the depth.
 ///
 /// # Panics
 ///

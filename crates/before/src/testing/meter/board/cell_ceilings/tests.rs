@@ -32,8 +32,6 @@ fn heap_sample(denom: usize, heap: u64) -> Sample {
         models: ByCurrency::from_fn(|_| None),
         readings: ByCurrency {
             heap: Some(heap),
-            scan: None,
-            touch: None,
             fuel: None,
         },
     }

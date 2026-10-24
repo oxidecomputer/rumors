@@ -890,15 +890,14 @@ bench target *filter:
 bench-quick target *filter:
     cargo bench --workspace {{ tool_members }} --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
-# Each board cell judges deterministic work counters (touches, scans, heap)
-# against its declared bounds: green means the samples fit, red is a resource
-# regression to investigate. The board
-# reads no clock, so its output is byte-identical under any machine load.
+# Each board cell judges a deterministic counter, peak heap, against its
+# declared bounds: green means the samples fit, red is a resource regression
+# to investigate. The board reads no clock, so its output is byte-identical
+# under any machine load.
 #
 # The board runs at the release profile, the profile of record: debug
-# assertions perform metered work through probe cursors, so a dev board
-# measures algorithm plus verification scaffolding while release measures the
-# production work alone. A dev run (`cargo run -p before --example amp_board ...`) remains
+# assertions run verification scaffolding, so a dev board measures algorithm
+# plus that scaffolding while release measures the production work alone. A dev run (`cargo run -p before --example amp_board ...`) remains
 # a legitimate debugging view; its numbers must never be pinned anywhere.
 #
 # Every mode that sweeps (all but `compare`, which reads two captures)
@@ -907,8 +906,7 @@ bench-quick target *filter:
 # each process and the runner spawns children that split the operation x
 # family cell grid instead, merging the measured samples back in board
 # order. Every judged quantity is a deterministic counter read from a
-# per-process allocator or a per-process global, so a reading is a
-# function of its cell alone: neither machine load nor the shard layout
+# per-process allocator, so a reading is a function of its cell alone: neither machine load nor the shard layout
 # that measured it can move one. AMP_BOARD_SHARDS overrides the count.
 #
 # A bare run (any single scale) is a debugging view whose verdicts never
@@ -920,7 +918,7 @@ bench-quick target *filter:
 
 # One command serves every board recipe, keeping the production profile part
 # of the instrument rather than a convention each entry point must repeat.
-amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter,serde,borsh"
+amp_board_command := "cargo run --release -p before --example amp_board --features serde,borsh"
 
 # A board capture names the source tree it measured, so a calibration can
 # refuse to merge readings of another tree. This command prints that name:
@@ -990,12 +988,10 @@ amp-board-acceptance *args:
 # The fuel board runs every board cell inside a wasm32 guest under Wasmtime
 # fuel metering and judges fuel, a count of every wasm instruction the cell
 # body executes, by the board's own acceptance rules: the exponent bound,
-# declared models, and a ceiling calibrated per cell. It exists because heap,
-# scan, and touch count only the work that passes through their probes:
-# element moves inside a `Vec`, arithmetic inside `num-bigint`, and buffer
-# fills cost time that none of them sees, and a regression there is red
-# here. The native board above stays the measure of record for heap, scan,
-# and touch.
+# declared models, and a ceiling calibrated per cell. It is the board's
+# measure of execution time, element moves inside a `Vec`, arithmetic inside
+# `num-bigint`, and buffer fills included. The native board above stays the
+# measure of record for heap.
 #
 # Fuel is deterministic for a given guest build and cost table, so the
 # verdict is unaffected by machine load and by the worker count

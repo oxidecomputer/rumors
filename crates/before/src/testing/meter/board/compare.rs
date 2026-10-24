@@ -30,9 +30,8 @@
 //! operation  family  currency  scale  sample  axis  reading
 //! ```
 //!
-//! - `currency` is `heap`, `scan`, `touch`, or `fuel`. A capture holds rows for
-//!   the currencies its run measured: heap, scan, and touch from the native
-//!   board, fuel from the fuel board.
+//! - `currency` is `heap` or `fuel`. A capture holds rows for the currencies
+//!   its run measured: heap from the native board, fuel from the fuel board.
 //! - `scale` labels the sampling, as [`Sampling`](super::Sampling) renders it,
 //!   and `sample` is `1` for its size or `2` for that size's double. Each cell
 //!   and currency has one pair of lines per sampling, in ladder order: the
@@ -195,7 +194,7 @@ pub fn source_tree() -> io::Result<String> {
 ///
 /// Built from a [`ByCurrency`] so that adding a currency cannot leave the
 /// capture's parser unable to read it.
-fn currencies() -> [Currency; 4] {
+fn currencies() -> [Currency; 2] {
     ByCurrency::from_fn(|_| ())
         .each()
         .map(|(currency, _)| currency)

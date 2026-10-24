@@ -48,32 +48,22 @@ fn green_cap(denom: usize) -> u64 {
     (heap_ceiling(denom) as u64).min(HEAP_TREND_RESOLUTION_BYTES as u64)
 }
 
-/// A sample of `denom` input bytes reading `heap` heap bytes and no scan or
-/// touch work, with no liveness obligation.
-///
-/// Every currency reads a value, as the ranking pin requires of a run with
-/// every counter compiled in; scan and touch read zero, so no family drives
-/// them and their pinned worst set is `-`.
+/// A sample of `denom` input bytes reading `heap` heap bytes, with no
+/// liveness obligation.
 fn sample(denom: usize, heap: u64) -> Sample {
     Sample {
         denom_bytes: denom,
         exp_denom_bytes: denom,
         floors: ByCurrency {
             heap: na("no liveness obligation in this probe"),
-            scan: na("no liveness obligation in this probe"),
-            touch: na("no liveness obligation in this probe"),
             fuel: na("no liveness obligation in this probe"),
         },
         models: ByCurrency {
             heap: None,
-            scan: None,
-            touch: None,
             fuel: None,
         },
         readings: ByCurrency {
             heap: Some(heap),
-            scan: Some(0),
-            touch: Some(0),
             fuel: None,
         },
     }
@@ -132,20 +122,14 @@ fn uncalibrated_build() -> BuildStamp {
 }
 
 /// The ranking pin [`ladder`] satisfies.
-const PINS: &[(&str, &str, [&str; 3])] = &[
-    ("default", OP, ["alpha", "-", "-"]),
-    ("acceptance", OP, ["beta", "-", "-"]),
-];
+const PINS: &[(&str, &str, [&str; 1])] =
+    &[("default", OP, ["alpha"]), ("acceptance", OP, ["beta"])];
 
 /// Judges `ladder` against `pins`, returning the verdict and the rendered text.
-fn judge(ladder: &Ladder, pins: &[(&str, &str, [&str; 3])]) -> (Verdict, String) {
+fn judge(ladder: &Ladder, pins: &[(&str, &str, [&str; 1])]) -> (Verdict, String) {
     let mut out = Vec::new();
     let verdict = ladder
-        .judge_with(
-            &[Currency::Heap, Currency::Scan, Currency::Touch],
-            pins,
-            &mut out,
-        )
+        .judge_with(&[Currency::Heap], pins, &mut out)
         .expect("writing to a Vec succeeds");
     (
         verdict,
@@ -169,10 +153,7 @@ fn ranking_pin_reads_each_growth_sweep_at_its_own_scale() {
         "the clean pin reports itself:\n{text}"
     );
 
-    let swapped = [
-        ("default", OP, ["beta", "-", "-"]),
-        ("acceptance", OP, ["alpha", "-", "-"]),
-    ];
+    let swapped = [("default", OP, ["beta"]), ("acceptance", OP, ["alpha"])];
     let (verdict, text) = judge(&ladder(), &swapped);
     assert_eq!(verdict.summary.red, 0, "the readings are still green");
     assert!(

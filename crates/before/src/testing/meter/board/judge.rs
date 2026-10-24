@@ -3,13 +3,12 @@
 //! floors, per currency.
 //!
 //! A currency the run did not measure reads `None` in every sample and is
-//! skipped by every check, so one judgment serves the native board (heap,
-//! scan, and touch) and the fuel board (fuel alone).
+//! skipped by every check, so one judgment serves the native board (heap) and
+//! the fuel board (fuel).
 
 use super::ceilings::{
     FUEL_INTERCEPT, FUEL_TREND_RESOLUTION, HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES,
-    MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MAX_SCAN_BITS_PER_INPUT_BYTE,
-    MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
+    MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT, MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::cell_ceilings::Calibration;
 use super::currency::{ByCurrency, Currency, Liveness};
@@ -44,12 +43,6 @@ pub(super) fn trend(points: &[(u64, u64)]) -> f64 {
 /// mechanism.
 pub(super) const HEAP_FLOOR_TRIP: &str =
     "heap floor: counter reads below floor: the meter is not watching this work";
-/// The scan column's floor-trip message.
-pub(super) const SCAN_FLOOR_TRIP: &str =
-    "scan floor: counter reads below floor: the meter is not watching this work";
-/// The touch column's floor-trip message.
-pub(super) const TOUCH_FLOOR_TRIP: &str =
-    "touch floor: counter reads below floor: the meter is not watching this work";
 /// The fuel column's floor-trip message.
 pub(super) const FUEL_FLOOR_TRIP: &str =
     "fuel floor: counter reads below floor: the meter is not watching this work";
@@ -75,26 +68,23 @@ struct Fit {
 }
 
 /// The reading below which `currency`'s growth fit does not resolve growth:
-/// readings below it are clamped to it for the fit alone, or `None` where
-/// every reading enters the fit unchanged.
-pub(super) fn trend_resolution(currency: Currency) -> Option<u64> {
+/// readings below it are clamped to it for the fit alone.
+pub(super) fn trend_resolution(currency: Currency) -> u64 {
     match currency {
-        Currency::Heap => Some(HEAP_TREND_RESOLUTION_BYTES as u64),
-        Currency::Fuel => Some(FUEL_TREND_RESOLUTION),
-        Currency::Scan | Currency::Touch => None,
+        Currency::Heap => HEAP_TREND_RESOLUTION_BYTES as u64,
+        Currency::Fuel => FUEL_TREND_RESOLUTION,
     }
 }
 
 /// Fit a scaling trend where the denominator spans enough sizes to distinguish
-/// growth. Heap and fuel use their declared resolutions; other readings are
-/// unchanged.
+/// growth, with readings clamped to the currency's declared resolution.
 fn fit_currency(c: Currency, samples: &[&Sample]) -> Fit {
     let points: Option<Vec<(u64, u64)>> = samples
         .iter()
         .map(|s| {
             s.readings.get(c).map(|m| {
                 let units = trend_units(s, c);
-                let reading = trend_resolution(c).map_or(m, |resolution| m.max(resolution));
+                let reading = m.max(trend_resolution(c));
                 (units, reading)
             })
         })
@@ -178,8 +168,6 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
 pub(super) fn board_ceiling(currency: Currency) -> Option<f64> {
     match currency {
         Currency::Heap => Some(MAX_HEAP_BYTES_PER_INPUT_BYTE),
-        Currency::Scan => Some(MAX_SCAN_BITS_PER_INPUT_BYTE),
-        Currency::Touch => Some(MAX_TOUCHES_PER_INPUT_BYTE),
         Currency::Fuel => None,
     }
 }
@@ -190,7 +178,6 @@ pub(super) fn currency_intercept(currency: Currency) -> f64 {
     match currency {
         Currency::Heap => HEAP_INTERCEPT_BYTES as f64,
         Currency::Fuel => FUEL_INTERCEPT as f64,
-        Currency::Scan | Currency::Touch => 0.0,
     }
 }
 
@@ -278,18 +265,6 @@ fn judge_window(
                 "heap cell constant",
                 "heap cell uncalibrated",
             ],
-            Currency::Scan => [
-                "scan exponent",
-                "scan constant",
-                "scan cell constant",
-                "scan cell uncalibrated",
-            ],
-            Currency::Touch => [
-                "touch exponent",
-                "touch constant",
-                "touch cell constant",
-                "touch cell uncalibrated",
-            ],
             Currency::Fuel => [
                 "fuel exponent",
                 "fuel constant",
@@ -344,8 +319,6 @@ fn judge_window(
     for (c, _) in scores.each() {
         let trip = match c {
             Currency::Heap => HEAP_FLOOR_TRIP,
-            Currency::Scan => SCAN_FLOOR_TRIP,
-            Currency::Touch => TOUCH_FLOOR_TRIP,
             Currency::Fuel => FUEL_FLOOR_TRIP,
         };
         if [&s1, &s2].iter().any(|s| {

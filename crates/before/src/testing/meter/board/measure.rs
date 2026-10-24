@@ -1,9 +1,6 @@
 //! The measurement engine: run one prepared cell under every meter and capture
 //! its counter readings and settled denominators as a [`Sample`].
 
-#[cfg(feature = "scan-meter")]
-use crate::testing::meter;
-
 use super::cell::{Cell, Denom, ModelSpec, Units};
 use super::currency::{ByCurrency, Liveness};
 
@@ -63,10 +60,9 @@ pub struct FuelMeter {
 
 /// The meters a runner supplies to the board.
 ///
-/// Scan and touch are compiled in by the `scan-meter` and `touch-meter`
-/// features; heap and fuel are read through state only the running binary
-/// owns. A currency whose meter is absent reads `None` in every sample, and
-/// the board neither judges nor renders it.
+/// Heap and fuel are read through state only the running binary owns. A
+/// currency whose meter is absent reads `None` in every sample, and the
+/// board neither judges nor renders it.
 pub struct Meters {
     /// The peak-heap meter, or `None` where the runner counts no allocations.
     pub heap: Option<HeapMeter>,
@@ -109,8 +105,8 @@ pub(super) struct Sample {
     /// Resource models that differ from the global linear defaults.
     pub(super) models: ByCurrency<Option<Model>>,
     /// Every currency's counter reading over the body; `None` where the
-    /// runner supplies no meter for it (a feature-gated counter not compiled
-    /// in, or an absent [`Meters`] field), which exempts it from judgment.
+    /// runner supplies no meter for it (an absent [`Meters`] field), which
+    /// exempts it from judgment.
     pub(super) readings: ByCurrency<Option<u64>>,
 }
 
@@ -122,11 +118,9 @@ pub(super) struct Sample {
 /// well as scratch; releasing an input during the operation can reduce the
 /// extra live heap relative to its level at the reset.
 ///
-/// Fuel is read last before the body and first after it, so the other meters'
+/// Fuel is read last before the body and first after it, so the heap meter's
 /// own work stays out of the fuel reading.
 pub(super) fn measure(meters: &Meters, mut cell: Cell, content: Option<usize>) -> Sample {
-    reset_scan();
-    reset_touch();
     if let Some(heap) = &meters.heap {
         (heap.reset_peak)();
     }
@@ -140,8 +134,6 @@ pub(super) fn measure(meters: &Meters, mut cell: Cell, content: Option<usize>) -
         });
         let readings = ByCurrency {
             heap: meters.heap.as_ref().map(|heap| (heap.peak)() as u64),
-            scan: read_scan(),
-            touch: read_touch(),
             fuel,
         };
         let (denom_bytes, exp_denom_bytes) = match &cell.denom {
@@ -198,48 +190,4 @@ pub(super) fn measure(meters: &Meters, mut cell: Cell, content: Option<usize>) -
         models,
         readings,
     }
-}
-
-/// Reset the touch counter when the `touch-meter` feature carries one.
-#[cfg(feature = "touch-meter")]
-fn reset_touch() {
-    suanpan::touch_meter::reset();
-}
-
-/// Without the `touch-meter` feature there is no touch counter to reset.
-#[cfg(not(feature = "touch-meter"))]
-fn reset_touch() {}
-
-/// Read the touch counter, or `None` without the `touch-meter` feature.
-#[cfg(feature = "touch-meter")]
-fn read_touch() -> Option<u64> {
-    Some(suanpan::touch_meter::touches())
-}
-
-/// Without the `touch-meter` feature the touch column is absent.
-#[cfg(not(feature = "touch-meter"))]
-fn read_touch() -> Option<u64> {
-    None
-}
-
-/// Reset the scan counter when the `scan-meter` feature carries one.
-#[cfg(feature = "scan-meter")]
-fn reset_scan() {
-    meter::reset_scan_bits();
-}
-
-/// Without the `scan-meter` feature there is no counter to reset.
-#[cfg(not(feature = "scan-meter"))]
-fn reset_scan() {}
-
-/// Read the scan counter, or `None` without the `scan-meter` feature.
-#[cfg(feature = "scan-meter")]
-fn read_scan() -> Option<u64> {
-    Some(meter::scan_bits())
-}
-
-/// Without the `scan-meter` feature the scan column is absent.
-#[cfg(not(feature = "scan-meter"))]
-fn read_scan() -> Option<u64> {
-    None
 }

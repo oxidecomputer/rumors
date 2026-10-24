@@ -5,14 +5,9 @@
 //! release-profile board run consumed by the gate.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Mutex, MutexGuard};
 
 use before::testing::meter::board::{self, HeapMeter, Meters, Sampling, BOARD_PRICED};
 use before::testing::meter::registry::FamilyId;
-
-/// Serializes in-process board sweeps, whose scan and touch counters are
-/// process-global.
-static MEASUREMENT: Mutex<()> = Mutex::new(());
 
 /// A fraction of the board's default sizes, small enough that the smoke run
 /// stays well under a second.
@@ -32,14 +27,6 @@ fn native_meters() -> Meters {
         }),
         fuel: None,
     }
-}
-
-/// Hold exclusive access to the process-global scan and touch counters for
-/// one smoke test.
-fn measurement_guard() -> MutexGuard<'static, ()> {
-    MEASUREMENT
-        .lock()
-        .expect("no smoke test panics while holding the measurement lock")
 }
 
 /// A shard spawner that measures every slice in this process instead of
@@ -68,7 +55,6 @@ fn in_process_spawn(
 /// boxing the result would make these otherwise allocation-free rows nonzero.
 #[test]
 fn retaining_results_does_not_allocate_measured_heap() {
-    let _guard = measurement_guard();
     let captures = in_process_spawn(1, &native_meters())(Sampling::Scaled(SMOKE_SCALE))
         .expect("the in-process sweep succeeds");
     let text = std::str::from_utf8(&captures[0]).expect("the shard protocol is UTF-8");
@@ -120,7 +106,6 @@ fn expected_cells_per_family() -> BTreeMap<&'static str, usize> {
 /// a dashboard, not a gate.
 #[test]
 fn board_runs_to_completion() {
-    let _guard = measurement_guard();
     let meters = native_meters();
     let spawn = in_process_spawn(1, &meters);
     let mut rendered = Vec::new();
@@ -172,7 +157,6 @@ fn board_runs_to_completion() {
 /// reconstruction cannot pass by coincidence of an even split.
 #[test]
 fn shard_protocol_round_trips() {
-    let _guard = measurement_guard();
     let meters = native_meters();
     let mut whole = Vec::new();
     board::run(SMOKE_SCALE, 1, &in_process_spawn(1, &meters), &mut whole)
@@ -211,8 +195,7 @@ fn shard_protocol_round_trips() {
 
 /// The worst-case map folds totally over the board's sweep at any scale:
 /// every operation row renders exactly one line per mapped currency
-/// (heap, scan, touch), so a row can neither drop out of the map
-/// nor render twice.
+/// (heap), so a row can neither drop out of the map nor render twice.
 ///
 /// Rankings are deliberately not asserted: they are scale- and
 /// profile-dependent readings, and the map of record is the
@@ -220,7 +203,6 @@ fn shard_protocol_round_trips() {
 /// board's verdict of record (`just amp-board-acceptance`).
 #[test]
 fn worst_map_covers_every_operation_row() {
-    let _guard = measurement_guard();
     let meters = native_meters();
     let spawn = in_process_spawn(1, &meters);
     let mut rendered = Vec::new();
@@ -234,7 +216,7 @@ fn worst_map_covers_every_operation_row() {
         else {
             continue;
         };
-        if marker != "worst" || !matches!(currency, "heap" | "scan" | "touch") {
+        if marker != "worst" || currency != "heap" {
             continue;
         }
         *per_op.entry(op).or_default() += 1;
@@ -250,7 +232,7 @@ fn worst_map_covers_every_operation_row() {
         "the map must carry every operation row exactly once"
     );
     assert!(
-        per_op.values().all(|&rows| rows == 3),
+        per_op.values().all(|&rows| rows == 1),
         "every operation renders one row per mapped currency: {per_op:?}"
     );
 }
@@ -272,7 +254,6 @@ fn worst_map_covers_every_operation_row() {
 /// its own scale.
 #[test]
 fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
-    let _guard = measurement_guard();
     let meters = native_meters();
     let captures = in_process_spawn(1, &meters)(Sampling::Scaled(SMOKE_SCALE))
         .expect("in-process capture succeeds");

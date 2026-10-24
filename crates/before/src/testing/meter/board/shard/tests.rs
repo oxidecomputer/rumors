@@ -20,8 +20,6 @@ fn fuel_sample(fuel: u64) -> Sample {
         models: ByCurrency::from_fn(|_| None),
         readings: ByCurrency {
             heap: None,
-            scan: None,
-            touch: None,
             fuel: Some(fuel),
         },
     }

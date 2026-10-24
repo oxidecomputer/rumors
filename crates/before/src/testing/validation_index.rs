@@ -232,10 +232,9 @@
 //! **The amplification board** (`crate::testing::meter::board`; rendered by
 //! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
-//! worst-case family, a four-size measurement ladder per cell, judged on
-//! deterministic counters only (heap, scan bits, and digit touches) against
-//! one fitted exponent trend per currency, per-size
-//! constants, liveness floors, and owner-declared models. What
+//! worst-case family, a four-size measurement ladder per cell, judged on one
+//! deterministic counter, peak heap, against one fitted exponent trend,
+//! per-size constants, liveness floors, and owner-declared models. What
 //! it alone catches: **structural blindness** — a resource regression on
 //! a shape × operation pairing nobody thought to pin, and meter vacuity
 //! (a counter that stopped watching reads a floor trip, not a green).
@@ -251,11 +250,11 @@
 //! amp-board-fuel`). The same cells, each run in a fresh wasm32 guest
 //! instance and judged in Wasmtime *fuel*, a count of every instruction the
 //! body executes, against the board's exponent bound, its declared models,
-//! and a fuel ceiling calibrated per cell. What it alone catches: **time no
-//! probe counts** — element moves inside a `Vec`, arithmetic inside
-//! `num-bigint`, buffer fills, and allocator work, which cost instructions
-//! while leaving heap, scan, and touch unchanged, on the adversarial families
-//! the fuzz-fit bands' generated programs do not reach.
+//! and a fuel ceiling calibrated per cell. What it alone catches: **time on
+//! the adversarial families** — traversal, element moves inside a `Vec`,
+//! arithmetic inside `num-bigint`, buffer fills, and allocator work, which
+//! cost instructions while leaving heap unchanged, on the families the
+//! fuzz-fit bands' generated programs do not reach.
 //!
 //! **The interleaving-fuel property** (the `suanpan/fuel` crates; `just
 //! suanpan-fuel`). Random programs over a pool of `suanpan` accumulators,

@@ -633,8 +633,7 @@ pub enum FamilyId {
     /// floor, and the left-leaning spine closes each site's frame back into the
     /// floor frame between consecutive consumes: the width-`s` boundary
     /// difference is created at every consume and popped at every close. The
-    /// gate pins its touch cost in `tests/meter.rs`. The designated cross of
-    /// the two tick rows.
+    /// designated cross of the two tick rows.
     RevealComb,
     /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
     /// reveal-comb id.
@@ -654,9 +653,8 @@ pub enum FamilyId {
     ///
     /// `s` ascending wide leaves stack `s − 1` nonzero unit boundary
     /// differences and a terminal 0-cliff drives one width-`s` undercut residue
-    /// through all of them — the cascade whose per-hop fold direction the gate
-    /// pins in `tests/meter.rs` price in the touch currency these columns do
-    /// not carry. The designated cross of the two tick rows.
+    /// through all of them, the cascade whose per-hop fold direction the
+    /// focused fuel claims judge. The designated cross of the two tick rows.
     AscendCliff,
     /// The ascending-cliff control: `ascend_cliff_plateau(s, s)` × the
     /// ascending-cliff id.
@@ -728,8 +726,9 @@ pub enum FamilyId {
     /// segment read starts `Θ(k)` digits up. The accumulator's write watermark
     /// prices each read at the segment's written span; a scaled read that
     /// starts at digit 0 walks the never-written prefix per freeze and goes
-    /// quadratic in accumulator touches; the watermark stays flat on the
-    /// board's `version_rank` cell. The freeze-position spine prices the numeric fold's
+    /// quadratic in accumulator digit operations; the watermark stays flat on
+    /// the board's `version_rank` cell. The freeze-position spine prices the
+    /// numeric fold's
     /// per-freeze accounting; this family prices the accumulator's read side
     /// under the same schedule. Designed against the numeric-measure rows.
     FreezeParade,
@@ -802,11 +801,9 @@ pub enum FamilyId {
     /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the board's
     /// `version_cmp` cell on this pair judges it in fuel). Every overlay
     /// boundary is shared by both operands and almost every stored delta is
-    /// zero, so the pair also witnesses the lowest required touch count
-    /// (the board floor module's `touch_pair_fold`): a conforming sweep is
-    /// forced to fold only the three nonzero deltas per operand, and the
-    /// measured per-boundary sign-read traffic sits far above that floor as
-    /// implementation, never mandate.
+    /// zero, so a conforming sweep is forced to fold only the three nonzero
+    /// deltas per operand; the per-boundary sign reads it does beyond those
+    /// folds are implementation, never mandate.
     ToothTail,
     /// The fixed-seed organic control population.
     Benign,
@@ -876,7 +873,7 @@ pub enum FamilyId {
     ///
     /// The settlement's densification step routes each balanced-digit cluster through
     /// two zero-filled byte images sized by the cluster's *span*; the worst
-    /// artifact green on every width and touch counter is an image sized by
+    /// artifact green on every width and digit count is an image sized by
     /// the cluster's absolute digit *position* — zero fill that scales with
     /// depth, invisible because a zeroed byte no digit lands on enters no
     /// operand width and touches no accumulator digit. The tail knob moves
@@ -907,8 +904,8 @@ pub enum FamilyId {
     /// clearance regression reroutes the *plunge*'s hops onto the
     /// comparable-scale fold, whose per-hop cost is the residue's width
     /// instead of the dying boundary's — the plunge bands trip — while the
-    /// *stop*'s rerouted hop is touch-identical to its guarded arm (the
-    /// survivor's top digit decides its sign fold at one touch either way),
+    /// *stop*'s rerouted hop reads what its guarded arm reads (the survivor's
+    /// top digit decides its sign fold at one digit either way),
     /// so the stop band's charge is width conservation alone: the surviving
     /// boundary is never read across its width while it survives, and the
     /// arm's value flow rides the closed form. The descending- and

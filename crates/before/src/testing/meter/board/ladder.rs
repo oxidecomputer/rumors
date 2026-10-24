@@ -239,15 +239,13 @@ impl Ladder {
     /// # Errors
     ///
     /// Returns [`io::ErrorKind::InvalidInput`], judging nothing, if the run
-    /// did not measure every currency in `required` (a counter feature left
-    /// out of the build, or a meter the runner did not supply), and any error
-    /// writing to `out`.
+    /// did not measure every currency in `required` (a meter the runner did
+    /// not supply), and any error writing to `out`.
     ///
     /// # Panics
     ///
-    /// Panics if a mapped counter is not compiled into this run: the pin is
-    /// stated over heap, scan, and touch, so the check requires the
-    /// `touch-meter` and `scan-meter` features.
+    /// Panics if the run supplies no heap meter: the ranking pin is stated over
+    /// heap.
     pub fn judge(&self, required: &[Currency], out: &mut dyn Write) -> io::Result<Verdict> {
         self.judge_with(required, WORST_RANKINGS, out)
     }
@@ -266,7 +264,7 @@ impl Ladder {
     pub(super) fn judge_with(
         &self,
         required: &[Currency],
-        pins: &[(&str, &str, [&str; 3])],
+        pins: &[(&str, &str, [&str; 1])],
         out: &mut dyn Write,
     ) -> io::Result<Verdict> {
         let summary = self.accept(required, out)?;
@@ -282,8 +280,8 @@ impl Ladder {
     /// floors alone.
     ///
     /// This is the whole verdict of a fuel run. The ranking pin is stated over
-    /// heap, scan, and touch, which a fuel run does not measure, so only
-    /// [`Ladder::judge`] checks it.
+    /// heap, which a fuel run does not measure, so only [`Ladder::judge`]
+    /// checks it.
     ///
     /// # Errors
     ///
