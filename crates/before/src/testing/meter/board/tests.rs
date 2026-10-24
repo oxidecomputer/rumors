@@ -556,7 +556,7 @@ fn exponent_guard_depends_on_denominator_span() {
 /// points, so a single generator lump cannot define the estimate, while a
 /// genuine super-linearity bends every point and still reads red.
 ///
-/// The exponent-policy tripwire, in both directions. The lump ladder is a
+/// The exponent policy's check, in both directions. The lump ladder is a
 /// linear counter with one bumped point (the shape of a sparse counter over
 /// an organic control rebuilt per scale): its first window's own two-point
 /// fit reads over the ceiling — the pinned proof that the per-window ratio

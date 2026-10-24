@@ -50,7 +50,7 @@ use before::Clock;
 // Every system of clocks descends from one seed (see the safety rules).
 let mut alice = Clock::seed();
 
-// New participants fork off a live clock, never mint themselves.
+// New participants fork off a live clock; they never seed their own.
 let mut bob = alice.fork();
 
 // Each participant ticks its own clock to record a local event.

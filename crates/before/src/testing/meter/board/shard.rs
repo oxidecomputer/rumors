@@ -61,16 +61,17 @@
 //! operand-size cost, the axis that dominates a cell's price can never
 //! concentrate: one family's cells sit at consecutive deal positions, so they
 //! spread evenly across the shards whatever the tables' lengths share with the
-//! shard count. The orientation is load-bearing — an op-outer deal aliases
-//! whenever the family count and the shard count share a factor (at a roster
-//! length the shard count divides, every cell of a family lands in one shard
-//! and the deal degenerates to a family deal). The residual alias runs the
-//! other way — a shard count dividing the operation count parks an operation's
-//! column on few shards — and is accepted: operation columns do not own operand
-//! size. The price of the per-cell deal is that every child rebuilds each
-//! family it touches — cheap beside the cells themselves, which run every body
-//! once at each of the pair's two levels — and a child builds one family at a
-//! time, in roster order, so its live set stays one operand-bundle pair wide.
+//! shard count. The family-outer orientation is necessary: an op-outer deal
+//! aliases whenever the family count and the shard count share a factor (at a
+//! roster length the shard count divides, every cell of a family lands in one
+//! shard and the deal degenerates to a family deal). The residual alias runs
+//! the other way — a shard count dividing the operation count parks an
+//! operation's column on few shards — and is accepted: operation columns do not
+//! own operand size. The price of the per-cell deal is that every child
+//! rebuilds each family it touches — cheap beside the cells themselves, which
+//! run every body once at each of the pair's two levels — and a child builds
+//! one family at a time, in roster order, so its live set stays one
+//! operand-bundle pair wide.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};

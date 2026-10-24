@@ -1070,7 +1070,7 @@ clock_join_matrix! {
 }
 
 // The matrix above is the entire `|` surface a `Clock` participates in, and
-// its shape is load-bearing:
+// each of these properties of it is required:
 //
 // - No cell reunites two clocks, in any borrow shape: `Clock::join` is the
 //   only reunion, fallible because it must verify the parties are disjoint,

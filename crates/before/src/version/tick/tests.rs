@@ -771,14 +771,14 @@ proptest! {
 /// scan and the site's close.
 ///
 /// The pre-scan records an interior left-full site's sibling minimum and
-/// mirrors no raise for it; the walk alone decides the raise, at the site's
-/// own vantage (`prescan.rs`'s site-close arm carries the argument). This pair
-/// makes the vantage load-bearing: `max(el) = 5` sits strictly below the
-/// sibling minimum `m_s = 9` — the raise takes the min side — while the
+/// mirrors no raise for it; the main traversal alone decides the raise, at the
+/// site's own vantage (`prescan.rs`'s site-close arm carries the argument). In
+/// this pair the vantage decides the raise: `max(el) = 5` sits strictly below
+/// the sibling minimum `m_s = 9` — the raise takes the min side — while the
 /// sibling range's net height movement (+4) carries `max(el) + net` up to
-/// exactly `m_s`, so a raise decision denominated at the close's height
-/// instead of the site's reads the other side of the boundary. The oracle
-/// differential pins the walk's decision byte for byte.
+/// exactly `m_s`, so a raise decision denominated at the close's height instead
+/// of the site's reads the other side of the boundary. The oracle differential
+/// checks that decision byte for byte.
 #[test]
 fn left_full_raise_decides_at_the_site_not_its_close() {
     use crate::testing::oracles::tree::{Party as P, Version as V};
