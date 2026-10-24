@@ -48,7 +48,8 @@ impl Value {
         self.small = Some(0);
     }
 
-    /// Reserve storage for `bits` bits of working width, if it can be honored.
+    /// Reserve storage for values up to `bits` bits wide, if it can be
+    /// honored.
     pub(crate) fn reserve_bits(&mut self, bits: u64) {
         // A position count beyond `usize` can never be allocated, so
         // saturating sends it to the same refusal as any oversized request.
@@ -67,10 +68,10 @@ impl Value {
     }
 
     /// Return the sign, compacting a cancelled top first if the value is held
-    /// in digits, so that its stored width lies within two digits of its
+    /// in digits, so that its working width lies within two digits of its
     /// value's width.
     ///
-    /// A small value's stored width is exact already, so its sign is read
+    /// A small value's working width is exact already, so its sign is read
     /// without a scan, as [`is_known_zero`](Self::is_known_zero) reads it.
     pub(crate) fn compact(&mut self) -> Ordering {
         match self.small {
@@ -107,7 +108,8 @@ impl Value {
         }
     }
 
-    /// Return the working width in 32-bit units, at least one.
+    /// Return the working width in 32-bit units: the positions through the
+    /// highest nonzero stored digit, at least one.
     #[inline]
     pub(crate) fn stored_digit_count(&self) -> usize {
         match self.small {

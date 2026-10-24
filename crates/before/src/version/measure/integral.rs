@@ -137,21 +137,21 @@
 //! wide heights, dense widths, and cancellation cases that require this
 //! machinery.
 //!
-//! The bound also rests on one property of `suanpan` that no row of its table
-//! shows on its own. [`Integrator::interval`] adds `live` into `total` at the
+//! The bound also rests on two of `suanpan`'s [cost rules](suanpan#costs).
+//! [`Integrator::interval`] adds `live` into `total` at the
 //! region's weight shift, `S - d` bits, so a region of a few input bits can
 //! raise `total`'s top about `(S - d) / 32` digits above where cancellation
 //! among earlier contributions left it, and a later contribution can cancel
 //! it again. If every such raise cost its distance, a sweep alternating deep
 //! and shallow regions, such as the board's `weight-comb` family, would take
-//! time quadratic in its input. It does not, by the clause "Raising the top
-//! across gaps" in `suanpan`'s [cost model](suanpan#raising-the-top-across-gaps):
-//! a raise to a width `total` has reached before costs no growth, and each
-//! crossing of the emptied stretch costs a base-64 logarithm of its length,
-//! within the accumulator row's own logarithmic term. `total` is created once
-//! per sweep and never cloned into or shifted, so the growth charged to it
-//! over the whole sweep totals at most the greatest width it reaches, which
-//! can far exceed its final width once distance and lag cancel. That width
+//! time quadratic in its input. It does not. Growing storage costs once, so a
+//! raise to a width `total` has reached before grows nothing; and a shifted
+//! update adds a logarithm, which pays for crossing the emptied range below
+//! the top, so each such addition costs its own width plus one logarithm.
+//! `total` is created once per sweep and never receives `clone_from` or a
+//! shift, so one storage serves the whole sweep, and its growth totals at
+//! most the greatest width it reaches, which can far exceed its final width
+//! once distance and lag cancel. That width
 //! is `O(n)`: every contribution's top lies within `S` plus the width of the
 //! height it contributes, apart from `O(log n)` bits of carries; a tree of
 //! depth `S` takes `Ω(S)` input bits to encode; and each height's width is

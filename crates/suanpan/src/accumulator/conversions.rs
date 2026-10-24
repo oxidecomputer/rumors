@@ -132,7 +132,7 @@ macro_rules! conversions {
         /// Extract a primitive integer if and only if its value fits.
         ///
         /// Takes amortized O(1) time and O(1) temporary space. Failure returns
-        /// the same value, though the read may have changed its working width.
+        /// the same value, though the read may have compacted its stored form.
         impl TryFrom<Accumulator> for $integer {
             /// The input's exact value.
             type Error = Accumulator;

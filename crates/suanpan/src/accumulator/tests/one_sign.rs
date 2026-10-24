@@ -1,12 +1,12 @@
 //! The cost arguments for updates of one sign, measured in bitset levels.
 //!
-//! The crate drops the limb row's logarithmic term for a stretch of one
-//! sign that begins where `G`'s window begins. Its argument: no bitset word
-//! empties during such a stretch, so the levels its insertions climb exceed
-//! the insertions only by the words they fill, and those words number at
-//! most one per 63 positions below the stretch's highest top, plus word
-//! zero at each level once. The bitset's test-only counters measure both
-//! sides of that inequality.
+//! The crate drops the logarithm a shifted limb update pays for a stretch
+//! of updates of one sign that begins where a storage begins. Its argument:
+//! no bitset word empties during such a stretch, so the levels its
+//! insertions climb exceed the insertions only by the words they fill, and
+//! those words number at most one per 63 positions below the stretch's
+//! highest top, plus word zero at each level once. The bitset's test-only
+//! counters measure both sides of that inequality.
 //!
 //! The argument also says why a clear cannot begin such a stretch, by a
 //! cycle that pays a level per base-64 digit of the width each round. That
@@ -115,9 +115,9 @@ proptest! {
 /// for the next clear, at every `m` drawn.
 ///
 /// This is the cycle the crate's cost argument gives for why a clear cannot
-/// begin a stretch of one sign. The clear leaves `G`'s window running and
-/// the bitset's storage covering the width reached, but empties its words.
-/// The limb at position `q + 2` re-raises the top with a `G` of zero, and
+/// begin a stretch of one sign. The clear keeps the storage, and the bitset's
+/// storage covering the width reached, but empties its words. The limb at
+/// position `q + 2` raises the top again without growing the storage, and
 /// its jump finds position zero held: one level. The limb at `q = 64^m`
 /// lands in the gap below, fills one word at each level from 0 to `m - 1`,
 /// and stops at word zero of level `m`. The clear that follows zeroes the

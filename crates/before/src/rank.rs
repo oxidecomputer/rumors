@@ -1017,18 +1017,19 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// series bounded by the final span. Input order therefore cannot multiply the
 /// cost by the number of summands.
 ///
-/// The `O(k + n)` bound rests on `suanpan`'s clause [updates of one
-/// sign](suanpan#updates-of-one-sign), not on its table alone: the table
-/// charges `add_shifted_limbs` at a nonzero shift a term of log(`W` + 1),
-/// which alone would give `O(n + k log n)`. Every summand is nonnegative,
-/// so from the accumulator's creation to the first `<<=`, and from each
-/// `<<=` to the next or to the final read, the fold adds limbs of one sign
-/// to a value of that sign, and asks only for the working width between
-/// them. The clause covers each such stretch: every summand costs amortized
-/// O(`L` + `G`) for its `L` limbs, each `<<=` costs amortized O(`S`) for a
-/// result of width `S`, and the comparison each `<<=` and the final read
-/// begin with can cost one logarithm of the width it reads more. Summed
-/// over the fold:
+/// The `O(k + n)` bound rests on `suanpan`'s refinement for [updates of one
+/// sign](suanpan#updates-of-one-sign), not on its four cost rules alone: a
+/// shifted update adds a logarithm, so the rules charge each
+/// `add_shifted_limbs` at a nonzero shift one, which alone would give
+/// `O(n + k log n)`. Every summand is nonnegative, so from the
+/// accumulator's creation to the first `<<=`, and from each `<<=` to the
+/// next or to the final read, the fold adds limbs of one sign to a value of
+/// that sign, and asks only for `stored_bits` between them. Creation and
+/// each `<<=` begin a new storage, so each of those spans is a stretch the
+/// refinement covers: every summand costs amortized O(`L`) for its `L`
+/// limbs plus the storage it grows, each `<<=` costs its result's width
+/// `S`, and the comparison each `<<=` and the final read begin with can
+/// cost one logarithm of the storage width more. Summed over the fold:
 ///
 /// - the limbs total `O(k + n)`;
 /// - each shift is at least the held span, so its `S` is at most twice the
@@ -1041,9 +1042,9 @@ impl<'a> Sum<&'a Rank> for Rank {
 ///   width and a constant, `O(n + log k)`.
 ///   It can exceed every summand exponent: summing `2^64 - 1` and `1/2`
 ///   shifts by the held span, 64 bits, and ends at `exp = 64`;
-/// - within a stretch nothing cancels, so `G` totals at most the width the
-///   stretch ends at: the next shift's held span, at most that shift, or,
-///   for the last stretch, the result's width;
+/// - within a stretch nothing cancels, so the storage it grows totals at
+///   most the width the stretch ends at: the next shift's held span, at
+///   most that shift, or, for the last stretch, the result's width;
 /// - the final read costs the result's width plus one logarithm of it.
 ///
 /// Each term is `O(k + n)`.

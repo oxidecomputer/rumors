@@ -30,8 +30,8 @@
 //!   primitive integer.
 //! - `+`, `-`, `+=`, `-=`, unary `-`, `<<`, `<<=`, and `Sum` take owned and
 //!   borrowed accumulators and primitive integers. A primitive may stand on
-//!   either side of `+` and `-`; `5 - total` negates `total`, at the cost of
-//!   unary `-`. Shift counts are primitives, owned or borrowed.
+//!   either side of `+` and `-`; `5 - total` negates `total`. Shift counts
+//!   are primitives, owned or borrowed.
 //! - `==`, `<`, [`cmp`](Ord::cmp), and `Hash` work by value, against another
 //!   accumulator or against a primitive integer on the right.
 //!   [`abs_diff`](Accumulator::abs_diff) compares two accumulators and
@@ -42,6 +42,8 @@
 //!   writes the value in decimal.
 //! - `TryFrom` extracts a primitive integer exactly, and returns the
 //!   accumulator if the value does not fit.
+//! - [`clear`](Accumulator::clear) sets the value to zero and keeps the
+//!   storage, as `Vec::clear` does.
 //!
 //! Wide values stream in as little-endian `u64` limbs through
 //! [`add_shifted_limbs`](Accumulator::add_shifted_limbs) and
@@ -56,10 +58,11 @@
 //!
 //! Every read, whether a comparison, a sign query, a conversion, formatting,
 //! or use as an operand, rewrites the cancellation it reads into a shorter
-//! form of the same value. The value never changes, but the *working width*
-//! that [`stored_bits`](Accumulator::stored_bits) reports can. Reads go
-//! through a [`RefCell`](core::cell::RefCell), so they take `&self`; as a
-//! result an accumulator is `Send` but not `Sync`.
+//! form of the same value. The value never changes, but the stored form can,
+//! and with it the bound on the value's width that
+//! [`stored_bits`](Accumulator::stored_bits) reports. Reads go through a
+//! [`RefCell`](core::cell::RefCell), so they take `&self`; as a result an
+//! accumulator is `Send` but not `Sync`.
 //!
 //! A [`clone`](Clone::clone) is a read too: it normalizes the original in
 //! place, then copies only the value's own width, so the copy starts with no
@@ -71,133 +74,157 @@
 //! no adjustment below a given width can change the sign, which lets a caller
 //! skip reading a much narrower operand.
 //!
-//! # Costs and storage
+//! # Costs
 //!
-//! Cancellation can shorten the value while the accumulator still holds
-//! storage at higher positions. Costs therefore use the *working width*
-//! rather than the value's bit length, through these quantities:
+//! An accumulator's costs follow from what you pass in and what you read
+//! out. An update never pays linearly for the width of the accumulator it
+//! changes: beyond a logarithm at a nonzero shift, it pays only to grow
+//! storage, once. Four rules give the cost of updates, reads, and storage:
 //!
-//! - A receiver's *history* is the time since its storage was created or
-//!   last received [`clone_from`](Clone::clone_from). The result of an owned
-//!   operator continues the history of the input whose storage it reuses.
-//! - `V` is the receiver's working width when the operation starts, and `W`
-//!   the greatest working width it has reached in its history.
-//! - `A` is an accumulator operand's working width, and `L` the number of
-//!   input limbs.
-//! - `G` is how far an update raises the receiver's working width beyond the
-//!   greatest it has reached in its *window*: the part of its history since
-//!   its last nonzero `<<=`, which can move the value into new storage. A
-//!   large shift can make `G` large even for one input limb, but raising the
-//!   width again to one reached in the window adds nothing to `G`; see
-//!   [Raising the top across gaps](#raising-the-top-across-gaps). At shift 0,
-//!   `G` exceeds the operand's own width by at most a constant, so it drops
-//!   out of the shift-0 bounds.
-//! - `Q` is the width of a read's result, and `S` the working width of a
-//!   shift's result.
+//! - **An update costs what it adds.** Adding or subtracting a primitive
+//!   costs O(1), `L` limbs O(`L`), and another accumulator O(1 + `n`) for an
+//!   `n`-limb value, however wide the receiver is and however often updates
+//!   change its sign.
+//! - **A read costs what it returns.** A sign query, a comparison with a
+//!   primitive, or a conversion to a primitive returns a constant and costs
+//!   O(1). A magnitude read, a hash, or a clone costs the width of the value
+//!   it returns.
+//! - **Growing storage costs once.** An accumulator stores every bit from 0
+//!   up to the highest bit it has written, its *storage width*. Unlike the
+//!   value's width, which falls when the value does, the storage width only
+//!   rises: writing above it costs the distance, once, and writing that high
+//!   again costs nothing more. [`clear`](Accumulator::clear) keeps the
+//!   storage width; `clone_from` and a nonzero shift start it again at their
+//!   result's width.
+//! - **A shifted update adds a logarithm.** An update at a nonzero shift
+//!   costs an extra base-64 logarithm of the storage width, at most 11 steps
+//!   on a 64-bit target and 6 on a 32-bit one, to record which bits it wrote,
+//!   so that later reads can skip the bits no update has written.
 //!
-//! Amortized bounds hold over the whole sequence of operations: one call may
-//! finish carry or cancellation work that earlier calls prepared, but no work
-//! is paid for twice. Additional space excludes inputs and returned output.
+//! These costs are amortized, as `Vec::push`'s is. One call can finish
+//! carries or cancellation that earlier updates left, and then cost up to the
+//! storage width of the accumulators it touches; but the update that left
+//! that work paid for it, and no work is done twice. That is: over any
+//! sequence of operations, the total time is proportional to the bits passed
+//! in, plus the bits read out, plus the width each storage reaches, plus one
+//! logarithm per shifted update.
 //!
-//! | Operation | Time | Additional space |
-//! |---|---|---|
-//! | `+=` / `-=` a primitive | Amortized O(1) | Amortized O(1) retained |
-//! | Add or subtract `L` limbs | Amortized O(`L`) at shift 0; amortized O(`L` + `G` + log(`W` + 1)) at a nonzero shift | Amortized O(`L` + `G`) retained |
-//! | Add or subtract an accumulator | Amortized O(`A`) at shift 0; amortized O(`A` + `G` + log(`W` + 1)) at a nonzero shift | Amortized O(`A` + `G`) retained |
-//! | Nonzero `<<` or `<<=`, any spelling | Amortized O(`S`) | O(`S`) temporary |
-//! | Sign queries, [`cmp_zero_stable_under`](Accumulator::cmp_zero_stable_under), comparison with a primitive, and primitive `TryFrom` | Amortized O(1) | O(1) |
-//! | [`abs_diff`](Accumulator::abs_diff) | Amortized O(`A`), `A` the narrower; plus O(`V`), `V` the wider operand's working width, to negate the result when the wider operand is negative and the smaller | Amortized O(1) retained beyond the wider operand's storage |
-//! | Compare two accumulators | Amortized O(`A`), `A` the narrower; amortized O(1) when one is far wider and its top decides the order | O(`A`) temporary |
-//! | Magnitude read or `Hash` | Amortized O(1 + `Q`) | O(`Q`) temporary |
-//! | `clone` / `clone_from` | The magnitude read plus O(`Q`) | O(`Q`) for the copy; `clone_from` reuses the receiver's allocation |
-//! | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
-//! | Working-width and known-zero queries | O(1) | O(1) |
-//! | Unary `-` | Amortized O(1 + `Q`), `Q` the value's width | O(1) |
-//! | [`clear`](Accumulator::clear) | Amortized O(1) | O(1) |
+//! Memory follows the widest storage an accumulator has held, as a `Vec`'s
+//! allocation follows its capacity: `clear`, `clone_from`, and a shift of a
+//! value that has needed no heap allocation since creation or the last clear
+//! keep the allocation they find, and
+//! [`reserve_bits`](Accumulator::reserve_bits) can enlarge it. An operation's
+//! temporary space is at most the width it reads or returns.
 //!
-//! The logarithmic terms appear only in the rows for updates at a nonzero
-//! shift. They pay for the bookkeeping that lets comparisons skip positions
-//! no update has written, grow as the base-64 logarithm of `W`, and cover
-//! crossing a range of such positions, which only an update at a nonzero
-//! shift, or the comparison that follows it, can need.
+//! Note that no rule charges an update linearly for its receiver's width,
+//! only rule 4's logarithm at a nonzero shift. A normalized big integer's
+//! update can cost its whole width, carrying or borrowing through high bits
+//! the update never touched; an accumulator's update cannot.
 //!
-//! ## Raising the top across gaps
+//! The remaining operations cost as follows. Negation and shifts build a new
+//! value, and cost its width, as a clone does. `Display` adds to its read a
+//! decimal conversion that costs the square of the value's width. Comparing
+//! two accumulators reads only the narrower one, and costs its width.
+//! [`clear`](Accumulator::clear) costs amortized O(1).
 //!
-//! Cancellation can empty a long range of bit positions below the top, and a
-//! large shift skips a range that no update has written; call either range
-//! a *gap*. Raising the top across a gap, and finding the value's new top
-//! below it after the value above it cancels, never visits the gap:
+//! In arithmetic, ownership decides only what the result can reuse. A
+//! borrowed accumulator is read in full, and an owned one can lend its
+//! storage to the result; of two owned operands, only the narrower is read.
+//! So `a + b` reads only the narrower of the two, `a + &b` reads `b`, and
+//! `&a + &b` reads both. Subtraction reads its right operand in full, owned
+//! or borrowed, because reusing it would mean negating it: `a - b` subtracts
+//! `b` into `a`'s storage, `&a - b` subtracts `a` from `b` and negates the
+//! result, and `5 - a` negates `a` and adds 5.
+//! [`abs_diff`](Accumulator::abs_diff) reads only the narrower of its two
+//! owned operands, then negates the result when the wider operand was the
+//! smaller value, which costs the result's width. An operator and the method
+//! it names cost the same.
 //!
-//! - An update that raises the working width again, to a width reached in
-//!   its window, has a `G` of zero however far the top moves, so its row's
-//!   bounds apply as they would to an update that does not widen the value.
-//! - When the value above the gap cancels, the update or comparison that
-//!   finds the value's new highest nonzero bit crosses a gap of `d` bits in
-//!   amortized O(1 + log(`d` + 1)) time, a base-64 logarithm, so no cycle of
-//!   raising and cancelling pays the gap's width.
+//! ```
+//! use suanpan::Accumulator;
 //!
-//! The rows above already pay for these crossings. An update at a nonzero
-//! shift pays, within its log(`W` + 1) term, for the crossings it makes
-//! itself and for those of the next comparison, which may cross the gap
-//! below the top the update left. An update at shift 0 reaches the top only
-//! through positions it writes, which its own width pays for. So a value
-//! whose top is raised across a gap and cancelled again, cycle after cycle,
-//! costs each cycle only the bounds of the updates it makes, never the gap's
-//! width.
+//! let mut total = Accumulator::new();
+//! // One limb: O(1), plus growing storage to 1,000,001 bits, once, plus a
+//! // logarithm for the shift.
+//! total.add_shifted_limbs(1_000_000, [1]);
+//! for _ in 0..1_000 {
+//!     total -= 1; // one primitive: O(1)
+//!     assert!(total.is_positive()); // one ordering: O(1)
+//!     total += 1;
+//! }
+//! ```
+//!
+//! The loop costs O(1,000). A normalized big integer would rewrite all 15,625
+//! limbs below `2^1,000,000` at every `-= 1`, and again at every `+= 1`.
+//!
+//! Growing storage once is what keeps a value that rises and falls cheap:
+//!
+//! ```
+//! # use suanpan::Accumulator;
+//! # let mut total = Accumulator::new();
+//! # total.add_shifted_limbs(1_000_000, [1]);
+//! for _ in 0..1_000 {
+//!     // The first round grows the storage to 2,000,001 bits. Every later
+//!     // round costs O(1) plus a logarithm per update, however far the top
+//!     // moves.
+//!     total.add_shifted_limbs(2_000_000, [1]);
+//!     total.sub_shifted_limbs(2_000_000, [1]);
+//! }
+//! # assert!(total.is_positive());
+//! ```
+//!
+//! ## The precise statement
+//!
+//! Write `|x|` for the bit length of an accumulator's value, taken to be at
+//! least 1. A *storage* begins when an accumulator is created (by `new`,
+//! `Default`, `From`, `clone`, or a borrowed `<<`), receives `clone_from`, or
+//! is shifted by a nonzero count with `<<=` or an owned `<<`. Every other
+//! operation keeps it, `clear` included, and an owned operator's result
+//! keeps the storage of the operand it reuses. Its width `h` is the highest
+//! bit an operation has written since it began. For each operation, `in`
+//! counts the 64-bit words it reads from operands: 1 for a primitive, `L` for
+//! limbs, and `1 + |b| / 64` for an accumulator operand `b`, or for the
+//! narrower of two compared or owned-added operands. `out` counts the words
+//! it produces: 1 for an ordering or a primitive, the result's width for a
+//! magnitude read, hash, clone, negation, or shift, and that width squared
+//! for `Display`. An operation built from others satisfies the claim part
+//! by part: an operator on a borrowed left operand costs at most a clone
+//! and then the owned operator; `a - b` is `a -= &b`, `&a - b` is
+//! `-(b - &a)`, and a primitive minus an accumulator is a negation and then
+//! an addition; `abs_diff` subtracts the narrower operand from the wider and
+//! negates a negative result; and `Sum` is one addition per input.
+//!
+//! **Claim.** There is a potential `Φ`, a nonnegative function of every
+//! accumulator's stored state that is zero for a new accumulator, such that
+//! every operation satisfies
+//!
+//! `actual + ΔΦ ≤ c · (1 + in + out + Δh + σ · log₆₄(h + 1))`,
+//!
+//! where `Δh` is how far the operation raises its storage's width and `σ` is
+//! 1 for an update at a nonzero shift and 0 otherwise. Summing gives the
+//! total over a sequence: at most `c` times the inputs, outputs, and
+//! logarithms, plus each storage's final width. One call's actual cost is at
+//! most O(`in` + `out` + `Δh` + log₆₄(`h` + 1)) plus the storage widths of
+//! the accumulators it touches.
 //!
 //! ## Updates of one sign
 //!
-//! Updates that only add, or only subtract, never cancel the value's top,
-//! and cost less than the rows above say. Call a sequence of operations on
-//! one accumulator a *stretch of one sign* when:
+//! A *stretch* is the sequence of operations from the start of a storage
+//! until the first operation other than an update by a primitive or limbs,
+//! [`stored_bits`](Accumulator::stored_bits), or
+//! [`is_known_zero`](Accumulator::is_known_zero). Suppose every update in a
+//! stretch has contributions of one sign, and the value at the stretch's
+//! start is zero or has that sign. Then those updates pay no logarithm, at
+//! any shift, and the first comparison with zero after the stretch, which
+//! every read, comparison, and nonzero shift begins with, pays one logarithm
+//! of the storage width, once. A stretch cannot begin at
+//! [`clear`](Accumulator::clear) or at a read, because neither begins a
+//! storage: updates after them can pay a logarithm each, refilling
+//! bookkeeping across the width the storage has reached.
 //!
-//! - it begins where the receiver's window begins: at its creation
-//!   (including the result of a borrowed `<<`, a new accumulator), at its
-//!   last [`clone_from`](Clone::clone_from), or at its last nonzero `<<=` or
-//!   owned `<<`;
-//! - every update in it adds or subtracts a primitive or limbs, all their
-//!   contributions have one sign, and the value at its start is zero or has
-//!   that sign;
-//! - its only other operations are working-width and known-zero queries.
-//!
-//! Any other operation ends the stretch. Then:
-//!
-//! - each primitive update in the stretch costs amortized O(1), and each
-//!   update of `L` limbs amortized O(`L` + `G`), at any shift;
-//! - the first comparison with zero after the stretch, which every read,
-//!   sign query, comparison, and nonzero shift begins with, can cost
-//!   O(log(`V` + 1)) beyond its own row, once.
-//!
-//! That is, a stretch of one sign pays the logarithmic term of the limb row
-//! at most once, after it ends, instead of on every update at a nonzero
-//! shift. A nonzero shift in any spelling of `<<` costs amortized O(`S`)
-//! and starts a new stretch, so a sum of terms of one sign can shift its
-//! total to a finer scale between stretches and pay each shift only its
-//! width.
-//!
-//! A [`clear`](Accumulator::clear) or a read does not begin a stretch of one
-//! sign: it leaves the window running, and it empties the bookkeeping that
-//! lets comparisons skip unwritten positions while keeping that
-//! bookkeeping's storage. Repeating a clear, an update at a large shift that
-//! reaches a width the window reached before, and a one-limb update below
-//! it costs a base-64 logarithm of that width per round, while each update's
-//! `L` + `G` stays constant and the clear costs amortized O(1). Updates after
-//! a clear or a
-//! read therefore get only the rows above.
-//!
-//! ## Retained space
-//!
-//! Every retained bound is amortized, because storage grows geometrically, as
-//! `Vec` does: an operation that extends a full allocation by one position can
-//! retain as much spare capacity as the allocation it replaced, and later
-//! growth fills that capacity. The bookkeeping can also grow during an update
-//! that does not widen the value, to cover positions earlier updates wrote.
-//! Growing an allocation may briefly keep the old and new buffers alive. A
-//! read can extend the working width by at most a constant, and grows the
-//! buffer by exactly that much when it must. An accumulator may retain more
-//! allocation than its working width after cancellation or
-//! [`clear`](Accumulator::clear); [`reserve_bits`](Accumulator::reserve_bits)
-//! avoids repeated growth.
+//! A sum of terms of one sign can therefore shift its total to a finer scale
+//! between stretches, since each nonzero shift begins a storage, and pay each
+//! shift only its result's width.
 //!
 //! # Scope
 //!
@@ -216,7 +243,7 @@
 //! - `touch-meter` exposes a process-global counter of implementation steps in
 //!   the `touch_meter` module, for regression tests of the arithmetic core. It
 //!   does not count allocation or all bookkeeping, so it does not by itself
-//!   establish the bounds above. Counts are deterministic for a fixed
+//!   establish the costs above. Counts are deterministic for a fixed
 //!   implementation and operation sequence, but are no compatibility promise.
 //!   Run measured scenarios serially. Without the feature, counting compiles
 //!   away.

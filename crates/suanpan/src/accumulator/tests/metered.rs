@@ -206,8 +206,8 @@ fn sign_query_skips_unwritten_zeros() {
     assert!(acc.is_known_zero(), "the collapse canonicalized zero");
 }
 
-/// The accumulator-operand rows cost the operand's held digits, not
-/// the receiver's width or the shift.
+/// An accumulator operand costs its own digits, not the receiver's width or
+/// the shift.
 ///
 /// Every accumulator operand is first compared with zero. The two-digit
 /// operand's top digit, 1, does not decide, so the comparison reads and clears
@@ -217,20 +217,20 @@ fn sign_query_skips_unwritten_zeros() {
 /// once: 8 touches for `+=`. Subtracted, it leaves `−2` without a carry: 7,
 /// as for `add_shifted` and `sub_shifted`, whose deposits land past the
 /// receiver's digits. Owned addition first compares the receiver, whose
-/// stored width is the greater, with zero in one touch, then adds the
-/// operand as `+=` does: 9 in all. Each total holds at either receiver width and either shift.
-/// Adding the compacted operand again costs 3: one deciding touch, a read,
-/// and a deposit onto the digit the carry cleared.
+/// working width is the greater, with zero in one touch, then adds the
+/// operand as `+=` does: 9 in all. Each total holds at either receiver width
+/// and either shift. Adding the compacted operand again costs 3: one deciding
+/// touch, a read, and a deposit onto the digit the carry cleared.
 ///
-/// These are the cost table's "amortized O(operand's held digits),
-/// whatever the held width / independent of the shift" rows, pinned
-/// exact at their canonical shape.
+/// This is the rule that an update costs what it adds, for an accumulator
+/// operand at any receiver width and shift, pinned exact at its canonical
+/// shape.
 #[test]
-fn accumulator_operand_rows_cost_the_operand() {
+fn an_accumulator_operand_costs_its_digits_at_any_receiver_width_and_shift() {
     // A two-digit operand: digits 0 and 1 hold 1 each.
     let narrow = || {
-        // Arm the digit representation explicitly: this row measures digit-to-digit
-        // accumulator folds, not the small-value operand path.
+        // Arm the digit representation explicitly: this test measures
+        // digit-to-digit accumulator folds, not the small-value operand path.
         let mut acc = fresh(true);
         acc.value
             .get_mut()
@@ -346,15 +346,15 @@ fn accumulator_operand_rows_cost_the_operand() {
 /// `self`'s buffer keeps the sum"), observable in the exact counts.
 ///
 /// Two tied-width operands with different interior-zero populations:
-/// owned addition first compares `self`, which it keeps on a tie, with zero in
-/// one touch, then the fold pays one touch for the operand's deciding top digit,
-/// one read per operand digit up to its top, and one deposit per *nonzero*
-/// operand digit, so which operand is read is visible whenever their nonzero
-/// counts differ. Here `other` is dense and `self` carries interior zeros —
-/// 8 touches at the 3-digit tie (1 + 1 + 3 reads + 3 deposits) and 12 at the
-/// 5-digit tie (1 + 1 + 5 + 5); a swap on the tie would read the zero-bearing
-/// buffer and undercount. The sum and the destination's clear behavior are
-/// asserted alongside.
+/// owned addition first compares `self`, which it keeps on a tie, with zero
+/// in one touch, then the fold pays one touch for the operand's deciding top
+/// digit, one read per operand digit up to its top, and one deposit per
+/// *nonzero* operand digit, so which operand is read is visible whenever
+/// their nonzero counts differ. Here `other` is dense and `self` carries
+/// interior zeros — 8 touches at the 3-digit tie (1 + 1 + 3 reads + 3
+/// deposits) and 12 at the 5-digit tie (1 + 1 + 5 + 5); a swap on the tie
+/// would read the zero-bearing buffer and undercount. The sum and the
+/// destination's clear behavior are asserted alongside.
 #[test]
 fn merge_tie_reads_the_operand() {
     // (self limbs, other limbs, tied digit count, expected touches):
@@ -393,8 +393,11 @@ fn merge_tie_reads_the_operand() {
     }
 }
 
-/// The per-call O(held digits) rows read exact totals at 64 and 128
-/// held digits, and shift assignment's total is independent of the shift.
+/// Negation, a clear after a shift, shift assignment, and magnitude reads
+/// take exact totals at 64 and 128 held digits, and shift assignment's total
+/// is independent of the shift.
+///
+/// Each costs the width it produces or clears.
 ///
 /// With `d` held digits:
 /// - unary `-` reads the top digit to compare with zero, which settles on
@@ -415,7 +418,7 @@ fn merge_tie_reads_the_operand() {
 /// Exact equality across the width doubling is the linearity claim, with no
 /// slack for a pass the list above does not name.
 #[test]
-fn held_width_rows_cost_the_held_digits() {
+fn width_producing_operations_cost_the_held_digits() {
     for bits in [2_048u32, 4_096] {
         let held_digits = u64::from(bits / 32);
         let wide_value = (UBig::from(1u8) << bits as usize) - 1u8;
@@ -507,11 +510,11 @@ fn held_width_rows_cost_the_held_digits() {
     assert_eq!(magnitude, wide_value << 33usize);
 }
 
-/// The unsigned machine-word rows are amortized O(1) at the top of the
+/// Updates by an unsigned machine word are amortized O(1) at the top of the
 /// `u64` range: exact totals, flat across a doubling of both the cliff
 /// height and the stream length.
 ///
-/// A `u64::MAX` delta is the widest input the word rows accept and the
+/// A `u64::MAX` delta is the widest input the word updates accept and the
 /// deepest per-call carry they can start (its deposit recenters digit 0
 /// and carries into digit 1 every time). Parked on the `2^k − 1` cliff
 /// with a sign read after every delta, the stream costs exactly
@@ -907,8 +910,8 @@ fn accumulator_operands_cost_their_value_width() {
 /// cancelled top with the two writes of `cancelled_top` and then asking
 /// `five < 2^(32k)`; the rounds' writes cost O(1) once the storage reaches
 /// `k`. Owned addition and `abs_diff` meet `2^(32·(k/2))`, which is wider in
-/// value but narrower in stored width than the uncompacted 5, so reading the
-/// operand of narrower stored width would read `k/2` digits. Negating the
+/// value but narrower in working width than the uncompacted 5, so reading the
+/// operand of narrower working width would read `k/2` digits. Negating the
 /// uncompacted 5 would otherwise negate `k` digits. Each count must be equal
 /// at `k` of 1,000 and 2,000, and far below either.
 #[test]
@@ -1057,7 +1060,7 @@ fn comparison_queries_from_a_two_digit_lead() {
 /// value's top and the narrower operand, at any distance between them.
 ///
 /// The wide value is `5·2^(32k)`; the narrow one is `n` digits of `2^32 − 1`.
-/// `abs_diff` first compares the operand of greater stored width with zero,
+/// `abs_diff` first compares the operand of greater working width with zero,
 /// deciding on its top digit (1). The wider operand's storage receives the
 /// subtraction: the narrow sign decides on its top digit (1), and its `n`
 /// digits are read and deposited below the wide value's untouched gap
@@ -1104,9 +1107,9 @@ fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
 /// operand is negative, and nothing for a cancelled top.
 ///
 /// The narrow operand is `n` digits of `2^32 − 1`. A value of 5 under a top
-/// cancelled at position `p` has the greater stored width, so `abs_diff`
+/// cancelled at position `p` has the greater working width, so `abs_diff`
 /// compares it with zero first, compacting it to one digit (7). The
-/// `n`-digit operand then has the greater stored width, and is compared in
+/// `n`-digit operand then has the greater working width, and is compared in
 /// turn (1). It receives the 5: the 5's sign decides again (1), and its one
 /// digit is read and deposited (2). The result's sign decides (1), and the
 /// result is positive, so nothing is negated: 12 at both `p` and both `n`. A

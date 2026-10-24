@@ -16,7 +16,7 @@ use before::testing::meter::{FREEZE_DRIFT_BITS, PROMOTION_REARM_ARM_BITS};
 //
 // `alternating_shifted_writes_cost_the_operand_not_the_gap`,
 // `scaled_read_costs_the_written_span`, and
-// `held_width_rows_cost_the_held_digits`.
+// `width_producing_operations_cost_the_held_digits`.
 
 /// One `Version::rank` run over the weight-comb family `WC(n)`
 /// (`meter::weight_comb`), both counters over the rank body alone,
@@ -263,7 +263,7 @@ const CMP_TOOTH_TAIL_SMALL: usize = 4_096;
 /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input, the cost
 /// the spike's own code paid once and would otherwise be re-paid
 /// per boundary forever. The public-API lift of
-/// `held_width_rows_cost_the_held_digits`: reads price the settled
+/// `width_producing_operations_cost_the_held_digits`: reads price the settled
 /// width, and settlement crossing the unwritten gap in one step is
 /// what keeps the settled width accurate after a cancellation.
 #[test]
