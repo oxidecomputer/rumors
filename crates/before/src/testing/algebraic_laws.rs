@@ -2,7 +2,7 @@
 //!
 //! Every other differential test in this crate keys correctness to the
 //! recursive oracle (impl `==` oracle, structurally). That catches any
-//! divergence between the two — but it is, by construction, blind to a bug the
+//! divergence between the two, but it is, by construction, blind to a bug the
 //! impl and the oracle make *together* (a shared reference and implementation
 //! can be wrong in the same way). The laws are different: they hold by the
 //! ITC algebra (paper §2-§4) *regardless of the reference*, so they pin the
@@ -15,12 +15,12 @@
 //!
 //! - **Arbitrary normal forms**: the [`crate::testing::generators`]
 //!   generators (`arb_oracle_version` / `arb_oracle_party_nonempty`) cover
-//!   the full space of valid trees — including the large-base events (path
-//!   sums that would overflow `u64`) — not just the shapes the op pipeline
+//!   the full space of valid trees, including the large-base events (path
+//!   sums that would overflow `u64`), not just the shapes the op pipeline
 //!   produces. `Party` is `!Clone`, so each use rebuilds a fresh impl value
 //!   from its oracle tree via the bridge; the oracle tree is only a *source
 //!   of bits*, never an arbiter of the result. Clocks pair an arbitrary
-//!   party with an arbitrary version through `Clock::from_parts` — every
+//!   party with an arbitrary version through `Clock::from_parts`: every
 //!   canonical pairing is a valid clock, including ones no op sequence
 //!   reaches.
 //! - **Organic op-trace populations**: [`crate::testing::optrace`] histories

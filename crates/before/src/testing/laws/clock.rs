@@ -189,7 +189,7 @@ laws! {
     ///
     /// The representational pair laws [`Version`] and [`Party`] each carry,
     /// closed over the whole stamp: `Eq` rides the canonical byte encoding,
-    /// and equal clocks hash equally — what container keys on stamps rest
+    /// and equal clocks hash equally, which container keys on stamps rest
     /// on.
     pub static CLOCK_PAIR: (a: &Clock, b: &Clock);
 
@@ -199,12 +199,12 @@ laws! {
     ///
     /// Both directions matter: equal clocks must encode identically (the
     /// canonical encoding is a function of the value), and distinct clocks
-    /// must encode distinctly (injectivity — what byte-level `Eq`/`Hash`
+    /// must encode distinctly (injectivity, which byte-level `Eq`/`Hash`
     /// uses rest on). With the frame pinned as the party's bytes then the
     /// version's ([`encode_frames_party_then_version`]), the biconditional
     /// also pins the party/version boundary: a difference in either
     /// component alone changes the composite bytes. The componentwise
-    /// clause *executes* the link the first clause otherwise assumes —
+    /// clause *executes* the link the first clause otherwise assumes:
     /// with an `Eq` refactored to whole-encode comparison, the
     /// biconditional alone would degrade toward tautology and a
     /// party-frame prefix ambiguity could hide behind it.
@@ -250,8 +250,8 @@ laws! {
         receiver.party() == c.party()
     }
 
-    /// `recv` equals its stated composition — join the message into the
-    /// version, then [`Clock::tick`] — value for value, returned reference
+    /// `recv` equals its stated composition (join the message into the
+    /// version, then [`Clock::tick`]) value for value, returned reference
     /// included: reception is exactly the two public operations, however it
     /// is computed.
     fn recv_is_join_then_tick {
@@ -263,8 +263,8 @@ laws! {
         returned == *composed.version() && fused == composed
     }
 
-    /// `sync` equals its stated composition — [`Clock::join`] then
-    /// [`Clock::fork`] — outcome for outcome.
+    /// `sync` equals its stated composition ([`Clock::join`] then
+    /// [`Clock::fork`]) outcome for outcome.
     ///
     /// The disjoint arm is constructed by forking the clock and letting the
     /// sides diverge (one ticking, one receiving the message): it must

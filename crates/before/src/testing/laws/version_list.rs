@@ -12,10 +12,10 @@ laws! {
     /// and borrowed) against their sequential pair-operator oracle, and their
     /// order-independence. The list length is the quantified variable no
     /// fixed-arity group can reach: the drivers sweep it across every
-    /// structural boundary of the balanced counter the folds run on — the
+    /// structural boundary of the balanced counter the folds run on: the
     /// identity and lone-input short-circuits, the first leaf combine, the
     /// closing drain, and the merged–merged carries that first fire at arity
-    /// four — so no combine arm sits beyond the suite's reach under any future
+    /// four, so no combine arm sits beyond the suite's reach under any future
     /// reshaping of the fold.
     pub static VERSION_LIST: (xs: &[Version]);
 
@@ -62,7 +62,7 @@ laws! {
     /// The shape the receiver-seeded folds ([`Version::join_all`],
     /// [`Version::meet_all`], [`Version::span_all`]) quantify over: the
     /// receiver is the guaranteed first element that keeps each fold total, so
-    /// the family under law is `{receiver} ∪ items` — never empty. The item
+    /// the family under law is `{receiver} ∪ items`, never empty. The item
     /// count is swept across the same fold boundaries as the [`VERSION_LIST`]
     /// laws', the reach no fixed-arity group has.
     pub static VERSION_AND_LIST: (receiver: &Version, items: &[Version]);
@@ -81,7 +81,7 @@ laws! {
     }
 
     /// `meet_all` is the sequential pair fold: at every arity, the operation
-    /// equals `&` folded left-to-right from the receiver — total at every
+    /// equals `&` folded left-to-right from the receiver, total at every
     /// arity, because the receiver seeds the identityless meet.
     fn meet_all_is_the_sequential_pair_fold {
         receiver.meet_all(items) == items.iter().fold(receiver.clone(), |acc, x| &acc & x)
@@ -90,8 +90,8 @@ laws! {
     /// The n-ary lattice folds are rotation-independent at every arity: which
     /// element rides as the receiver is irrelevant, and so is item order.
     ///
-    /// Every rotation of the family — each element taking one turn as the
-    /// receiver, the rest following in rotated order — and the reversal fold
+    /// Every rotation of the family (each element taking one turn as the
+    /// receiver, the rest following in rotated order) and the reversal fold
     /// to the same join and the same meet. Each rotation hands the balanced
     /// counter a different grouping of the same population (which elements
     /// coalesce at which weights depends only on arrival order), so an arm
@@ -118,7 +118,7 @@ laws! {
     /// and join over `{receiver} ∪ items`, every input within.
     ///
     /// The endpoints are [`Version::meet_all`] and [`Version::join_all`] over
-    /// the same family — the accessors read exactly them back — and every input
+    /// the same family (the accessors read exactly them back), and every input
     /// places within the hull: never [`Before`](Placement::Before) or
     /// [`After`](Placement::After), since the meet bounds each input from below
     /// and the join from above. At zero items the family is the receiver alone
@@ -143,8 +143,8 @@ laws! {
     /// The n-ary span is rotation-independent at every arity: which element
     /// rides as the receiver is irrelevant, and so is item order.
     ///
-    /// Every rotation of the family — each element taking one turn as the
-    /// receiver, the rest following in rotated order — and the reversal build
+    /// Every rotation of the family (each element taking one turn as the
+    /// receiver, the rest following in rotated order) and the reversal build
     /// the same hull. Each rotation regroups the hull fold's balanced counter
     /// differently, so an arm wrong under one grouping diverges from the orbit.
     fn span_all_is_rotation_invariant {
@@ -169,7 +169,7 @@ laws! {
     /// operators, never the entry points.
     ///
     /// The containment entry points run from the receiver's coincident span (union)
-    /// and from the family hull (intersection — a wide seed keeps the nonempty
+    /// and from the family hull (intersection: a wide seed keeps the nonempty
     /// path exercised deep into the fold, while disjoint item spans still reach
     /// [`None`]); the pointwise entry points run from the coincident seed.
     fn span_folds_match_the_sequential_operators {
@@ -180,7 +180,7 @@ laws! {
         // The sequential reference folds *through* `Option` with no early exit,
         // deliberately: the entry point defers its verdict to the end, and the
         // equation quantifies over the same completed fold (`try_fold` would
-        // exit at the first `None` — a different reference).
+        // exit at the first `None`, a different reference).
         #[allow(clippy::manual_try_fold)]
         let intersect = hull.intersect_all(&spans)
             == spans
@@ -196,7 +196,7 @@ laws! {
     /// same [`None`]).
     ///
     /// Each rotation regroups every entry point's balanced counter differently, so a
-    /// combine arm wrong under one grouping diverges from the orbit — the
+    /// combine arm wrong under one grouping diverges from the orbit: the
     /// span-entry point instance of `fold_all_is_rotation_invariant`.
     fn span_folds_are_rotation_invariant {
         let seed = receiver.span(receiver);
@@ -242,7 +242,7 @@ laws! {
         let owned: Option<Span> = inputs().map(Span::clone).sum();
         let empty: Option<Span> = core::iter::empty::<&Span>().sum();
         // Version items are their coincident point spans, so summing or
-        // collecting versions is the hull of the whole collection —
+        // collecting versions is the hull of the whole collection,
         // borrowed and owned items alike.
         let hull = Some(receiver.span_all(items));
         let versions = || core::iter::once(receiver).chain(items);

@@ -111,7 +111,7 @@ macro_rules! group_drivers {
     (@one $group:ident, $driver:ident, (party, party)) => {
         proptest! {
             /// Every law in the group holds on arbitrary non-empty id
-            /// pairs — typically unrelated and frequently overlapping,
+            /// pairs, typically unrelated and frequently overlapping,
             /// shapes the op pipeline never produces.
             #[test]
             fn $driver(p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty()) {
@@ -136,7 +136,7 @@ macro_rules! group_drivers {
     (@one $group:ident, $driver:ident, (version, party)) => {
         proptest! {
             /// Every law in the group holds on arbitrary version/id
-            /// pairings — the tick and projection laws on regions
+            /// pairings: the tick and projection laws on regions
             /// unrelated to the history they act on.
             #[test]
             fn $driver(a in arb_oracle_version(), p in arb_oracle_party_nonempty()) {
@@ -191,7 +191,7 @@ macro_rules! group_drivers {
         proptest! {
             /// Every law in the group holds on ranks derived from
             /// arbitrary normal-form versions (their own ranks and a
-            /// genuine distance) — organically related magnitudes.
+            /// genuine distance), organically related magnitudes.
             ///
             /// The adversarial spilled-magnitude regime is driven where
             /// the rank machinery lives, in the version suite's rank
@@ -207,7 +207,7 @@ macro_rules! group_drivers {
     (@one $group:ident, $driver:ident, (clock)) => {
         proptest! {
             /// Every law in the group holds on arbitrary canonical
-            /// party/version pairings — every such pairing is a valid
+            /// party/version pairings; every such pairing is a valid
             /// clock, including ones no op sequence reaches.
             #[test]
             fn $driver(p in arb_oracle_party_nonempty(), a in arb_oracle_version()) {
@@ -218,7 +218,7 @@ macro_rules! group_drivers {
     (@one $group:ident, $driver:ident, (clock, clock)) => {
         proptest! {
             /// Every law in the group holds on pairs of arbitrary canonical
-            /// party/version pairings — typically unrelated stamps sharing
+            /// party/version pairings, typically unrelated stamps sharing
             /// neither region nor history, the regime where a non-injective
             /// encoding boundary would hide.
             #[test]
@@ -265,7 +265,7 @@ macro_rules! group_drivers {
     (@one $group:ident, $driver:ident, (version, versions)) => {
         proptest! {
             /// Every law in the group holds on pool-indexed version
-            /// families — a receiver plus boundary-swept items, repeats
+            /// families: a receiver plus boundary-swept items, repeats
             /// and the empty version under mass at every arity.
             #[test]
             fn $driver((r, xs) in arb_version_family()) {
@@ -278,7 +278,7 @@ macro_rules! group_drivers {
     (@one $group:ident, $driver:ident, (party, parties)) => {
         proptest! {
             /// Every law in the group holds on pool-indexed party
-            /// families — aliased repeats keep the refusal arm under
+            /// families: aliased repeats keep the refusal arm under
             /// mass, the constructed laws' fork trees the accepted arm,
             /// at every boundary-band arity.
             #[test]
@@ -292,7 +292,7 @@ macro_rules! group_drivers {
     (@one $group:ident, $driver:ident, (clock, clocks)) => {
         proptest! {
             /// Every law in the group holds on pool-indexed clock
-            /// families — arbitrary canonical party/version pairings,
+            /// families: arbitrary canonical party/version pairings,
             /// aliased parties under mass, at every boundary-band arity.
             #[test]
             fn $driver((r, items) in arb_clock_family()) {
@@ -321,12 +321,12 @@ struct Organic<'a> {
     /// Ranks derived from the versions: two own ranks and a genuine
     /// distance.
     r: [&'a Rank; 3],
-    /// Two reachable clocks, replayed from the trace on the impl —
+    /// Two reachable clocks, replayed from the trace on the impl,
     /// possibly the same pick, so the pair laws' equality arms stay
     /// live on this population.
     c: [&'a Clock; 2],
     /// Pool-indexed lists at fold-boundary arities. Repeated picks are
-    /// repeated raw versions and *aliased* live parties/clocks — the
+    /// repeated raw versions and *aliased* live parties/clocks, the
     /// input classes the list laws' fold and refusal arms exist for.
     versions: &'a [Version],
     parties: &'a [Party],

@@ -15,11 +15,11 @@ use crate::{Party, Version};
 ///
 /// A strict prefix of a preorder stream has an open subtree at every
 /// position before its true end, so this is the maximally-deferred
-/// [`Truncated`](crate::error::Decode) defect — discoverable only by
+/// [`Truncated`](crate::error::Decode) defect, discoverable only by
 /// parsing to the cut. The final byte is pure padding exactly when it is
 /// the whole-byte marker `1000_0000` (the live bits end flush against
 /// the byte boundary); dropping only that byte would leave a *complete*
-/// tree missing its padding — a `TrailingBits` defect, not a cut — so
+/// tree missing its padding (a `TrailingBits` defect, not a cut), so
 /// the cut then takes the last live byte with it.
 pub(super) fn truncated_bytes(bytes: &[u8]) -> Vec<u8> {
     let cut = if bytes.last() == Some(&0b1000_0000) {
@@ -35,7 +35,7 @@ pub(super) fn truncated_bytes(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// `bytes` with a `0xFF` byte appended after the complete valid stream: the
-/// maximally-deferred [`TrailingBits`](crate::error::Decode) defect — the whole
+/// maximally-deferred [`TrailingBits`](crate::error::Decode) defect: the whole
 /// tree parses before the nonzero tail is seen.
 pub(super) fn trailing_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut out = bytes.to_vec();
@@ -69,7 +69,7 @@ fn last_leaf_flag_pos(v: &Version) -> u64 {
 /// `v`'s stream with its preorder-last leaf split into an equal-sibling pair.
 ///
 /// The left child keeps the old leaf's delta code (same predecessor, same
-/// value); the right child's delta is zero — the minimality violation the
+/// value); the right child's delta is zero, the minimality violation the
 /// validator can only judge at that pair's close, the stream's last position.
 /// The maximally-deferred [`NotCanonical`](crate::error::Decode) defect.
 pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
@@ -87,7 +87,7 @@ pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
 /// `p`'s stream with its preorder-last terminal split into a collapsible
 /// `(1, 1)`.
 ///
-/// Two full children, judged non-normal at the node's close — the
+/// Two full children, judged non-normal at the node's close, the
 /// stream's last position: the maximally-deferred
 /// [`NotCanonical`](crate::error::Decode) defect on the id side.
 pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {

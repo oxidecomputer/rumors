@@ -13,8 +13,8 @@
 //!
 //! ## Cross-check by replay
 //!
-//! [`tests`] plays one (single-seed) op trace against all three references —
-//! impl, tree oracle, and this function space — then over the Cartesian product
+//! [`tests`] plays one (single-seed) op trace against all three references (the
+//! impl, the tree oracle, and this function space), then over the Cartesian product
 //! of each final clock population computes a comparison descriptor (version
 //! causal order, party disjointness) and requires all three references to
 //! agree. (Party containment is cross-checked separately, by the covers
@@ -36,7 +36,7 @@
 //! midpoint (see [`fork`]); every other split, and every inflation, is
 //! unconstrained.
 //!
-//! That invariance holds only for a *proper* ITC system — one seed, so ids
+//! That invariance holds only for a *proper* ITC system: one seed, so ids
 //! partition a single space and all live ids stay disjoint. Several seeds would
 //! each own all of `[0,1)` (not a valid configuration), and a cross-lineage
 //! `receive` then entangles events on the overlapping region, where the random
@@ -110,7 +110,7 @@ pub(crate) fn fs_grid(parts: &[u32]) -> u32 {
 // ───────────────────────────── dyadic points ─────────────────────────────
 
 /// A point `num / 2^exp` in `[0, 1)` (`0 ≤ num < 2^exp`; `exp == 0` is the
-/// point `0`). Halving the enclosing interval — the §4 descent — just consumes
+/// point `0`). Halving the enclosing interval (the §4 descent) just consumes
 /// the top bit of `num`, so no general-rational arithmetic is needed.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Dyadic {
@@ -164,7 +164,7 @@ impl Ord for Dyadic {
 /// value, propagated by every constructor (a combinator takes the max of its
 /// operands'; [`fork`] emits its dealing level; a lifted tree its depth). The
 /// resolution probe ([`id_res`]) scans exhaustively at the ceiling, so it
-/// reports the *true* — possibly collapsed — resolution at `2^ceiling` cost
+/// reports the *true*, possibly collapsed, resolution at `2^ceiling` cost
 /// rather than a flat `2^GRID_N`. The scan cannot soundly stop earlier than
 /// a known ceiling: a region owning a single cell at a fine level is
 /// invisible to every coarser sample row, so no adaptive sampling scheme can
@@ -248,7 +248,7 @@ pub(crate) fn sum(a: Id, b: Id) -> Id {
 /// `a ∧ ¬b`.
 ///
 /// The function-space realization of [`Party::without`](crate::Party::without)
-/// — total (overlap is the point) and possibly empty (the all-`false` function,
+/// is total (overlap is the point) and possibly empty (the all-`false` function,
 /// when `b` covers `a`).
 pub(crate) fn diff(a: Id, b: Id) -> Id {
     let ceiling = a.res_ceiling.max(b.res_ceiling);
@@ -335,7 +335,7 @@ pub(crate) fn join_all_parties(
 
 // ───────────────────────────── cell indexing ─────────────────────────────
 
-/// The index, at resolution `level`, of the cell containing `x` — the top
+/// The index, at resolution `level`, of the cell containing `x`: the top
 /// `level` bits of `x` (always `< 2^level`).
 ///
 /// The random operations draw a
@@ -360,11 +360,11 @@ fn cell_at(x: Dyadic, level: u32) -> usize {
 /// the impl's minimal `grow` are two particular `f`. Here `f` is arbitrary:
 /// each owned cell (at the id's own resolution) is bumped by an independent
 /// amount in `0..=3`, with one owned cell forced positive so the advance is
-/// real (and others may be `0` — a *partial* inflation). In a proper
+/// real (and others may be `0`, a *partial* inflation). In a proper
 /// single-seed system every such `f`
-/// still tracks happens-before — it meets the §3 event condition (the result is
+/// still tracks happens-before: it meets the §3 event condition (the result is
 /// fresh, `e' ≰` any other live stamp, and dominates nothing new, because the
-/// id owns its region exclusively) — so the causal order is identical to
+/// id owns its region exclusively), so the causal order is identical to
 /// `add-one`'s and `grow`'s. That invariance is what the replay exercises.
 pub(crate) fn event(i: &Id, e: Event, rng: &mut ChaChaRng) -> Event {
     let level = id_res(i);
@@ -402,7 +402,7 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut ChaChaRng) -> Event {
 /// §4
 /// pins only `⟦i₁⟧ + ⟦i₂⟧ = ⟦i⟧` and `⟦i₁⟧ · ⟦i₂⟧ = 0` (a disjoint cover of the
 /// owned region); the paper's `split` is one particular choice. Here the
-/// region's maximal constant pieces — its owned cells at its *own* resolution —
+/// region's maximal constant pieces (its owned cells at its *own* resolution)
 /// are dealt independently to the two sides (an arbitrary, possibly
 /// interleaved, partition), with the lowest and highest pinned to opposite
 /// sides so both halves are nonempty. When the region is a single indivisible
@@ -410,14 +410,14 @@ pub(crate) fn event(i: &Id, e: Event, rng: &mut ChaChaRng) -> Event {
 /// one forced cut).
 ///
 /// Dealing out *existing* pieces adds no new boundary, so resolution grows only
-/// on the bisection of an indivisible piece — exactly the paper's rate (≤ 1
+/// on the bisection of an indivisible piece, exactly the paper's rate (≤ 1
 /// level per fork). That is the one concession to a *finite* comparison grid:
 /// an arbitrary cut of an indivisible interval would need ever-finer dyadic
 /// points, which a fixed grid cannot resolve over a long trace. The bisection
 /// asserts [`GRID_N`], which the derivation from the op cap keeps clear of
 /// every in-support trace; [`tests::grid_cap_is_never_reached`] sweeps that
 /// headroom distributionally. (Both halves
-/// nonempty is stronger than §4 — which permits the empty `peek` split — but a
+/// nonempty is stronger than §4, which permits the empty `peek` split, but a
 /// child handed an empty id could never advance, diverging from the impl; the
 /// replay needs both children live.)
 pub(crate) fn fork(i: &Id, rng: &mut ChaChaRng) -> (Id, Id) {
@@ -504,7 +504,7 @@ fn owned_cells(i: &Id, level: u32) -> Vec<usize> {
 /// The resolution of an id: the finest dyadic level at which `⟦i⟧` actually
 /// changes value (`0` if constant).
 ///
-/// Probed from the function, not read off the tracked ceiling — so a `sum`
+/// Probed from the function, not read off the tracked ceiling, so a `sum`
 /// that recombines into a coarser region (e.g. two halves back to the whole
 /// `[0,1)`) reports its *true*, collapsed resolution, keeping the comparison
 /// grid no finer than necessary. The scan runs at the ceiling, where every
@@ -718,7 +718,7 @@ pub(crate) fn disjoint(a: &Id, b: &Id, g: u32) -> bool {
 /// the floor pulled up above it) is its only base; otherwise the cell's minimum
 /// is pulled up and the two halves recurse with it subtracted, so the total is
 /// `local + left + right`. The result is the sum of every base in the normal-form
-/// tree — exactly [`tree::Version::min_ticks`](crate::testing::oracles::tree::Version). `g` must
+/// tree, exactly [`tree::Version::min_ticks`](crate::testing::oracles::tree::Version). `g` must
 /// resolve `e` (every real boundary at level `≤ g`), so each level-`g` cell is a
 /// single constant point. The recursion stops by level `g`, and the root cell
 /// alone samples all `2^g` points of the grid, so a grid deep enough to
@@ -751,7 +751,7 @@ pub(crate) fn min_ticks(e: &Event, g: u32) -> BigUint {
 }
 
 /// `rank` recovered from the step function `⟦e⟧`: the plain Riemann sum
-/// `Σₖ e(k/2ᵍ) · 2⁻ᵍ` over the level-`g` grid — exact, not approximate.
+/// `Σₖ e(k/2ᵍ) · 2⁻ᵍ` over the level-`g` grid, exact, not approximate.
 ///
 /// Because `g` resolves `e`, the function is constant on every level-`g`
 /// cell and each sample is its cell's true height. Shares no structure with

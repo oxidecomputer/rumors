@@ -12,7 +12,7 @@
 //!
 //! The small-scope hypothesis fits ITC especially well: the normal-form trees
 //! of a given small depth are few, so total enumeration is cheap, yet it
-//! deterministically reaches the edge shapes random sampling under-hits — a
+//! deterministically reaches the edge shapes random sampling under-hits: a
 //! `grow` tie at the very root, an empty-child spine corner, the `close_node`
 //! truncate-adjacency boundary, the `is_disjoint`/`covers`/`compare` overlap
 //! arms, the concurrent (`None`) verdict.
@@ -21,7 +21,7 @@
 //! grow at very different rates: an id node branches binary (leaves `0`/`1`),
 //! so the id corpus is `2`, `4`, `16`, `256`, `65536` at depths `0..=4`; an
 //! event node also chooses a base from `{0, 1, 2}`, so the event corpus is `3`,
-//! `19`, `691`, ~1.4M at depths `0..=3` — a single shared bound deep enough for
+//! `19`, `691`, ~1.4M at depths `0..=3`; a single shared bound deep enough for
 //! ids (depth 3) would make the event cross-product (`O(corpus²)`) intractable.
 //! So events are held one level shallower than ids.
 //!
@@ -31,7 +31,7 @@
 //! doc). An operation absent from this module's own check set is not
 //! necessarily outside the small scope: the kernel test suites import the
 //! corpus and run their own operation-specific sweeps over it (the skyline
-//! query, sweep, emit, fill, grow, and text suites all do — e.g. the pair
+//! query, sweep, emit, fill, grow, and text suites all do, e.g. the pair
 //! queries' `exhaustive_small_scope_pairs_agree`). Two variants:
 //!
 //! - [`exhaustive_small`] runs every check in the normal gate at
@@ -40,24 +40,24 @@
 //!
 //! - [`exhaustive_deep`] is `#[ignore]`d and runs at [`ID_DEEP_DEPTH`] /
 //!   [`EV_DEEP_DEPTH`] (65536 ids, 691 events), where the `O(corpus²)` id
-//!   pair-product (~4.3 billion pairs) dominates — hour-scale even trimmed to
+//!   pair-product (~4.3 billion pairs) dominates, hour-scale even trimmed to
 //!   the verdict legs; its doc comment carries the measured state and how to
 //!   run it.
 //!
-//! The deep variant runs the *verdict* pair legs (`is_disjoint`, `covers` —
+//! The deep variant runs the *verdict* pair legs (`is_disjoint`, `covers`,
 //! borrowed operands, no allocation) and `tick` with the brute-force
 //! grow-minimality pin (the pin's irreplaceable value: `grow`'s DP held to the
 //! global optimum over all 65536 deep ids). The *structural* pair legs
 //! (`join`, `without`) run at the small bound only: each builds a result tree
-//! per pair — plus the oracle's boxed clones and the lowering for the
-//! structural compare — which prices at roughly seven eighths of the pair
+//! per pair (plus the oracle's boxed clones and the lowering for the
+//! structural compare), which prices at roughly seven eighths of the pair
 //! worker (measured on a stride-sampled quarter of the deep corpus,
 //! aarch64-apple-darwin, 16 cores, release: the difference leg
 //! ~66 and the join leg ~12 of a ~91 ns/pair wall worker), and at the full
 //! corpus the allocate-per-pair legs additionally contend the allocator
-//! across the pool — all to re-check structure the small scope already pins
-//! exhaustively. What deep deliberately does not re-check — `join`/`without`
-//! result *structure* on ids deeper than [`ID_SMALL_DEPTH`] — is covered by
+//! across the pool, all to re-check structure the small scope already pins
+//! exhaustively. What deep deliberately does not re-check (`join`/`without`
+//! result *structure* on ids deeper than [`ID_SMALL_DEPTH`]) is covered by
 //! the sampled differentials: the arbitrary-tree strategies reach the same
 //! depth 4 with committed regression seeds, and the op-trace histories
 //! compose the public ops far past it.
@@ -70,7 +70,7 @@ use crate::testing::oracles::tree;
 /// Inclusive id depth bound for the fast, gate-resident enumeration.
 ///
 /// A "depth" is the number of interior-node levels: depth 0 is a bare leaf,
-/// depth 1 is a node over two leaves, etc. Depth 3 yields 256 ids — enough to
+/// depth 1 is a node over two leaves, etc. Depth 3 yields 256 ids, enough to
 /// reach the close-up corners while the `corpus²` id cross-product (~65k pairs)
 /// stays well under a second.
 pub(crate) const ID_SMALL_DEPTH: usize = 3;
@@ -119,7 +119,7 @@ pub(crate) fn all_normal_ids(depth: usize) -> Vec<tree::Party> {
 
     // `pool` holds the deduped *canonical* trees of depth `≤ d`, keyed for
     // de-dup by a cheap injective preorder encoding (`Party` has no `Ord`).
-    // Deduping at every level — not just at the end — is what keeps the corpus
+    // Deduping at every level, not just at the end, is what keeps the corpus
     // (and the op cross-product) tractable: a node built from two undeduped
     // children multiplies the redundancy.
     let mut seen: BTreeSet<Vec<u8>> = BTreeSet::new();

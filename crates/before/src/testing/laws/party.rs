@@ -27,7 +27,7 @@ laws! {
 
     /// The two halves a `fork` produces are disjoint, the relation is
     /// symmetric, and neither half is anonymous (both re-encode and decode as
-    /// nonzero shares) — the invariant that keeps a forked population pairwise
+    /// nonzero shares), the invariant that keeps a forked population pairwise
     /// `join`-able.
     fn fork_halves_disjoint {
         let mut kept = p.dangerously_alias();
@@ -84,7 +84,7 @@ laws! {
     }
 
     /// Covering chains down a constructed fork tower: the whole covers its
-    /// half, the half its quarter, and — transitively — the whole covers the
+    /// half, the half its quarter, and, transitively, the whole covers the
     /// quarter.
     fn covers_transitive_constructed {
         let mut quarter = p.dangerously_alias();
@@ -94,7 +94,7 @@ laws! {
         p.covers(&half) && half.covers(&quarter) && p.covers(&quarter)
     }
 
-    /// The whole-interval seed covers every live party — and, owning
+    /// The whole-interval seed covers every live party and, owning
     /// everything, is disjoint from none.
     fn seed_covers_every_party {
         Party::seed().covers(p) && !Party::seed().is_disjoint(p) && !p.is_disjoint(&Party::seed())
@@ -124,7 +124,7 @@ laws! {
     }
 
     /// `dangerously_alias` yields a byte-identical, `Eq` copy aliasing the
-    /// entire region: the two are *not* disjoint — the deliberate linearity
+    /// entire region: the two are *not* disjoint, the deliberate linearity
     /// violation the method documents.
     fn alias_is_byte_identical_overlap {
         let dup = p.dangerously_alias();
@@ -299,7 +299,7 @@ laws! {
 }
 
 /// Fold `second` then `third` into an alias of `first`, `None` at the
-/// first overlap — one association order of the partial monoid's ternary
+/// first overlap: one association order of the partial monoid's ternary
 /// sum.
 fn join3(first: &Party, second: &Party, third: &Party) -> Option<Party> {
     let mut acc = first.dangerously_alias();

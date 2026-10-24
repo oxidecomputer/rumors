@@ -559,8 +559,8 @@ fn exponent_guard_depends_on_denominator_span() {
 /// The exponent policy's check, in both directions. The lump ladder is a
 /// linear counter with one bumped point (the shape of a sparse counter over
 /// an organic control rebuilt per scale): its first window's own two-point
-/// fit reads over the ceiling — the pinned proof that the per-window ratio
-/// would have manufactured a red — while the four-point trend reads it
+/// fit reads over the ceiling (the committed proof that the per-window ratio
+/// would have manufactured a failure), while the four-point trend reads it
 /// linear, in both windows. The quadratic ladder grows as the square of the
 /// denominator at every point: the trend reads it a full class over the
 /// ceiling, red in both windows, so the policy cannot be softened into an
@@ -916,7 +916,7 @@ fn worst_rank_records_ties_whole_and_runner_up_strictly_below() {
 /// Zero readings never place in the argmax.
 ///
 /// A currency every shape reads zero on folds to an empty worst set (rendered
-/// `-`), and a currency only one shape drives has a worst but no runner-up — a
+/// `-`), and a currency only one shape drives has a worst but no runner-up: a
 /// shape that does none of the work is not a runner-up at zero.
 #[test]
 fn worst_rank_excludes_zero_readings() {
@@ -978,8 +978,8 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 /// deserialization rows and their pin entries compile under the same
 /// features, so the comparison is exact under every feature set.
 ///
-/// The cheap structural half of the pin's tamper evidence; the readings half —
-/// the argmax itself — is the release-profile entry-compare inside the board's
+/// The cheap structural half of the pin's tamper evidence; the readings half,
+/// the argmax itself, is the release-profile entry-compare inside the board's
 /// verdict of record (`just amp-board-acceptance`), because rankings derive
 /// from readings and dev readings are never pinned.
 #[test]

@@ -41,7 +41,7 @@ fn id_eq(a: &Id, b: &Id, g: u32) -> bool {
 /// at [`GRID_N`].
 ///
 /// The semantic event's step structure sits at the id's fork boundaries, so the
-/// id depth bounds it too — hence both are folded in.
+/// id depth bounds it too; hence both are folded in.
 fn grid_for(parts: &[u32]) -> u32 {
     (parts.iter().copied().max().unwrap_or(0) + 1).min(GRID_N)
 }
@@ -67,7 +67,7 @@ proptest! {
         let n = production.len();
         // One granularity for all the function-space scans: the finest boundary
         // actually present in the population's own closures (probed, then
-        // capped — guarded by `grid_cap_is_never_reached`). Sampling at that
+        // capped, guarded by `grid_cap_is_never_reached`). Sampling at that
         // level resolves every step exactly, so the random policy's
         // region/inflation boundaries are never aliased.
         let g = function_space
@@ -215,7 +215,7 @@ proptest! {
     /// disjoint, both nonempty, and recombine (`sum`) to the original (the §4
     /// fork law).
     ///
-    /// It need *not* match the paper's split — only obey the law — which is the
+    /// It need *not* match the paper's split, only obey the law, which is the
     /// whole point of randomizing it.
     #[test]
     fn fork_partitions(p in arb_oracle_party_nonempty(), seed in any::<u64>()) {
@@ -308,7 +308,7 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
 /// asymmetric family the known-bad convictions sweep.
 ///
 /// Every level's left child is a zero leaf, so the function climbs
-/// toward `1` and the value at the last grid cell is the full path sum —
+/// toward `1` and the value at the last grid cell is the full path sum,
 /// nonzero at every depth, and never mirror-symmetric.
 fn right_comb(d: u32) -> tree::Version {
     use tree::Version as V;
@@ -499,9 +499,9 @@ fn grid_cap_is_never_reached() {
 /// midpoint, one level finer. If the rate ever exceeded one level per fork,
 /// or a ceiling clamp resurfaced and handed one child an empty half, the
 /// equality or the nonemptiness read here goes red long before the canary
-/// sweep could sample it. The chain stops at 16 — past any resolution the
+/// sweep could sample it. The chain stops at 16: past any resolution the
 /// sampled sweeps reach, still cheap to probe (the probe scans
-/// `2^resolution` centers) — while the full in-support schedule is covered
+/// `2^resolution` centers), while the full in-support schedule is covered
 /// by construction: [`GRID_N`] is derived from the op cap, and this test
 /// asserts the derivation clears the deepest in-support bisection level.
 #[test]

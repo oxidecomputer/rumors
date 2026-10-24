@@ -3,7 +3,7 @@
 //! These establish that the recursive oracle is a faithful (if suboptimal)
 //! realization of the paper, so it can be trusted as differential ground truth.
 //! Values are generated via operations from a seed (always valid, normal-form,
-//! and — for populations — pairwise party-disjoint), never by fabricating
+//! and, for populations, pairwise party-disjoint), never by fabricating
 //! trees directly, which might violate normality.
 
 use std::cmp::Ordering;
@@ -149,8 +149,8 @@ proptest! {
     /// commutative, associative, idempotent; lower bound; and greatest (above
     /// any common lower bound).
     ///
-    /// The order-theoretic dual of [`lattice`]. There is no top element — a
-    /// version can always tick higher — so meet has no identity; instead
+    /// The order-theoretic dual of [`lattice`]. There is no top element (a
+    /// version can always tick higher), so meet has no identity; instead
     /// `Version::new()` (the bottom) is *absorbing*: `a & 0 == 0`.
     #[test]
     fn meet_semilattice(ops in world_strategy(),
@@ -180,7 +180,7 @@ proptest! {
 
 proptest! {
     /// Meet and join cohere as a lattice: both absorption laws hold, and the
-    /// causal order is induced by *either* operation — `a <= b` iff `a & b == a`
+    /// causal order is induced by *either* operation: `a <= b` iff `a & b == a`
     /// iff `a | b == b`.
     #[test]
     fn lattice_absorption(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -310,8 +310,8 @@ proptest! {
         if n < 2 {
             return Ok(());
         }
-        // Derive two distinct members directly rather than rejecting collisions
-        // — small populations collide often, and `prop_assume` would blow the
+        // Derive two distinct members directly rather than rejecting collisions:
+        // small populations collide often, and `prop_assume` would blow the
         // local reject cap under a high case count.
         let i = i % n;
         let j = (i + 1 + j % (n - 1)) % n;
@@ -522,7 +522,7 @@ fn meet_is_pointwise_min() {
 }
 
 /// §5.3.4. The headline of the example: when the id owns the whole space,
-/// `event` fills the gap so the event component collapses to a single integer —
+/// `event` fills the gap so the event component collapses to a single integer:
 /// `event(1, (0,1,0)) = (1, 1)`, i.e. the event tree becomes `Leaf(1)`.
 #[test]
 fn event_fills_to_single_integer() {
@@ -541,7 +541,7 @@ fn event_fills_to_single_integer() {
 // program. These properties pin the oracle's `grow` against a brute-force
 // search over the entire feasible inflation space
 // (`testing::grow_brute_force::all_inflations`), independently establishing
-// that the oracle's own DP is genuinely cost-minimal — something nothing else
+// that the oracle's own DP is genuinely cost-minimal, something nothing else
 // in the suite does (every other check is impl == oracle, which shares the DP).
 // The impl is held to the same brute-force standard in `version::tests`.
 
@@ -551,7 +551,7 @@ proptest! {
     /// `min_inflation_cost` enumerates the whole feasible single-region
     /// inflation space (descending both children everywhere, no pruning) and
     /// takes the flat minimum; the DP's greedy local choice must match it. This
-    /// is the independent minimality check — it does not rely on the DP at all.
+    /// is the independent minimality check: it does not rely on the DP at all.
     #[test]
     fn grow_cost_is_globally_minimal(
         id in arb_oracle_party_nonempty(),
@@ -565,7 +565,7 @@ proptest! {
 
 proptest! {
     /// The oracle's `grow` chooses exactly the brute-force right-favoring
-    /// minimal inflation — the same raw tree and cost.
+    /// minimal inflation: the same raw tree and cost.
     ///
     /// `best_inflation` selects the globally cost-minimal candidate with the
     /// paper's root-ward tie-break (`cl < cr` goes left, else right), weighing
@@ -610,14 +610,15 @@ proptest! {
     /// §3 (the event condition), metamorphic form: `grow` "dominates no more
     /// events than needed".
     ///
-    /// No *feasible inflation* `x` sits strictly between `e` and the grown `e'`
-    /// — there is no `x` reachable by inflating `(id, e)` with `e ≤ x < e'`.
+    /// No *feasible inflation* `x` sits strictly between `e` and the grown
+    /// `e'`. That is, there is no `x` reachable by inflating `(id, e)` with
+    /// `e ≤ x < e'`.
     /// This is the correct, scoped reading of the paper's `x < e' ⇒ x ≤ e`: the
     /// relevant `x` are the event components the system can produce (the
     /// inflation candidates), not arbitrary fabricated step functions. (Over
     /// the *full* pointwise lattice the literal `x < e' ⇒ x ≤ e` is false even
-    /// for a single `+1` increment — e.g. `e = 0`, `e' = 1`, `x = (0,1,0)` has
-    /// `x < e'` but `x ≰ e` — because that lattice is dense and `fill`
+    /// for a single `+1` increment (e.g. `e = 0`, `e' = 1`, `x = (0,1,0)` has
+    /// `x < e'` but `x ≰ e`) because that lattice is dense and `fill`
     /// collapses owned regions to their max; the §3 condition is about system
     /// states, not arbitrary functions.) `grow` runs directly here, independent
     /// of whether `event` would have taken the `fill` branch.

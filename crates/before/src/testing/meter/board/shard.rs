@@ -29,7 +29,7 @@
 //! touched it. A fuel run therefore deals one cell to each shard
 //! ([`max_useful_shards`] shards, each a fresh guest instance), and the merge
 //! refuses fuel readings from any other deal. The smoke suite exercises the
-//! round trip — emit, parse, reorder, re-judge — across two shard counts, so a
+//! round trip (emit, parse, reorder, re-judge) across two shard counts, so a
 //! break in the protocol or in the merge's board-order reconstruction is
 //! caught before any board of record is rendered.
 //!
@@ -41,7 +41,7 @@
 //! whether debug assertions were compiled in), one tab-separated `cell` line
 //! per measured cell carrying both samples' counters, denominators, and
 //! declarations (floats as bit patterns, so nothing rounds), and one trailing
-//! `end` count line guarding truncation. The parent refuses any mismatch — a
+//! `end` count line guarding truncation. The parent refuses any mismatch: a
 //! header that is not byte-for-byte the one it requested followed by a build
 //! stamp every child shares, an unknown operation or family name, a cell
 //! outside the child's slice, a duplicate cell, a count that disagrees with the
@@ -54,8 +54,8 @@
 //! # Slicing
 //!
 //! The shard unit is one cell of the operation × family grid: the grid's
-//! family-outer linearization — the registry's board roster
-//! ([`FamilyId::board`]) against the operation table — is dealt round-robin
+//! family-outer linearization (the registry's board roster
+//! ([`FamilyId::board`]) against the operation table) is dealt round-robin
 //! over the shards ([`owns`]), so the shards partition the grid by construction
 //! (coverage cannot drift with the shard count) and, family cost being
 //! operand-size cost, the axis that dominates a cell's price can never
@@ -65,11 +65,11 @@
 //! aliases whenever the family count and the shard count share a factor (at a
 //! roster length the shard count divides, every cell of a family lands in one
 //! shard and the deal degenerates to a family deal). The residual alias runs
-//! the other way — a shard count dividing the operation count parks an
-//! operation's column on few shards — and is accepted: operation columns do not
+//! the other way (a shard count dividing the operation count parks an
+//! operation's column on few shards) and is accepted: operation columns do not
 //! own operand size. The price of the per-cell deal is that every child
-//! rebuilds each family it touches — cheap beside the cells themselves, which
-//! run every body once at each of the pair's two levels — and a child builds
+//! rebuilds each family it touches (cheap beside the cells themselves, which
+//! run every body once at each of the pair's two levels), and a child builds
 //! one family at a time, in roster order, so its live set stays one
 //! operand-bundle pair wide.
 
@@ -115,7 +115,7 @@ pub type ShardSpawner<'a> = &'a dyn Fn(Sampling) -> io::Result<Vec<Vec<u8>>>;
 /// The one deal, shared by the emitter and the merge's ownership check
 /// (`op_count` is the operation table's length, so both sides derive the deal
 /// from the same tables). Family-outer keeps one family's cells at consecutive
-/// deal positions — the module doc's aliasing argument.
+/// deal positions: the module doc's aliasing argument.
 ///
 /// # Panics
 ///
@@ -428,7 +428,7 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
 /// board row order.
 ///
 /// Validates every stamp, parses the samples, reorders by the parent's own
-/// operation table and family roster, and judges each cell ([`evaluate`]) —
+/// operation table and family roster, and judges each cell ([`evaluate`]),
 /// the single-scale judgment, whose exponent trend is the window's own two
 /// points. The acceptance judgment fits across scales instead, over the
 /// unjudged cells [`merge_samples`] returns.
@@ -454,7 +454,7 @@ fn merge(sampling: Sampling, count: usize, captures: &[Vec<u8>]) -> (Calibration
 ///
 /// # Panics
 ///
-/// Panics on any protocol violation — the module doc's refusal list — and
+/// Panics on any protocol violation (the module doc's refusal list), and
 /// unless a scaled `sampling`'s scale is strictly positive and `count`
 /// nonzero, checked before any child capture is trusted. Panics, too, if a sample carries a fuel reading
 /// and `count` is not [`max_useful_shards`]: such a reading would depend on the
@@ -578,7 +578,7 @@ pub(super) fn merge_samples(
     // declaration commits that family to. Every per-shard check above
     // validates one capture against itself, so a child that silently
     // measures fewer cells (an applicability arm regressing to `None`)
-    // still merges cleanly — this is the one total check comparing the
+    // still merges cleanly; this is the one total check comparing the
     // union against the declared reach, and being merge-layer it fires at
     // every scale, the acceptance ladder of record included.
     for (family_position, family) in FamilyId::board().enumerate() {

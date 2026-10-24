@@ -30,7 +30,7 @@ laws! {
         (a & b) == (b & a)
     }
 
-    /// The join is an upper bound: `a <= a | b` and `b <= a | b` — what ties
+    /// The join is an upper bound: `a <= a | b` and `b <= a | b`, which ties
     /// `|` to the causal order.
     fn merge_is_upper_bound {
         let ab = a | b;
@@ -107,7 +107,7 @@ laws! {
     }
 
     /// The valuation law: `rank(a|b) + rank(a&b) == rank(a) + rank(b)` (area
-    /// is a lattice valuation because `max + min == sum` holds pointwise) —
+    /// is a lattice valuation because `max + min == sum` holds pointwise):
     /// the identity that makes [`Version::distance`] a metric.
     fn rank_is_a_valuation {
         (a | b).rank() + (a & b).rank() == a.rank() + b.rank()
@@ -166,7 +166,7 @@ laws! {
     /// its version component, pinned directly rather than inferred from the
     /// stream being bit-self-delimiting: a strict bit-prefix that were itself
     /// canonical would make the longer stream carry live bits past a complete
-    /// tree, which the strict decoder rejects — this pins that argument's
+    /// tree, which the strict decoder rejects; this pins that argument's
     /// conclusion.
     fn version_encoding_is_prefix_free {
         a == b
@@ -194,7 +194,7 @@ laws! {
     /// ranks differ, rank ties resolve by the versions' canonical bytes,
     /// equality is version identity, the explicit spelling of the rank question
     /// (`rank`, then [`Rank`]'s own comparison) answers exactly the
-    /// materialized rank order — and the order therefore extends causality
+    /// materialized rank order, and the order therefore extends causality
     /// (causally ordered versions compare the same way, by rank strict
     /// monotonicity; only ties fall to the causally-free tiebreak).
     fn ranked_orders_by_rank_then_bytes {
@@ -213,7 +213,7 @@ laws! {
     }
 
     /// The composite key encoding is lexicographic, totally: byte order on
-    /// [`Ranked::encode`] equals [`Ord`] on the views — ties included, so byte
+    /// [`Ranked::encode`] equals [`Ord`] on the views, ties included, so byte
     /// equality on keys is exactly `Eq` (version identity).
     fn ranked_encoding_orders_like_ord {
         let (ra, rb) = (Ranked::from(a), Ranked::from(b));
@@ -274,7 +274,7 @@ laws! {
     /// The borrow mechanics: `reborrow` reads the same endpoints back
     /// byte-equal (`Version` equality *is* byte equality, pinned by
     /// `version_eq_iff_bytes_eq`), and `into_owned` settles the borrows with
-    /// the endpoints byte-equal too — neither moves a value, so `lo <= hi`
+    /// the endpoints byte-equal too; neither moves a value, so `lo <= hi`
     /// rides through both.
     ///
     /// On a comparable pair the hull *is* the reordered pair (either
@@ -330,7 +330,7 @@ laws! {
     ///
     /// Quantified over the pair's hull (every valid span is some pair's hull)
     /// and the coincident span `[a, a]`: each round-trips to an equal span, and
-    /// the round-tripped span re-encodes to the same bytes — the composite is a
+    /// the round-tripped span re-encodes to the same bytes: the composite is a
     /// section of canonical bytes, so byte equality on encodings is span
     /// equality.
     fn span_codec_roundtrip {
@@ -352,7 +352,7 @@ laws! {
     /// The eight atomic bounds are transcribed row by row from `partial_cmp`:
     /// the four elementary atoms are the four order relations against the bound
     /// version (concurrency failing all four), and `!` on each keeps precisely
-    /// the probes the atom drops — which is where "or concurrent" enters the
+    /// the probes the atom drops, which is where "or concurrent" enters the
     /// query language. Checked in both probe/bound orientations, so the
     /// self-dual corner (`a == b`) and both strict sides are reached on every
     /// call.

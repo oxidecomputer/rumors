@@ -50,7 +50,7 @@ fn gamma_row(n: u64) -> String {
 /// `floor(log2 m) + 1` bits MSB-first.
 ///
 /// The golden table pins the layout across
-/// magnitudes — powers of two and their neighbours (where the unary prefix grows), plus
+/// magnitudes: powers of two and their neighbours (where the unary prefix grows), plus
 /// a value past `u64::MAX` to witness the arbitrary-width code: the integer
 /// magnitude has no cap, so the code must extend cleanly beyond 64 bits.
 #[test]
@@ -267,8 +267,8 @@ fn rank_rendered_forms() {
 
 /// The error types' rendered `Display` strings, pinned verbatim.
 ///
-/// These strings are the crate's error representation — what a caller's
-/// logs and wrapped error chains show — so a wording change must be a
+/// These strings are the crate's error representation (what a caller's
+/// logs and wrapped error chains show), so a wording change must be a
 /// deliberate re-pin here, never a silent drift. `Decode::Io`'s rendering
 /// wraps the underlying `std::io::Error`'s own Display output, which std
 /// owns, so its row pins only the crate-owned prefix.
