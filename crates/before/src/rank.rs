@@ -334,6 +334,8 @@ impl Rank {
     ///   or an all-zero final fraction group);
     /// - [`Decode::NotCanonical`] when the integral header declares a mantissa
     ///   width outside the format's `u64` range;
+    /// - [`Decode::TooLarge`] when the fraction's depth in bits reaches 2^64,
+    ///   which takes 2^61 fraction groups;
     /// - [`Decode::Io`] with the first error the reader returns other than
     ///   [`Interrupted`](io::ErrorKind::Interrupted), which the decoder
     ///   retries, as [`Read::read_exact`] does.
@@ -662,17 +664,18 @@ impl Rank {
             None => (0, 0),
             Some(0) => return Err(Decode::TrailingBits),
             Some(&last) => {
+                // The depth counts every group before the last in full, then
+                // the last group's bits above its padding. It overflows the
+                // `u64` exponent only for 2^61 groups or more, an input no
+                // machine can hold in memory.
                 let pad = last.trailing_zeros();
-                (
-                    groups.len() as u64 * FRACTION_GROUP_BITS - u64::from(pad),
-                    pad,
-                )
+                let frac_len = (groups.len() as u64 - 1)
+                    .checked_mul(FRACTION_GROUP_BITS)
+                    .and_then(|whole| whole.checked_add(FRACTION_GROUP_BITS - u64::from(pad)))
+                    .ok_or(Decode::TooLarge)?;
+                (frac_len, pad)
             }
         };
-        // The fraction's depth needs no bound of its own: every expansion bit
-        // was read from the stream, so `frac_len` never exceeds the input's own
-        // bit count and always fits the u64 exponent; an input long enough to
-        // overflow it cannot be allocated.
         let exp = frac_len;
         let num = if frac_len == 0 {
             integral

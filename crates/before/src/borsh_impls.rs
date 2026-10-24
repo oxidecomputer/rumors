@@ -18,7 +18,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use num_bigint::BigUint;
 
 use crate::{
-    bits::{BitRead, Bits, BitsReader},
+    bits::{bits_in, BitRead, Bits, BitsReader},
     count::CanonicalLimbs,
     error::Decode,
     span::Span,
@@ -51,7 +51,8 @@ struct StreamBitsReader<'a, R> {
     ///
     /// `u64`, not `usize`: a field's byte count is bounded only by what the
     /// reader yields, and `8 · bytes.len()` outgrows a 32-bit `usize` from
-    /// 512 MiB of field; `u64` represents it exactly.
+    /// 512 MiB of field. [`read_bit`] refuses a field of 2^61 bytes or more
+    /// with [`Decode::TooLarge`], so a `u64` represents every position.
     ///
     /// [`read_bit`]: BitRead::read_bit
     /// [`read_gamma`]: BitRead::read_gamma
@@ -98,7 +99,14 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
     type Error = Decode;
 
     fn read_bit(&mut self) -> Result<bool, Decode> {
-        if self.position == self.bytes.len() as u64 * 8 {
+        // `position <= 8 · bytes.len()`, so the buffer is exhausted exactly
+        // when `position / 8` reaches the byte count.
+        if self.position / 8 == self.bytes.len() as u64 {
+            // A field of 2^61 bytes or more has no `u64` bit count, so we
+            // refuse the byte that would bring it to that length.
+            if bits_in(self.bytes.len() as u64 + 1).is_none() {
+                return Err(Decode::TooLarge);
+            }
             let mut byte = [0];
             self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
             self.bytes.push(byte[0]);
@@ -122,8 +130,9 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
         // construction. It fires when earlier refills left enough unconsumed
         // bits buffered; everything else, every reject included, is decided
         // by the per-bit loop below, refilling byte by byte on demand.
-        if let Some((n, next)) =
-            BitsReader::gamma_from_window(&self.bytes, self.bytes.len() as u64 * 8, self.position)
+        let buffered =
+            bits_in(self.bytes.len() as u64).expect("the refill keeps a field below 2^61 bytes");
+        if let Some((n, next)) = BitsReader::gamma_from_window(&self.bytes, buffered, self.position)
         {
             self.position = next;
             return Ok(BigUint::from(n));

@@ -240,9 +240,10 @@ impl<'a> Ranked<'a> {
     ///
     /// # Errors
     ///
-    /// - [`Decode::Truncated`], [`Decode::TrailingBits`], or
-    ///   [`Decode::NotCanonical`] when either component has the corresponding
-    ///   defect described by [`Rank::decode`] or [`Version::decode`];
+    /// - [`Decode::Truncated`], [`Decode::TrailingBits`],
+    ///   [`Decode::NotCanonical`], or [`Decode::TooLarge`] when either
+    ///   component has the corresponding defect described by [`Rank::decode`]
+    ///   or [`Version::decode`];
     /// - [`Decode::NotCanonical`] when the rank and version disagree;
     /// - [`Decode::Io`] when the reader fails.
     ///

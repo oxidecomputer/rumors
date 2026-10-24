@@ -15,7 +15,7 @@ impl Party {
     /// Validates exactly one canonical Party encoding and adopts it as the
     /// party's storage.
     pub(crate) fn decode_bytes(bytes: Vec<u8>) -> Result<Self, Decode> {
-        let end = validate::prefix(BitsReader::from_bytes(&bytes))?;
+        let end = validate::prefix(BitsReader::from_bytes(&bytes)?)?;
         Bits::validate_padding(&bytes, end)?;
         Ok(Self::from_canonical(Bits::from_canonical_vec(bytes)))
     }
@@ -26,7 +26,7 @@ impl Party {
     /// Returns the party and the bytes after it, which start the next encoded
     /// field. The two share no allocation.
     pub(crate) fn decode_head(mut bytes: Vec<u8>) -> Result<(Self, Vec<u8>), Decode> {
-        let end = validate::prefix(BitsReader::from_bytes(&bytes))?;
+        let end = validate::prefix(BitsReader::from_bytes(&bytes)?)?;
         let len = Bits::padded_len(&bytes, end)?;
         let rest = bytes.split_off(len);
         Ok((Self::from_canonical(Bits::from_canonical_vec(bytes)), rest))

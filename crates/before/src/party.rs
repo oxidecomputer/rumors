@@ -696,6 +696,7 @@ impl Party {
     /// - [`Decode::TrailingBits`] if the padding is malformed or followed by
     ///   more bytes;
     /// - [`Decode::NotCanonical`] if the tree contains a collapsible node;
+    /// - [`Decode::TooLarge`] if the input holds 2^61 bytes or more;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity

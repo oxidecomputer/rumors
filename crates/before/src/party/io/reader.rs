@@ -15,7 +15,7 @@
 //! reader rather than an accidental copy. Algorithms that align two parties
 //! represent an absent child as `None`; it is not a stored node.
 
-use crate::bits::Bits;
+use crate::bits::{bits_in, Bits};
 use crate::party::Party;
 
 /// One complete subtree borrowed from a party reader.
@@ -234,7 +234,9 @@ impl<'a> PartyReader<'a> {
             .last()
             .expect("a Party's nonempty tree has canonical storage");
         debug_assert!(last != 0, "canonical storage ends in a marker bit");
-        bytes.len() as u64 * 8 - 1 - u64::from(last.trailing_zeros())
+        let stored = bits_in(bytes.len() as u64)
+            .expect("sealed storage holds fewer than 2^61 bytes: decoders reject more, and no machine can allocate more for a writer");
+        stored - 1 - u64::from(last.trailing_zeros())
     }
 
     /// Decode the child-presence tag at `position`.

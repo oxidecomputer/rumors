@@ -11,7 +11,7 @@ use core::hash::{Hash, Hasher};
 
 use bytes::Bytes;
 
-use super::{BitRead, BitsReader};
+use super::{bits_in, BitRead, BitsReader};
 use crate::error::Decode;
 
 /// Immutable canonical bytes for a party or version.
@@ -21,6 +21,10 @@ use crate::error::Decode;
 /// into a larger buffer. A value built from these streams therefore keeps
 /// alive only its own encoding, however it was decoded or split. Clones share
 /// the refcounted byte buffer. Readers exclude the marker and padding.
+///
+/// Every stream holds fewer than 2^61 bytes, so its length in bits fits a
+/// `u64`: decoders reject longer input, and a writer could build one only by
+/// allocating 2^61 bytes, which no machine can do.
 #[derive(Clone)]
 pub struct Bits {
     /// Live bits followed by the marker and zero padding.
@@ -117,11 +121,18 @@ impl Bits {
     /// No remaining bit means the marker was truncated. Any remainder other
     /// than one marker followed by at most seven zeros is trailing data.
     ///
+    /// # Errors
+    ///
+    /// [`Decode::TooLarge`] if `bytes` holds 2^61 bytes or more;
+    /// [`Decode::Truncated`] if no bit remains after `position`;
+    /// [`Decode::TrailingBits`] if the remainder is not the marker and its
+    /// padding.
+    ///
     /// # Panics
     ///
     /// `position` must be at or before the end of `bytes`.
     pub(crate) fn validate_padding(bytes: &[u8], position: u64) -> Result<(), Decode> {
-        let total = bytes.len() as u64 * 8;
+        let total = bits_in(bytes.len() as u64).ok_or(Decode::TooLarge)?;
         assert!(
             position <= total,
             "padding checked at a position inside the buffer"
@@ -165,7 +176,8 @@ impl Bits {
     /// # Errors
     ///
     /// [`Decode::Truncated`] if `bytes` ends before the byte that holds the
-    /// marker; [`Decode::TrailingBits`] if the marker or padding is malformed.
+    /// marker; [`Decode::TrailingBits`] if the marker or padding is malformed;
+    /// [`Decode::TooLarge`] if the padded value would span 2^61 bytes or more.
     pub(crate) fn padded_len(bytes: &[u8], end: u64) -> Result<usize, Decode> {
         match usize::try_from((end + 1).div_ceil(8)) {
             Ok(len) if len <= bytes.len() => {

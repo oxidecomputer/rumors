@@ -95,6 +95,7 @@ impl<'a> Span<'a> {
     ///   follow the span.
     /// - [`Decode::NotCanonical`]: a component is non-canonical or the
     ///   endpoints are reversed or incomparable.
+    /// - [`Decode::TooLarge`]: the input holds 2^61 bytes or more.
     /// - [`Decode::Io`]: the reader itself fails.
     ///
     /// Structural encoding errors take precedence over endpoint ordering.
@@ -144,7 +145,7 @@ impl<'a> Span<'a> {
         // admission walk validate the upper endpoint while deciding whether it
         // equals, dominates, or fails to dominate the lower endpoint. A span
         // accepts only the first two relations.
-        let mut hi_reader = BitsReader::from_bytes(&hi_bytes);
+        let mut hi_reader = BitsReader::from_bytes(&hi_bytes)?;
         let relation = validate::dominating_from(&lo, &mut hi_reader)?;
 
         // Check the upper endpoint's marker and padding before acting on the

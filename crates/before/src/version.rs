@@ -1067,6 +1067,7 @@ impl Version {
     ///   more bytes;
     /// - [`Decode::NotCanonical`] if the tree is not in normal form or a
     ///   leaf's height is negative;
+    /// - [`Decode::TooLarge`] if the input holds 2^61 bytes or more;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity

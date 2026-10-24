@@ -2012,6 +2012,7 @@ enum Verdict<T> {
     Truncated,
     TrailingBits,
     NotCanonical,
+    TooLarge,
     Io(io::ErrorKind),
 }
 
@@ -2023,6 +2024,7 @@ impl<T> From<Result<T, Decode>> for Verdict<T> {
             Err(Decode::Truncated) => Verdict::Truncated,
             Err(Decode::TrailingBits) => Verdict::TrailingBits,
             Err(Decode::NotCanonical) => Verdict::NotCanonical,
+            Err(Decode::TooLarge) => Verdict::TooLarge,
             Err(Decode::Io(error)) => Verdict::Io(error.kind()),
         }
     }

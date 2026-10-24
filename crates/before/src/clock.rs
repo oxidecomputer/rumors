@@ -877,6 +877,7 @@ impl Clock {
     ///   bytes follow the version;
     /// - [`Decode::NotCanonical`] if either component is not in normal form,
     ///   or a leaf of the version has a negative height;
+    /// - [`Decode::TooLarge`] if the input holds 2^61 bytes or more;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity
