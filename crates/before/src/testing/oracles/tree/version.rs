@@ -20,7 +20,7 @@ fn descend((expansions, depth): Cost) -> Cost {
     (expansions, depth + 1)
 }
 
-/// Account for turning an event leaf into the branch the recursion just walked.
+/// Account for turning an event leaf into the branch the recursion just traversed.
 fn add_expansion((expansions, depth): Cost) -> Cost {
     (expansions + 1, depth)
 }
@@ -45,7 +45,7 @@ fn left_is_cheaper(left: Option<Cost>, right: Option<Cost>) -> bool {
 /// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
 /// paper's subtree-preserving cases (`shift` rebuilding only a root, `grow`
 /// keeping the sibling it didn't inflate) share structure instead of
-/// deep-copying, which keeps every oracle walk linear in the tree it visits.
+/// deep-copying, which keeps every oracle traversal linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
     Leaf(BigUint),

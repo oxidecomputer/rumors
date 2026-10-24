@@ -1,7 +1,7 @@
 //! Public-surface totality against rustdoc JSON.
 //!
 //! This binary parses `before`'s nightly rustdoc JSON, built with all features
-//! so feature-gated modules remain visible. It walks the publicly reachable
+//! so feature-gated modules remain visible. It traverses the publicly reachable
 //! item tree and gives every item exactly one disposition:
 //!
 //! - function-like items (free functions, inherent methods, and

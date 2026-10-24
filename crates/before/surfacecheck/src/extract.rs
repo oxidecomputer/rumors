@@ -1,6 +1,6 @@
-//! The reachability walk: every public item, named as its check names it.
+//! The reachability traversal: every public item, named as its check names it.
 //!
-//! The walk starts at the crate's root module and follows exactly what a
+//! The traversal starts at the crate's root module and follows exactly what a
 //! user of the public API can reach: public modules, `pub use`
 //! re-exports (named and glob), public types and their impls, and public
 //! traits, recording each item under the path it is *reachable* at
@@ -82,7 +82,7 @@ pub(crate) struct Surface {
     pub usize_signatures: BTreeSet<String>,
 }
 
-/// Walk the publicly reachable item tree and collect every public item
+/// Traverse the publicly reachable item tree and collect every public item
 /// into its [`Surface`] category.
 pub(crate) fn public_surface(krate: &Crate) -> Surface {
     let root = module_of(krate, krate.root);
@@ -92,7 +92,7 @@ pub(crate) fn public_surface(krate: &Crate) -> Surface {
 }
 
 /// Look up an id in the index, panicking with the id on a dangling
-/// reference: the walk must never silently skip surface it was pointed
+/// reference: the traversal must never silently skip surface it was pointed
 /// at.
 fn item_of(krate: &Crate, id: Id) -> &Item {
     krate
@@ -111,14 +111,14 @@ fn module_of(krate: &Crate, id: Id) -> &rustdoc_types::Module {
 
 /// Record one module's items under `prefix`, following re-exports.
 ///
-/// `expanding` holds the modules whose items the walk is recording along
+/// `expanding` holds the modules whose items the traversal is recording along
 /// the current path, the crate root first, whether entered by name or
 /// spliced in by a glob. A module already among them is not expanded
 /// again: a path through the same module twice, by a glob cycle
 /// (`pub use m::*` loops) or a named re-export of an enclosing module,
 /// spells only items a shorter path already spells, and would repeat
 /// without end. A module re-exported at two paths that do not pass through
-/// it twice is walked once per path, because each path names distinct
+/// it twice is traversed once per path, because each path names distinct
 /// public surface.
 ///
 /// Recurses, through [`walk_named`] and [`walk_use`], once per module
@@ -137,7 +137,7 @@ fn walk_module(
     }
 }
 
-/// Record a module's items under `prefix` unless the walk is already
+/// Record a module's items under `prefix` unless the traversal is already
 /// expanding it along the current path, as [`walk_module`] explains.
 fn expand_module(
     krate: &Crate,
@@ -237,7 +237,7 @@ fn walk_named(
                     _ => {}
                 }
             }
-            // Impls of a public trait for types the type walk never
+            // Impls of a public trait for types the type traversal never
             // visits (primitives, foreign types) are reachable only
             // from the trait's page; record them under the trait's
             // reachable path.
@@ -262,7 +262,7 @@ fn walk_named(
         }
         // Not reachable surface in this crate's grammar: enum variants
         // and struct fields (reached through their types' rows), type
-        // aliases (aliases of already-walked types), and the rest of
+        // aliases (aliases of already-traversed types), and the rest of
         // the item grammar.
         _ => {}
     }
@@ -424,7 +424,7 @@ fn record_impl(krate: &Crate, impl_id: Id, owner: &str, surface: &mut Surface) {
 /// `self_type` is the implementing type when the function lives in an impl,
 /// so a `Self` in the signature counts as that type; inside a trait
 /// definition `Self` is unknown. The enclosing impl's own generics belong to
-/// its header row, which [`record_impl`] and the inherent-impl walk record.
+/// its header row, which [`record_impl`] and the inherent-impl traversal record.
 fn record_usize_signature(
     function: &Function,
     row: &str,

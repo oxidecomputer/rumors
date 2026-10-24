@@ -8,7 +8,7 @@
 //! arbitrary pairs, co-generated pairs, and organic histories. The flag is
 //! emitted-differs-from-input, plateau-aligned: a value-reproducing raise must
 //! not trip it, and the first emitted leaf compares absolute against absolute
-//! (the worked corner cases pin both). The oracle walks on native frames, so
+//! (the worked corner cases pin both). The oracle's traversals run on native frames, so
 //! these grids run at oracle-sized depths; deep-input coverage lives in the
 //! closed-form witnesses below and the measurement suites' output assertions at
 //! their committed scales. Those size checks do not discriminate the width of
@@ -1033,7 +1033,7 @@ fn left_spike(depth: usize) -> Version {
 
 /// Deep spines stay correct without using the recursive oracle.
 ///
-/// The recursive oracle walks on native frames (it is the small-scope
+/// The recursive oracle's traversals run on native frames (it is the small-scope
 /// reference, not a deep-input one), so the value witnesses here are closed
 /// forms. The full party collapses the whole spine to one leaf at its maximum
 /// height (the alternating spine's only nonzero leaf is the `1` at the bottom

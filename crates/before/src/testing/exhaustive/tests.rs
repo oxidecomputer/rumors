@@ -308,7 +308,7 @@ fn check_tick(ids: &[tree::Party], imp_ids: &[Party], evs: &[tree::Version], imp
 /// The two corpora grow at different rates, so their bounds are decoupled; see
 /// the parent module doc. The anonymous (empty) id is dropped here, up front:
 /// a standalone `Party` is never anonymous (module doc), and testing emptiness
-/// per row instead would put two boxed-tree walks inside the deep bound's
+/// per row instead would put two boxed-tree traversals inside the deep bound's
 /// ~4.3-billion-iteration pair loops.
 #[allow(clippy::type_complexity)]
 fn corpora_at(
@@ -508,7 +508,7 @@ fn event_meet_is_commutative() {
 /// - **Events, by denotation distinctness plus the committed size**: no
 ///   two enumerated event trees share a step function over the level-
 ///   [`EV_SMALL_DEPTH`] grid (evaluated here by an independent path-sum
-///   walk, no `node`/normalization involved), and the corpus size is the
+///   traversal, no `node`/normalization involved), and the corpus size is the
 ///   committed `691` of the module doc, so a shrink moves the literal and
 ///   a dedup bug that conflated distinct denotations would shrink the
 ///   distinct-vector set below the corpus size.

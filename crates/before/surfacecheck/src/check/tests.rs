@@ -273,7 +273,7 @@ fn module_exception_live_through_impls_and_items() {
     assert!(findings.is_clean(), "{findings:?}");
 }
 
-/// A walk that returns nothing cannot read green: the liveness anchors
+/// A traversal that returns nothing cannot read green: the liveness anchors
 /// are missing-anchor findings even when coverage and extraction agree on
 /// the empty surface.
 #[test]

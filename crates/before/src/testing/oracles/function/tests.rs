@@ -358,7 +358,7 @@ fn rank_differential_rejects_a_cell_dropping_riemann_sum() {
     }
 }
 
-/// The embedding with one deliberate defect: every descent step walks
+/// The embedding with one deliberate defect: every descent step descends
 /// into the wrong child (the mirror image of the §4 recursion).
 ///
 /// This deliberately incorrect implementation demonstrates why fixed samples

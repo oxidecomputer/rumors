@@ -142,7 +142,7 @@ enum RefId {
 }
 
 /// Probe the cheapest inflation by direct recursion over the `(id, ev)` shape:
-/// the transliteration of the recursive walk whose route fold the fused tick
+/// the transliteration of the recursive traversal whose route fold the fused tick
 /// walk carries, kept as its structural witness.
 ///
 /// The recursion keeps one native frame per level of `party`, plus one for
@@ -463,7 +463,7 @@ fn left_spike(depth: usize) -> Version {
 /// a frame per level is `clock::tests::deep_tree_stack_safety`'s claim, which
 /// ticks the grow branch over a far deeper spine.
 ///
-/// The recursive oracle walks on native frames, so the value witnesses here are
+/// The recursive oracle's traversals run on native frames, so the value witnesses here are
 /// closed forms, derived per case: the deep unary id over the empty version
 /// grows the expansion chain to its owned tip, the left spike; and over the
 /// deep alternating spine the same id turns left into the spine's depth-2 zero

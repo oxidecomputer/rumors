@@ -7,7 +7,7 @@ use std::sync::Arc;
 /// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
 /// paper's subtree-preserving cases (`split` handing each half of a two-sided
 /// node to one fork, whole) share structure instead of deep-copying, which
-/// keeps every oracle walk linear in the tree it visits.
+/// keeps every oracle traversal linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Party {
     Leaf(bool),

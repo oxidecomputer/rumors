@@ -344,10 +344,10 @@
 //! A *clear* of the written set reduces it to position zero and passes every
 //! other position it held to its caller. The run and the prefix are ranges,
 //! so the set passes their positions one comparison each. The bitset passes
-//! its positions by a walk upward from level 0 that empties each nonempty
+//! its positions by a traversal upward from level 0 that empties each nonempty
 //! word below the level it reaches, enters no empty word, and climbs past a
 //! level only while a position remains above that level's word zero, a
-//! position whose word at that level the walk later empties. Its module
+//! position whose word at that level the traversal later empties. Its module
 //! states the cost: O(1), plus one word operation per word it empties and per
 //! position it passes. Each passed position spends its held-positions unit,
 //! and each emptied word its nonempty-words unit, so a clear costs amortized

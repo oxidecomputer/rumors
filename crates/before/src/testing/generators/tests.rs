@@ -354,7 +354,7 @@ fn deep_strategies_keep_mass_on_their_regimes() {
 /// Checks that every leaf lies inside one plateau, at that plateau's height,
 /// and that the plateaus cover exactly the leaves.
 ///
-/// Both listings tile `[0, 1)` in stream order, so one pass walks them in
+/// Both listings tile `[0, 1)` in stream order, so one pass traverses them in
 /// step. Widths count cells of the finest leaf depth, as `BigUint` because
 /// depths pass 128: a leaf at depth `d` spans `2^(finest − d)` cells. A leaf
 /// wider than what remains of the current plateau straddles a plateau
