@@ -8,9 +8,10 @@
 //! The generators themselves are private: every instrument constructs its shapes
 //! through the family registry ([`registry`]), whose roster is the single
 //! source of truth for adversarial families. The amplification board ([`board`])
-//! applies every family to every compatible public operation. Focused tests in
-//! `tests/meter.rs` remain only for claims the board cannot express, such as
-//! changing an operation argument while holding the encoded operands fixed.
+//! applies every family to every compatible public operation. The
+//! `focused-fuel` harness and the focused tests in `tests/meter.rs` hold the
+//! claims the board cannot express, such as changing an operation argument
+//! while holding the encoded operands fixed.
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
@@ -2250,12 +2251,11 @@ fn parked_unit_spine(bits: &mut BitsWriter, s: usize) {
 /// that steps the gap digit by digit pays `Θ(n)` unfunded touches per event
 /// (`Θ(n²)` on linear input), and the parked digit-0 unit forecloses
 /// value-emptiness and write-watermark shortcuts, so crossing the never-written
-/// gap in one step per jump is what holds the cost flat
-/// (`skyline_rank_weight_comb_is_flat_per_unit` in
-/// `tests/meter/version_scaling/skip_adequacy.rs` carries both readings).
-/// `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's `32n − 1`
-/// unit leaves plus the block's `n` twos). Normal form: the innermost leaf pair
-/// is `(1, 0)`, every block pair is `(0, 2)`, and every subtree minimum is 0.
+/// gap in one step per jump is what holds the cost flat (the board's
+/// `version_rank` cell on this family judges it in fuel). `min_ticks(WC(n))` is
+/// the stored-base sum `34n − 1` (the spine's `32n − 1` unit leaves plus the
+/// block's `n` twos). Normal form: the innermost leaf pair is `(1, 0)`, every
+/// block pair is `(0, 2)`, and every subtree minimum is 0.
 ///
 /// # Panics
 ///
@@ -2305,7 +2305,7 @@ fn weight_comb(n: usize) -> Encoding {
 /// node's minimum its last leaf, so right children code base 0 and left
 /// children the difference of the halves' minima; `min_ticks(FZ(k))` is the
 /// printed-base sum, re-derived in closed form by this module's tests and the
-/// touch band `skyline_rank_freeze_parade_is_flat_per_unit`. Normal form: values strictly descend (no equal siblings) and every
+/// `family_answers` suite. Normal form: values strictly descend (no equal siblings) and every
 /// subtree minimum is 0 through the spine's parked unit.
 ///
 /// # Panics
@@ -2505,8 +2505,7 @@ fn narrow_freezes(e: usize, c: usize) -> Encoding {
 /// with no intervening write. Exact-`top` maintenance prices each read at the
 /// value's own width; a high-water bound re-walks the spike's `g` dead digits
 /// per read — `Θ(m·g)` on `Θ(m + g)` input, the cost the spike's own code paid
-/// once (`skyline_cmp_tooth_tail_is_flat_per_unit` in
-/// `tests/meter/version_scaling/skip_adequacy.rs` carries both readings).
+/// once (the board's `version_cmp` cell on this family judges it in fuel).
 /// `min_ticks` is the stored-base sum `m·h + 2^(32g)` per operand (`h` the
 /// operand's unit height, 1 for `a` and 2 for `b`), and `a` precedes `b` in the
 /// causal order. Normal form: every chain node's subtree minimum is 0 through
@@ -3264,8 +3263,7 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 /// · k)` word operations against a `Θ(m·k + d)`-bit input, and the anchored-segment
 /// co-sweep (`version/measure/integral.rs`'s module doc) settles each
 /// crest against its own segment and stays linear — the separation the
-/// `skyline_distance_jump_pair_is_flat_per_unit` band test and the board cell
-/// hold. The **join** (the band
+/// board's fuel cell holds. The **join** (the band
 /// shades every gap) collapses to unit steps around one climb, and either
 /// operand's own rank is flat: both inputs are individually innocuous, and the
 /// shape exists only in the two-operand composition.
@@ -3604,8 +3602,8 @@ fn stagger_population(n: usize, m: usize) -> (Vec<Encoding>, Vec<Encoding>) {
 /// so the equal-shade combines are answered by the byte compare the band
 /// describes — never by the folds' clone-identity collapse, which would drop
 /// the shades before the fold reads them and turn the flatness band into a
-/// measurement of the collapse instead. The collapse has its own liveness pin
-/// (`identity_fast_paths` in `tests/meter.rs`).
+/// measurement of the collapse instead. The collapse has its own claim in the
+/// `focused-fuel` harness's identity suite.
 ///
 /// # Panics
 ///

@@ -715,9 +715,9 @@ pub enum FamilyId {
     /// event — the position weight is topology, so no code funds the gap — and
     /// every cancellation makes the accumulator's top settle back across the
     /// never-written gap. A settlement scan that steps the gap digit by digit
-    /// goes quadratic here; crossing the never-written gap in one step per
-    /// jump reads flat (`skyline_rank_weight_comb_is_flat_per_unit`).
-    /// Designed against the numeric-measure rows.
+    /// goes quadratic here; crossing the never-written gap in one step per jump
+    /// reads flat (the board's `version_rank` cell on this family). Designed
+    /// against the numeric-measure rows.
     WeightComb,
     /// The freeze-parade spine `freeze_parade(k)`: the deep-segment freeze
     /// sentinel.
@@ -728,9 +728,8 @@ pub enum FamilyId {
     /// segment read starts `Θ(k)` digits up. The accumulator's write watermark
     /// prices each read at the segment's written span; a scaled read that
     /// starts at digit 0 walks the never-written prefix per freeze and goes
-    /// quadratic in accumulator touches; the watermark stays flat in
-    /// `skyline_rank_freeze_parade_is_flat_per_unit`. The freeze-position
-    /// spine prices the numeric fold's
+    /// quadratic in accumulator touches; the watermark stays flat on the
+    /// board's `version_rank` cell. The freeze-position spine prices the numeric fold's
     /// per-freeze accounting; this family prices the accumulator's read side
     /// under the same schedule. Designed against the numeric-measure rows.
     FreezeParade,
@@ -746,9 +745,8 @@ pub enum FamilyId {
     /// repeating those suffix walks. The mate is the same topology at unit
     /// bases, and the wide operand dominates it pointwise, so the pair rows run
     /// the co-sweep whose freezes and promotions fire on drift only the wide
-    /// operand deposited (the dense-suffix rank and distance bands in
-    /// `tests/meter/version_scaling/skip_adequacy.rs` carry the enforcement).
-    /// Designed against the numeric-measure rows.
+    /// operand deposited (the board's rank and distance cells on this family
+    /// judge it in fuel). Designed against the numeric-measure rows.
     DenseSuffix,
     /// Combines one wide counter change with a dense suffix.
     ///
@@ -780,10 +778,10 @@ pub enum FamilyId {
     /// prefix, and a segment feed or close read that is not amortized O(1) per
     /// interval scales with the tail, while the family's funded wide codes stay
     /// O(1). Exactly one freeze and no deferral occurs, so the column also
-    /// prices the settle's smallest nonempty configuration. The lone-freeze
-    /// bands in `tests/meter/version_scaling/freeze_schedules.rs` isolate each
-    /// axis at the generator minimum and carry the enforcement; the column
-    /// scales both together. Designed against the numeric-measure rows.
+    /// prices the settle's smallest nonempty configuration. The board column
+    /// scales both axes together, so a regression on either reads on its
+    /// doubling.
+    /// Designed against the numeric-measure rows.
     LoneFreeze,
     /// The concurrent pair `concurrent_pair(n)`: the emit side-switch density
     /// population.
@@ -801,12 +799,12 @@ pub enum FamilyId {
     /// same boundary, then reads `sign(D)` once per remaining boundary with no
     /// intervening write. Exact-`top` maintenance prices each read at the
     /// settled value's own width; a high-water bound re-walks the spike's `g`
-    /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the
-    /// `skyline_cmp_tooth_tail_is_flat_per_unit` carries both readings). Every
-    /// overlay boundary is shared by both operands and almost every stored
-    /// delta is zero, so the pair also witnesses the lowest required touch
-    /// count (the board floor module's `touch_pair_fold`): a conforming sweep
-    /// is forced to fold only the three nonzero deltas per operand, and the
+    /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the board's
+    /// `version_cmp` cell on this pair judges it in fuel). Every overlay
+    /// boundary is shared by both operands and almost every stored delta is
+    /// zero, so the pair also witnesses the lowest required touch count
+    /// (the board floor module's `touch_pair_fold`): a conforming sweep is
+    /// forced to fold only the three nonzero deltas per operand, and the
     /// measured per-boundary sign-read traffic sits far above that floor as
     /// implementation, never mandate.
     ToothTail,

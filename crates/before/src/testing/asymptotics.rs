@@ -136,8 +136,8 @@ fn party_join_all_log_factor_is_alive() {
 /// `Θ(w)` terms under that same compaction, and the mass's `d` digits
 /// must stay isolated by more than a full digit (incompressible)
 /// at non-uniform jitter. A representation or content change that
-/// weakens the embedding reads red here. The flatness bands in
-/// `tests/meter.rs` check the implementation's measured cost separately.
+/// weakens the embedding reads red here. The board's fuel cells and the
+/// `focused-fuel` claims check the implementation's measured cost separately.
 #[cfg(feature = "meter")]
 #[test]
 fn mul_bound_embedding_is_alive() {

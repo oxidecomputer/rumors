@@ -288,15 +288,21 @@
 //! it was built to save, each of which leaves every value unchanged and moves
 //! no board cell out of its linear bound.
 //!
-//! **The focused resource checks** (`tests/meter.rs`). These vary an axis the
-//! board deliberately holds fixed: an operation argument at fixed operands, a
-//! paired control's marginal cost, the retained densification counter, or an
-//! exact early-exit relationship. What they alone catch: **orthogonal cost
-//! growth** that cannot be represented by scaling a board family's operands.
-//! They also hold exact heap parities between entry points that compute the
-//! same value, which catch **constant-size allocations** too small for the
-//! board's peak-heap column to resolve, such as an operand clone on a path that
-//! discards it.
+//! **The focused resource checks** (`tests/meter.rs`). These hold the memory
+//! and counter claims the board cannot express: heap and allocation ceilings
+//! at the shapes that exercise one representation choice, and the retained
+//! densification counter. They also hold exact heap parities between entry
+//! points that compute the same value, which catch **constant-size
+//! allocations** too small for the board's peak-heap column to resolve, such
+//! as an operand clone on a path that discards it, and **densification sized
+//! by absolute position** rather than span, which zero-fills bytes no operand
+//! width or accumulator digit shows.
+//!
+//! **The family answers** (`tests/family_answers.rs`). Each committed
+//! adversarial family's closed-form `min_ticks`, and its pair relations,
+//! checked at two sizes. What they alone catch: **a generator that builds the
+//! wrong tree**, which every cost judgment over its family would then measure
+//! without noticing.
 //!
 //! **The fuzz-fit bands** (the `fuzzfit` workspace under this crate).
 //! Public operations compiled to wasm and metered in wasmtime *fuel*

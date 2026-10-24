@@ -152,8 +152,8 @@ check:
 # loop lights them for that package. One `--workspace` build unifies
 # features, so this compiles the before lib with both meters for every
 # dependent and runs every before suite gated on them (the focused resource
-# suite, the answer-embedded and fold-skeleton suites, the touch-meter unit
-# tests); the other packages' own features stay default.
+# suite and the unit tests that read the meters); the other packages' own
+# features stay default.
 test *args:
     cargo nextest run --workspace {{ tool_members }} --features before/touch-meter,before/scan-meter {{ args }}
 
