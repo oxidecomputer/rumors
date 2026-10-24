@@ -21,8 +21,11 @@ pub(super) mod tests;
 ///
 /// A wider magnitude pays a separate allocation's fixed cost, so a client
 /// should push one only when it has input to charge that cost to. `min_ticks`
-/// does: a record offset this wide comes from a leaf whose own height change
-/// is at least `PACKED_BITS − RECORD_SLACK_BITS` bits.
+/// does, for both of its clients: a record offset this wide comes from a leaf
+/// whose own height change is at least `PACKED_BITS − RECORD_SLACK_BITS`
+/// bits, and a copied reference chunk is at most two bits wider than this
+/// bound, so its allocation costs a constant, as
+/// [`INLINE_CHUNK_BITS`](super::heights::INLINE_CHUNK_BITS) explains.
 pub const PACKED_BITS: u64 = 256;
 
 /// Limbs of a packed magnitude at most.

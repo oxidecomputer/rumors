@@ -70,8 +70,11 @@ impl Records {
             self.first.len() != 0,
             "an armed subtree has a current minimum"
         );
-        // Each close consumes one internal node of a version held in memory,
-        // so the count stays far below u64::MAX.
+        // Each close consumes one internal node of the version, which spends
+        // at least three encoded bits per internal node, so the count can
+        // reach u64::MAX only for a version of more than 2^62 bytes: within
+        // `isize::MAX` on a 64-bit target, but beyond any address space a
+        // 64-bit platform implements.
         self.top_closes += 1;
     }
 
