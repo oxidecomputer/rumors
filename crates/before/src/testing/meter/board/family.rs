@@ -385,7 +385,7 @@ const PROMO_REARM_BASE_BLOCKS: usize = 512;
 ///
 /// The rounding is the complete-subtree relation's call-site repair, and the
 /// level doubling then doubles the rounded count exactly. The base is the scale
-/// of the `skyline_flatness` weight-comb band's small run, so the board's
+/// of `skyline_rank_weight_comb_is_flat_per_unit`'s small run, so the board's
 /// default pair spans the gap-skipping behavior the family exists to check.
 /// Power-of-two `n` keeps the spine depth `32n ≡ 0 (mod 32)`, so `rank_sum`
 /// lands its small summands at the same bit remainder at both scales and the
@@ -397,7 +397,7 @@ const WEIGHT_COMB_BASE_BLOCKS: usize = 512;
 /// dominating the encoded version's size), rounded up to a power of two at
 /// every scale (the parade block is one complete subtree).
 ///
-/// This is the small size used by the `skyline_flatness` freeze-parade band,
+/// This is the small size used by `skyline_rank_freeze_parade_is_flat_per_unit`,
 /// which exercises the write watermark across a doubling. Power-of-two `k`
 /// keeps the spine depth `64k ≡ 0 (mod 32)`, the same `rank_sum` remainder
 /// alignment as the weight comb's.
@@ -417,7 +417,8 @@ const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 /// diagonal) at the default scale (the blocks' wide climb codes dominating the
 /// encoded version's size).
 ///
-/// This is the small size used by the `skyline_flatness` dense-suffix bands.
+/// This is the small size used by the dense-suffix bands in
+/// `tests/meter/version_scaling/skip_adequacy.rs`.
 /// The base is a multiple of 32 deliberately: the family's rank exponent is linear in the
 /// knob, and `rank_sum` lands its small summands at bit remainder `exp mod 32`
 /// (an amortized-O(1) constant that flips with the remainder — the
@@ -452,7 +453,8 @@ const PLATEAU_PUNCTURE_BASE_DIGITS: usize = 384;
 /// drives the never-freezing plateau prefix and the frozen tail together) at
 /// the default scale.
 ///
-/// The scale of the `skyline_flatness` lone-freeze bands' small runs (each band
+/// The scale of the lone-freeze bands' small runs in
+/// `tests/meter/version_scaling/freeze_schedules.rs` (each band
 /// isolates one axis at the generator minimum; the board column scales both, so
 /// a regression on either side reads on the doubling). A multiple of 32 for the
 /// same `rank_sum` remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`], kept
