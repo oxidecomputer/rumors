@@ -80,12 +80,8 @@ mod duplicate_runs;
 #[path = "meter/encode_allocation.rs"]
 mod encode_allocation;
 #[cfg(feature = "touch-meter")]
-#[path = "meter/eq_early_exit.rs"]
-mod eq_early_exit;
-#[cfg(feature = "touch-meter")]
 #[path = "meter/hoisted_window.rs"]
 mod hoisted_window;
-#[cfg(feature = "scan-meter")]
 #[path = "meter/identity_fast_paths.rs"]
 mod identity_fast_paths;
 #[path = "meter/lattice_clones.rs"]
