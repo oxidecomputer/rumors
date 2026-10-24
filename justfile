@@ -71,7 +71,7 @@ fuzz_smoke_secs := "20"
 # member is built, linted, and tested by its own recipes. `manifestlint`
 # holds this list to the workspace; its header states the rules.
 
-tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude suanpan-fuel-guest --exclude suanpan-fuel-harness --exclude suanpan-fuel-protocol --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
+tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude focused-fuel-guest --exclude focused-fuel-harness --exclude focused-fuel-protocol --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude suanpan-fuel-guest --exclude suanpan-fuel-harness --exclude suanpan-fuel-protocol --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
 
 # The fuzz-fit guest's wasm: one artifact produced by one recipe and read
 # by two others (the fuzz-fit harness and the fuelscape pipeline).
@@ -108,6 +108,13 @@ wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/wasm32-pin
 
 board_fuel_target := justfile_directory() + "/target/board-fuel"
 board_fuel_guest_wasm := board_fuel_target + "/wasm32-unknown-unknown/fuel/board_fuel_guest.wasm"
+
+# The focused-fuel guest's wasm: produced by `focused-fuel-build` in the
+# `fuel` profile, read by the focused-fuel harness. Named and passed
+# explicitly for the same reason as the fuzz-fit guest above.
+
+focused_fuel_target := justfile_directory() + "/target/focused-fuel"
+focused_fuel_guest_wasm := focused_fuel_target + "/wasm32-unknown-unknown/fuel/focused_fuel_guest.wasm"
 
 # The environment every fuel-metered wasm guest builds under. A guest embeds
 # source paths (panic locations), and their lengths shift its memory layout
@@ -512,6 +519,7 @@ gate-streams:
     start_stream board        10 _gate-board
     start_stream board-fuel   10 _gate-board-fuel
     start_stream suanpan-fuel 10 _gate-suanpan-fuel
+    start_stream focused-fuel 10 _gate-focused-fuel
     start_stream wasm         10 _gate-wasm
     start_stream fuzz         10 _gate-fuzz
     start_stream surface      10 _gate-surface
@@ -563,6 +571,9 @@ _gate-board-fuel: amp-board-fuel
 
 # suanpan's cost rules judged over random interleavings, in fuel.
 _gate-suanpan-fuel: suanpan-fuel
+
+# The cost claims the board cannot state, judged in fuel.
+_gate-focused-fuel: focused-fuel
 
 _gate-wasm: fuzzfit fuelscape-test wasm32-pins
 _gate-fuzz: fuzz-build
@@ -1067,6 +1078,27 @@ amp-board-calibrate-fuel: amp-board-fuel-build
     set -euo pipefail
     tree="$({{ source_tree }})"
     AMP_BOARD_SOURCE_TREE="$tree" BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo run --release -p board-fuel-harness --target-dir {{ board_fuel_target }} -- calibrate
+
+# The focused-fuel suites state the cost claims the board cannot: that an
+# operation's cost does not depend on a parameter, that one entry point
+# costs another plus a fixed amount, that a fused walk costs less than the
+# composition it replaces, or that a cost grows along an axis no board
+# family scales. Each claim is a relation between readings of one guest, so
+# no fuel number is committed and the suites need no recalibration after a
+# toolchain or Wasmtime bump. The harness's crate docs name the forms.
+# The guest builds under `fuel_guest_env`, as the board's does. The members'
+# clippy runs here, since the workspace-wide clippy excludes them.
+
+# Build the focused-fuel wasm guest and its harness's tests.
+focused-fuel-build:
+    {{ fuel_guest_env }} cargo build -p focused-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ focused_fuel_target }}
+    cargo build -p focused-fuel-harness -p focused-fuel-protocol --tests --release --target-dir {{ focused_fuel_target }}
+
+# Run the cost claims the board cannot state, each judged in Wasmtime fuel.
+focused-fuel *args: focused-fuel-build
+    cargo clippy -p focused-fuel-guest --target wasm32-unknown-unknown --target-dir {{ focused_fuel_target }} -- -D warnings
+    cargo clippy -p focused-fuel-harness -p focused-fuel-protocol --all-targets --target-dir {{ focused_fuel_target }} -- -D warnings
+    FOCUSED_FUEL_GUEST_WASM={{ focused_fuel_guest_wasm }} cargo nextest run -p focused-fuel-harness -p focused-fuel-protocol --cargo-profile release --target-dir {{ focused_fuel_target }} {{ args }}
 
 # The surface-totality leg holds the resource board's operation inventory
 # against nightly rustdoc JSON — the compiler's own account of the public

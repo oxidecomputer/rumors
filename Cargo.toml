@@ -6,6 +6,9 @@ members = [
     "crates/before-viz",
     "crates/before/board-fuel/guest",
     "crates/before/board-fuel/harness",
+    "crates/before/focused-fuel/guest",
+    "crates/before/focused-fuel/harness",
+    "crates/before/focused-fuel/protocol",
     "crates/before/fuzzfit/guest",
     "crates/before/fuzzfit/harness",
     "crates/before/surfacecheck",
@@ -82,6 +85,7 @@ criterion = "0.5"
 dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
+focused-fuel-protocol = { path = "crates/before/focused-fuel/protocol" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 fuzzfit-harness = { path = "crates/before/fuzzfit/harness" }
 hex = "0.4"

@@ -864,6 +864,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "focused-fuel-guest"
+version = "0.0.0"
+dependencies = [
+ "before",
+ "dlmalloc",
+ "focused-fuel-protocol",
+ "spin",
+]
+
+[[package]]
+name = "focused-fuel-harness"
+version = "0.0.0"
+dependencies = [
+ "board-fuel-harness",
+ "focused-fuel-protocol",
+ "wasmtime",
+]
+
+[[package]]
+name = "focused-fuel-protocol"
+version = "0.0.0"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
 name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

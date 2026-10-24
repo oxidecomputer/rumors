@@ -274,6 +274,17 @@
 //! deferred). It cannot tell work linear in a size the
 //! rules do not charge to a step from that step's own sized charge.
 //!
+//! **The focused fuel claims** (the `focused-fuel` crates under this one;
+//! `just focused-fuel`). Each probe builds its operands in a fresh wasm32
+//! guest instance and reads the fuel of one measured call, and each claim is
+//! a relation between such readings: equal fuel at every value of a parameter
+//! the cost must not depend on, or one operation costing less than another on
+//! the same operands. No fuel number is committed, so no claim needs
+//! recalibrating. What they alone catch: **lost fast paths and early exits**
+//! — a clone, empty, or byte-equal rung that stops answering, or an early
+//! exit that reads on past its deciding interval, either of which leaves
+//! every value unchanged and moves no board cell out of its linear bound.
+//!
 //! **The focused resource checks** (`tests/meter.rs`). These vary an axis the
 //! board deliberately holds fixed: an operation argument at fixed operands, a
 //! paired control's marginal cost, the retained densification counter, or an
