@@ -20,6 +20,11 @@
 //! such a skeleton's repetitions isolate the cost of returning to storage
 //! already grown (see the crate docs).
 //!
+//! The generator draws conversions to `i64` alone, and never a
+//! [`Step::ReversedPrimitive`]; the focused claims in `tests/claims.rs` run
+//! the other conversion targets and the primitive on the left. Drawing them
+//! here would change the programs the committed seeds replay.
+//!
 //! Every skeleton also carries a block: a value-neutral sequence of
 //! fixed-charge steps that runs repeatedly after the context, over whatever
 //! widths the context left. The judgment reads the block's cost per call
@@ -41,10 +46,11 @@
 
 use proptest::prelude::*;
 use suanpan_fuel_protocol::{
-    Direction, Form, LimbInput, Member, Pattern, Primitive, Program, Read, SignQuery, Step, POOL,
+    Direction, Form, Integer, LimbInput, Member, Pattern, Primitive, Program, Read, SignQuery,
+    Step, POOL,
 };
 
-use crate::model::{width, written_member, Model};
+use crate::model::{fits, width, written_member, Model};
 
 /// The base unit `u`, in bits: 40 limbs, 80 digits.
 ///
@@ -241,7 +247,7 @@ impl Skeleton {
         let mut model = model.clone();
         block.iter().all(|step| {
             let refuses = match step {
-                Step::Convert { member } => i64::try_from(&model.values()[member.index()]).is_err(),
+                Step::Convert { member, target } => !fits(&model.values()[member.index()], *target),
                 _ => true,
             };
             model.step(&resolve(step, UNIT_BITS));
@@ -330,7 +336,7 @@ impl Offsets {
     fn after(mut self, step: &Step<Extent>) -> Offsets {
         let o = &mut self.members;
         match step {
-            Step::Primitive { member, .. } => {
+            Step::Primitive { member, .. } | Step::ReversedPrimitive { member, .. } => {
                 let m = member.index();
                 o[m] = o[m].max(PRIMITIVE_BITS) + 1;
             }
@@ -365,7 +371,7 @@ impl Offsets {
                 o[m] += shift.offset_bits();
             }
             Step::Clear { member } => o[member.index()] = 0,
-            Step::Convert { member } => {
+            Step::Convert { member, .. } => {
                 let m = member.index();
                 o[m] = o[m].max(PRIMITIVE_BITS);
             }
@@ -765,7 +771,12 @@ fn arb_steps(kind: Kind, fixed_charge: bool) -> BoxedStrategy<Vec<Step<Extent>>>
         )
             .prop_map(|(member, value)| Step::ComparePrimitive { member, value })
             .boxed()),
-        Kind::Convert => one(member().prop_map(|member| Step::Convert { member }).boxed()),
+        Kind::Convert => one(member()
+            .prop_map(|member| Step::Convert {
+                member,
+                target: Integer::I64,
+            })
+            .boxed()),
         Kind::Compare => one((member(), member())
             .prop_map(|(left, right)| Step::Compare { left, right })
             .boxed()),
@@ -871,7 +882,10 @@ fn arb_block_element() -> BoxedStrategy<Vec<Step<Extent>>> {
             };
             vec![
                 addend(Direction::Add),
-                Step::Convert { member },
+                Step::Convert {
+                    member,
+                    target: Integer::I64,
+                },
                 addend(Direction::Sub),
             ]
         }),

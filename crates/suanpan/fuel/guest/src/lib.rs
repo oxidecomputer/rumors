@@ -34,15 +34,18 @@ mod panic_record;
 #[path = "../../../../before/board-fuel/guest/src/window.rs"]
 mod window;
 
+use std::cmp::Ordering;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
 use std::mem;
+use std::ops::{Add, Sub};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use suanpan::Accumulator;
 use suanpan_fuel_protocol::{
     observe_bool, observe_conversion, observe_magnitude, observe_ordering, observe_stable,
-    Direction, Form, Member, Primitive, Program, Read, SignQuery, Step, NO_OBSERVATION, POOL,
+    Direction, Form, Integer, Member, Primitive, Program, Read, SignQuery, Step, NO_OBSERVATION,
+    POOL,
 };
 
 #[global_allocator]
@@ -221,6 +224,20 @@ fn apply(pool: &mut [Accumulator; POOL], prepared: &Prepared) -> u64 {
             };
             NO_OBSERVATION
         }
+        Step::ReversedPrimitive {
+            member,
+            direction,
+            value,
+            borrowed,
+        } => {
+            let slot = &mut pool[member.index()];
+            *slot = if *borrowed {
+                reversed_primitive(*value, *direction, &*slot)
+            } else {
+                reversed_primitive(*value, *direction, mem::take(slot))
+            };
+            NO_OBSERVATION
+        }
         Step::Shift { member, shift } => {
             pool[member.index()] <<= *shift;
             NO_OBSERVATION
@@ -244,18 +261,17 @@ fn apply(pool: &mut [Accumulator; POOL], prepared: &Prepared) -> u64 {
                 .partial_cmp(value)
                 .expect("an accumulator and a primitive are always ordered"),
         ),
-        Step::Convert { member } => {
+        Step::Convert { member, target } => {
             let slot = &mut pool[member.index()];
-            match i64::try_from(mem::take(slot)) {
-                Ok(converted) => {
-                    *slot = Accumulator::from(converted);
-                    observe_conversion(Some(converted))
-                }
-                Err(value) => {
-                    *slot = value;
-                    observe_conversion(None)
-                }
-            }
+            let value = mem::take(slot);
+            let (restored, converted) = match target {
+                Integer::I64 => convert::<i64>(value, |v| (v.cmp(&0), v.unsigned_abs().into())),
+                Integer::U64 => convert::<u64>(value, |v| (v.cmp(&0), v.into())),
+                Integer::I128 => convert::<i128>(value, |v| (v.cmp(&0), v.unsigned_abs())),
+                Integer::U128 => convert::<u128>(value, |v| (v.cmp(&0), v)),
+            };
+            *slot = restored;
+            observe_conversion(converted)
         }
         Step::Compare { left, right } => {
             observe_ordering(pool[left.index()].cmp(&pool[right.index()]))
@@ -326,6 +342,44 @@ fn apply(pool: &mut [Accumulator; POOL], prepared: &Prepared) -> u64 {
             pool[receiver.index()] = sum;
             NO_OBSERVATION
         }
+    }
+}
+
+/// Converts `value` to `T`, returning the accumulator the step leaves (the
+/// refused value as returned, or `Accumulator::from` of the converted one)
+/// and the converted value's sign and magnitude, by `parts`, if it fit.
+fn convert<T>(
+    value: Accumulator,
+    parts: impl Fn(T) -> (Ordering, u128),
+) -> (Accumulator, Option<(Ordering, u128)>)
+where
+    T: TryFrom<Accumulator, Error = Accumulator> + Copy,
+    Accumulator: From<T>,
+{
+    match T::try_from(value) {
+        Ok(converted) => (Accumulator::from(converted), Some(parts(converted))),
+        Err(value) => (value, None),
+    }
+}
+
+/// Returns `value + rhs` or `value - rhs`, with the primitive on the left,
+/// for an owned or a borrowed `rhs`.
+fn reversed_primitive<R>(value: Primitive, direction: Direction, rhs: R) -> Accumulator
+where
+    i64: Add<R, Output = Accumulator> + Sub<R, Output = Accumulator>,
+    u64: Add<R, Output = Accumulator> + Sub<R, Output = Accumulator>,
+    i128: Add<R, Output = Accumulator> + Sub<R, Output = Accumulator>,
+    u128: Add<R, Output = Accumulator> + Sub<R, Output = Accumulator>,
+{
+    match (direction, value) {
+        (Direction::Add, Primitive::I64(v)) => v + rhs,
+        (Direction::Sub, Primitive::I64(v)) => v - rhs,
+        (Direction::Add, Primitive::U64(v)) => v + rhs,
+        (Direction::Sub, Primitive::U64(v)) => v - rhs,
+        (Direction::Add, Primitive::I128(v)) => v + rhs,
+        (Direction::Sub, Primitive::I128(v)) => v - rhs,
+        (Direction::Add, Primitive::U128(v)) => v + rhs,
+        (Direction::Sub, Primitive::U128(v)) => v - rhs,
     }
 }
 

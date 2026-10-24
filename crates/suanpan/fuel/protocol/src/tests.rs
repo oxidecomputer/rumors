@@ -22,7 +22,8 @@ fn arb_step() -> impl Strategy<Value = Step> {
         any::<u64>().prop_map(Primitive::U64),
         any::<i128>().prop_map(Primitive::I128),
         any::<u128>().prop_map(Primitive::U128),
-    ];
+    ]
+    .boxed();
     let pattern = prop_oneof![
         Just(Pattern::Ones),
         Just(Pattern::TopBit),
@@ -46,14 +47,20 @@ fn arb_step() -> impl Strategy<Value = Step> {
         any::<u64>().prop_map(SignQuery::StableUnder),
     ];
     let read = prop_oneof![Just(Read::Signed), Just(Read::Scaled), Just(Read::Hash)];
+    let integer = prop_oneof![
+        Just(Integer::I64),
+        Just(Integer::U64),
+        Just(Integer::I128),
+        Just(Integer::U128),
+    ];
     prop_oneof![
-        (arb_member(), arb_direction(), primitive).prop_map(|(member, direction, value)| {
-            Step::Primitive {
+        (arb_member(), arb_direction(), primitive.clone()).prop_map(
+            |(member, direction, value)| Step::Primitive {
                 member,
                 direction,
                 value,
             }
-        }),
+        ),
         (
             arb_member(),
             arb_direction(),
@@ -77,12 +84,20 @@ fn arb_step() -> impl Strategy<Value = Step> {
         ),
         (arb_member(), any::<bool>())
             .prop_map(|(member, borrowed)| Step::Negate { member, borrowed }),
+        (arb_member(), arb_direction(), primitive, any::<bool>()).prop_map(
+            |(member, direction, value, borrowed)| Step::ReversedPrimitive {
+                member,
+                direction,
+                value,
+                borrowed,
+            }
+        ),
         (arb_member(), any::<u64>()).prop_map(|(member, shift)| Step::Shift { member, shift }),
         arb_member().prop_map(|member| Step::Clear { member }),
         (arb_member(), query).prop_map(|(member, query)| Step::Sign { member, query }),
         (arb_member(), any::<i128>())
             .prop_map(|(member, value)| Step::ComparePrimitive { member, value }),
-        arb_member().prop_map(|member| Step::Convert { member }),
+        (arb_member(), integer).prop_map(|(member, target)| Step::Convert { member, target }),
         (arb_member(), arb_member()).prop_map(|(left, right)| Step::Compare { left, right }),
         (arb_member(), read).prop_map(|(member, read)| Step::Read { member, read }),
         (arb_member(), arb_member())

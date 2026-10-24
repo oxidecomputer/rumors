@@ -284,9 +284,10 @@ pub fn regimes(skeleton: &Skeleton) -> Regimes {
             Step::Primitive { member, .. }
             | Step::Limbs { member, .. }
             | Step::Negate { member, .. }
+            | Step::ReversedPrimitive { member, .. }
             | Step::Sign { member, .. }
             | Step::ComparePrimitive { member, .. }
-            | Step::Convert { member } => *member,
+            | Step::Convert { member, .. } => *member,
             _ => return false,
         };
         crate::model::width(&base.values()[member.index()]) >= UNIT_BITS

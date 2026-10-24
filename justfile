@@ -737,7 +737,8 @@ suanpan-fuel-build:
     {{ fuel_guest_env }} cargo build -p suanpan-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }}
     cargo build -p suanpan-fuel-harness -p suanpan-fuel-protocol --tests --release --target-dir {{ suanpan_fuel_target }}
 
-# Run suanpan's interleaving-fuel property and the census of its skeletons.
+# Run suanpan's interleaving-fuel property, the census of its skeletons, and
+# the focused cost claims judged on fixed programs.
 suanpan-fuel: suanpan-fuel-build
     cargo clippy -p suanpan-fuel-guest --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }} -- -D warnings
     cargo clippy -p suanpan-fuel-harness -p suanpan-fuel-protocol --all-targets --target-dir {{ suanpan_fuel_target }} -- -D warnings
