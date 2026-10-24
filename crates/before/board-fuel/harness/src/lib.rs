@@ -100,8 +100,9 @@ fn guest_rustc(wasm: &[u8]) -> Result<String, String> {
 /// A rustc, Wasmtime, or cost table other than the calibration's makes the
 /// readings incommensurable with the ceilings. A host path in the guest
 /// means a source-path remapping failed (the `amp-board-fuel-build` recipe
-/// maps the checkout, CARGO_HOME, and the toolchain's rust-src); its length
-/// shifts the guest's memory layout, and so its fuel, from host to host.
+/// maps CARGO_HOME and the toolchain's rust-src; paths inside the workspace
+/// are already relative); its length shifts the guest's memory layout, and
+/// so its fuel, from host to host.
 ///
 /// # Errors
 ///
