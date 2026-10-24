@@ -2,7 +2,10 @@
 //!
 //! Two accumulators compare by the sign of their difference. When one is far
 //! wider, the stability query usually decides without reading the narrower
-//! one; otherwise the comparison subtracts into a temporary. The same
+//! one. Otherwise both are compared with zero, which compacts a cancelled top
+//! so that their stored widths lie within two digits of their values' own,
+//! and decides at once when the signs differ; if their widths still do not
+//! decide, the comparison subtracts into a temporary. The same
 //! accumulator on both sides compares equal before either cell is borrowed.
 //!
 //! An accumulator compares with a primitive integer, on its right, by sign and
@@ -25,8 +28,8 @@ use super::Accumulator;
 ///
 /// A refused stability query leaves the side it asked at most this many digits
 /// wider than the other. Past this lead each refusal therefore strictly
-/// narrows the side it asked, so [`compare`]'s loop, which asks repeatedly
-/// there, ends. At exactly this lead a refusal need not narrow it: compacting
+/// narrows the side it asked, so [`compare_by_widths`]'s loop, which asks
+/// repeatedly there, ends. At exactly this lead a refusal need not narrow it: compacting
 /// a top digit can carry the same digit back. The query is asked there once,
 /// and a refusal falls back to subtraction.
 pub(super) const CLOSE_LEAD: usize = 2;
@@ -77,17 +80,45 @@ impl Hash for Accumulator {
 
 /// Return the order of `a` and `b`, two different values.
 fn compare(a: &mut Value, b: &mut Value) -> Ordering {
+    if let Some(order) = compare_by_widths(a, b) {
+        return order;
+    }
+    // Subtracting reads both stored widths, which a cancelled top can leave
+    // far wider than the values. Compacting both first bounds the read by the
+    // narrower value, and can open a lead that decides without it.
+    let widths = (a.stored_digit_count(), b.stored_digit_count());
+    let (a_sign, b_sign) = (a.compact(), b.compact());
+    if a_sign != b_sign || a_sign == Ordering::Equal {
+        // Values of different signs order as their signs do, and two zeros
+        // are equal.
+        return a_sign.cmp(&b_sign);
+    }
+    if (a.stored_digit_count(), b.stored_digit_count()) != widths {
+        if let Some(order) = compare_by_widths(a, b) {
+            return order;
+        }
+    }
+    let mut difference = Value::new();
+    difference.apply_accumulator(a, 0, Update::Add);
+    difference.apply_accumulator(b, 0, Update::Sub);
+    difference.cmp_zero()
+}
+
+/// Return the order of `a` and `b` if the wider one's stability query
+/// decides it, asking that query while one leads by more than
+/// [`CLOSE_LEAD`] digits and once at exactly that lead.
+fn compare_by_widths(a: &mut Value, b: &mut Value) -> Option<Ordering> {
     loop {
         let (a_digits, b_digits) = (a.stored_digit_count(), b.stored_digit_count());
         if a_digits > b_digits + CLOSE_LEAD {
             // `Some` means every value below `b`'s width leaves `a`'s sign, so
             // `a - b` has that sign too.
             if let Some(sign) = a.cmp_zero_stable_under(b.stored_bits()) {
-                return sign;
+                return Some(sign);
             }
         } else if b_digits > a_digits + CLOSE_LEAD {
             if let Some(sign) = b.cmp_zero_stable_under(a.stored_bits()) {
-                return sign.reverse();
+                return Some(sign.reverse());
             }
         } else {
             break;
@@ -96,21 +127,14 @@ fn compare(a: &mut Value, b: &mut Value) -> Ordering {
     }
     // At exactly the close lead the query may still decide, and is asked once.
     let (a_digits, b_digits) = (a.stored_digit_count(), b.stored_digit_count());
-    let decided = if a_digits == b_digits + CLOSE_LEAD {
+    if a_digits == b_digits + CLOSE_LEAD {
         a.cmp_zero_stable_under(b.stored_bits())
     } else if b_digits == a_digits + CLOSE_LEAD {
         b.cmp_zero_stable_under(a.stored_bits())
             .map(Ordering::reverse)
     } else {
         None
-    };
-    if let Some(sign) = decided {
-        return sign;
     }
-    let mut difference = Value::new();
-    difference.apply_accumulator(a, 0, Update::Add);
-    difference.apply_accumulator(b, 0, Update::Sub);
-    difference.cmp_zero()
 }
 
 /// Compare a value with a primitive integer given by sign and magnitude.

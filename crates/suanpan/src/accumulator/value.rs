@@ -66,6 +66,19 @@ impl Value {
         self.digits.cmp_zero()
     }
 
+    /// Return the sign, compacting a cancelled top first if the value is held
+    /// in digits, so that its stored width lies within two digits of its
+    /// value's width.
+    ///
+    /// A small value's stored width is exact already, so its sign is read
+    /// without a scan, as [`is_known_zero`](Self::is_known_zero) reads it.
+    pub(crate) fn compact(&mut self) -> Ordering {
+        match self.small {
+            Some(value) => value.cmp(&0),
+            None => self.digits.cmp_zero(),
+        }
+    }
+
     /// Return the sign if no adjustment below `2^bits` can change it.
     pub(crate) fn cmp_zero_stable_under(&mut self, bits: u64) -> Option<Ordering> {
         // Whole digits are the unit used by both representations. At least one

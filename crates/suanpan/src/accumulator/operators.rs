@@ -347,7 +347,7 @@ impl Add for Accumulator {
         if rhs.is_known_zero() {
             return self;
         }
-        if rhs.stored_digit_count() > self.stored_digit_count() {
+        if !self.reads_other(&rhs) {
             core::mem::swap(&mut self, &mut rhs);
         }
         self += &rhs;

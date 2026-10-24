@@ -410,11 +410,10 @@ impl Accumulator {
     /// to O(`V`), the wider operand's working width, when the wider operand is
     /// negative.
     pub fn abs_diff(self, other: Accumulator) -> (Ordering, Accumulator) {
-        let (mut wide, narrow, swapped) = if other.stored_digit_count() > self.stored_digit_count()
-        {
-            (other, self, true)
-        } else {
+        let (mut wide, narrow, swapped) = if self.reads_other(&other) {
             (self, other, false)
+        } else {
+            (other, self, true)
         };
         wide -= &narrow;
         let order = wide.sign();
@@ -485,6 +484,36 @@ impl Accumulator {
     #[inline]
     pub fn is_known_zero(&self) -> bool {
         self.peek(Value::is_known_zero)
+    }
+
+    /// Return whether `other` is the operand to read of `self` and `other`:
+    /// the narrower value, within two digits, and `other` on a tie.
+    ///
+    /// Comparing with zero compacts a cancelled top and only lowers a stored
+    /// width, so only the operand of greater stored width, `self` on a tie,
+    /// can change the choice. We compact it until that operand is compacted:
+    /// then the other's value width is at most its stored width, which is at
+    /// most the wider's, which lies within two digits of the wider's value
+    /// width. A second comparison happens only when the first reverses the
+    /// order, and a small value, whose stored width is exact, is never
+    /// scanned.
+    fn reads_other(&self, other: &Accumulator) -> bool {
+        let (mut self_compacted, mut other_compacted) = (false, false);
+        loop {
+            if other.stored_digit_count() <= self.stored_digit_count() {
+                if self_compacted {
+                    return true;
+                }
+                self.read(Value::compact);
+                self_compacted = true;
+            } else {
+                if other_compacted {
+                    return false;
+                }
+                other.read(Value::compact);
+                other_compacted = true;
+            }
+        }
     }
 
     /// Return the working width in the representation's digits, at least one.
