@@ -447,19 +447,21 @@ const DEEP_SPINE_STACK: usize = (DEEP_SPINE_DEPTH + 2) * PROBE_LEVEL_STACK + 2 *
 /// everywhere else: `depth` nested nodes, all bases zero, the single 1-leaf at
 /// the bottom left.
 ///
-/// Built as a text literal — the parser is iterative — so the expected tree
-/// shares no walk with grow.
+/// Built by projecting a uniform version onto the party that owns that
+/// interval, so the expected spine comes from the projection kernel rather
+/// than from the grow walk under test.
 fn left_spike(depth: usize) -> Version {
     spike(std::iter::repeat_n(true, depth))
 }
 
-/// Deep spines in the grow branch stay correct at depths that would overflow a
-/// native-frame walk.
+/// Deep spines in the grow branch grow to the right value along the
+/// reference route, [`DEEP_SPINE_DEPTH`] levels deep.
 ///
 /// The regimes: a deep expansion chain (unary id spine over one leaf) and a
 /// deep two-cursor descent mixing into an id-only expansion where the id
-/// outruns the event. These cases directly establish stack safety beyond the
-/// sizes sampled by the resource board.
+/// outruns the event. Stack safety at a depth that overflows any walk keeping
+/// a frame per level is `clock::tests::deep_tree_stack_safety`'s claim, which
+/// ticks the grow branch over a far deeper spine.
 ///
 /// The recursive oracle walks on native frames, so the value witnesses here are
 /// closed forms, derived per case: the deep unary id over the empty version
