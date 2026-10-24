@@ -67,7 +67,7 @@ fn integers_round_trip_in_stack_order() {
         };
         for (push, value) in ops {
             if push || model.is_empty() {
-                stack.push(sign_of(&value), value.iter_u64_digits());
+                stack.push(sign_of(&value), &value.magnitude().to_u64_digits());
                 model.push(value);
             } else {
                 check(&mut stack, model.pop().expect("model tracks the stack"))?;

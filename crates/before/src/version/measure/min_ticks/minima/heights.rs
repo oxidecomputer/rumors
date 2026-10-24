@@ -551,7 +551,7 @@ impl ChunkStack {
         if chunk.stored_bits() <= INLINE_CHUNK_BITS {
             let (sign, magnitude) = chunk.signed_magnitude();
             self.whole.push(false);
-            self.packed.push(sign, magnitude.as_ref().iter().copied());
+            self.packed.push(sign, &magnitude);
             return;
         }
         #[cfg(test)]
