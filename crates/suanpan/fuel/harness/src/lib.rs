@@ -42,13 +42,31 @@
 //! borrow across long runs, and leave sparse high digits, so a cost that
 //! depends on which operation follows which is reachable.
 //!
-//! What it cannot see follows from comparing readings without a committed
-//! constant. Work linear in a size that the rules do not charge to the step
-//! doing it scales exactly as charged work does, so scaling alone cannot
-//! separate the two; the one such case it isolates is a repetition whose
-//! steps charge no size at all once storage is grown, compared at two
-//! scales. The comparisons in units of charge, and their limits, are
-//! derived in [`judge`].
+//! What the checks see, by the shape of the excess work:
+//!
+//! - *Work that grows faster than the sizes* (quadratic work, a logarithm
+//!   multiplying a length, a buffer copied at every step): the per-prefix
+//!   comparisons across scales see it in any interleaving that reaches it.
+//! - *Work that grows with the length of the history at a fixed size*
+//!   (positions that are never reclaimed, a scan that revisits everything an
+//!   earlier repetition wrote): the long-repetition comparison sees it.
+//! - *Work linear in a size, paid again in every repetition whose steps
+//!   charge no size at all* (growth paid again after a clear, a gap crossed
+//!   at a cost linear in its width): the steady-repetition comparison at two
+//!   scales sees it.
+//! - *Work linear in a size the rules do not charge to the step doing it,
+//!   inside a program that also charges sizes* (an update that pays its
+//!   receiver's width among reads of wide values): nothing here sees it.
+//!   Such work scales exactly as charged work does. Learning a constant per
+//!   operation class does not separate the two either: correct interleavings
+//!   already contain steps charged one word whose fuel grows with the unit,
+//!   such as a single-limb write that converts the written set to a bitset,
+//!   or a clear that passes the positions a read left. Those steps spend
+//!   potential that earlier steps deposited, so any sound per-class bound
+//!   must let a step draw on a potential whose rate it learns, and that rate
+//!   then covers any excess proportional to the same deposits. Separating
+//!   them would take the potential itself, which only the implementation
+//!   holds.
 
 pub mod guest;
 pub mod judge;

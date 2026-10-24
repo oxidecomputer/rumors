@@ -364,7 +364,7 @@ kinds! {
 impl Kind {
     /// The kinds that can write a nonzero value into a pool of zeros. Every
     /// case enables at least one.
-    const WRITERS: [Kind; 4] = [
+    pub const WRITERS: [Kind; 4] = [
         Kind::Primitive,
         Kind::Limbs,
         Kind::GapRound,
@@ -374,7 +374,7 @@ impl Kind {
     /// The kinds the fixed-charge regime draws from: none reads, copies, or
     /// produces a whole value, so once the storage has grown, each step's
     /// charge is the same at every unit apart from its logarithm.
-    const FIXED_CHARGE: [Kind; 9] = [
+    pub const FIXED_CHARGE: [Kind; 9] = [
         Kind::Primitive,
         Kind::Limbs,
         Kind::GapRound,

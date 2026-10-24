@@ -74,6 +74,17 @@ pub const SCALE_STEP: u64 = 64;
 /// `k + (k − 1) · 2D / (unit − 2D)`: the most its fixed part can make the
 /// ratio exceed `k`.
 ///
+/// One cost is not a length the program fixes: a buffer that grows by
+/// doubling copies its contents at each doubling, and the copies total
+/// between one and two times its final length, depending on where that
+/// length falls among the capacities. Scaling by a power of two moves every
+/// capacity by the same power, so the copies scale with the length too,
+/// unless the length's fixed part puts it just past a capacity at one scale
+/// and just short of one at the other. Then one scale pays one more copy of
+/// the buffer than the bound allows. The bound does not admit that crossing:
+/// a failure that the extra copy explains is a premise failure, to be
+/// diagnosed as such rather than taken for a defect.
+///
 /// # Panics
 ///
 /// Panics unless `2 · offset_bound < unit`, which the skeleton budget keeps.

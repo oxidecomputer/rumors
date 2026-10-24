@@ -18,7 +18,7 @@
 //! cost per step.
 //!
 //! The global allocator is the fuel board's window allocator, with every
-//! reallocation made to move its block ([`moving`]). The window runs on a
+//! reallocation made to move its block (the `moving` module). The window runs on a
 //! fresh, primed heap, so a reading does not depend on what decoding and
 //! expansion left in the heap; and no block grows in place, so a reading does
 //! not depend on where earlier blocks landed. The window allocator's module
