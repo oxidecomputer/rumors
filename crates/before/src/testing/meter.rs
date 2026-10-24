@@ -4200,13 +4200,14 @@ fn pow2(b: usize) -> BigUint {
 /// cannot see: the numeric folds' settle densifies each balanced-digit cluster
 /// into two zero-filled byte images before multiplying, and a zeroed byte no
 /// digit lands on raises neither a digit count nor the peak while the image
-/// stays under the walk's own high-water mark. Fuel sees the fill too, since
-/// it charges a bulk fill per byte, but only in the total of a cell's work. The count is the images' capacity in
-/// base-2^32 digits — two images per multi-digit cluster, each at the
-/// cluster's span — so span-priced densification counts linearly in the
-/// settle's cluster spans, and a densification sized by cluster *positions*
-/// counts by those positions instead (the axis the hoisted-window family
-/// isolates). Process-global, so each measurement must run alone.
+/// stays under the walk's own high-water mark. Fuel sees the fill too, since it
+/// charges a bulk fill per byte, but only in the total of a cell's work. The
+/// count is the images' capacity in base-2^32 digits — two images per
+/// multi-digit cluster, each at the cluster's span — so span-priced
+/// densification counts linearly in the settle's cluster spans, and a
+/// densification sized by cluster *positions* counts by those positions instead
+/// (the axis the hoisted-window family isolates). Process-global, so each
+/// measurement must run alone.
 #[cfg(feature = "meter")]
 pub fn densified_digits() -> u64 {
     crate::version::instrument::densified_digits()

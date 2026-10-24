@@ -309,10 +309,8 @@
 //! calibrated from a deterministic corpus and enforced over random
 //! programs plus a deterministic prefix. What it alone catches:
 //! **shapes nobody chose** — the structural blind spot of every
-//! chosen-family instrument above — and total-cost drift that escapes
-//! the native board's heap counter while still costing instructions. Its bands
-//! carry liveness margins (`ENFORCE_MARGIN_BELOW`) so a dead
-//! measurement reads red, not green.
+//! chosen-family instrument above. Its bands carry liveness margins
+//! (`ENFORCE_MARGIN_BELOW`) so a dead measurement reads red, not green.
 //!
 //! **The population atlas** (the `before-fuelscape` crate, an external
 //! instrument). Per-operation heatmaps of deterministic fuel against
