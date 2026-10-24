@@ -104,16 +104,6 @@ scan-meter = ["meter"]
 name = "amp_board"
 required-features = ["touch-meter", "scan-meter", "serde", "borsh"]
 
-# The focused meter tests pin touch and scan columns; built without the counter
-# features both columns would judge nothing. Requiring
-# the features makes an explicit `--test meter` without them a loud cargo
-# error naming them, while blanket `check`, `clippy --tests`, and
-# `nextest --workspace` runs skip the target; `just test` passes the
-# features for the package so the inner loop runs the suite.
-[[test]]
-name = "meter"
-required-features = ["touch-meter", "scan-meter"]
-
 [[bench]]
 name = "party"
 harness = false

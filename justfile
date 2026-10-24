@@ -141,19 +141,17 @@ default:
 # ── inner loop ───────────────────────────────────────────────────────────────
 
 # Type-check every host target: libs, tests, benches, examples. A target
-# with `required-features` (the focused before resource suite) is skipped here and
-# type-checked by `just test` and the gate's all-features legs instead.
+# with `required-features` (the amplification board example) is skipped here
+# and type-checked by the gate's all-features legs instead.
 check:
     cargo check --workspace {{ tool_members }} --all-targets
 
 # Run the test suites; pass a filter to narrow (`just test mirror`). The
-# focused resource suite (crates/before/tests/meter.rs) builds only with its touch
-# and scan meters (`required-features` on its test target), so the inner
-# loop lights them for that package. One `--workspace` build unifies
-# features, so this compiles the before lib with both meters for every
-# dependent and runs every before suite gated on them (the focused resource
-# suite and the unit tests that read the meters); the other packages' own
-# features stay default.
+# unit tests that read before's touch and scan meters run only with those
+# features, so the inner loop lights them for that package. One
+# `--workspace` build unifies features, so this compiles the before lib with
+# both meters for every dependent; the other packages' own features stay
+# default.
 test *args:
     cargo nextest run --workspace {{ tool_members }} --features before/touch-meter,before/scan-meter {{ args }}
 
