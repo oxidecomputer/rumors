@@ -42,14 +42,12 @@ use super::boundary::Boundary;
 /// copied into packed storage instead of moving whole.
 ///
 /// Any fixed bound keeps a copy's cost constant; this one sets how many bits
-/// a whole boundary holds at least, against its accumulator's fixed size. It
-/// equals `INLINE_CHUNK_BITS`, the width up to which `min_ticks` copies a
-/// buried reference's chunk.
+/// a whole boundary holds at least, against its accumulator's fixed size.
 ///
 /// The bound compares working width, and a value is below `2^(w + 2)` for a
 /// working width of `w` bits, so a copied boundary can be up to two bits
 /// wider than the bound and take five limbs.
-pub(super) const INLINE_BOUNDARY_BITS: u64 = 256;
+pub const INLINE_BOUNDARY_BITS: u64 = 256;
 
 /// One logical record, starting with the innermost boundary when popped.
 pub(super) enum Entry {

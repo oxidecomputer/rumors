@@ -70,6 +70,7 @@ use suanpan::{Accumulator, Limbs};
 use super::integers::{bit_length, IntegerStack};
 use super::records::Popped;
 use crate::bits::stack::{BitStack, PackedU64Stack};
+use crate::version::range_minima::INLINE_BOUNDARY_BITS;
 
 /// Bits a stored offset may exceed its leaf's height change by before the
 /// live change freezes into a new reference.
@@ -104,7 +105,13 @@ pub const RECORD_SLACK_BITS: u64 = 4;
 /// A copied chunk's value is below `2^(INLINE_CHUNK_BITS + 2)`, so it can be
 /// up to two bits wider than that bound and take its own allocation in the
 /// stack; a copy still costs at most a constant.
-pub const INLINE_CHUNK_BITS: u64 = 256;
+///
+/// The bound is [`INLINE_BOUNDARY_BITS`], up to which
+/// [`RangeMinima`](crate::version::range_minima::RangeMinima) copies a
+/// covered boundary, because both bounds make the same trade: a copy costs
+/// at most the bound per move, and a value that moves whole is wide enough
+/// that its accumulator's fixed size is at most a constant per bit it holds.
+pub const INLINE_CHUNK_BITS: u64 = INLINE_BOUNDARY_BITS;
 
 /// Bits a live change's working width may exceed the leaf's height change by
 /// before the change freezes without being read.

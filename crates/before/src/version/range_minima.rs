@@ -95,6 +95,7 @@ mod boundary;
 mod emission;
 
 pub use anchor::FOLLOWER_SLOTS;
+pub use boundaries::INLINE_BOUNDARY_BITS;
 
 use anchor::Anchor;
 use boundaries::{Boundaries, Entry};
