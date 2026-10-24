@@ -268,8 +268,14 @@ impl DensePart {
     }
 }
 
-/// Zero-filled base-2^32 digits allocated for multi-digit multiplication clusters.
-/// This captures fill work that neither accumulator touches nor peak heap reveal.
+/// The digits [`SparseWidth::add_product`] zero-fills for multi-digit
+/// clusters, two per position of each cluster's span, one dense part per sign.
+///
+/// A cluster bridges only gaps no wider than the height it multiplies, so
+/// each zero filled stands in for a full-height product the bridging saves.
+/// The fill happens in this module's temporary buffers rather than in an
+/// accumulator, and peak heap shows only the largest cluster's parts, not
+/// the total filled across clusters; this count is what observes it.
 #[cfg(feature = "meter")]
 static DENSIFIED_DIGITS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 

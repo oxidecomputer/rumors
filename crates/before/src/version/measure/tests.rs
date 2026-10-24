@@ -182,7 +182,7 @@ fn party_pool() -> Vec<Party> {
 /// The id-pool cross checks the oracle's projection mask; the ordered pairs
 /// check distance and lag as re-derived from the oracle's lattice folds.
 ///
-/// The families are the shapes whose costs the meter rows measure (carry
+/// The families are the shapes the amplification board measures (carry
 /// cliffs, wide teeth, cancelling chains, harmonic spines), so a
 /// height-tracking or freeze bookkeeping error fails here before any cost
 /// bound does.
@@ -256,7 +256,7 @@ fn deferral_pool() -> Vec<Version> {
 /// between armings, and the arming-free settlement at the close (the
 /// plateau-puncture family). The pair sweep crosses wide operands with wide
 /// operands, with both sides deferring and orientation flips inside wide
-/// plateaus, which the meter families' unit-height mates never reach.
+/// plateaus, which the families' unit-height mates never reach.
 ///
 /// The [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors keep both
 /// claims live: the single folds defer, and so do the pair measures'
@@ -570,11 +570,11 @@ fn freezes_and_deferrals_during(measure: impl FnOnce()) -> (u64, u64) {
     (freezes_after - freezes, deferrals_after - deferrals)
 }
 
-/// Every meter family built to fire the integral's freeze fires exactly the
-/// freezes and deferrals its layout implies.
+/// Every registry family built to fire the integral's freeze fires exactly
+/// the freezes and deferrals its layout implies.
 ///
 /// A family that stops freezing or deferring still passes its value checks and
-/// its cost ceilings, while measuring a cheaper regime than its band claims, so
+/// its cost ceilings, while measuring a cheaper regime than it claims, so
 /// each count is asserted here by name. The wide drifts are
 /// [`FREEZE_DRIFT_BITS`](crate::testing::meter::FREEZE_DRIFT_BITS) or wider, so
 /// they trip the trigger in every stored form, and no compaction of `live` can

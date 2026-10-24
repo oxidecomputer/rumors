@@ -74,17 +74,20 @@ use crate::bits::stack::{BitStack, PackedU64Stack};
 /// Bits a stored offset may exceed its leaf's height change by before the
 /// live change freezes into a new reference.
 ///
-/// The allowance trades heap against freezing work. A wider allowance stores
-/// wider offsets: on the jump-entered rising spine, whose levels each cost 6
-/// input bits, `min_ticks` holds about 4.7 bytes per input byte at 4 bits,
-/// 7.4 at 8, and 9.0 at 16, and at 32 bits the figure keeps growing with
-/// depth, because offsets widen with the logarithm of the level count until
-/// they reach the allowance. A narrower allowance freezes more often: at 2
-/// bits and 1 bit the board's scan-hole families read about 15.2 and 16.0
-/// suanpan digit touches per input byte, against 14.6 at 4 bits and 14.4 at
-/// 8 and above, while no heap reading falls more than 0.2 bytes per input
-/// byte below its value at 4 bits. These figures were measured on the
-/// amplification board's families at the top of its acceptance ladder.
+/// The record trigger in [`HeightReferences::add_leaf`] keeps the live change
+/// `L` only while its value is at most this many bits wider than the change
+/// that reached the leaf, so every stored offset costs its leaf's own change
+/// plus at most this many bits. Any fixed allowance keeps both sides of the
+/// trade it sets linear in the input:
+///
+/// - A wider allowance stores wider offsets. Small changes accumulate in `L`,
+///   so over a run of many small changes the offsets widen with the logarithm
+///   of the run's length, until they reach the allowance.
+/// - A narrower allowance freezes more often, and every freeze creates a
+///   reference that a later merge reads.
+///
+/// The value 4 is a choice within that trade, not a derived bound: it caps
+/// each stored offset at its leaf's change plus 4 bits.
 pub const RECORD_SLACK_BITS: u64 = 4;
 
 /// The widest working width, in bits, at which a buried chunk is copied into

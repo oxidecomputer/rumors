@@ -4,9 +4,9 @@
 //! [`Version::partial_cmp`] supplies the reference relation. Projected
 //! versions, spans, ranked versions, and causal queries must agree with the
 //! corresponding relation-level result. The operand pool is derived
-//! exhaustively from the meter family registry, then closed under join and
-//! meet. Its census must include every relevant verdict class so agreement
-//! cannot pass on a degenerate population.
+//! exhaustively from the family registry (`testing::meter::registry`), then
+//! closed under join and meet. Its census must include every relevant verdict
+//! class so agreement cannot pass on a degenerate population.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};

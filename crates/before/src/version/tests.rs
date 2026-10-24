@@ -2707,9 +2707,9 @@ proptest! {
 /// every feed order, agreeing with the sequential fold and the recursive
 /// oracle.
 ///
-/// The meter family doubles as a differential shape (`meter::meet_shade`: one
-/// dense carrier among dominating single-leaf shades, the population whose
-/// running meet never shrinks, the shape the fold's flatness band prices).
+/// The registry family `meter::meet_shade` doubles as a differential shape:
+/// one dense carrier among dominating single-leaf shades, the population
+/// whose running meet never shrinks.
 /// Organic populations rarely hold one operand strictly below all others, so
 /// this pins the value exactly where the reduction's grouping differs most from
 /// the left fold's: every combine against the carrier returns the carrier

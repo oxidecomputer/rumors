@@ -441,11 +441,11 @@ impl Rank {
 
     /// The rank's value content in bits: `bits(num) + exp`.
     ///
-    /// The meter denominator for `Rank` operands, whose value is not stored as
-    /// bytes: the numerator's bit width plus the exponent bounds the
-    /// information the value carries. Every public construction path emits
-    /// ranks whose content is linear in its input, so a cost linear in this
-    /// quantity is linear in input bytes too.
+    /// The size the amplification board divides by for `Rank` operands, whose
+    /// value is not stored as bytes: the numerator's bit width plus the
+    /// exponent bounds the information the value carries. Every public
+    /// construction path emits ranks whose content is linear in its input, so a
+    /// cost linear in this quantity is linear in input bytes too.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn content_bits(&self) -> u64 {
         self.num.bits() + self.exp

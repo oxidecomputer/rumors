@@ -4,19 +4,19 @@
 //! changed flag, both total by canonical uniqueness: [`tick`] must equal the
 //! recursive oracle's `event` byte for byte, and the walk's changed flag must
 //! read exactly `fill(i, e) ≠ e` decided by the oracle's `fill`, over every
-//! committed family crossed with varied parties, the exhaustive small
-//! scope, arbitrary pairs, co-generated pairs, and organic histories. The flag is
+//! committed family crossed with varied parties, the exhaustive small scope,
+//! arbitrary pairs, co-generated pairs, and organic histories. The flag is
 //! emitted-differs-from-input, plateau-aligned: a value-reproducing raise must
 //! not trip it, and the first emitted leaf compares absolute against absolute
 //! (the worked corner cases pin both). The oracle walks on native frames, so
 //! these grids run at oracle-sized depths; deep-input coverage lives in the
-//! closed-form witnesses below and the meter suite's output assertions at its
-//! pinned scales. Those size checks do not discriminate the width of the flag's
-//! value comparison, so that axis is pinned separately, by the full-width worked
-//! witnesses below (a multiple-of-`2^64` raise offset must read nonzero; a wide
-//! value-reproducing raise must read a full-width zero) and
-//! `generators::arb_magnitude`'s `2^64`-aligned arm, which keeps generator mass on
-//! offsets whose low limb is zero. The unchanged branch's splice is
+//! closed-form witnesses below and the measurement suites' output assertions at
+//! their committed scales. Those size checks do not discriminate the width of
+//! the flag's value comparison, so that axis is pinned separately, by the
+//! full-width worked witnesses below (a multiple-of-`2^64` raise offset must
+//! read nonzero; a wide value-reproducing raise must read a full-width zero)
+//! and `generators::arb_magnitude`'s `2^64`-aligned arm, which keeps generator
+//! mass on offsets whose low limb is zero. The unchanged branch's splice is
 //! additionally held to the oracle's inflation, the brute-force search, and an
 //! independent reference route probe below.
 
@@ -546,9 +546,9 @@ fn dominated_undercut_residue_carries_its_offset() {
 /// value reaches down to zero, which seats the site's raise exactly at its
 /// sibling region's minimum: the tie at the raise decision's own boundary,
 /// where the comparison deciding which side arms reads neither strictly
-/// below nor strictly above. The `dominated-undercut` meter family pins
-/// the arm's decision count and touch cost at committed scales; this
-/// differential pins the values over the whole knob space.
+/// below nor strictly above. The `dominated-undercut` family measures the
+/// arm's cost at committed scales; this differential checks the values over
+/// the whole knob space.
 #[test]
 fn dominated_undercut_family_ticks_identically() {
     let strategy = proptest::collection::vec((0u64..=6, 1u64..=7, 64usize..=192, 1u64..=4), 1..=4);
@@ -1847,7 +1847,8 @@ mod prescan_raise_shapes {
     use super::*;
     use crate::bits::BitsWriter;
 
-    /// Construction-language pushers (the meter shape builders' vocabulary):
+    /// Construction-language pushers (the vocabulary of `testing::meter`'s
+    /// shape builders):
     /// internal node = `1 · gamma(0)`, leaf = `0 · gamma(n)`.
     fn nd(ev: &mut BitsWriter) {
         ev.push(true);
@@ -1857,7 +1858,7 @@ mod prescan_raise_shapes {
         ev.push(false);
         ev.write_gamma(&BigUint::from(n));
     }
-    /// A deep staircase region (the meter `hole_region`'s lead-2 shape):
+    /// A deep staircase region (`testing::meter`'s `hole_region` at lead 2):
     /// wrapper node, staircase `m..0`, wrapper floor leaf, deep enough to
     /// route every consuming scan and copy through its block summary.
     fn hole(ev: &mut BitsWriter, m: u64) {
@@ -1871,7 +1872,7 @@ mod prescan_raise_shapes {
         lf(ev, 0);
         lf(ev, 0); // wrapper floor
     }
-    /// Seal test-built bits as the meter's `Encoding` form.
+    /// Seal test-built bits as `testing::meter`'s `Encoding` form.
     fn pk(bits: BitsWriter) -> Encoding {
         let live = bits.len();
         Encoding {
