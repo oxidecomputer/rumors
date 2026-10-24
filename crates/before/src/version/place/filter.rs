@@ -1,7 +1,7 @@
 //! The query filter co-walks every bound stream against one or two probe
 //! streams.
 //!
-//! `causally`'s queries hold a floor, a ceiling, and holes — each one bound
+//! `causally`'s queries hold a floor, a ceiling, and holes, each one bound
 //! version with a [`Demand`] on its relation to a probe. Composed from the pair
 //! sweep, evaluating a query would decode the probe once per bound. The fused
 //! walk instead shares one probe traversal and one running probe height. Each
@@ -86,7 +86,7 @@ mod tests;
 /// What a query demands of the relation between the probe and one bound stream,
 /// in the probe-first orientation (`le` is `probe <= bound`).
 ///
-/// The first two are *required* relations (a floor and a ceiling — both
+/// The first two are *required* relations (a floor and a ceiling, both
 /// inclusive, `causally`'s normal form): refuting them refutes membership. The
 /// rest are *excluded* relations, the four hole kinds: membership survives
 /// exactly when the named relation fails.
@@ -113,7 +113,7 @@ pub enum Demand {
 /// becomes much wider, the difference is discarded before that change is
 /// applied; later reads compare the two absolute heights without copying them.
 ///
-/// Settlement — a comparison whose verdict contribution is fixed mid-walk —
+/// Settlement (a comparison whose verdict contribution is fixed mid-walk)
 /// belongs to the coverage walk ([`GatedComparison`]); the membership walk
 /// never settles a comparison, so this type does not carry that state.
 struct Comparison {
@@ -209,7 +209,7 @@ impl Comparison {
 
 /// A coverage pair and whether it still feeds the verdict.
 ///
-/// A pair is *settled* — `live == false` — when a refutation fixed everything
+/// A pair is *settled* (`live == false`) when a refutation fixed everything
 /// the verdict will ever need from it: a settled pair stops folding and
 /// reading (its stream may still advance for the other pair riding the same
 /// cursor).
@@ -240,14 +240,14 @@ struct BoundSide<'a> {
 }
 
 /// Whether the probe stream's version satisfies every demand, each stream
-/// decoded once — `causally`'s membership predicate at the stream layer.
+/// decoded once: `causally`'s membership predicate at the stream layer.
 ///
 /// An empty demand list is vacuously `true` at zero cost. Demands are read in
 /// their supplied order on each interval, so the first decisive one exits.
 ///
 /// # Panics
 ///
-/// Operands must be canonical Version streams — the placement walk's contract
+/// Operands must be canonical Version streams, the placement walk's contract
 /// exactly: the violations the walk structurally notices panic, the rest sweep
 /// silently with an unspecified verdict.
 pub fn admits<'a>(
@@ -285,7 +285,7 @@ pub fn admits<'a>(
             let directions = side.comparison.directions;
             match side.demand {
                 // A required direction refuted refutes membership: the walk's
-                // earliest bail. (Both required demands are inclusive —
+                // earliest bail. (Both required demands are inclusive:
                 // `After` is `bound <= probe`, equality admitted.)
                 Demand::After if !directions.allows_ge() => return false,
                 Demand::Before if !directions.allows_le() => return false,
@@ -328,7 +328,7 @@ pub fn admits<'a>(
 }
 
 /// The membership walk's owned cursor set: the probe's cursor and every
-/// bound side — the walk state itself, as in the placement walk's `Cursors`.
+/// bound side: the walk state itself, as in the placement walk's `Cursors`.
 ///
 /// The read loop reaches the sides through the fields between advances, and
 /// the whole set steps by the overlay-advance law ([`advance_set`]).
@@ -374,7 +374,7 @@ impl CursorSet for MemberCursors<'_> {
     /// operand.
     ///
     /// Every present side's pair reads every interval: membership never
-    /// settles a pair — a satisfied hole drops its whole side — so presence
+    /// settles a pair (a satisfied hole drops its whole side), so presence
     /// is the only gate.
     fn step(&mut self, slot: usize) -> u64 {
         match slot {
@@ -417,7 +417,7 @@ struct SpanSide<'a> {
 }
 
 /// How much of the segment `[lo, hi]` a query's demands admit, every stream
-/// decoded once — `causally`'s [`Coverage`] verdict at the stream layer.
+/// decoded once: `causally`'s [`Coverage`] verdict at the stream layer.
 ///
 /// `lo` and `hi` must satisfy `lo <= hi` (`Span`'s construction
 /// contract); the verdict is unspecified otherwise. An empty demand list is
@@ -488,8 +488,8 @@ pub fn coverage<'a>(
             }
 
             match side.demand {
-                // The floor admitting nothing — not even the segment's maximum
-                // — fully refutes coverage, and allows bailing earliest. The hi
+                // The floor admitting nothing, not even the segment's maximum,
+                // fully refutes coverage, and allows bailing earliest. The hi
                 // pair is never settled, so a `Partial` verdict certifies
                 // `floor <= hi` (see this function's doc).
                 Demand::After => {
@@ -497,8 +497,8 @@ pub fn coverage<'a>(
                         return Coverage::Empty;
                     }
                     // Admitting everything needs `floor <= lo`; its refutation
-                    // settles the lo pair (not Full, not this bound's emptiness
-                    // — that reads the hi pair).
+                    // settles the lo pair (not Full, not this bound's emptiness,
+                    // which reads the hi pair).
                     if side.lo.live && !side.lo.comparison.directions.allows_ge() {
                         full_possible = false;
                         side.lo.live = false;
@@ -530,8 +530,8 @@ pub fn coverage<'a>(
                 // the settle order: the segment's endpoints satisfy `lo <= hi`
                 // pointwise (`Span`'s construction contract), so a
                 // refutation of the dominated endpoint forces the dominating
-                // one's at the same interval — checked first, in the same pass
-                // — and the joint settle drops the side before any later pass
+                // one's at the same interval, checked first in the same pass,
+                // and the joint settle drops the side before any later pass
                 // could find the dominated pair settled alone.
                 Demand::NotBefore | Demand::NotStrictlyBefore => {
                     if side.hi.live && !side.hi.comparison.directions.allows_le() {
@@ -591,7 +591,7 @@ pub fn coverage<'a>(
 }
 
 /// The coverage walk's owned cursor set: both probe endpoints' cursors, their
-/// live flags, and every bound side — the walk state itself, as in the
+/// live flags, and every bound side: the walk state itself, as in the
 /// placement walk's `Cursors`.
 ///
 /// The read loop reaches the sides through the fields between advances, and the

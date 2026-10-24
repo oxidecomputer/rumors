@@ -57,7 +57,7 @@ impl<'a> VersionWalk<'a> {
     /// The rise entering the current plateau, consumed.
     ///
     /// The first take after a plateau entry yields it, every later take
-    /// yields `None` — which is what makes a refinement cell carry an
+    /// yields `None`, which is what makes a refinement cell carry an
     /// input's rise only on its plateau's first fragment.
     pub fn take_rise(&mut self) -> Option<Rise> {
         self.pending.take()

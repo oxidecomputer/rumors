@@ -5,7 +5,7 @@
 //! node tags with leaf payloads: the first leaf stores an absolute height and
 //! each later leaf stores its signed change from the previous height.
 //!
-//! The IO boundary turns that stream into domain objects—nodes, regions,
+//! The IO boundary turns that stream into domain objects: nodes, regions,
 //! payloads, and complete subtrees. Version algorithms use those objects, not
 //! bit positions or raw bit buffers. This keeps the representation replaceable
 //! and makes the algorithms read as tree operations.

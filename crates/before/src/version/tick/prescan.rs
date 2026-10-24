@@ -350,7 +350,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// Read one leaf delta and advance the minimum tracker's input height.
     ///
     /// Decodes unconditionally as a zigzag-coded leaf-to-leaf delta: the
-    /// stream's absolute first payload — the one coded as a height — is
+    /// stream's absolute first payload, the one coded as a height, is
     /// behind every scan's entry ([`run`](Self::run)'s doc), so the scan
     /// never reads it.
     fn payload(&mut self) -> BigInt {
