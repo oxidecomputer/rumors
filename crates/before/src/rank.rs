@@ -1016,6 +1016,37 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// at least doubles the occupied prefix, so the widths shifted form a geometric
 /// series bounded by the final span. Input order therefore cannot multiply the
 /// cost by the number of summands.
+///
+/// The `O(k + n)` bound rests on `suanpan`'s clause [updates of one
+/// sign](suanpan#updates-of-one-sign), not on its table alone: the table
+/// charges `add_shifted_limbs` at a nonzero shift a term of log(`W` + 1),
+/// which alone would give `O(n + k log n)`. Every summand is nonnegative,
+/// so from the accumulator's creation to the first `<<=`, and from each
+/// `<<=` to the next or to the final read, the fold adds limbs of one sign
+/// to a value of that sign, and asks only for the working width between
+/// them. The clause covers each such stretch: every summand costs amortized
+/// O(`L` + `G`) for its `L` limbs, each `<<=` costs amortized O(`S`) for a
+/// result of width `S`, and the comparison each `<<=` and the final read
+/// begin with can cost one logarithm of the width it reads more. Summed
+/// over the fold:
+///
+/// - the limbs total `O(k + n)`;
+/// - each shift is at least the held span, so its `S` is at most twice the
+///   shift plus a constant, and its extra logarithm is within that `S`. The
+///   shifts total the final exponent less the first. A shift moves `exp` to
+///   the triggering summand's exponent `e`, or by the held span, which is
+///   within a constant of `exp` plus the widest numerator plus `log2 k`
+///   bits, and `exp` is below `e` when the shift triggers; so after every
+///   shift `exp` is at most twice the largest summand exponent plus that
+///   width and a constant, `O(n + log k)`.
+///   It can exceed every summand exponent: summing `2^64 - 1` and `1/2`
+///   shifts by the held span, 64 bits, and ends at `exp = 64`;
+/// - within a stretch nothing cancels, so `G` totals at most the width the
+///   stretch ends at: the next shift's held span, at most that shift, or,
+///   for the last stretch, the result's width;
+/// - the final read costs the result's width plus one logarithm of it.
+///
+/// Each term is `O(k + n)`.
 impl Rank {
     fn sum_iter<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
         // The accumulator's shifted entry points and its left shift panic when
