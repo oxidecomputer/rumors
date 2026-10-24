@@ -1,11 +1,15 @@
-//! Checks for the `usize` scan over rustdoc's type grammar.
+//! Checks for the `usize` scan over rustdoc's type grammar, and for the
+//! reachability walk over module graphs with cycles.
+
+use std::collections::{BTreeSet, HashMap};
 
 use rustdoc_types::{
-    AssocItemConstraint, AssocItemConstraintKind, GenericArg, GenericArgs, GenericBound, Id, Path,
-    Term, TraitBoundModifier, Type,
+    Abi, AssocItemConstraint, AssocItemConstraintKind, Crate, Function, FunctionHeader,
+    FunctionSignature, GenericArg, GenericArgs, GenericBound, Generics, Id, Item, ItemEnum, Module,
+    Path, Target, Term, TraitBoundModifier, Type, Use, Visibility,
 };
 
-use super::{Node, mentions_usize};
+use super::{Node, mentions_usize, public_surface};
 
 /// A primitive type by name.
 fn primitive(name: &str) -> Type {
@@ -83,4 +87,122 @@ fn self_reads_as_the_implementing_type() {
     assert!(mentions_usize([Node::Type(&result_of_self)], Some(&usize)));
     assert!(!mentions_usize([Node::Type(&result_of_self)], Some(&u64)));
     assert!(!mentions_usize([Node::Type(&result_of_self)], None));
+}
+
+/// A public item with the given id, name, and payload.
+fn item(id: u32, name: Option<&str>, inner: ItemEnum) -> Item {
+    Item {
+        id: Id(id),
+        crate_id: 0,
+        name: name.map(str::to_owned),
+        span: None,
+        visibility: Visibility::Public,
+        docs: None,
+        links: HashMap::new(),
+        attrs: Vec::new(),
+        deprecation: None,
+        stability: None,
+        const_stability: None,
+        inner,
+    }
+}
+
+/// A module holding the items with the given ids.
+fn module(id: u32, name: Option<&str>, items: &[u32]) -> Item {
+    let inner = ItemEnum::Module(Module {
+        is_crate: name.is_none(),
+        items: items.iter().copied().map(Id).collect(),
+        is_stripped: false,
+    });
+    item(id, name, inner)
+}
+
+/// A re-export of the item `target`, named `name`, or a glob of it.
+fn reexport(id: u32, name: &str, target: u32, is_glob: bool) -> Item {
+    let inner = ItemEnum::Use(Use {
+        source: name.to_owned(),
+        name: name.to_owned(),
+        id: Some(Id(target)),
+        is_glob,
+    });
+    item(id, Some(name), inner)
+}
+
+/// A function with no parameters and no result.
+fn function(id: u32, name: &str) -> Item {
+    let inner = ItemEnum::Function(Function {
+        sig: FunctionSignature {
+            inputs: Vec::new(),
+            output: None,
+            is_c_variadic: false,
+        },
+        generics: Generics {
+            params: Vec::new(),
+            where_predicates: Vec::new(),
+        },
+        header: FunctionHeader {
+            is_const: false,
+            is_unsafe: false,
+            is_async: false,
+            abi: Abi::Rust,
+        },
+        has_body: true,
+    });
+    item(id, Some(name), inner)
+}
+
+/// The walk terminates on a module graph with cycles, and records every
+/// spelling whose path passes through no module twice.
+///
+/// Module `a` re-exports itself by name as `again`, which lengthens the path
+/// on every lap, and its child `c` splices `a` back in with
+/// `pub use super::*`; modules `g` and `h` splice each other in by glob. The
+/// root also re-exports `a` as `alias`, a second path to `a` that passes
+/// through it once, so `a`'s functions are rows at both paths, and at no
+/// cyclic spelling.
+#[test]
+fn walk_terminates_on_module_cycles() {
+    let items = [
+        module(0, None, &[1, 4, 5, 7]),
+        module(1, Some("a"), &[2, 3, 11]),
+        function(2, "f"),
+        reexport(3, "again", 1, false),
+        reexport(4, "alias", 1, false),
+        module(5, Some("g"), &[6, 9]),
+        reexport(6, "h", 7, true),
+        module(7, Some("h"), &[8, 10]),
+        reexport(8, "g", 5, true),
+        function(9, "in_g"),
+        function(10, "in_h"),
+        module(11, Some("c"), &[12, 13]),
+        reexport(12, "super", 1, true),
+        function(13, "in_c"),
+    ];
+    let krate = Crate {
+        root: Id(0),
+        crate_version: None,
+        includes_private: false,
+        index: items.into_iter().map(|item| (item.id, item)).collect(),
+        paths: HashMap::new(),
+        external_crates: HashMap::new(),
+        target: Target {
+            triple: String::new(),
+            target_features: Vec::new(),
+        },
+        format_version: 0,
+    };
+    let expected: BTreeSet<String> = [
+        "a::f",
+        "a::c::in_c",
+        "alias::f",
+        "alias::c::in_c",
+        "g::in_g",
+        "g::in_h",
+        "h::in_g",
+        "h::in_h",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert_eq!(public_surface(&krate).functions, expected);
 }
