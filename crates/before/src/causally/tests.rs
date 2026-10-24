@@ -129,6 +129,23 @@ fn on_left(sides: u64, k: usize) -> bool {
     sides >> (k % 64) & 1 == 1
 }
 
+/// The bit of `sides` that makes [`down_query`] and [`up_query`] conjoin their
+/// bounds as one neutral query instead of one atom at a time, so the typed
+/// `&` between a neutral query and a polar one occurs.
+///
+/// The polar fold reads bits from zero upward, one per later form and per
+/// bound, so it reaches this bit and [`NEUTRAL_BLOCK_SIDE`] only for
+/// expressions far longer than the strategies build.
+const NEUTRAL_BLOCK: usize = 63;
+
+/// The bit of `sides` that puts the neutral block of [`NEUTRAL_BLOCK`] on the
+/// left of the polar query, rather than on its right.
+const NEUTRAL_BLOCK_SIDE: usize = 62;
+
+/// How far `sides` shifts before [`neutral_query`] reads the neutral block's
+/// own operand orders, so they vary independently of the polar fold's.
+const NEUTRAL_BLOCK_ORDERS: u32 = 32;
+
 impl BoundClause {
     /// Conjoins this bound with a neutral query.
     fn add_to_neutral<'a>(&self, query: Query<'a>, grid: &'a [Version]) -> Query<'a> {
@@ -443,9 +460,12 @@ fn neutral_query<'a>(bounds: &[BoundClause], sides: u64, versions: &'a [Version]
 
 /// Builds a downward-polar conjunction from public forms and inclusive bounds.
 ///
-/// The first form seeds the conjunction. Each later form, then each bound,
-/// joins it on the side [`on_left`] reads from the next bit of `sides`, so
-/// both operand orders of each typed `&` occur.
+/// The first form seeds the conjunction. Each later form joins it on the side
+/// [`on_left`] reads from the next bit of `sides`, so both operand orders of
+/// each typed `&` occur. The bounds then join one of two ways, as bit
+/// [`NEUTRAL_BLOCK`] of `sides` picks: each bound as an atom, on the side the
+/// next bit picks, or all of them as one [`neutral_query`], on the side bit
+/// [`NEUTRAL_BLOCK_SIDE`] picks.
 fn down_query<'a>(
     clauses: &[DownClause],
     bounds: &[BoundClause],
@@ -465,6 +485,14 @@ fn down_query<'a>(
                 query & clause.query(versions)
             }
         });
+    if on_left(sides, NEUTRAL_BLOCK) {
+        let block = neutral_query(bounds, sides >> NEUTRAL_BLOCK_ORDERS, versions);
+        return if on_left(sides, NEUTRAL_BLOCK_SIDE) {
+            block & query
+        } else {
+            query & block
+        };
+    }
     bounds.iter().enumerate().fold(query, |query, (k, bound)| {
         if on_left(sides, rest.len() + k) {
             bound.prepend_to_down(query, versions)
@@ -476,9 +504,7 @@ fn down_query<'a>(
 
 /// Builds an upward-polar conjunction from public forms and inclusive bounds.
 ///
-/// The first form seeds the conjunction. Each later form, then each bound,
-/// joins it on the side [`on_left`] reads from the next bit of `sides`, so
-/// both operand orders of each typed `&` occur.
+/// The forms and the bounds join as they do in [`down_query`].
 fn up_query<'a>(
     clauses: &[UpClause],
     bounds: &[BoundClause],
@@ -498,6 +524,14 @@ fn up_query<'a>(
                 query & clause.query(versions)
             }
         });
+    if on_left(sides, NEUTRAL_BLOCK) {
+        let block = neutral_query(bounds, sides >> NEUTRAL_BLOCK_ORDERS, versions);
+        return if on_left(sides, NEUTRAL_BLOCK_SIDE) {
+            block & query
+        } else {
+            query & block
+        };
+    }
     bounds.iter().enumerate().fold(query, |query, (k, bound)| {
         if on_left(sides, rest.len() + k) {
             bound.prepend_to_up(query, versions)
@@ -539,8 +573,9 @@ proptest! {
     /// evaluation.
     ///
     /// Each expression joins every operand after its first on the side
-    /// `sides` picks, and spells each negation in either public form
-    /// (`since(v)` or `!before(v)`, `until(v)` or `!after(v)`). Every case
+    /// `sides` picks, joins a polar expression's bounds either one at a time
+    /// or as one neutral query, and spells each negation in either public
+    /// form (`since(v)` or `!before(v)`, `until(v)` or `!after(v)`). Every case
     /// first exhausts the two-party grid, on which membership is enumerable
     /// and a census decides coverage exactly (see `two_party_grid`). The same
     /// expression is then applied to arbitrary normal-form versions whose
