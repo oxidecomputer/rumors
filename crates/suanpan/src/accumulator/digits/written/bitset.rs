@@ -204,12 +204,28 @@ impl Bitset {
     /// nonempty, so a level at which no other word empties changes no
     /// summary bit above it, and the clear stops there.
     ///
-    /// The cost is O(1 + (`highest` − `lowest`) / 64) word operations at
-    /// level 0, and at each level above, O(1) plus the span's words there.
-    /// The clear reaches a level only after emptying a word other than word
-    /// zero on the level below. That word turned nonempty through an
-    /// insertion that climbed to the level reached, and the clear leaves it
-    /// empty, so each level's O(1) is charged once to that climb.
+    /// # Cost
+    ///
+    /// Write `s` for `highest` − `lowest`. At level `k`, the span covers at
+    /// most `s / 64^(k + 1) + 2` words, and the clear reads each of them once
+    /// and writes it at most once, so level 0 costs O(1 + `s` / 64) word
+    /// operations. The clear reaches level `k + 1` only after emptying a word
+    /// other than word zero at level `k`. That word turned nonempty through
+    /// an insertion that climbed to level `k + 1`, and the clear leaves it
+    /// empty, so that insertion's climb pays, once, for the level's fixed
+    /// work and for the two words at the ends of its span. The rest of the
+    /// spans above level 0 total at most the sum of `s / 64^(k + 1)` over
+    /// `k >= 1`, which is `s / 4032` words. A clear therefore costs amortized
+    /// O(1 + `s` / 64).
+    ///
+    /// The charge rests on two facts about how a word other than word zero
+    /// turns nonempty. Growth never does it: it appends zero words, and a new
+    /// top level summarizes a level whose only nonempty word is word zero,
+    /// because that level was the one-word top before the growth began, or
+    /// was itself created by it, so only the new level's word zero gains a
+    /// bit. And
+    /// a clone copies words filled in the original's history; the clone's
+    /// copy, one word operation per word, pays for them.
     pub fn clear(&mut self, lowest: usize, highest: usize) {
         debug_assert_eq!(
             self.last_below(1),
