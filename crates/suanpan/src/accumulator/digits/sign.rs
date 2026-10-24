@@ -11,10 +11,10 @@
 //! never does, the scan reaches position zero and has the exact value.
 //!
 //! Merely reading the digits would make repeated comparisons with zero
-//! traverse the same cancellation. Instead, the scan clears each position it incorporates
-//! and writes the final partial back at the position where it stops. This
-//! preserves the integer while replacing the inspected suffix with its
-//! compact equivalent. Each individually visited position was written by an
+//! traverse the same cancellation. Instead, the scan clears each position it
+//! incorporates and writes the final partial back at the position where it
+//! stops. This preserves the integer while replacing the inspected suffix
+//! with its compact equivalent. Each individually visited position was written by an
 //! earlier update; a gap of unwritten zeros is skipped in one step. The work of
 //! comparisons with zero is therefore amortized over the updates that made it
 //! necessary.
@@ -32,7 +32,10 @@ use core::cmp::Ordering;
 
 use super::{super::touch, Digits, DIGIT_BITS};
 
-/// Smallest whole partial whose ordering no lower digits can overturn.
+/// Smallest whole partial whose sign no lower digits can reverse.
+///
+/// The unread digits contribute less than 2.01 in the partial's units, as the
+/// module documentation derives, so a partial of magnitude 3 keeps its sign.
 pub(super) const COMPARISON_DECIDED: i128 = 3;
 
 /// Compare with zero while preserving both value and the amortized bound.

@@ -606,8 +606,8 @@
 //!
 //! # Updates of one sign
 //!
-//! The crate states this refinement on its own, because `before`'s `Sum`
-//! rests on it. A *stretch* is the sequence of operations from the start of
+//! The crate states this refinement on its own, because a caller's cost
+//! argument can rest on it. A *stretch* is the sequence of operations from the start of
 //! a storage until the first operation other than an update by a primitive
 //! or limbs, a `stored_bits` query, or an `is_known_zero` query; the queries
 //! change nothing. Suppose every update in a stretch has contributions of one

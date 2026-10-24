@@ -306,9 +306,9 @@ impl Bitset {
     /// Empty word `index` of `level` and every word below it, passing each
     /// position they held to `removed`, and return how many there were.
     ///
-    /// The walk is depth-first and keeps one frame per level: a word's index
-    /// and the bits of it not yet descended into. It empties each word as it
-    /// enters it, and enters only words whose summary bit was set, so it
+    /// The traversal is depth-first and keeps one frame per level: a word's
+    /// index and the bits of it not yet descended into. It empties each word
+    /// as it enters it, and enters only words whose summary bit was set, so it
     /// reads each nonempty word below once and no empty word. Word `index`
     /// must not lie on position zero's path, which the caller keeps.
     fn empty_subtree(
@@ -442,7 +442,7 @@ impl Bitset {
 
     /// Check both invariants of the module, that each summary bit is set
     /// exactly when its word is nonzero and that the levels have the
-    /// documented shape, and that the count of held positions is exact.
+    /// documented lengths, and that the count of held positions is exact.
     #[cfg(test)]
     pub fn assert_invariants(&self, context: &dyn core::fmt::Debug) {
         for (words, summaries) in self.levels.iter().zip(self.levels.iter().skip(1)) {

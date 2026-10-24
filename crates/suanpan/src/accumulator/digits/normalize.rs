@@ -1,10 +1,10 @@
 //! Remove cancellation from the stored signed digits in one pass.
 //!
-//! Ordinary updates deliberately leave positive and negative digits mixed: that
-//! is what makes a small update cheap. A magnitude read needs the magnitude's
-//! unsigned digits, and writing them back lets the next read pay only for the
-//! result's width. One pass does both: it carries from low to high inside the
-//! existing buffer, and the read collects the digits it writes.
+//! Ordinary updates leave positive and negative digits mixed, which keeps a
+//! small update cheap. A magnitude read needs the magnitude's unsigned
+//! digits, and writing them back lets the next read pay only for the result's
+//! width. One pass does both: it carries from low to high inside the existing
+//! buffer, and the read collects the digits it writes.
 //!
 //! The pass works on the stored digits' sum, which is the value or, when the
 //! flag is set, its negation; it neither reads nor changes the flag. Once the
