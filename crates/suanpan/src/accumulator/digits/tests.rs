@@ -1,10 +1,27 @@
 //! Structural assertions shared by the exhaustive and randomized schedules.
 
+use core::cmp::Ordering;
+
+use super::normalize::MagnitudeCarry;
 use super::written::ClimbCounts;
 use super::{Digits, DIGIT_LIMIT};
 
 /// Inspect signed digits and their written set without exposing mutable fields.
 impl Digits {
+    /// Stream the stored digits through the Euclidean carry of a value of the
+    /// nonzero sign `sign`, as [`add_magnitude`](Digits::add_magnitude)
+    /// streams them, and return the digits it yields, from the lowest.
+    pub fn streamed_magnitude_digits(&self, sign: Ordering) -> Vec<u32> {
+        let mut magnitude = MagnitudeCarry::new(sign);
+        let mut streamed: Vec<u32> = self
+            .stored_digits()
+            .iter()
+            .map(|&digit| magnitude.fold(digit))
+            .collect();
+        streamed.extend(core::iter::from_fn(|| magnitude.next_above()));
+        streamed
+    }
+
     /// The positions the written set holds, in ascending order.
     #[cfg(feature = "touch-meter")]
     pub fn written_positions(&self) -> Vec<usize> {

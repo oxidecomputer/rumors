@@ -35,7 +35,80 @@
 use core::cmp::Ordering;
 
 use super::{Digits, DIGIT_BITS};
-use crate::accumulator::touch;
+use crate::accumulator::{touch, DIGIT_MASK};
+
+/// The Euclidean carry that turns a nonzero value's stored signed digits,
+/// read from the lowest position up, into the digits of its magnitude.
+///
+/// At each position, the stored digit times the value's sign, plus the carry
+/// from below, is a piece of the magnitude. Its Euclidean remainder by the
+/// base `B = 2^32` is the magnitude's digit there, never negative and below
+/// the base, and its quotient carries upward. For a power-of-two base these
+/// are the piece's low 32 bits and its arithmetic right shift, and every
+/// piece fits an `i64`: a stored digit has magnitude below `2B`, so the
+/// carry stays at most 3 in magnitude. Once every stored digit is folded in,
+/// the carry is nonnegative, because the value has that sign, and holds the
+/// magnitude's digits above the stored ones: at most one, since a value
+/// stored in `h + 1` positions has magnitude below `B^(h + 2)`.
+///
+/// [`normalize_nonzero_from`](Digits::normalize_nonzero_from) writes the
+/// digits back in place. [`add_magnitude`](Digits::add_magnitude) deposits
+/// them into another value and leaves the stored digits as they are; at the
+/// top stored position it takes the whole remaining magnitude as one piece,
+/// so that its deposits end where the stored digits do.
+pub(super) struct MagnitudeCarry {
+    /// 1 for a positive value, -1 for a negative one.
+    polarity: i64,
+    /// The magnitude's part not yet returned, in units of the next position.
+    carry: i64,
+}
+
+/// Fold stored digits into magnitude digits, low to high.
+impl MagnitudeCarry {
+    /// Start the carry for a value of the nonzero sign `sign`.
+    pub(super) fn new(sign: Ordering) -> Self {
+        debug_assert_ne!(sign, Ordering::Equal, "a zero has no magnitude digits");
+        let polarity = if sign == Ordering::Less { -1 } else { 1 };
+        Self { polarity, carry: 0 }
+    }
+
+    /// Fold in the stored digit at the next position and return the
+    /// magnitude's digit there.
+    pub(super) fn fold(&mut self, digit: i64) -> u32 {
+        let piece = self.polarity * digit + self.carry;
+        self.carry = piece >> DIGIT_BITS;
+        (piece & DIGIT_MASK as i64) as u32
+    }
+
+    /// Fold in the top stored digit and return the magnitude's whole
+    /// remaining part, in units of the top position: its digit there and
+    /// every digit above, as one piece.
+    ///
+    /// The piece is never negative, because the value has the sign the carry
+    /// was started with, and below `2^34`, because the stored digit is below
+    /// `2B` in magnitude and the carry at most 3. Nothing remains above it.
+    pub(super) fn fold_top(&mut self, digit: i64) -> u64 {
+        let piece = self.polarity * digit + self.carry;
+        self.carry = 0;
+        u64::try_from(piece).expect("the remaining high part has the magnitude's sign")
+    }
+
+    /// Return the magnitude's next digit above the stored ones, once every
+    /// stored digit is folded in, or `None` when the carry is spent.
+    pub(super) fn next_above(&mut self) -> Option<u32> {
+        debug_assert!(
+            self.carry >= 0,
+            "the remaining high part has the magnitude's sign"
+        );
+        (self.carry != 0).then(|| self.fold(0))
+    }
+
+    /// Return the stored digit of the value's sign whose magnitude is
+    /// `magnitude_digit`.
+    pub(super) fn signed(&self, magnitude_digit: u32) -> i64 {
+        self.polarity * i64::from(magnitude_digit)
+    }
+}
 
 /// Rewrite a wide value into same-signed base-2^32 digits without allocating.
 impl Digits {
@@ -74,34 +147,20 @@ impl Digits {
         debug_assert_ne!(sign, Ordering::Equal, "a zero needs no normalization");
         debug_assert!(start <= self.highest_nonzero);
 
-        let polarity = if sign == Ordering::Less {
-            -1_i128
-        } else {
-            1_i128
-        };
-        let base = 1_i128 << DIGIT_BITS;
         let old_highest = self.highest_nonzero;
         // The value is nonzero, so the floor is `lowest_written`, and every
         // digit below it is zero before and after the pass.
         let floor = self.written_floor();
-        let mut carry = 0_i128;
+        let mut magnitude = MagnitudeCarry::new(sign);
         for digit in &mut self.digits[start..=old_highest] {
             touch(1);
-            let magnitude_piece = polarity * i128::from(*digit) + carry;
-            let remainder = magnitude_piece.rem_euclid(base);
-            carry = magnitude_piece.div_euclid(base);
-            *digit = (polarity * remainder) as i64;
-            emit(remainder as u32);
+            let magnitude_digit = magnitude.fold(*digit);
+            *digit = magnitude.signed(magnitude_digit);
+            emit(magnitude_digit);
         }
 
-        debug_assert!(
-            carry >= 0,
-            "the remaining high part has the magnitude's sign"
-        );
         let mut highest = old_highest;
-        while carry != 0 {
-            let remainder = carry.rem_euclid(base);
-            carry = carry.div_euclid(base);
+        while let Some(magnitude_digit) = magnitude.next_above() {
             highest = highest
                 .checked_add(1)
                 .expect("a normalized carry needs an addressable digit position");
@@ -112,8 +171,8 @@ impl Digits {
                 self.digits.push(0);
             }
             touch(1);
-            self.digits[highest] = (polarity * remainder) as i64;
-            emit(remainder as u32);
+            self.digits[highest] = magnitude.signed(magnitude_digit);
+            emit(magnitude_digit);
         }
         debug_assert!(
             highest <= old_highest.saturating_add(1),

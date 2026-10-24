@@ -233,20 +233,20 @@ impl Value {
         }
     }
 
-    /// Return the value times `2^shift` as a new value, normalizing this one
-    /// in place as any read does.
+    /// Return the value times `2^shift` as a new value, compacting this one's
+    /// cancelled top as any read does.
     ///
     /// A zero, including one whose digits cancel, returns a new zero. A small
-    /// value shifts a small copy of itself. A value held in digits is
-    /// normalized in place first, so every digit re-deposited into the new
-    /// value has the value's sign. The re-deposit is then an update of one
-    /// sign into zeroed storage, which leaves the new digits *sign-led*, as
-    /// the crate's cost argument for updates of one sign defines it: the top
-    /// digit has the value's sign, and no digit opposes that sign by more
-    /// than half the base. A signed digit re-deposited at a bit offset could
-    /// instead land a full base against the value's sign, below a top digit
-    /// of 1. Normalizing costs one pass over the positions the re-deposit
-    /// reads anyway.
+    /// value shifts a small copy of itself. A value held in digits is compared
+    /// with zero, which compacts its top, and its magnitude then streams into
+    /// the new value's zeroed digits, normalized as it goes and with the
+    /// value's sign, in one pass that leaves this value's stored digits as
+    /// they are. That deposit is an update of one sign into zeroed storage,
+    /// which leaves the new digits *sign-led*, as the crate's cost argument
+    /// for updates of one sign defines it: the top digit has the value's
+    /// sign, and no digit opposes that sign by more than half the base.
+    /// Depositing the stored digits as they stand would instead copy their
+    /// mixed signs into the new value.
     ///
     /// # Panics
     ///
@@ -265,11 +265,12 @@ impl Value {
         let Some(shift) = self.addressable_shift(shift) else {
             return result;
         };
-        if self.digits.normalize() != Ordering::Equal {
+        let sign = self.digits.cmp_zero();
+        if sign != Ordering::Equal {
             result.start_digits();
             result
                 .digits
-                .add_digits(self.digits.stored_digits(), shift, Update::Add);
+                .add_magnitude(self.digits.stored_digits(), sign, shift, Update::Add);
         }
         result
     }

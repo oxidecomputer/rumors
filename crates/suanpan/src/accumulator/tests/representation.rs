@@ -6,11 +6,12 @@
 //! be skipped by a later query even while the current value still reads
 //! correctly.
 //!
-//! A shift normalizes the value before re-depositing it, so that its digits
-//! start the crate's cost argument for updates of one sign in the state that
-//! argument needs. The normalization and the shift each get a property of
-//! their own, and a third follows the operations of a sum that rescales its
-//! total: updates of one sign interleaved with shifts, from creation.
+//! A shift streams the value's magnitude into new digits, normalizing it as
+//! it goes, so that its digits start the crate's cost argument for updates of
+//! one sign in the state that argument needs. Normalization in place, the
+//! streamed magnitude, and the shift each get a property of their own, and
+//! another follows the operations of a sum that rescales its total: updates
+//! of one sign interleaved with shifts, from creation.
 //!
 //! Zero can be stored as nonzero digits that cancel. Shifting such a zero, or
 //! adding it at a shift, must take constant space, as a known zero does.
@@ -159,14 +160,15 @@ fn representation_invariants_hold_exhaustively() {
 /// and a shift below 4,096 bits.
 ///
 /// [`apply_stream_step`] gives the arms their meaning: limb updates of either
-/// sign, a whole-word subtraction, a primitive update, and a comparison with
-/// zero. Together they leave runs, gaps, cancelled tops, and digits of both
-/// signs, the varied stored forms that the normalization and shift
-/// properties below start from.
+/// sign, a whole-word subtraction, a primitive update, an accumulator operand
+/// whose stored digits have mixed signs, added or subtracted at the step's
+/// shift, and a comparison with zero. Together they leave runs, gaps,
+/// cancelled tops, and digits of both signs, the varied stored forms that the
+/// normalization and shift properties below start from.
 pub(super) fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u64)>> {
     proptest::collection::vec(
         (
-            0u8..5,
+            0u8..6,
             proptest::collection::vec(any::<u64>(), 1..=2),
             0u64..4_096,
         ),
@@ -201,6 +203,23 @@ pub(super) fn apply_stream_step(
             let delta = limbs[0] as i64;
             *acc += delta;
             *oracle += delta;
+        }
+        4 => {
+            // Positive digits from position 2 up over negative ones below:
+            // the operand's stored digits have mixed signs, and most shifts
+            // land them at a nonzero bit offset.
+            let mut operand = Accumulator::new();
+            operand.add_shifted_limbs(64, limbs.iter().copied());
+            operand.sub_shifted_limbs(0, [limbs[0]]);
+            let operand_value = (IBig::from(value.clone()) << 64_usize) - limbs[0];
+            let scaled_operand = operand_value << usize::try_from(*shift).unwrap();
+            if limbs[0] % 2 == 0 {
+                acc.add_shifted(*shift, &operand);
+                *oracle += scaled_operand;
+            } else {
+                acc.sub_shifted(*shift, &operand);
+                *oracle -= scaled_operand;
+            }
         }
         _ => {
             prop_assert_eq!(acc.sign(), oracle_sign(oracle), "sign at step {}", step);
@@ -396,11 +415,10 @@ proptest! {
     /// digit the value's sign, with magnitude below the base, from any stored
     /// form a stream reaches.
     ///
-    /// A nonzero `<<=` of a value held in digits normalizes it this way
-    /// before re-depositing its digits, so that every re-deposit has the
-    /// value's sign. The normalization changes the representation only: the
-    /// value, the returned sign, and every digit invariant must hold after
-    /// it.
+    /// A magnitude read normalizes the digits it reads this way, and keeps
+    /// the normalized form. The normalization changes the representation
+    /// only: the value, the returned sign, and every digit invariant must hold
+    /// after it.
     #[test]
     fn normalizing_keeps_the_value_and_gives_every_digit_its_sign(
         ops in run_forming_stream(),
@@ -417,19 +435,92 @@ proptest! {
         assert_value(&acc, &oracle);
     }
 
+    /// Streaming a nonzero value's stored digits through the Euclidean carry
+    /// yields its magnitude's base-`2^32` digits, from the lowest, and leaves
+    /// the stored digits as they are.
+    ///
+    /// Only zeros follow the magnitude's top, from any stored form a stream
+    /// reaches after a comparison with zero.
+    ///
+    /// An accumulator operand at a shift that is not a multiple of 32 bits,
+    /// and a shifted value at any shift, is compared with zero and then
+    /// streamed this way, so that every contribution it deposits has the
+    /// value's sign.
+    #[test]
+    fn streaming_stored_digits_yields_the_magnitude_digits(
+        ops in run_forming_stream(),
+    ) {
+        let mut acc = fresh(true);
+        let mut oracle = IBig::from(0);
+        for (step, op) in ops.iter().enumerate() {
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
+        }
+        let sign = acc.value.get_mut().digits.cmp_zero();
+        prop_assert_eq!(sign, oracle_sign(&oracle));
+        if sign != Ordering::Equal {
+            let stored = acc.stored().digits.stored_digits().to_vec();
+            let streamed = acc.stored().digits.streamed_magnitude_digits(sign);
+            let magnitude = oracle.magnitude().to_u32_digits();
+            prop_assert!(streamed.len() >= magnitude.len());
+            prop_assert_eq!(&streamed[..magnitude.len()], &magnitude[..]);
+            prop_assert!(
+                streamed[magnitude.len()..].iter().all(|&digit| digit == 0),
+                "only zeros follow the magnitude's top: {:?}",
+                streamed
+            );
+            let after = acc.stored();
+            prop_assert_eq!(after.digits.stored_digits(), &stored[..]);
+        }
+    }
+
+    /// Adding or subtracting any accumulator at a shift that is not a
+    /// multiple of 32 bits into a new accumulator keeps both values and
+    /// leaves the receiver's digits sign-led.
+    ///
+    /// The operand's magnitude digits enter one at a time with the deposit's
+    /// sign, into zeroed storage, so recentering is the only source of a
+    /// digit of the other sign, and it leaves that digit within `B / 2` of
+    /// zero. The operand's stored digits come from a stream, so they mix
+    /// signs.
+    #[test]
+    fn an_operand_at_a_bit_offset_deposits_one_sign(
+        ops in run_forming_stream(),
+        digit_shift in 0u64..=128,
+        bit_offset in 1u64..32,
+        subtract: bool,
+    ) {
+        let mut operand = fresh(true);
+        let mut oracle = IBig::from(0);
+        for (step, op) in ops.iter().enumerate() {
+            apply_stream_step(&mut operand, &mut oracle, op, step)?;
+        }
+        let shift = 32 * digit_shift + bit_offset;
+        let mut receiver = fresh(true);
+        let mut expected = &oracle << usize::try_from(shift).unwrap();
+        if subtract {
+            receiver.sub_shifted(shift, &operand);
+            expected = -expected;
+        } else {
+            receiver.add_shifted(shift, &operand);
+        }
+        receiver.stored().assert_invariants(&[]);
+        assert_sign_led(&receiver, oracle_sign(&expected), &(shift, subtract));
+        assert_value(&receiver, &expected);
+        assert_value(&operand, &oracle);
+    }
+
     /// Every spelling of a nonzero left shift keeps the value and leaves the
     /// shifted digits sign-led, from any stored form a stream reaches; a
-    /// borrowed `<<` also leaves its source's value unchanged, and its digits
-    /// normalized.
+    /// borrowed `<<` writes nothing to its source beyond a comparison with
+    /// zero.
     ///
-    /// Every spelling re-deposits the normalized value, one digit of the
-    /// value's sign at a time, into new digits, so recentering is the only
-    /// source of a digit of the other sign, and it leaves that digit within
-    /// `B / 2` of zero. A shift that is not a multiple of 32 bits is where
-    /// re-depositing the stored signed digits unnormalized would break this.
-    /// The borrowed spelling normalizes its source in place, as any read
-    /// does, which may change the source's representation but not its
-    /// value.
+    /// Every spelling streams the value's magnitude, one piece of the value's
+    /// sign at a time, into new digits, so recentering is the only source of
+    /// a digit of the other sign, and it leaves that digit within `B / 2` of
+    /// zero. Depositing the stored signed digits as they stand would break
+    /// this at every bit offset. The borrowed spelling compares its source
+    /// with zero, as any read does, and must leave exactly the stored digits
+    /// that comparison alone leaves.
     #[test]
     fn shifting_leaves_the_digits_sign_led(
         ops in run_forming_stream(),
@@ -441,11 +532,19 @@ proptest! {
         for (step, op) in ops.iter().enumerate() {
             apply_stream_step(&mut acc, &mut oracle, op, step)?;
         }
+        let compared = acc.stored_copy();
+        compared.sign();
         let (shifted, source) = shift_in(acc, shift, spelling);
         let sign = oracle_sign(&oracle);
         if let Some(source) = source {
             source.stored().assert_invariants(&[]);
-            assert_normalized(&source, sign, &("borrowed source", shift));
+            let (left, expected) = (source.stored(), compared.stored());
+            prop_assert_eq!(
+                left.digits.stored_digits(),
+                expected.digits.stored_digits(),
+                "a borrowed shift by {} leaves its source as a comparison with zero does",
+                shift
+            );
             assert_value(&source, &oracle);
         }
         let shifted_oracle = oracle << usize::try_from(shift).unwrap();

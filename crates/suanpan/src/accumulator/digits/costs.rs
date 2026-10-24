@@ -235,9 +235,10 @@
 //! operand's potential, and one read per stored digit.
 //!
 //! **Lemma: few writes per position.** Suppose every contribution of an
-//! update has one sign, as for a primitive or a limb stream, or that every
+//! update has one sign, as for a primitive, a limb stream, or an accumulator
+//! operand at a shift that is not a multiple of 32, or that every
 //! contribution lands at bit offset zero, as for an accumulator operand at a
-//! shift that is a multiple of 32. Then the update newly inserts each
+//! shift that is. Then the update newly inserts each
 //! position O(1) times, and no truncation follows a deposit that lands above
 //! the top.
 //!
@@ -333,37 +334,13 @@
 //!   O(`L`). Its `G` is then O(`L`) as well, which is why `G` does not
 //!   appear. At a nonzero shift it costs amortized
 //!   O(`L` + `G` + log(`W` + 1)).
-//! - An accumulator operand makes up to `A / 32` deposits, so the same holds
-//!   with `A` in place of `L` at shift 0. At a nonzero shift that is a
-//!   multiple of 32 bits, it costs amortized O(`A` + `G` + log(`W` + 1)). The
-//!   crate promises only the weaker bound below for every nonzero shift.
-//!
-//! **Mixed signs at a nonzero bit offset.** An accumulator operand's digits
-//! can have mixed signs, and shifting by a bit offset `b > 0` lets one digit
-//! carry by itself. Take operand digits `[B, -1]` repeated, then a top digit
-//! of 3, which keeps the operand nonzero and leaves its comparison nothing to
-//! compact, at shift `32s + 1`. Let the receiver's top lie below `s`, and let
-//! its bitset cover positions past the operand's span but hold nothing near
-//! `s`, as a write far above it and the write's cancellation leave. Each pair
-//! of digits makes two deposits:
-//! - the first writes `0` and `2` above the top, a jump that starts a run;
-//! - the second writes `-2` onto the `2`, then descends through the new run
-//!   and crosses into the bitset, climbing about `log_64 s` levels.
-//!
-//! With `A` proportional to `s`, the update costs Θ(`A` log(`W` + 1)) bitset
-//! work, while `A + G` is of order `s`. No bound of the form
-//! O(`A` + `G` + log(`W` + 1)) holds. The coverage matters: a query from
-//! beyond the bitset's storage reads its last stored word whole, so without
-//! it each crossing costs O(1). The crate states amortized
-//! O(`A` log(`W` + 1) + `G`) for every nonzero shift, which does not need
-//! the lemma. Each deposit causes at most one descent, with at most two run
-//! crossings. Beyond its first three positions, its carry chain passes only
-//! digits of magnitude at least `2B - 3`, which are nonzero and so already
-//! held, so the deposit newly inserts O(1) positions. It moves at most one
-//! run, whose positions the held-positions term prepaid and whose climbs
-//! after the first telescope within the run. By the first fact, each
-//! crossing, each newly inserted position, and each moved run's first
-//! position climbs O(`1 + log_64 (p + 1)`) levels.
+//! - An accumulator operand makes up to `A / 32 + 1` deposits, so the same
+//!   holds with `A` in place of `L`. At a bit offset of zero its deposits
+//!   meet the lemma's second case. At any other bit offset it deposits the
+//!   operand's magnitude digits, all of the value's sign, which meet the
+//!   first: a stored digit of the other sign, shifted by that offset, could
+//!   carry by itself, and the next deposit cancel the carry and descend
+//!   across a gap, once per digit.
 //!
 //! # Comparisons
 //!

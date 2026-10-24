@@ -103,7 +103,7 @@
 //! |---|---|---|
 //! | `+=` / `-=` a primitive | Amortized O(1) | Amortized O(1) retained |
 //! | Add or subtract `L` limbs | Amortized O(`L`) at shift 0; amortized O(`L` + `G` + log(`W` + 1)) at a nonzero shift | Amortized O(`L` + `G`) retained |
-//! | Add or subtract an accumulator | Amortized O(`A`) at shift 0; amortized O(`A` log(`W` + 1) + `G`) at a nonzero shift | Amortized O(`A` + `G`) retained |
+//! | Add or subtract an accumulator | Amortized O(`A`) at shift 0; amortized O(`A` + `G` + log(`W` + 1)) at a nonzero shift | Amortized O(`A` + `G`) retained |
 //! | Nonzero `<<` or `<<=`, any spelling | Amortized O(`S`) | O(`S`) temporary |
 //! | Sign queries, [`cmp_zero_stable_under`](Accumulator::cmp_zero_stable_under), comparison with a primitive, and primitive `TryFrom` | Amortized O(1) | O(1) |
 //! | [`abs_diff`](Accumulator::abs_diff) | Amortized O(`A`), `A` the narrower; plus O(`V`), `V` the wider operand's working width, to negate the result when the wider operand is negative and the smaller | Amortized O(1) retained beyond the wider operand's storage |
@@ -119,9 +119,7 @@
 //! shift. They pay for the bookkeeping that lets comparisons skip positions
 //! no update has written, grow as the base-64 logarithm of `W`, and cover
 //! crossing a range of such positions, which only an update at a nonzero
-//! shift, or the comparison that follows it, can need. Added at a shift that
-//! is not a multiple of 32 bits, an accumulator operand can pay the term once
-//! per 32 bits of its width, which is why that row multiplies `A` by it.
+//! shift, or the comparison that follows it, can need.
 //!
 //! ## Raising the top across gaps
 //!

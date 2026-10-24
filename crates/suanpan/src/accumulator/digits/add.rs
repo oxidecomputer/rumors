@@ -7,7 +7,8 @@
 //!
 //! Each source is decomposed only enough to keep one contribution inside the
 //! carry intermediate: small values use 32-bit magnitude pieces, 64-bit limbs
-//! split in half, and stored signed digits already satisfy the bound. They all
+//! split in half, and another value's stored digits already satisfy the
+//! bound, or stream as its magnitude digits at a nonzero bit offset. They all
 //! pass through [`Digits::add_at`], so no alternate write path can bypass the
 //! digit or written-set invariants.
 //!
@@ -15,6 +16,9 @@
 //! buffer index. Zero pieces record their operand read but neither allocate
 //! storage nor impose an otherwise unnecessary addressability check.
 
+use core::cmp::Ordering;
+
+use super::normalize::MagnitudeCarry;
 use super::Digits;
 use crate::accumulator::operand::Update;
 use crate::accumulator::{digit_index, touch, DIGIT_BITS, DIGIT_MASK};
@@ -49,11 +53,17 @@ impl Digits {
         }
     }
 
-    /// Read an operand's stored signed digits and deposit them at a bit offset.
+    /// Deposit a nonzero value at a bit offset, given its stored signed
+    /// digits and its sign.
     ///
-    /// Every stored position costs one operand read, including zero gaps.
-    pub fn add_digits(&mut self, operand: &[i64], shift: u64, update: Update) {
-        debug_assert!(!operand.is_empty());
+    /// Every stored position costs one operand read, including zero gaps. At
+    /// bit offset zero, each stored digit is deposited as it stands: one
+    /// contribution of magnitude below `2B`, with `B = 2^32`, at offset zero.
+    /// At any other offset, a stored digit whose sign opposes the value's
+    /// could carry by itself once shifted, leaving the next digit to cancel
+    /// that carry, so the value's magnitude is deposited instead, by
+    /// [`add_magnitude`](Self::add_magnitude).
+    pub fn add_digits(&mut self, operand: &[i64], sign: Ordering, shift: u64, update: Update) {
         debug_assert!(
             operand
                 .iter()
@@ -62,15 +72,72 @@ impl Digits {
         );
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
+        if bit_shift != 0 {
+            self.add_magnitude(operand, sign, shift, update);
+            return;
+        }
         for (offset, &digit) in operand.iter().enumerate() {
             touch(1);
             if digit != 0 {
-                let contribution = i128::from(digit) << bit_shift;
                 self.add_at(
                     digit_index(u128::from(digit_shift) + offset as u128),
-                    update.apply(contribution),
+                    update.apply(i128::from(digit)),
                 );
             }
+        }
+    }
+
+    /// Deposit a nonzero value's magnitude, with the value's sign, at a bit
+    /// offset, given its stored signed digits and its sign.
+    ///
+    /// The stored digits stream through [`MagnitudeCarry`] and are left as
+    /// they are: each position below the stored top deposits the value's
+    /// magnitude digit there, below the base, and the top deposits the
+    /// magnitude's whole remaining part, below `2^34`, so the deposits end
+    /// where the stored digits do. Every stored position costs one operand
+    /// read, including zero gaps. Every contribution has one sign, which is
+    /// the case of the crate's cost argument in which an update writes each
+    /// position a constant number of times; into zeroed digits, as a shift
+    /// deposits, the result's top digit has the value's sign, and recentering
+    /// leaves any digit of the other sign within `B / 2` of zero.
+    pub fn add_magnitude(&mut self, operand: &[i64], sign: Ordering, shift: u64, update: Update) {
+        let (digit_shift, bit_shift) =
+            (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
+        // A magnitude digit carries the value's sign, so subtracting a
+        // negative value adds its magnitude.
+        let update = if sign == Ordering::Less {
+            update.reversed()
+        } else {
+            update
+        };
+        let (&top, below) = operand
+            .split_last()
+            .expect("a nonzero value has a stored digit");
+        let mut magnitude = MagnitudeCarry::new(sign);
+        let mut position = u128::from(digit_shift);
+        for &digit in below {
+            touch(1);
+            let piece = u64::from(magnitude.fold(digit));
+            self.deposit_magnitude_piece(piece, position, bit_shift, update);
+            position += 1;
+        }
+        touch(1);
+        let piece = magnitude.fold_top(top);
+        self.deposit_magnitude_piece(piece, position, bit_shift, update);
+    }
+
+    /// Deposit one piece of a magnitude, below `2^34` and shifted by fewer
+    /// than 32 bits, at `position`; a zero piece deposits nothing.
+    fn deposit_magnitude_piece(
+        &mut self,
+        piece: u64,
+        position: u128,
+        bit_shift: u64,
+        update: Update,
+    ) {
+        if piece != 0 {
+            let contribution = i128::from(piece) << bit_shift;
+            self.add_at(digit_index(position), update.apply(contribution));
         }
     }
 

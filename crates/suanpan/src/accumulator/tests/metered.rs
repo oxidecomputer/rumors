@@ -402,10 +402,13 @@ fn merge_tie_reads_the_operand() {
 /// - `clear` after `<<= 32` touches each written position once: the `d`
 ///   positions the shift wrote, and position zero, which every written set
 ///   holds: `d + 1`;
-/// - `<<=` reads the top digit to rule out zero, normalizes the held digits
-///   in one pass, then reads and re-deposits each digit: `3d + 1`. The top
-///   digit, `2^32 - 1`, settles the zero check alone, and the total is the
-///   same at a thousandfold larger shift;
+/// - `<<=` reads the top digit to rule out zero, then streams the held
+///   digits into new storage, reading each and depositing its magnitude
+///   digit, which equals it here: `2d + 1`. The top digit, `2^32 - 1`,
+///   settles the zero check alone, and the total is the same at a
+///   thousandfold larger shift, and at a shift of 33 bits, where each
+///   magnitude digit lands shifted by one bit as `2^33 − 2`, below the digit
+///   limit, so nothing carries;
 /// - a magnitude read decides the sign on that same top digit, then
 ///   normalizes the span in one pass: `d + 1`.
 ///
@@ -453,10 +456,9 @@ fn held_width_rows_cost_the_held_digits() {
         acc <<= 32;
         assert_eq!(
             touch_meter::touches(),
-            3 * held_digits + 1,
+            2 * held_digits + 1,
             "shift assignment at {held_digits} held digits: one read of the top digit \
-             to rule out zero, one normalizing touch per digit, then one read and one \
-             re-deposit per digit"
+             to rule out zero, then one read and one deposit per digit"
         );
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
@@ -482,13 +484,27 @@ fn held_width_rows_cost_the_held_digits() {
     acc <<= 32_000;
     assert_eq!(
         touch_meter::touches(),
-        193,
-        "<<= 32_000 at 64 held digits: the same top-digit read and 3 touches \
+        129,
+        "<<= 32_000 at 64 held digits: the same top-digit read and 2 touches \
          per held digit as <<= 32"
     );
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!(sign, Ordering::Greater);
-    assert_eq!(magnitude, wide_value << 32_000usize);
+    assert_eq!(magnitude, wide_value.clone() << 32_000usize);
+
+    let mut acc = Accumulator::new();
+    acc.add_limb_value(&wide_value);
+    touch_meter::reset();
+    acc <<= 33;
+    assert_eq!(
+        touch_meter::touches(),
+        129,
+        "<<= 33 at 64 held digits: the same top-digit read and 2 touches per \
+         held digit as <<= 32, with each magnitude digit deposited one bit up"
+    );
+    let (sign, magnitude) = acc.sign_biguint();
+    assert_eq!(sign, Ordering::Greater);
+    assert_eq!(magnitude, wide_value << 33usize);
 }
 
 /// The unsigned machine-word rows are amortized O(1) at the top of the

@@ -108,11 +108,12 @@
 //! by those deltas too. [`Integrator::jump`] adds this correction.
 //!
 //! Each input delta therefore pays for the accumulator changes and width
-//! checks it causes, up to one logarithmic factor. `suanpan` charges an
-//! accumulator added at any nonzero shift a factor of log(`W` + 1) on its
-//! width, and `total`'s greatest width is `O(n)`, as the
-//! last paragraph of this section shows, so `interval`'s additions cost
-//! `O(n log n)` over a sweep. That fits within the `O(M(n))` bound below
+//! checks it causes, up to one logarithmic factor. `suanpan` charges each
+//! accumulator added at a nonzero shift its own width plus one logarithm of
+//! the receiver's width, and `total`'s greatest width is `O(n)`, as the last
+//! paragraph of this section shows. `interval` adds once per region, and
+//! each region is a leaf that takes input bits to encode, so its additions
+//! cost `O(n log n)` over a sweep. That fits within the `O(M(n))` bound below
 //! because `num-bigint`'s multiplication grows as a power of `n` above one,
 //! faster than `n log n`. No known lower bound gives `M(n) = Ω(n log n)` in
 //! general, so the fit rests on the backend.

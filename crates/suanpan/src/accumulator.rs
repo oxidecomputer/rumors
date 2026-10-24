@@ -225,7 +225,7 @@ impl Accumulator {
     ///
     /// Using the quantities defined in the [crate-level cost
     /// model](crate#costs-and-storage), this takes amortized O(`A`) time at
-    /// shift 0 and amortized O(`A` log(`W` + 1) + `G`) time at a nonzero
+    /// shift 0 and amortized O(`A` + `G` + log(`W` + 1)) time at a nonzero
     /// shift, and adds amortized O(`A` + `G`) retained space. Growing the
     /// receiver may temporarily retain both its old and replacement
     /// allocations. A zero operand adds O(1) retained space at any shift.
@@ -255,7 +255,7 @@ impl Accumulator {
     ///
     /// Using the quantities defined in the [crate-level cost
     /// model](crate#costs-and-storage), this takes amortized O(`A`) time at
-    /// shift 0 and amortized O(`A` log(`W` + 1) + `G`) time at a nonzero
+    /// shift 0 and amortized O(`A` + `G` + log(`W` + 1)) time at a nonzero
     /// shift, and adds amortized O(`A` + `G`) retained space. Growing the
     /// receiver may temporarily retain both its old and replacement
     /// allocations. A zero operand adds O(1) retained space at any shift.

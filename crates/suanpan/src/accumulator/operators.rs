@@ -520,8 +520,8 @@ macro_rules! shifts {
         /// Multiply a borrowed accumulator by `2^shift` into a new one.
         ///
         /// Takes the time of `<<=`, and the result's O(`S`) space. The shift
-        /// is a read: it normalizes the borrowed accumulator in place, as a
-        /// magnitude read does, and builds the result in new storage.
+        /// is a read: it compacts the borrowed accumulator's cancelled top, as
+        /// any read does, and builds the normalized result in new storage.
         ///
         /// # Panics
         ///
