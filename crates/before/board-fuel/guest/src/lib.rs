@@ -11,9 +11,9 @@
 //! board's own bookkeeping around it, or the allocator.
 //!
 //! The global allocator, [`window::WindowAllocator`], gives each measured
-//! window a fresh heap through the meter's `enter` and `exit` hooks, so the
-//! allocator's share of a reading is its work for the body's own allocations,
-//! whatever the cell's preparation left in the heap.
+//! window a fresh, primed heap through the meter's `enter` and `exit` hooks,
+//! so the allocator's share of a reading is its work for the body's own
+//! allocations, whatever the cell's preparation left in the heap.
 //!
 //! A cell that panics ends in a trap; [`panic_record`] keeps its message for
 //! the host.

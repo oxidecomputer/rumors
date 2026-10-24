@@ -14,8 +14,11 @@
 //!
 //! [`WindowAllocator`] therefore keeps two kinds of `dlmalloc` heap. The
 //! *ordinary heap* serves every allocation outside a window. A *window heap*
-//! is created empty when a window opens ([`enter`]) and retires when it closes
-//! ([`exit`]). Inside a window:
+//! is created when a window opens ([`enter`]) and retires when it closes
+//! ([`exit`]). It is fresh and *primed*: before the window opens, one
+//! allocation and free set it up, growing its first memory and initializing
+//! its bins, so that one-time setup stays out of the reading. Inside a
+//! window:
 //!
 //! - every allocation comes from the window heap;
 //! - a block belongs to the window heap if it lies at or above the window's
@@ -126,7 +129,7 @@ struct OrdinaryHeap {
 
 /// An open measured window.
 struct Window {
-    /// The window's heap, empty when the window opened.
+    /// The window's heap, primed and otherwise empty when the window opened.
     heap: Dlmalloc,
     /// The linear-memory size in pages when the window opened. The window
     /// heap's blocks lie on this page or above it; every older block lies
@@ -180,6 +183,23 @@ fn memory_pages() -> usize {
 }
 
 impl Window {
+    /// Makes one allocation from the empty window heap and frees it.
+    ///
+    /// A heap's first allocation also sets it up: it grows linear memory for
+    /// the heap's first segment and initializes its bins. Priming does that
+    /// before the window opens, so the body starts on a primed, fresh heap
+    /// whose state depends on nothing outside this function.
+    fn prime(&mut self) {
+        // SAFETY: One byte at alignment one is a layout of nonzero size.
+        let block = unsafe { self.heap.malloc(1, 1) };
+        let block = self.checked(block);
+        if !block.is_null() {
+            // SAFETY: `block` is live, and the window heap allocated it with
+            // size one and alignment one.
+            unsafe { self.heap.free(block, 1, 1) };
+        }
+    }
+
     /// Returns whether the block at `address` belongs to this window's heap.
     fn owns(&self, address: usize) -> bool {
         page_of(address) >= self.base
@@ -405,7 +425,7 @@ unsafe impl GlobalAlloc for WindowAllocator {
 }
 
 /// Opens a measured window: every allocation from here until [`exit`] comes
-/// from a fresh heap.
+/// from a fresh, primed heap.
 ///
 /// The guest's `enter_window` hook calls this just before the fuel origin is
 /// read, so the work done here stays out of the reading.
@@ -421,13 +441,15 @@ pub fn enter() {
     // heap has always allocated before a window heap first asks for memory
     // (the module docs' premise about `dlmalloc`'s wasm backend).
     let deferred = Vec::with_capacity(live.max(1));
-    let mut heaps = lock();
-    assert!(heaps.window.is_none(), "measured windows do not nest");
-    heaps.window = Some(Window {
+    let mut window = Window {
         heap: Dlmalloc::new(),
         base: memory_pages(),
         deferred,
-    });
+    };
+    window.prime();
+    let mut heaps = lock();
+    assert!(heaps.window.is_none(), "measured windows do not nest");
+    heaps.window = Some(window);
 }
 
 /// Closes the measured window: retires its heap, and replays the frees it

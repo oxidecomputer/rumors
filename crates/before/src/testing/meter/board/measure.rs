@@ -41,8 +41,9 @@ pub struct HeapMeter {
 /// the reading a function of the body alone: what an allocator call costs
 /// depends on the heap it runs against, and the cell's preparation allocates
 /// in the same instance just before the window. The fuel guest's `enter`
-/// gives the body a fresh heap and its `exit` retires it, so the allocator's
-/// share of a reading is its work for the body's own allocations.
+/// gives the body a fresh heap, primed so that its one-time setup is already
+/// done, and its `exit` retires it, so the allocator's share of a reading is
+/// its work for the body's own allocations.
 ///
 /// State outside the heap can carry between cells too, such as a lazily
 /// initialized static, so a runner also measures each cell in a fresh
