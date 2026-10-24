@@ -106,25 +106,23 @@
 //! | `+=` / `-=` a primitive | Amortized O(1) | Amortized O(1) retained |
 //! | Add or subtract `L` limbs | Amortized O(`L`) at shift 0; amortized O(`L` + `G` + log(`W` + 1)) at a nonzero shift | Amortized O(`L` + `G`) retained |
 //! | Add or subtract an accumulator | Amortized O(`A`) at shift 0; amortized O(`A` log(`W` + 1) + `G`) at a nonzero shift | Amortized O(`A` + `G`) retained |
-//! | Sign queries and [`cmp_zero_stable_under`](Accumulator::cmp_zero_stable_under) | Amortized O(1) | O(1) |
-//! | Comparison with a primitive, primitive `TryFrom` | Amortized O(log(`W` + 1)) | O(1) |
+//! | Sign queries, [`cmp_zero_stable_under`](Accumulator::cmp_zero_stable_under), comparison with a primitive, and primitive `TryFrom` | Amortized O(1) | O(1) |
 //! | [`abs_diff`](Accumulator::abs_diff) | Amortized O(`A`), `A` the narrower; plus O(`V`), `V` the wider operand's working width, to negate the result when the wider operand is negative and the smaller | Amortized O(1) retained beyond the wider operand's storage |
 //! | Compare two accumulators | Amortized O(`A`), `A` the narrower; amortized O(1) when one is far wider and its top decides the order | O(`A`) temporary |
-//! | Magnitude read or `Hash` | Amortized O(log(`W` + 1) + `Q`) | O(`Q`) temporary |
+//! | Magnitude read or `Hash` | Amortized O(1 + `Q`) | O(`Q`) temporary |
 //! | `clone` / `clone_from` | The magnitude read plus O(`Q`) | O(`Q`) for the copy; `clone_from` reuses the receiver's allocation |
 //! | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 //! | Working-width and known-zero queries | O(1) | O(1) |
 //! | Unary `-` | O(`V`) | O(1) |
-//! | [`reset`](Accumulator::reset) | O(`R` + log(`W` + 1)) | O(1) |
+//! | [`reset`](Accumulator::reset) | Amortized O(`R`) | O(1) |
 //!
-//! The logarithmic terms pay for the bookkeeping that lets comparisons skip
-//! positions no update has written, and grow as the base-64 logarithm of `W`.
-//! A reset pays for rebuilding that bookkeeping, which keeps the costs of
-//! primitive updates and of updates at shift 0 independent of `W`. A read can
-//! rebuild it, so repeated reads of an unchanged value can each pay the term.
-//! Added at a shift that is not a multiple of 32 bits, an accumulator operand
-//! can pay the term once per 32 bits of its width, which is why that row
-//! multiplies `A` by it.
+//! The logarithmic terms appear only in the rows for updates at a nonzero
+//! shift. They pay for the bookkeeping that lets comparisons skip positions
+//! no update has written, grow as the base-64 logarithm of `W`, and cover
+//! crossing a range of such positions, which only an update at a nonzero
+//! shift, or the comparison that follows it, can need. Added at a shift that
+//! is not a multiple of 32 bits, an accumulator operand can pay the term once
+//! per 32 bits of its width, which is why that row multiplies `A` by it.
 //!
 //! ## Raising the top across gaps
 //!

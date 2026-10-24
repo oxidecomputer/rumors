@@ -246,9 +246,7 @@ impl Digits {
     /// covers only position `highest_nonzero`. A reset therefore costs the span
     /// written since activation, not the position where that span starts.
     /// The written set's [`clear`](WrittenPositions::clear) costs that span
-    /// plus a constant number of words per level of its bitset. The crate's
-    /// cost argument, in [`costs`], charges that term to the reset, together
-    /// with the climb of the next write through the emptied bitset.
+    /// too, amortized as its module explains.
     pub fn reset(&mut self) {
         self.debug_assert_valid();
         let floor = self.written_floor();

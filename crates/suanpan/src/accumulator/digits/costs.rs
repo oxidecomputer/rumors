@@ -35,7 +35,7 @@
 //! then sum to at least the actual costs (Tarjan's potential method). The
 //! potential of a program is the sum over its accumulators, so an operation
 //! that reads another accumulator may spend that accumulator's potential. Each
-//! accumulator's potential is a weighted sum of five terms, and each term pays
+//! accumulator's potential is a weighted sum of four terms, and each term pays
 //! for one kind of deferred work.
 //!
 //! 1. *Carry potential* is the sum of `max(0, |d| - B/2) / B` over the stored
@@ -48,13 +48,10 @@
 //!    position below the run never rejoins a run, a set converts its prefix
 //!    once, and a removed position returns only by being written again.
 //! 3. *Nonempty words* is the number of nonzero words, at every level, of the
-//!    bitset. It pays for a removal's climb, and for the climbs of predecessor
+//!    bitset. It pays for a removal's climb, for the climbs of predecessor
 //!    queries from positions that the scan then removes (see "Bitset climbs"
-//!    below).
-//! 4. *Idle levels* is the number of the bitset's levels while the bitset
-//!    holds no position, and zero otherwise. It pays for the first insertion
-//!    after a clear, which climbs every level.
-//! 5. *Uncovered height* is `max(0, T - C) / 64`, where `T` is the highest
+//!    below), and for a clear's climb (see "Clears").
+//! 4. *Uncovered height* is `max(0, T - C) / 64`, where `T` is the highest
 //!    position written since the written set was created, and `C` is the
 //!    number of positions the bitset's storage covers, zero without a bitset.
 //!    It pays for growing the bitset's storage.
@@ -115,17 +112,16 @@
 //! which they do. Three facts about climbs, and one about their sums, carry
 //! the argument.
 //!
-//! First, position zero is held, and whenever the bitset holds anything it
-//! holds position zero: it holds the positions below the run, and the run
-//! starts above zero whenever anything lies below it. Word zero is therefore
-//! nonempty at every level, so an insertion or removal at position `p` climbs
+//! First, the bitset holds position zero from its creation on. While the
+//! buffer holds digits, the set holds position zero, so when a prefix
+//! converts, either the prefix holds zero or the run starts at zero. The run
+//! starts at zero only while nothing lies below it, and then a jump folds the
+//! run into the prefix instead of converting it, so every conversion moves a
+//! prefix that holds zero. A truncation removes only positions above another
+//! position, and a clear keeps zero, so zero stays. Word zero is therefore
+//! nonempty at every level, and an insertion or removal at position `p` climbs
 //! at most `1 + log_64 (p + 1)` levels before it reaches a word it shares with
-//! position zero. The exception follows a *clear*: a reset or a normalization
-//! clears the written set, which empties the bitset but keeps its levels, and
-//! reinserts position zero into the run. The next bitset insertion is of
-//! position zero, when a jump moves that run, and it climbs every level. It
-//! happens at most once per clear, because position zero then stays in the
-//! bitset until the next clear, and the idle-levels term pays for it.
+//! position zero.
 //!
 //! Second, an insertion climbs at most one level more than the number of
 //! words it turns from empty to nonempty, and a removal at most one more than
@@ -148,12 +144,15 @@
 //! earlier answer `y`, which lies in a different word from that query's `q`
 //! at every level the earlier query counts.
 //!
-//! The exception is a *run crossing*: a query from the run's start, which the
-//! bitset does not hold, whether the run holds positions or a truncation has
-//! left it empty. It can climb through words that never held anything. A run
-//! crossing from `q` costs O(`1 + β(y, q)`), at most O(`1 + log_64 (q + 1)`)
-//! by the first fact. It happens at most twice per truncation: once in the
-//! scan or descent, and once in the truncation itself.
+//! The exception is a *run crossing*: a query from the start of a run above
+//! position zero, which the bitset does not hold, whether the run holds
+//! positions or a truncation has left it empty. It can climb through words
+//! that never held anything. A run crossing from `q` costs
+//! O(`1 + β(y, q)`), at most O(`1 + log_64 (q + 1)`) by the first fact. It
+//! happens at most twice per truncation: once in the scan or descent, and
+//! once in the truncation itself. A run that starts at zero, as a clear
+//! leaves it, needs no crossing: every query from above zero stops in the
+//! run, and nothing lies below it.
 //!
 //! Finally, climbs telescope. Suppose intervals `(y_i, q_i]` lie within
 //! `[a, p]` and cover each position at most `c` times. An interval of length
@@ -286,14 +285,13 @@
 //!
 //! Every run the update creates starts at such a `t + 1` or at a jump's
 //! destination, and no crossing reaches the latter: a jump lands above the
-//! top, which no truncation follows. Four kinds of climb are exceptions,
-//! each O(`1 + log_64 (p + 1)`) by the first fact or paid by the idle-levels
-//! term: those from `x_1`; those from the receiver's run start; those from
-//! the one deposit position that follows a truncation leaving the top below
-//! it; and the first insertion after a clear. There is at most one such
-//! deposit, because it lands above the top. The receiver's run also moves its
-//! other positions once, which the held-positions term prepaid, and their
-//! climbs telescope within that run.
+//! top, which no truncation follows. Three kinds of climb are exceptions,
+//! each O(`1 + log_64 (p + 1)`) by the first fact: those from `x_1`; those
+//! from the receiver's run start; and those from the one deposit position
+//! that follows a truncation leaving the top below it. There is at most one
+//! such deposit, because it lands above the top. The receiver's run also
+//! moves its other positions once, which the held-positions term prepaid,
+//! and their climbs telescope within that run.
 //!
 //! Every other interval `(y, q]` lies within `[x_1, p]`, and together they
 //! cover each position O(1) times:
@@ -383,11 +381,31 @@
 //! those two, and stops within one position of the same place. Its
 //! truncation, if any, crosses from the place's successor to the place
 //! itself, a skip of one position, which costs O(1) by the bitset's distance
-//! bound. Negation changes no magnitude and preserves this. So a scan with
-//! far costs needs one of these since the previous comparison, or since
-//! construction or reset if there was none:
-//! - an update that wrote at or above the previous stopping position;
-//! - a normalization;
+//! bound. Negation changes no magnitude and preserves this.
+//!
+//! A normalization leaves such a form too. Write `D` for
+//! [`COMPARISON_DECIDED`](super::sign::COMPARISON_DECIDED), the partial at
+//! which a scan stops. A normalization's own comparison runs first, and
+//! leaves the lowest written position below the top whenever the normalized
+//! top digit, at a position `t > 0`, is below `D` in magnitude. If some
+//! normalized digit below `t` is nonzero, the pass wrote it, at or above the
+//! lowest written position. Otherwise the value is that small top digit
+//! times `B^t`, and the comparison cannot have stopped above `t`, where no
+//! partial reaches `D`. It stopped at `t` only with a partial of at least
+//! `D`, which needs a written nonzero digit below `t` to bring the value back
+//! down; and it stopped below `t` only by writing back there, or at the old
+//! top, a written position. After the pass every digit has the value's sign
+//! and magnitude below `B`, so the next scan stops at the top or, when the
+//! top digit is below `D`, one position lower, where the partial reaches `B`.
+//! Both positions lie in the run from the lowest written position to the
+//! top, so that scan's truncation stays in the run and costs O(1). At
+//! `t = 0` the next scan stops at position zero, with nothing below it to
+//! cross.
+//!
+//! So a scan with far costs needs one of these since the previous comparison
+//! or normalization, or since construction or reset if there was none:
+//! - an update that wrote at or above the position below the top that the
+//!   previous comparison or normalization left;
 //! - a shift.
 //!
 //! Charge the far costs to whichever of those operations wrote the highest
@@ -397,7 +415,8 @@
 //! - at shift 0, an update's positions are bounded by its deposit span and
 //!   carry chain;
 //! - at a nonzero shift, an update's bound already includes log(`W` + 1);
-//! - a normalization's and a shift's own bounds cover their charges.
+//! - a shift's own bound covers its charge, a crossing below its result's
+//!   top.
 //!
 //! This charge is why the nonzero-shift rows keep log(`W` + 1) even for an
 //! update of one sign that cancels no digit. Such an update can leave the
@@ -442,6 +461,35 @@
 //! O(`1 + log_64 d`) each, which the nonzero-shift rows' log(`W` + 1) terms
 //! contain, and never the gap's width.
 //!
+//! # Clears
+//!
+//! A read and a reset each *clear* the written set over a span that holds
+//! every position but zero, reducing the set to position zero, held by the
+//! run `0..1` and, in the bitset form, by the bitset too. In the prefix form
+//! a clear costs O(1). In the bitset form, which holds zero by the first
+//! fact, it costs O(`1 + s / 64`) word operations at level 0 for a span of
+//! `s` positions, and at each level `k` above, O(1) plus the span's words
+//! there, at most `s / 64^(k + 1) + 2`. The clear reaches level `k + 1` only
+//! after emptying a word other than word zero at level `k`, which lowers the
+//! nonempty-words term by one and pays for the level's O(1) and its two edge
+//! words. The rest of the spans above level 0 total at most the sum of
+//! `s / 64^(k + 1)` over `k >= 1`, which is `s / 4032` words, so a clear
+//! costs amortized O(`1 + s / 64`). It raises no term: word zero
+//! was already nonempty at every level, and the set only shrinks.
+//!
+//! The words a clear empties were paid for when they turned nonempty. An
+//! insertion that fills a word pays the nonempty-words term for it. Growth
+//! never fills a word other than word zero: it appends zero words, and a new
+//! top level summarizes a level whose only nonempty word is word zero, the
+//! one-word top before the growth began or a level the growth created, so
+//! only the new level's word zero gains a bit, which the growing call pays
+//! for. A copy of the stored form, which the accumulator's `Debug` makes,
+//! copies filled words one word operation each, which pays for them.
+//!
+//! After a clear, the first jump above the run moves the run `0..1` below
+//! it, into the prefix or into a bitset that already holds zero, at a cost of
+//! O(1): its insertion stops at once, at word zero of level 0.
+//!
 //! # Reads
 //!
 //! A magnitude read, and a clone's normalization of its source, run one
@@ -450,46 +498,32 @@
 //! top, so the pass covers at most a constant more positions than the result
 //! has, which is O(`Q`). The pass leaves every digit below `B`, raising the
 //! carry potential by at most 1/2 per position. It then clears the written
-//! set, which costs O(`1 + Q / 64`) words of the cleared span at level 0, one
-//! more word per level above, and the climb that removes position zero, which
-//! the nonempty-words term pays. It reinserts position zero and one run from
-//! the lowest written position to the new top. In the bitset form, when that
-//! run starts above position one, it jumps over position zero, which moves
-//! zero into the emptied bitset and climbs every level. A read therefore
-//! costs amortized O(`Q` + log(`W` + 1)): it leaves O(`Q`) held positions,
-//! and its clear raises the idle levels by at most the number of levels.
-//!
-//! The logarithmic term recurs. Every read in the bitset form whose lowest
-//! written position exceeds one empties the bitset and refills it, so
-//! repeated reads of an unchanged value pay it each time. So do comparisons
-//! with a primitive and primitive conversions, whenever the stability query
-//! leaves them a read. The crate's rows for those operations keep the term.
+//! set over the pass's span, amortized O(`1 + Q / 64`) by "Clears", and
+//! inserts one run from the lowest written position to the new top, which
+//! costs O(1) by the same section. It leaves O(`Q`) held positions, raises
+//! the uncovered height by at most one position, and raises no other term.
+//! "Comparisons" never charges it. A read therefore costs amortized
+//! O(1 + `Q`), including its comparison's amortized O(1).
 //!
 //! # Reset
 //!
 //! Reset zeroes the digits from the written floor through the top, which
-//! takes O(`R`), and clears the written set: O(`1 + R / 64`) words of the
-//! cleared span at level 0, one more word per level above, and the climb that
-//! removes position zero. Adding the idle levels it raises, it costs
-//! O(`R` + log(`W` + 1)), both actual and amortized. This argument counts the
-//! clear's per-level words as the reset's own work. The bitset module instead
-//! charges them to the first insertion since the bitset was last empty, which
-//! here the previous clear paid for, so either accounting gives this bound.
-//!
-//! Reset could instead cost amortized O(`R`) if every update carried a
-//! log(`W` + 1) term to pay for the climb after a reset. Alternating a reset
-//! with one primitive update whose low digits are zero, such as adding
-//! `2^100`, costs Θ(log(`W` + 1)) per pair while `R` stays one position, so
-//! one of the two must carry the term. The crate charges the reset, which
-//! keeps the bounds of primitive updates and of updates at shift 0 free of
-//! `W`.
+//! takes O(`R`), and clears the written set over that span, amortized
+//! O(`1 + R / 64`) by "Clears". It raises no term, so it costs amortized
+//! O(`R`). A single reset can still take O(`R` + log(`W` + 1)) when its clear
+//! climbs every level, work that the insertions that filled those levels'
+//! words paid for.
 //!
 //! # Other operations
 //!
 //! - Negation touches only the digits through the top, O(`V`).
 //! - A comparison with a primitive or a primitive conversion asks the
-//!   stability query, one scan. When the query does not decide, it reads a
-//!   value of at most six positions, which costs O(log(`W` + 1)).
+//!   stability query, one scan, amortized O(1); its far costs are charged,
+//!   as for any comparison, to the operation that wrote the highest position
+//!   before it. When the query does not decide, its scan stopped at or below
+//!   position 5, leaving a value of at most six positions, and the read that
+//!   follows costs O(1) by "Reads". The comparison it begins with decides at
+//!   once on the form the query left.
 //! - A nonzero shift of a value stored in digits compares it with zero, then
 //!   moves it into new digits with one shifted accumulator update and
 //!   releases the old storage. The new digits start empty, with a new
@@ -498,8 +532,8 @@
 //!   O(`A` log(`S` + 1) + `S`). A small value instead makes at most four
 //!   deposits of one sign into the receiver's own retained digits, all within
 //!   the shifted value's span, so the argument under "Updates" bounds their
-//!   far costs by that span; the climb after a reset is paid by the idle
-//!   levels the reset raised.
+//!   far costs by that span. The first of them jumps over the run `0..1` that
+//!   activation or the last reset left, which costs O(1) by "Clears".
 //! - A clone normalizes its source, a read, then copies the `Q` positions of
 //!   the value into a written set of position zero and one run, which needs
 //!   no bitset. The copy's potential, at most 1/2 per digit and one per held

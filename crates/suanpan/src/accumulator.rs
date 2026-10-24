@@ -107,10 +107,10 @@ pub struct Accumulator {
 ///
 /// # Complexity
 ///
-/// The cost of a magnitude read, amortized O(log(`W` + 1) + `Q`) time, plus
-/// O(`Q`) for the copy, where `W` is the source's greatest working width and
-/// `Q` the value's width. [`clone_from`](Clone::clone_from) reuses the
-/// receiver's allocation when it suffices.
+/// The cost of a magnitude read, amortized O(1 + `Q`) time, plus O(`Q`) for
+/// the copy, where `Q` is the value's width.
+/// [`clone_from`](Clone::clone_from) reuses the receiver's allocation when it
+/// suffices.
 impl Clone for Accumulator {
     fn clone(&self) -> Self {
         let mut copy = Value::new();
@@ -271,10 +271,10 @@ impl Accumulator {
 
     /// Reset to zero, retaining allocated storage for reuse.
     ///
-    /// Reset skips the low positions that write history shows are still zero,
-    /// as [`scaled_signed_magnitude`](Self::scaled_signed_magnitude) does, so
-    /// its work is proportional to the span written since creation or the
-    /// previous reset, plus the logarithmic term below. Replacing
+    /// Clearing takes work proportional to the span written since creation or
+    /// the previous reset: like
+    /// [`scaled_signed_magnitude`](Self::scaled_signed_magnitude), it skips
+    /// the low positions that write history shows are still zero. Replacing
     /// the accumulator with [`new`](Self::new) releases its storage instead,
     /// and the replacement's first update at a large shift grows a buffer from
     /// position zero again. Reusing one accumulator through `reset` pays that
@@ -282,14 +282,12 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// O(`R` + log(`W` + 1)) time and O(1) additional space, where `R` is the
-    /// written span before the reset and `W` the greatest working width
-    /// reached, as the [crate-level cost model](crate#costs-and-storage)
-    /// defines them; `R` is at most the working width. The logarithmic term
-    /// covers clearing the bookkeeping that lets comparisons skip unwritten
-    /// positions, and the next update's rebuilding of it, which keeps the
-    /// costs of later primitive updates and updates at shift 0 independent of
-    /// `W`. The accumulator retains its main allocation.
+    /// Amortized O(`R`) time and O(1) additional space, where `R` is the
+    /// written span before the reset, as the [crate-level cost
+    /// model](crate#costs-and-storage) defines it; `R` is at most the working
+    /// width. The bound is amortized because a reset can also clear
+    /// bookkeeping that earlier writes built, work those writes pay for. The
+    /// accumulator retains its main allocation.
     pub fn reset(&mut self) {
         self.value.get_mut().reset();
     }
@@ -512,11 +510,10 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
-    /// time, where `W` is the greatest working width reached, and returns
-    /// O(`Q`) space, allocated only when `Q` exceeds two. If the normalized
-    /// form outgrows the existing capacity, reallocation may temporarily
-    /// retain both buffers.
+    /// If the result has `Q` limbs, this takes amortized O(1 + `Q`) time and
+    /// returns O(`Q`) space, allocated only when `Q` exceeds two. If the
+    /// normalized form outgrows the existing capacity, reallocation may
+    /// temporarily retain both buffers.
     pub fn signed_magnitude(&self) -> (Ordering, Limbs) {
         self.read(Value::signed_magnitude)
     }
@@ -545,11 +542,10 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
-    /// time and returns O(`Q`) space, allocated only when `Q` exceeds two,
-    /// where `W` is the greatest working width reached. Omitting the factored
-    /// span keeps it out of `Q`. Reallocation may temporarily retain two
-    /// buffers, as for [`signed_magnitude`](Self::signed_magnitude).
+    /// If the result has `Q` limbs, this takes amortized O(1 + `Q`) time and
+    /// returns O(`Q`) space, allocated only when `Q` exceeds two. Omitting the
+    /// factored span keeps it out of `Q`. Reallocation may temporarily retain
+    /// two buffers, as for [`signed_magnitude`](Self::signed_magnitude).
     pub fn scaled_signed_magnitude(&self) -> (Ordering, Limbs, u64) {
         self.read(Value::scaled_signed_magnitude)
     }
