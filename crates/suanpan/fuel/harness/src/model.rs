@@ -117,8 +117,8 @@ pub struct Record {
     /// update's operand; and one for each limb of the value that a
     /// `signed_magnitude` read returns, a hash consumes, or a clone,
     /// `clone_from`, borrowed negation, or borrowed primitive on the left
-    /// copies. The step touches each of those limbs at least once, and each
-    /// touch costs at least one wasm instruction or one byte of bulk memory
+    /// copies. The step reads or writes each of those limbs at least once, and
+    /// each such access costs at least one wasm instruction or one byte of bulk memory
     /// traffic. Other work counts nothing toward the floor, which only proves
     /// that fuel is counting: a scaled read, which may leave out a span no
     /// update wrote, and the clones inside accumulator operands, sums, and

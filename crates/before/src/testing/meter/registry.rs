@@ -923,7 +923,7 @@ pub enum FamilyId {
     /// decision must not read across — so the per-decision marginal cost
     /// (the `k`-marginal at fixed `w`) is the claim's meter, and a decision
     /// that reads the latent's width doubles that marginal when `w`
-    /// doubles. The `latent_ladder` band in `tests/meter.rs` prices it.
+    /// doubles. The focused fuel claims judge that marginal.
     LatentLadder,
     /// The jump-entered rising spine `JR(b, d)` at a fixed entry jump of
     /// `2^40`: one suspended range minimum per level, each far above the

@@ -8,7 +8,7 @@ mod tests;
 /// The newest bit lives at the low end of the top register; a filled register
 /// spills whole into the word vector and refills on the pop that crosses back.
 /// Push, pop, and access to the newest bit are `O(1)`. Operations that inspect
-/// a run or the whole stack state their scan cost individually.
+/// a run or the whole stack state their cost individually.
 #[derive(Default)]
 pub(crate) struct BitStack {
     /// Completed 64-bit groups below the top register, oldest first.

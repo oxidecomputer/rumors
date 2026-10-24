@@ -63,7 +63,7 @@ jobs:
 # kept off the shared runner.
   #
   # Runner fit: every step here builds `before` alone (release profile,
-  # counter features) plus the small surfacecheck member;
+  # `serde` and `borsh`) plus the small surfacecheck member;
   # rumors' release-profile bench builds live in `ci`'s bench-build leg,
   # not in this job.
   #

@@ -202,14 +202,11 @@ impl<'a> BitsReader<'a> {
         }
     }
 
-    /// Reject at the live length, recording the examined tail.
+    /// Reject at the live length.
     ///
-    /// A rejecting read still examined every remaining live bit (a
-    /// self-delimiting stream's truncation is only discoverable by parsing to
-    /// its end, which is exactly what the truncation-reject scan floors demand
-    /// the meter see), so the tail records before the reject surfaces, and the
-    /// cursor parks at the live length, where the per-bit loop's failing read
-    /// leaves its own reader.
+    /// The cursor parks at the live length, where the per-bit loop's failing
+    /// read leaves its own reader, so a rejecting read leaves the cursor
+    /// where the equivalent per-bit reads would.
     fn truncated(&mut self) -> Truncated {
         self.position = self.len;
         Truncated

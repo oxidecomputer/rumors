@@ -222,7 +222,7 @@ impl Version {
         // Canonical storage gives the empty version exactly one byte: the leaf
         // flag and gamma(0), `11`, followed by the marker and zero padding.
         // Comparing that byte avoids turning a representation predicate into a
-        // metered tree read.
+        // tree read.
         self.0.as_raw_slice() == [0b1110_0000]
     }
 

@@ -139,8 +139,8 @@ const PURE_COMB_BASE: usize = 1_000;
 /// (equal, so the doubling scales the hop count and the residue width together
 /// — the cascade's cost is their product).
 ///
-/// The cascade runs at ~4 touches per input byte on the cured fold direction —
-/// the leveled control's constant — so the base sits at the pure-comb level for
+/// On the cured fold direction the cascade costs a constant per input byte,
+/// as its leveled control does, so the base sits at the pure-comb level for
 /// comparable work. The base is a multiple of 32 deliberately (992 = 31 ×
 /// 32): the family's rank exponent is `s − 1`, and `rank_sum` lands its small
 /// summands at bit remainder `exp mod 32` (an amortized-O(1) constant

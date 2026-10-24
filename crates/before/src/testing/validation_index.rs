@@ -310,7 +310,7 @@
 //! programs plus a deterministic prefix. What it alone catches:
 //! **shapes nobody chose** — the structural blind spot of every
 //! chosen-family instrument above — and total-cost drift that escapes
-//! the metered currencies while still costing instructions. Its bands
+//! the native board's heap counter while still costing instructions. Its bands
 //! carry liveness margins (`ENFORCE_MARGIN_BELOW`) so a dead
 //! measurement reads red, not green.
 //!

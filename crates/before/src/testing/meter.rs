@@ -2248,7 +2248,7 @@ fn parked_unit_spine(bits: &mut BitsWriter, s: usize) {
 /// weight being topology, not code. Every even-numbered block leaf cancels the
 /// digit and the accumulator's top must settle back across the never-written
 /// gap; every odd-numbered leaf re-raises it in one write. A settlement scan
-/// that steps the gap digit by digit pays `Θ(n)` unfunded touches per event
+/// that steps the gap digit by digit pays `Θ(n)` unfunded digit steps per event
 /// (`Θ(n²)` on linear input), and the parked digit-0 unit forecloses
 /// value-emptiness and write-watermark shortcuts, so crossing the never-written
 /// gap in one step per jump is what holds the cost flat (the board's
@@ -3170,7 +3170,7 @@ fn seam_stop_descent(bits: &mut BitsWriter, k: usize) {
 /// stale anchor with no pending range — a strictly negative word-scale
 /// `gap` against a live `w`-digit latent, the scale-disparate undercut
 /// decision `decide_undercut_through_latent` answers by top-index
-/// domination (the latent's top digit of 5 decides at its first touch),
+/// domination (the latent's top digit of 5 decides at the first digit read),
 /// returning "no undercut" with nothing changed. The `k` axis counts
 /// decisions; the `w` axis widens only the parked operand the decisions
 /// must *not* read across — the marginal decision cost across a `w`
@@ -4196,11 +4196,12 @@ fn pow2(b: usize) -> BigUint {
 /// The settle's densified-image digits zero-filled since the last
 /// [`reset_densified_digits`].
 ///
-/// The deterministic stand-in for allocation-fill work, which no other meter
-/// can see: the numeric folds' settle densifies each balanced-digit cluster
+/// The deterministic count of allocation-fill work, which the peak-heap meter
+/// cannot see: the numeric folds' settle densifies each balanced-digit cluster
 /// into two zero-filled byte images before multiplying, and a zeroed byte no
-/// digit lands on raises no digit count or the peak while the image stays
-/// under the walk's own high-water mark. The count is the images' capacity in
+/// digit lands on raises neither a digit count nor the peak while the image
+/// stays under the walk's own high-water mark. Fuel sees the fill too, since
+/// it charges a bulk fill per byte, but only in the total of a cell's work. The count is the images' capacity in
 /// base-2^32 digits — two images per multi-digit cluster, each at the
 /// cluster's span — so span-priced densification counts linearly in the
 /// settle's cluster spans, and a densification sized by cluster *positions*

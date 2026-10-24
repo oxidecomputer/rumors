@@ -142,7 +142,7 @@ impl BitsWriter {
         self.append_bit(bit);
     }
 
-    /// Append one bit without recording a second scan charge.
+    /// Append one bit: the body of [`push`](Self::push).
     fn append_bit(&mut self, bit: bool) {
         let within = (self.live % 8) as u32;
         if within == 0 {
@@ -164,7 +164,7 @@ impl BitsWriter {
         self.append_bits(value, len);
     }
 
-    /// Append one word without recording a second scan charge.
+    /// Append one word: the body of [`push_bits`](Self::push_bits).
     fn append_bits(&mut self, value: u64, len: u32) {
         if len == 0 {
             return;
