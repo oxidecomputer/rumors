@@ -46,16 +46,34 @@ unsafe extern "C" {
     safe fn fuel_used() -> u64;
 }
 
-/// Reads this instance's consumed fuel; the board's [`FuelMeter`] reader.
-fn read_fuel() -> u64 {
+/// Opens a measured window, then returns this instance's consumed fuel: the
+/// board's [`FuelMeter`] `enter` hook.
+///
+/// The read is the hook's last act, and [`open_window`] keeps the rest of its
+/// work, including any stack frame that work needs, in a separate function,
+/// so no instruction of the hook runs after the read.
+fn enter_window() -> u64 {
+    open_window();
     fuel_used()
 }
 
-/// Opens a measured window: the board's [`FuelMeter`] `enter` hook.
+/// Returns this instance's consumed fuel, then closes the measured window:
+/// the board's [`FuelMeter`] `exit` hook.
 ///
-/// A nonzero [`set_spacer`] size first allocates a spacer of that many bytes
-/// from the ordinary heap, held until the window closes.
-fn enter_window() {
+/// The read is the hook's first act, and [`close_window`] keeps the rest of
+/// its work in a separate function, so no instruction of the hook runs before
+/// the read.
+fn exit_window() -> u64 {
+    let used = fuel_used();
+    close_window();
+    used
+}
+
+/// Opens the measured window, first allocating a spacer from the ordinary
+/// heap if [`set_spacer`] set a nonzero size; the spacer is held until the
+/// window closes.
+#[inline(never)]
+fn open_window() {
     let bytes = SPACER_BYTES.load(Ordering::Relaxed);
     if bytes != 0 {
         let bytes = usize::try_from(bytes).expect("a u32 fits in wasm32's usize");
@@ -64,9 +82,9 @@ fn enter_window() {
     window::enter();
 }
 
-/// Closes the measured window, then frees the spacer, if one is held: the
-/// board's [`FuelMeter`] `exit` hook.
-fn exit_window() {
+/// Closes the measured window, then frees the spacer, if one is held.
+#[inline(never)]
+fn close_window() {
     window::exit();
     *spacer() = Vec::new();
 }
@@ -127,7 +145,6 @@ pub extern "C" fn shard(sampling_tag: u32, sampling_word: u64, index: u32, count
     let meters = Meters {
         heap: None,
         fuel: Some(FuelMeter {
-            used: read_fuel,
             enter: enter_window,
             exit: exit_window,
         }),
