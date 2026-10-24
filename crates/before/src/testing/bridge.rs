@@ -10,8 +10,13 @@
 //! a differential test can compare structures with `==` without
 //! round-tripping the byte codec (which is exercised separately). The checked
 //! inputs and reconstructed outputs are normalized, so structural `==` is
-//! semantic equality. Recursive over bounded test trees (the impl's own
-//! traversals are iterative).
+//! semantic equality.
+//!
+//! Every conversion recurses once per tree level, on native frames. The depth
+//! is bounded by construction: each tree that crosses the bridge is an oracle
+//! tree, which its harness keeps inside the oracle's operating envelope (see
+//! [`tree`]), and whose own derived `Drop` recurses just as deep. The impl's own
+//! traversals are iterative.
 
 use std::sync::Arc;
 
@@ -19,7 +24,6 @@ use num_bigint::BigUint;
 
 use crate::bits::BitsWriter;
 use crate::party::io::{PartyNode, PartyReader};
-use crate::recurse::descend;
 use crate::testing::oracles::tree;
 use crate::version::io::tree::{VersionNode, VersionTreeReader};
 use crate::{Clock, Party, Version};
@@ -31,6 +35,7 @@ fn id_is_zero(t: &tree::Party) -> bool {
     matches!(t, tree::Party::Leaf(false))
 }
 
+/// Append the canonical stored bits of the normal-form oracle party `t`.
 fn emit_id(out: &mut BitsWriter, t: &tree::Party) {
     match t {
         tree::Party::Leaf(false) => {} // `0`: absence, no bits
@@ -49,6 +54,7 @@ fn emit_id(out: &mut BitsWriter, t: &tree::Party) {
     }
 }
 
+/// Append the min-lifted preorder stream of the normal-form oracle version `t`.
 fn emit_ev(out: &mut BitsWriter, t: &tree::Version) {
     match t {
         tree::Version::Leaf(n) => {
@@ -58,8 +64,8 @@ fn emit_ev(out: &mut BitsWriter, t: &tree::Version) {
         tree::Version::Node(n, l, r) => {
             out.push(true);
             out.write_gamma(n);
-            descend!(0, emit_ev(out, l));
-            descend!(0, emit_ev(out, r));
+            emit_ev(out, l);
+            emit_ev(out, r);
         }
     }
 }
@@ -117,17 +123,18 @@ pub(crate) fn from_oracle_clock(c: &tree::Clock) -> Clock {
 // tree (test-only; the impl's own traversals are iterative). Both
 // forms are normalized, so structural `==` ⇔ semantic equality.
 
+/// Read one stored party subtree into an oracle tree.
 fn read_id(reader: &mut PartyReader<'_>) -> tree::Party {
     let PartyNode::Branch(branch) = reader.read() else {
         return tree::Party::Leaf(true);
     };
     let left = if branch.has_left_child() {
-        descend!(0, read_id(reader))
+        read_id(reader)
     } else {
         tree::Party::Leaf(false)
     };
     let right = if branch.has_right_child() {
-        descend!(0, read_id(reader))
+        read_id(reader)
     } else {
         tree::Party::Leaf(false)
     };
@@ -144,8 +151,8 @@ fn read_id(reader: &mut PartyReader<'_>) -> tree::Party {
 /// so lowering is lossless for any magnitude: no `u64` truncation point.
 fn read_ev(reader: &mut VersionTreeReader<'_>, prev: &mut Option<BigUint>) -> tree::Version {
     if reader.node() == VersionNode::Branch {
-        let left = descend!(0, read_ev(reader, prev));
-        let right = descend!(0, read_ev(reader, prev));
+        let left = read_ev(reader, prev);
+        let right = read_ev(reader, prev);
         return tree::Version::Node(BigUint::ZERO, Arc::new(left), Arc::new(right));
     }
     let code = reader.payload();

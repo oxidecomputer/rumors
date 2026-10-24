@@ -10,7 +10,6 @@
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, TestRunner};
 
-use crate::recurse::descend;
 use crate::testing::oracles::tree;
 use crate::testing::rng::strategy_rng;
 
@@ -46,7 +45,7 @@ impl Sites {
     /// Classify the sites of one case's party over its version.
     fn of(case: &TickCase) -> Sites {
         let mut sites = Sites::default();
-        sites.visit(&case.party, &case.version, 0, 0);
+        sites.visit(&case.party, &case.version, 0);
         sites
     }
 
@@ -57,12 +56,14 @@ impl Sites {
     /// child over a version branch, which is where the tick walk and its
     /// pre-scan reserve a memo slot. The walk reaches no site under an owned
     /// or unowned party leaf, nor under a version leaf.
+    ///
+    /// Recurses once per level of the case, whose depth its strategy bounds
+    /// by construction (see [`resolve`](super::resolve)).
     fn visit(
         &mut self,
         party: &tree::Party,
         version: &tree::Version,
         nesting: usize,
-        depth: usize,
     ) -> (usize, usize) {
         let (tree::Party::Node(party_left, party_right), tree::Version::Node(_, left, right)) =
             (party, version)
@@ -71,22 +72,15 @@ impl Sites {
         };
         if matches!(**party_left, tree::Party::Leaf(true)) && !party_right.is_empty() {
             self.max_nesting = self.max_nesting.max(nesting + 1);
-            let (next_level, inside) = descend!(
-                depth + 1,
-                self.visit(party_right, right, nesting + 1, depth + 1)
-            );
+            let (next_level, inside) = self.visit(party_right, right, nesting + 1);
             self.shared_range |= next_level >= 2;
             if nesting == 0 {
                 self.scan_slots.push(1 + inside);
             }
             return (1, 1 + inside);
         }
-        let (left_level, left_all) =
-            descend!(depth + 1, self.visit(party_left, left, nesting, depth + 1));
-        let (right_level, right_all) = descend!(
-            depth + 1,
-            self.visit(party_right, right, nesting, depth + 1)
-        );
+        let (left_level, left_all) = self.visit(party_left, left, nesting);
+        let (right_level, right_all) = self.visit(party_right, right, nesting);
         (left_level + right_level, left_all + right_all)
     }
 

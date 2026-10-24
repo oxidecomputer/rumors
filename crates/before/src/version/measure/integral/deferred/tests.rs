@@ -55,15 +55,16 @@ fn exponential_and_uniform_weights_have_expected_depths() {
 }
 
 /// Recursively expand a bounded test tree, asserting nonempty children at every split.
-fn recursive_depth(prefix: &[u64], lo: usize, hi: usize, depth: usize) -> usize {
+///
+/// Every split leaves both halves nonempty, as asserted before descending, so
+/// the recursion is less than `hi - lo` levels deep.
+fn recursive_depth(prefix: &[u64], lo: usize, hi: usize) -> usize {
     if hi - lo == 1 {
         return 0;
     }
     let mid = Aggregate::split(prefix, lo, hi);
     assert!(lo < mid && mid < hi, "both halves must be nonempty");
-    1 + crate::recurse::descend!(depth + 1, recursive_depth(prefix, lo, mid, depth + 1)).max(
-        crate::recurse::descend!(depth + 1, recursive_depth(prefix, mid, hi, depth + 1)),
-    )
+    1 + recursive_depth(prefix, lo, mid).max(recursive_depth(prefix, mid, hi))
 }
 
 proptest! {
@@ -114,7 +115,7 @@ proptest! {
     ) {
         let prefix = weight_prefix(&weights);
         let total = *prefix.last().expect("the zero prefix exists");
-        let depth = recursive_depth(&prefix, 0, weights.len(), 0);
+        let depth = recursive_depth(&prefix, 0, weights.len());
         prop_assert_eq!(depth, split_depth(&weights));
         prop_assert!(depth as u32 <= 2 * total.ilog2() + 2,
             "depth {} exceeds the bound for total weight {}", depth, total);

@@ -17,7 +17,7 @@
 //! derived `Drop` of the boxed trees, `Clone` — recurses on native stack
 //! frames, and the boxed representation crawls a long spine pointer by pointer;
 //! handed a degenerate spine thousands of levels deep, the oracle overflows the
-//! stack that the impl's guarded, iterative walks are built to survive. That is
+//! stack that the impl's iterative walks are built to survive. That is
 //! deliberate, and it is the *harnesses* that bound their inputs — the oracle
 //! is never hardened. Transcription fidelity outranks robustness: the paper's
 //! definitions are recursions over trees, and every guard, explicit stack, or

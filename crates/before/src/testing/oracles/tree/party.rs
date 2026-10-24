@@ -2,9 +2,6 @@
 
 use std::sync::Arc;
 
-#[cfg(test)]
-use crate::recurse::descend;
-
 /// An id tree, exactly as the paper defines it.
 ///
 /// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
@@ -105,15 +102,13 @@ impl Party {
     /// The families agree when, for every point `x` of `[0, 1)`, as many
     /// parties in `lhs` own `x` as in `rhs`. Comparing [`union`](Party::union)s
     /// cannot see a region that one family holds twice; this comparison can.
+    ///
+    /// Each recursive call compares the families over one half of the current
+    /// subinterval, one level down in every branch of both families. The
+    /// recursion is therefore as deep as the deepest party in either family,
+    /// an oracle tree inside the envelope its harness bounds.
     #[cfg(test)]
     pub(crate) fn same_multiplicity(lhs: &[&Party], rhs: &[&Party]) -> bool {
-        Self::same_multiplicity_below(lhs, rhs, 0)
-    }
-
-    /// Compare owner counts pointwise over the subinterval that `lhs` and `rhs`
-    /// describe, `depth` levels below the root.
-    #[cfg(test)]
-    fn same_multiplicity_below(lhs: &[&Party], rhs: &[&Party], depth: usize) -> bool {
         let is_leaf = |p: &&Party| matches!(p, Party::Leaf(_));
         if lhs.iter().chain(rhs).all(is_leaf) {
             // Each leaf owns all or none of this subinterval, so one count of
@@ -122,13 +117,8 @@ impl Party {
         }
         let (lhs_left, lhs_right) = Self::halves(lhs);
         let (rhs_left, rhs_right) = Self::halves(rhs);
-        descend!(
-            depth + 1,
-            Self::same_multiplicity_below(&lhs_left, &rhs_left, depth + 1)
-        ) && descend!(
-            depth + 1,
-            Self::same_multiplicity_below(&lhs_right, &rhs_right, depth + 1)
-        )
+        Self::same_multiplicity(&lhs_left, &rhs_left)
+            && Self::same_multiplicity(&lhs_right, &rhs_right)
     }
 
     /// Count the parties in `family` that are the full leaf.
