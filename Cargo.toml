@@ -183,12 +183,6 @@ test-internals = ["tokio/rt", "dep:cbor-diag"]
 conformance = []
 # Atomic file storage for bookmarks, driven by caller-supplied blocking execution.
 fs = ["dep:tempfile"]
-# Lights `before`'s deterministic resource counters for this crate's own
-# metering tests (the branch bound memos' fold-cost comparison). Test-only
-# and off by default: the counters add an
-# atomic bump per operation, so they stay out of the default test and
-# bench builds and are lit by `--all-features` runs (the gate's test-all).
-meter = ["before/touch-meter", "before/scan-meter"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }
