@@ -28,10 +28,10 @@ impl BitStack {
 
     /// The stack's height in bits.
     ///
-    /// `u64`, the walks' depth denomination: a stack this deep occupies
-    /// real memory (its words), so the height is bounded by allocatable
-    /// memory — past a 32-bit `usize` from 512 MiB of stack, and exactly
-    /// representable here on every target.
+    /// `u64`, the walks' depth denomination: a stack this deep occupies real
+    /// memory (its words), so the height is bounded by allocatable memory: it
+    /// outgrows a 32-bit `usize` from 512 MiB of stack, and `u64` represents
+    /// it exactly on every target.
     pub(crate) fn len(&self) -> u64 {
         self.words.len() as u64 * 64 + u64::from(self.top_len)
     }
@@ -47,7 +47,7 @@ impl BitStack {
         self.top_len += 1;
     }
 
-    /// Push `len <= 63` bits at once, oldest at the value's high end — popping
+    /// Push `len <= 63` bits at once, oldest at the value's high end; popping
     /// returns them newest-first, exactly as `len` single pushes of the value's
     /// bits from high to low.
     pub(crate) fn push_bits(&mut self, value: u64, len: u32) {

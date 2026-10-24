@@ -502,7 +502,7 @@ impl Rank {
         let groups = exp.div_ceil(FRACTION_GROUP_BITS);
         let mut sink = BitWriter::new(writer);
         // The header: ρ ones, the terminating zero, then w's bits below its
-        // leading bit — the Elias delta length header with the run's bit
+        // leading bit: the Elias delta length header with the run's bit
         // sense inverted, so longer (larger) integral parts sort after
         // shorter ones instead of before.
         for _ in 0..rho {
@@ -655,7 +655,7 @@ impl Rank {
         }
         // The final group carries the expansion's last set bit (normalization:
         // the expansion never ends in zero), so an all-zero final group is pure
-        // padding — non-minimal packing — and its trailing zeros locate the
+        // padding (non-minimal packing), and its trailing zeros locate the
         // fraction's true depth.
         let groups = &image[integral_len..];
         let (frac_len, pad) = match groups.last() {
@@ -671,7 +671,7 @@ impl Rank {
         };
         // The fraction's depth needs no bound of its own: every expansion bit
         // was read from the stream, so `frac_len` never exceeds the input's own
-        // bit count and always fits the u64 exponent — an input long enough to
+        // bit count and always fits the u64 exponent; an input long enough to
         // overflow it cannot be allocated.
         let exp = frac_len;
         let num = if frac_len == 0 {
@@ -908,8 +908,8 @@ impl PartialOrd for Rank {
 
 // `Rank` under `+` is a commutative monoid with identity [`Rank::ZERO`]: the
 // exact sum of two dyadic rationals, normalized so equal values stay
-// structurally equal. It is *not* the [`Version`](crate::Version) join — the
-// join takes a pointwise maximum, whereas this adds areas — but the two meet in
+// structurally equal. It is *not* the [`Version`](crate::Version) join (the
+// join takes a pointwise maximum, whereas this adds areas), but the two meet in
 // the valuation law `rank(a | b) + rank(a & b) == rank(a) + rank(b)`, which is
 // what makes [`Version::distance`](crate::Version::distance) a metric. The four
 // reference forms mirror [`BigUint`]'s own `Add` matrix so callers need not place

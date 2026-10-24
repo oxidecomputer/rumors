@@ -75,7 +75,7 @@ impl FusedIterator for ClockForks<'_> {}
 /// # The `N >= 1` bound
 ///
 /// A clock owns a nonempty party and cannot vanish into zero shares, so `N`
-/// must be at least 1 — the same bound as the [`Party`] split, enforced the
+/// must be at least 1, the same bound as the [`Party`] split, enforced the
 /// same way at compile time: the zero-length split is rejected when the
 /// conversion is built, while the same spelling at any nonzero arity compiles
 /// and runs.
@@ -105,7 +105,7 @@ impl FusedIterator for ClockForks<'_> {}
 /// ```
 impl<const N: usize> From<Clock> for [Clock; N] {
     fn from(clock: Clock) -> [Clock; N] {
-        // Fires at monomorphization, making `N == 0` a build error — before the
+        // Fires at monomorphization, making `N == 0` a build error before the
         // delegated party split's own `N >= 1` assert would. The paired
         // doctests above pin it: the `compile_fail` twin must be rejected while
         // its identical-but-for-arity sibling compiles.

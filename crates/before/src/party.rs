@@ -456,8 +456,8 @@ impl Party {
     /// ```
     // Deliberately no clone-identity fast path here (or on `covers`):
     // parties are linear, so a live clone-shared pair has no production
-    // witness — `dangerously_alias` is a boundary hand-off, not a live
-    // operand pair — and the lockstep walk stays the one mechanism the
+    // witness (`dangerously_alias` is a boundary hand-off, not a live
+    // operand pair), and the lockstep walk stays the one mechanism the
     // fuel bands price.
     pub fn is_disjoint(&self, other: &Party) -> bool {
         self.reader().is_disjoint(other.reader())
@@ -655,7 +655,7 @@ impl Party {
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its
-    /// padding — the marker bit and zero-pad to the byte boundary, so
+    /// padding (the marker bit and zero-pad to the byte boundary), so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// This method is available under the `meter` feature for exact

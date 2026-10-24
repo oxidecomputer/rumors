@@ -48,8 +48,8 @@ impl fmt::Binary for Bits {
 impl Bits {
     /// Adopt bytes whose canonical padding has already been validated.
     ///
-    /// `bytes` must be marker-padded — the live bits, one `1`, then zeros to
-    /// the byte boundary; empty for the empty stream — which is what
+    /// `bytes` must be marker-padded (the live bits, one `1`, then zeros to
+    /// the byte boundary; empty for the empty stream), which is what
     /// [`validate_padding`](Self::validate_padding) accepts. Debug builds
     /// assert it; release builds trust the validator.
     ///

@@ -362,7 +362,7 @@ impl<'a> Ceiling<'a> {
 }
 
 /// The complement of the upper atom: `!before(s)` keeps `v > s` or
-/// `v ∥ s` — this is [`since`], a [`Down`]-polar query.
+/// `v ∥ s`; this is [`since`], a [`Down`]-polar query.
 impl<'a> Not for Ceiling<'a> {
     type Output = Query<'a, Down>;
 
@@ -380,7 +380,7 @@ impl<'a> Not for Ceiling<'a> {
 }
 
 /// The complement of the lower atom: `!after(s)` keeps `v < s` or
-/// `v ∥ s` — this is [`until`], an [`Up`]-polar query.
+/// `v ∥ s`; this is [`until`], an [`Up`]-polar query.
 impl<'a> Not for Floor<'a> {
     type Output = Query<'a, Up>;
 
