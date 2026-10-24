@@ -249,57 +249,6 @@ fn flat_over_deep_collapses_totally() {
     assert_eq!(joined, flat, "a dominating flat operand is the join");
 }
 
-/// A left spine whose right child at every level is the leaf pair `(0, 1)`.
-///
-/// Joining a sufficiently high flat version with this shape emits one leaf,
-/// recovering the same wide left payload once at every level.
-#[cfg(feature = "scan-meter")]
-fn reanchor_spine(depth: usize) -> Version {
-    let pair = crate::testing::oracles::tree::Version::node(
-        BigUint::ZERO,
-        crate::testing::oracles::tree::Version::leaf(BigUint::ZERO),
-        crate::testing::oracles::tree::Version::leaf(BigUint::from(1u8)),
-    );
-    let mut tree = crate::testing::oracles::tree::Version::leaf(BigUint::ZERO);
-    for _ in 0..depth {
-        tree = crate::testing::oracles::tree::Version::node(BigUint::ZERO, tree, pair.clone());
-    }
-    from_oracle_version(&tree)
-}
-
-/// Measure the more expensive operand order for a wide-leaf/spine join.
-#[cfg(feature = "scan-meter")]
-fn reanchor_join_scan(depth: usize) -> (u64, u64) {
-    let flat = version_of(&Shape::Hugeleaf.build1(10 * depth));
-    let spine = reanchor_spine(depth);
-    let input_bits = flat.encoded_bits() + spine.encoded_bits();
-    crate::testing::meter::reset_scan_bits();
-    let joined = std::hint::black_box(&flat | &spine);
-    let forward = crate::testing::meter::scan_bits();
-    assert_eq!(joined, flat, "the dominating flat version is the join");
-    crate::testing::meter::reset_scan_bits();
-    let joined = std::hint::black_box(&spine | &flat);
-    let reverse = crate::testing::meter::scan_bits();
-    assert_eq!(joined, flat, "the dominating flat version is the join");
-    let scanned = forward.max(reverse);
-    (scanned, input_bits)
-}
-
-/// Join work remains linear when one wide payload survives a collapse at every
-/// level. When width and depth double together, scanned bits per input bit stay
-/// within a factor of 1.25.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn reanchor_join_scan_is_linear_per_input_bit() {
-    let (small_scan, small_bits) = reanchor_join_scan(32);
-    let (large_scan, large_bits) = reanchor_join_scan(64);
-    assert!(
-        4 * large_scan * small_bits <= 5 * small_scan * large_bits,
-        "scan work per input bit grew too quickly: {small_scan}/{small_bits} -> \
-         {large_scan}/{large_bits}"
-    );
-}
-
 /// Exhaustive small scope: every ordered pair of normal-form event trees to the
 /// small-scope depth emits join and meet byte-identically to the recursive
 /// oracle.

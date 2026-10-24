@@ -12,22 +12,22 @@
 //! reading; both endpoints are exact counters, so a crossing is a class change,
 //! never noise.
 //!
-//! The scan-meter pins cover balanced folds. Meter-only pins cover the
-//! value-dependent work in rank, distance, lag, and ranked keys.
+//! The scan-meter pin covers `Party::join_all`'s balanced fold; the version,
+//! span, and clock folds' log factors are fuel claims in the `focused-fuel`
+//! harness's fold suite. Meter-only pins cover the value-dependent work in
+//! rank, distance, lag, and ranked keys.
 
 use crate::testing::meter::registry::Shape;
 use num_bigint::BigUint;
 
 // ─── the fold entry points' log-factor liveness ───────────────────────────────
 //
-// One witness per public fold entry point, each over a committed registry
-// population whose balanced merges swell to near the sum of their inputs
-// (coalescing intermediates are the enemy of visibility), so the reduction's
-// log factor separates measurably from a linear fold. Every floor is measured
-// at its own entry point — the entry points share the balanced core, but a
-// entry point's wiring (short-circuit arms, per-component walks, the hull's
-// two-direction carry) can drop the factor without touching the core, so each
-// pin binds its entry point.
+// The party fold's witness, over a committed registry population whose
+// balanced merges swell to near the sum of their inputs (coalescing
+// intermediates are the enemy of visibility), so the reduction's log factor
+// separates measurably from a linear fold. Its floor is measured at its own
+// entry point: the fold entry points share the balanced core, but an entry
+// point's wiring can drop the factor without touching the core.
 
 /// Operand block count of the fold-entry point populations.
 ///
@@ -37,20 +37,9 @@ use num_bigint::BigUint;
 #[cfg(feature = "scan-meter")]
 const FOLD_POPULATION_TEETH: usize = 64;
 
-/// The staggered version population `SG(n, 64)` in bit-reversed feed
-/// order ([`Shape::StaggerPopulation`](crate::testing::meter::registry::Shape)).
-///
-/// Every balanced merge joins maximally interleaving region sets, so
-/// intermediates stay proportional to the leaves they carry.
-#[cfg(feature = "scan-meter")]
-fn stagger_versions(n: usize) -> Vec<crate::Version> {
-    let (versions, _) = crate::testing::meter::registry::Shape::StaggerPopulation
-        .population(n, FOLD_POPULATION_TEETH);
-    versions.iter().map(|p| p.version()).collect()
-}
-
-/// The staggered id population `SI(n, 64)`, same feed order: the party
-/// fold's dual of [`stagger_versions`].
+/// The staggered id population `SI(n, 64)`, in the bit-reversed feed order
+/// of [`Shape::StaggerPopulation`](crate::testing::meter::registry::Shape),
+/// whose balanced unions stay as large as the ids they carry.
 #[cfg(feature = "scan-meter")]
 fn stagger_parties(n: usize) -> Vec<crate::Party> {
     let (_, ids) = crate::testing::meter::registry::Shape::StaggerPopulation
@@ -72,75 +61,6 @@ fn fold_scan_bits<R>(name: &str, n: usize, input_bytes: usize, run: impl FnOnce(
     bits
 }
 
-/// Scan work of one `Version::join_all` over the stagger population
-/// (the first element as the receiver, the rest as items).
-#[cfg(feature = "scan-meter")]
-fn join_all_scan_bits(n: usize) -> u64 {
-    let mut population = stagger_versions(n);
-    let bytes: usize = population.iter().map(|v| v.encode().len()).sum();
-    let receiver = population.remove(0);
-    fold_scan_bits("version_join_all_scan", n, bytes, || {
-        receiver.join_all(population)
-    })
-}
-
-/// The staggered notch population, the meet dual of
-/// [`stagger_versions`].
-///
-/// Element `i` is the unit plateau (height 1 everywhere) projected
-/// onto the complement of the staggered id `SI(n, 64, i)`, so it
-/// carries notches (height 0) exactly over that id's interleaved
-/// blocks.
-///
-/// A meet keeps every operand's notches — the pointwise min drops to 0
-/// wherever either side does — and the bit-reversed feed makes each
-/// balanced merge combine maximally interleaving notch sets, so meet
-/// intermediates swell to near the sum of their inputs exactly as the
-/// stagger joins' do. (Populations whose meets collapse — dominating
-/// shades, disjoint ticks — cannot carry this witness: their balanced
-/// meets read sublinear in the input, with nothing for a floor to
-/// hold.)
-#[cfg(feature = "scan-meter")]
-fn stagger_notch_versions(n: usize) -> Vec<crate::Version> {
-    let mut full = crate::Version::new();
-    crate::Party::seed().tick(&mut full);
-    stagger_parties(n)
-        .iter()
-        .map(|p| {
-            let rest = crate::Party::seed()
-                .without(p)
-                .expect("a staggered id is a proper subregion of the seed");
-            (&full / &rest).to_version()
-        })
-        .collect()
-}
-
-/// Scan work of one `Version::meet_all` over the staggered notch
-/// population (the first element as the receiver, the rest as items).
-#[cfg(feature = "scan-meter")]
-fn meet_all_scan_bits(n: usize) -> u64 {
-    let mut population = stagger_notch_versions(n);
-    let bytes: usize = population.iter().map(|v| v.encode().len()).sum();
-    let receiver = population.remove(0);
-    fold_scan_bits("version_meet_all_scan", n, bytes, || {
-        receiver.meet_all(population)
-    })
-}
-
-/// Scan work of one `Version::span_all` over the stagger population
-/// (the first element as the receiver, the rest as items).
-#[cfg(feature = "scan-meter")]
-fn span_all_scan_bits(n: usize) -> u64 {
-    let population = stagger_versions(n);
-    let bytes: usize = population.iter().map(|v| v.encode().len()).sum();
-    let (receiver, items) = population
-        .split_first()
-        .expect("the stagger population is nonempty");
-    fold_scan_bits("version_span_all_scan", n, bytes, || {
-        receiver.span_all(items).into_owned()
-    })
-}
-
 /// Scan work of one `Party::join_all` over the staggered ids (the
 /// first id as the receiver, the rest as items).
 #[cfg(feature = "scan-meter")]
@@ -152,26 +72,6 @@ fn party_join_all_scan_bits(n: usize) -> u64 {
         receiver
             .join_all(population)
             .expect("staggered ids are pairwise disjoint")
-    })
-}
-
-/// Scan work of one `Clock::join_all` over clocks pairing each
-/// staggered id with its staggered version (the first as the
-/// receiver), so both components carry per-line history.
-#[cfg(feature = "scan-meter")]
-fn clock_join_all_scan_bits(n: usize) -> u64 {
-    let mut population: Vec<crate::Clock> = stagger_parties(n)
-        .into_iter()
-        .zip(stagger_versions(n))
-        .map(|(p, v)| crate::Clock::from_parts(p, v))
-        .collect();
-    let bytes: usize = population.iter().map(|c| c.encode().len()).sum();
-    let mut receiver = population.remove(0);
-    fold_scan_bits("clock_join_all_scan", n, bytes, || {
-        receiver
-            .join_all(population)
-            .expect("staggered ids are pairwise disjoint")
-            .clone()
     })
 }
 
@@ -189,84 +89,6 @@ fn assert_log_factor_alive(operation: &str, lo: u64, hi: u64, min_growth: f64) {
     );
 }
 
-/// `Version::join_all`'s log factor is alive at its public entry point.
-///
-/// Scan work on the scatter population grows faster than its input across a x4
-/// population growth — the balanced reduction's `O(D log k)`, which is what the
-/// entry point's `# Complexity` section documents. If a linear fold lands
-/// behind this entry point, this pin reads red, and the rustdoc and this floor
-/// must move in one change.
-///
-/// Deterministic counter, dev profile. The linear reference is the population's
-/// own byte growth across the n = 256 -> 1,024 quadrupling at
-/// `FOLD_POPULATION_TEETH`
-/// blocks (the harness prints each run's total input bytes beside its scan
-/// bits; leaf paths deepen with the slot count, so bytes grow slightly faster
-/// than arity) — a scan-linear fold reads that ratio, and the entry point reads
-/// above it, the log factor's marginal. The floor sits midway between the two
-/// measured endpoints; the readings of record live in the pin commit.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn version_join_all_log_factor_is_alive() {
-    const MIN_GROWTH: f64 = 5.29;
-    assert_log_factor_alive(
-        "Version::join_all",
-        join_all_scan_bits(256),
-        join_all_scan_bits(1024),
-        MIN_GROWTH,
-    );
-}
-
-/// `Version::meet_all`'s log factor is alive at its public entry point.
-///
-/// Scan work on the notch population — the meet dual of the scatter ticks,
-/// where meets grow instead of shrinking — grows faster than its input across a
-/// x4 population growth, per the entry point's `# Complexity` section. If a
-/// linear fold lands behind this entry point, this pin reads red, and the
-/// rustdoc and this floor must move in one change.
-///
-/// Deterministic counter, dev profile. The linear reference is the population's
-/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
-/// it beside each run's scan bits); the entry point reads above it. The floor
-/// sits midway between the two measured endpoints; the readings of record live
-/// in the pin commit.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn version_meet_all_log_factor_is_alive() {
-    const MIN_GROWTH: f64 = 5.29;
-    assert_log_factor_alive(
-        "Version::meet_all",
-        meet_all_scan_bits(256),
-        meet_all_scan_bits(1024),
-        MIN_GROWTH,
-    );
-}
-
-/// `Version::span_all`'s log factor is alive at its public entry point.
-///
-/// Scan work on the scatter population grows faster than its input across a x4
-/// population growth: the hull fold carries both lattice directions through one
-/// balanced counter, and the join direction grows on scatter exactly as
-/// `join_all`'s does. If a linear hull lands behind this entry point, this pin
-/// reads red, and the rustdoc and this floor must move in one change.
-///
-/// Deterministic counter, dev profile. The linear reference is the population's
-/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
-/// it beside each run's scan bits); the entry point reads above it. The floor
-/// sits midway between the two measured endpoints; the readings of record live
-/// in the pin commit.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn version_span_all_log_factor_is_alive() {
-    const MIN_GROWTH: f64 = 5.26;
-    assert_log_factor_alive(
-        "Version::span_all",
-        span_all_scan_bits(256),
-        span_all_scan_bits(1024),
-        MIN_GROWTH,
-    );
-}
-
 /// `Party::join_all`'s log factor is alive at its public entry point.
 ///
 /// Scan work folding the scattered shares of a balanced fork grows faster than
@@ -279,9 +101,9 @@ fn version_span_all_log_factor_is_alive() {
 /// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
 /// it beside each run's scan bits); the entry point reads above it — the
 /// factor's expression is weaker on ids than on versions (denser unions spell
-/// fewer bits per block, thinning the upper levels), so this floor holds the
-/// narrowest gap of the entry points here; both endpoints are exact counters,
-/// so the gap is stable, not noisy. The floor sits midway between the two
+/// fewer bits per block, thinning the upper levels), so this floor holds a
+/// narrower gap than the version folds show; both endpoints are exact
+/// counters, so the gap is stable, not noisy. The floor sits midway between the two
 /// measured endpoints; the readings of record live in the pin commit.
 #[cfg(feature = "scan-meter")]
 #[test]
@@ -291,31 +113,6 @@ fn party_join_all_log_factor_is_alive() {
         "Party::join_all",
         party_join_all_scan_bits(256),
         party_join_all_scan_bits(1024),
-        MIN_GROWTH,
-    );
-}
-
-/// `Clock::join_all`'s log factor is alive at its public entry point.
-///
-/// Scan work folding scattered fork-share clocks (each ticked once, so both
-/// components carry per-line history) grows faster than its input across a x4
-/// population growth — the party union and the version join both ride the
-/// balanced reduction. If a linear fold lands behind this entry point, this pin
-/// reads red, and the rustdoc and this floor must move in one change.
-///
-/// Deterministic counter, dev profile. The linear reference is the population's
-/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
-/// it beside each run's scan bits); the entry point reads above it, the two
-/// components' factors blended. The floor sits midway between the two measured
-/// endpoints; the readings of record live in the pin commit.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn clock_join_all_log_factor_is_alive() {
-    const MIN_GROWTH: f64 = 5.05;
-    assert_log_factor_alive(
-        "Clock::join_all",
-        clock_join_all_scan_bits(256),
-        clock_join_all_scan_bits(1024),
         MIN_GROWTH,
     );
 }

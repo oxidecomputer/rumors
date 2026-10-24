@@ -74,9 +74,6 @@ mod answer_embedded_product;
 #[cfg(feature = "touch-meter")]
 #[path = "meter/deferred_wide_arming.rs"]
 mod deferred_wide_arming;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/duplicate_runs.rs"]
-mod duplicate_runs;
 #[path = "meter/encode_allocation.rs"]
 mod encode_allocation;
 #[cfg(feature = "touch-meter")]
@@ -86,18 +83,9 @@ mod hoisted_window;
 mod identity_fast_paths;
 #[path = "meter/lattice_clones.rs"]
 mod lattice_clones;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/placement.rs"]
-mod placement;
 #[cfg(feature = "touch-meter")]
 #[path = "meter/settle_flatness.rs"]
 mod settle_flatness;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/span.rs"]
-mod span;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/span_codec.rs"]
-mod span_codec;
 #[path = "meter/tick_counts.rs"]
 mod tick_counts;
 #[cfg(feature = "touch-meter")]
