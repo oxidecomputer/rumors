@@ -1,0 +1,23 @@
+[package]
+name = "suanpan-fuel-guest"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# A cdylib so `cargo build --target wasm32-unknown-unknown` emits a plain wasm
+# module whose exports the harness calls directly.
+# No tests or doctests: the fuel import has a definition only inside a
+# Wasmtime host, so a native test binary of this crate cannot link.
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+suanpan = { workspace = true }
+suanpan-fuel-protocol = { workspace = true }
+# The heaps behind the guest's global allocator, the fuel board's window
+# allocator (see `src/lib.rs`).
+dlmalloc = { workspace = true }
+# The lock around those heaps.
+spin = { workspace = true }

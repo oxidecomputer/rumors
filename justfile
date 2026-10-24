@@ -71,7 +71,7 @@ fuzz_smoke_secs := "20"
 # member is built, linted, and tested by its own recipes. `manifestlint`
 # holds this list to the workspace; its header states the rules.
 
-tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
+tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude suanpan-fuel-guest --exclude suanpan-fuel-harness --exclude suanpan-fuel-protocol --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
 
 # The fuzz-fit guest's wasm: one artifact produced by one recipe and read
 # by two others (the fuzz-fit harness and the fuelscape pipeline).
@@ -119,6 +119,13 @@ board_fuel_guest_wasm := board_fuel_target + "/wasm32-unknown-unknown/fuel/board
 # recipe puts in front of its cargo command, expanded when the line runs.
 
 fuel_guest_env := "RUSTC_WRAPPER= RUSTFLAGS=\"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$(rustc --print sysroot)/lib/rustlib/src/rust=/rustc/$(rustc -vV | sed -n 's/^commit-hash: //p')\""
+
+# The interleaving-fuel guest's wasm: produced by `suanpan-fuel-build` in
+# the `fuel` profile, read by its harness. Named and passed explicitly for
+# the same reason as the fuzz-fit guest above.
+
+suanpan_fuel_target := justfile_directory() + "/target/suanpan-fuel"
+suanpan_fuel_guest_wasm := suanpan_fuel_target + "/wasm32-unknown-unknown/fuel/suanpan_fuel_guest.wasm"
 
 # List recipes.
 default:
@@ -504,6 +511,7 @@ gate-streams:
     start_stream doctest      10 _gate-doctest
     start_stream board        10 _gate-board
     start_stream board-fuel   10 _gate-board-fuel
+    start_stream suanpan-fuel 10 _gate-suanpan-fuel
     start_stream wasm         10 _gate-wasm
     start_stream fuzz         10 _gate-fuzz
     start_stream surface      10 _gate-surface
@@ -552,6 +560,9 @@ _gate-board: amp-board-acceptance
 
 # The same cells judged in Wasmtime fuel; the fuel recipe's comment says why.
 _gate-board-fuel: amp-board-fuel
+
+# suanpan's cost rules judged over random interleavings, in fuel.
+_gate-suanpan-fuel: suanpan-fuel
 
 _gate-wasm: fuzzfit fuelscape-test wasm32-pins
 _gate-fuzz: fuzz-build
@@ -694,6 +705,31 @@ wasm32-pins-build:
 wasm32-pins: wasm32-pins-build
     cargo clippy -p wasm32-pins-guest -p wasm32-pins-harness -p wasm32-pins-protocol --all-targets --target-dir {{ wasm32pins_target }} -- -D warnings
     WASM32_PINS_GUEST_WASM={{ wasm32pins_guest_wasm }} cargo nextest run -p wasm32-pins-guest -p wasm32-pins-harness -p wasm32-pins-protocol --cargo-profile release --target-dir {{ wasm32pins_target }}
+
+# The interleaving-fuel property (crates/suanpan/fuel, tool-side workspace
+# members) generates programs over a pool of suanpan accumulators, runs each
+# in a wasm32 guest under Wasmtime fuel, and checks that fuel grows only as
+# suanpan's cost rules allow when every size in the program grows 64- and
+# 4096-fold and when the program repeats 4096 times. Every reading is judged
+# against another reading of the same program, so nothing here is
+# calibrated, and no toolchain or Wasmtime bump needs re-pinning; the
+# harness's crate docs state the bounds and what they cannot see. The guest
+# builds in the `fuel` profile and shares the fuel board's window allocator
+# and operator prices. A failure shrinks to a minimal skeleton and writes a
+# proptest seed file: commit any seed that appears. The clippy lines are the
+# members' own lint leg, since the workspace-wide clippy excludes them; the
+# guest's runs for wasm32, the only target it builds for.
+
+# Build the interleaving-fuel wasm guest and its harness (both halves).
+suanpan-fuel-build:
+    cargo build -p suanpan-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }}
+    cargo build -p suanpan-fuel-harness -p suanpan-fuel-protocol --tests --release --target-dir {{ suanpan_fuel_target }}
+
+# Run suanpan's interleaving-fuel property and the census of its skeletons.
+suanpan-fuel: suanpan-fuel-build
+    cargo clippy -p suanpan-fuel-guest --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }} -- -D warnings
+    cargo clippy -p suanpan-fuel-harness -p suanpan-fuel-protocol --all-targets --target-dir {{ suanpan_fuel_target }} -- -D warnings
+    SUANPAN_FUEL_GUEST_WASM={{ suanpan_fuel_guest_wasm }} cargo nextest run -p suanpan-fuel-harness -p suanpan-fuel-protocol --cargo-profile release --target-dir {{ suanpan_fuel_target }}
 
 # The population atlas (crates/before-fuelscape) is a tool-side workspace
 # member like the fuzz-fit crates: plain cargo at the root never builds it,

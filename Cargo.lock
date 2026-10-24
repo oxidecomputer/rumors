@@ -2032,6 +2032,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "suanpan-fuel-guest"
+version = "0.0.0"
+dependencies = [
+ "dlmalloc",
+ "spin",
+ "suanpan",
+ "suanpan-fuel-protocol",
+]
+
+[[package]]
+name = "suanpan-fuel-harness"
+version = "0.0.0"
+dependencies = [
+ "board-fuel-harness",
+ "num-bigint",
+ "proptest",
+ "suanpan-fuel-protocol",
+ "wasmtime",
+]
+
+[[package]]
+name = "suanpan-fuel-protocol"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "surfacecheck"
 version = "0.1.0"
 dependencies = [

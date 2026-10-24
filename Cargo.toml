@@ -15,6 +15,9 @@ members = [
     "crates/rumors-tracing",
     "crates/rumors-testkit",
     "crates/suanpan",
+    "crates/suanpan/fuel/guest",
+    "crates/suanpan/fuel/harness",
+    "crates/suanpan/fuel/protocol",
 ]
 # Every member shares this manifest's Cargo.lock, so the production crates
 # and the tool-side instruments always resolve one version of each shared
@@ -43,6 +46,7 @@ alloc-meter = { path = "crates/alloc-meter" }
 async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
+board-fuel-harness = { path = "crates/before/board-fuel/harness" }
 sha3 = "0.12"
 borsh = "1"
 bytes = "1"
@@ -73,8 +77,8 @@ ciborium = "=0.2.2"
 clap = "4"
 console_error_panic_hook = "0.1"
 criterion = "0.5"
-# The fuel board guest's allocator instances: an ordinary heap, and a fresh
-# heap for each measured window (the guest's `window` module says why).
+# The fuel guests' allocator instances: an ordinary heap, and a fresh heap
+# for each measured window (the board guest's `window` module says why).
 dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
@@ -120,12 +124,13 @@ serde_bytes = "0.11"
 serde_json = "1"
 serde_test = "1"
 smallvec = { version = "1.15", features = ["union"] }
-# The lock around the fuel board guest's heaps: a flag with no shadow-stack
-# spill on each allocator call (the guest's `window` module says why).
+# The lock around the fuel guests' heaps: a flag with no shadow-stack spill
+# on each allocator call (the board guest's `window` module says why).
 spin = { version = "0.12", default-features = false, features = ["spin_mutex"] }
 static_assertions = "1.1"
 strum_macros = "0.28.0"
 suanpan = { path = "crates/suanpan" }
+suanpan-fuel-protocol = { path = "crates/suanpan/fuel/protocol" }
 tempfile = "=3.23.0"
 thiserror = "2"
 tinyvec = { version = "1.11", features = ["alloc"] }
