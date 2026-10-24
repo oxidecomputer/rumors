@@ -100,6 +100,9 @@ fn judge_context(context: Vec<Step<Extent>>) {
 /// The addition returns its operand, a new accumulator, so the gap round
 /// grows storage again in every repetition, and the model charges that
 /// growth rather than counting the repetition as fixed-charge.
+///
+/// The skeleton is the shrunk case behind the first committed seed of the
+/// property.
 #[test]
 fn growth_after_an_owned_addition_of_zeros_is_charged() {
     let (a, b) = (Member::ALL[0], Member::ALL[1]);
@@ -116,6 +119,37 @@ fn growth_after_an_owned_addition_of_zeros_is_charged() {
         one(b, Direction::Sub, at(1, 0)),
         one(b, Direction::Sub, Extent::fixed(64)),
         one(b, Direction::Sub, Extent::fixed(0)),
+    ]);
+}
+
+/// A digit parked at the extreme coefficient just above `u`, then a gap
+/// round through bit 32, `u`, and bit 96 below and across it, passes the
+/// judgment.
+///
+/// The skeleton is the shrunk case behind the second committed seed of the
+/// property, kept fixed here because the seed alone replays whatever program
+/// the current strategy draws from it.
+#[test]
+fn a_gap_round_under_a_parked_extreme_digit_passes() {
+    let b = Member::ALL[1];
+    let park = |word| Step::Limbs {
+        member: b,
+        direction: Direction::Sub,
+        shift: at(1, 32),
+        input: LimbInput {
+            pattern: Pattern::Word(word),
+            count: Extent::fixed(1),
+        },
+    };
+    judge_context(vec![
+        park(1 << 32),
+        park((1 << 32) - 1),
+        one(b, Direction::Add, Extent::fixed(32)),
+        one(b, Direction::Add, at(1, 0)),
+        one(b, Direction::Add, Extent::fixed(96)),
+        one(b, Direction::Sub, at(1, 0)),
+        one(b, Direction::Sub, Extent::fixed(96)),
+        one(b, Direction::Sub, Extent::fixed(32)),
     ]);
 }
 
@@ -291,11 +325,14 @@ const CENSUS_SEED: [u8; 32] = *b"suanpan-fuel interleaving census";
 const CENSUS_SKELETONS: usize = 64;
 
 /// The skeleton strategy realizes every regime the property relies on, at
-/// the base unit and at the top unit alike.
+/// the base unit and at the top unit alike, and draws every conversion
+/// target and both ownerships of a primitive on the left.
 ///
 /// The step regimes are steps of opposite signs, cancellations of half a
 /// unit or more, borrows across runs half a unit long, storage growth,
-/// sparse high digits, and shifted updates, counted at both units. The
+/// sparse high digits, and shifted updates, counted at both units, beside
+/// the conversions to each target and the primitives on the left that
+/// consume or borrow their member. The
 /// skeleton regimes are those in which the two fixed-charge checks compare
 /// work over storage that scales: a steady repetition whose storage widths
 /// differ between units, and a block that touches a member at least a unit
@@ -337,29 +374,65 @@ fn skeletons_reach_every_regime_at_both_scales() {
     let regimes = [
         (
             "steps of opposite signs",
-            291,
+            332,
             base.mixed_signs,
             scaled.mixed_signs,
         ),
         (
             "cancellations",
-            114,
+            76,
             base.cancellations,
             scaled.cancellations,
         ),
-        ("borrow runs", 27, base.borrow_runs, scaled.borrow_runs),
-        ("storage growths", 29, base.growths, scaled.growths),
+        ("borrow runs", 29, base.borrow_runs, scaled.borrow_runs),
+        ("storage growths", 24, base.growths, scaled.growths),
         (
             "sparse high digits",
-            26,
+            67,
             base.sparse_values,
             scaled.sparse_values,
         ),
         (
             "shifted updates",
-            469,
+            374,
             base.shifted_updates,
             scaled.shifted_updates,
+        ),
+        (
+            "conversions to i64",
+            5,
+            base.conversions[0],
+            scaled.conversions[0],
+        ),
+        (
+            "conversions to u64",
+            16,
+            base.conversions[1],
+            scaled.conversions[1],
+        ),
+        (
+            "conversions to i128",
+            8,
+            base.conversions[2],
+            scaled.conversions[2],
+        ),
+        (
+            "conversions to u128",
+            21,
+            base.conversions[3],
+            scaled.conversions[3],
+        ),
+        (
+            "owned primitives on the left",
+            8,
+            base.owned_reversed_primitives,
+            scaled.owned_reversed_primitives,
+        ),
+        (
+            "borrowed primitives on the left",
+            3,
+            base.borrowed_reversed_primitives,
+            scaled.borrowed_reversed_primitives,
         ),
     ];
     for (regime, floor, at_base, at_top) in regimes {

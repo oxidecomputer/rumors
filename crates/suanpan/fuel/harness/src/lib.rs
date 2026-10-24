@@ -41,13 +41,12 @@
 //! operation sequences, and the amplification board measures each operation
 //! on chosen worst-case families. All fix the sequence. Here the sequence is
 //! drawn, over every regular operation (updates by primitives, limbs, and
-//! accumulators in every owned and borrowed spelling, shifted updates and
-//! shifts, negation, clear, sign queries, comparisons, conversions,
-//! magnitude reads and hashes, clones, `clone_from`, `abs_diff`, and sums),
-//! on operands shaped to cancel, borrow across long runs, and leave sparse
-//! high digits, so a cost that depends on which operation follows which is
-//! reachable. Two spellings are left to the focused claims: conversions to
-//! types other than `i64`, and a primitive on the left of `+` or `-`.
+//! accumulators in every owned and borrowed spelling, a primitive on the
+//! left of `+` or `-`, shifted updates and shifts, negation, clear, sign
+//! queries, comparisons, conversions, magnitude reads
+//! and hashes, clones, `clone_from`, `abs_diff`, and sums), on operands
+//! shaped to cancel, borrow across long runs, and leave sparse high digits,
+//! so a cost that depends on which operation follows which is reachable.
 //!
 //! What the checks see, by the shape of the excess work (the [`judge`]
 //! module states each bound and what it rests on):
