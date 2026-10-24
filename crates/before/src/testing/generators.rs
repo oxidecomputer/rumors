@@ -4,9 +4,11 @@
 //! to the production representation. Deep shapes have a scale proportional to
 //! their node count, so traversal properties can exercise meaningful depth.
 //! [`co_generated`] builds a tick's party and version together, for the walk
-//! states that independently drawn operands do not reach.
+//! states that independently drawn operands do not reach. [`near_valid`]
+//! spells deep trees as encodings, canonical and damaged, for the decoders.
 
 pub(crate) mod co_generated;
+pub(crate) mod near_valid;
 mod tests;
 
 use num_bigint::BigUint;
