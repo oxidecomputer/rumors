@@ -14,7 +14,7 @@
 //!
 //! - [`skeleton`] generates programs whose lengths are measured against a
 //!   unit `u`, so one skeleton yields the same program at units `u`,
-//!   `64 · u`, and `4096 · u`, the last reaching values of about two
+//!   `64 · u`, and `4096 · u`, the last reaching values of a few
 //!   megabytes.
 //! - [`model`] replays a program on exact big integers, independently of
 //!   `suanpan`, and prices each step under the rules.
@@ -29,7 +29,7 @@
 //! Each program is its own control: every reading is compared with a reading
 //! of the same skeleton at another scale or repetition count, and no fuel
 //! number is committed anywhere. The [`judge`] module states each bound and
-//! derives it from the rules.
+//! what it rests on.
 //!
 //! What this samples that no other instrument does is *order*. `suanpan`'s
 //! touch tests measure chosen operation sequences at fixed widths, and the
@@ -42,31 +42,35 @@
 //! borrow across long runs, and leave sparse high digits, so a cost that
 //! depends on which operation follows which is reachable.
 //!
-//! What the checks see, by the shape of the excess work:
+//! What the checks see, by the shape of the excess work (the [`judge`]
+//! module states each bound and what it rests on):
 //!
 //! - *Work that grows faster than the sizes* (quadratic work, a logarithm
-//!   multiplying a length, a buffer copied at every step): the per-prefix
-//!   comparisons across scales see it in any interleaving that reaches it.
+//!   multiplying a length): the scaled comparisons at the end of each
+//!   repetition, where every deferral of the repetition has come due, in any
+//!   interleaving that reaches it.
 //! - *Work that grows with the length of the history at a fixed size*
-//!   (positions that are never reclaimed, a scan that revisits everything an
-//!   earlier repetition wrote): the long-repetition comparison sees it.
+//!   (positions never reclaimed, a scan that revisits what earlier
+//!   repetitions wrote): the long-repetition comparison.
 //! - *Work linear in a size, paid again in every repetition whose steps
-//!   charge no size at all* (growth paid again after a clear, a gap crossed
-//!   at a cost linear in its width): the steady-repetition comparison at two
-//!   scales sees it.
-//! - *Work linear in a size the rules do not charge to the step doing it,
-//!   inside a program that also charges sizes* (an update that pays its
-//!   receiver's width among reads of wide values): nothing here sees it.
-//!   Such work scales exactly as charged work does. Learning a constant per
-//!   operation class does not separate the two either: correct interleavings
-//!   already contain steps charged one word whose fuel grows with the unit,
-//!   such as a single-limb write that converts the written set to a bitset,
-//!   or a clear that passes the positions a read left. Those steps spend
-//!   potential that earlier steps deposited, so any sound per-class bound
-//!   must let a step draw on a potential whose rate it learns, and that rate
-//!   then covers any excess proportional to the same deposits. Separating
-//!   them would take the potential itself, which only the implementation
-//!   holds.
+//!   charge no size* (growth paid again after a clear, a gap crossed at a
+//!   cost linear in its width): the steady-repetition comparison at two
+//!   scales.
+//! - *An update, sign query, comparison with a primitive, conversion that
+//!   refuses, or owned negation whose work is linear in the width of a
+//!   member it touches, inside a program that charges sizes elsewhere* (an
+//!   update that pays its receiver's width, a sign query that rescans a wide
+//!   value): the block comparison. A value-neutral block of such steps runs
+//!   repeatedly after the context; once each call costs exactly what the
+//!   last did, the state is taken to repeat, and the potential with it, so
+//!   the cost of a call is its own, and at two scales it may differ only by
+//!   the logarithm.
+//! - *Work linear in a size the rules do not charge to a step whose charge
+//!   has a sized term of its own* (an operand addition that also pays its
+//!   receiver's width): nothing here, since that term scales by the same
+//!   factor. Nor can a reading separate work the context defers and a later
+//!   step pays once, which is what amortization allows, from the same work
+//!   paid by a defect once.
 
 pub mod guest;
 pub mod judge;

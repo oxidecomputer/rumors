@@ -21,13 +21,15 @@
 //! of the value's width instead. An update writes no higher than a few
 //! digits above the wider of the value before and after it (`suanpan`'s cost
 //! derivation, "Where updates write"), so the two differ by a constant. An
-//! owned operator keeps the storage of the wider operand, or the nonzero one,
-//! and the model follows it; where widths tie, it takes the lower storage
-//! width, which can only charge more growth (see `owned_height`). The charge
-//! is therefore exact up to constant terms per step, which is all the
-//! property needs from it: it decides whether a skeleton's steady repetition
-//! charges any term that grows with the unit, and it states readings per unit
-//! of charge in failure messages.
+//! owned operator keeps the storage of the operand with more stored digits;
+//! where the model cannot tell which that is, it takes the lower storage
+//! width (see `owned_height`). So the modeled `h` never exceeds the
+//! implementation's by more than a constant, and where the model is unsure
+//! it errs low, charging growth that may not happen rather than missing
+//! growth that does. That is the direction the property needs: the charge
+//! decides whether a skeleton's steady repetition charges any term that
+//! grows with the unit, and it states readings per unit of charge in failure
+//! messages.
 
 use std::cmp::Ordering;
 
@@ -110,10 +112,15 @@ pub struct Record {
     pub may_refuse: bool,
     /// A floor on the fuel the step spends.
     ///
-    /// The floor counts one for the step itself, one for each limb operand
-    /// it reads, and one for each limb of a magnitude it returns or copies.
-    /// Each of those words costs at least one wasm instruction or one byte of
-    /// bulk memory traffic.
+    /// The floor counts one for the step itself; one for each limb of a limb
+    /// update's operand; and one for each limb of the value that a
+    /// `signed_magnitude` read returns, a hash consumes, or a clone,
+    /// `clone_from`, or borrowed negation copies. The step touches each of
+    /// those limbs at least once, and each touch costs at least one wasm
+    /// instruction or one byte of bulk memory traffic. Other work counts
+    /// nothing toward the floor, which only proves that fuel is counting: a
+    /// scaled read, which may leave out a span no update wrote, and the
+    /// clones inside composite steps add nothing.
     pub floor: u64,
     /// The hard regimes the step realized; all false unless the model counts
     /// them.
@@ -488,24 +495,33 @@ impl Model {
                 for (index, member) in members.iter().enumerate() {
                     let term = &self.values[member.index()];
                     let bits = width(term);
-                    if *owned {
-                        // Each term is a clone; the owned additions after the
-                        // first read the narrower of the total and the term.
-                        charge.output_words += words(bits);
-                        if index > 0 {
-                            charge.input_words += words(bits.min(width(&total)));
-                        }
-                    } else {
+                    let kept = if !*owned {
+                        // A borrowed sum adds each term into the new
+                        // accumulator it starts with, keeping that storage.
                         charge.input_words += words(bits);
-                    }
+                        height
+                    } else if index == 0 {
+                        // An owned sum reduces clones with owned additions:
+                        // the first clone is the running total, a storage
+                        // of its own width.
+                        charge.output_words += words(bits);
+                        bits
+                    } else {
+                        // Each later clone, a storage of its width, meets the
+                        // total in an owned addition, which reads the
+                        // narrower and keeps the storage `owned_height`
+                        // chooses.
+                        charge.output_words += words(bits);
+                        let total_bits = width(&total);
+                        charge.input_words += words(bits.min(total_bits));
+                        owned_height(total_bits, height, bits, bits)
+                    };
                     total += term;
-                    height = height.max(width(&total)).max(if *owned { bits } else { 0 });
+                    height = kept.max(width(&total));
+                    charge.growth_bits += height - kept;
                 }
                 self.values[r] = total;
                 self.heights[r] = height;
-                // A sum builds a new storage from zero: its additions raise
-                // the width from nothing.
-                charge.growth_bits = height;
             }
         }
         if let Some(m) = written {
@@ -615,27 +631,47 @@ impl Model {
     }
 }
 
-/// Returns the storage width an owned addition's result keeps, from the
-/// widths and storage widths of its receiver and its operand.
+/// Returns the storage width an owned addition's or `abs_diff`'s result
+/// keeps, from the widths and storage widths of its receiver and its operand.
 ///
-/// Owned addition returns the other operand when one is known to be zero,
-/// and otherwise reads the operand whose top is lower into the other's
-/// storage. The wider value therefore keeps its storage. When the widths
-/// tie, which includes two zeros, which storage survives depends on stored
-/// forms the model does not track, so the model takes the lower storage
-/// width: that can only charge more growth later, never hide growth an
-/// implementation pays again.
+/// Both read one operand into the other's storage, choosing by stored digit
+/// counts: the receiver keeps its storage unless the operand holds more
+/// digits, after compacting whichever holds more. The operand that keeps its
+/// storage has been compacted, so its count exceeds its value's digit count
+/// by at most one, and any count is at least its value's digit count less
+/// one; so the operand that gives up its storage has at most
+/// [`DIGIT_SLACK`] more value digits than the one that keeps it (owned
+/// addition first returns a known zero's partner, which the same bound
+/// covers). The
+/// model sees value widths, not stored forms, so when the two values' digit
+/// counts lie within [`DIGIT_SLACK`] of each other either storage may
+/// survive, and the model takes the lower storage width: that can only
+/// charge more growth later, never hide growth an implementation pays again.
+/// Beyond that slack, the operand with more digits keeps its storage.
 fn owned_height(
     receiver_width: u64,
     receiver_height: u64,
     operand_width: u64,
     operand_height: u64,
 ) -> u64 {
-    match receiver_width.cmp(&operand_width) {
-        Ordering::Greater => receiver_height,
-        Ordering::Less => operand_height,
-        Ordering::Equal => receiver_height.min(operand_height),
+    let (receiver, operand) = (digits(receiver_width), digits(operand_width));
+    if receiver.abs_diff(operand) <= DIGIT_SLACK {
+        receiver_height.min(operand_height)
+    } else if receiver > operand {
+        receiver_height
+    } else {
+        operand_height
     }
+}
+
+/// How many more value digits the operand an owned addition reads can have
+/// than the operand whose storage it keeps.
+const DIGIT_SLACK: u64 = 2;
+
+/// Returns the 32-bit digit positions a value of `bits` bits occupies, at
+/// least one, as an accumulator's working width counts them.
+fn digits(bits: u64) -> u64 {
+    bits.div_ceil(32).max(1)
 }
 
 /// Returns the member a step writes, if it writes one: the storage a step's

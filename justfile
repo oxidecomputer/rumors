@@ -716,9 +716,11 @@ wasm32-pins: wasm32-pins-build
 # harness's crate docs state the bounds and what they cannot see. The guest
 # builds in the `fuel` profile and shares the fuel board's window allocator
 # and operator prices. A failure shrinks to a minimal skeleton and writes a
-# proptest seed file: commit any seed that appears. The clippy lines are the
-# members' own lint leg, since the workspace-wide clippy excludes them; the
-# guest's runs for wasm32, the only target it builds for.
+# proptest seed file: commit any seed that appears. The clippy and rustdoc
+# lines are the members' own lint and docs legs, since the workspace-wide
+# ones exclude them; the guest's run for wasm32, the only target it builds
+# for. The rustdoc lines build the public and the private-items docs, each
+# with warnings denied, because each catches broken links the other cannot.
 
 # Build the interleaving-fuel wasm guest and its harness (both halves).
 suanpan-fuel-build:
@@ -729,6 +731,10 @@ suanpan-fuel-build:
 suanpan-fuel: suanpan-fuel-build
     cargo clippy -p suanpan-fuel-guest --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }} -- -D warnings
     cargo clippy -p suanpan-fuel-harness -p suanpan-fuel-protocol --all-targets --target-dir {{ suanpan_fuel_target }} -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc -p suanpan-fuel-harness -p suanpan-fuel-protocol --no-deps --target-dir {{ suanpan_fuel_target }}/doc-public
+    RUSTDOCFLAGS="-D warnings" cargo doc -p suanpan-fuel-harness -p suanpan-fuel-protocol --no-deps --document-private-items --target-dir {{ suanpan_fuel_target }}/doc-internal
+    RUSTDOCFLAGS="-D warnings" cargo doc -p suanpan-fuel-guest --target wasm32-unknown-unknown --no-deps --target-dir {{ suanpan_fuel_target }}/doc-public
+    RUSTDOCFLAGS="-D warnings" cargo doc -p suanpan-fuel-guest --target wasm32-unknown-unknown --no-deps --document-private-items --target-dir {{ suanpan_fuel_target }}/doc-internal
     SUANPAN_FUEL_GUEST_WASM={{ suanpan_fuel_guest_wasm }} cargo nextest run -p suanpan-fuel-harness -p suanpan-fuel-protocol --cargo-profile release --target-dir {{ suanpan_fuel_target }}
 
 # The population atlas (crates/before-fuelscape) is a tool-side workspace

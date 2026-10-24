@@ -15,11 +15,15 @@
 //! random subset of step kinds with random weights (swarm testing, Groce et
 //! al., ISSTA 2012), and its value-neutral gap rounds and extreme-digit
 //! deposits appear here as fixed sequences of limb updates. One regime in
-//! four restricts a case to steps whose charge has no size-carrying term
-//! once the storage is grown: limb counts that do not scale, owned negation,
-//! sign queries, comparisons with primitives, conversions, and clears. Only
+//! four restricts a case's context to the kinds in [`Kind::FIXED_CHARGE`],
+//! whose charge has no size-carrying term once the storage is grown; only
 //! such a skeleton's repetitions isolate the cost of returning to storage
 //! already grown (see the crate docs).
+//!
+//! Every skeleton also carries a block: a value-neutral sequence of
+//! fixed-charge steps that runs repeatedly after the context, over whatever
+//! widths the context left. The judgment reads the block's cost per call
+//! from those repetitions.
 //!
 //! # The budgets
 //!
@@ -28,7 +32,7 @@
 //! the base unit and so identical at every scale:
 //!
 //! - every value stays below [`HEIGHT_BUDGET_UNITS`] units wide, so values
-//!   reach about two megabytes at the top scale and shifted self-additions
+//!   reach a few megabytes at the top scale and shifted self-additions
 //!   cannot compound;
 //! - every position a value's structure can hold stays within
 //!   [`OFFSET_BUDGET_BITS`] of a multiple of the unit (see
@@ -42,14 +46,20 @@ use suanpan_fuel_protocol::{
 
 use crate::model::{width, written_member, Model};
 
-/// The base unit `u`, in bits: 16 limbs, 32 digits.
+/// The base unit `u`, in bits: 40 limbs, 80 digits.
 ///
-/// At the top scale, `4096 · u` is half a megabyte, and the
-/// [`HEIGHT_BUDGET_UNITS`] budget lets a value reach a few such units.
-pub const UNIT_BITS: u64 = 1024;
+/// At the top scale, `4096 · u` is about 1.3 megabytes, and the
+/// [`HEIGHT_BUDGET_UNITS`] budget lets a value reach a few such units. The
+/// unit is wide enough that every position that scales lies, already at the
+/// base unit, past the absolute thresholds where the implementation's
+/// constants change (see [`judge::growth_bound`](crate::judge::growth_bound)):
+/// a unit less [`OFFSET_BUDGET_BITS`] is 72 digits, beyond the 64 digits the
+/// written-position bitset's first word covers, and a unit's digits fill
+/// 640 bytes, beyond the allocator's small-block bins.
+pub const UNIT_BITS: u64 = 2560;
 
 /// The widest a value may grow, in units, at the base unit.
-pub const HEIGHT_BUDGET_UNITS: u64 = 4;
+pub const HEIGHT_BUDGET_UNITS: u64 = 3;
 
 /// The most members one generated [`Step::Sum`] adds.
 pub const MAX_SUM_TERMS: usize = 5;
@@ -57,9 +67,23 @@ pub const MAX_SUM_TERMS: usize = 5;
 /// The farthest a position in a value's structure may lie from a multiple of
 /// the unit, in bits.
 ///
-/// A quarter of [`UNIT_BITS`], so every length that spans at least one unit
-/// at the base unit spans at least half a unit.
-pub const OFFSET_BUDGET_BITS: u64 = UNIT_BITS / 4;
+/// Fixed rather than proportional to the unit, so it bounds how close to
+/// the absolute thresholds a scaled position can come (see [`UNIT_BITS`]),
+/// and every length that spans at least one unit at the base unit spans
+/// at least four fifths of one.
+pub const OFFSET_BUDGET_BITS: u64 = 256;
+
+/// How many times a skeleton's block runs between its context and its
+/// epilogue.
+///
+/// The judgment reads the block's cost per call over the last
+/// [`BLOCK_WINDOW`] calls, after the earlier calls have spent whatever
+/// deferred work the context left.
+pub const BLOCK_REPETITIONS: usize = 12;
+
+/// The block calls, at the end of its repetitions, whose costs must agree for
+/// the block's state to count as periodic.
+pub const BLOCK_WINDOW: usize = 4;
 
 /// The most steps a generated skeleton holds before its gap rounds and
 /// extreme deposits expand and its epilogue is appended.
@@ -114,37 +138,44 @@ impl Extent {
     }
 }
 
-/// A program skeleton, normalized to the budgets and ending with an
-/// epilogue that clears every member.
+/// A program skeleton, normalized to the budgets: a context, a value-neutral
+/// block repeated [`BLOCK_REPETITIONS`] times, and an epilogue that clears
+/// every member.
 #[derive(Clone, Debug)]
 pub struct Skeleton {
-    /// The steps, epilogue included.
+    /// The steps: context, block repetitions, epilogue.
     steps: Vec<Step<Extent>>,
+    /// The number of context steps.
+    context: usize,
+    /// The number of steps in one call of the block, zero for none.
+    block: usize,
     /// The largest structural offset any value reaches, in bits.
     offset_bound: u64,
 }
 
 impl Skeleton {
-    /// Normalizes `raw` to the budgets and appends the epilogue.
+    /// Normalizes `context` and `block` to the budgets, and assembles the
+    /// skeleton.
     ///
-    /// Each step is replayed in a [`Model`] at the base unit. A step that
-    /// would leave a value wider than [`HEIGHT_BUDGET_UNITS`] units, or a
-    /// structural offset beyond [`OFFSET_BUDGET_BITS`], is replaced by a
-    /// clear of the member it writes.
-    pub fn new(raw: Vec<Step<Extent>>) -> Skeleton {
+    /// Each context step is replayed in a [`Model`] at the base unit. A step
+    /// that would leave a value wider than [`HEIGHT_BUDGET_UNITS`] units, or a
+    /// structural offset beyond [`OFFSET_BUDGET_BITS`], is replaced by a clear
+    /// of the member it writes. The block, which must leave every value as
+    /// it found it, is kept whole or dropped whole, since rewriting one of its
+    /// steps would leave it no longer value-neutral; it is dropped too if a
+    /// conversion in it would succeed, which would start a new storage. Its
+    /// offsets count once, because every call starts from the values the
+    /// first call starts from.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the block changes a value.
+    pub fn new(context: Vec<Step<Extent>>, block: Vec<Step<Extent>>) -> Skeleton {
         let mut model = Model::new(UNIT_BITS, false);
         let mut offsets = Offsets::default();
-        let mut steps = Vec::with_capacity(raw.len() + POOL);
-        for step in raw {
-            let mut trial = model.clone();
-            trial.step(&resolve(&step, UNIT_BITS));
-            let trial_offsets = offsets.after(&step);
-            let within = trial
-                .values()
-                .iter()
-                .all(|value| width(value) <= HEIGHT_BUDGET_UNITS * UNIT_BITS)
-                && trial_offsets.max() <= OFFSET_BUDGET_BITS;
-            let step = if within {
+        let mut steps = Vec::new();
+        for step in context {
+            let step = if Skeleton::trial(&model, offsets, std::slice::from_ref(&step)).is_some() {
                 step
             } else {
                 let member = written_member(&step).expect("only a step that writes can grow");
@@ -154,11 +185,79 @@ impl Skeleton {
             offsets = offsets.after(&step);
             steps.push(step);
         }
+        let context_len = steps.len();
+        let (block, offsets) = match Skeleton::trial(&model, offsets, &block) {
+            Some((after, block_offsets)) if Skeleton::conversions_refuse(&model, &block) => {
+                assert!(
+                    after.values() == model.values(),
+                    "a skeleton's block leaves every value as it found it"
+                );
+                (block, block_offsets)
+            }
+            _ => (Vec::new(), offsets),
+        };
+        for _ in 0..BLOCK_REPETITIONS {
+            steps.extend(block.iter().cloned());
+        }
         steps.extend(Member::ALL.map(|member| Step::Clear { member }));
         Skeleton {
             steps,
+            context: context_len,
+            block: block.len(),
             offset_bound: offsets.bound,
         }
+    }
+
+    /// Replays `steps` from `model` and `offsets`, returning the model and
+    /// offsets after them if every value and offset stays within the budgets,
+    /// and nothing otherwise.
+    fn trial(model: &Model, offsets: Offsets, steps: &[Step<Extent>]) -> Option<(Model, Offsets)> {
+        let mut model = model.clone();
+        let mut offsets = offsets;
+        for step in steps {
+            model.step(&resolve(step, UNIT_BITS));
+            offsets = offsets.after(step);
+            let within = model
+                .values()
+                .iter()
+                .all(|value| width(value) <= HEIGHT_BUDGET_UNITS * UNIT_BITS)
+                && offsets.max() <= OFFSET_BUDGET_BITS;
+            if !within {
+                return None;
+            }
+        }
+        Some((model, offsets))
+    }
+
+    /// Returns whether every conversion in `block`, replayed from `model`,
+    /// refuses because its value does not fit an `i64`.
+    ///
+    /// A refusal returns the accumulator as it was, keeping its storage, so a
+    /// block of refusing conversions stays value-neutral and fixed-charge. It
+    /// refuses at every unit when it refuses at the base unit: a value that
+    /// scales is at least a unit less twice the offset budget wide at every
+    /// unit, and one that does not scale is the same at every unit.
+    fn conversions_refuse(model: &Model, block: &[Step<Extent>]) -> bool {
+        let mut model = model.clone();
+        block.iter().all(|step| {
+            let refuses = match step {
+                Step::Convert { member } => i64::try_from(&model.values()[member.index()]).is_err(),
+                _ => true,
+            };
+            model.step(&resolve(step, UNIT_BITS));
+            refuses
+        })
+    }
+
+    /// Returns the number of context steps, which the block follows.
+    pub fn context_len(&self) -> usize {
+        self.context
+    }
+
+    /// Returns the number of steps in one call of the block, zero if the
+    /// skeleton has none.
+    pub fn block_len(&self) -> usize {
+        self.block
     }
 
     /// Returns the steps, epilogue included.
@@ -172,9 +271,9 @@ impl Skeleton {
     /// A position is where a value's bits change: a limb operand's ends, a
     /// shifted operand's structure moved by its shift, a carry out of a top.
     /// Every length the implementation traverses (a deposit span, a borrow
-    /// run, a gap between written positions) runs between two such
-    /// positions, so it is `d · u + δ` bits with `|δ|` at most twice this
-    /// bound.
+    /// run, a gap between written positions) runs between two such positions,
+    /// so it is `d · u + δ` bits with `|δ|` at most twice this bound, which
+    /// is what [`growth_bound`](crate::judge::growth_bound) rests on.
     pub fn offset_bound(&self) -> u64 {
         self.offset_bound
     }
@@ -376,6 +475,11 @@ impl Kind {
     /// The kinds the fixed-charge regime draws from: none reads, copies, or
     /// produces a whole value, so once the storage has grown, each step's
     /// charge is the same at every unit apart from its logarithm.
+    ///
+    /// A conversion that succeeds replaces its member by a new accumulator,
+    /// which starts a new storage; a later write above it grows storage
+    /// again in every repetition, and the model charges that growth, so such
+    /// a skeleton's steady repetition does not count as fixed-charge.
     pub const FIXED_CHARGE: [Kind; 9] = [
         Kind::Primitive,
         Kind::Limbs,
@@ -698,9 +802,102 @@ fn arb_steps(kind: Kind, fixed_charge: bool) -> BoxedStrategy<Vec<Step<Extent>>>
     }
 }
 
-/// Generates a skeleton: a regime, a swarm of enabled kinds with weights,
-/// then up to [`MAX_STEPS`] generated steps drawn from that swarm, normalized
-/// by [`Skeleton::new`].
+/// Generates one element of a block: a fixed-charge sequence of steps that
+/// leaves every value as it found it.
+///
+/// Each element is an update and its inverse, a value-neutral gap round or
+/// extreme-digit deposit and its inverse, a question about a sign or an
+/// order, a conversion that refuses, or a negation applied twice. Its limb
+/// operands have fixed counts,
+/// though their positions scale, so once storage is grown no step of it
+/// charges a term that grows with the unit, whatever the context left in
+/// the members it touches.
+fn arb_block_element() -> BoxedStrategy<Vec<Step<Extent>>> {
+    let member = arb_member;
+    prop_oneof![
+        (member(), arb_primitive()).prop_map(|(member, value)| {
+            [Direction::Add, Direction::Sub]
+                .map(|direction| Step::Primitive {
+                    member,
+                    direction,
+                    value,
+                })
+                .to_vec()
+        }),
+        (member(), arb_position(2), arb_pattern(), 1u64..=2).prop_map(
+            |(member, shift, pattern, count)| {
+                [Direction::Add, Direction::Sub]
+                    .map(|direction| Step::Limbs {
+                        member,
+                        direction,
+                        shift,
+                        input: LimbInput {
+                            pattern,
+                            count: Extent::fixed(count),
+                        },
+                    })
+                    .to_vec()
+            }
+        ),
+        arb_steps(Kind::GapRound, true),
+        arb_steps(Kind::ParkExtreme, true).prop_map(|park| {
+            // Undo the two deposits in reverse order: the value is restored.
+            let undo = park.iter().rev().map(|step| match step {
+                Step::Limbs {
+                    member,
+                    shift,
+                    input,
+                    ..
+                } => Step::Limbs {
+                    member: *member,
+                    direction: Direction::Add,
+                    shift: *shift,
+                    input: *input,
+                },
+                other => other.clone(),
+            });
+            park.iter().cloned().chain(undo).collect()
+        }),
+        arb_steps(Kind::Sign, true),
+        arb_steps(Kind::ComparePrimitive, true),
+        member().prop_map(|member| {
+            // A large addend around the conversion makes it refuse unless
+            // the value nearly cancels it; `Skeleton::new` drops a block
+            // whose conversion would succeed.
+            let addend = |direction| Step::Primitive {
+                member,
+                direction,
+                value: Primitive::U128(1 << 100),
+            };
+            vec![
+                addend(Direction::Add),
+                Step::Convert { member },
+                addend(Direction::Sub),
+            ]
+        }),
+        member().prop_map(|member| vec![
+            Step::Negate {
+                member,
+                borrowed: false
+            };
+            2
+        ]),
+    ]
+    .boxed()
+}
+
+/// Generates a block: a few elements, possibly none, each value-neutral, so
+/// the block is too.
+fn arb_block() -> impl Strategy<Value = Vec<Step<Extent>>> {
+    proptest::collection::vec(arb_block_element(), 0..=3)
+        .prop_map(|elements| elements.into_iter().flatten().collect())
+}
+
+/// Generates a skeleton, normalized by [`Skeleton::new`].
+///
+/// A case draws a regime, a swarm of enabled kinds with weights, a context
+/// of up to [`MAX_STEPS`] generated steps drawn from that swarm, and a block
+/// of value-neutral, fixed-charge elements.
 ///
 /// One case in four draws from the fixed-charge regime ([`Kind::FIXED_CHARGE`]).
 /// Each kind is disabled in about a third of cases and otherwise weighted
@@ -730,8 +927,16 @@ pub fn arb_skeleton() -> impl Strategy<Value = Skeleton> {
                 .filter(|&kind| weights[kind as usize] > 0)
                 .map(|kind| (weights[kind as usize], arb_steps(kind, fixed_charge)))
                 .collect();
-            proptest::collection::vec(proptest::strategy::Union::new_weighted(arms), 1..=MAX_STEPS)
-                .prop_map(move |groups| Skeleton::new(groups.into_iter().flatten().collect()))
+            (
+                proptest::collection::vec(
+                    proptest::strategy::Union::new_weighted(arms),
+                    1..=MAX_STEPS,
+                ),
+                arb_block(),
+            )
+                .prop_map(|(groups, block)| {
+                    Skeleton::new(groups.into_iter().flatten().collect(), block)
+                })
         },
     )
 }

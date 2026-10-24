@@ -1,8 +1,9 @@
 //! Measures a skeleton at every scale and repetition count, and judges the
-//! fuel readings against bounds derived from the cost rules.
+//! fuel readings against one another.
 //!
-//! [`judge`] runs four variants of one skeleton, `P`, each in a fresh guest
-//! instance:
+//! A skeleton holds a context, a value-neutral block called
+//! [`BLOCK_REPETITIONS`] times, and an epilogue that clears every member.
+//! [`judge`] runs these variants of it, each in a fresh guest instance:
 //!
 //! | Variant | Unit | Repetitions | Role |
 //! |---|---|---|---|
@@ -11,41 +12,60 @@
 //! | top | `4096 · u` | 1, or [`BASE_REPETITIONS`] when the steady repetition has a fixed charge | scaled twice |
 //! | long | `u` | [`LONG_REPETITIONS`] | repeated |
 //!
-//! Every repetition ends by clearing every member, so each one starts from
-//! zero values over the storage the last one left, and repetitions after the
-//! first compute the same values as the first. The readings are judged
-//! against each other, never against a committed number; the bounds below
-//! say how far each reading may exceed the reading it is compared with.
+//! Because of the epilogue, each repetition starts from zero values over the
+//! storage the last one left, and repetitions after the first compute the
+//! same values as the first. The readings are judged against each other,
+//! never against a committed number.
 //!
-//! # Why fuel may grow by a factor, and no less
+//! # The checks, and what each can see
 //!
-//! The rules bound a program's work by a constant times its charge, without
-//! naming the constant, and each rule's term is linear in the sizes it
-//! names. So the work of a correct implementation is a sum of terms, each a
-//! constant, a size the rules charge, or a logarithm of one, times a constant
-//! of its own. Multiplying every size by `k` multiplies each term by at most
-//! `k`, and so the whole reading by at most `k`, plus the slack the offsets
-//! allow ([`growth_bound`]). In units of charge, that lets fuel per unit of
-//! charge grow by `growth_bound · charge(P) / charge(k P)`.
+//! - **Scaled repetitions.** At the end of every repetition the units
+//!   share, the fuel net of reallocation copies may be at most
+//!   [`growth_bound`] times its value at the unit below, and the copies at
+//!   most [`COPY_GROWTH`] times that; a prefix that is the same program at
+//!   every unit must cost exactly the same. This sees work that grows faster
+//!   than the sizes anywhere in a repetition: quadratic work, or a logarithm
+//!   multiplying a length.
+//! - **Long repetition.** The 4096-repetition run must match the base over
+//!   their shared prefix and afterwards cost at most a seventh of the base's
+//!   total per repetition after the first. This sees work that grows with
+//!   the length of the history at a fixed size: positions never reclaimed,
+//!   a scan that revisits what earlier repetitions wrote.
+//! - **Steady repetition.** A skeleton whose repetitions charge no sized
+//!   term once storage is grown may cost, per repetition over the last
+//!   [`STEADY_REPETITIONS`] of [`BASE_REPETITIONS`], at most
+//!   [`STEADY_GROWTH_BOUND`] times as much at the top unit as at the middle.
+//!   This sees work linear in a size, paid again in every repetition: growth
+//!   paid again after a clear, a gap crossed at a cost linear in its width.
+//! - **Block calls.** A block whose calls charge no sized term may cost, per
+//!   call once its cost repeats exactly, at most [`STEADY_GROWTH_BOUND`]
+//!   times as much at the top unit as at the middle, however wide the
+//!   members the context left. Equal costs over the last calls are taken as
+//!   evidence that the state repeats; when it does, the potential returns to
+//!   where it was over each call, so differencing removes whatever the
+//!   context deferred and leaves the call's own cost. This sees a step of a
+//!   kind a block holds (an update by a primitive or by fixed-count limbs, a
+//!   sign query, a comparison with a primitive, a conversion that refuses, an
+//!   owned negation) whose work is linear in the width of a member it
+//!   touches, inside a program that charges sizes elsewhere: an update that
+//!   pays its receiver's width, a sign query that rescans a wide value.
+//! - **Floors and answers.** Every prefix spends at least its steps' floors,
+//!   so the fuel is counting, and every step's answer agrees with the exact
+//!   model's values.
 //!
-//! The premise is that the guest's work depends on sizes alone. The guest's
-//! allocator moves every block it reallocates (its `moving` module): an
-//! allocator that grows blocks in place where the heap allows it copies at
-//! one scale what it extends at another, and that copy, which the third
-//! rule allows, would make the readings grow faster than the sizes.
+//! What remains unseen: work linear in a size the rules do not charge to a
+//! step whose charge has a sized term of its own (an operand addition that
+//! also pays its receiver's width), because that term scales by the same
+//! factor; and work proportional to the context that is paid once, which
+//! the block check differences away and no reading can tell from amortized
+//! work.
 //!
-//! No smaller allowance follows from the rules. The constants differ from
-//! term to term, and scaling shifts weight from the fixed terms to the sized
-//! ones, so a correct program whose sized terms cost more per unit of charge
-//! than its fixed ones legitimately raises its fuel per unit of charge as it
-//! scales. A consequence is what this judgment cannot see: a defect whose
-//! extra work is linear in a size the rules do not charge to that step
-//! (an update that pays its receiver's width, growth paid again on every
-//! repetition) multiplies by `k` exactly as charged work does, and passes.
-//! It sees work that grows faster than the sizes do (quadratic work, a
-//! logarithm multiplying a size, cost that grows with the length of the
-//! history) and, through the steady repetition at two scales, work that
-//! grows with a size the rules charge only once.
+//! The premise of every comparison is that the guest's work depends on
+//! sizes alone. The guest's allocator moves every block it reallocates (its
+//! `moving` module): an allocator that grows blocks in place where the heap
+//! allows it copies at one scale what it extends at another, and that copy,
+//! which the third rule allows, would make readings grow faster than the
+//! sizes.
 
 use std::ops::AddAssign;
 
@@ -53,7 +73,7 @@ use suanpan_fuel_protocol::{observe_stable, Step};
 
 use crate::guest::{self, Run};
 use crate::model::{Events, Model, Record};
-use crate::skeleton::{Skeleton, UNIT_BITS};
+use crate::skeleton::{Skeleton, BLOCK_REPETITIONS, BLOCK_WINDOW, UNIT_BITS};
 
 /// The repetitions of the base, middle, and fixed-charge top variants.
 pub const BASE_REPETITIONS: u32 = 8;
@@ -64,26 +84,51 @@ pub const LONG_REPETITIONS: u32 = 4096;
 /// The factor between consecutive scales.
 pub const SCALE_STEP: u64 = 64;
 
-/// How far fuel may grow when every size grows by `scale`, from a program
-/// at unit `unit` whose structural offsets are at most `offset_bound` bits.
+/// How far the scaled check lets fuel net of reallocation copies grow at a
+/// repetition boundary: `k + (k − 1) · 2D / (unit − 2D)`.
 ///
-/// Every length the implementation traverses is `d · unit + δ` bits with
-/// `d` a whole number and `|δ| ≤ 2 · offset_bound`
-/// ([`Skeleton::offset_bound`]). A length with `d = 0` does not grow. One
-/// with `d ≥ 1` grows by at most `(k · unit − 2D) / (unit − 2D)`, which is
-/// `k + (k − 1) · 2D / (unit − 2D)`: the most its fixed part can make the
-/// ratio exceed `k`.
+/// Here every size grows by `k = scale` from a program at unit `unit` whose
+/// structural offsets are at most `D = offset_bound` bits.
 ///
-/// One cost is not a length the program fixes: a buffer that grows by
-/// doubling copies its contents at each doubling, and the copies total
-/// between one and two times its final length, depending on where that
-/// length falls among the capacities. Scaling by a power of two moves every
-/// capacity by the same power, so the copies scale with the length too,
-/// unless the length's fixed part puts it just past a capacity at one scale
-/// and just short of one at the other. Then one scale pays one more copy of
-/// the buffer than the bound allows. The bound does not admit that crossing:
-/// a failure that the extra copy explains is a premise failure, to be
-/// diagnosed as such rather than taken for a defect.
+/// The rules bound work only by an unnamed constant times the charge, and
+/// allow no smaller factor across scales: the constants differ from term to
+/// term, so a correct program can raise its fuel per unit of charge as it
+/// scales. The bound instead follows from the structure of `suanpan`'s work,
+/// as its cost derivation lays it out. Every unit of work is one of these,
+/// and each grows by at most the bound:
+///
+/// - a constant, such as a call's dispatch or an allocator call (whose
+///   `dlmalloc` bin walk is bounded by its 32-bit size field), which grows
+///   by a bounded factor far below `k`;
+/// - an allocator's slow path, such as growing the heap or splitting or
+///   coalescing a chunk, a bounded constant per call;
+/// - work proportional to a length that runs between two positions of the
+///   program's structure: such a length is `d · unit + δ` bits with
+///   `|δ| ≤ 2D` ([`Skeleton::offset_bound`]), so it grows by at most
+///   `(k · unit − 2D) / (unit − 2D)`, the bound itself;
+/// - a climb through the written-position bitset, whose levels are base-64
+///   digits of the distance climbed: a climb costs a constant plus a step per
+///   level, a distance that scales spans at least one level already at the
+///   base unit, whose positions lie past the first word ([`UNIT_BITS`]),
+///   and growing it 64-fold adds at most one level, so a climb across a
+///   distance that scales grows by at most three halves, and one across a
+///   fixed distance that straddles a multiple of the unit, which spans no
+///   level at the base unit and one at `64 · u`, by at most twice: a bounded
+///   factor far below `k`;
+/// - a walk of a bitset subtree, as a clear or a scan makes, which costs its
+///   positions plus its words plus one word per level, each growing as the
+///   kinds above do;
+/// - a reallocation's copy, which the guest counts and the check judges
+///   apart ([`COPY_GROWTH`]).
+///
+/// The comparison is made only where every member has just been cleared, at
+/// the end of a repetition. Between such points a correct implementation can
+/// defer work to a later step at one scale and do it at once at another,
+/// as a clear that pays what earlier steps left can; single steps then grow
+/// by more than any term above. Over a whole repetition every such deferral
+/// has come due: the epilogue's clears pay what they owe, and what remains
+/// (storage reserved but not yet covered by the bitset) is the same
+/// structure at every unit.
 ///
 /// # Panics
 ///
@@ -95,10 +140,29 @@ pub fn growth_bound(scale: u64, unit: u64, offset_bound: u64) -> f64 {
     k + (k - 1.0) * slop as f64 / (unit - slop) as f64
 }
 
-/// How far a steady repetition's fuel may grow from unit `64 · u` to
-/// `4096 · u` when no step's charge has a sized term: twice.
+/// How far the bytes reallocations copy may grow, at a repetition boundary,
+/// relative to [`growth_bound`]: twice.
 ///
-/// Such a repetition's work is a constant per step plus climbs through the
+/// Every capacity a buffer requests is a length of the program, twice an
+/// earlier capacity, or the allocator's fixed minimum, so it is
+/// `d · unit + δ` with the same `δ` at every unit, and a buffer that
+/// reallocates at one unit reallocates at the same step at the other. Its
+/// copies, the capacities it leaves, then grow by at most the bound, except
+/// for the fixed minimum a doubling starts from: a buffer that doubles from
+/// minimum capacity `m` to `c` copies `c − m`, and `(64 · c − m) / (c − m)`
+/// stays below 128 for every `c ≥ 2m`. A level of the written-position
+/// bitset can reallocate at the upper unit alone, when two positions
+/// straddle a multiple of the unit inside one 64-digit word at the base
+/// unit; the height budget leaves room for such a straddle only at one or
+/// two units, so it copies at most 1,280 bytes, and the bitset's creation
+/// copies its level array, at least 12 bytes, at both units, which keeps
+/// that ratio below 128 too.
+pub const COPY_GROWTH: f64 = 2.0;
+
+/// How far a steady repetition's or a block call's fuel may grow from unit
+/// `64 · u` to `4096 · u` when no step's charge has a sized term: twice.
+///
+/// Such work is a constant per step plus climbs through the
 /// written-position bitset, whose levels are base-64 digits of the distance
 /// climbed (rule 4's logarithm). At `64 · u` every distance that scales
 /// spans at least one level, since `64 · u / 32` positions exceed 64, and
@@ -121,22 +185,33 @@ pub const STEADY_REPETITIONS: u32 = BASE_REPETITIONS / 2;
 /// bound, as a fraction of the bound.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Margins {
-    /// The largest middle-over-base prefix ratio, over its bound.
+    /// The largest middle-over-base ratio at a repetition boundary, over its
+    /// bound.
     pub base_to_middle: f64,
-    /// The largest top-over-middle prefix ratio, over its bound.
+    /// The largest top-over-middle ratio at a repetition boundary, over its
+    /// bound.
     pub middle_to_top: f64,
     /// The largest long-variant prefix, over its bound.
     pub repetition: f64,
     /// The top steady repetition over the middle one, over its bound, when
     /// the steady repetition has a fixed charge.
     pub steady: Option<f64>,
+    /// What became of the block check (see [`BlockOutcome`]).
+    pub block: BlockOutcome,
+    /// The smallest slack the scaled check left at the end of the first
+    /// repetition, in fuel per digit of storage grown.
+    ///
+    /// The digits are those the repetition grows at the upper unit, so this
+    /// is how much a superlinear term would have to spend per digit to fail.
+    /// Infinite where nothing scales.
+    pub scaled_slack_per_digit: f64,
     /// The steps in one repetition of the skeleton, epilogue included.
     pub steps: usize,
     /// Each variant's total fuel: base, middle, top, and long.
     pub fuel: [u64; 4],
 }
 
-/// One variant: its runs, and the model's records of its first two
+/// One variant: its run, and the model's records of its first two
 /// repetitions.
 struct Variant {
     /// The guest's run.
@@ -174,6 +249,54 @@ fn record(records: &[Record], n: usize, index: usize) -> &Record {
 /// or grows by a size that scales.
 fn steady_charge_is_fixed(middle: &[Record], top: &[Record], n: usize) -> bool {
     (0..n).all(|i| middle[n + i].charge.sized_terms() == top[n + i].charge.sized_terms())
+}
+
+/// Which of the regimes that decide whether a check applies a skeleton
+/// reaches, measured in the model alone.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Regimes {
+    /// The steady repetition charges no sized term, yet its storage widths
+    /// differ between the middle and top units: the steady check compares
+    /// work over storage that scales, not two identical programs.
+    pub scaled_steady: bool,
+    /// The block charges no sized term, and a member it touches is at least
+    /// a unit wide when the block starts at the base unit: the block check
+    /// compares a fixed-charge call against wide storage.
+    pub block_in_sized_context: bool,
+}
+
+/// Returns the regimes `skeleton` reaches.
+pub fn regimes(skeleton: &Skeleton) -> Regimes {
+    let n = skeleton.steps().len();
+    let [middle, top] = [SCALE_STEP * UNIT_BITS, SCALE_STEP * SCALE_STEP * UNIT_BITS]
+        .map(|unit| model(&skeleton.steps_at(unit), unit));
+    let scaled_steady = steady_charge_is_fixed(&middle, &top, n)
+        && (0..n).any(|i| middle[n + i].charge.height_bits != top[n + i].charge.height_bits);
+
+    let steps = skeleton.steps_at(UNIT_BITS);
+    let mut base = Model::new(UNIT_BITS, false);
+    for step in &steps[..skeleton.context_len()] {
+        base.step(step);
+    }
+    let block = &steps[skeleton.context_len()..skeleton.context_len() + skeleton.block_len()];
+    let touches_wide = block.iter().any(|step| {
+        let member = match step {
+            Step::Primitive { member, .. }
+            | Step::Limbs { member, .. }
+            | Step::Negate { member, .. }
+            | Step::Sign { member, .. }
+            | Step::ComparePrimitive { member, .. }
+            | Step::Convert { member } => *member,
+            _ => return false,
+        };
+        crate::model::width(&base.values()[member.index()]) >= UNIT_BITS
+    });
+    let block_in_sized_context =
+        touches_wide && skeleton.block_len() > 0 && block_charge_is_fixed(skeleton, &middle, &top);
+    Regimes {
+        scaled_steady,
+        block_in_sized_context,
+    }
 }
 
 /// Returns whether `skeleton`'s steady repetition has a fixed charge, so
@@ -234,30 +357,39 @@ pub fn judge(skeleton: &Skeleton) -> Result<Margins, String> {
     let mut margins = Margins {
         steps: n,
         fuel: [&base, &middle, &top, &long].map(|variant| variant.run.prefix(variant.run.len())),
+        scaled_slack_per_digit: f64::INFINITY,
         ..Margins::default()
     };
     let identical = (0..n)
         .take_while(|&i| steps[0][i] == steps[1][i] && steps[1][i] == steps[2][i])
         .count();
-    let base_to_middle = growth_bound(SCALE_STEP, units[0], skeleton.offset_bound());
-    let middle_to_top = growth_bound(SCALE_STEP, units[1], skeleton.offset_bound());
-    for m in 1..=n {
+    for m in 1..=identical {
         let (a, b, c) = (base.run.prefix(m), middle.run.prefix(m), top.run.prefix(m));
-        if m <= identical {
-            if a != b || b != c {
-                return Err(context(&format!(
-                    "the first {m} steps are identical at every unit, yet their fuel differs: \
-                     base {a}, middle {b}, top {c}"
-                )));
-            }
-            continue;
+        if a != b || b != c {
+            return Err(context(&format!(
+                "the first {m} steps are identical at every unit, yet their fuel differs: base \
+                 {a}, middle {b}, top {c}"
+            )));
         }
-        margins.base_to_middle = margins.base_to_middle.max(
-            scaled(&base, &middle, m, base_to_middle, "base", "middle").map_err(|e| context(&e))?,
-        );
-        margins.middle_to_top = margins.middle_to_top.max(
-            scaled(&middle, &top, m, middle_to_top, "middle", "top").map_err(|e| context(&e))?,
-        );
+    }
+    if identical < n {
+        let pairs = [
+            (&base, &middle, units[0], "base", "middle"),
+            (&middle, &top, units[1], "middle", "top"),
+        ];
+        let mut slack = f64::INFINITY;
+        for (index, (lower, upper, unit, lower_name, upper_name)) in pairs.into_iter().enumerate() {
+            let bound = growth_bound(SCALE_STEP, unit, skeleton.offset_bound());
+            let (margin, per_digit) =
+                scaled(lower, upper, n, bound, lower_name, upper_name).map_err(|e| context(&e))?;
+            if index == 0 {
+                margins.base_to_middle = margin;
+            } else {
+                margins.middle_to_top = margin;
+            }
+            slack = slack.min(per_digit);
+        }
+        margins.scaled_slack_per_digit = slack;
     }
 
     margins.repetition = repeated(&base, &long, n).map_err(|e| context(&e))?;
@@ -281,7 +413,88 @@ pub fn judge(skeleton: &Skeleton) -> Result<Margins, String> {
         }
         margins.steady = Some(margin);
     }
+
+    margins.block = check_block(skeleton, &middle, &top).map_err(|e| context(&e))?;
     Ok(margins)
+}
+
+/// What the block check found for one skeleton.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum BlockOutcome {
+    /// The skeleton has no block: the budgets dropped it, or none was drawn.
+    #[default]
+    Absent,
+    /// A call of the block charges a sized term that differs between the
+    /// middle and top units, so the comparison does not apply.
+    Sized,
+    /// The calls at the end of the block's repetitions do not all cost the
+    /// same at both units, so the state is not known to be periodic and the
+    /// comparison does not apply.
+    Aperiodic,
+    /// The last call at the top unit cost this fraction of its bound.
+    Checked(f64),
+}
+
+/// Returns whether a skeleton's block charges the same sized terms at the
+/// middle and top units in its last call, from the variants' records.
+fn block_charge_is_fixed(skeleton: &Skeleton, middle: &[Record], top: &[Record]) -> bool {
+    let start = skeleton.context_len() + (BLOCK_REPETITIONS - 1) * skeleton.block_len();
+    (start..start + skeleton.block_len())
+        .all(|i| middle[i].charge.sized_terms() == top[i].charge.sized_terms())
+}
+
+/// Checks the block's cost per call at the top unit against its cost at the
+/// middle unit.
+///
+/// The block runs [`BLOCK_REPETITIONS`] times after the context, each call
+/// leaving every value as it found it. When the last [`BLOCK_WINDOW`] calls
+/// each cost the same fuel, at both units, we take the state they run in to
+/// repeat. Equal fuel does not prove that, since a correct implementation
+/// could in principle pay deferred work in equal installments across the
+/// window; `suanpan`'s potential has no such installments, because each unit
+/// of it pays one event that happens once per insertion, and a call
+/// reinserts only the block's own positions. When the state repeats, the
+/// potential returns to where it was over each call, and the call's cost is
+/// its amortized cost. A call whose steps charge no sized term may then
+/// cost at most [`STEADY_GROWTH_BOUND`] times as much at the top unit, for
+/// the reason that bound states, however wide the members the context left:
+/// the context's work is spent before the window, and differencing removes
+/// it.
+fn check_block(
+    skeleton: &Skeleton,
+    middle: &Variant,
+    top: &Variant,
+) -> Result<BlockOutcome, String> {
+    let (start, length) = (skeleton.context_len(), skeleton.block_len());
+    if length == 0 {
+        return Ok(BlockOutcome::Absent);
+    }
+    if !block_charge_is_fixed(skeleton, &middle.records, &top.records) {
+        return Ok(BlockOutcome::Sized);
+    }
+    let calls = |variant: &Variant| -> Vec<u64> {
+        (BLOCK_REPETITIONS - BLOCK_WINDOW..BLOCK_REPETITIONS)
+            .map(|call| {
+                variant.run.prefix(start + (call + 1) * length)
+                    - variant.run.prefix(start + call * length)
+            })
+            .collect()
+    };
+    let (at_middle, at_top) = (calls(middle), calls(top));
+    let periodic = |costs: &[u64]| costs.windows(2).all(|pair| pair[0] == pair[1]);
+    if !periodic(&at_middle) || !periodic(&at_top) {
+        return Ok(BlockOutcome::Aperiodic);
+    }
+    let (per_middle, per_top) = (at_middle[0] as f64, at_top[0] as f64);
+    let margin = per_top / (STEADY_GROWTH_BOUND * per_middle);
+    if margin > 1.0 {
+        return Err(format!(
+            "a call of the block, whose steps charge no sized term, costs {per_top} fuel at the \
+             top unit, more than {STEADY_GROWTH_BOUND} times its {per_middle} at the middle \
+             unit: a step's work grew with a size the rules do not charge it"
+        ));
+    }
+    Ok(BlockOutcome::Checked(margin))
 }
 
 /// Checks that the guest observed, at every step instance, the answer the
@@ -294,7 +507,8 @@ fn check_observations(name: &str, variant: &Variant, n: usize) -> Result<(), Str
         if observed != expected && !refused {
             return Err(format!(
                 "the {name} variant's step instance {index} (step {}) observed {observed:#x}, \
-                 but the model computes {expected:#x}: the guest ran another program",
+                 but the model computes {expected:#x}: the guest's answer disagrees with the \
+                 model's values",
                 index % n
             ));
         }
@@ -327,44 +541,88 @@ fn charge(variant: &Variant, n: usize, m: usize) -> f64 {
         .sum()
 }
 
-/// Checks prefix `m` of `upper`, a variant at a unit `SCALE_STEP` times
-/// `lower`'s, against `bound` times `lower`'s, returning the reading as a
-/// fraction of its bound.
+/// Checks `upper` against `lower`, a variant at a unit `SCALE_STEP` times
+/// smaller, at every repetition boundary they share.
+///
+/// The bound is `bound` (see [`growth_bound`]). Returns the largest reading
+/// as a fraction of its bound, and the slack, in fuel per digit of the
+/// storage the first repetition grows at `upper`'s unit, that the first
+/// boundary leaves.
+///
+/// At each boundary, the fuel net of reallocation copies may be at most
+/// `bound` times `lower`'s, and the copies at most twice that. The slack per
+/// digit is how much extra fuel a superlinear term would have to spend per
+/// digit of grown storage to fail the first boundary: the instrument's
+/// sensitivity for that case.
 fn scaled(
     lower: &Variant,
     upper: &Variant,
-    m: usize,
+    n: usize,
     bound: f64,
     lower_name: &str,
     upper_name: &str,
-) -> Result<f64, String> {
-    let n = lower.records.len() / 2;
-    let (low, high) = (lower.run.prefix(m), upper.run.prefix(m));
-    let margin = high as f64 / (bound * low as f64);
-    if margin > 1.0 {
-        let (low_charge, high_charge) = (charge(lower, n, m), charge(upper, n, m));
-        return Err(format!(
-            "the first {m} steps cost {high} fuel at the {upper_name} unit and {low} at the \
-             {lower_name} unit, a ratio of {:.2}, above the {bound:.2} that {SCALE_STEP}-fold \
-             sizes allow. Per unit of charge: {:.3} at the {lower_name} unit ({low_charge:.0} \
-             words), {:.3} at the {upper_name} unit ({high_charge:.0} words), allowed \
-             {:.3}.",
-            high as f64 / low as f64,
-            low as f64 / low_charge,
-            high as f64 / high_charge,
-            bound * low as f64 / high_charge,
-        ));
+) -> Result<(f64, f64), String> {
+    let repetitions = lower.run.len().min(upper.run.len()) / n;
+    let mut margin = 0f64;
+    let mut slack = f64::INFINITY;
+    for repetition in 1..=repetitions {
+        let m = repetition * n;
+        let (low, high) = (lower.run.prefix(m) as f64, upper.run.prefix(m) as f64);
+        let (low_copied, high_copied) = (
+            lower.run.copied_prefix(m) as f64,
+            upper.run.copied_prefix(m) as f64,
+        );
+        let (low_net, high_net) = (low - low_copied, high - high_copied);
+        let net_margin = high_net / (bound * low_net);
+        // Copies at the lower unit are never zero where a buffer scales (a
+        // digit buffer starts at a capacity of one digit, so its first write
+        // past position zero reallocates at every unit); where they are, no
+        // buffer reallocated, and the comparison has nothing to judge.
+        let copy_margin = if low_copied > 0.0 {
+            high_copied / (COPY_GROWTH * bound * low_copied)
+        } else {
+            0.0
+        };
+        if net_margin > 1.0 || copy_margin > 1.0 {
+            let (low_charge, high_charge) = (charge(lower, n, m), charge(upper, n, m));
+            return Err(format!(
+                "the first {repetition} repetitions cost {high} fuel at the {upper_name} unit \
+                 and {low} at the {lower_name} unit ({:.3} and {:.3} per word of charge); net \
+                 of reallocation copies, {high_net} against {low_net}, a ratio of {:.3} where \
+                 {bound:.3} is allowed; the copies, {high_copied} bytes against {low_copied}, \
+                 may grow by {:.3}",
+                high / high_charge,
+                low / low_charge,
+                high_net / low_net,
+                COPY_GROWTH * bound,
+            ));
+        }
+        margin = margin.max(net_margin).max(copy_margin);
+        if repetition == 1 {
+            let grown: u64 = (0..n).map(|i| upper.records[i].charge.growth_bits).sum();
+            if grown > 0 {
+                let allowed = bound * low_net + COPY_GROWTH * bound * low_copied;
+                slack = (allowed - high) / grown.div_ceil(32) as f64;
+            }
+        }
     }
-    Ok(margin)
+    Ok((margin, slack))
 }
 
 /// Checks the long variant against the base: identical fuel over the
-/// repetitions they share, and after them, fuel within the base's average
-/// cost per repetition.
+/// repetitions they share, and after them, at most a seventh of the base's
+/// total for each repetition after the first.
 ///
-/// Every repetition after the first computes the same values over the same
-/// storage, so its charge is the same, and the rules allow it the same work.
-/// If repetitions 2 through `r` each cost what one of the base's
+/// This rests on a premise like the block check's: that the repetitions
+/// after the first settle into a state that repeats, so that each costs what
+/// the base's later repetitions cost on average. The values repeat, since
+/// every repetition starts from zeros. Storage settles too: which
+/// accumulator keeps which buffer depends on stored digit counts, which each
+/// repetition reproduces from the same zeroed stored forms, so the buffers
+/// follow the same exchange every repetition, and each meets every role its
+/// cycle gives it, so stops growing, within the first four repetitions,
+/// inside the base's eight. The allocator's free lists are assumed to settle
+/// as quickly. If repetitions 2 through `r` each cost what one of the base's
 /// repetitions 2 through [`BASE_REPETITIONS`] costs on average, the first
 /// `r` repetitions cost at most `(r − 1) / (BASE_REPETITIONS − 1)` times the
 /// base's whole run, whatever the first repetition costs. Returns the

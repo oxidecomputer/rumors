@@ -12,13 +12,18 @@
 //! harness compares readings across scales.
 //!
 //! [`MovingAllocator`] therefore serves allocations and frees from the fuel
-//! board's [`WindowAllocator`] and leaves `realloc` to [`GlobalAlloc`]'s
-//! provided method, which allocates the new block, copies the old contents,
-//! and frees the old block. Every reallocation copies, so a buffer's copies
-//! are a function of the sequence of capacities it requests, and that
-//! sequence scales with the program.
+//! board's [`WindowAllocator`] and reallocates by allocating the new block,
+//! copying the old contents, and freeing the old block, as [`GlobalAlloc`]'s
+//! provided method does. Every reallocation copies, so a buffer's copies are
+//! a function of the sequence of capacities it requests. It also counts the
+//! bytes it copies ([`copied`]), so the harness can tell a reading's copies
+//! from the rest of its work: whether a buffer's last doubling falls inside
+//! a program or just past it depends on where its length lies among the
+//! capacities, which scaling does not preserve exactly.
 
 use std::alloc::{GlobalAlloc, Layout};
+use std::ptr;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::window::WindowAllocator;
 
@@ -26,12 +31,20 @@ use crate::window::WindowAllocator;
 /// moving.
 pub struct MovingAllocator;
 
-// SAFETY: Every method delegates to `WindowAllocator`, whose own `GlobalAlloc`
-// implementation upholds the trait's contract, with the arguments it
-// received, which satisfy the same contract. A block `alloc` or
+/// The bytes every reallocation so far has copied.
+static COPIED: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the bytes every reallocation so far has copied.
+pub fn copied() -> u64 {
+    COPIED.load(Ordering::Relaxed)
+}
+
+// SAFETY: Every method but `realloc` delegates to `WindowAllocator`, whose
+// own `GlobalAlloc` implementation upholds the trait's contract, with the
+// arguments it received, which satisfy the same contract. A block `alloc` or
 // `alloc_zeroed` returns came from `WindowAllocator`, so `dealloc` returns it
-// to the allocator that made it. The provided `realloc` is built from these
-// three methods alone, so it upholds the contract as they do. A global
+// to the allocator that made it. `realloc` is the trait's provided method,
+// built from those methods alone, with a count added. A global
 // allocator can only be installed through this trait; it lives in this
 // tool-side guest alone, which no production crate links.
 unsafe impl GlobalAlloc for MovingAllocator {
@@ -49,5 +62,25 @@ unsafe impl GlobalAlloc for MovingAllocator {
         // SAFETY: The caller guarantees `block` is live and was allocated by
         // this allocator, and so by `WindowAllocator`, with `layout`.
         unsafe { WindowAllocator.dealloc(block, layout) }
+    }
+
+    unsafe fn realloc(&self, block: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: The caller guarantees that `new_size` is nonzero and forms
+        // a valid layout with `layout.align()`.
+        let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
+        // SAFETY: `new_layout` has a nonzero size.
+        let moved = unsafe { self.alloc(new_layout) };
+        if !moved.is_null() {
+            let bytes = layout.size().min(new_size);
+            // SAFETY: `block` is live and valid for `layout.size()` bytes and
+            // `moved` for `new_size`; `moved` is a new block, so they do not
+            // overlap. `block` was allocated by this allocator with `layout`.
+            unsafe {
+                ptr::copy_nonoverlapping(block, moved, bytes);
+                self.dealloc(block, layout);
+            }
+            COPIED.fetch_add(bytes as u64, Ordering::Relaxed);
+        }
+        moved
     }
 }

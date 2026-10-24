@@ -31,12 +31,21 @@ pub struct Run {
     pub fuel: Vec<u64>,
     /// One observation word per step instance.
     pub observations: Vec<u64>,
+    /// The bytes the guest's reallocations had copied, before the first step
+    /// and after each step instance, as for `fuel`.
+    pub copied: Vec<u64>,
 }
 
 impl Run {
     /// Returns the fuel spent by the first `count` step instances.
     pub fn prefix(&self, count: usize) -> u64 {
         self.fuel[count] - self.fuel[0]
+    }
+
+    /// Returns the bytes the first `count` step instances' reallocations
+    /// copied, which cost one fuel each.
+    pub fn copied_prefix(&self, count: usize) -> u64 {
+        self.copied[count] - self.copied[0]
     }
 
     /// Returns the number of step instances the run holds.
@@ -139,14 +148,16 @@ pub fn run(program: &Program) -> Run {
     let steps = program.steps.len() * program.repetitions as usize;
     assert_eq!(
         output.len(),
-        2 * steps + 1,
-        "the guest returns a reading per step instance plus one, and an observation per \
-         step instance"
+        3 * steps + 2,
+        "the guest returns a reading and a copy count per step instance plus one, and an \
+         observation per step instance"
     );
+    let copied = output.split_off(2 * steps + 1);
     let observations = output.split_off(steps + 1);
     Run {
         fuel: output,
         observations,
+        copied,
     }
 }
 

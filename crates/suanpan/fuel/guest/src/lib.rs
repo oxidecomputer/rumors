@@ -102,7 +102,8 @@ pub extern "C" fn input_buffer(bytes: u32) -> u32 {
 /// The output holds `1 + n` fuel readings, where `n` is the number of steps
 /// times the number of repetitions: the instance's consumed fuel before the
 /// first step and after each step. Then follow the `n` observation words, in
-/// step order.
+/// step order, and then `1 + n` counts of the bytes reallocations had copied,
+/// taken where the fuel readings are.
 #[no_mangle]
 pub extern "C" fn run() -> u32 {
     panic_record::install();
@@ -157,19 +158,23 @@ fn execute(program: &Program) -> Vec<u64> {
         .expect("a program's step count fits in wasm32's usize");
     let mut readings = Vec::with_capacity(count + 1);
     let mut observations = Vec::with_capacity(count);
+    let mut copies = Vec::with_capacity(count + 1);
     let mut pool: [Accumulator; POOL] = Default::default();
 
     window::enter();
+    copies.push(moving::copied());
     readings.push(fuel_used());
     for _ in 0..repetitions {
         for step in &steps {
             observations.push(apply(&mut pool, step));
+            copies.push(moving::copied());
             readings.push(fuel_used());
         }
     }
     window::exit();
 
     readings.extend_from_slice(&observations);
+    readings.extend_from_slice(&copies);
     readings
 }
 
@@ -350,20 +355,17 @@ fn apply_primitive(value: &mut Accumulator, direction: Direction, operand: Primi
 ///
 /// # Panics
 ///
-/// Panics if `first == second`.
+/// Panics if `first == second`; every caller handles a member that is its
+/// own operand before borrowing two.
 fn two_members(
     pool: &mut [Accumulator; POOL],
     first: Member,
     second: Member,
 ) -> (&mut Accumulator, &mut Accumulator) {
-    let (first, second) = (first.index(), second.index());
-    assert_ne!(first, second, "two members must differ to borrow both");
-    let (low, high) = pool.split_at_mut(first.max(second));
-    if first < second {
-        (&mut low[first], &mut high[0])
-    } else {
-        (&mut high[0], &mut low[second])
-    }
+    let [first, second] = pool
+        .get_disjoint_mut([first.index(), second.index()])
+        .expect("the members differ, and both index the pool");
+    (first, second)
 }
 
 /// Adds or subtracts `operand` into `receiver` in one [`Form`].
@@ -389,9 +391,13 @@ fn apply_operand(
             return;
         }
         // Every other form borrows the receiver mutably or consumes it, so
-        // the member lends a clone of itself.
+        // the member lends a clone of itself; the owned forms consume that
+        // clone rather than cloning it again.
         let copy = value.clone();
-        apply_borrowed(value, &copy, direction, form);
+        match form {
+            Form::OwnedClone | Form::OwnedTake => apply_owned(value, copy, direction),
+            _ => apply_borrowed(value, &copy, direction, form),
+        }
         return;
     }
     let (target, source) = two_members(pool, receiver, operand);
