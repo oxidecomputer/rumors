@@ -112,6 +112,56 @@ pub fn party_join_all(size: usize) -> u64 {
     )
 }
 
+/// Returns the bytes `Party::join_all` reads joining `ids` into `receiver`:
+/// over every join it makes, the encoded sizes of both operands.
+///
+/// Replays the fold's documented order: the items pass through a balanced
+/// binary counter, where an arriving item joins each stack entry of its own
+/// weight in turn, and the surviving groups then join the receiver in
+/// arrival order. A join walks both operands once, so its cost is linear in
+/// their encoded sizes.
+fn merge_bytes(mut receiver: Party, ids: Vec<Party>) -> u64 {
+    let size = |party: &Party| party.encode().len() as u64;
+    let mut read = 0;
+    let mut stack: Vec<(Party, usize)> = Vec::new();
+    for item in ids {
+        let (mut merged, mut weight) = (item, 0);
+        while stack.last().is_some_and(|&(_, top)| top == weight) {
+            let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
+            read += size(&top) + size(&merged);
+            top.join(merged)
+                .unwrap_or_else(|_| panic!("staggered ids are pairwise disjoint"));
+            (merged, weight) = (top, weight + 1);
+        }
+        stack.push((merged, weight));
+    }
+    for (group, _) in stack {
+        read += size(&receiver) + size(&group);
+        receiver
+            .join(group)
+            .unwrap_or_else(|_| panic!("staggered ids are pairwise disjoint"));
+    }
+    read
+}
+
+/// Measures `Party::join_all` over the staggered ids of `size` members, in
+/// units of the bytes its joins read.
+pub fn party_join_all_merge_bytes(size: usize) -> u64 {
+    let (_, mut replay) = stagger(size);
+    let replay_receiver = replay.remove(0);
+    let units = merge_bytes(replay_receiver, replay);
+    let (_, mut ids) = stagger(size);
+    let mut receiver = ids.remove(0);
+    measured_per(
+        units,
+        || {
+            let joined = receiver.join_all(ids).is_ok();
+            (joined, receiver)
+        },
+        |(joined, _)| assert!(joined, "staggered ids are pairwise disjoint"),
+    )
+}
+
 /// Measures `Clock::join_all` over clocks pairing each staggered id with its
 /// staggered version.
 pub fn clock_join_all(size: usize) -> u64 {

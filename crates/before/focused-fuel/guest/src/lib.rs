@@ -209,6 +209,7 @@ fn run(probe: Probe, a: u64, b: u64) -> u64 {
         Probe::StaggerMeetAll => folds::meet_all(only(a, b)),
         Probe::StaggerSpanAll => folds::span_all(only(a, b)),
         Probe::StaggerPartyJoinAll => folds::party_join_all(only(a, b)),
+        Probe::StaggerPartyJoinAllMergeBytes => folds::party_join_all_merge_bytes(only(a, b)),
         Probe::StaggerClockJoinAll => folds::clock_join_all(only(a, b)),
         Probe::SharedSkeletonSpanAll => folds::shared_skeleton_span_all(only(a, b)),
         Probe::CliffCompareEmpty => families::cliff_compare_empty(only(a, b)),

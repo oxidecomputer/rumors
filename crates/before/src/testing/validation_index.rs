@@ -328,11 +328,11 @@
 //!
 //! # The documentation instruments
 //!
-//! **The asymptotics liveness pins** ([`super::asymptotics`]). One pin
-//! per documented non-linear mechanism — the fold entry points' log factor,
-//! the render merge's superlinear growth, the settle's answer-embedded
-//! product — each reading a deterministic counter or exact value
-//! identity on a committed family. What they alone catch: **a
+//! **The asymptotics liveness pins** ([`super::asymptotics`]). Exact value
+//! identities on committed families that hold the settle's answer-embedded
+//! product alive through rank, the pair measures, and ranked keys; the fold
+//! entry points' log factor is held alive by the `focused-fuel` fold suite's
+//! growth floors. What they alone catch: **a
 //! documented mechanism silently disappearing** — a cure or rewiring
 //! that removes the behavior the rustdoc's `# Complexity` section still
 //! claims flips the pin red, so the documentation moves in the same

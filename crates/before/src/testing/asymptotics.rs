@@ -1,121 +1,18 @@
 //! Liveness pins for the documented asymptotics: the growth behaviors
 //! the public rustdoc's `# Complexity` sections claim, held alive
-//! against the deterministic meters.
+//! by exact value identities.
 //!
-//! A documented non-linear cost is a claim about a mechanism — the balanced
-//! fold's log factor and the settle's multiplication-bound worst case—and a
-//! cure or rewiring that removes the mechanism must reach the documentation.
-//! Each pin here reads a deterministic counter (or an exact value identity) on
-//! a committed input family and asserts the documented behavior still exists,
-//! so the change that removes it flips a pin red and the rustdoc moves in the
-//! same commit. Floors sit midway between the linear reference and the measured
-//! reading; both endpoints are exact counters, so a crossing is a class change,
-//! never noise.
-//!
-//! The scan-meter pin covers `Party::join_all`'s balanced fold; the version,
-//! span, and clock folds' log factors are fuel claims in the `focused-fuel`
-//! harness's fold suite. Meter-only pins cover the value-dependent work in
-//! rank, distance, lag, and ranked keys.
+//! A documented non-linear cost is a claim about a mechanism — here the
+//! settle's multiplication-bound worst case — and a cure or rewiring that
+//! removes the mechanism must reach the documentation. Each pin here asserts
+//! an exact value identity on a committed input family showing the documented
+//! behavior still exists, so the change that removes it flips a pin red and
+//! the rustdoc moves in the same commit. The pins cover the value-dependent
+//! work in rank, distance, lag, and ranked keys; the balanced folds' log
+//! factors are fuel claims in the `focused-fuel` harness's fold suite.
 
 use crate::testing::meter::registry::Shape;
 use num_bigint::BigUint;
-
-// ─── the fold entry points' log-factor liveness ───────────────────────────────
-//
-// The party fold's witness, over a committed registry population whose
-// balanced merges swell to near the sum of their inputs (coalescing
-// intermediates are the enemy of visibility), so the reduction's log factor
-// separates measurably from a linear fold. Its floor is measured at its own
-// entry point: the fold entry points share the balanced core, but an entry
-// point's wiring can drop the factor without touching the core.
-
-/// Operand block count of the fold-entry point populations.
-///
-/// The board's stagger family at its band scale, held fixed while the
-/// arity quadruples so the population's bytes grow (near-)linearly and
-/// the scan growth above that is the log factor's own signal.
-#[cfg(feature = "scan-meter")]
-const FOLD_POPULATION_TEETH: usize = 64;
-
-/// The staggered id population `SI(n, 64)`, in the bit-reversed feed order
-/// of [`Shape::StaggerPopulation`](crate::testing::meter::registry::Shape),
-/// whose balanced unions stay as large as the ids they carry.
-#[cfg(feature = "scan-meter")]
-fn stagger_parties(n: usize) -> Vec<crate::Party> {
-    let (_, ids) = crate::testing::meter::registry::Shape::StaggerPopulation
-        .population(n, FOLD_POPULATION_TEETH);
-    ids.iter()
-        .map(|p| crate::Party::decode(&p.bytes[..]).expect("generated ids are strict normal form"))
-        .collect()
-}
-
-/// One entry point run's scanned bits, with the population's total input bytes
-/// printed beside it so a re-pin can restate each floor's linear reference
-/// without editing the harness.
-#[cfg(feature = "scan-meter")]
-fn fold_scan_bits<R>(name: &str, n: usize, input_bytes: usize, run: impl FnOnce() -> R) -> u64 {
-    crate::testing::meter::reset_scan_bits();
-    std::hint::black_box(run());
-    let bits = crate::testing::meter::scan_bits();
-    eprintln!("MEASURED {name}: n={n} input_bytes={input_bytes} scan_bits={bits}");
-    bits
-}
-
-/// Scan work of one `Party::join_all` over the staggered ids (the
-/// first id as the receiver, the rest as items).
-#[cfg(feature = "scan-meter")]
-fn party_join_all_scan_bits(n: usize) -> u64 {
-    let mut population = stagger_parties(n);
-    let bytes: usize = population.iter().map(|p| p.encode().len()).sum();
-    let mut receiver = population.remove(0);
-    fold_scan_bits("party_join_all_scan", n, bytes, || {
-        receiver
-            .join_all(population)
-            .expect("staggered ids are pairwise disjoint")
-    })
-}
-
-/// Assert one fold entry point's scan growth across a x4 population reaches
-/// its measured floor, naming the entry point on failure.
-#[cfg(feature = "scan-meter")]
-fn assert_log_factor_alive(operation: &str, lo: u64, hi: u64, min_growth: f64) {
-    let growth = hi as f64 / lo.max(1) as f64;
-    assert!(
-        growth >= min_growth,
-        "{operation}'s scan work grew only x{growth:.2} across a x4 population \
-         growth ({lo} -> {hi} bits; the log factor reads >= x{min_growth}): \
-         the documented `O(D log k)` overstates for this operation, so update \
-         its `# Complexity` section and this pin together"
-    );
-}
-
-/// `Party::join_all`'s log factor is alive at its public entry point.
-///
-/// Scan work folding the scattered shares of a balanced fork grows faster than
-/// its input across a x4 population growth: scattered sibling unions cannot
-/// collapse, so intermediates grow exactly as version scatter joins do. If a
-/// linear fold lands behind this entry point, this pin reads red, and the
-/// rustdoc and this floor must move in one change.
-///
-/// Deterministic counter, dev profile. The linear reference is the population's
-/// own byte growth across the n = 256 -> 1,024 quadrupling (the harness prints
-/// it beside each run's scan bits); the entry point reads above it — the
-/// factor's expression is weaker on ids than on versions (denser unions spell
-/// fewer bits per block, thinning the upper levels), so this floor holds a
-/// narrower gap than the version folds show; both endpoints are exact
-/// counters, so the gap is stable, not noisy. The floor sits midway between the two
-/// measured endpoints; the readings of record live in the pin commit.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn party_join_all_log_factor_is_alive() {
-    const MIN_GROWTH: f64 = 4.89;
-    assert_log_factor_alive(
-        "Party::join_all",
-        party_join_all_scan_bits(256),
-        party_join_all_scan_bits(1024),
-        MIN_GROWTH,
-    );
-}
 
 /// The exact-rank fold still embeds a product whose two factors carry
 /// independent content.

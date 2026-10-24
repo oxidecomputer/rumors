@@ -1,5 +1,5 @@
-//! The balanced folds' logarithmic factor, held alive at the version, span,
-//! and clock fold entry points.
+//! The balanced folds' logarithmic factor, held alive at every public fold
+//! entry point.
 //!
 //! Each entry point's `# Complexity` section documents `O(D log k)` for a
 //! fold of `k` operands totalling `D` bytes. On the staggered populations,
@@ -57,5 +57,51 @@ fn span_all_is_flat_on_a_shared_deep_skeleton() {
         "span_all over a shared skeleton per byte",
         measure_per(Probe::SharedSkeletonSpanAll, 0, 0),
         measure_per(Probe::SharedSkeletonSpanAll, 1, 0),
+    );
+}
+
+/// `Party::join_all`'s fuel grows faster than its input across a fourfold
+/// growth of the staggered ids, by at least half the excess over linear
+/// growth that its own joins express.
+///
+/// The fold joins the ids through a balanced binary counter, and each join
+/// walks both operands once, so its work is the bytes its joins read: over
+/// every join, both operands' encoded sizes. A union of interleaved disjoint
+/// ids spells fewer bytes than its operands together, because adjacent
+/// blocks share their ancestors, so each level of the counter reads less than
+/// the population's bytes and the factor shows more weakly than on versions,
+/// whose merges stay as large as their inputs. The probe replays the
+/// counter's joins outside the measured window to count the bytes they read.
+/// A fold linear in its input grows by the population's byte growth; the
+/// balanced fold grows by the growth of the bytes its joins read. The floor
+/// sits midway between the two, derived from the ids' own joins rather than
+/// from any reading. Its premise is that at least half of the fold's fuel
+/// growth above linear is proportional to the bytes its joins read, so a
+/// join kernel faster per byte read, with a larger fixed cost per join, could
+/// fail it without any change in the fold's order. Form: growth floor
+/// (F-grow).
+#[test]
+fn party_fold_keeps_its_log_factor() {
+    let [small, large] = SIZES;
+    let (fuel_small, bytes_small) = measure_per(Probe::StaggerPartyJoinAll, small, 0);
+    let (fuel_large, bytes_large) = measure_per(Probe::StaggerPartyJoinAll, large, 0);
+    let (_, read_small) = measure_per(Probe::StaggerPartyJoinAllMergeBytes, small, 0);
+    let (_, read_large) = measure_per(Probe::StaggerPartyJoinAllMergeBytes, large, 0);
+    let byte_growth = bytes_large as f64 / bytes_small as f64;
+    let read_growth = read_large as f64 / read_small as f64;
+    eprintln!(
+        "MEASURED party fold: bytes {bytes_small} -> {bytes_large} (x{byte_growth:.3}), \
+         joins read {read_small} -> {read_large} (x{read_growth:.3})"
+    );
+    assert!(
+        read_growth > byte_growth,
+        "the ids' joins read x{read_growth:.3} across the population's x{byte_growth:.3}: \
+         they express no logarithmic factor to hold"
+    );
+    assert_grows(
+        "Party::join_all across a fourfold population",
+        fuel_small,
+        fuel_large,
+        byte_growth + (read_growth - byte_growth) / 2.0,
     );
 }

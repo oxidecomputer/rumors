@@ -364,6 +364,12 @@ pub enum Probe {
     /// `Party::join_all` over the staggered parties of `a` ids, the first as
     /// the receiver; the units are their encoded bytes.
     StaggerPartyJoinAll = 603,
+    /// `Party::join_all` over the staggered parties of `a` ids, in units of
+    /// the bytes its joins read.
+    ///
+    /// The units are, over every join its balanced fold makes, the encoded
+    /// sizes of both operands.
+    StaggerPartyJoinAllMergeBytes = 606,
     /// `Clock::join_all` over clocks pairing each staggered id with its
     /// staggered version, the first as the receiver; the units are their
     /// encoded bytes.
