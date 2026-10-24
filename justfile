@@ -585,7 +585,6 @@ _gate-audit: supply-chain
 # Feature matrix: every cfg-gated surface on its own, so nothing rots behind `--all-features`.
 features:
     cargo check -p suanpan --no-default-features
-    cargo check -p suanpan --no-default-features --features touch-meter
     cargo check -p before --no-default-features
     cargo check -p before --no-default-features --features serde
     cargo check -p before --no-default-features --features borsh

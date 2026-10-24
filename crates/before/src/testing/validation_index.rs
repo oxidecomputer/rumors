@@ -262,7 +262,7 @@
 //! size at three scales 64-fold apart and over two repetition counts; each
 //! reading is judged against another reading of the same program. What it
 //! alone catches: **cost that depends on the order of operations**, which
-//! the touch tests and both boards, each fixing the operation sequence,
+//! the focused claims and both boards, each fixing the operation sequence,
 //! cannot reach — work that grows with the length of the history (seen by
 //! its long repetition); growth paid again after a clear, and an update,
 //! sign query, comparison with a primitive, or conversion that refuses whose

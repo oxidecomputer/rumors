@@ -9,14 +9,13 @@ mod copies;
 mod differential;
 #[cfg(feature = "num-bigint")]
 mod interop;
-#[cfg(feature = "touch-meter")]
-mod metered;
 mod one_sign;
 mod pool;
 mod primitives;
 mod representation;
 mod same_cell;
 mod standard;
+mod structure;
 mod surface;
 mod witnesses;
 

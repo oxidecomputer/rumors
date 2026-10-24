@@ -554,7 +554,7 @@ fn repeated_stability_queries_cost_the_same_after_the_first() {
 /// `5 · 2^128` answers, and its refusal costs more, since the coefficient 2
 /// cannot decide alone.
 #[test]
-fn a_decision_bound_top_decides_on_the_first_touch() {
+fn a_decision_bound_top_decides_on_its_top_digit() {
     let stable = observe_stable(Some(std::cmp::Ordering::Greater));
     let refused = observe_stable(None);
     for (offset, expected) in [(96, stable), (128, refused)] {

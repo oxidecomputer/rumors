@@ -29,9 +29,9 @@ use core::cmp::Ordering;
 use super::normalize::MagnitudeCarry;
 use super::{Digits, StoredUpdate};
 use crate::accumulator::operand::Update;
-use crate::accumulator::{digit_index, touch, DIGIT_BITS, DIGIT_MASK};
+use crate::accumulator::{digit_index, DIGIT_BITS, DIGIT_MASK};
 
-/// Deposit scaled inputs while preserving their individual metering rules.
+/// Deposit scaled inputs, each at the cost its operand kind states.
 impl Digits {
     /// Deposit an exact signed value at a bit offset without a wide intermediate.
     ///
@@ -51,7 +51,6 @@ impl Digits {
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
         let mut position = u128::from(digit_shift);
         while magnitude != 0 {
-            touch(1);
             let digit = (magnitude & u128::from(DIGIT_MASK)) as i128;
             if digit != 0 {
                 let contribution = digit << bit_shift;
@@ -90,7 +89,6 @@ impl Digits {
             return;
         }
         for (offset, &digit) in operand.iter().enumerate() {
-            touch(1);
             if digit != 0 {
                 self.add_stored_at(
                     digit_index(u128::from(digit_shift) + offset as u128),
@@ -146,12 +144,10 @@ impl Digits {
         let mut magnitude = MagnitudeCarry::new(sign);
         let mut position = u128::from(digit_shift);
         for &digit in below {
-            touch(1);
             let piece = u64::from(magnitude.fold(digit));
             self.deposit_magnitude_piece(piece, position, bit_shift, update);
             position += 1;
         }
-        touch(1);
         let piece = magnitude.fold_top(top);
         self.deposit_magnitude_piece(piece, position, bit_shift, update);
     }
@@ -175,7 +171,7 @@ impl Digits {
     ///
     /// A limb supplies two base-2^32 contributions, each shifted by fewer
     /// than 32 bits. No operand copy is allocated, and every yielded limb,
-    /// including zero limbs, records one operand touch.
+    /// including zero limbs, is read once.
     pub fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, update: Update, shift: u64) {
         let update = self.to_stored(update);
         let (digit_shift, bit_shift) =
@@ -187,7 +183,6 @@ impl Digits {
         // instead of rejecting that unaddressable position. No stream can
         // yield enough limbs to exhaust a `u128` counter.
         for (limb_index, limb) in (0_u128..).zip(limbs) {
-            touch(1);
             // Each 32-bit half shifts by at most 31 bits, so both
             // contributions stay below 2^63, inside the carry intermediate.
             let low = i128::from(limb & DIGIT_MASK) << bit_shift;

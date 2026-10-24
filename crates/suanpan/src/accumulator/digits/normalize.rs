@@ -37,7 +37,7 @@
 use core::cmp::Ordering;
 
 use super::{Digits, DIGIT_BITS};
-use crate::accumulator::{touch, DIGIT_MASK};
+use crate::accumulator::DIGIT_MASK;
 
 /// The Euclidean carry that turns stored signed digits of a nonzero sum,
 /// read from the lowest position up, into the digits of its magnitude.
@@ -159,7 +159,6 @@ impl Digits {
         let floor = self.written_floor();
         let mut magnitude = MagnitudeCarry::new(sign);
         for digit in &mut self.digits[start..=old_highest] {
-            touch(1);
             let magnitude_digit = magnitude.fold(*digit);
             *digit = magnitude.signed(magnitude_digit);
             emit(magnitude_digit);
@@ -179,7 +178,6 @@ impl Digits {
                 self.digits.reserve_exact(1);
                 self.digits.push(0);
             }
-            touch(1);
             self.digits[highest] = magnitude.signed(magnitude_digit);
             emit(magnitude_digit);
             debug_assert_eq!(
@@ -190,7 +188,6 @@ impl Digits {
         }
 
         while highest > 0 && self.digits[highest] == 0 {
-            touch(1);
             highest -= 1;
         }
         self.highest_nonzero = highest;

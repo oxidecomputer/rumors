@@ -14,8 +14,5 @@ proptest = { workspace = true }
 num-bigint = { workspace = true }
 
 [features]
-# Counts arithmetic digit work and streamed operand reads in a process-global
-# counter. Disabled by default; each recorded touch uses a relaxed atomic add.
-touch-meter = []
 # Converts to and from num-bigint's integers and accepts them as operands.
 num-bigint = ["dep:num-bigint"]

@@ -34,12 +34,6 @@ impl Digits {
         self.orient(sign)
     }
 
-    /// The positions the written set holds, in ascending order.
-    #[cfg(feature = "touch-meter")]
-    pub fn written_positions(&self) -> Vec<usize> {
-        self.written.positions()
-    }
-
     /// The words of bitset storage the written set retains.
     pub fn written_storage_words(&self) -> usize {
         self.written.storage_words()

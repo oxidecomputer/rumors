@@ -239,21 +239,12 @@
 //! - `num-bigint` converts accumulators to and from `num-bigint`'s `BigInt`
 //!   and `BigUint`, and accepts both as `+=` and `-=` operands. Converting a
 //!   negative value to `BigUint` fails with `NegativeValueError`.
-//! - `touch-meter` exposes a process-global counter of implementation steps in
-//!   the `touch_meter` module, for regression tests of the arithmetic core. It
-//!   does not count allocation or all bookkeeping, so it does not by itself
-//!   establish the costs above. Counts are deterministic for a fixed
-//!   implementation and operation sequence, but are no compatibility promise.
-//!   Run measured scenarios serially. Without the feature, counting compiles
-//!   away.
 
 #![forbid(unsafe_code)]
 
 mod accumulator;
 #[cfg(feature = "num-bigint")]
 mod interop;
-#[cfg(feature = "touch-meter")]
-pub mod touch_meter;
 
 pub use accumulator::{Accumulator, Limbs};
 #[cfg(feature = "num-bigint")]

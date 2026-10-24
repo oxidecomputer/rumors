@@ -30,7 +30,7 @@
 
 use core::cmp::Ordering;
 
-use super::{super::touch, Digits, DIGIT_BITS};
+use super::{Digits, DIGIT_BITS};
 
 /// Smallest whole partial whose sign no lower digits can reverse.
 ///
@@ -83,7 +83,6 @@ impl Digits {
         let mut partial: i128 = 0;
         loop {
             debug_assert!(partial.abs() < COMPARISON_DECIDED);
-            touch(1);
             partial = (partial << DIGIT_BITS) + i128::from(self.digits[index]);
             if partial.abs() >= COMPARISON_DECIDED || index == 0 {
                 break;
@@ -91,7 +90,6 @@ impl Digits {
             // Descending: this digit's value lives in `partial` now;
             // zero it so the floor re-deposit preserves the value.
             self.digits[index] = 0;
-            touch(1);
             index = if partial == 0 {
                 // Multiplying zero by any skipped powers of B still gives
                 // zero, so no arithmetic is needed across the unwritten gap.
@@ -107,7 +105,6 @@ impl Digits {
             // Replace this digit as well so one ordinary deposit can restore
             // the exact scanned value and all representation invariants.
             self.digits[index] = 0;
-            touch(1);
             self.highest_nonzero = index;
             // The cleared positions leave the written set only now. A query
             // below a position never sees the positions above it, so the
