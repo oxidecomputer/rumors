@@ -169,7 +169,7 @@ fn freeze_canonicalizes_storage() {
 }
 
 /// The marker padding makes stored bytes injective on streams: a stream
-/// and its zero-extension — bit-identical up to length — freeze to
+/// and its zero-extension, bit-identical up to length, freeze to
 /// distinct raw slices, so the byte compare alone decides equality.
 #[test]
 fn marker_padding_separates_length_collisions() {
@@ -305,7 +305,7 @@ fn apply_build_op(buf: &mut BitsWriter, model: &mut Vec<bool>, op: &BuildOp) {
     }
 }
 
-/// A clean rebuild of `content`: single-bit pushes only, no truncation —
+/// A clean rebuild of `content`: single-bit pushes only, no truncation,
 /// the reference spelling of the surviving content.
 fn clean_rebuild(content: &[bool]) -> BitsWriter {
     content.iter().copied().collect()
@@ -449,7 +449,7 @@ fn assert_decode_matches_bit_loop(bytes: &[u8], len: u64, pos: u64) -> Result<()
 /// Assert the word-parallel cursor's `skip_gamma` agrees with the per-bit
 /// reference at `pos` on distance and accept/reject.
 ///
-/// Runs inside the cursor's stated domain — a byte-aligned slice origin and
+/// Runs inside the cursor's stated domain: a byte-aligned slice origin and
 /// `pos` at or inside the live length; every production skip site satisfies
 /// both (stored streams, positions from the same cursor).
 fn assert_skip_matches_bit_loop(bytes: &[u8], len: u64, pos: u64) -> Result<(), TestCaseError> {
@@ -482,8 +482,8 @@ fn arb_boundary_u64() -> impl Strategy<Value = u64> {
 /// Bit streams shaped like gamma codes at every window boundary.
 ///
 /// `pad` positions the read mid-byte, `zeros` spans prefix lengths across the
-/// 31/32 window split and the 63/64/65 word widths, and `rest` supplies — or,
-/// when short, truncates — the mantissa, plus trailing junk.
+/// 31/32 window split and the 63/64/65 word widths, and `rest` supplies, or,
+/// when short, truncates, the mantissa, plus trailing junk.
 fn arb_gamma_stream() -> impl Strategy<Value = (BitsWriter, usize)> {
     (
         proptest::collection::vec(any::<bool>(), 0..17),
@@ -550,7 +550,7 @@ proptest! {
     /// loops.
     ///
     /// Agreement covers accept/reject, error variant, value, and consumed bits
-    /// — at the code position, near and past the stream end, and on a mid-byte
+    /// at the code position, near and past the stream end, and on a mid-byte
     /// re-slice (where the window declines and only the loop runs).
     #[test]
     fn gamma_word_decode_matches_bit_loop(
@@ -574,7 +574,7 @@ proptest! {
 }
 
 proptest! {
-    /// On arbitrary raw byte streams — mostly invalid input — the windowed
+    /// On arbitrary raw byte streams, mostly invalid input, the windowed
     /// Gamma decoding and the word-parallel cursor's `skip_gamma` agree with the
     /// per-bit loops.
     ///
@@ -598,7 +598,7 @@ proptest! {
 ///
 /// Prefix `k = 31` (a 63-bit code) is the widest code one window proves and
 /// must decode; `k = 32` (65 bits) straddles the window edge and must fall back
-/// — where the bit loop still decodes it — as must the 63-bit code cut one bit
+/// (where the bit loop still decodes it), as must the 63-bit code cut one bit
 /// short of complete.
 #[test]
 fn gamma_window_edge() {
@@ -618,7 +618,7 @@ fn gamma_window_edge() {
         None
     );
 
-    // k = 32: a 65-bit code straddles the window edge — decline, and the full
+    // k = 32: a 65-bit code straddles the window edge; decline, and the full
     // decoder still reads it through the loop.
     let n = (1u64 << 32) - 1;
     let mut bits = BitsWriter::new();
@@ -792,7 +792,7 @@ proptest! {
 }
 
 proptest! {
-    /// `encode_to` writes the same bytes as `encode` to an arbitrary writer —
+    /// `encode_to` writes the same bytes as `encode` to an arbitrary writer:
     /// here a `BufWriter`, a distinct buffered `Write` impl.
     ///
     /// For `Clock` this exercises the streamed id/event boundary (the partial
@@ -853,7 +853,7 @@ proptest! {
 // ───────────────────────── decode rejection of non-canonical input ─────────────────────────
 
 /// The only collapsible Party node representable in the pruned encoding is `(1,
-/// 1)` — a node with two terminal children — which must be rejected as
+/// 1)`, a node with two terminal children, which must be rejected as
 /// `NotCanonical` (it collapses to `1`).
 ///
 /// The other collapsible form, `(0, 0)`, cannot even be written: a `0` is the
@@ -906,8 +906,8 @@ fn reject_deep_nested_denormal_id() {
 /// that ends mid-byte must be followed by *exactly* the marker and zeros
 /// within that final byte.
 ///
-/// A perturbed bit inside the same byte as the tree — a cleared marker or
-/// a set bit after it — is `TrailingBits`, just as a whole spurious
+/// A perturbed bit inside the same byte as the tree (a cleared marker or
+/// a set bit after it) is `TrailingBits`, just as a whole spurious
 /// trailing byte is. The id leaf `1` encodes to the two-bit terminal tag
 /// (`0, 0`), marker-padded as `0010_0000`; perturbing any padding bit
 /// within that byte must be rejected.
@@ -1047,10 +1047,10 @@ fn decode_never_yields_anonymous_party() {
 /// A stream that ends mid-tree is `Truncated`.
 #[test]
 fn reject_truncated() {
-    // 0xFF is eight both-present id tags in a row — the tree never
+    // 0xFF is eight both-present id tags in a row; the tree never
     // bottoms out.
     assert!(matches!(Party::decode(&[0xFF][..]), Err(Decode::Truncated)));
-    // 0x00 is eight internal-node flags in a row — the tree never
+    // 0x00 is eight internal-node flags in a row; the tree never
     // bottoms out.
     assert!(matches!(
         Version::decode(&[0x00][..]),
@@ -1211,8 +1211,8 @@ proptest! {
 #[test]
 fn malformed_padding_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)`: the 9-bit stream
-    // `0 1 011 1 011` — internal root (flag 0), leaf flag 1 + gamma(2),
-    // leaf flag 1 + zigzag(+1) = gamma(2) — then the marker and pad.
+    // `0 1 011 1 011`: internal root (flag 0), leaf flag 1 + gamma(2),
+    // leaf flag 1 + zigzag(+1) = gamma(2); then the marker and pad.
     let canonical = from_oracle_version(&tree::Version::node(
         2u8,
         tree::Version::leaf(0u8),
@@ -1273,8 +1273,8 @@ fn malformed_padding_rejected_witness() {
 
 proptest! {
     /// The padding after the live bits is exactly one `1` marker then
-    /// zeros, and perturbing any of it — clearing the marker, or setting
-    /// any zero bit after it — must be rejected (`TrailingBits`), never
+    /// zeros, and perturbing any of it (clearing the marker, or setting
+    /// any zero bit after it) must be rejected (`TrailingBits`), never
     /// silently accepted.
     ///
     /// A perturbed padding makes the stream non-canonical, which would

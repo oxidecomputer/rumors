@@ -148,7 +148,7 @@ fn every_primitive_boundary_converts_exactly() {
 
 proptest! {
     /// Addition is commutative, associative, and monotone, `ZERO` is the
-    /// identity, and `Sum` equals the pairwise fold — the naturals' laws on
+    /// identity, and `Sum` equals the pairwise fold: the naturals' laws on
     /// the opaque carrier.
     #[test]
     fn addition_behaves_like_the_naturals(a in any::<u128>(), b in any::<u128>(), c in any::<u128>()) {

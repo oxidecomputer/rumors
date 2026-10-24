@@ -36,7 +36,7 @@ fn view_equality_requires_zero_outside_the_region() {
     // Inside a's region the two agree; b's tick lives outside it.
     assert_ne!(view, joined);
     assert!(view < joined);
-    // Against its own materialization — zero outside by construction —
+    // Against its own materialization, zero outside by construction,
     // the view is equal.
     assert_eq!(view, view.to_version());
 }
@@ -57,8 +57,8 @@ fn from_impl_is_to_version() {
 // `laws::VERSION_SOLO::seed_projection_is_identity` (the view compares equal
 // to the version) and `laws::VERSION_PAIR_PARTY::
 // own_version_seed_mask_coherence` (the seed mask changes no verdict), with
-// both comparison directions covered by own_version_cmp_matches_materialized
-// — all driven on the three law populations.
+// both comparison directions covered by own_version_cmp_matches_materialized,
+// all driven on the three law populations.
 
 /// One deep-unowned-region case: both orientations of the plain-version ⋚
 /// view matrix cells against the materialized projection, plus their mutual
@@ -104,7 +104,7 @@ fn deep_right_spine(depth: u32, top: u64) -> Version {
 /// so the whole spine's movement lands in the running difference in one
 /// block; a fold or skip-bound error there displaces the verdict, which the
 /// materialized projection refutes. The worked points hold the three verdict
-/// classes — the plain version above, below, and concurrent with the view.
+/// classes: the plain version above, below, and concurrent with the view.
 #[test]
 fn mirror_cells_agree_on_deep_unowned_spines() {
     use crate::testing::oracles::tree::Party as P;

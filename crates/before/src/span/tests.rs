@@ -322,7 +322,7 @@ fn span_decode_rejects_each_malformed_input_class() {
     );
 
     // A non-canonical component on each side of the boundary: an internal node
-    // whose two leaf children carry height 0 and delta 0 — the collapsible
+    // whose two leaf children carry height 0 and delta 0, the collapsible
     // sibling pair minimal topology forbids. As a *join* it denotes the empty
     // version, so it dominates an empty meet and only canonicality can reject
     // it. This ensures the combined decoder still validates each component.
@@ -430,11 +430,11 @@ proptest! {
 /// Each witness stacks a second defect on a composite the pair relation already
 /// rejects, and the structural error wins: a set padding bit or a spurious
 /// trailing byte after a crossed join is `TrailingBits`, a cut after an early
-/// refutation is `Truncated` — never the pair rejection's `NotCanonical`. The
+/// refutation is `Truncated`, never the pair rejection's `NotCanonical`. The
 /// negative-height witnesses cover the admission walk's refuted path: a whole
 /// negative-height join rejects `NotCanonical` (the same error the standalone
 /// validator gives those bytes), and a negative-height join that is *also*
-/// truncated rejects `Truncated` — the one deliberate divergence from
+/// truncated rejects `Truncated`: the one deliberate divergence from
 /// component-wise decoding, which reports the height dip it meets first. The
 /// combined decoder must finish validating the whole component before it can
 /// decide the endpoint relation.
@@ -450,7 +450,7 @@ fn span_decode_structural_errors_outrank_the_pair_verdict() {
     assert_eq!(empty.encode(), vec![0xE0]);
     // A negative-height stream: root internal `0`, left leaf `1` with
     // absolute height gamma(0) `1`, right leaf `1` with delta
-    // zigzag(-1) `010`, then the padding marker — 0b0111_0101. Its
+    // zigzag(-1) `010`, then the padding marker: 0b0111_0101. Its
     // running height dips to -1, which only canonicality rejects.
     let neg = vec![0x75];
     assert!(matches!(
@@ -468,7 +468,7 @@ fn span_decode_structural_errors_outrank_the_pair_verdict() {
     );
 
     // The same stream cut before its right subtree: 0b0011_1010 parses root
-    // internal, left-inner leaf height 0, then delta zigzag(-1) — the dip — and
+    // internal, left-inner leaf height 0, then delta zigzag(-1) (the dip), and
     // then runs out of bits. Truncation wins.
     let truncated_neg = [empty.encode(), vec![0x3A]].concat();
     assert!(
@@ -685,7 +685,7 @@ proptest! {
     ///
     /// The mutated bytes are rejected, or they decode to a *different* span
     /// whose endpoint values, re-derived through the oracle bridge into a
-    /// fresh composite, encode exactly the mutated bytes — the span-level face
+    /// fresh composite, encode exactly the mutated bytes: the span-level face
     /// of the components' mutation sweeps, crossing the component boundary and both padding
     /// regions that only the composite has. The re-derivation is the accept
     /// side's whole strength: decode adopts accepted bytes and `Eq` is byte
@@ -864,7 +864,7 @@ fn pointwise_operators_restrict_to_versions_on_points() {
         "a point meet shares storage"
     );
 
-    // The union of two points is their hull — strictly wider than
+    // The union of two points is their hull, strictly wider than
     // either on concurrent points.
     let hull = &pa + &pb;
     assert!(hull.shared_endpoint().is_none());
@@ -931,10 +931,10 @@ fn multi_input_operations_match_sequential_folds_on_a_mixed_family() {
 /// projected start by construction (projection only shrinks a version, so `(a ∧
 /// b) / p <= a` always): the law can never present a probe concurrent to the
 /// projected start, and the `Concurrent(Start)`/`Concurrent(Both)`
-/// transcription arms are its negative space. This witness constructs them —
+/// transcription arms are its negative space. This witness constructs them:
 /// sibling forks inside the masking party's region (concurrent to the start,
 /// below the end), a foreign line (concurrent to both), and a start-dominating
-/// version concurrent only with the end — and pins the dominance and precedence
+/// version concurrent only with the end; it pins the dominance and precedence
 /// coarsenings (and the non-membership) of each.
 #[test]
 fn own_span_place_reaches_every_concurrent_corner() {
@@ -973,7 +973,7 @@ fn own_span_place_reaches_every_concurrent_corner() {
     assert_eq!(view.place(&probe), Placement::Concurrent(Endpoint::End));
     assert_eq!(view.dominance(&probe), Dominance::Between);
     assert_eq!(view.precedence(&probe), Precedence::After);
-    // Every corner transcribes the eagerly projected span's verdict —
+    // Every corner transcribes the eagerly projected span's verdict,
     // and a concurrent version is never within the span.
     for probe in [&vr, &vb, &probe] {
         assert_eq!(view.place(probe), eager.place(probe));

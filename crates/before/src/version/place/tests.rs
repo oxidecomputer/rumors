@@ -60,7 +60,7 @@ fn composed_precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedenc
 }
 
 /// The membership coarsening of [`composed_span`]: the mode's stream-level
-/// oracle — exactly the at-endpoint and between regions.
+/// oracle: exactly the at-endpoint and between regions.
 fn composed_contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
     matches!(
         composed_span(probe, lo, hi),
@@ -222,7 +222,7 @@ fn precedence_walk_verdicts_organic_witnesses() {
     assert_eq!(preceded(&Version::new(), &a1, &a3), Precedence::Before);
     assert_eq!(preceded(&a1, &a1, &a3), Precedence::Before);
     // The start-drop path: `probe <= lo` refuted, the end relation still
-    // confirming at exhaustion — comparably (`At(End)`, `Between`) and
+    // confirming at exhaustion, comparably (`At(End)`, `Between`) and
     // concurrently (`Concurrent(Start)`).
     assert_eq!(preceded(&a2, &a1, &a3), Precedence::Between);
     assert_eq!(preceded(&a3, &a1, &a3), Precedence::Between);
@@ -496,8 +496,8 @@ proptest! {
 
     /// The fused membership walk equals the composed pairwise sweeps.
     ///
-    /// For every demand list — each demand kind alone at either bound,
-    /// required-plus-hole pairs, and mixed lists carrying every kind — the
+    /// For every demand list (each demand kind alone at either bound,
+    /// required-plus-hole pairs, and mixed lists carrying every kind), the
     /// walk's verdict is the conjunction of the per-bound verdicts, for probes
     /// spanning the operands and their lattice corners.
     #[test]

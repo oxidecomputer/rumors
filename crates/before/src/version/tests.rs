@@ -74,10 +74,10 @@ fn peaks() -> Version {
 /// Checks its `partial_cmp` (`PartialOrd`) and `==`/`!=` (`PartialEq`), plus
 /// the four ordering operators supplied by the same [`PartialOrd`] impl.
 /// Generic over the operand
-/// types, so each call resolves to exactly the impl for `(L, R)` —
-/// `assert_cmp_cell(&a, b, ..)` exercises the `&Lhs`/`Rhs` cell,
-/// `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&` the std blanket
-/// — with no method-resolution ambiguity to mask which cell ran. A cell wired
+/// types, so each call resolves to exactly the impl for `(L, R)`
+/// (`assert_cmp_cell(&a, b, ..)` exercises the `&Lhs`/`Rhs` cell,
+/// `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&` the std blanket),
+/// with no method-resolution ambiguity to mask which cell ran. A cell wired
 /// into a delegation cycle overflows the stack here rather than diverging
 /// silently in production.
 fn assert_cmp_cell<L, R>(lhs: L, rhs: R, expected: Option<Ordering>) -> Result<(), TestCaseError>
@@ -154,7 +154,7 @@ proptest! {
     /// the two input deltas there. Its code is therefore no wider than the
     /// wider input code; the opening height comes from one input and collapse
     /// only removes data. Probed here over churned
-    /// op-trace populations — the causally related pairs live
+    /// op-trace populations: the causally related pairs live
     /// replicas hold, including the normalization corners churn produces.
     #[test]
     fn join_stored_size_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -200,7 +200,7 @@ proptest! {
     /// b`, which the `version_join_matches_the_oracle` descriptor already pins
     /// to the oracle's `join`.
     ///
-    /// Covers `Version |= Version` and `Version |= &Version` — neither of which
+    /// Covers `Version |= Version` and `Version |= &Version`, neither of which
     /// the by-value `|` differential reaches.
     #[test]
     fn version_assign_join_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -248,7 +248,7 @@ proptest! {
 }
 
 proptest! {
-    /// The full `|=` (BitOrAssign) matrix — owned and borrowed right operands —
+    /// The full `|=` (BitOrAssign) matrix, owned and borrowed right operands,
     /// lands on the oracle's `join`.
     #[test]
     fn join_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -290,8 +290,8 @@ proptest! {
 }
 
 proptest! {
-    /// The full `&=` (BitAndAssign) matrix — owned and borrowed right operands
-    /// — lands on the oracle's `meet`, dual to
+    /// The full `&=` (BitAndAssign) matrix, owned and borrowed right operands,
+    /// lands on the oracle's `meet`, dual to
     /// [`join_assign_matrix_matches_oracle`].
     #[test]
     fn meet_assign_matrix_matches_oracle(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -344,7 +344,7 @@ proptest! {
 proptest! {
     /// The empty version absorbs the meet, byte-identical: `0 & v == 0 == v & 0`.
     ///
-    /// The encoded bytes equal `Version::new()`'s — both through the
+    /// The encoded bytes equal `Version::new()`'s, both through the
     /// public empty-operand shortcut and through the general merge walk. Dual to
     /// [`join_identity_byte_parity`].
     #[test]
@@ -423,8 +423,8 @@ fn stored_base_beyond_u64_ticks_and_merges() {
 //
 // The op-trace differentials above only ever compare causally *related*
 // versions (every member descends from one seed) on the *shapes operations
-// produce*. These feed *arbitrary* normal-form event trees — random shape,
-// random base magnitudes including values near/beyond `u64::MAX` — to every
+// produce*. These feed *arbitrary* normal-form event trees (random shape,
+// random base magnitudes including values near/beyond `u64::MAX`) to every
 // event op and diff structurally against the oracle. They are the natural home
 // for the large-base (path-sum-overflow) regression class.
 
@@ -455,7 +455,7 @@ proptest! {
     ///
     /// The churned generator only produces causally related versions from one
     /// seed; these pairs add independent shapes and large-base leaves (values
-    /// near/beyond `u64::MAX`), where a join must restructure most — the corner
+    /// near/beyond `u64::MAX`), where a join must restructure most, the corner
     /// where subadditivity would break if normalization could ever inflate a
     /// combined tree past its inputs.
     #[test]
@@ -625,7 +625,7 @@ proptest! {
 // inflation. The oracle's `grow` is pinned to a brute-force search over the
 // entire feasible inflation space in `tree::tests`; these hold the encoded
 // impl to the same standard. `tick = fill else grow`, so when `fill` already
-// simplifies the tree the grow path is not taken — `grow_matches_brute_force`
+// simplifies the tree the grow path is not taken; `grow_matches_brute_force`
 // filters to the grow case (fill a no-op) and asserts the impl's inflation
 // equals the brute-force right-favoring minimum; `grow_minimal` checks the
 // paper's metamorphic condition on every `tick`.
@@ -668,7 +668,7 @@ proptest! {
     /// region: `tick` lowered to the oracle equals `best_inflation` normalized.
     ///
     /// This holds the encoded `grow`'s dynamic program to the full-enumeration
-    /// global optimum directly — not merely to the recursive oracle (which
+    /// global optimum directly, not merely to the recursive oracle (which
     /// realizes the same DP). Large bases are threaded losslessly, so the cost
     /// comparison is exact regardless of magnitude.
     #[test]
@@ -700,7 +700,7 @@ proptest! {
     /// more than needed": no feasible single-region inflation candidate `x` of
     /// `(id, e)` satisfies `e ≤ x < e'`. This is the correctly scoped reading
     /// of the paper's `x < e' ⇒ x ≤ e` (the literal form over the dense
-    /// pointwise lattice is false even for a single increment — see the oracle
+    /// pointwise lattice is false even for a single increment; see the oracle
     /// twin `grow_dominates_no_more_than_needed`). Run on the impl's own causal
     /// order, with the candidate set enumerated by the brute-force oracle.
     /// Cross-checked against the oracle order on the same values.
@@ -1154,7 +1154,7 @@ proptest! {
 }
 
 /// There is no *maximum* tick count: leaf `1` can be built by arbitrarily many
-/// ticks — `n` disjoint forks each ticking once, then all joined — yet
+/// ticks (`n` disjoint forks each ticking once, then all joined), yet
 /// `min_ticks` stays `1`.
 ///
 /// This witnesses the unboundedness of the dual quantity while pinning the
@@ -1220,7 +1220,7 @@ fn canonical_rank_text() -> impl Strategy<Value = String> {
 /// `rank` known values.
 ///
 /// The empty version is zero; a leaf is its integer base; the pair `min_ticks`
-/// cannot separate — `(0, 1, 0) < 1`, both one tick — gets strictly ordered
+/// cannot separate, `(0, 1, 0) < 1` with both one tick, gets strictly ordered
 /// ranks; and two *concurrent* versions may share a rank (the two-peak tree
 /// also covers half the interval), which is exactly what the
 /// strict-monotonicity contract permits.
@@ -1332,7 +1332,7 @@ proptest! {
 }
 
 /// The alignment oracle for `Rank` order: shift both numerators to the
-/// common exponent and compare — the definitionally correct order the
+/// common exponent and compare: the definitionally correct order the
 /// class-first streamed comparison must reproduce.
 fn alignment_cmp(a: &super::Rank, b: &super::Rank) -> core::cmp::Ordering {
     let (an, ae) = rank_parts(a);
@@ -1440,7 +1440,7 @@ proptest! {
     /// `Sum` is the pairwise fold.
     ///
     /// Over an arbitrary multiset of ranks in arbitrary order, both `Sum` impls
-    /// return exactly the value the reference `fold(ZERO, +)` produces — one
+    /// return exactly the value the reference `fold(ZERO, +)` produces: one
     /// raw accumulation with a final normalization changes the cost, never the
     /// result.
     #[test]
@@ -1573,9 +1573,9 @@ fn seeded_rank(seed: u64) -> super::Rank {
 /// integral part, every step of the integral header (the mantissa-width steps
 /// at `I + 1` crossing a power of two, and the width-of-width steps where the
 /// unary run itself lengthens), and equal integral parts separated only deep in
-/// the fraction — across a group boundary, where the deeper rank's extra expansion
+/// the fraction, across a group boundary, where the deeper rank's extra expansion
 /// bits ride a further continuation-framed group. Each byte string is pinned
-/// exactly — the wire form is canonical, so these are format goldens — and the
+/// exactly (the wire form is canonical, so these are format goldens), and the
 /// whole battery must be strictly ascending in byte order exactly as it is
 /// ascending in rank order.
 #[test]
@@ -1609,7 +1609,7 @@ fn rank_encoding_known_values() {
         (int(3), vec![0xA0]),
         (int(4), vec![0xA8]),
         // 5, then 5 + 2⁻⁴⁰ and 5 + 2⁻⁴⁰ + 2⁻⁴¹: equal integral parts
-        // separated only deep in the fraction — the deepest pair only
+        // separated only deep in the fraction, the deepest pair only
         // past a group boundary (the 41st expansion bit opens a sixth
         // group), and the integral-only rank separated from both at
         // its close bit, never by a byte-prefix relation.
@@ -1623,7 +1623,7 @@ fn rank_encoding_known_values() {
             vec![0xB4, 0x02, 0x01, 0x00, 0x80, 0x40, 0x70, 0x00],
         ),
         // 6 and 7: the last mantissa of width 2 against the first of
-        // width 3 — the header's width-of-width (unary run) step.
+        // width 3: the header's width-of-width (unary run) step.
         (int(6), vec![0xB8]),
         (int(7), vec![0xC0, 0x00]),
         (int(8), vec![0xC1, 0x00]),
@@ -1872,7 +1872,7 @@ proptest! {
 ///
 /// Decode is total (accepts or rejects, never panics); every accepted string
 /// re-encodes byte-identically (the format is bijective on accepted strings, so
-/// no value has a second spelling — the strict-canonicality statement that
+/// no value has a second spelling: the strict-canonicality statement that
 /// subsumes the individual rejection cases); the accepted strings in byte order carry
 /// strictly ascending ranks (the lexicographic law, total at this scope); every
 /// decoded rank's numeric size is linear in its input bytes (no decompression
@@ -1929,13 +1929,13 @@ fn rank_encoding_exhaustive_small_scope() {
 /// Empty input, an unterminated unary run, a truncated header payload, a
 /// truncated integral mantissa, a truncated fraction group, a trailing zero
 /// byte, a set padding bit, the one spelling a trailing-zero fraction can take
-/// (an all-zero final group — inside the final group trailing zeros *are* the
+/// (an all-zero final group; inside the final group trailing zeros *are* the
 /// padding, so the only non-canonical spelling spills them into a group of
 /// their own), and the integral representation bound (a unary run of 64,
-/// declaring a mantissa width beyond `2⁶⁴` bits — the one format bound a small
+/// declaring a mantissa width beyond `2⁶⁴` bits, the one format bound a small
 /// input can reach; the fraction bound needs over half a GiB of real groups,
 /// since the fraction has no length header to forge). The remaining documented
-/// error — a non-minimal integral header — is structurally unrepresentable
+/// error, a non-minimal integral header, is structurally unrepresentable
 /// (every `(run, payload)` pair decodes to a width whose own width matches the
 /// run exactly), which the exhaustive sweep witnesses mechanically at small
 /// scope.
@@ -1982,7 +1982,7 @@ fn rank_decoding_rejects_each_malformed_input_class() {
             "set padding bit",
         ),
         // "0" ++ "1 10000000" ++ "1 00000000" ++ "0": the fraction
-        // ".1" spelled with a second, all-zero group — the
+        // ".1" spelled with a second, all-zero group: the
         // trailing-zero-fraction spelling, non-minimal packing.
         (
             &[0x60, 0x20, 0x00],
@@ -1990,7 +1990,7 @@ fn rank_decoding_rejects_each_malformed_input_class() {
             "all-zero final group",
         ),
         // 64 ones, then the run's terminating zero: an integral
-        // mantissa width of 2⁶⁴ or more bits — past the format bound,
+        // mantissa width of 2⁶⁴ or more bits, past the format bound,
         // whatever follows.
         (
             &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00],
@@ -2503,7 +2503,7 @@ fn rank_encoding_size_is_provenance_linear() {
         from_oracle_version(&tree)
     }
     // The dense staircase: one new unit plateau per level, so every level
-    // contributes a set fraction bit — the set-bits-per-level maximum the
+    // contributes a set fraction bit: the set-bits-per-level maximum the
     // white-box attack found.
     fn staircase(depth: usize) -> Version {
         use crate::testing::oracles::tree::Version as V;
@@ -2554,12 +2554,12 @@ fn rank_encoding_size_is_provenance_linear() {
 /// another's.
 ///
 /// Each pair is two distinct ranks whose streams agree bit-for-bit up to where
-/// the smaller one's content ends — an integral-only rank against a
+/// the smaller one's content ends: an integral-only rank against a
 /// deep-fraction extension, zero against a small deep fraction, and a one-bit
 /// fraction against an extension whose extra bits begin with a byte's worth of
 /// zeros. For each pair the law's full strength is asserted directly: the
 /// encodings are not byte prefixes of one another, so the smaller rank's key
-/// sorts first under *any* tiebreak suffix — including the worst one, `0xFF`
+/// sorts first under *any* tiebreak suffix, including the worst one, `0xFF`
 /// against the larger key's continuation.
 #[test]
 fn rank_encoding_is_suffix_safe_at_the_padding_boundary() {
@@ -2605,7 +2605,7 @@ proptest! {
     /// are never byte prefixes of one another.
     ///
     /// So a key built as `encoding ++ tiebreak` orders by rank first under
-    /// every choice of tiebreak — the KV-key contract `Rank::encode` documents.
+    /// every choice of tiebreak: the KV-key contract `Rank::encode` documents.
     ///
     /// Over pairs mixing far-apart magnitude classes, forced class ties, and
     /// near-miss extensions (the second rank re-derived from the first with a
@@ -2650,9 +2650,9 @@ proptest! {
 
 // ─────────────────────────────── the join fold ───────────────────────────────
 
-// The n-ary fold entry points against the sequential pair fold — `join_all`,
+// The n-ary fold entry points against the sequential pair fold (`join_all`,
 // `meet_all`, both `Sum` forms, both `FromIterator` forms, in every feed
-// order — are the `laws::VERSION_LIST` / `VERSION_AND_LIST` fold laws
+// order) are the `laws::VERSION_LIST` / `VERSION_AND_LIST` fold laws
 // (version_sum_is_the_sequential_pair_fold, version_sum_is_order_invariant,
 // join_all_is_the_sequential_pair_fold, meet_all_is_the_sequential_pair_fold,
 // fold_all_is_rotation_invariant), driven at boundary-band arities over the
@@ -2709,7 +2709,7 @@ proptest! {
 ///
 /// The meter family doubles as a differential shape (`meter::meet_shade`: one
 /// dense carrier among dominating single-leaf shades, the population whose
-/// running meet never shrinks — the shape the fold's flatness band prices).
+/// running meet never shrinks, the shape the fold's flatness band prices).
 /// Organic populations rarely hold one operand strictly below all others, so
 /// this pins the value exactly where the reduction's grouping differs most from
 /// the left fold's: every combine against the carrier returns the carrier
@@ -2757,8 +2757,8 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 /// A concurrent pair sharing a rank (half vs. the two-peak tree) drives the
 /// fused walk's hardest arm (the exact total must cancel to zero) into the
 /// tiebreak: the views compare non-`Equal`, ordered exactly as the versions'
-/// canonical bytes, while the rank question — asked explicitly through
-/// `rank` — still answers a tie.
+/// canonical bytes, while the rank question, asked explicitly through
+/// `rank`, still answers a tie.
 #[test]
 fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
     let half = half();
@@ -2811,7 +2811,7 @@ proptest! {
 
 /// Adds one unit plateau per level, leaning the previous tree left or right.
 ///
-/// The two leans are mirror images — their areas agree level for level, so they
+/// The two leans are mirror images: their areas agree level for level, so they
 /// share a rank by symmetry. The depth extends beyond generated inputs.
 fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
     use crate::testing::oracles::tree::Version as V;
@@ -2831,7 +2831,7 @@ fn stairs(depth: usize, lean_left: bool, core: &Version) -> Version {
 /// A staircase and its mirror image share a rank by symmetry while their mass
 /// sits at opposite ends of the interval, so the signed co-sweep's running
 /// difference swings through every level's magnitude before the exact total
-/// cancels — the widest cancellation an 800-level walk can force through the
+/// cancels: the widest cancellation an 800-level walk can force through the
 /// freeze and deferral machinery, handing the mirror pair's verdict to the
 /// version-byte tiebreak. Splitting one mirror's core step then moves the total
 /// by `2⁻⁸⁰³` alone: every level above still cancels, and the verdict's sign
@@ -2880,13 +2880,13 @@ fn ranked_fused_walk_survives_deep_cancellation() {
 
 // Version-encoding prefix-freedom is the `version_encoding_is_prefix_free`
 // law in `laws::VERSION_PAIR`, driven over arbitrary normal forms, organic
-// op-trace populations, and the fuzz target's decoded values — exactly the
+// op-trace populations, and the fuzz target's decoded values, exactly the
 // population where a prefix-aliasing bug would live.
 
 /// Version encodings remain prefix-free along deep growth chains.
 ///
 /// A tick chain (each version one event past the last), a spine tower (each one
-/// level deeper, out to 800 levels — extreme depth past the arb generator's
+/// level deeper, out to 800 levels, extreme depth past the arb generator's
 /// reach), the 800-level mirror staircases, and the equal-rank concurrent pair
 /// are checked pairwise: no encoding is a byte prefix of any other's.
 #[test]
@@ -2911,7 +2911,7 @@ fn version_encoding_is_prefix_free_on_growth_chains() {
         battery.push(from_oracle_version(&tree));
     }
     // The 800-level staircase and its mirror: extreme depth past any
-    // generator's reach, sharing a rank by symmetry — the case whose
+    // generator's reach, sharing a rank by symmetry: the case whose
     // streams extend structure level by level.
     battery.push(stairs(800, true, &half()));
     battery.push(stairs(800, false, &half()));
@@ -2941,7 +2941,7 @@ proptest! {
     /// Rank-unequal pairs are decided inside the rank component (its own
     /// committed prefix-freedom), and rank-equal pairs fall through
     /// byte-identical rank prefixes to the version component (prefix-free by
-    /// the `version_encoding_is_prefix_free` law) — this pins the composition
+    /// the `version_encoding_is_prefix_free` law); this pins the composition
     /// of the two arguments over arbitrary normal-form pairs with arbitrary
     /// suffix bytes on both keys.
     #[test]
@@ -2977,7 +2977,7 @@ proptest! {
 ///
 /// The equal-rank concurrent pair (half vs. the two-peak tree), the empty
 /// version against half (the zero rank's one-byte stream against a fractional
-/// one — decided in the rank component, with the version tail present on both),
+/// one, decided in the rank component, with the version tail present on both),
 /// a tick chain pair, and the 800-level mirror staircases (rank-equal at
 /// extreme depth, so the keys agree through a rank prefix hundreds of bytes
 /// long before the version tail decides). For each pair the full strength is
@@ -3152,7 +3152,7 @@ fn div_decomposes_along_fork() {
 }
 
 /// The view and its materialization agree, and projecting onto a party disjoint
-/// from where the events happened keeps nothing — lazily and materialized
+/// from where the events happened keeps nothing, lazily and materialized
 /// alike.
 #[test]
 fn div_view_matches_materialization() {
@@ -3172,7 +3172,7 @@ fn div_view_matches_materialization() {
 /// Projection can *raise* `min_ticks`: it is not monotone under `<=`.
 ///
 /// A single whole-interval tick (`leaf 1`, `min_ticks` 1) projected onto a
-/// "comb" region — two quarters in different halves — becomes two concurrent
+/// "comb" region (two quarters in different halves) becomes two concurrent
 /// peaks, which no single tick can produce, forcing `min_ticks` to 2 even
 /// though the projection is a sub-version.
 #[test]
@@ -3225,7 +3225,7 @@ fn tick_can_lower_min_ticks() {
 /// The at-rest form is exactly the wire bytes' refcounted handle.
 ///
 /// A [`Version`] is exactly one immutable refcounted byte buffer
-/// alone: pointer, byte length, shared-state pointer, vtable — 32 bytes on
+/// alone: pointer, byte length, shared-state pointer, vtable: 32 bytes on
 /// 64-bit, and a [`Clock`](crate::Clock) is a `Party` plus a `Version` (64). A
 /// regression here means the storage grew a field beside the container: the
 /// live bit length must stay recoverable from the padding marker inside the
@@ -3275,7 +3275,7 @@ proptest! {
     ///
     /// Every equal-operand shortcut answers identically on a clone (shared
     /// buffer, the clone-identity rung) and on a byte-equal re-build in a
-    /// distinct buffer (the byte compare or the full walk) — comparison
+    /// distinct buffer (the byte compare or the full walk): comparison
     /// `Equal`, join and meet the value itself, distance and lag zero, and the
     /// hull coincident.
     #[test]
@@ -3321,14 +3321,14 @@ proptest! {
 }
 
 proptest! {
-    /// The composite row-key shape — a rank's canonical stream, then a
-    /// fixed-width opaque key — orders by first difference exactly as `(rank,
+    /// The composite row-key shape (a rank's canonical stream, then a
+    /// fixed-width opaque key) orders by first difference exactly as `(rank,
     /// suffix)` orders lexicographically.
     ///
     /// The KV-key use `Rank::encode` documents, exercised in context: distinct
     /// ranks decide the composite inside the rank prefix (no 32-byte suffix can
-    /// flip it, in either assignment), and equal ranks — byte-identical
-    /// prefixes, by canonical uniqueness — hand the verdict to the suffix's own
+    /// flip it, in either assignment), and equal ranks (byte-identical
+    /// prefixes, by canonical uniqueness) hand the verdict to the suffix's own
     /// first differing byte.
     #[test]
     fn rank_prefix_orders_fixed_suffix_row_keys(
@@ -3356,7 +3356,7 @@ proptest! {
 ///
 /// Three separately-tested mechanisms meet in one deterministic construction:
 /// the balanced binary counter (whose grouping diverges most from the
-/// sequential fold at arities that fill or straddle a counter level — k = 4 and
+/// sequential fold at arities that fill or straddle a counter level, k = 4 and
 /// k = 6), the run-dedup adapter (driven by an adjacent clone run), and the
 /// empty-operand identity rungs. Each operand is one tick on its own fork of
 /// one seed, so every pair is concurrent and no combine short-circuits; on the
