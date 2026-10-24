@@ -187,10 +187,9 @@ impl Rank {
     /// ```
     #[must_use = "`Rank::checked_sub` does not modify `self` or `other`; discarding its result means that it has no effect"]
     pub fn checked_sub(&self, other: &Rank) -> Option<Rank> {
-        // The ordering pre-check rides the class-first comparison, so the
-        // `None` and zero arms cost no alignment at all; only a strictly
-        // positive difference aligns to the common exponent and subtracts, and
-        // that transient is the output's own value content.
+        // The comparison decides by magnitude class first, so the `None` and
+        // zero arms cost no alignment at all; only a strictly positive
+        // difference aligns to the common exponent and subtracts.
         match self.cmp(other) {
             Ordering::Less => None,
             Ordering::Equal => Some(Rank::ZERO),
@@ -926,6 +925,10 @@ impl PartialOrd for Rank {
 /// `+` to aggregate measures (a total replication backlog across peers, a
 /// budget consumed so far) not to combine histories.
 ///
+/// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
+/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
+/// at every step and costs up to `O(k · n)`.
+///
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_add.html")))]
@@ -970,12 +973,22 @@ impl Add<Rank> for &Rank {
     }
 }
 
+/// Adds a rank in place, as `+` does.
+///
+/// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
+/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
+/// at every step and costs up to `O(k · n)`.
 impl AddAssign<&Rank> for Rank {
     fn add_assign(&mut self, rhs: &Rank) {
         *self = &*self + rhs;
     }
 }
 
+/// Adds an owned rank in place, as `+` does.
+///
+/// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
+/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
+/// at every step and costs up to `O(k · n)`.
 impl AddAssign<Rank> for Rank {
     fn add_assign(&mut self, rhs: Rank) {
         *self = &*self + &rhs;
