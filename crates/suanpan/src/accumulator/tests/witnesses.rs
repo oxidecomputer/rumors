@@ -212,9 +212,9 @@ fn maximum_adjustment_width_never_decides() {
 ///
 /// The value 5 · 2^64 is stored at digit 2, below a cancelling top: digit 10
 /// holds 1 and digit 9 holds −2^32. Answering `None` must not skip the scan,
-/// which decides at digit 2 and leaves three stored digits. The wasm32 pins
-/// check the same construction where the adjustment's top digit index cannot
-/// fit a 32-bit `usize`.
+/// which decides at digit 2 and leaves three stored digits. The
+/// `wasm32-pins` executor checks the same construction where the
+/// adjustment's top digit index cannot fit a 32-bit `usize`.
 #[test]
 fn maximum_adjustment_width_still_compacts() {
     let mut acc = Accumulator::new();
@@ -464,9 +464,9 @@ fn full_small_value(negative: bool) -> (Accumulator, IBig) {
 /// boundaries. Each result must match the independent arbitrary-width oracle.
 #[test]
 fn small_value_extremes_spill_exactly() {
-    // The headroom derivation itself, pinned executable: a full
-    // small value plus the widest shifted operand the small path accepts stays
-    // strictly inside i128.
+    // The headroom derivation itself, checked at run time: a full small value
+    // plus the widest shifted operand the small path accepts stays strictly
+    // inside i128.
     let ceiling = i128::try_from(SMALL_MAX).expect("the ceiling fits i128");
     let widest_fold = ceiling
         .checked_shl(SMALL_SHIFT_MAX as u32)

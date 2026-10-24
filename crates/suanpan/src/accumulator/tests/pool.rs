@@ -1,14 +1,14 @@
 //! Programs over a pool of accumulators, each checked against an exact oracle.
 //!
 //! The surface property builds every accumulator operand fresh from a short
-//! recipe, so an operand carries no history beyond its construction. Here
-//! every operand is a member of a small pool, so it arrives carrying whatever its own history
-//! left: retained cancellation, a sparse written set, a compacted or
-//! normalized top, extreme digits, or a width of thousands of digits. A
-//! program updates the members, lends them to one another as operands, passes
-//! one member as both operands of `&a + &a`, and reads members in place, so a
-//! read changes the stored form that later steps meet, as it would in a
-//! caller's program.
+//! recipe, so an operand carries no history beyond its construction. Here every
+//! operand is a member of a small pool, so it arrives carrying whatever its own
+//! history left: retained cancellation, a sparse written set, a compacted or
+//! normalized top, extreme digits, or a width of thousands of digits. A program
+//! updates the members, lends them to one another as operands, passes one
+//! member as both operands of `&a + &a`, and reads members in place, so a read
+//! changes the stored form that later steps meet, as it would in a caller's
+//! program.
 //!
 //! Each member is paired with a `BigInt` oracle. After every step, every
 //! member is observed without being changed: both limb readouts, the

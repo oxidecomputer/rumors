@@ -1,12 +1,12 @@
 //! Differential streams against the exact `IBig` oracle.
 //!
-//! Randomized mixed word/limb operation streams compare the sign after
-//! every operation — the read a caller's interleaved sweeps depend on —
-//! and the full value at periodic snapshots; deterministic streams pin
-//! the difficult shapes the representation exists to survive: the
-//! boundary-comb ±1 oscillation across a high carry cliff, limb-stream teeth
-//! across a higher cliff, and cancelling-prefix chains that force the
-//! sign fold below the top digit.
+//! Randomized streams of mixed word and limb operations compare the sign
+//! after every operation, the read a caller's interleaved sweeps depend on,
+//! and the full value at periodic snapshots. Deterministic streams cover the
+//! inputs the representation exists for: the *boundary comb*, a ±1
+//! oscillation across a carry boundary `2^k` (the *cliff*); wide *teeth*,
+//! limb-stream deltas oscillating across the cliff; and cancelling-prefix
+//! chains, which force the sign fold below the top digit.
 
 use core::cmp::Ordering;
 
@@ -34,9 +34,9 @@ enum Op {
         value: UBig,
         shift: u64,
     },
-    /// A wide delta entering as a raw little-endian limb stream — the
-    /// wider-than-the-backend entry — optionally padded with high zero
-    /// limbs (value-neutral by contract).
+    /// A wide delta entering as a raw little-endian limb stream, optionally
+    /// padded with high zero limbs, which by contract leave the value
+    /// unchanged.
     LimbsShl {
         negative: bool,
         limbs: Vec<u64>,
@@ -289,8 +289,8 @@ enum ProbeDigit {
     Absent,
 }
 
-/// A probe digit, biased toward the digit limit — the representations whose
-/// magnitude exceeds any plain probe under the same floor.
+/// A probe digit, biased toward the digit limit, where an operand stored in
+/// the same positions exceeds the magnitude of any normalized probe.
 fn arb_probe_digit() -> impl Strategy<Value = ProbeDigit> {
     prop_oneof![
         3 => Just(ProbeDigit::Extreme),
@@ -302,9 +302,9 @@ fn arb_probe_digit() -> impl Strategy<Value = ProbeDigit> {
 /// Materialize an accumulator operand stored in digits
 /// `0..=floor`, as the accumulator and its exact oracle.
 ///
-/// `all_extreme` overrides every digit spec to the digit limit — the
-/// extremal operand of the floor, up to `(2^33 − 1)` per digit —
-/// so the strategy carries a point mass at the strongest probe.
+/// `all_extreme` sets every digit to the digit limit, magnitude up to
+/// `2^33 − 1`, which gives the largest operand stored in digits `0..=floor`,
+/// so the strategy draws that strongest probe with positive probability.
 fn build_probe(
     digits: &[ProbeDigit],
     all_extreme: bool,
@@ -346,9 +346,9 @@ proptest! {
     /// reuses the retained digit buffer without observing the old value.
     ///
     /// Two independent streams with a clear between them: after the
-    /// clear the accumulator equals fresh zero, and the second stream —
-    /// whose wide operands re-arm the digit representation over the buffer the
-    /// first stream grew — matches an oracle that starts from zero. Either
+    /// clear the accumulator equals fresh zero, and the second stream, whose
+    /// wide operands reactivate the digit representation over the buffer the
+    /// first stream grew, matches an oracle that starts from zero. Either
     /// stream may negate, so the clear can meet flagged digits, and the
     /// second stream's deposits can land in them.
     #[test]
@@ -375,9 +375,9 @@ proptest! {
     ///
     /// For each requested digit-aligned width, check the reported sign and apply
     /// both signs of an operand within that width. The larger magnitude must exceed
-    /// the operand's magnitude. Small values additionally pin the exact
-    /// 3·2^bits threshold; constructed signed digits exercise the extra magnitude
-    /// allowed by redundant coefficients. A refusal must compact the receiver
+    /// the operand's magnitude. Small values also check the exact 3·2^bits
+    /// threshold; constructed signed digits cover the extra magnitude that
+    /// redundant digits allow. A refusal must compact the receiver
     /// to within two stored digits of the requested width. If the other operand
     /// is then wider, checking it in turn bounds both sides before an exact
     /// subtraction.
@@ -533,10 +533,10 @@ proptest! {
         assert_value(&right, &right_oracle);
     }
 
-    /// `cmp_zero_stable_under(64)` never lies: the sign always matches the
-    /// oracle's, and a `Some` result implies the current magnitude
-    /// exceeds any machine word — folding any `u64` afterward cannot
-    /// flip the sign.
+    /// `cmp_zero_stable_under(64)` is sound: the sign always matches the
+    /// oracle's, and a `Some` result implies the current magnitude exceeds
+    /// any machine word, so adding or subtracting any `u64` afterward cannot
+    /// change the sign.
     #[test]
     fn word_width_stability_is_sound(
         ops in proptest::collection::vec(arb_op(), 1..60),
@@ -634,9 +634,9 @@ fn boundary_comb_oscillation_matches_the_oracle() {
     assert_value(&acc, &oracle);
 }
 
-/// The wide-tooth stream: ±2^w teeth oscillating across a `2^k` cliff
-/// (w far past any machine-word window) stay sign-correct at every step
-/// and value-correct at the end.
+/// The wide-tooth stream: ±2^w teeth oscillating across a `2^k` cliff, with
+/// `w` far wider than a machine word, stay sign-correct at every step and
+/// value-correct at the end.
 #[test]
 fn wide_teeth_across_the_cliff_match_the_oracle() {
     let (cliff_bits, tooth_bits) = (512u32, 192u32);
@@ -687,8 +687,8 @@ fn cancelling_prefix_chain_matches_the_oracle() {
 }
 
 /// Exact wide cancellation lands on sign `Equal`, and unit nudges off zero
-/// read `Less`/`Greater` — the near-zero discrimination the `|s| ≥ 3` fold
-/// threshold must not blur.
+/// read `Less` and `Greater`: the fold's `|s| ≥ 3` threshold must still tell
+/// the values next to zero apart.
 #[test]
 fn exact_cancellation_and_unit_nudges_read_correctly() {
     let wide = UBig::from(1u8) << 512usize;

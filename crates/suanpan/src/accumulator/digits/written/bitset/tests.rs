@@ -3,10 +3,10 @@
 //! The bitset's subtle work lies in its summary levels: climbing while a word
 //! changes between empty and nonempty, growing a new level on top, clearing
 //! level by level while leaving position zero, and descending from a summary
-//! bit to a position.
-//! Positions are therefore drawn near word and level boundaries, in runs that
-//! fill whole words, and far enough apart to need several levels, rather than
-//! uniformly, which would almost never exercise a climb.
+//! bit to a position. Positions are therefore drawn near word and level
+//! boundaries, in runs that fill whole words, and far enough apart to need
+//! several levels, rather than uniformly, which would almost never exercise a
+//! climb.
 
 use std::collections::BTreeSet;
 
@@ -26,9 +26,9 @@ const FAR: usize = 1 << 19;
 /// fill two whole words and part of a third.
 const MAX_RUN: usize = 160;
 
-/// Level-0 lengths, in words, at and beside each length where the levels
-/// change shape: a second level appears past 1 word, a third past 64, and a
-/// fourth past 4,096, and level 1 gains a word past 128 and past 4,160.
+/// Level-0 lengths, in words, at and beside each length where the levels'
+/// structure changes: a second level appears past 1 word, a third past 64,
+/// and a fourth past 4,096, and level 1 gains a word past 128 and past 4,160.
 const LEVEL_0_LENGTHS: &[usize] = &[
     1, 2, 63, 64, 65, 66, 128, 129, 4095, 4096, 4097, 4098, 4160, 4161,
 ];
@@ -164,7 +164,7 @@ proptest! {
     ///
     /// After every operation, level 0 holds exactly the oracle's positions,
     /// every summary bit is set exactly when its word is nonzero, the levels
-    /// have their documented shape, and `contains` and `last_below` agree
+    /// have their documented lengths, and `contains` and `last_below` agree
     /// with the oracle at every probe: each position an operation named, each
     /// held position, their neighbors, the word and level boundaries, and
     /// positions above everything held.
