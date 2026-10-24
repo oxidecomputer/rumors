@@ -4199,8 +4199,8 @@ fn pow2(b: usize) -> BigUint {
 /// The deterministic stand-in for allocation-fill work, which no other meter
 /// can see: the numeric folds' settle densifies each balanced-digit cluster
 /// into two zero-filled byte images before multiplying, and a zeroed byte no
-/// digit lands on touches no accumulator digit or raises the peak while the
-/// image stays under the walk's own high-water mark. The count is the images' capacity in
+/// digit lands on raises no digit count or the peak while the image stays
+/// under the walk's own high-water mark. The count is the images' capacity in
 /// base-2^32 digits — two images per multi-digit cluster, each at the
 /// cluster's span — so span-priced densification counts linearly in the
 /// settle's cluster spans, and a densification sized by cluster *positions*
@@ -4215,47 +4215,6 @@ pub fn densified_digits() -> u64 {
 #[cfg(feature = "meter")]
 pub fn reset_densified_digits() {
     crate::version::instrument::reset_densified_digits()
-}
-
-/// The accumulator digit touches since the last [`reset_touch_ops`].
-///
-/// The deterministic stand-in for accumulator fold work. A word-scale fold
-/// rides the accumulator's quick register, so an algorithm that folds per leaf
-/// separates from one that folds per block. Delegates to
-/// `suanpan`'s own counter (`suanpan::touch_meter`), which the `touch-meter`
-/// feature compiles in. Process-global, so each measurement must run alone.
-#[cfg(feature = "touch-meter")]
-pub fn touch_ops() -> u64 {
-    suanpan::touch_meter::touches()
-}
-
-/// Reset the digit-touch counter behind [`touch_ops`] to zero.
-#[cfg(feature = "touch-meter")]
-pub fn reset_touch_ops() {
-    suanpan::touch_meter::reset()
-}
-
-/// The encoded bits scanned and written since the last
-/// [`reset_scan_bits`].
-///
-/// The deterministic stand-in for traversal work over the encoded forms, which
-/// every other meter can miss at once: an id-tree fold allocates little (no
-/// heap delta), loops rather than recurses (no segments), and does no `BigUint`
-/// magnitude arithmetic — the work is *reading and writing stream bits*, and
-/// this counter records exactly those, at the encoded
-/// primitives (id tag reads and skip steps, id-builder bit writes and splice
-/// lengths, event topology cursor advances and gamma code-skips, every
-/// sequential decoder/validator bit read). Unit: bits. Process-global; only compiled under the
-/// `scan-meter` feature, which adds the counting to the primitives themselves.
-#[cfg(feature = "scan-meter")]
-pub fn scan_bits() -> u64 {
-    crate::testing::instrument::scan::scan_bits()
-}
-
-/// Reset the scanned-bits counter behind [`scan_bits`] to zero.
-#[cfg(feature = "scan-meter")]
-pub fn reset_scan_bits() {
-    crate::testing::instrument::scan::reset()
 }
 
 #[cfg(test)]

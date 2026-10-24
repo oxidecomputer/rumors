@@ -146,17 +146,11 @@ default:
 check:
     cargo check --workspace {{ tool_members }} --all-targets
 
-# Run the test suites; pass a filter to narrow (`just test mirror`). The
-# unit tests that read before's touch and scan meters run only with those
-# features, so the inner loop lights them for that package. One
-# `--workspace` build unifies features, so this compiles the before lib with
-# both meters for every dependent; the other packages' own features stay
-# default.
+# Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
-    cargo nextest run --workspace {{ tool_members }} --features before/touch-meter,before/scan-meter {{ args }}
+    cargo nextest run --workspace {{ tool_members }} {{ args }}
 
-# Every feature is lit here and nowhere else in the gate: the meter suites
-# and the conformance module build only under `--all-features`.
+# Every feature is lit here and nowhere else in the gate.
 
 # Run the test suites under every feature (the gate's test run).
 test-all *args:
@@ -598,8 +592,6 @@ features:
     cargo check -p before --no-default-features --features oracle
     cargo check -p before --no-default-features --features meter
     cargo check -p before --no-default-features --features laws
-    cargo check -p before --no-default-features --features touch-meter
-    cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
     cargo check -p rumors --no-default-features --features fs

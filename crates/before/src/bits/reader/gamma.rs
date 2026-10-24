@@ -6,7 +6,6 @@ use num_bigint::BigUint;
 
 use super::{BitRead, BitsReader};
 use crate::error::Decode;
-use crate::testing::instrument::scan;
 
 #[cfg(any(test, feature = "borsh"))]
 mod window;
@@ -48,7 +47,6 @@ pub(super) fn decode(reader: &mut BitsReader<'_>) -> Result<BigUint, Decode> {
     if reader.len - reader.position >= gamma_tables::READ_BITS as u64 {
         if let Some((value, used)) = gamma_tables::read_table_be(&mut reader.reader) {
             let used = used as u64;
-            scan::record_bits(used);
             reader.position += used;
             return Ok(BigUint::from(value));
         }
@@ -67,7 +65,6 @@ pub(super) fn decode(reader: &mut BitsReader<'_>) -> Result<BigUint, Decode> {
             .read_bits(zeros as usize)
             .expect("the mantissa was proven to fit the live length");
         let mantissa = (1u64 << zeros) | rest;
-        scan::record_bits(code_len);
         reader.position += code_len;
         return Ok(BigUint::from(mantissa - 1));
     }
@@ -88,7 +85,6 @@ pub(super) fn decode(reader: &mut BitsReader<'_>) -> Result<BigUint, Decode> {
             }
         }
     }
-    scan::record_bits(code_len);
     reader.position += code_len;
     Ok(mantissa - 1u32)
 }

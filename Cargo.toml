@@ -243,9 +243,8 @@ debug = "line-tables-only"
 # The test suite spends most of its time inside these two crates' kernels
 # (the skyline walks and the bignum arithmetic), so optimizing them cuts
 # test execution while leaving every other crate's compile untouched.
-# `debug-assertions` stays on, as the dev profile grants: the envelope
-# suite's scan and touch pins count work the `debug_assert!` comparisons
-# perform, and those are what `--release` would remove.
+# `debug-assertions` stays on, as the dev profile grants, so the tests run
+# the `debug_assert!` checks that `--release` would remove.
 [profile.dev.package.before]
 opt-level = 2
 

@@ -79,21 +79,6 @@ meter = ["dep:tempfile"]
 # assert. Implies `meter`: the representational laws read the instrument-side
 # observations (`encoded_bits`) that feature exposes. Test/fuzz-only.
 laws = ["meter"]
-# Counts accumulator digit touches through `suanpan::touch_meter`. This exposes
-# arithmetic whose cost grows with retained accumulator width but does not
-# allocate or scan more input. Test-only and off by default.
-touch-meter = ["meter", "suanpan/touch-meter"]
-# Counts encoded-stream bits scanned and written (id tag reads and skip steps,
-# id-builder bit writes and splice lengths, event topology cursor advances and
-# gamma code-skips, every validator/decoder bit cursor) into a process-global
-# counter read via `before::testing::meter`. Traversal work over the encoded forms is
-# invisible to the heap and segment meters when it allocates nothing,
-# recurses nothing, and does no integer arithmetic — the id-side walks are
-# exactly that — so this is the column that sees it. Additive and off by
-# default: one relaxed atomic bump per primitive, out
-# of the bench builds, lit by `--all-features` runs and the metering suites that
-# assert it.
-scan-meter = ["meter"]
 
 # The board example's deserialization rows compile only under `serde` and
 # `borsh`; built without them the board would omit those rows while still

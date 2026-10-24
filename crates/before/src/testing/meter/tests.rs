@@ -27,13 +27,6 @@ use super::{
     sparse_fill, sparse_height, sparse_oscillation, zigzag_id,
 };
 
-/// Appended to the counter-comparison failures: the first cause to rule out is
-/// a shared-process test runner, under which the process-global counters bleed
-/// other tests' work into the reading being compared.
-#[cfg(feature = "scan-meter")]
-const ISOLATION_NOTE: &str = "note: the counter is process-global and meaningful only one \
-     test per process: run under cargo nextest, not a shared-process cargo test";
-
 /// Convert an arbitrary-precision expected result into a minimum tick count.
 fn min_ticks_from_big(value: &BigUint) -> Count {
     Count(value.clone())
@@ -444,67 +437,6 @@ proptest! {
     fn dominated_undercut_id_decodes_canonically_at_predicted_length(k in 1usize..=100) {
         let _ = check_party(&dominated_undercut_id(k), 6 * k + 2);
     }
-}
-
-/// The scan meter observes encoded traversal, resets to zero, and reads
-/// the same count for the same operation repeated.
-///
-/// Determinism is what makes it envelope-able, and its floor is live — a strict
-/// decode scans every live bit at least once — so a ceiling asserted over it
-/// can never pass vacuously at zero.
-///
-/// The counter is process-global, so the repeat-run comparison is meaningful
-/// under nextest's one-test-per-process isolation (this workspace's runner).
-#[cfg(feature = "scan-meter")]
-#[test]
-fn scan_meter_counts_deterministically_and_resets() {
-    // A strict id decode reads each live bit exactly once through the
-    // sequential cursor, so the count has both a floor and an exact
-    // expectation.
-    let count_decode = |d: usize| {
-        let p = id_spine(d, false);
-        super::reset_scan_bits();
-        let _ = Party::decode(&p.bytes[..]).expect("id spine decodes");
-        (super::scan_bits(), p.bits as u64)
-    };
-    let (first, bits) = count_decode(10_000);
-    assert!(
-        first >= bits,
-        "a strict decode of {bits} live bits scanned only {first}: \
-         the sequential cursor is not recording: {ISOLATION_NOTE}"
-    );
-    super::reset_scan_bits();
-    assert_eq!(
-        super::scan_bits(),
-        0,
-        "reset returns the meter to zero: {ISOLATION_NOTE}"
-    );
-    assert_eq!(
-        count_decode(10_000).0,
-        first,
-        "identical operations scan identical bits: {ISOLATION_NOTE}"
-    );
-    assert!(
-        count_decode(20_000).0 > first,
-        "a longer stream must scan more bits: {ISOLATION_NOTE}"
-    );
-
-    // The write side is live too: joining two disjoint spines writes the joined
-    // tree through the id builder, so the count covers reads of both operands
-    // plus at least the output's own bits.
-    let pa = id_spine(1_000, false);
-    let pb = id_spine(1_000, true);
-    let mut a = Party::decode(&pa.bytes[..]).expect("id spine decodes");
-    let b = Party::decode(&pb.bytes[..]).expect("id spine decodes");
-    super::reset_scan_bits();
-    a.join(b).expect("the divert arms are disjoint");
-    let joined = super::scan_bits();
-    assert!(
-        joined >= a.encoded_bits(),
-        "a join that wrote {} output bits recorded only {joined} scan bits: \
-         the id builder is not recording its writes: {ISOLATION_NOTE}",
-        a.encoded_bits(),
-    );
 }
 
 proptest! {

@@ -15,7 +15,6 @@
 
 use super::storage::Bits;
 use super::BitsReader;
-use crate::testing::instrument::scan;
 #[cfg(any(test, feature = "meter"))]
 use num_bigint::BigUint;
 
@@ -140,7 +139,6 @@ impl BitsWriter {
 
     /// Append one bit.
     pub(crate) fn push(&mut self, bit: bool) {
-        scan::record_bits(1);
         self.append_bit(bit);
     }
 
@@ -163,7 +161,6 @@ impl BitsWriter {
             len == 64 || value >> len == 0,
             "append value has bits above its stated width"
         );
-        scan::record_bits(u64::from(len));
         self.append_bits(value, len);
     }
 
@@ -242,7 +239,6 @@ impl BitsWriter {
             len <= 63 && start + u64::from(len) <= self.len(),
             "word read lies within the writer"
         );
-        scan::record_bits(u64::from(len));
         let mut value = 0;
         for position in start..start + u64::from(len) {
             value = value << 1 | u64::from(self.bit(position));
@@ -357,7 +353,6 @@ impl BitsWriter {
             start <= end && end <= bytes.len() as u64 * 8,
             "copied range lies within the source storage"
         );
-        scan::record_bits(end - start);
         let mut position = start;
         while position < end && !position.is_multiple_of(8) {
             self.append_bit(bit(bytes, position));

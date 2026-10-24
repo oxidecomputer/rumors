@@ -399,8 +399,7 @@
 //! - **`borsh`:** `BorshSerialize`/`BorshDeserialize` uses each existing
 //!   type's prefix-free canonical encoding without a length prefix. [`Count`]
 //!   instead uses its length-prefixed canonical `u64` limbs.
-//! - **`oracle`**, **`meter`** (plus the meter's counter switches
-//!   `touch-meter` and `scan-meter`), and **`laws`:** expose the crate's own
+//! - **`oracle`**, **`meter`**, and **`laws`:** expose the crate's own
 //!   verification instruments (the reference implementation,
 //!   the input generators and resource meters behind the performance tests,
 //!   and the named algebraic-law predicates) to its bench, metering,

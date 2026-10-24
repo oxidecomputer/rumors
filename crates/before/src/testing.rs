@@ -5,7 +5,6 @@
 //! validation index explains the purpose and limits of each instrument.
 
 mod auto_traits;
-pub(crate) mod instrument;
 
 #[cfg(any(test, feature = "laws"))]
 pub mod laws;
