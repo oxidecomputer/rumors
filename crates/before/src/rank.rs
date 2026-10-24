@@ -927,7 +927,7 @@ impl PartialOrd for Rank {
 ///
 /// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
 /// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
-/// at every step and costs up to `O(k · n)`.
+/// at every step and costs up to `O(k + k · n)`.
 ///
 /// # Complexity
 ///
@@ -977,7 +977,7 @@ impl Add<Rank> for &Rank {
 ///
 /// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
 /// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
-/// at every step and costs up to `O(k · n)`.
+/// at every step and costs up to `O(k + k · n)`.
 impl AddAssign<&Rank> for Rank {
     fn add_assign(&mut self, rhs: &Rank) {
         *self = &*self + rhs;
@@ -988,7 +988,7 @@ impl AddAssign<&Rank> for Rank {
 ///
 /// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
 /// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
-/// at every step and costs up to `O(k · n)`.
+/// at every step and costs up to `O(k + k · n)`.
 impl AddAssign<Rank> for Rank {
     fn add_assign(&mut self, rhs: Rank) {
         *self = &*self + &rhs;

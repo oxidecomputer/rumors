@@ -11,7 +11,7 @@
 //! fails.
 //!
 //! `rank_cmp`, `distance`, and `lag` each traverse both operands together in
-//! one *co-sweep*, which integrates their pointwise difference.
+//! one *co-sweep*, which integrates a function of their pointwise difference.
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
@@ -256,7 +256,7 @@ fn deferral_pool() -> Vec<Version> {
 /// between armings, and the arming-free settlement at the close (the
 /// plateau-puncture family). The pair sweep crosses wide operands with wide
 /// operands, with both sides deferring and orientation flips inside wide
-/// plateaus, which the families' unit-height mates never reach.
+/// plateaus, which the families' unit-base mates never reach.
 ///
 /// The [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors keep both
 /// claims live: the single folds defer, and so do the pair measures'
@@ -993,7 +993,7 @@ fn arming_trains_agree_across_their_box() {
 /// the train dimensions, the signed settlement must cancel to zero through
 /// parking, deferral, and settlement. The nonnegative pair measures never
 /// produce that answer (their totals are monotone differences), and no
-/// randomly drawn pair reaches it at freezing scale. Every mirrored train
+/// organically drawn pair reaches it at freezing scale. Every mirrored train
 /// parks and defers drift under the co-sweep, which the freeze and deferral
 /// floors check, so the test runs the intended path.
 #[test]
