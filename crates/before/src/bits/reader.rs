@@ -177,7 +177,9 @@ impl<'a> BitsReader<'a> {
     /// Read `len <= 64` bits at the current position as a right-aligned word.
     pub(crate) fn read_word(&mut self, len: u32) -> Result<u64, Truncated> {
         assert!(len <= 64, "one word contains at most 64 bits");
-        if self.position + u64::from(len) > self.len {
+        // `position <= len`, so comparing against the remainder cannot
+        // overflow, as a sum with `position` could at the top of the range.
+        if u64::from(len) > self.len - self.position {
             return Err(self.truncated());
         }
         let value = self

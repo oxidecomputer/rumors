@@ -129,11 +129,6 @@ pub enum Decode {
     /// [`Rank`](crate::Rank)'s fraction depth. Only an input of 2^61 bytes or
     /// more has that many bits, so in practice this is unreachable: no machine
     /// can hold an input that large in memory.
-    ///
-    /// Operations that build a [`Party`](crate::Party) or
-    /// [`Version`](crate::Version) are bounded the same way: one whose result
-    /// would take 2^61 bytes or more panics, which is just as unreachable in
-    /// practice.
     #[error("input of 2^61 bytes or more has a bit count no u64 can hold")]
     TooLarge,
     /// The underlying reader failed.

@@ -101,7 +101,8 @@ impl core::fmt::Display for Party {
 ///
 /// Returns [`ParseValue::InvalidSyntax`] for malformed hexadecimal and
 /// [`ParseValue::InvalidEncoding`] when the decoded bytes are not a canonical
-/// [`Party`].
+/// [`Party`]. That error wraps [`Decode::TooLarge`] when the decoded bytes
+/// number 2^61 or more.
 ///
 /// Takes `O(|text|)` time and space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_parse.html")))]

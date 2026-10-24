@@ -229,8 +229,11 @@ impl BitsWriter {
     /// Domain writers use this to inspect a small header that they reserved
     /// earlier. The range must lie within the current output.
     pub(crate) fn read_word(&self, start: u64, len: u32) -> u64 {
+        // Comparing against the bits after `start` cannot overflow, as a sum
+        // with `start` could at the top of the range; within the bound, the
+        // loop's `start + len` is at most the live length.
         assert!(
-            len <= 63 && start + u64::from(len) <= self.len(),
+            len <= 63 && start <= self.len() && u64::from(len) <= self.len() - start,
             "word read lies within the writer"
         );
         let mut value = 0;
