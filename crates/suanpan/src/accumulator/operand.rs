@@ -139,8 +139,7 @@ impl Value {
             return;
         }
         self.ensure_digits();
-        self.digits
-            .add_digits(other.digits.stored_digits(), sign, shift, update);
+        self.digits.add_digits(&other.digits, sign, shift, update);
     }
 
     /// Add or subtract a shifted word, staying small when headroom permits.

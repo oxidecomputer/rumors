@@ -26,8 +26,9 @@ fn first_unaddressable_digit_panics() {
 ///
 /// Lower digits can still overturn that partial, so the scan must continue.
 /// The fixture parks digits `[−(2^33 − 1), −(2^33 − 1), 2]`: its top partial
-/// is 2, but its full value is `−(2^32 − 1)`. The mirrored fixture checks the
-/// opposite-sign boundary.
+/// is 2, but its full value is `−(2^32 − 1)`. The mirrored fixture, built
+/// from its own digits `[2^33 − 1, 2^33 − 1, −2]`, checks the opposite-sign
+/// boundary.
 #[test]
 fn comparison_threshold_survives_extreme_cancellation() {
     let mut acc = Accumulator::new();
@@ -49,7 +50,15 @@ fn comparison_threshold_survives_extreme_cancellation() {
     );
     // The mirrored representation: digits [2^33 − 1, 2^33 − 1, −2] denote
     // +(2^32 − 1), and a partial of −2 at the top must not decide either.
-    acc = -acc;
+    // Negating `acc` would mirror only the one digit its comparison
+    // compacted it to, so the mirror is deposited digit by digit.
+    let mut acc = Accumulator::new();
+    acc.value.get_mut().ensure_digits();
+    for index in [0, 1] {
+        acc.add_shifted_limbs(32 * index, [1u64 << 32]);
+        acc.add_shifted_limbs(32 * index, [(1u64 << 32) - 1]);
+    }
+    acc.sub_value_shl(&UBig::from(2u8), 64);
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!(
         (sign, magnitude),

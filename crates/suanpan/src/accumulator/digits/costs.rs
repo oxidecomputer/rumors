@@ -25,11 +25,19 @@
 //! Positions are digit positions of 32 bits. The crate counts bits, or 64-bit
 //! limbs (`L`), which differ from position counts by constant factors. The
 //! *top* is `highest_nonzero`. A *deposit* is one call of
-//! [`add_at`](super::Digits::add_at); every update makes its deposits at
-//! ascending positions. The *run*, the *prefix*, and the *bitset* are the
-//! parts of a written set that the [`written`](super::written) module
+//! [`add_stored_at`](super::Digits::add_stored_at); every update makes its
+//! deposits at ascending positions. The *run*, the *prefix*, and the
+//! *bitset* are the parts of a written set that the
+//! [`written`](super::written) module
 //! describes: the run holds the highest consecutive positions, and the prefix
 //! or the bitset holds the positions below it.
+//!
+//! The arguments below concern the stored digits and their sum, which is the
+//! value or, when the flag beside the digits is set, its negation. Every
+//! update applies the flag to its contributions before depositing them, so
+//! an update's contributions are counted with the sign they are stored with,
+//! and a *sign* below is a sign of stored digits and stored sums. Negation
+//! flips the flag and changes no digit and no term of the potential.
 //!
 //! A *storage* begins when an accumulator is created, receives
 //! `clone_from`, or is shifted by a nonzero count, and lasts until the next
@@ -385,9 +393,8 @@
 //!
 //! ## Negation, shifts, clones, and comparisons of two accumulators
 //!
-//! - Negation compares with zero, then negates every digit through the top,
-//!   which the comparison left within two positions of the value's width:
-//!   amortized O(1 + `Q`).
+//! - Negation flips the flag, or negates a small value: O(1). It reads and
+//!   writes no digit, so it changes no term of the potential.
 //! - A comparison with a primitive or a primitive conversion asks the
 //!   stability query, one scan, amortized O(1). When the query does not
 //!   decide, its scan stopped at or below position 5, leaving a value of at
@@ -420,8 +427,9 @@
 //!   activation or the last clear left, which costs O(1) by "Clears".
 //! - A clone normalizes its source, a read, then copies the `Q` positions of
 //!   the value into a written set of position zero and one run, which needs
-//!   no bitset. The copy's potential, at most 1/2 per digit and one per held
-//!   position, is O(`Q`), which the clone pays. `clone_from` releases the
+//!   no bitset, and the copy keeps the source's flag. The copy's potential,
+//!   at most 1/2 per digit and one per held position, is O(`Q`), which the
+//!   clone pays. `clone_from` releases the
 //!   target's old written set, which its allocations paid for.
 //! - Comparing two accumulators asks the wider side's stability query while
 //!   one leads by more than
@@ -528,7 +536,7 @@
 //! rewrites at most those two, and stops within one position of the same
 //! place. Its truncation, if any, crosses from the place's successor to the
 //! place itself, a skip of one position, which costs O(1) by the bitset's
-//! distance bound. Negation changes no magnitude and preserves this.
+//! distance bound. Negation changes no stored digit and preserves this.
 //!
 //! A normalization leaves such a form too. Write `D` for
 //! [`COMPARISON_DECIDED`](super::sign::COMPARISON_DECIDED), the partial at
@@ -587,14 +595,14 @@
 //!   sum of owned accumulators makes one owned addition per input after the
 //!   first; a sum of borrowed ones adds each input at shift 0 into a new
 //!   accumulator.
-//! - `a - b` is `a -= &b`: it reads `b` in full into `a`'s storage, at
-//!   O(1 + `b`'s width), and reuses no storage of `b`'s, because reusing it
-//!   would mean negating it. `&a - b` subtracts `a` from `b` and negates the
-//!   result, and a primitive minus an accumulator negates the accumulator and
-//!   adds the primitive; each part costs what its own rule says.
+//! - `a - b` is `a + -b`: negating `b` costs O(1), and owned addition then
+//!   reads the narrower operand into the wider one's storage, as above.
+//!   `&a - b` is `-b + &a`, and a primitive minus an accumulator negates the
+//!   accumulator and adds the primitive; each part costs what its own rule
+//!   says.
 //! - `abs_diff` chooses the operand to read as owned addition does,
 //!   subtracts it from the other, asks the result's sign, and negates a
-//!   negative result, at the cost of negation, the result's width.
+//!   negative result, at O(1).
 //!
 //! # Updates of one sign
 //!
@@ -605,22 +613,36 @@
 //! change nothing. Suppose every update in a stretch has contributions of one
 //! sign `s`, and the value at its start is zero or has sign `s`.
 //!
+//! These are signs of values, and the argument below is about stored digits.
+//! The flag is constant through a stretch. Within a storage, only negation
+//! and a clear change it, and neither is an update, so each ends a stretch.
+//! (Activation also resets it, but inactive storage holds it clear already.)
+//! Write `s'` for `s`, or for `-s` when the flag is set. The stored sum is the
+//! value, or its negation when the flag is set, so at the stretch's start it
+//! is zero or has sign `s'`, and every contribution the stretch stores has
+//! sign `s'`. The argument below is stated in `s'`, and never depends on
+//! which sign `s'` is.
+//!
 //! Call the stored form *sign-led* when the value is zero, or its top digit
-//! has sign `s` and no digit `d` has `s · d < -B / 2`. Every storage begins
+//! has sign `s'` and no digit `d` has `s' · d < -B / 2`. Every storage begins
 //! sign-led. `new` and `Default` leave every digit zero, and `From` deposits
 //! a primitive's magnitude pieces, all of one sign, into zeroed digits.
-//! `clone` and `clone_from` copy a normalized value, whose digits all have
-//! its sign. A shift of a value held in digits, borrowed or not, streams the
-//! value's magnitude, every piece of sign `s`, into zeroed storage, so
-//! recentering is the only source of a digit of the other sign, and it
-//! leaves that digit within `B / 2` of zero. A small value's shift deposits
-//! the value itself, of sign `s`, into zeroed digits.
+//! `clone` and `clone_from` copy a normalized value with its flag, so every
+//! copied digit has the stored sum's sign. A shift of a value held in digits,
+//! borrowed or not, streams the value's magnitude, every piece of sign `s`,
+//! into new, zeroed, unflagged storage, so recentering is the only source of
+//! a digit of the other sign, and it leaves that digit within `B / 2` of
+//! zero. A small value's shift deposits the value itself, of sign `s`, into
+//! zeroed digits that activation leaves unflagged. A shift of a zero held in
+//! digits keeps its storage, flag included, but every digit is zero by then:
+//! either the representation already showed zero, or the comparison with
+//! zero that the shift begins with compacted the cancelling digits to zero.
 //!
-//! A one-sign update keeps the form sign-led. Its contributions and carries
-//! all have sign `s`, so each digit moves in direction `s` until it
-//! recenters, which leaves it in `[-B / 2, B / 2)` and carries in sign `s`
-//! to the position above. The top digit therefore keeps sign `s`: a carry
-//! out of it lands higher and starts a new top of sign `s`. So the top never
+//! A one-sign update keeps the form sign-led. Its stored contributions and
+//! carries all have sign `s'`, so each digit moves in direction `s'` until it
+//! recenters, which leaves it in `[-B / 2, B / 2)` and carries in sign `s'`
+//! to the position above. The top digit therefore keeps sign `s'`: a carry
+//! out of it lands higher and starts a new top of sign `s'`. So the top never
 //! falls: no update in the stretch descends, and nothing truncates the
 //! written set. With no truncation and no clear, no bitset word empties
 //! during the stretch, so each word turns nonempty at most once, and the

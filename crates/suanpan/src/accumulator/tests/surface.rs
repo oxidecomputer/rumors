@@ -22,8 +22,8 @@ use num_bigint::{BigInt, BigUint};
 use proptest::prelude::*;
 
 use super::{
-    assert_value, cancelled_top, from_limbs, oracle_sign, own_digits, read_value, Accumulator,
-    TestBig as _,
+    assert_value, cancelled_top, fresh, from_limbs, oracle_sign, own_digits, read_value,
+    Accumulator, TestBig as _,
 };
 
 /// One primitive integer, retaining its Rust type for trait dispatch.
@@ -480,6 +480,10 @@ enum Operand {
         /// The surviving value.
         tail: Primitive,
     },
+    /// Another operand's value, negated: held in digits whose flag is set
+    /// when that value is held in digits, including a zero whose digits
+    /// cancel.
+    Negated(Box<Operand>),
 }
 
 /// Build operand values exclusively through the public arithmetic surface.
@@ -533,6 +537,10 @@ impl Operand {
                 let mut oracle = BigInt::ZERO;
                 tail.apply(PrimitiveArithmetic::AddAssign, &mut actual, &mut oracle);
                 (actual, oracle)
+            }
+            Operand::Negated(operand) => {
+                let (actual, oracle) = operand.values();
+                (-actual, -oracle)
             }
         }
     }
@@ -943,20 +951,45 @@ fn assert_standard_traits(actual: &Accumulator, oracle: &BigInt, step: &Step, tr
     );
     assert_value(&comparand, &comparand_oracle);
 
-    // The same value in its plain stored form: equal, and hashed equally.
+    // The same value in its plain stored form and in flagged digits: all
+    // equal, and hashed equally, whatever the flag, zero included.
     let plain = plain_form(oracle);
-    assert!(
-        actual.stored_copy() == plain,
-        "equality across stored forms after {trace:?}"
-    );
+    let flagged = flagged_form(oracle);
     let hasher = std::collections::hash_map::RandomState::new();
-    assert_eq!(
-        hasher.hash_one(actual.stored_copy()),
-        hasher.hash_one(&plain),
-        "equal values hash equally after {trace:?}"
+    for (form, name) in [(&plain, "plain"), (&flagged, "flagged")] {
+        assert!(
+            actual.stored_copy() == *form,
+            "equality with the {name} form after {trace:?}"
+        );
+        assert_eq!(
+            hasher.hash_one(actual.stored_copy()),
+            hasher.hash_one(form),
+            "equal values hash equally, against the {name} form, after {trace:?}"
+        );
+    }
+    assert!(
+        plain == flagged,
+        "the plain and flagged forms are equal after {trace:?}"
     );
 
     step.primitive.assert_comparisons(actual, oracle, trace);
+}
+
+/// Build the oracle's value in digits whose flag is set, zero included, by
+/// depositing its negation into digits and negating the result.
+fn flagged_form(oracle: &BigInt) -> Accumulator {
+    let mut negation = fresh(true);
+    if oracle.sign() == num_bigint::Sign::Minus {
+        negation.add_shifted_limbs(0, oracle.magnitude().iter_u64_digits());
+    } else {
+        negation.sub_shifted_limbs(0, oracle.magnitude().iter_u64_digits());
+    }
+    let flagged = -negation;
+    assert!(
+        flagged.stored().digits.is_negated(),
+        "the flagged form holds its value in flagged digits"
+    );
+    flagged
 }
 
 /// Build the oracle's value from its limbs, a stored form without cancellation.
@@ -1141,8 +1174,19 @@ fn arb_limbs() -> BoxedStrategy<Vec<u64>> {
     .boxed()
 }
 
-/// Generate operands in both storage modes and around each transition.
+/// Generate operands in both storage modes and around each transition, each
+/// one negated or not.
 fn arb_operand() -> BoxedStrategy<Operand> {
+    prop_oneof![
+        3 => arb_unnegated_operand(),
+        1 => arb_unnegated_operand().prop_map(|operand| Operand::Negated(Box::new(operand))),
+    ]
+    .boxed()
+}
+
+/// Generate operands in both storage modes and around each transition,
+/// without a negation.
+fn arb_unnegated_operand() -> BoxedStrategy<Operand> {
     prop_oneof![
         3 => arb_primitive().prop_map(Operand::Primitive),
         3 => (any::<bool>(), arb_limbs(), arb_shift_value(1024)).prop_map(
@@ -1233,7 +1277,8 @@ proptest! {
     /// Every operation that borrows an accumulator operand leaves its value
     /// unchanged. The observations include formatting, the sign queries,
     /// comparison and equality with another accumulator and with a primitive,
-    /// and equal hashes for equal values in different stored forms.
+    /// and equal hashes for equal values in different stored forms, with the
+    /// digits' flag set or clear.
     #[test]
     fn complete_surface_matches_bigint(
         steps in proptest::collection::vec(arb_step(), 1..=80),

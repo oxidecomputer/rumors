@@ -398,12 +398,8 @@ impl Accumulator {
     ///
     /// Amortized O(1 + `n`) time, where `n` is the narrower operand's width
     /// in limbs, since of two owned operands only the narrower is read. When
-    /// the wider operand is the smaller value, the result is negated in place,
-    /// which costs the result's width, as negation does: within
-    /// O(1 + `n`) when both operands are nonnegative, since the result is
-    /// then below the narrower operand, and up to the wider operand's width
-    /// when that operand is negative. The result keeps the wider operand's
-    /// storage.
+    /// the wider operand is the smaller value, the result is negated in
+    /// place, which costs O(1). The result keeps the wider operand's storage.
     pub fn abs_diff(self, other: Accumulator) -> (Ordering, Accumulator) {
         let (mut wide, narrow, swapped) = if self.reads_other(&other) {
             (self, other, false)

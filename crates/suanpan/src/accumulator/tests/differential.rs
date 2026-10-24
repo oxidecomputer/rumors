@@ -44,6 +44,9 @@ enum Op {
     },
     /// An allocation-shaping reservation: value-neutral by contract.
     Reserve(u64),
+    /// Unary negation of the owned accumulator, which flips the digits'
+    /// flag when the value is held in digits.
+    Negate,
 }
 
 /// Apply one operation to the accumulator and the oracle in lockstep.
@@ -93,12 +96,18 @@ fn apply(acc: &mut Accumulator, oracle: &mut IBig, op: &Op) {
         Op::Reserve(bits) => {
             acc.reserve_bits(*bits);
         }
+        Op::Negate => {
+            *acc = -core::mem::take(acc);
+            *oracle = -core::mem::take(oracle);
+        }
     }
 }
 
 /// A mixed operation stream: mostly small deltas of varying width, some
-/// dense random wide deltas, and some all-ones/all-zeros "cliffy" wide
-/// deltas whose application sits exactly on carry boundaries.
+/// dense random wide deltas, some all-ones/all-zeros "cliffy" wide deltas
+/// whose application sits exactly on carry boundaries, and some negations.
+///
+/// A negation leaves later deltas depositing into flagged digits.
 fn arb_op() -> impl Strategy<Value = Op> {
     prop_oneof![
         4 => (any::<i64>(), 0u32..60).prop_map(|(value, narrowing)| Op::Small(value >> narrowing)),
@@ -148,6 +157,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
                 }
             }),
         1 => (0u64..2_048).prop_map(Op::Reserve),
+        1 => Just(Op::Negate),
     ]
 }
 
@@ -338,7 +348,9 @@ proptest! {
     /// Two independent streams with a clear between them: after the
     /// clear the accumulator equals fresh zero, and the second stream —
     /// whose wide operands re-arm the digit representation over the buffer the
-    /// first stream grew — matches an oracle that starts from zero.
+    /// first stream grew — matches an oracle that starts from zero. Either
+    /// stream may negate, so the clear can meet flagged digits, and the
+    /// second stream's deposits can land in them.
     #[test]
     fn pooled_reuse_after_clear_matches_the_oracle(
         first in proptest::collection::vec(arb_op(), 1..60),

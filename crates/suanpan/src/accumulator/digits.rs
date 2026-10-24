@@ -8,16 +8,28 @@
 //! magnitude is kept below `2B`. This deliberate redundancy is what makes the
 //! accumulator useful: an update can change a few nearby digits without first
 //! normalizing the entire integer. Subtraction is the same operation with
-//! negative contributions, and negation simply negates every digit.
+//! negative contributions.
 //!
-//! Every nonzero contribution enters through [`Digits::add_at`]. If adding at
-//! one position takes its digit outside the permitted range, `add_at` keeps a
-//! centered remainder there and carries the rest upward. Centering leaves
-//! enough distance to the limit that the same digit cannot carry repeatedly
-//! without receiving substantial new input. Consequently, carry work across
-//! a sequence is proportional to the input pieces supplied. One update can
-//! still finish a carry chain prepared by earlier updates; the bound is
-//! amortized over the sequence, not per call.
+//! The value is that sum, or its negation when a flag kept beside the digits
+//! is set, so negation flips the flag and writes no digit. The flag lives at
+//! the boundary of [`Digits`]: its public methods take contributions and
+//! return signs of the value, and apply the flag once there. An update
+//! applies the flag to its [`Update`] before depositing, producing a
+//! [`StoredUpdate`], which the deposit paths require; a read applies it to the
+//! sign it returns; and an operand read applies the operand's flag to the
+//! update it deposits with. Carrying, the scan behind a comparison with zero,
+//! normalizing, and the written set work on the stored digits alone and
+//! never see the flag. Activation and a clear reset the flag, and a copy
+//! keeps it.
+//!
+//! Every nonzero contribution enters through [`Digits::add_stored_at`]. If
+//! adding at one position takes its digit outside the permitted range,
+//! `add_stored_at` keeps a centered remainder there and carries the rest
+//! upward. Centering leaves enough distance to the limit that the same digit
+//! cannot carry repeatedly without receiving substantial new input.
+//! Consequently, carry work across a sequence is proportional to the input
+//! pieces supplied. One update can still finish a carry chain prepared by
+//! earlier updates; the bound is amortized over the sequence, not per call.
 //!
 //! Three facts about the stored form make later work bounded:
 //!
@@ -43,11 +55,16 @@ mod costs;
 mod normalize;
 mod read;
 mod sign;
+mod stored;
 #[cfg(test)]
 mod tests;
 mod written;
 
+use core::cmp::Ordering;
+
+use super::operand::Update;
 use super::{touch, DIGIT_BITS};
+use stored::StoredUpdate;
 use written::WrittenPositions;
 
 /// Twice the base: every stored digit has magnitude strictly below this limit.
@@ -56,7 +73,8 @@ const DIGIT_LIMIT: i128 = 1 << (DIGIT_BITS + 1);
 /// Bias that rounds a carry so its remainder lies in `[-2^31, 2^31)`.
 const RECENTER_BIAS: i128 = 1 << (DIGIT_BITS - 1);
 
-/// Redundant signed digits plus the bounds that keep scans proportional.
+/// Redundant signed digits, a flag that negates their sum, and the bounds
+/// that keep scans proportional.
 ///
 /// The buffer may be empty while the accumulator uses its small representation.
 /// Activating this representation creates digit zero if necessary; thereafter
@@ -66,12 +84,20 @@ const RECENTER_BIAS: i128 = 1 << (DIGIT_BITS - 1);
 pub struct Digits {
     /// Little-endian coefficients of powers of `2^32`.
     digits: Vec<i64>,
+    /// Whether the value is the negation of the digits' sum rather than the
+    /// sum itself.
+    ///
+    /// [`negate`](Self::negate) flips it, and [`activate`](Self::activate),
+    /// [`clear`](Self::clear), and [`discard`](Self::discard) reset it, so it
+    /// is clear whenever the storage is inactive;
+    /// [`copy_into`](Self::copy_into) copies it. Nothing else changes it.
+    negated: bool,
     /// Highest nonzero digit, or zero when every digit is zero.
     highest_nonzero: usize,
     /// Lowest position written since activation, or `usize::MAX`.
     ///
     /// Cancellation does not raise this bound. A comparison with zero also
-    /// deposits through `add_at`, and may lower it by one digit.
+    /// deposits through `add_stored_at`, and may lower it by one digit.
     lowest_written: usize,
     /// Positions that updates have written, so a descending scan can cross
     /// the unwritten zeros between them in one step.
@@ -104,6 +130,7 @@ impl Digits {
     pub fn new() -> Self {
         Self {
             digits: Vec::new(),
+            negated: false,
             highest_nonzero: 0,
             lowest_written: usize::MAX,
             written: WrittenPositions::default(),
@@ -129,6 +156,7 @@ impl Digits {
             matches!(self.written.last_below(usize::MAX), None | Some(0)),
             "inactive digit storage holds no written position but zero"
         );
+        self.negated = false;
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
         // Storage left by `clear` already holds position zero; empty storage
@@ -149,7 +177,43 @@ impl Digits {
             .try_reserve_exact(count.saturating_sub(self.digits.len()));
     }
 
+    /// Return the update that applies `update` to the value by changing the
+    /// stored digits' sum: `update` itself, or its reverse when the flag is
+    /// set.
+    ///
+    /// Every deposit path takes the result, so each update has the flag
+    /// applied once, where it enters.
+    fn to_stored(&self, update: Update) -> StoredUpdate {
+        StoredUpdate::new(update, self.negated)
+    }
+
+    /// Return the update that applies `update` of this value through its
+    /// stored digits' sum: `update` itself, or its reverse when the flag is
+    /// set.
+    ///
+    /// An operand read deposits the operand's stored digits with this update.
+    fn oriented(&self, update: Update) -> Update {
+        if self.negated {
+            update.reversed()
+        } else {
+            update
+        }
+    }
+
+    /// Convert between the sign of the stored digits' sum and the value's
+    /// sign, which are opposite when the flag is set and equal when it is
+    /// clear, and both `Equal` at zero; the conversion is its own inverse.
+    fn orient(&self, sign: Ordering) -> Ordering {
+        if self.negated {
+            sign.reverse()
+        } else {
+            sign
+        }
+    }
+
     /// The stored prefix, including digit zero even when the value is zero.
+    ///
+    /// The digits sum to the value, or to its negation when the flag is set.
     pub fn stored_digits(&self) -> &[i64] {
         self.debug_assert_valid();
         &self.digits[..=self.highest_nonzero]
@@ -160,8 +224,8 @@ impl Digits {
         self.highest_nonzero + 1
     }
 
-    /// Make `target` hold this stored prefix as freshly written digits,
-    /// reusing `target`'s allocation when it suffices.
+    /// Make `target` hold this stored prefix and flag as freshly written
+    /// digits, reusing `target`'s allocation when it suffices.
     ///
     /// The copy holds no digits above the stored prefix, so its retained
     /// length is the prefix's. Its metadata records the copy's own writes
@@ -174,6 +238,7 @@ impl Digits {
         touch(prefix.len() as u64);
         target.digits.clear();
         target.digits.extend_from_slice(prefix);
+        target.negated = self.negated;
         target.highest_nonzero = self.highest_nonzero;
         // The copy holds only the prefix, so its watermark is the floor
         // clamped into that prefix.
@@ -200,6 +265,7 @@ impl Digits {
     /// the buffer from position zero.
     pub fn discard(&mut self) {
         self.digits.clear();
+        self.negated = false;
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
         self.written = WrittenPositions::default();
@@ -219,6 +285,7 @@ impl Digits {
     pub fn debug_fields(&self, fields: &mut core::fmt::DebugStruct<'_, '_>) {
         fields
             .field("digits", &self.digits)
+            .field("negated", &self.negated)
             .field("highest_nonzero", &self.highest_nonzero)
             .field("lowest_written", &self.lowest_written)
             .field("written", &self.written);
@@ -229,22 +296,14 @@ impl Digits {
         self.highest_nonzero == 0 && self.digits[0] == 0
     }
 
-    /// Negate the value, compacting a cancelled top first.
-    ///
-    /// The comparison with zero leaves the top within two digits of the
-    /// value's width, and each stored digit through the top is then negated.
-    /// The symmetric digit range needs no carries.
+    /// Negate the value by flipping the flag, in O(1), writing no digit.
     pub fn negate(&mut self) {
-        self.cmp_zero();
-        for digit in &mut self.digits[..=self.highest_nonzero] {
-            touch(1);
-            *digit = -*digit;
-        }
-        self.debug_assert_valid();
+        touch(1);
+        self.negated = !self.negated;
     }
 
-    /// Zero every digit and reduce the written set to position zero, keeping
-    /// the buffer and the set's storage.
+    /// Zero every digit, clear the flag, and reduce the written set to
+    /// position zero, keeping the buffer and the set's storage.
     ///
     /// Only the positions the set holds are zeroed: every digit above
     /// `highest_nonzero` is zero, and so is every digit at or below it that
@@ -264,6 +323,7 @@ impl Digits {
             touch(1);
             digits[position] = 0;
         });
+        self.negated = false;
         self.highest_nonzero = 0;
         self.lowest_written = usize::MAX;
         self.debug_assert_valid();
@@ -280,11 +340,39 @@ impl Digits {
         self.lowest_written.min(self.highest_nonzero)
     }
 
-    /// Add a nonzero contribution at `pos`, restoring every digit invariant.
+    /// Add a nonzero contribution to the value at `position`, applying the
+    /// flag to it.
     ///
-    /// Callers supply a nonzero contribution of magnitude at most `2^96`.
-    /// That bound leaves `i128` headroom when the existing digit is added.
-    pub fn add_at(&mut self, mut position: usize, mut contribution: i128) {
+    /// Callers supply a nonzero contribution of magnitude at most `2^96`, as
+    /// [`add_stored_at`](Self::add_stored_at) requires. The flag is tested by
+    /// a branch, and the negating path kept out of line, because the flag is
+    /// usually clear: computing the negation and selecting would cost every
+    /// unflagged deposit a 128-bit negation it discards.
+    pub fn add_at(&mut self, position: usize, contribution: i128) {
+        if self.negated {
+            self.add_negated_at(position, contribution);
+        } else {
+            self.add_stored_at(position, contribution);
+        }
+    }
+
+    /// Add the negation of a nonzero contribution to the stored digits' sum
+    /// at `position`: [`add_at`](Self::add_at)'s path for flagged digits.
+    #[cold]
+    #[inline(never)]
+    fn add_negated_at(&mut self, position: usize, contribution: i128) {
+        self.add_stored_at(position, -contribution);
+    }
+
+    /// Add a nonzero contribution to the stored digits' sum at `position`,
+    /// restoring every digit invariant.
+    ///
+    /// The contribution is as stored, with the flag already applied: a
+    /// [`StoredUpdate`] applied it, or it is a comparison's write-back of
+    /// stored digits. Callers supply a nonzero contribution of magnitude at
+    /// most `2^96`. That bound leaves `i128` headroom when the existing digit
+    /// is added.
+    fn add_stored_at(&mut self, mut position: usize, mut contribution: i128) {
         // Sign compaction deliberately clears its old high suffix before
         // restoring the compacted contribution here. Storage is safe during
         // that interval, but `highest_nonzero` becomes exact only on return.

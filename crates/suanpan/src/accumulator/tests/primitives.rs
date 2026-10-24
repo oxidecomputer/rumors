@@ -209,8 +209,9 @@ fn primitive_shift_counts_are_checked() {
     assert!(zero.is_known_zero());
 }
 
-/// Owned arithmetic keeps the selected buffer, preserves subtraction order,
-/// and agrees with borrowed and owned iterator sums.
+/// Owned arithmetic keeps the selected buffer, the wider operand's for
+/// addition and subtraction alike, preserves subtraction order, and agrees
+/// with borrowed and owned iterator sums.
 #[test]
 fn owned_arithmetic_reuses_storage_and_preserves_order() {
     let mut scalar = Accumulator::new();
@@ -235,6 +236,23 @@ fn owned_arithmetic_reuses_storage_and_preserves_order() {
             } else {
                 left.stored().digits.stored_digits().as_ptr()
             };
+            let (minuend, subtrahend) = (left.stored_copy(), right.stored_copy());
+            let selected_by_difference =
+                if subtrahend.stored_digit_count() > minuend.stored_digit_count() {
+                    subtrahend.stored().digits.stored_digits().as_ptr()
+                } else {
+                    minuend.stored().digits.stored_digits().as_ptr()
+                };
+            let difference = minuend - subtrahend;
+            assert_eq!(
+                difference.stored().digits.stored_digits().as_ptr(),
+                selected_by_difference
+            );
+            assert_value(
+                &difference,
+                &((IBig::from(7) << left_shift as usize)
+                    - (IBig::from(11) << right_shift as usize)),
+            );
             let sum = left + right;
             assert_eq!(sum.stored().digits.stored_digits().as_ptr(), selected);
             assert_value(&sum, &expected);
