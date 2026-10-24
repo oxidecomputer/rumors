@@ -1,10 +1,10 @@
 //! Exact numeric measures of causal history.
 //!
 //! A [`Version`](crate::Version) is a nonnegative step function over the party
-//! interval. Its rank is the integral of that function; distance and lag
-//! integrate differences between two [`Version`](crate::Version)s. `min_ticks`
-//! instead finds the shortest event history consistent with one
-//! [`Version`](crate::Version).
+//! interval. Its rank is the integral of that function; distance, lag, and the
+//! rank comparison integrate functions of the difference between two
+//! [`Version`](crate::Version)s. `min_ticks` instead finds the shortest event
+//! history consistent with one [`Version`](crate::Version).
 //!
 //! Each operation has its own module. [`integral`] contains the shared
 //! arithmetic that prevents narrow encoded changes from repeatedly provoking

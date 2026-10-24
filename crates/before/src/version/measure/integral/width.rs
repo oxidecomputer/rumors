@@ -139,7 +139,7 @@ impl SparseWidth {
             // makes the remainder lie in [-2^31, 2^31). In particular,
             // 2^32 - 1 becomes -1 with carry 1, compressing runs of ones.
             // The sum of two input digits and a carry is below 2^33 in
-            // magnitude, so all this arithmetic fits comfortably in i64.
+            // magnitude, so all this arithmetic fits in i64.
             let carry_out = (sum + (1 << 31)) >> 32;
             let remainder = sum - (carry_out << 32);
             if remainder != 0 {

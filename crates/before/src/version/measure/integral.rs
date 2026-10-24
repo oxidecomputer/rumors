@@ -13,7 +13,7 @@
 //!
 //! # Separate heights by how often they need to be read
 //!
-//! The current height is the sum of four components:
+//! The current height is the sum of these components:
 //!
 //! - The opening height stays in `base`. It applies everywhere, so one shifted
 //!   addition at the end accounts for its entire integral.
@@ -34,11 +34,11 @@
 //! Oscillations made of wide deltas remain live: their own input already pays
 //! for reading the wide value.
 //!
-//! At a freeze, the preceding segment is settled first. If its parked height
-//! is much wider than the incoming live changes, that parked height is then
-//! deferred before the next segment starts. This order is essential: the old
-//! parked height still owes the preceding segment, whereas live changes have
-//! already contributed there region by region. Moving them into the parked
+//! At a freeze, the preceding segment is settled first. If its parked height is
+//! much wider than the incoming live changes, that parked height is then
+//! deferred before the next segment starts. The settlement comes first because
+//! the old parked height still owes the preceding segment, whereas live changes
+//! have already contributed there region by region; moving them into the parked
 //! height must affect only subsequent regions. Deferral prevents a wide parked
 //! height from being multiplied again at every later narrow freeze.
 //!
@@ -215,8 +215,8 @@ pub struct Integrator {
     parked: Accumulator,
     /// Sum of region widths since the last freeze.
     segment_width: Accumulator,
-    /// Width tracking begins at the first nonzero freeze and remains active,
-    /// even if parked heights later cancel: deferred heights still need widths.
+    /// Width tracking begins at the first freeze and stays active, even if
+    /// parked heights later cancel: deferred heights still need widths.
     tracks_width: bool,
     /// The initial height, which applies to the entire domain.
     base: Accumulator,
