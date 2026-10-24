@@ -875,7 +875,8 @@ impl Clock {
     ///   padding;
     /// - [`Decode::TrailingBits`] if either component's padding is malformed or
     ///   bytes follow the version;
-    /// - [`Decode::NotCanonical`] if either component is not in normal form;
+    /// - [`Decode::NotCanonical`] if either component is not in normal form,
+    ///   or a leaf of the version has a negative height;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity

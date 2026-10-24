@@ -1065,7 +1065,8 @@ impl Version {
     ///   incomplete;
     /// - [`Decode::TrailingBits`] if the padding is malformed or followed by
     ///   more bytes;
-    /// - [`Decode::NotCanonical`] if the tree is not in normal form;
+    /// - [`Decode::NotCanonical`] if the tree is not in normal form or a
+    ///   leaf's height is negative;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity
