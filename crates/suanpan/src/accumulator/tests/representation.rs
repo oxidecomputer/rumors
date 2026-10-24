@@ -115,6 +115,8 @@ impl Operands {
 const REPRESENTATION_DEPTH: usize = 6;
 
 /// Check every child schedule, then recurse while retaining its operation trace.
+///
+/// Recurses `depth` levels, at most [`REPRESENTATION_DEPTH`].
 fn check_schedules(
     operands: &Operands,
     acc: &Accumulator,

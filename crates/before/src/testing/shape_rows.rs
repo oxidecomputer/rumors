@@ -154,9 +154,10 @@ pub(crate) fn fold_overlay(
 }
 
 /// The plateaus of an oracle event tree: a [`Leaf`] row per preorder leaf.
-/// Recursive, as the oracle is.
 ///
-/// Inverse to [`version_from_rows`] on normal-form trees.
+/// Inverse to [`version_from_rows`] on normal-form trees. Recurses once per
+/// tree level, as the oracle does, inside the envelope the tree's harness
+/// bounds.
 pub(crate) fn oracle_plateaus(tree: &tree::Version) -> Vec<Leaf> {
     fn walk(tree: &tree::Version, offset: &BigUint, depth: u64, out: &mut Vec<Leaf>) {
         match tree {
@@ -177,7 +178,10 @@ pub(crate) fn oracle_plateaus(tree: &tree::Version) -> Vec<Leaf> {
 }
 
 /// The regions of an oracle id tree: ownership and depth per preorder
-/// leaf. Recursive, as the oracle is.
+/// leaf.
+///
+/// Recurses once per tree level, as the oracle does, inside the envelope the
+/// tree's harness bounds.
 pub(crate) fn oracle_regions(tree: &tree::Party) -> Vec<(bool, u64)> {
     fn walk(tree: &tree::Party, depth: u64, out: &mut Vec<(bool, u64)>) {
         match tree {
@@ -196,6 +200,9 @@ pub(crate) fn oracle_regions(tree: &tree::Party) -> Vec<(bool, u64)> {
 /// The coarsest common refinement of oracle event trees, directly by
 /// recursion: split while any input is a node, emit a cell when all are
 /// leaves. `(depth, absolute height per input)` rows, left to right.
+///
+/// Recurses as deep as the deepest input, an oracle tree inside the envelope
+/// its harness bounds.
 pub(crate) fn oracle_cells(inputs: Vec<(BigUint, tree::Version)>) -> Vec<(u64, Vec<BigUint>)> {
     fn walk(inputs: Vec<(BigUint, tree::Version)>, depth: u64, out: &mut Vec<(u64, Vec<BigUint>)>) {
         if inputs
@@ -238,7 +245,8 @@ pub(crate) fn oracle_cells(inputs: Vec<(BigUint, tree::Version)>) -> Vec<(u64, V
 /// every id node has an empty leaf below it (an all-full node would
 /// bottom out in the forbidden `(1, 1)`), so every mapped node's minimum
 /// is zero, and equal sibling leaves cannot occur (`(1, 1)` forbidden,
-/// `(0, 0)` unrepresentable).
+/// `(0, 0)` unrepresentable). Recurses once per level of `tree`, an oracle
+/// tree inside the envelope its harness bounds.
 pub(crate) fn party_as_steps(tree: &tree::Party) -> tree::Version {
     match tree {
         tree::Party::Leaf(owned) => tree::Version::Leaf(BigUint::from(u8::from(*owned))),

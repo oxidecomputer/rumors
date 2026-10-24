@@ -720,7 +720,9 @@ pub(crate) fn disjoint(a: &Id, b: &Id, g: u32) -> bool {
 /// `local + left + right`. The result is the sum of every base in the normal-form
 /// tree — exactly [`tree::Version::min_ticks`](crate::testing::oracles::tree::Version). `g` must
 /// resolve `e` (every real boundary at level `≤ g`), so each level-`g` cell is a
-/// single constant point.
+/// single constant point. The recursion stops by level `g`, and the root cell
+/// alone samples all `2^g` points of the grid, so a grid deep enough to
+/// strain the stack could never finish its first sampling.
 pub(crate) fn min_ticks(e: &Event, g: u32) -> BigUint {
     fn rec(e: &Event, k: u64, level: u32, g: u32, off: &BigUint) -> BigUint {
         let span = 1u64 << (g - level);

@@ -44,6 +44,8 @@ fn dependency_names(manifest: &str) -> Vec<String> {
 
 /// Collect every non-comment source line under `dir` that `pub use`s a
 /// dependency crate, as `(file relative to src/, line content)`.
+///
+/// Recurses once per directory level, a depth the committed source tree fixes.
 fn scan(dir: &Path, root: &Path, deps: &[String], found: &mut Vec<(String, String)>) {
     for entry in std::fs::read_dir(dir).expect("src/ is readable") {
         let path = entry.expect("directory entry is readable").path();

@@ -624,6 +624,7 @@ fn span_decode_verdict_matches_the_composed_form_off_corpus() {
     };
     // A complete tree: `2^depth` leaves with mixed heights.
     fn fan(depth: usize, salt: u64) -> tree::Version {
+        // Recurses `depth` levels, a small literal at every call of `fan`.
         fn go(d: usize, ix: u64, salt: u64) -> tree::Version {
             if d == 0 {
                 tree::Version::leaf(ix.wrapping_mul(2654435761).wrapping_add(salt) % 5)

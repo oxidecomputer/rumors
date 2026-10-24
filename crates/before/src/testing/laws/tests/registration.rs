@@ -35,6 +35,8 @@ fn every_law_group_is_registered() {
 }
 
 /// Adds every `pub static` law-group declaration beneath `path` to `groups`.
+///
+/// Recurses once per directory level, a depth the committed source tree fixes.
 fn collect_group_declarations(path: &Path, groups: &mut BTreeSet<String>) {
     for entry in
         fs::read_dir(path).unwrap_or_else(|error| panic!("reading {}: {error}", path.display()))

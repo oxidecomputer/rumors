@@ -2268,7 +2268,8 @@ fn weight_comb(n: usize) -> Encoding {
     let mut bits = BitsWriter::with_capacity((202 * n - 4) as u64);
     parked_unit_spine(&mut bits, 32 * n);
     // The block: a complete subtree over 2n leaves alternating 0 and 2,
-    // every internal base 0.
+    // every internal base 0. Each level halves `width`, so the recursion is
+    // under 64 levels deep.
     fn block(bits: &mut BitsWriter, width: usize) {
         bits.push(true); // block node flag, base 0
         bits.write_gamma(&BigUint::ZERO);
@@ -2331,7 +2332,8 @@ fn freeze_parade(k: usize) -> Encoding {
     }
     let mut bits = BitsWriter::with_capacity(((4 * FREEZE_DRIFT_BITS + 394) * k - 2) as u64);
     parked_unit_spine(&mut bits, 64 * k);
-    // The min-lifted complete subtree over the descending run.
+    // The min-lifted complete subtree over the descending run. Each level
+    // halves `vals`, so the recursion is under 64 levels deep.
     fn block(bits: &mut BitsWriter, vals: &[BigUint], parent_min: &BigUint) {
         if let [leaf] = vals {
             ev_leaf_wide(bits, &(leaf - parent_min));
@@ -3520,6 +3522,9 @@ fn stagger_id(n: usize, m: usize, i: usize) -> Encoding {
     );
     assert!(i < n, "the operand index addresses one of the n slots");
     let levels = n.trailing_zeros();
+    // `top` halves `m` down to its leaves and calls `path` at each, which
+    // recurses `levels = log2(n)` levels more: log2(m) + log2(n) frames,
+    // word-scale for any buildable population, so plain recursion is safe.
     fn path(bits: &mut BitsWriter, levels: u32, i: usize, t: u32) {
         if t == levels {
             bits.push(false); // the owned slot: terminal tag "00"
