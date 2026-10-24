@@ -7,13 +7,13 @@
 //! It samples each strategy under a committed seed and counts the inputs in
 //! each regime the strategy claims.
 
-use proptest::strategy::{Strategy, ValueTree};
-use proptest::test_runner::{Config, TestRunner};
+use proptest::strategy::Strategy;
 
-use crate::testing::generators::DEFAULT_CASES;
+use crate::testing::generators::census::{
+    assert_default_case_count, assert_floors, regime_floor, sample, Tally, CENSUS_CASES,
+};
 #[cfg(all(feature = "serde", feature = "borsh"))]
 use crate::testing::oracles::codec::verdict;
-use crate::testing::rng::strategy_rng;
 
 use super::{
     arb_clock_encoding, arb_party_encoding, arb_rank_encoding, arb_ranked_encoding,
@@ -23,25 +23,6 @@ use super::{
 /// The census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
 const CENSUS_SEED: u64 = 13;
-
-/// Sampled inputs per strategy.
-const CENSUS_CASES: usize = 400;
-
-/// The regime inputs each default run of a decoder property must expect.
-///
-/// A defect that every input in a regime exposes then escapes one default
-/// run with probability at most `e` to the minus this count: under a quarter
-/// of a percent.
-const REGIME_CASES_PER_RUN: usize = 6;
-
-/// The fewest regime inputs among [`CENSUS_CASES`] samples at which each
-/// default run of a property drawing from the strategy expects
-/// [`REGIME_CASES_PER_RUN`] of them.
-fn floor() -> usize {
-    let cases_per_run =
-        usize::try_from(DEFAULT_CASES).expect("a case count fits in usize on every tested target");
-    (REGIME_CASES_PER_RUN * CENSUS_CASES).div_ceil(cases_per_run)
-}
 
 /// One class of inputs the census counts: its name and its membership test.
 struct Class {
@@ -76,24 +57,25 @@ fn framed_lower_endpoint() -> Option<Class> {
     None
 }
 
-/// Samples `strategy` [`CENSUS_CASES`] times under the census seed, and
-/// counts the inputs in each of `classes`.
-///
-/// Each strategy draws from a fresh runner, so one strategy's draws never
-/// shift another's.
-fn census(strategy: impl Strategy<Value = NearValid>, classes: Vec<Class>) -> Vec<(String, usize)> {
-    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(CENSUS_SEED));
+/// Counts the inputs in each of `classes` among the census's samples of
+/// `strategy`, as tallies against the floor of a property drawing the
+/// strategy at the default case count.
+fn census(
+    strategy: impl Strategy<Value = NearValid>,
+    name: &str,
+    classes: Vec<Class>,
+) -> Vec<Tally> {
     let mut counts = vec![0usize; classes.len()];
-    for _ in 0..CENSUS_CASES {
-        let input = strategy.new_tree(&mut runner).expect("strategy").current();
+    for input in sample(&strategy, CENSUS_SEED) {
         for (class, count) in classes.iter().zip(&mut counts) {
             *count += usize::from((class.holds)(&input));
         }
     }
+    let floor = regime_floor(CENSUS_CASES, 1);
     classes
         .into_iter()
-        .map(|class| class.name)
         .zip(counts)
+        .map(|(class, count)| Tally::new(format!("{name} {}", class.name), count, floor))
         .collect()
 }
 
@@ -109,98 +91,78 @@ fn census(strategy: impl Strategy<Value = NearValid>, classes: Vec<Class>) -> Ve
 /// Each floor follows from that premise and the properties' default case
 /// count, so a regime whose mass falls below what a run needs reads as a
 /// failure here, whatever its count was when last measured.
+///
+/// [`REGIME_CASES_PER_RUN`]: crate::testing::generators::census::REGIME_CASES_PER_RUN
 #[test]
 fn near_valid_strategies_keep_mass_on_their_regimes() {
-    if std::env::var_os("PROPTEST_CASES").is_none() {
-        assert_eq!(
-            Config::default().cases,
-            DEFAULT_CASES,
-            "the floors assume proptest's default case count"
-        );
-    }
+    assert_default_case_count();
     use Regime::*;
-    let tallies = [
-        (
+    let tallies: Vec<Tally> = [
+        census(
+            arb_version_encoding(),
             "version",
-            census(
-                arb_version_encoding(),
-                [
-                    DeepCanonical,
-                    DeepNonCanonical,
-                    CollapsiblePair,
-                    NegativeHeight,
-                    CutInsideTree,
-                ]
-                .map(regime)
-                .into(),
-            ),
+            [
+                DeepCanonical,
+                DeepNonCanonical,
+                CollapsiblePair,
+                NegativeHeight,
+                CutInsideTree,
+            ]
+            .map(regime)
+            .into(),
         ),
-        (
+        census(
+            arb_party_encoding(),
             "party",
-            census(
-                arb_party_encoding(),
-                [
-                    DeepCanonical,
-                    DeepNonCanonical,
-                    CollapsiblePair,
-                    CutInsideTree,
-                ]
-                .map(regime)
-                .into(),
-            ),
+            [
+                DeepCanonical,
+                DeepNonCanonical,
+                CollapsiblePair,
+                CutInsideTree,
+            ]
+            .map(regime)
+            .into(),
         ),
-        (
+        census(
+            arb_rank_encoding(),
             "rank",
-            census(
-                arb_rank_encoding(),
-                [
-                    LongRank,
-                    TooWideRankHeader,
-                    ZeroFinalGroup,
-                    DirtyRankPadding,
-                ]
-                .map(regime)
-                .into(),
-            ),
+            [
+                LongRank,
+                TooWideRankHeader,
+                ZeroFinalGroup,
+                DirtyRankPadding,
+            ]
+            .map(regime)
+            .into(),
         ),
-        (
+        census(
+            arb_clock_encoding(),
             "clock",
-            census(arb_clock_encoding(), vec![regime(ClockVersionDefect)]),
+            vec![regime(ClockVersionDefect)],
         ),
-        (
+        census(
+            arb_span_encoding(),
             "span",
-            census(
-                arb_span_encoding(),
-                [
-                    regime(UnorderedSpan),
-                    regime(DeepLowerEndpoint),
-                    regime(StructuralOverOrdering),
-                ]
-                .into_iter()
-                .chain(framed_lower_endpoint())
-                .collect(),
-            ),
+            [
+                regime(UnorderedSpan),
+                regime(DeepLowerEndpoint),
+                regime(StructuralOverOrdering),
+            ]
+            .into_iter()
+            .chain(framed_lower_endpoint())
+            .collect(),
         ),
-        (
+        census(
+            arb_ranked_encoding(),
             "ranked",
-            census(arb_ranked_encoding(), vec![regime(MismatchedRank)]),
+            vec![regime(MismatchedRank)],
         ),
-    ];
-    let floor = floor();
-    for (strategy, counts) in &tallies {
-        for (class, count) in counts {
-            eprintln!(
-                "census: {strategy} `{class}` in {count} of {CENSUS_CASES} inputs (floor {floor})"
-            );
-        }
-    }
-    for (strategy, counts) in tallies {
-        for (class, count) in counts {
-            assert!(
-                count >= floor,
-                "{strategy} mass on `{class}` fell to {count} of {CENSUS_CASES} sampled inputs \
-                 (floor {floor}): an arm has gone dead or construction no longer reaches the class"
-            );
-        }
-    }
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    assert_floors(
+        &tallies,
+        "an arm has gone dead or construction no longer reaches the class",
+    );
 }

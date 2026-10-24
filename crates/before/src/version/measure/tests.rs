@@ -12,22 +12,22 @@
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
-use proptest::strategy::ValueTree;
-use proptest::test_runner::{Config, TestRunner};
 
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
+use crate::testing::generators::arb_oracle_version;
+use crate::testing::generators::census::{
+    assert_default_case_count, regime_floor, sample, CENSUS_CASES,
+};
 use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{
     arb_deep_or_correlated_pair, arb_multiscale_pair, TWO_VERSION_DIVISOR,
 };
-use crate::testing::generators::{arb_oracle_version, regime_floor, DEFAULT_CASES};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::{Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS};
 use crate::testing::optrace;
 use crate::testing::oracles::flat::{self, check_rank};
 use crate::testing::oracles::function;
-use crate::testing::rng::strategy_rng;
 use crate::{Clock, Party, Rank, Version};
 
 /// Decode a meter-generated encoded shape as a [`Version`].
@@ -502,14 +502,11 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
 /// [`crate::testing::rng::strategy_rng`]).
 const MULTISCALE_CENSUS_SEED: u64 = 17;
 
-/// Sampled pairs in the multi-scale census.
-const MULTISCALE_CENSUS_CASES: usize = 400;
-
 /// Multi-scale pairs keep generator mass on deferral, in single folds and in
 /// co-sweeps, and on exact rank ties.
 ///
 /// Each default run of every property drawing them must expect
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::REGIME_CASES_PER_RUN)
 /// pairs in each regime.
 ///
 /// A pair defers in single folds when
@@ -523,19 +520,9 @@ const MULTISCALE_CENSUS_CASES: usize = 400;
 /// stops reaching a regime fails here whatever the census last read.
 #[test]
 fn multiscale_pairs_keep_mass_on_deferral_and_ties() {
-    if std::env::var_os("PROPTEST_CASES").is_none() {
-        assert_eq!(
-            Config::default().cases,
-            DEFAULT_CASES,
-            "the floors assume proptest's default case count"
-        );
-    }
-    let mut runner =
-        TestRunner::new_with_rng(Config::default(), strategy_rng(MULTISCALE_CENSUS_SEED));
-    let strategy = arb_multiscale_pair();
+    assert_default_case_count();
     let (mut single_deferring, mut cosweep_deferring, mut tied) = (0usize, 0usize, 0usize);
-    for _ in 0..MULTISCALE_CENSUS_CASES {
-        let (a, b) = strategy.new_tree(&mut runner).expect("strategy").current();
+    for (a, b) in sample(&arb_multiscale_pair(), MULTISCALE_CENSUS_SEED) {
         let (ta, tb) = (a.tree(), b.tree());
         let (a, b) = (from_oracle_version(&ta), from_oracle_version(&tb));
         let (_, single_deferrals) = freezes_and_deferrals_during(|| {
@@ -547,9 +534,9 @@ fn multiscale_pairs_keep_mass_on_deferral_and_ties() {
         cosweep_deferring += usize::from(cosweep_deferrals > 0);
         tied += usize::from(ta != tb && ta.rank() == tb.rank());
     }
-    let floor = regime_floor(MULTISCALE_CENSUS_CASES, TWO_VERSION_DIVISOR);
+    let floor = regime_floor(CENSUS_CASES, TWO_VERSION_DIVISOR);
     eprintln!(
-        "census over {MULTISCALE_CENSUS_CASES} multi-scale pairs: deferring in single folds \
+        "census over {CENSUS_CASES} multi-scale pairs: deferring in single folds \
          {single_deferring}, in co-sweeps {cosweep_deferring}, tied {tied} (floor {floor} each)"
     );
     for (regime, count) in [
@@ -559,7 +546,7 @@ fn multiscale_pairs_keep_mass_on_deferral_and_ties() {
     ] {
         assert!(
             count >= floor,
-            "multi-scale pairs reach {regime} in {count} of {MULTISCALE_CENSUS_CASES} sampled \
+            "multi-scale pairs reach {regime} in {count} of {CENSUS_CASES} sampled \
              pairs (floor {floor}): a relation or a height scale has gone dead"
         );
     }

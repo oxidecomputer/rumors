@@ -7,15 +7,15 @@
 //! instead. It samples each strategy under a committed seed and classifies
 //! every case by the lookahead sites the tick walk meets in it.
 
-use proptest::strategy::{Strategy, ValueTree};
-use proptest::test_runner::{Config, TestRunner};
+use proptest::strategy::Strategy;
 
 use crate::testing::oracles::tree;
-use crate::testing::rng::strategy_rng;
 
 use crate::version::tick::BLOCK_SLOTS;
 
-use super::super::{regime_floor, DEFAULT_CASES};
+use super::super::census::{
+    assert_default_case_count, assert_floors, regime_floor, sample, Tally, CENSUS_CASES,
+};
 use super::{
     arb_deep_spine_case, arb_multi_scan_case, arb_spine_case, arb_wide_case, TickCase,
     DEEP_SPINE_CASE_DIVISOR, MULTI_SCAN_CASE_DIVISOR, WIDE_CASE_DIVISOR,
@@ -24,9 +24,6 @@ use super::{
 /// The census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
 const CENSUS_SEED: u64 = 11;
-
-/// Sampled cases per strategy.
-const CENSUS_CASES: usize = 400;
 
 /// The lookahead sites the tick walk meets in one case.
 #[derive(Default)]
@@ -94,24 +91,17 @@ impl Sites {
     }
 }
 
-/// Sample `strategy` [`CENSUS_CASES`] times under the census seed, and count
-/// the cases `in_regime` accepts.
-///
-/// Each count draws from a fresh runner, so one strategy's draws never shift
-/// another's.
+/// Counts the cases `in_regime` accepts among [`CENSUS_CASES`] samples of
+/// `strategy` under the census seed.
 fn census(strategy: impl Strategy<Value = TickCase>, in_regime: impl Fn(&Sites) -> bool) -> usize {
-    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(CENSUS_SEED));
-    (0..CENSUS_CASES)
-        .filter(|_| {
-            let case = strategy.new_tree(&mut runner).expect("strategy").current();
-            in_regime(&Sites::of(&case))
-        })
+    sample(&strategy, CENSUS_SEED)
+        .filter(|case| in_regime(&Sites::of(case)))
         .count()
 }
 
 /// Every co-generated strategy keeps enough generator mass on its pre-scan
 /// regime that each default run of every property over it expects
-/// [`REGIME_CASES_PER_RUN`](super::super::REGIME_CASES_PER_RUN) cases there.
+/// [`REGIME_CASES_PER_RUN`](super::super::census::REGIME_CASES_PER_RUN) cases there.
 ///
 /// The regimes: sites nested three deep and a range holding two sites side by
 /// side (spine), sites nested more deeply than one memo block holds slots
@@ -123,48 +113,36 @@ fn census(strategy: impl Strategy<Value = TickCase>, in_regime: impl Fn(&Sites) 
 /// failure here, whatever its count was when last measured.
 #[test]
 fn co_generated_strategies_keep_mass_on_their_regimes() {
-    if std::env::var_os("PROPTEST_CASES").is_none() {
-        assert_eq!(
-            Config::default().cases,
-            DEFAULT_CASES,
-            "the floors assume proptest's default case count"
-        );
-    }
-    let regimes = [
-        (
+    assert_default_case_count();
+    let tallies = [
+        Tally::new(
             "spine: sites nested three deep",
             census(arb_spine_case(), |s| s.max_nesting >= 3),
             regime_floor(CENSUS_CASES, 1),
         ),
-        (
+        Tally::new(
             "spine: two sites in one range",
             census(arb_spine_case(), |s| s.shared_range),
             regime_floor(CENSUS_CASES, 1),
         ),
-        (
+        Tally::new(
             "deep spine: sites nested past one block",
             census(arb_deep_spine_case(), |s| s.max_nesting > BLOCK_SLOTS),
             regime_floor(CENSUS_CASES, DEEP_SPINE_CASE_DIVISOR),
         ),
-        (
+        Tally::new(
             "wide: a pre-scan past one block",
             census(arb_wide_case(), |s| s.scans_past_one_block() >= 1),
             regime_floor(CENSUS_CASES, WIDE_CASE_DIVISOR),
         ),
-        (
+        Tally::new(
             "multi-scan: two such pre-scans",
             census(arb_multi_scan_case(), |s| s.scans_past_one_block() >= 2),
             regime_floor(CENSUS_CASES, MULTI_SCAN_CASE_DIVISOR),
         ),
     ];
-    for (regime, count, floor) in &regimes {
-        eprintln!("census: `{regime}` in {count} of {CENSUS_CASES} cases (floor {floor})");
-    }
-    for (regime, count, floor) in regimes {
-        assert!(
-            count >= floor,
-            "generator mass on `{regime}` fell to {count} of {CENSUS_CASES} sampled cases \
-             (floor {floor}): an arm has gone dead or normalization collapses its sites"
-        );
-    }
+    assert_floors(
+        &tallies,
+        "an arm has gone dead or normalization collapses its sites",
+    );
 }
