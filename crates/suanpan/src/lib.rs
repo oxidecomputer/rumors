@@ -93,7 +93,7 @@
 //!   `G` exceeds the operand's own width by at most a constant, so it drops
 //!   out of the shift-0 bounds.
 //! - `R` is the receiver's *written span*, from the lowest position written
-//!   since creation or the last reset up to its working width. A shift moves
+//!   since creation or the last clear up to its working width. A shift moves
 //!   the written span with the value.
 //! - `Q` is the width of a read's result, and `S` the working width of a
 //!   shift's result.
@@ -116,7 +116,7 @@
 //! | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 //! | Working-width and known-zero queries | O(1) | O(1) |
 //! | Unary `-` | O(`V`) | O(1) |
-//! | [`reset`](Accumulator::reset) | Amortized O(`R`) | O(1) |
+//! | [`clear`](Accumulator::clear) | Amortized O(`R`) | O(1) |
 //!
 //! The logarithmic terms appear only in the rows for updates at a nonzero
 //! shift. They pay for the bookkeeping that lets comparisons skip positions
@@ -180,13 +180,13 @@
 //! total to a finer scale between stretches and pay each shift only its
 //! width.
 //!
-//! A [`reset`](Accumulator::reset) or a read does not begin a stretch of one
+//! A [`clear`](Accumulator::clear) or a read does not begin a stretch of one
 //! sign: it leaves the window running, and it empties the bookkeeping that
 //! lets comparisons skip unwritten positions while keeping that
-//! bookkeeping's storage. Repeating a reset, an update at a large shift that
+//! bookkeeping's storage. Repeating a clear, an update at a large shift that
 //! reaches a width the window reached before, and a one-limb update below
 //! it costs a base-64 logarithm of that width per round, while each update's
-//! `L` + `G` and the reset's `R` stay constant. Updates after a reset or a
+//! `L` + `G` and the clear's `R` stay constant. Updates after a clear or a
 //! read therefore get only the rows above.
 //!
 //! ## Retained space
@@ -200,7 +200,7 @@
 //! read can extend the working width by at most a constant, and grows the
 //! buffer by exactly that much when it must. An accumulator may retain more
 //! allocation than its working width after cancellation or
-//! [`reset`](Accumulator::reset); [`reserve_bits`](Accumulator::reserve_bits)
+//! [`clear`](Accumulator::clear); [`reserve_bits`](Accumulator::reserve_bits)
 //! avoids repeated growth.
 //!
 //! # Scope

@@ -8,7 +8,7 @@
 //! zero at each level once. The bitset's test-only counters measure both
 //! sides of that inequality.
 //!
-//! The argument also says why a reset cannot begin such a stretch, by a
+//! The argument also says why a clear cannot begin such a stretch, by a
 //! cycle that pays a level per base-64 digit of the width each round. That
 //! cycle is measured here too, as the non-guarantee it documents.
 
@@ -105,22 +105,22 @@ proptest! {
     }
 }
 
-/// Each round of reset, a re-raise with no growth, and one limb at `64^m`
+/// Each round of a clear, a re-raise with no growth, and one limb at `64^m`
 /// below it climbs `m + 1` bitset levels for the limb and `m + 1` levels
-/// for the next reset's clear, at every `m` drawn.
+/// for the next clear, at every `m` drawn.
 ///
-/// This is the cycle the crate's cost argument gives for why a reset cannot
-/// begin a stretch of one sign. The reset leaves `G`'s window running and
+/// This is the cycle the crate's cost argument gives for why a clear cannot
+/// begin a stretch of one sign. The clear leaves `G`'s window running and
 /// the bitset's storage covering the width reached, but empties its words.
 /// The limb at position `q + 2` re-raises the top with a `G` of zero, and
 /// its jump finds position zero held: one level. The limb at `q = 64^m`
 /// lands in the gap below, fills one word at each level from 0 to `m - 1`,
-/// and stops at word zero of level `m`. The reset that follows clears the
+/// and stops at word zero of level `m`. The clear that follows zeroes the
 /// span `q..=q + 2`, three positions, and examines `m + 1` levels emptying
 /// those words again. The first round differs, while the storage grows, so
 /// the exact counts are asserted from the second round on.
 #[test]
-fn reset_cycle_climbs_a_level_per_base_64_digit_each_round() {
+fn clear_cycle_climbs_a_level_per_base_64_digit_each_round() {
     for m in 1..=4u32 {
         let q = 64u64.pow(m);
         let mut acc = Accumulator::new();
@@ -137,7 +137,7 @@ fn reset_cycle_climbs_a_level_per_base_64_digit_each_round() {
                         + (UBig::from(1u8) << usize::try_from(32 * q).unwrap()),
                 ),
             );
-            acc.reset();
+            acc.clear();
             let cleared = written_work(&acc);
             if round == 0 {
                 continue;
@@ -155,7 +155,7 @@ fn reset_cycle_climbs_a_level_per_base_64_digit_each_round() {
             assert_eq!(
                 cleared.cleared - filled.cleared,
                 m as usize + 1,
-                "m = {m}, round {round}: the reset's clear of three positions examines m + 1 levels"
+                "m = {m}, round {round}: the clear of three positions examines m + 1 levels"
             );
         }
     }

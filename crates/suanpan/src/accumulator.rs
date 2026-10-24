@@ -2,7 +2,7 @@
 //!
 //! Small values live directly in an `i128`. Once an operation needs more
 //! range, the value moves into redundant signed digits. It stays there until
-//! reset, even if cancellation later makes the value small again. This
+//! cleared, even if cancellation later makes the value small again. This
 //! one-way transition prevents an alternating workload from repeatedly paying
 //! to convert the same value. An owned operator that reuses its other
 //! operand's storage returns that operand's representation instead.
@@ -71,8 +71,8 @@ const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 /// ```
 ///
 /// See the [crate documentation](crate) for operation costs and input guidance.
-/// `Default` creates zero without allocating. [`reset`](Self::reset) clears
-/// the value and retains its allocation for reuse.
+/// `Default` creates zero without allocating. [`clear`](Self::clear) sets
+/// the value to zero and keeps its storage for reuse.
 pub struct Accumulator {
     /// The value, in a cell so that reads through `&self` can compact it.
     ///
@@ -269,27 +269,37 @@ impl Accumulator {
         other.read(|operand| value.apply_accumulator(operand, shift, Update::Sub));
     }
 
-    /// Reset to zero, retaining allocated storage for reuse.
+    /// Set the value to zero, keeping the storage, as `Vec::clear` keeps a
+    /// vector's capacity.
     ///
-    /// Clearing takes work proportional to the span written since creation or
-    /// the previous reset: like
-    /// [`scaled_signed_magnitude`](Self::scaled_signed_magnitude), it skips
-    /// the low positions that write history shows are still zero. Replacing
-    /// the accumulator with [`new`](Self::new) releases its storage instead,
-    /// and the replacement's first update at a large shift grows a buffer from
-    /// position zero again. Reusing one accumulator through `reset` pays that
-    /// growth once.
+    /// The storage keeps its width, so growing the value back to a width it
+    /// has reached costs nothing more. Replacing the accumulator with
+    /// [`new`](Self::new) releases the storage instead, and the replacement's
+    /// first update at a large shift grows storage from bit zero again.
+    /// Reusing one accumulator through `clear` pays for that growth once.
+    ///
+    /// ```
+    /// use suanpan::Accumulator;
+    ///
+    /// let mut total = Accumulator::new();
+    /// total.add_shifted_limbs(4_096, [1]);
+    /// total.clear();
+    /// assert!(total.is_zero());
+    /// // The storage still reaches bit 4,096, so this update grows nothing.
+    /// total.add_shifted_limbs(4_096, [1]);
+    /// assert!(total > u128::MAX);
+    /// ```
     ///
     /// # Complexity
     ///
     /// Amortized O(`R`) time and O(1) additional space, where `R` is the
-    /// written span before the reset, as the [crate-level cost
+    /// written span before the clear, as the [crate-level cost
     /// model](crate#costs-and-storage) defines it; `R` is at most the working
-    /// width. The bound is amortized because a reset can also clear
+    /// width. The bound is amortized because a clear can also clear
     /// bookkeeping that earlier writes built, work those writes pay for. The
     /// accumulator retains its main allocation.
-    pub fn reset(&mut self) {
-        self.value.get_mut().reset();
+    pub fn clear(&mut self) {
+        self.value.get_mut().clear();
     }
 
     /// Reserve storage for a working width of at least `bits` bits, if the
@@ -298,7 +308,7 @@ impl Accumulator {
     /// This allocation hint does not change the value, and the reservation may
     /// round the request up. Reserving the expected width avoids repeated
     /// allocation growth and its transient memory use.
-    /// [`reset`](Self::reset) retains the reservation; a nontrivial
+    /// [`clear`](Self::clear) retains the reservation; a nontrivial
     /// `<<=` may release it.
     ///
     /// A request that cannot be honored, because it is too large to address

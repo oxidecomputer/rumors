@@ -574,11 +574,11 @@ enum Receiver {
     Small(i64),
     /// A value of several limbs, held in digits.
     Wide(Vec<u64>),
-    /// A value of several limbs, then reset: zero, with its buffer kept.
+    /// A value of several limbs, then clear: zero, with its buffer kept.
     ///
     /// A zero operand can land inside this buffer, which is wider than the
     /// receiver's working width.
-    Reset(Vec<u64>),
+    Clear(Vec<u64>),
     /// A value of several limbs with the digit `2^33 - 2` one position above them.
     ///
     /// Two deposits of `2^32 - 1` there leave a digit just inside the
@@ -602,9 +602,9 @@ impl Receiver {
                 acc.add_shifted_limbs(0, limbs.iter().copied());
                 IBig::from(from_limbs(limbs))
             }
-            Receiver::Reset(limbs) => {
+            Receiver::Clear(limbs) => {
                 acc.add_shifted_limbs(0, limbs.iter().copied());
-                acc.reset();
+                acc.clear();
                 IBig::ZERO
             }
             Receiver::NearLimit(limbs) => {
@@ -627,7 +627,7 @@ fn receiver() -> impl Strategy<Value = Receiver> {
         Just(Receiver::Fresh),
         any::<i64>().prop_map(Receiver::Small),
         proptest::collection::vec(any::<u64>(), 3..=6).prop_map(Receiver::Wide),
-        proptest::collection::vec(any::<u64>(), 3..=6).prop_map(Receiver::Reset),
+        proptest::collection::vec(any::<u64>(), 3..=6).prop_map(Receiver::Clear),
         proptest::collection::vec(any::<u64>(), 3..=6).prop_map(Receiver::NearLimit),
     ]
 }

@@ -403,7 +403,7 @@
 //! cross.
 //!
 //! So a scan with far costs needs one of these since the previous comparison
-//! or normalization, or since construction or reset if there was none:
+//! or normalization, or since construction or clear if there was none:
 //! - an update that wrote at or above the position below the top that the
 //!   previous comparison or normalization left;
 //! - a shift.
@@ -508,7 +508,7 @@
 //! allowed that starting width: creation starts at one position or a
 //! primitive's width, `clone_from`'s row includes O(`Q`) for the copy, and a
 //! shift's row is amortized O(`S`) whatever its actual work. A small value's
-//! `<<=` into storage a reset kept writes only a few digits, yet its row
+//! `<<=` into storage a clear kept writes only a few digits, yet its row
 //! still allows O(`S`), and the fills are charged against that allowance.
 //!
 //! So each update costs O(1) beyond its deposits, its `L`, and its `G`, and
@@ -529,30 +529,30 @@
 //! crosses to the highest position held further down. Later comparisons
 //! charge operations after the stretch.
 //!
-//! A stretch cannot begin at a reset or a read, although each leaves the form
+//! A stretch cannot begin at a clear or a read, although each leaves the form
 //! sign-led. Both clear the written set, which empties the bitset's words but
 //! keeps its storage, and both leave `G`'s window running, so the words a
 //! later update refills are paid for by nothing it is allowed. Repeat this
 //! round, with `q = 64^m` below a width the window reached earlier:
 //!
-//! 1. reset;
+//! 1. clear;
 //! 2. add one limb at position `q + 2`, which re-raises the top with a `G` of
 //!    zero and a jump that finds position zero held, one level;
 //! 3. add one limb at position `q`, in the gap below that run and apart from
 //!    position zero, which fills one word at each level from 0 to `m - 1`
 //!    and stops at level `m`, at word zero: `m + 1` levels.
 //!
-//! The next round's reset clears the span `q..=q + 2`, three positions, and
+//! The next round's clear zeroes the span `q..=q + 2`, three positions, and
 //! climbs `m + 1` levels emptying those words again. Each round costs
 //! Θ(`m`), a base-64 logarithm of the width, while each update's `L` + `G`
-//! and the reset's `R` stay constant. So those updates need the limb row's
-//! log(`W` + 1), and a stretch that began at a reset would promise too
-//! little. `reset_cycle_climbs_a_level_per_base_64_digit_each_round` in the
+//! and the clear's `R` stay constant. So those updates need the limb row's
+//! log(`W` + 1), and a stretch that began at a clear would promise too
+//! little. `clear_cycle_climbs_a_level_per_base_64_digit_each_round` in the
 //! tests measures `m + 1` levels per round at each `m` it draws.
 //!
 //! # Clears
 //!
-//! A read and a reset each *clear* the written set over a span that holds
+//! A read and a clear each *clear* the written set over a span that holds
 //! every position but zero, reducing the set to position zero, held by the
 //! run `0..1` and, in the bitset form, by the bitset too. In the prefix form
 //! a clear costs O(1). In the bitset form, which holds zero by the first
@@ -594,12 +594,12 @@
 //! "Comparisons" never charges it. A read therefore costs amortized
 //! O(1 + `Q`), including its comparison's amortized O(1).
 //!
-//! # Reset
+//! # Clear
 //!
-//! Reset zeroes the digits from the written floor through the top, which
+//! Clear zeroes the digits from the written floor through the top, which
 //! takes O(`R`), and clears the written set over that span, amortized
 //! O(`1 + R / 64`) by "Clears". It raises no term, so it costs amortized
-//! O(`R`). A single reset can still take O(`R` + log(`W` + 1)) when its clear
+//! O(`R`). A single clear can still take O(`R` + log(`W` + 1)) when its clear
 //! climbs every level, work that the insertions that filled those levels'
 //! words paid for.
 //!
@@ -636,7 +636,7 @@
 //!   receiver's retained ones for `<<=` and new ones for a borrowed `<<`, all
 //!   within the shifted value's span, so the argument under "Updates" bounds
 //!   their far costs by that span. The first of them jumps over the run `0..1`
-//!   that activation or the last reset left, which costs O(1) by "Clears".
+//!   that activation or the last clear left, which costs O(1) by "Clears".
 //! - A clone normalizes its source, a read, then copies the `Q` positions of
 //!   the value into a written set of position zero and one run, which needs
 //!   no bitset. The copy's potential, at most 1/2 per digit and one per held

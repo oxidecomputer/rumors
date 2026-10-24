@@ -121,7 +121,7 @@
 //! width; relative segment widths are bounded by the tree structure traversed
 //! inside them. A width's absolute position is not bounded that way, so the
 //! segment and deferred widths each keep one buffer for the whole sweep, and
-//! growing it to a high position happens once. Each reset of either width
+//! growing it to a high position happens once. Each clear of either width
 //! follows a scaled read of the same accumulator (`close_segment` and
 //! `DeferredIntegral::push`), with no write between, so it clears no more
 //! than the span that read already covered. The trade is
@@ -323,16 +323,16 @@ impl Integrator {
                 #[cfg(test)]
                 DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
                 self.deferred.push(parked);
-                self.parked.reset();
+                self.parked.clear();
             }
         }
         self.parked += &self.live;
-        self.live.reset();
+        self.live.clear();
 
         // Keep the buffer. A fresh accumulator would grow from digit 0 to the
         // next segment's weight shift at every freeze, and that shift can sit
-        // Θ(n) digits up. The reset clears only the span this segment wrote.
-        self.segment_width.reset();
+        // Θ(n) digits up. The clear zeroes only the span this segment wrote.
+        self.segment_width.clear();
     }
 
     /// Settle the completed segment and return its parked height, or `None`

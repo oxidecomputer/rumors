@@ -332,15 +332,15 @@ fn build_probe(
 }
 
 proptest! {
-    /// Reset restores the small representation, and a later wide stream
+    /// Clear restores the small representation, and a later wide stream
     /// reuses the retained digit buffer without observing the old value.
     ///
-    /// Two independent streams with a reset between them: after the
-    /// reset the accumulator equals fresh zero, and the second stream —
+    /// Two independent streams with a clear between them: after the
+    /// clear the accumulator equals fresh zero, and the second stream —
     /// whose wide operands re-arm the digit representation over the buffer the
     /// first stream grew — matches an oracle that starts from zero.
     #[test]
-    fn pooled_reuse_after_reset_matches_the_oracle(
+    fn pooled_reuse_after_clear_matches_the_oracle(
         first in proptest::collection::vec(arb_op(), 1..60),
         second in proptest::collection::vec(arb_op(), 1..60),
     ) {
@@ -349,7 +349,7 @@ proptest! {
         for op in &first {
             apply(&mut acc, &mut oracle, op);
         }
-        acc.reset();
+        acc.clear();
         let mut oracle = IBig::from(0);
         assert_value(&acc, &oracle);
         for (step, op) in second.iter().enumerate() {

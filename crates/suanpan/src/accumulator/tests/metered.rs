@@ -23,12 +23,12 @@ fn scaled_reading(acc: &Accumulator) -> (Ordering, UBig, u64) {
     (sign, from_limbs(limbs.as_ref()), shift)
 }
 
-/// A scaled read and a reset skip an untouched low prefix; an unscaled read
+/// A scaled read and a clear skip an untouched low prefix; an unscaled read
 /// visits it.
 ///
 /// A two-limb value at bit 32,000 takes at most sixteen scaled-read touches
 /// but more than a thousand unscaled-read touches. Both reconstruct the same
-/// integer. The reset then also takes at most sixteen touches, and clears the
+/// integer. The clear then also takes at most sixteen touches, and clears the
 /// value and its remembered scale.
 #[test]
 fn scaled_read_costs_the_written_span() {
@@ -60,11 +60,11 @@ fn scaled_read_costs_the_written_span() {
         IBig::from(from_limbs(&[7, 9])) << 32_000usize
     );
     touch_meter::reset();
-    acc.reset();
-    let reset = touch_meter::touches();
+    acc.clear();
+    let cleared = touch_meter::touches();
     assert!(
-        reset <= 16,
-        "the reset cleared {reset} digits: the write watermark is not \
+        cleared <= 16,
+        "the clear touched {cleared} digits: the write watermark is not \
          skipping the never-written prefix"
     );
     assert!(acc.is_known_zero());
@@ -72,7 +72,7 @@ fn scaled_read_costs_the_written_span() {
     assert_eq!(
         (sign, magnitude, shift),
         (Ordering::Equal, UBig::ZERO, 0),
-        "a reset accumulator reads zero at scale zero"
+        "a cleared accumulator reads zero at scale zero"
     );
 }
 
@@ -346,7 +346,7 @@ fn accumulator_operand_rows_cost_the_operand() {
 /// differ. Here `other` is dense and `self` carries interior zeros — 7
 /// touches at the 3-digit tie (1 + 3 reads + 3 deposits) and 11 at the
 /// 5-digit tie (1 + 5 + 5); a swap on the tie would read the zero-bearing
-/// buffer and undercount. The sum and the destination's reset behavior are
+/// buffer and undercount. The sum and the destination's clear behavior are
 /// asserted alongside.
 #[test]
 fn merge_tie_reads_the_operand() {
@@ -378,8 +378,11 @@ fn merge_tie_reads_the_operand() {
         let (sign, magnitude) = receiver.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
         assert_eq!(magnitude, from_limbs(self_limbs) + from_limbs(other_limbs));
-        receiver.reset();
-        assert!(receiver.is_known_zero(), "reset clears the destination");
+        receiver.clear();
+        assert!(
+            receiver.is_known_zero(),
+            "clear sets the destination to zero"
+        );
     }
 }
 
@@ -388,7 +391,7 @@ fn merge_tie_reads_the_operand() {
 ///
 /// With `d` held digits:
 /// - unary `-` touches each digit once: `d`;
-/// - `reset` after `<<= 32` touches each written digit once: `d`, because
+/// - `clear` after `<<= 32` touches each written digit once: `d`, because
 ///   the shift moved the span up one position and left digit zero unwritten;
 /// - `<<=` reads the top digit to rule out zero, normalizes the held digits
 ///   in one pass, then reads and re-deposits each digit: `3d + 1`. The top
@@ -451,11 +454,11 @@ fn held_width_rows_cost_the_held_digits() {
         assert_eq!(magnitude, wide_value.clone() << 32usize);
 
         touch_meter::reset();
-        acc.reset();
+        acc.clear();
         assert_eq!(
             touch_meter::touches(),
             held_digits,
-            "reset at {held_digits} held digits: one touch per written digit \
+            "clear at {held_digits} held digits: one touch per written digit \
              (the shift left digit zero unwritten)"
         );
         assert!(acc.is_known_zero());

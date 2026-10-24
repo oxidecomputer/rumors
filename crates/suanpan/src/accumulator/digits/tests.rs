@@ -74,7 +74,7 @@ impl Digits {
             written[1..]
                 .iter()
                 .all(|&position| position >= self.lowest_written),
-            "a written position other than zero lies below watermark {}, so a reset \
+            "a written position other than zero lies below watermark {}, so a clear \
              would leave it written, after {schedule:?}",
             self.lowest_written
         );

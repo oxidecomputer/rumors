@@ -6,7 +6,7 @@
 //! never changes the tested history; cancellation therefore builds up across
 //! steps until an instruction reads in place. Instructions cover the standard
 //! arithmetic traits with owned and borrowed operands on either side, shifted
-//! limb and accumulator inputs, sums, `abs_diff`, reservation, reset, and
+//! limb and accumulator inputs, sums, `abs_diff`, reservation, clear, and
 //! in-place reads.
 //!
 //! The generators put explicit weight on the representation's boundaries:
@@ -659,8 +659,8 @@ enum Operation {
         /// Whether to negate a borrow, `-&accumulator`.
         borrowed: bool,
     },
-    /// Reset to zero while retaining reusable storage.
-    Reset,
+    /// Clear to zero while retaining reusable storage.
+    Clear,
     /// Reserve storage for a working width in bits, which may be
     /// unsatisfiable, without changing the value.
     Reserve(u64),
@@ -809,8 +809,8 @@ impl Operation {
                 }
                 *oracle = -core::mem::take(oracle);
             }
-            Operation::Reset => {
-                actual.reset();
+            Operation::Clear => {
+                actual.clear();
                 *oracle = BigInt::ZERO;
             }
             Operation::Reserve(bits) => actual.reserve_bits(*bits),
@@ -874,7 +874,7 @@ impl Operation {
             Operation::ShiftedAccumulator { .. } => 3,
             Operation::Shift { .. } => 4,
             Operation::Negate { .. } => 5,
-            Operation::Reset => 6,
+            Operation::Clear => 6,
             Operation::Reserve(_) => 7,
             Operation::Sum { .. } => 8,
             Operation::Read { .. } => 9,
@@ -1190,7 +1190,7 @@ fn arb_operation() -> BoxedStrategy<Operation> {
         2 => (proptest::sample::select(&ShiftForm::ALL[..]), arb_shift())
             .prop_map(|(form, shift)| Operation::Shift { form, shift }),
         1 => any::<bool>().prop_map(|borrowed| Operation::Negate { borrowed }),
-        1 => Just(Operation::Reset),
+        1 => Just(Operation::Clear),
         1 => prop_oneof![
             0u64..=4_096,
             // At least 2^60 bits needs at least 2^58 bytes of storage, more

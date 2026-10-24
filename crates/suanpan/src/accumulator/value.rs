@@ -40,10 +40,10 @@ impl Value {
         }
     }
 
-    /// Reset to zero, retaining allocated storage.
-    pub(crate) fn reset(&mut self) {
+    /// Set the value to zero, keeping its storage.
+    pub(crate) fn clear(&mut self) {
         if self.small.is_none() {
-            self.digits.reset();
+            self.digits.clear();
         }
         self.small = Some(0);
     }
@@ -139,11 +139,11 @@ impl Value {
         match self.small {
             Some(value) => {
                 touch(1);
-                target.digits.clear();
+                target.digits.discard();
                 target.small = Some(value);
             }
             None if self.digits.normalize() == Ordering::Equal => {
-                target.digits.clear();
+                target.digits.discard();
                 target.small = Some(0);
             }
             None => {

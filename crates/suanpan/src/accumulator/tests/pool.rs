@@ -20,7 +20,7 @@
 //!
 //! Each case enables a random subset of step kinds with random weights, which
 //! is swarm testing (Groce et al., ISSTA 2012): some programs grow wide values
-//! with no reset or compacting read among them, while others repeat one
+//! with no clear or compacting read among them, while others repeat one
 //! interaction many times.
 
 use core::cmp::Ordering;
@@ -172,9 +172,9 @@ enum Step {
         /// Whether to negate a borrow, which clones first.
         borrowed: bool,
     },
-    /// `reset`.
-    Reset {
-        /// The member reset.
+    /// `clear`.
+    Clear {
+        /// The member cleared.
         member: usize,
     },
     /// Read in place, keeping the normalized form for later steps.
@@ -307,8 +307,8 @@ kinds! {
     Shift,
     /// [`Step::Negate`].
     Negate,
-    /// [`Step::Reset`].
-    Reset,
+    /// [`Step::Clear`].
+    Clear,
     /// [`Step::Read`].
     Read,
     /// [`Step::Sign`].
@@ -361,7 +361,7 @@ impl Step {
             Step::ParkExtreme { .. } => Kind::ParkExtreme,
             Step::Shift { .. } => Kind::Shift,
             Step::Negate { .. } => Kind::Negate,
-            Step::Reset { .. } => Kind::Reset,
+            Step::Clear { .. } => Kind::Clear,
             Step::Read { .. } => Kind::Read,
             Step::Sign { .. } => Kind::Sign,
             Step::Stable { .. } => Kind::Stable,
@@ -643,8 +643,8 @@ impl Pool {
                 };
                 self.oracles[*member] = -core::mem::take(&mut self.oracles[*member]);
             }
-            Step::Reset { member } => {
-                self.members[*member].reset();
+            Step::Clear { member } => {
+                self.members[*member].clear();
                 self.oracles[*member] = IBig::ZERO;
             }
             Step::Read { member, form } => {
@@ -1073,7 +1073,7 @@ fn arb_step(kind: Kind) -> BoxedStrategy<Step> {
         Kind::Negate => (member(), any::<bool>())
             .prop_map(|(member, borrowed)| Step::Negate { member, borrowed })
             .boxed(),
-        Kind::Reset => member().prop_map(|member| Step::Reset { member }).boxed(),
+        Kind::Clear => member().prop_map(|member| Step::Clear { member }).boxed(),
         Kind::Read => (
             member(),
             prop_oneof![
