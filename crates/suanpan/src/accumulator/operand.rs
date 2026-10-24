@@ -13,12 +13,16 @@
 //! An operand's stored width can exceed its value's width only by cancellation
 //! at its top. Every digit-stored operand is therefore compared with zero
 //! first, which compacts that cancellation once rather than at every read, and
-//! a zero operand is skipped. Adding a zero therefore never grows the buffer,
-//! at any shift.
+//! a zero operand is skipped. Adding a zero accumulator therefore never grows
+//! the buffer, at any shift.
 //!
 //! Position arithmetic uses `u128` until the contribution is known nonzero.
 //! Only then does [`digit_index`] validate its destination. Zero contributions
-//! therefore neither grow the buffer nor reject an otherwise unusable shift.
+//! therefore never extend the buffer toward their position, nor reject an
+//! otherwise unusable shift. A zero primitive or one-limb stream changes
+//! nothing. A zero stream of two or more limbs still moves a small value into
+//! digits before it is read, as every wider stream does, which on a fresh
+//! accumulator allocates digit zero; it adds no digit beyond that.
 
 use core::cmp::Ordering;
 
