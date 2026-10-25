@@ -122,6 +122,10 @@ const LARGE_POPULATION: usize = MAX_PICKS + 3;
 const CENSUS_CASES: usize = 2048;
 
 /// The census's fixed strategy seed, so its counts are reproducible.
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const CENSUS_SEED: u64 = 19;
 
 /// Counts the production-side traces, of [`CENSUS_CASES`] sampled, holding a

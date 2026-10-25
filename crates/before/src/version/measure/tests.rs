@@ -504,6 +504,10 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
 
 /// The multi-scale census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const MULTISCALE_CENSUS_SEED: u64 = 17;
 
 /// Multi-scale pairs keep generator mass on deferral, in single folds and in

@@ -242,6 +242,10 @@ fn dyadic_generators_reach_their_claimed_regimes() {
 
 /// The deep census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const DEEP_CENSUS_SEED: u64 = 13;
 
 /// The depth past which the deep strategies claim their reach.

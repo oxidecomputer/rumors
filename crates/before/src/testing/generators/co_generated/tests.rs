@@ -23,6 +23,10 @@ use super::{
 
 /// The census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const CENSUS_SEED: u64 = 11;
 
 /// The lookahead sites the tick walk meets in one case.

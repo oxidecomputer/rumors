@@ -716,6 +716,10 @@ proptest! {
 
 /// The floor census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const FLOOR_SEED: u64 = 17;
 
 /// The depth past which a site or a version counts as deep: a cell there is

@@ -300,6 +300,10 @@ fn a_bitset_level_reallocating_at_the_upper_unit_alone_stays_within_the_copy_all
 }
 
 /// The seed of the census's skeleton stream.
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const CENSUS_SEED: [u8; 32] = *b"suanpan-fuel interleaving census";
 
 /// The number of skeletons the census draws.
