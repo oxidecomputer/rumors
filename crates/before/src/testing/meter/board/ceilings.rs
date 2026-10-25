@@ -190,12 +190,16 @@ pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 7.0;
 /// decoder's mechanism rather than measured. For `n` input bytes, of which
 /// `p` are payload codes:
 ///
-/// - **The stream buffer.** A borsh decoder reads its stream into one byte
-///   vector that grows by doubling and is shrunk to fit at the end. Its
-///   capacity stays below twice the bytes read, and a growth step or the
-///   final shrink holds the old block and the new one together: at most
-///   `3n` during a reallocation, and `2n` between them. Serde adopts its
-///   input allocation instead, which costs less.
+/// - **The stream buffer.** A borsh decoder reads each part's stream into a
+///   byte vector of its own, which grows by doubling and which the decoded
+///   part seals to its length at the end. Its capacity stays below twice
+///   the bytes read, and a growth step or the final seal holds the old block
+///   and the new one together: at most `3n` during a reallocation, and `2n`
+///   between them. Serde takes the input allocation instead: a party or
+///   version keeps it, sealed, and a clock or span copies its second part's
+///   bytes into a vector of their own and seals the first part to its
+///   length, at most `n` bytes while no parser state is live, which costs
+///   less.
 /// - **The numeric state.** A payload's gamma code spends two input bits per
 ///   value bit, so the codes hold at most `p/2` bytes of value. The decoded
 ///   code holds at most `p/2` bytes, and the running height stores each
@@ -212,9 +216,10 @@ pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 7.0;
 /// forces a later right child, a leaf flag and a code of at least one bit,
 /// so each spends at least three input bits, and the stack costs at most two
 /// bits per input bit, within the 2.5 the bound leaves beside a reallocating
-/// buffer; so topology never raises the bound. A composite's retained
-/// component (a clock's party, a span's lower endpoint) costs one byte per
-/// byte in place of its buffer's three. The
+/// buffer; so topology never raises the bound. A composite's first part (a
+/// clock's party, a span's lower endpoint) is sealed to its own length before
+/// the second part streams, so it costs one byte per byte in place of its
+/// buffer's three. The
 /// bound's constant terms (minimum capacities, a carry digit) lie within
 /// [`HEAP_INTERCEPT_BYTES`]. A one-leaf version whose stream and digit count
 /// both sit just past a power of two reaches the bound: its stream buffer at

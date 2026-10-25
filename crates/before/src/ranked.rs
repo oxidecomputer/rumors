@@ -276,11 +276,12 @@ impl<'a> Ranked<'a> {
     pub fn decode<R: Read>(mut reader: R) -> Result<Ranked<'static>, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        Self::decode_bytes(buf.into())
+        Self::decode_bytes(buf)
     }
 
-    /// Validates an owned canonical key and adopts its version bytes.
-    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Ranked<'static>, Decode> {
+    /// Validates an owned canonical key, giving its version storage of its
+    /// own; the rank prefix is checked against the version and dropped.
+    pub(crate) fn decode_bytes(mut buf: Vec<u8>) -> Result<Ranked<'static>, Decode> {
         // The rank stream is self-delimiting: consume exactly its bytes.
         let mut consumed = 0usize;
         Rank::decode_stream(|| {
@@ -288,8 +289,8 @@ impl<'a> Ranked<'a> {
             consumed += 1;
             Ok(byte)
         })?;
-        let version = Version::decode_bytes(buf.slice(consumed..))?;
-        if !version.rank().encoding_matches(&buf[..consumed]) {
+        let version = Version::decode_bytes(buf.split_off(consumed))?;
+        if !version.rank().encoding_matches(&buf) {
             return Err(Decode::NotCanonical);
         }
         Ok(Ranked::from(version))

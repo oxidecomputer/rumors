@@ -110,7 +110,7 @@ impl core::str::FromStr for Party {
     type Err = ParseValue;
 
     fn from_str(text: &str) -> Result<Self, ParseValue> {
-        text::decode_hex(text, |bytes| Party::decode_bytes(bytes.into()))
+        text::decode_hex(text, Party::decode_bytes)
     }
 }
 
@@ -187,7 +187,7 @@ impl Party {
         // `0b0010_0000`: construction allocates nothing, and every seed
         // shares the one static buffer.
         static SEED_STREAM: &[u8] = &[0b0010_0000];
-        Party::from_canonical(Bits::from_canonical(bytes::Bytes::from_static(SEED_STREAM)))
+        Party::from_canonical(Bits::from_static(SEED_STREAM))
     }
 
     /// Whether this party is equal to [`Party::seed`].
@@ -720,7 +720,7 @@ impl Party {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        Party::decode_bytes(buf.into())
+        Party::decode_bytes(buf)
     }
 
     /// Start reading the canonical ownership tree at its root.

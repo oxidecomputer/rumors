@@ -757,8 +757,8 @@ fn decoded_point_span_shares_one_buffer() {
 /// A strictly-dominating wire span keeps two distinct endpoint streams: the
 /// sharing applies only when the endpoints are equal.
 ///
-/// Both endpoints adopt slices of the one read buffer (no per-endpoint copy),
-/// observable as the decode reproducing both components byte-for-byte.
+/// Each endpoint owns its own buffer, so the two never read as clones, and
+/// each equals the endpoint that was encoded.
 #[test]
 fn decoded_strict_span_keeps_distinct_endpoints() {
     let mut clock = Clock::seed();

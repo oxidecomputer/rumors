@@ -7,8 +7,8 @@
 //!
 //! Decoding the lower endpoint first reveals the byte boundary between them.
 //! The upper endpoint is then validated and compared with the lower endpoint
-//! in one pass. Accepted endpoints retain slices of the input buffer; equal
-//! endpoints share the lower endpoint's slice.
+//! in one pass. Each accepted endpoint owns storage sized to its own encoding;
+//! equal endpoints share the lower endpoint's buffer, as [`Span::at`]'s do.
 
 use std::io::{self, Read, Write};
 
@@ -128,22 +128,22 @@ impl<'a> Span<'a> {
     pub fn decode<R: Read>(mut reader: R) -> Result<Span<'static>, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        Self::decode_bytes(buf.into())
+        Self::decode_bytes(buf)
     }
 
-    /// Validates an owned canonical encoding and shares its storage between
-    /// the endpoints.
-    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Span<'static>, Decode> {
+    /// Validates an owned canonical encoding, giving each distinct endpoint
+    /// storage of its own; equal endpoints share one buffer, as
+    /// [`Span::at`]'s do.
+    pub(crate) fn decode_bytes(buf: Vec<u8>) -> Result<Span<'static>, Decode> {
         // A version encoding is self-delimiting and byte-aligned, so the
         // lower endpoint's encoding ends at the byte where the upper
         // endpoint's begins.
-        let (lo, lo_bytes) = Version::decode_prefix(&buf)?;
+        let (lo, hi_bytes) = Version::decode_head(buf)?;
 
         // The lower endpoint is now known to be canonical. That lets the
         // admission walk validate the upper endpoint while deciding whether it
         // equals, dominates, or fails to dominate the lower endpoint. A span
         // accepts only the first two relations.
-        let hi_bytes = buf.slice(lo_bytes..);
         let mut hi_reader = BitsReader::from_bytes(&hi_bytes);
         let relation = validate::dominating_from(&lo, &mut hi_reader)?;
 
@@ -154,8 +154,12 @@ impl<'a> Span<'a> {
 
         let hi = match relation {
             Admission::Refuted => return Err(Decode::NotCanonical),
+            // The walk proved the upper endpoint byte-equal to the lower, so
+            // the span holds the lower endpoint's buffer twice and drops the
+            // upper endpoint's bytes. The shared storage lets classification
+            // recognize the point span without comparing its endpoints.
             Admission::Equal => lo.clone(),
-            Admission::Dominates => Version::from_canonical(Bits::from_canonical(hi_bytes)),
+            Admission::Dominates => Version::from_canonical(Bits::from_canonical_vec(hi_bytes)),
         };
         Ok(Span::owned(lo, hi))
     }

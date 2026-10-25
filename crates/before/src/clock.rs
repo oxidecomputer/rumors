@@ -886,14 +886,14 @@ impl Clock {
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
-        Self::decode_bytes(buf.into())
+        Self::decode_bytes(buf)
     }
 
-    /// Validates an owned canonical encoding and shares its storage between
-    /// the party and version.
-    pub(crate) fn decode_bytes(buf: bytes::Bytes) -> Result<Self, Decode> {
-        let (party, party_bytes) = Party::decode_prefix(&buf)?;
-        let version = Version::decode_bytes(buf.slice(party_bytes..))?;
+    /// Validates an owned canonical encoding, giving the party and the version
+    /// separate storage, each sized to its own encoding.
+    pub(crate) fn decode_bytes(buf: Vec<u8>) -> Result<Self, Decode> {
+        let (party, rest) = Party::decode_head(buf)?;
+        let version = Version::decode_bytes(rest)?;
         Ok(Clock::from_parts(party, version))
     }
 
