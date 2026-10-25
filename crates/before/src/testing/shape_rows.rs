@@ -12,12 +12,56 @@
 //! oracle trees (the normalizing constructors collapse any fragments a
 //! refinement introduced), which the existing function-space comparisons
 //! then scan.
+//!
+//! A version's rows are [`Leaf`]s. [`oracle_plateaus`] reads them off an
+//! oracle tree and [`version_from_rows`] closes them back into one, through
+//! the one bottom-up closer every row listing here shares; on normal-form
+//! trees the two are inverse. The deep version strategies
+//! ([`crate::testing::generators::leaf_list`]) draw versions as such rows.
 
 use std::sync::Arc;
 
 use crate::shape::{Cell, Plateau, Region, Rise};
 use crate::testing::oracles::tree;
 use num_bigint::BigUint;
+
+/// One leaf of a version's row listing: its depth and its absolute height.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Leaf {
+    /// The leaf's depth below the root; its width is `2^-depth`.
+    pub(crate) depth: u64,
+    /// The sum of the bases on the leaf's root-to-leaf path.
+    pub(crate) height: BigUint,
+}
+
+/// Closes a row listing's leaves, given in stream order with their depths,
+/// into one tree, iteratively.
+///
+/// A stack holds the subtrees still waiting for a sibling. While the incoming
+/// subtree and the top of the stack sit at one depth, they are siblings: they
+/// close through `node` into one subtree a level up. Leaves that tile `[0, 1)`
+/// exactly close into one root at depth 0.
+///
+/// # Panics
+///
+/// Panics if the depths do not tile `[0, 1)` exactly.
+fn close_rows<T>(leaves: impl IntoIterator<Item = (u64, T)>, node: impl Fn(T, T) -> T) -> T {
+    let mut open: Vec<(u64, T)> = Vec::new();
+    for (mut depth, mut subtree) in leaves {
+        while open.last().is_some_and(|(top, _)| *top == depth) {
+            let (_, left) = open.pop().expect("the loop condition saw a top entry");
+            subtree = node(left, subtree);
+            depth = depth
+                .checked_sub(1)
+                .expect("rows tile the unit interval: two subtrees close above the root");
+        }
+        open.push((depth, subtree));
+    }
+    match (open.pop(), open.is_empty()) {
+        (Some((0, root)), true) => root,
+        _ => panic!("rows tile the unit interval: some subtree is left without a sibling"),
+    }
+}
 
 /// Apply one rise to a running height, asserting the vocabulary's
 /// invariants in passing: magnitudes are nonzero and the height never
@@ -41,30 +85,24 @@ pub(crate) fn apply_rise(height: &mut BigUint, rise: &Option<Rise>) {
 /// preorder leaf listing, adjacent equal depths merge bottom-up and the
 /// whole sequence must close to the single depth-0 interval.
 pub(crate) fn assert_tiles(depths: impl IntoIterator<Item = u64>) {
-    let mut stack: Vec<u64> = Vec::new();
-    for depth in depths {
-        stack.push(depth);
-        while stack.len() >= 2 && stack[stack.len() - 1] == stack[stack.len() - 2] {
-            let merged = stack.pop().expect("two entries are on the stack");
-            assert!(merged > 0, "two whole intervals cannot both be present");
-            *stack.last_mut().expect("one entry remains") = merged - 1;
-        }
-    }
-    assert_eq!(stack, vec![0], "widths sum to exactly 1");
+    close_rows(depths.into_iter().map(|depth| (depth, ())), |(), ()| ());
 }
 
-/// Fold a plateau stream into absolute `(height, depth)` rows, asserting
+/// Fold a plateau stream into absolute [`Leaf`] rows, asserting
 /// canonicality and tiling in passing.
-pub(crate) fn fold_heights(plateaus: impl IntoIterator<Item = Plateau>) -> Vec<(BigUint, u64)> {
+pub(crate) fn fold_heights(plateaus: impl IntoIterator<Item = Plateau>) -> Vec<Leaf> {
     let mut height = BigUint::ZERO;
-    let rows: Vec<(BigUint, u64)> = plateaus
+    let rows: Vec<Leaf> = plateaus
         .into_iter()
         .map(|plateau| {
             apply_rise(&mut height, &plateau.rise);
-            (height.clone(), plateau.depth)
+            Leaf {
+                depth: plateau.depth,
+                height: height.clone(),
+            }
         })
         .collect();
-    assert_tiles(rows.iter().map(|&(_, depth)| depth));
+    assert_tiles(rows.iter().map(|leaf| leaf.depth));
     rows
 }
 
@@ -115,12 +153,17 @@ pub(crate) fn fold_overlay(
     rows
 }
 
-/// The plateaus of an oracle event tree: absolute height and depth per
-/// preorder leaf. Recursive, as the oracle is.
-pub(crate) fn oracle_plateaus(tree: &tree::Version) -> Vec<(BigUint, u64)> {
-    fn walk(tree: &tree::Version, offset: &BigUint, depth: u64, out: &mut Vec<(BigUint, u64)>) {
+/// The plateaus of an oracle event tree: a [`Leaf`] row per preorder leaf.
+/// Recursive, as the oracle is.
+///
+/// Inverse to [`version_from_rows`] on normal-form trees.
+pub(crate) fn oracle_plateaus(tree: &tree::Version) -> Vec<Leaf> {
+    fn walk(tree: &tree::Version, offset: &BigUint, depth: u64, out: &mut Vec<Leaf>) {
         match tree {
-            tree::Version::Leaf(n) => out.push((offset + n, depth)),
+            tree::Version::Leaf(n) => out.push(Leaf {
+                depth,
+                height: offset + n,
+            }),
             tree::Version::Node(n, l, r) => {
                 let offset = offset + n;
                 walk(l, &offset, depth + 1, out);
@@ -207,31 +250,22 @@ pub(crate) fn party_as_steps(tree: &tree::Party) -> tree::Version {
     }
 }
 
-/// Rebuild the oracle event tree a `(height, depth)` row listing
-/// describes, through the normalizing constructor — fragments a
-/// refinement introduced collapse back, so the result is the normal form
-/// of the rows' step function.
+/// Rebuild the oracle event tree a [`Leaf`] row listing describes, through
+/// the normalizing constructor — fragments a refinement introduced collapse
+/// back, so the result is the normal form of the rows' step function.
+///
+/// Inverse to [`oracle_plateaus`] on normal-form trees. Iterative, so rows of
+/// any depth close.
 ///
 /// # Panics
 ///
 /// Panics if the rows do not tile the unit interval.
-pub(crate) fn version_from_rows(rows: &[(BigUint, u64)]) -> tree::Version {
-    let mut stack: Vec<(tree::Version, u64)> = Vec::new();
-    for (height, depth) in rows {
-        stack.push((tree::Version::Leaf(height.clone()), *depth));
-        while stack.len() >= 2 && stack[stack.len() - 1].1 == stack[stack.len() - 2].1 {
-            let (right, depth) = stack.pop().expect("two entries are on the stack");
-            let (left, _) = stack.pop().expect("one entry remains");
-            assert!(depth > 0, "two whole intervals cannot both be present");
-            stack.push((tree::Version::node(BigUint::ZERO, left, right), depth - 1));
-        }
-    }
-    let [(tree, 0)] =
-        <[(tree::Version, u64); 1]>::try_from(stack).expect("rows tile the unit interval")
-    else {
-        panic!("rows tile the unit interval");
-    };
-    tree
+pub(crate) fn version_from_rows(rows: &[Leaf]) -> tree::Version {
+    close_rows(
+        rows.iter()
+            .map(|leaf| (leaf.depth, tree::Version::Leaf(leaf.height.clone()))),
+        |left, right| tree::Version::node(BigUint::ZERO, left, right),
+    )
 }
 
 /// Rebuild the oracle id tree an `(owned, depth)` row listing describes,
@@ -241,20 +275,9 @@ pub(crate) fn version_from_rows(rows: &[(BigUint, u64)]) -> tree::Version {
 ///
 /// Panics if the rows do not tile the unit interval.
 pub(crate) fn party_from_rows(rows: &[(bool, u64)]) -> tree::Party {
-    let mut stack: Vec<(tree::Party, u64)> = Vec::new();
-    for (owned, depth) in rows {
-        stack.push((tree::Party::Leaf(*owned), *depth));
-        while stack.len() >= 2 && stack[stack.len() - 1].1 == stack[stack.len() - 2].1 {
-            let (right, depth) = stack.pop().expect("two entries are on the stack");
-            let (left, _) = stack.pop().expect("one entry remains");
-            assert!(depth > 0, "two whole intervals cannot both be present");
-            stack.push((tree::Party::node(left, right), depth - 1));
-        }
-    }
-    let [(tree, 0)] =
-        <[(tree::Party, u64); 1]>::try_from(stack).expect("rows tile the unit interval")
-    else {
-        panic!("rows tile the unit interval");
-    };
-    tree
+    close_rows(
+        rows.iter()
+            .map(|&(owned, depth)| (depth, tree::Party::Leaf(owned))),
+        tree::Party::node,
+    )
 }

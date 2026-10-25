@@ -1,14 +1,17 @@
 //! The law drivers: one generic proptest per signature group, iterating
 //! [`crate::testing::laws`]' slices so every assertion names the law it checks.
 //!
-//! Both drivers — the per-group proptests and the
-//! organic-populations drive list — expand from the law-group roster
-//! (`crate::for_each_law_group!`), so every registered group is driven
-//! here by construction. Each driver's doc comment states the
-//! meta-invariant; the individual laws' statements live with their
-//! predicates in [`crate::testing::laws`]. No assertion's right-hand side mentions
-//! the oracle: the laws hold by the ITC algebra, so they catch a defect
-//! the impl and the recursive oracle would share.
+//! Every driver expands from the law-group roster
+//! (`crate::for_each_law_group!`): the per-group proptests over arbitrary
+//! normal forms, the organic-populations drive list, the per-group proptests
+//! over deep inputs in [`deep`], and those over multi-scale pairs in
+//! [`multiscale`], which take the groups over one version, over two, and over
+//! ranks. So every registered group is driven here by construction. Each
+//! driver's doc comment states the meta-invariant; the individual laws'
+//! statements live with their predicates in [`crate::testing::laws`]. No
+//! assertion's right-hand side mentions the oracle: the laws hold by the ITC
+//! algebra, so they catch a defect the impl and the recursive oracle would
+//! share.
 
 use proptest::prelude::*;
 
@@ -447,3 +450,8 @@ proptest! {
         crate::for_each_law_group!(organic_drive(&organic));
     }
 }
+
+// ───────────────────────────── deep inputs ─────────────────────────────
+
+mod deep;
+mod multiscale;

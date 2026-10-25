@@ -2,38 +2,46 @@
 
 use proptest::prelude::*;
 
-use super::DiffOp;
+use super::{DiffOp, Legs};
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::optrace::{run, world_strategy};
 use crate::testing::oracles::tree;
 
 /// Asserts every descriptor in a slice and identifies a failing descriptor.
+///
+/// Every comparison runs unless the first argument names [`Legs`] to run
+/// instead.
 macro_rules! assert_diff_ops {
-    ($group:expr, $($input:expr),+) => {
+    (legs: $legs:expr, $group:expr, $($input:expr),+) => {
         for (name, check) in $group {
-            prop_assert!(check($($input),+), "descriptor violated: {}", name);
+            prop_assert!(check($legs, $($input),+), "descriptor violated: {}", name);
         }
+    };
+    ($group:expr, $($input:expr),+) => {
+        assert_diff_ops!(legs: Legs::All, $group, $($input),+)
     };
 }
 
 // ───────────────────── the drivers ─────────────────────
 //
-// Two populations, one drive list each, both expanded from the group
-// roster: a descriptor added to a group with a known signature meets both
-// with no further wiring, and a group with a novel signature refuses to
-// compile until each consumer grows an arm. The populations are held
-// oracle-side and raised through the bridge inside each descriptor, which
-// is also why `!Clone` production types cost nothing here.
+// Every population has one drive list, and every list expands from the group
+// roster: a descriptor added to a group with a known signature meets every
+// population with no further wiring, and a group with a novel signature
+// refuses to compile until each consumer grows an arm. The populations are
+// held oracle-side and raised through the bridge inside each descriptor,
+// which is also why `!Clone` production types cost nothing here.
 //
-// Every arm also owes the function-space spellings a bounded population:
-// a function-space comparison scans `2^g` grid points at the grid `fs_grid` derives from its
-// operands' structural depths, so each arm's operands must come from a
-// depth-capped source. Both populations satisfy it by construction — the
-// arbitrary generators recurse to `generators::ARB_DEPTH`, and the organic
-// traces bound tree depth by `optrace::MAX_TRACE_OPS` (one level per op at
-// most) — and `fs_grid`'s own assert holds the one representation bound
-// (the `Dyadic` u64 index width) against a population that escapes both
-// derivations.
+// Every arm that runs the function-space spellings owes them a bounded
+// population: a function-space comparison scans `2^g` grid points at the
+// grid `fs_grid` derives from its operands' structural depths, so each such
+// arm's operands must come from a depth-capped source. The arbitrary and
+// organic populations satisfy it by construction — the arbitrary generators
+// recurse to `generators::ARB_DEPTH`, and the organic traces bound tree depth
+// by `optrace::MAX_TRACE_OPS` (one level per op at most) — and `fs_grid`'s
+// own assert holds the one representation bound (the `Dyadic` u64 index
+// width) against a population that escapes both derivations. The deep
+// population in `deep` escapes them by design, so its drivers skip the
+// function-space spellings (`Legs::TreeOracle`).
 
 /// Generates one arbitrary-population property for each descriptor group.
 macro_rules! group_drivers {
@@ -173,6 +181,8 @@ macro_rules! group_drivers {
 }
 
 for_each_diff_group!(group_drivers);
+
+mod deep;
 
 /// Inputs selected from one organically generated clock population.
 struct Organic<'a> {
@@ -326,7 +336,7 @@ diff_ops! {
 // require a redundant alias for each signature to appease the lint.
 #[allow(clippy::type_complexity)]
 fn check_version_pair(
-    group: &[DiffOp<fn(&tree::Version, &tree::Version) -> bool>],
+    group: &[DiffOp<fn(Legs, &tree::Version, &tree::Version) -> bool>],
     a: &tree::Version,
     b: &tree::Version,
 ) -> Result<(), TestCaseError> {
@@ -339,7 +349,7 @@ fn check_version_pair(
 // require a redundant alias for each signature to appease the lint.
 #[allow(clippy::type_complexity)]
 fn check_party_pair(
-    group: &[DiffOp<fn(&tree::Party, &tree::Party) -> bool>],
+    group: &[DiffOp<fn(Legs, &tree::Party, &tree::Party) -> bool>],
     a: &tree::Party,
     b: &tree::Party,
 ) -> Result<(), TestCaseError> {

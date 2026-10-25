@@ -10,7 +10,7 @@
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, TestRunner};
 
-use crate::testing::generators::co_generated::DEFAULT_CASES;
+use crate::testing::generators::DEFAULT_CASES;
 #[cfg(all(feature = "serde", feature = "borsh"))]
 use crate::testing::oracles::codec::verdict;
 use crate::testing::rng::strategy_rng;

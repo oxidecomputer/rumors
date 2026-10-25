@@ -1701,7 +1701,7 @@ proptest! {
 }
 
 proptest! {
-    #![proptest_config(co_generated::divided_config(co_generated::WIDE_CASE_DIVISOR))]
+    #![proptest_config(generators::divided_config(co_generated::WIDE_CASE_DIVISOR))]
 
     /// A pre-scan reserving more memo slots than one block holds ticks
     /// byte-identically to the recursive oracle through `tick` and `ticks`,
@@ -1718,7 +1718,7 @@ proptest! {
 }
 
 proptest! {
-    #![proptest_config(co_generated::divided_config(co_generated::MULTI_SCAN_CASE_DIVISOR))]
+    #![proptest_config(generators::divided_config(co_generated::MULTI_SCAN_CASE_DIVISOR))]
 
     /// Walks running several pre-scans, often two or more past one memo
     /// block, tick byte-identically to the recursive oracle through `tick`

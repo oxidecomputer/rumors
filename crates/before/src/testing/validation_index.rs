@@ -17,8 +17,9 @@
 //! **The pointwise differential table** ([`super::diff_ops`]). Every
 //! deterministic operation in the three models' common vocabulary is spelled
 //! once for production, the recursive oracle, and the function-space oracle.
-//! Shared drivers apply every descriptor to arbitrary normal forms and values
-//! produced by realistic operation traces.
+//! Shared drivers apply every descriptor to arbitrary normal forms, to values
+//! produced by realistic operation traces, and, against the recursive oracle
+//! alone, to the deep populations below.
 //! What it alone catches: **population holes** — an operation checked on
 //! arbitrary shapes but not on causally related values, or the reverse.
 //!
@@ -112,6 +113,24 @@
 //! The codec suites' rejection tests damage arbitrary values no deeper than
 //! the generators' `ARB_DEPTH` and a few small fixed shapes, and judge an
 //! accepted mutation against production's own writer.
+//!
+//! **Deep generated populations** ([`super::generators::leaf_list`] and
+//! [`super::generators::regions`]). These strategies draw versions as leaf
+//! lists with absolute heights, to depth 300 as bushy trees, spines,
+//! zigzags, and combs, and parties as unions of dyadic intervals, to depth
+//! 80. Pairs are related by construction, so equal pairs and distinct pairs
+//! of equal rank are common, and party families of up to ten are pairwise
+//! disjoint or overlap in one inserted party. They feed every law group,
+//! every differential descriptor against the recursive oracle, and the
+//! measure tests, whose multi-scale pairs freeze and defer parked heights in
+//! the rank integral, in single folds and in co-sweeps. They add no judge of
+//! their own. What they alone reach: **arbitrary shapes past depth four** —
+//! random topology where the arbitrary generators stop, accepted
+//! `join_all` families of more than four unrelated parties, and deferral
+//! in arbitrary rather than named shapes. The fixed deep families reach depth
+//! only along their chosen shapes. Their versions pass through
+//! production's writer on the way to every judge, so a canonicalization
+//! error the writer and the bridge share passes them.
 //!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:

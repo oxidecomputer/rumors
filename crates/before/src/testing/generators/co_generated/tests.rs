@@ -16,9 +16,10 @@ use crate::testing::rng::strategy_rng;
 
 use crate::version::tick::BLOCK_SLOTS;
 
+use super::super::{regime_floor, DEFAULT_CASES};
 use super::{
-    arb_multi_scan_case, arb_spine_case, arb_wide_case, TickCase, DEFAULT_CASES,
-    MULTI_SCAN_CASE_DIVISOR, WIDE_CASE_DIVISOR,
+    arb_multi_scan_case, arb_spine_case, arb_wide_case, TickCase, MULTI_SCAN_CASE_DIVISOR,
+    WIDE_CASE_DIVISOR,
 };
 
 /// The census seed: names the sampled corpus (see
@@ -27,13 +28,6 @@ const CENSUS_SEED: u64 = 11;
 
 /// Sampled cases per strategy.
 const CENSUS_CASES: usize = 400;
-
-/// The regime cases each default run of a strategy's property must expect.
-///
-/// A defect that every regime case exposes then escapes one default run with
-/// probability at most `e` to the minus this count: under a quarter of a
-/// percent.
-const REGIME_CASES_PER_RUN: usize = 6;
 
 /// The lookahead sites the tick walk meets in one case.
 #[derive(Default)]
@@ -121,18 +115,9 @@ fn census(strategy: impl Strategy<Value = TickCase>, in_regime: impl Fn(&Sites) 
         .count()
 }
 
-/// The census floor for a property that runs the default case count divided
-/// by `divisor`: the fewest regime cases among [`CENSUS_CASES`] samples at
-/// which each default run expects [`REGIME_CASES_PER_RUN`] of them.
-fn floor(divisor: u32) -> usize {
-    let cases_per_run = usize::try_from(DEFAULT_CASES.div_ceil(divisor))
-        .expect("a case count fits in usize on every tested target");
-    (REGIME_CASES_PER_RUN * CENSUS_CASES).div_ceil(cases_per_run)
-}
-
 /// Every co-generated strategy keeps enough generator mass on its pre-scan
 /// regime that each default run of its property expects
-/// [`REGIME_CASES_PER_RUN`] cases there.
+/// [`REGIME_CASES_PER_RUN`](super::super::REGIME_CASES_PER_RUN) cases there.
 ///
 /// The regimes: sites nested three deep and a range holding two sites side by
 /// side (spine), a pre-scan reserving more slots than one memo block holds
@@ -153,22 +138,22 @@ fn co_generated_strategies_keep_mass_on_their_regimes() {
         (
             "spine: sites nested three deep",
             census(arb_spine_case(), |s| s.max_nesting >= 3),
-            floor(1),
+            regime_floor(CENSUS_CASES, 1),
         ),
         (
             "spine: two sites in one range",
             census(arb_spine_case(), |s| s.shared_range),
-            floor(1),
+            regime_floor(CENSUS_CASES, 1),
         ),
         (
             "wide: a pre-scan past one block",
             census(arb_wide_case(), |s| s.scans_past_one_block() >= 1),
-            floor(WIDE_CASE_DIVISOR),
+            regime_floor(CENSUS_CASES, WIDE_CASE_DIVISOR),
         ),
         (
             "multi-scan: two such pre-scans",
             census(arb_multi_scan_case(), |s| s.scans_past_one_block() >= 2),
-            floor(MULTI_SCAN_CASE_DIVISOR),
+            regime_floor(CENSUS_CASES, MULTI_SCAN_CASE_DIVISOR),
         ),
     ];
     for (regime, count, floor) in &regimes {

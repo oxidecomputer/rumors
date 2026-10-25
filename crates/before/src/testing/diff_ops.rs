@@ -2,13 +2,17 @@
 //!
 //! Each descriptor defines the same deterministic operation for production,
 //! the recursive oracle, and the function-space oracle. Shared drivers apply
-//! every descriptor to two complementary populations: arbitrary canonical
-//! values and values produced by realistic clock traces.
+//! every descriptor to complementary populations: arbitrary canonical
+//! values, values produced by realistic clock traces, and deep values from
+//! [`generators::leaf_list`](crate::testing::generators::leaf_list) and
+//! [`generators::regions`](crate::testing::generators::regions). The deep
+//! population is too deep for the function space's grid scan, so its driver
+//! compares production with the recursive oracle alone ([`Legs::TreeOracle`]).
 //!
 //! Descriptors with the same operand types form a group. The declaration macro
 //! registers every descriptor it defines, and `for_each_diff_group!` supplies
-//! every group to both drivers. Adding a descriptor to an existing group needs
-//! no test wiring. A new operand shape must be handled by both drivers before
+//! every group to every driver. Adding a descriptor to an existing group needs
+//! no test wiring. A new operand shape must be handled by every driver before
 //! it compiles; an unlisted private group is rejected as dead code.
 //!
 //! # Why a table
@@ -29,13 +33,15 @@
 //! `fork` and `tick` belong to the trace differential, which compares their
 //! contractual observations rather than demanding identical representations.
 //! Each descriptor compares production with the recursive oracle, then the
-//! recursive oracle with the function-space model. Agreement is therefore
-//! checked across all three implementations.
+//! recursive oracle with the function-space model. On the arbitrary and trace
+//! populations, agreement is therefore checked across all three
+//! implementations.
 
 use std::cmp::Ordering;
 
+use crate::testing::bridge;
 use crate::testing::oracles::{function, tree};
-use crate::testing::{bridge, shape_rows};
+use crate::testing::shape_rows::{self, Leaf};
 use crate::{Count, Party, Rank, Version};
 use num_bigint::BigUint;
 
@@ -44,6 +50,21 @@ use num_bigint::BigUint;
 /// The same shape as [`crate::testing::laws::Law`], and for the same reason: an
 /// assertion that fails names the entry it came from.
 pub(crate) type DiffOp<F> = (&'static str, F);
+
+/// Which comparisons a descriptor check makes.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Legs {
+    /// Production against the recursive oracle, then the recursive oracle
+    /// against the function space.
+    All,
+    /// Production against the recursive oracle only.
+    ///
+    /// A function-space comparison scans `2^g` grid points, `g` one past the
+    /// operands' deepest boundary, and its points index cells with a `u64`.
+    /// Operands tens of levels deep are out of its reach, so their drivers
+    /// compare production with the recursive oracle alone.
+    TreeOracle,
+}
 
 /// How a production result is compared with the recursive oracle's.
 ///
@@ -118,8 +139,8 @@ impl Matches<Rank> for Rank {
 /// Shape rows — plateau, region, overlay, and refinement-cell listings —
 /// compare directly: both sides are already folded into the same
 /// absolute vocabulary.
-impl Matches<Vec<(BigUint, u64)>> for Vec<(BigUint, u64)> {
-    fn matches(&self, reference: &Vec<(BigUint, u64)>) -> bool {
+impl Matches<Vec<Leaf>> for Vec<Leaf> {
+    fn matches(&self, reference: &Vec<Leaf>) -> bool {
         self == reference
     }
 }
@@ -210,8 +231,8 @@ impl FunctionMatches<Rank> for Rank {
 /// collapses any refinement fragments), and the existing
 /// recursive-versus-function scans decide. The rows come from the
 /// descriptor's recursive spelling, whose depths the grid already covers.
-impl FunctionMatches<Vec<(BigUint, u64)>> for function::Event {
-    fn function_matches(&self, reference: &Vec<(BigUint, u64)>, grid: u32) -> bool {
+impl FunctionMatches<Vec<Leaf>> for function::Event {
+    fn function_matches(&self, reference: &Vec<Leaf>, grid: u32) -> bool {
         let tree = shape_rows::version_from_rows(reference);
         <function::Event as FunctionMatches<tree::Version>>::function_matches(self, &tree, grid)
     }
@@ -226,9 +247,12 @@ impl FunctionMatches<Vec<(bool, u64)>> for function::Id {
 
 impl FunctionMatches<Vec<(u64, BigUint, bool)>> for function::FunctionClock {
     fn function_matches(&self, reference: &Vec<(u64, BigUint, bool)>, grid: u32) -> bool {
-        let heights: Vec<(BigUint, u64)> = reference
+        let heights: Vec<Leaf> = reference
             .iter()
-            .map(|(depth, height, _)| (height.clone(), *depth))
+            .map(|(depth, height, _)| Leaf {
+                depth: *depth,
+                height: height.clone(),
+            })
             .collect();
         let owned: Vec<(bool, u64)> = reference
             .iter()
@@ -240,10 +264,13 @@ impl FunctionMatches<Vec<(u64, BigUint, bool)>> for function::FunctionClock {
 
 impl FunctionMatches<Vec<(u64, Vec<BigUint>)>> for (function::Event, function::Event) {
     fn function_matches(&self, reference: &Vec<(u64, Vec<BigUint>)>, grid: u32) -> bool {
-        let column = |index: usize| -> Vec<(BigUint, u64)> {
+        let column = |index: usize| -> Vec<Leaf> {
             reference
                 .iter()
-                .map(|(depth, heights)| (heights[index].clone(), *depth))
+                .map(|(depth, heights)| Leaf {
+                    depth: *depth,
+                    height: heights[index].clone(),
+                })
                 .collect()
         };
         self.0.function_matches(&column(0), grid) && self.1.function_matches(&column(1), grid)
@@ -260,7 +287,9 @@ impl FunctionMatches<Vec<(u64, Vec<BigUint>)>> for (function::Event, function::E
 /// Each spelling receives fresh values, so it may consume or mutate them.
 ///
 /// `function(g)` also receives a grid fine enough to resolve every operand.
-/// Spellings that do not scan the grid name it `_g`. The macro registers each
+/// Spellings that do not scan the grid name it `_g`. A generated check takes
+/// [`Legs`] first: [`Legs::TreeOracle`] skips the function-space spelling, for
+/// operands too deep for its grid scan. The macro registers each
 /// generated check in the group's private slice under the operation's Rust
 /// name. The group must then appear in `for_each_diff_group!`; otherwise the
 /// dead-code lint rejects it.
@@ -273,7 +302,7 @@ macro_rules! diff_ops {
         )+
     ) => {
         $(#[$group_meta])* static $group: &[$crate::testing::diff_ops::DiffOp<
-            fn($(&diff_ops!(@oracle $kind)),+) -> bool,
+            fn($crate::testing::diff_ops::Legs, $(&diff_ops!(@oracle $kind)),+) -> bool,
         >] = &[$((stringify!($op), $op)),+];
         diff_ops! {
             @ops ($($param: $kind),+);
@@ -311,7 +340,10 @@ macro_rules! diff_ops {
         // The bindings are uniformly mutable so a descriptor may spell an
         // operation that mutates its receiver; most do not.
         #[allow(unused_mut)]
-        fn $op($($param: &diff_ops!(@oracle $kind)),+) -> bool {
+        fn $op(
+            legs: $crate::testing::diff_ops::Legs,
+            $($param: &diff_ops!(@oracle $kind)),+
+        ) -> bool {
             let production = {
                 $( let mut $param = diff_ops!(@lower $kind, $param); )+
                 $production
@@ -320,6 +352,12 @@ macro_rules! diff_ops {
                 $( let mut $param = ::core::clone::Clone::clone($param); )+
                 $recursive
             };
+            if !$crate::testing::diff_ops::Matches::matches(&production, &recursive) {
+                return false;
+            }
+            if let $crate::testing::diff_ops::Legs::TreeOracle = legs {
+                return true;
+            }
             // The grid derives from the oracle carriers before the function
             // scope shadows them, so a spelling can never scan a lifted
             // value coarser than the value's own boundaries.
@@ -330,12 +368,11 @@ macro_rules! diff_ops {
                 $( let mut $param = diff_ops!(@fslift $kind, $param); )+
                 $function
             };
-            $crate::testing::diff_ops::Matches::matches(&production, &recursive)
-                && $crate::testing::diff_ops::FunctionMatches::function_matches(
-                    &function_result,
-                    &recursive,
-                    $grid,
-                )
+            $crate::testing::diff_ops::FunctionMatches::function_matches(
+                &function_result,
+                &recursive,
+                $grid,
+            )
         }
     };
 
