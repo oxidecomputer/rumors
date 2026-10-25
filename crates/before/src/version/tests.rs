@@ -14,8 +14,6 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use proptest::sample::Index;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
 
 use super::{Ranked, Version};
 use crate::bits::BitsWriter;
@@ -837,6 +835,7 @@ struct WithCausalPast;
 impl TraceModel for WithCausalPast {
     type Clock = (Clock, CausalPast);
     type Message = (Version, CausalPast);
+    type Rng = ();
 
     fn seed() -> Self::Clock {
         let past = CausalPast {
@@ -847,17 +846,17 @@ impl TraceModel for WithCausalPast {
         (Production::seed(), past)
     }
 
-    fn tick((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) {
+    fn tick((clock, past): &mut Self::Clock, rng: &mut ()) {
         Production::tick(clock, rng);
         past.record(Count::from(1u64));
     }
 
-    fn ticks((clock, past): &mut Self::Clock, count: u8, rng: &mut ChaChaRng) {
+    fn ticks((clock, past): &mut Self::Clock, count: u8, rng: &mut ()) {
         Production::ticks(clock, count, rng);
         past.record(Count::from(u64::from(count)));
     }
 
-    fn fork((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock {
+    fn fork((clock, past): &mut Self::Clock, rng: &mut ()) -> Self::Clock {
         (Production::fork(clock, rng), past.clone())
     }
 
@@ -865,7 +864,7 @@ impl TraceModel for WithCausalPast {
         (clock, past): &mut Self::Clock,
         count: u8,
         taken: usize,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> Vec<Self::Clock> {
         Production::forks(clock, count, taken, rng)
             .into_iter()
@@ -873,24 +872,20 @@ impl TraceModel for WithCausalPast {
             .collect()
     }
 
-    fn split((clock, past): Self::Clock, arity: Arity, rng: &mut ChaChaRng) -> Vec<Self::Clock> {
+    fn split((clock, past): Self::Clock, arity: Arity, rng: &mut ()) -> Vec<Self::Clock> {
         Production::split(clock, arity, rng)
             .into_iter()
             .map(|share| (share, past.clone()))
             .collect()
     }
 
-    fn send((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message {
+    fn send((clock, past): &mut Self::Clock, rng: &mut ()) -> Self::Message {
         let message = Production::send(clock, rng);
         past.record(Count::from(1u64));
         (message, past.clone())
     }
 
-    fn receive(
-        (clock, past): &mut Self::Clock,
-        (message, sender): Self::Message,
-        rng: &mut ChaChaRng,
-    ) {
+    fn receive((clock, past): &mut Self::Clock, (message, sender): Self::Message, rng: &mut ()) {
         Production::receive(clock, message, rng);
         past.absorb(&sender);
         past.record(Count::from(1u64));
@@ -916,7 +911,7 @@ impl TraceModel for WithCausalPast {
     fn sync(
         (left, left_past): &mut Self::Clock,
         (right, right_past): &mut Self::Clock,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> bool {
         let synced = Production::sync(left, right, rng);
         if synced {
@@ -929,7 +924,7 @@ impl TraceModel for WithCausalPast {
     fn sync_all(
         (clock, past): &mut Self::Clock,
         others: Vec<&mut Self::Clock>,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> bool {
         let (others, other_pasts): (Vec<&mut Clock>, Vec<&mut CausalPast>) = others
             .into_iter()
@@ -950,7 +945,7 @@ impl TraceModel for WithCausalPast {
     fn join(
         (clock, past): &mut Self::Clock,
         (other, other_past): Self::Clock,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> Result<(), Self::Clock> {
         match Production::join(clock, other, rng) {
             Ok(()) => {
@@ -971,7 +966,7 @@ impl TraceModel for WithCausalPast {
     fn join_all(
         (clock, past): &mut Self::Clock,
         others: Vec<Self::Clock>,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> Result<(), Vec<Self::Clock>> {
         let (others, other_pasts): (Vec<Clock>, Vec<CausalPast>) = others.into_iter().unzip();
         let joined = Production::join_all(clock, others, rng);
@@ -1036,9 +1031,8 @@ proptest! {
     #[test]
     fn min_ticks_floors_every_history(ops in production_strategy()) {
         let mut clocks = vec![WithCausalPast::seed()];
-        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
-            step_production::<WithCausalPast>(&mut clocks, op, &mut rng);
+            step_production::<WithCausalPast>(&mut clocks, op, &mut ());
             for (clock, past) in &clocks {
                 let v = clock.version();
                 let ticks = past.ticks();

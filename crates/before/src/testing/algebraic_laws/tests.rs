@@ -15,8 +15,6 @@
 //! and the recursive oracle would share.
 
 use proptest::prelude::*;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
 
 use crate::testing::generators::{
     arb_clock_family, arb_fold_arity, arb_oracle_party_nonempty, arb_oracle_version,
@@ -431,9 +429,8 @@ proptest! {
 
         // Clocks: replay the trace on the impl for real, reachable clocks.
         let mut imp = vec![Clock::seed()];
-        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
-            step::<Production>(&mut imp, op, &mut rng);
+            step::<Production>(&mut imp, op, &mut ());
         }
         let ca = &imp[picks[0] % imp.len()];
         let cb = &imp[picks[1] % imp.len()];

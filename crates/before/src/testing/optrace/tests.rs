@@ -35,7 +35,7 @@ proptest! {
 
         let selected = selector.index(population);
         let before: Vec<Version> = clocks.iter().map(|clock| clock.version().clone()).collect();
-        step::<Production>(&mut clocks, &Op::Tick(selector), &mut ChaChaRng::seed_from_u64(0));
+        step::<Production>(&mut clocks, &Op::Tick(selector), &mut ());
 
         for (index, (old, clock)) in before.iter().zip(&clocks).enumerate() {
             if index == selected {
@@ -57,10 +57,9 @@ proptest! {
     #[test]
     fn multi_party_splits_respect_the_population_cap(ops in world_strategy_up_to(CAP_REACHING_OPS)) {
         let mut parties = vec![flat::Party::seed()];
-        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
             let before = parties.len();
-            step::<FlatParties>(&mut parties, op, &mut rng);
+            step::<FlatParties>(&mut parties, op, &mut ());
             match op {
                 Op::Fork(_) => prop_assert_eq!(parties.len(), before + 1, "a fork adds one clock"),
                 Op::Forks(..) | Op::Split(..) => prop_assert!(
@@ -87,7 +86,7 @@ proptest! {
         let mut levels = 0;
         for op in &ops {
             levels += op.levels();
-            step::<Recursive>(&mut trees, op, &mut rng);
+            step::<Recursive>(&mut trees, op, &mut ());
             step::<FunctionSpace>(&mut functions, op, &mut rng);
             for clock in &trees {
                 let (party, version) = clock.trees();
@@ -182,7 +181,6 @@ impl Reach {
     fn of(ops: &[Op]) -> Reach {
         let mut reach = Reach::default();
         let mut clocks = vec![Clock::seed()];
-        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in ops {
             match (op, op.resolve(clocks.len())) {
                 (Op::Forks(_, count, take), Some(Step::Forks { taken, .. })) => {
@@ -208,7 +206,7 @@ impl Reach {
                 }
                 _ => {}
             }
-            step::<Production>(&mut clocks, op, &mut rng);
+            step::<Production>(&mut clocks, op, &mut ());
             reach.large_population |= clocks.len() > LARGE_POPULATION;
         }
         reach.concurrent_pair = clocks.iter().enumerate().any(|(i, a)| {
