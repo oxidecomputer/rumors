@@ -57,7 +57,9 @@ mod tests;
 /// A type reachable at two public paths contributes its methods and
 /// impls under both names; the reconcile step then surfaces the extra
 /// path as an uncovered item to triage, which is the honest reading
-/// (two public spellings are two rows of surface).
+/// (two public spellings are two rows of surface). A spelling whose path
+/// passes through one module twice, by a named or glob re-export of an
+/// enclosing module, is not a row: it names only items a shorter path names.
 #[derive(Debug, Default)]
 pub(crate) struct Surface {
     /// Function-like items: `Type::fn`, `module::fn`, `Trait::fn`.
@@ -85,8 +87,7 @@ pub(crate) struct Surface {
 pub(crate) fn public_surface(krate: &Crate) -> Surface {
     let root = module_of(krate, krate.root);
     let mut surface = Surface::default();
-    let mut visited_modules = BTreeSet::new();
-    walk_module(krate, &root.items, &[], &mut surface, &mut visited_modules);
+    walk_module(krate, &root.items, &[], &mut surface, &mut vec![krate.root]);
     surface
 }
 
@@ -110,27 +111,48 @@ fn module_of(krate: &Crate, id: Id) -> &rustdoc_types::Module {
 
 /// Record one module's items under `prefix`, following re-exports.
 ///
-/// `visited` guards against glob re-export cycles (`pub use m::*` loops),
-/// keyed by the path and the module id being expanded; a module
-/// re-exported at two paths is walked once per path, because each path
-/// names distinct public surface.
+/// `expanding` holds the modules whose items the walk is recording along
+/// the current path, the crate root first, whether entered by name or
+/// spliced in by a glob. A module already among them is not expanded
+/// again: a path through the same module twice, by a glob cycle
+/// (`pub use m::*` loops) or a named re-export of an enclosing module,
+/// spells only items a shorter path already spells, and would repeat
+/// without end. A module re-exported at two paths that do not pass through
+/// it twice is walked once per path, because each path names distinct
+/// public surface.
 ///
-/// Recurses, through [`walk_named`] and [`walk_use`], once per module level
-/// along each reachable path, a depth `before`'s own modules and re-exports
-/// fix. That bound holds only while `before` has no named re-export of an
-/// enclosing module: `visited` keys on the path, which such a re-export would
-/// lengthen on every pass.
+/// Recurses, through [`walk_named`] and [`walk_use`], once per module
+/// expansion. Every expansion adds a module not yet in `expanding`, so the
+/// depth is at most the crate's module count, on any module graph.
 fn walk_module(
     krate: &Crate,
     items: &[Id],
     prefix: &[&str],
     surface: &mut Surface,
-    visited: &mut BTreeSet<(Vec<String>, Id)>,
+    expanding: &mut Vec<Id>,
 ) {
     for &id in items {
         let item = item_of(krate, id);
-        walk_named(krate, item, prefix, surface, visited);
+        walk_named(krate, item, prefix, surface, expanding);
     }
+}
+
+/// Record a module's items under `prefix` unless the walk is already
+/// expanding it along the current path, as [`walk_module`] explains.
+fn expand_module(
+    krate: &Crate,
+    id: Id,
+    module: &rustdoc_types::Module,
+    prefix: &[&str],
+    surface: &mut Surface,
+    expanding: &mut Vec<Id>,
+) {
+    if expanding.contains(&id) {
+        return;
+    }
+    expanding.push(id);
+    walk_module(krate, &module.items, prefix, surface, expanding);
+    expanding.pop();
 }
 
 /// Record one reachable item under the name it is reachable at.
@@ -142,19 +164,16 @@ fn walk_named(
     item: &Item,
     prefix: &[&str],
     surface: &mut Surface,
-    visited: &mut BTreeSet<(Vec<String>, Id)>,
+    expanding: &mut Vec<Id>,
 ) {
     let name = item.name.as_deref();
     match &item.inner {
         ItemEnum::Module(module) => {
             let name = name.expect("a non-root module has a name");
-            let key = (path_key(prefix, name), item.id);
-            if visited.insert(key) {
-                let prefix = push(prefix, name);
-                walk_module(krate, &module.items, &prefix, surface, visited);
-            }
+            let prefix = push(prefix, name);
+            expand_module(krate, item.id, module, &prefix, surface, expanding);
         }
-        ItemEnum::Use(use_) => walk_use(krate, use_, prefix, surface, visited),
+        ItemEnum::Use(use_) => walk_use(krate, use_, prefix, surface, expanding),
         ItemEnum::Struct(s) => {
             let type_name = join(prefix, name.expect("a type has a name"));
             record_usize_definition(&s.generics, &type_name, surface);
@@ -257,7 +276,7 @@ fn walk_use(
     use_: &rustdoc_types::Use,
     prefix: &[&str],
     surface: &mut Surface,
-    visited: &mut BTreeSet<(Vec<String>, Id)>,
+    expanding: &mut Vec<Id>,
 ) {
     // `id` is `None` only for primitive re-exports; an id absent from the
     // index is another crate's item (recorded in the `paths` table), which
@@ -277,10 +296,7 @@ fn walk_use(
         // reachable surface on their own; only a module glob splices
         // surface in.
         if let ItemEnum::Module(module) = &target.inner {
-            let key = (path_key(prefix, "*"), id);
-            if visited.insert(key) {
-                walk_module(krate, &module.items, prefix, surface, visited);
-            }
+            expand_module(krate, id, module, prefix, surface, expanding);
         }
         return;
     }
@@ -289,7 +305,7 @@ fn walk_use(
         name: Some(use_.name.clone()),
         ..target.clone()
     };
-    walk_named(krate, &renamed, prefix, surface, visited);
+    walk_named(krate, &renamed, prefix, surface, expanding);
 }
 
 /// Record a public type's impls: inherent methods as `Type::fn` function
@@ -746,13 +762,4 @@ fn join(prefix: &[&str], name: &str) -> String {
     } else {
         format!("{}::{name}", prefix.join("::"))
     }
-}
-
-/// An owned visited-set key for a module expansion at a path.
-fn path_key(prefix: &[&str], name: &str) -> Vec<String> {
-    prefix
-        .iter()
-        .map(|s| (*s).to_owned())
-        .chain([name.to_owned()])
-        .collect()
 }

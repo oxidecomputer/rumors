@@ -97,9 +97,10 @@
 //! # Pairwise measures and their cost
 //!
 //! For two versions the driver maintains their difference `D`. The height to
-//! integrate is `sigma * D`: `sigma` selects the positive part, absolute value,
-//! or unchanged signed difference. At a boundary, with new values `D'` and
-//! `sigma'`, its change is
+//! integrate is `sigma * D`: `sigma` selects the negative part, the absolute
+//! value, or the unchanged signed difference, as the implementors of
+//! [`Integrand`](pair::Integrand) name them. At a boundary, with new values
+//! `D'` and `sigma'`, its change is
 //!
 //! `sigma * (D' - D) + (sigma' - sigma) * D'`.
 //!
@@ -163,6 +164,8 @@ use core::cmp::Ordering;
 use num_bigint::{BigInt, BigUint};
 use suanpan::Accumulator;
 
+use crate::version::overlay::Side;
+
 use deferred::DeferredIntegral;
 use width::ScaledWidth;
 
@@ -176,6 +179,8 @@ pub(crate) const HEIGHT_FREEZE_ALLOWANCE_BITS: u64 = 256;
 mod deferred;
 mod pair;
 mod width;
+
+pub use pair::{Absolute, NegativePart};
 
 #[cfg(feature = "meter")]
 pub use width::{densified_digits, reset_densified_digits};
@@ -195,14 +200,16 @@ thread_local! {
 /// Integrates consecutive regions whose widths sum to one whole domain.
 ///
 /// The driver opens at the first height, adds each region with [`Self::interval`],
-/// folds the next boundary's changes into [`Self::live`], and calls
-/// [`Self::boundary`] before adding another region. [`Self::finish`] accounts
-/// for the constant and deferred components and returns the exact numerator.
+/// folds the next boundary's changes into the live change with
+/// [`Self::add_change`] or [`Self::fold_change`], and calls [`Self::boundary`]
+/// before adding another region. [`Self::finish`] accounts for the constant
+/// and deferred components and returns the exact numerator.
 pub struct Integrator {
     /// Contributions already integrated at the driver's common power-of-two scale.
     total: Accumulator,
-    /// Changes since the last freeze. The driver folds boundary deltas here.
-    pub live: Accumulator,
+    /// Changes since the last freeze, into which the driver folds each
+    /// boundary's deltas.
+    live: Accumulator,
     /// The sum of the frozen drifts not yet deferred, which applies throughout
     /// the current segment.
     parked: Accumulator,
@@ -239,15 +246,26 @@ impl Integrator {
 
     /// Set the opening difference before adding any regions or boundary changes.
     ///
-    /// `orientation` is `1` when the difference contributes as stored and `-1`
-    /// when it contributes with the opposite sign. Reading the accumulator
-    /// directly avoids normalizing the opening value merely to copy it here.
-    pub fn open_difference(&mut self, opening: &Accumulator, orientation: i8) {
-        match orientation {
-            1 => self.base += opening,
-            -1 => self.base -= opening,
-            _ => panic!("an active orientation is either -1 or 1"),
+    /// The difference folds from `side` as [`Side::fold`] folds a delta: as
+    /// stored from [`Side::A`], and with the opposite sign from [`Side::B`].
+    /// Reading the accumulator directly avoids normalizing the opening value
+    /// merely to copy it here.
+    pub fn open_difference(&mut self, opening: &Accumulator, side: Side) {
+        match side {
+            Side::A => self.base += opening,
+            Side::B => self.base -= opening,
         }
+    }
+
+    /// Add one boundary's height change to the live change.
+    pub fn add_change(&mut self, delta: &BigInt) {
+        self.live += delta;
+    }
+
+    /// Fold one boundary's delta into the live change from `side` of the
+    /// difference `a - b` that a pair driver integrates.
+    pub fn fold_change(&mut self, side: Side, delta: &BigInt) {
+        side.fold(&mut self.live, delta);
     }
 
     /// Add the next region, whose width at the common scale is `2^weight_shift`.
@@ -264,22 +282,23 @@ impl Integrator {
 
     /// Add `(sigma' - sigma) * D'` after the pairwise driver's sign change.
     ///
-    /// The orientation `sigma` is monotone in the sign of `D` and lies in
-    /// `{-1, 0, 1}`. A nonzero correction is therefore positive: the coefficient
-    /// and the new difference have the same sign. Its coefficient has magnitude
-    /// one or two. Applying the signed accumulator directly avoids normalizing
-    /// it into a temporary magnitude merely to stream that magnitude back into
-    /// another accumulator.
+    /// Every [`Integrand`](pair::Integrand)'s `sigma` is monotone in the sign
+    /// of `D` and lies in `{-1, 0, 1}`. A nonzero correction is therefore
+    /// positive: the coefficient and the new difference have the same sign. Its
+    /// coefficient has magnitude one or two. Applying the signed accumulator
+    /// directly avoids normalizing it into a temporary magnitude merely to
+    /// stream that magnitude back into another accumulator.
     pub fn jump(&mut self, coefficient: i8, order: Ordering, diff: &Accumulator) {
         if order == Ordering::Equal {
             return;
         }
-        // Keep the sign check in release builds: an invalid orientation must
-        // not silently turn subtraction into addition.
-        assert_eq!(
+        // Every coefficient is a difference of one `Integrand`'s `sigma`
+        // values, and a test checks every sign change of each implementor it
+        // lists, showing that the correction is nonnegative.
+        debug_assert_eq!(
             coefficient < 0,
             order == Ordering::Less,
-            "the orientation correction must be nonnegative"
+            "the coefficient correction must be nonnegative"
         );
         let shift = if coefficient.abs() == 2 { 1 } else { 0 };
         if order == Ordering::Less {

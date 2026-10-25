@@ -31,7 +31,7 @@
 //! pieces supplied. One update can still finish a carry chain prepared by
 //! earlier updates; the bound is amortized over the sequence, not per call.
 //!
-//! Three facts about the stored form make later work bounded:
+//! These facts about the stored form make later work bounded:
 //!
 //! - `highest_nonzero` names the highest nonzero position, or zero when every
 //!   digit is zero;

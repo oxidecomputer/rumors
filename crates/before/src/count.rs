@@ -303,6 +303,11 @@ impl fmt::Debug for Count {
     }
 }
 
+// Each reference form forwards to `BigUint`'s form of the same ownership,
+// which adds into an owned operand's storage, the one of larger capacity when
+// both are owned. So `a + &b` costs what `a += &b` costs, `&a + b` what
+// `b += &a` costs, and only `&a + &b` builds a new value from both operands.
+
 impl Add<&Count> for &Count {
     type Output = Count;
     fn add(self, rhs: &Count) -> Count {
@@ -313,21 +318,21 @@ impl Add<&Count> for &Count {
 impl Add<Count> for Count {
     type Output = Count;
     fn add(self, rhs: Count) -> Count {
-        &self + &rhs
+        Count(self.0 + rhs.0)
     }
 }
 
 impl Add<&Count> for Count {
     type Output = Count;
     fn add(self, rhs: &Count) -> Count {
-        &self + rhs
+        Count(self.0 + &rhs.0)
     }
 }
 
 impl Add<Count> for &Count {
     type Output = Count;
     fn add(self, rhs: Count) -> Count {
-        self + &rhs
+        Count(&self.0 + rhs.0)
     }
 }
 

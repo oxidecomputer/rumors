@@ -180,8 +180,9 @@ proptest! {
     /// 1`.
     ///
     /// The closed form is the family's independent semantic leg: the
-    /// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale, so
-    /// this pin holds it at hand-checkable sizes.
+    /// promotion-rearm bands in
+    /// `tests/meter/version_scaling/freeze_schedules.rs` re-derive it at meter
+    /// scale, so this pin holds it at hand-checkable sizes.
     #[test]
     fn promotion_rearm_decodes_canonically_at_predicted_length(
         p in prop_oneof![1usize..=64, Just(200usize)],
@@ -211,10 +212,10 @@ proptest! {
     /// Here `P` is [`FREEZE_DRIFT_BITS`].
     ///
     /// The closed form is the family's independent semantic leg: the
-    /// `skyline_flatness` bands in `tests/meter.rs` re-derive it at meter scale on
-    /// both dials, so this pin holds it at hand-checkable sizes where the tree can
-    /// also be spot-read (a plateau pair, the drop block, a tail pair, the terminal
-    /// zero).
+    /// lone-freeze bands in `tests/meter/version_scaling/freeze_schedules.rs`
+    /// re-derive it at meter scale on both dials, so this pin holds it at
+    /// hand-checkable sizes where the tree can also be spot-read (a plateau
+    /// pair, the drop block, a tail pair, the terminal zero).
     #[test]
     fn lone_freeze_decodes_canonically_at_predicted_length(
         pre_pairs in 1usize..=20,

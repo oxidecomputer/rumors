@@ -80,27 +80,18 @@ impl IntegerStack {
 
     /// Push `±magnitude`, given as its comparison with zero and little-endian
     /// limbs with no high zero limb.
-    pub fn push<L>(&mut self, sign: Ordering, magnitude: L)
-    where
-        L: ExactSizeIterator<Item = u64>,
-    {
-        let bit_len;
-        if magnitude.len() > PACKED_LIMBS {
-            let limbs: Box<[u64]> = magnitude.collect();
-            bit_len = bit_length(&limbs);
-            self.separate.push(limbs);
+    ///
+    /// The bit length decides the form, by the comparison [`pop`](Self::pop)
+    /// makes on the header.
+    pub fn push(&mut self, sign: Ordering, magnitude: &[u64]) {
+        let bit_len = bit_length(magnitude);
+        if bit_len > PACKED_BITS {
+            self.separate.push(magnitude.into());
         } else {
-            let mut limbs = [0u64; PACKED_LIMBS];
-            let mut len = 0;
-            for limb in magnitude {
-                limbs[len] = limb;
-                len += 1;
-            }
-            bit_len = bit_length(&limbs[..len]);
             let pieces = bit_len.div_ceil(PIECE_BITS);
             for piece in (0..pieces).rev() {
                 let value =
-                    (limbs[(piece / 2) as usize] >> (PIECE_BITS * (piece % 2))) & PIECE_MASK;
+                    (magnitude[(piece / 2) as usize] >> (PIECE_BITS * (piece % 2))) & PIECE_MASK;
                 self.bits
                     .push_bits(value, piece_width(piece, pieces, bit_len));
             }

@@ -1,19 +1,14 @@
 //! Computes directed causal lag between two Versions.
 
-use core::cmp::Ordering;
-
 use crate::{Rank, Version};
 
-use super::integral::Integrator;
+use super::integral::{Integrator, NegativePart};
 
 impl Rank {
     /// Integrate the history present in `other` but absent from `self_`.
     pub(crate) fn lag_between(self_: &Version, other: &Version) -> Rank {
-        // Integrate only the negative part of `self - other`: multiplying by
-        // `-1` there measures the history present only in `other`.
-        Integrator::pair_rank(self_, other, |sign| match sign {
-            Ordering::Less => -1,
-            _ => 0,
-        })
+        // The negative part of `self - other` is the history present only
+        // in `other`.
+        Integrator::pair_rank::<NegativePart>(self_, other)
     }
 }

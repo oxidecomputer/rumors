@@ -18,8 +18,10 @@ use super::{touch, DIGIT_BITS};
 /// An exact signed integer in one of two representations.
 ///
 /// Copying a value duplicates its uncompacted cancellation, which is why
-/// [`Accumulator`](super::Accumulator) is not `Clone`; its `Debug` copies the
-/// stored form only to format it.
+/// [`Accumulator`](super::Accumulator)'s `Clone` copies through
+/// [`clone_normalized_into`](Self::clone_normalized_into) instead, which
+/// normalizes the source first. Its `Debug` copies the stored form only to
+/// format it.
 #[derive(Clone)]
 pub(crate) struct Value {
     /// An exact small value, or `None` once the digit representation is active.

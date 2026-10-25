@@ -106,10 +106,10 @@ pub trait CursorSet {
     /// Every slot in deterministic priority order.
     ///
     /// The first deepest slot advances first; other slots ending at the same
-    /// boundary then advance in this order. The folds are commutative, so the
-    /// order does not change the result, but fixing it keeps accumulator work
-    /// reproducible. The iterator is owned (`'static`) so the driver can retain
-    /// it while mutating the set.
+    /// boundary then advance in this order. Every order folds the same deltas
+    /// into the same final difference, so the order does not change the result,
+    /// but fixing it keeps accumulator work reproducible. The iterator is owned
+    /// (`'static`) so the driver can retain it while mutating the set.
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static;
 
     /// The slot's current plateau depth: its interval has width `2^-depth`.

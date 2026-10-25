@@ -1820,8 +1820,8 @@ pub const FREEZE_DRIFT_BITS: usize = HEIGHT_FREEZE_ALLOWANCE_BITS as usize + 34;
 /// left leaves whose consecutive drops alternate `2^P` and one, over a
 /// terminal 0 leaf, where `P` is [`FREEZE_DRIFT_BITS`].
 ///
-/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band `L = P + 1
-/// + bitlen(k)`.
+/// Exactly `4k(L + 2) + 2` bits for the one shared leaf-width band
+/// `L = P + 1 + bitlen(k)`.
 ///
 /// Layout: `2k` spine nodes `1 · γ(0)` leaning right, node `j`'s left leaf the
 /// `j`-th value of the descent from `2^L + k(2^P + 1)` (alternately dropping
@@ -2247,15 +2247,15 @@ fn parked_unit_spine(bits: &mut BitsWriter, s: usize) {
 /// weight being topology, not code. Every even-numbered block leaf cancels the
 /// digit and the accumulator's top must settle back across the never-written
 /// gap; every odd-numbered leaf re-raises it in one write. A settlement scan
-/// that steps the gap digit by digit pays `Θ(n)`
-/// unfunded touches per event (`Θ(n²)` on linear input), and the parked digit-0
-/// unit forecloses value-emptiness and write-watermark shortcuts, so crossing
-/// the never-written gap in one step per jump is what holds the cost flat (the
-/// `skyline_flatness` weight-comb band in `tests/meter.rs` carries both
-/// readings). `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's
-/// `32n − 1` unit leaves plus the block's `n` twos). Normal form: the innermost
-/// leaf pair is `(1, 0)`, every block pair is `(0, 2)`, and every subtree
-/// minimum is 0.
+/// that steps the gap digit by digit pays `Θ(n)` unfunded touches per event
+/// (`Θ(n²)` on linear input), and the parked digit-0 unit forecloses
+/// value-emptiness and write-watermark shortcuts, so crossing the never-written
+/// gap in one step per jump is what holds the cost flat
+/// (`skyline_rank_weight_comb_is_flat_per_unit` in
+/// `tests/meter/version_scaling/skip_adequacy.rs` carries both readings).
+/// `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's `32n − 1`
+/// unit leaves plus the block's `n` twos). Normal form: the innermost leaf pair
+/// is `(1, 0)`, every block pair is `(0, 2)`, and every subtree minimum is 0.
 ///
 /// # Panics
 ///
@@ -2505,11 +2505,12 @@ fn narrow_freezes(e: usize, c: usize) -> Encoding {
 /// with no intervening write. Exact-`top` maintenance prices each read at the
 /// value's own width; a high-water bound re-walks the spike's `g` dead digits
 /// per read — `Θ(m·g)` on `Θ(m + g)` input, the cost the spike's own code paid
-/// once (the `skyline_flatness` tooth-tail band in `tests/meter.rs` carries
-/// both readings). `min_ticks` is the stored-base sum `m·h + 2^(32g)` per
-/// operand (`h` the operand's unit height, 1 for `a` and 2 for `b`), and `a`
-/// precedes `b` in the causal order. Normal form: every chain node's subtree
-/// minimum is 0 through the terminal, and no sibling leaf pair is equal.
+/// once (`skyline_cmp_tooth_tail_is_flat_per_unit` in
+/// `tests/meter/version_scaling/skip_adequacy.rs` carries both readings).
+/// `min_ticks` is the stored-base sum `m·h + 2^(32g)` per operand (`h` the
+/// operand's unit height, 1 for `a` and 2 for `b`), and `a` precedes `b` in the
+/// causal order. Normal form: every chain node's subtree minimum is 0 through
+/// the terminal, and no sibling leaf pair is equal.
 ///
 /// # Panics
 ///
@@ -3263,7 +3264,8 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 /// · k)` word operations against a `Θ(m·k + d)`-bit input, and the anchored-segment
 /// co-sweep (`version/measure/integral.rs`'s module doc) settles each
 /// crest against its own segment and stays linear — the separation the
-/// `skyline_flatness` band test and the board cell hold. The **join** (the band
+/// `skyline_distance_jump_pair_is_flat_per_unit` band test and the board cell
+/// hold. The **join** (the band
 /// shades every gap) collapses to unit steps around one climb, and either
 /// operand's own rank is flat: both inputs are individually innocuous, and the
 /// shape exists only in the two-operand composition.

@@ -60,7 +60,7 @@ impl Records {
             self.closes.push(self.top_closes);
         }
         self.top_closes = 0;
-        self.offsets.push(sign, magnitude.iter().copied());
+        self.offsets.push(sign, magnitude);
         self.first.push(first);
     }
 

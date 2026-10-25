@@ -1085,23 +1085,28 @@ impl Rank {
         // near 2^33 bits, which summands held in memory can exceed. A sum
         // whose working width needs more than a buffer can address panics
         // there, as the accumulator documents for its allocation limit.
-        let mut acc = Accumulator::new();
-        let mut exp = 0u64;
-        let mut has_value = false;
-        for rank in iter {
+        let mut summands = iter.filter(|rank| rank.borrow().num != BigUint::ZERO);
+        // The first summand drops at the end of this block, as every later
+        // one drops at the end of its iteration: an owned summand held
+        // through the fold would add its width to the peak heap.
+        let (mut acc, mut exp) = {
+            let Some(first) = summands.next() else {
+                return Rank::ZERO;
+            };
+            let first = first.borrow();
+            let mut acc = Accumulator::new();
+            acc.add_shifted_limbs(0, first.num.iter_u64_digits());
+            (acc, first.exp)
+        };
+        for rank in summands {
             let rank = rank.borrow();
-            if rank.num == BigUint::ZERO {
-                continue;
-            }
-            if !has_value {
-                exp = rank.exp;
-                acc.add_shifted_limbs(0, rank.num.iter_u64_digits());
-                has_value = true;
-                continue;
-            }
             if rank.exp > exp {
                 let gap = rank.exp - exp;
                 let held_span = acc.stored_bits();
+                // The clamp keeps `exp + shift` within `u64`. It never cuts
+                // the shift below `gap`, since `rank.exp <= u64::MAX` gives
+                // `gap <= u64::MAX - exp`, so it trims only the held-span
+                // term.
                 let shift = gap.max(held_span).min(u64::MAX - exp);
                 acc <<= shift;
                 exp += shift;

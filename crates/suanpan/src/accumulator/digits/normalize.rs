@@ -165,25 +165,29 @@ impl Digits {
             emit(magnitude_digit);
         }
 
+        // The magnitude is below `B^(old_highest + 2)`, as the module
+        // documentation derives, so at most one digit lies above the stored
+        // ones: the carry left after the top is at most 3, below the base.
         let mut highest = old_highest;
-        while let Some(magnitude_digit) = magnitude.next_above() {
+        if let Some(magnitude_digit) = magnitude.next_above() {
             highest = highest
                 .checked_add(1)
                 .expect("a normalized carry needs an addressable digit position");
             if highest == self.digits.len() {
-                // Normalization adds at most this one position, so we grow by
-                // exactly one rather than letting `push` double the buffer.
+                // This is the one position normalization can add, so we grow
+                // by exactly one rather than letting `push` double the buffer.
                 self.digits.reserve_exact(1);
                 self.digits.push(0);
             }
             touch(1);
             self.digits[highest] = magnitude.signed(magnitude_digit);
             emit(magnitude_digit);
+            debug_assert_eq!(
+                magnitude.next_above(),
+                None,
+                "a carry below the base leaves nothing above its digit"
+            );
         }
-        debug_assert!(
-            highest <= old_highest.saturating_add(1),
-            "normalization grows by at most one digit"
-        );
 
         while highest > 0 && self.digits[highest] == 0 {
             touch(1);
