@@ -714,8 +714,9 @@ wasm32-pins: wasm32-pins-build
 # against another reading of the same program, so nothing here is
 # calibrated, and no toolchain or Wasmtime bump needs re-pinning; the
 # harness's crate docs state the bounds and what they cannot see. The guest
-# builds in the `fuel` profile and shares the fuel board's window allocator
-# and operator prices. A failure shrinks to a minimal skeleton and writes a
+# builds in the `fuel` profile and under `fuel_guest_env`, so every host
+# builds the same module, and shares the fuel board's window allocator and
+# operator prices. A failure shrinks to a minimal skeleton and writes a
 # proptest seed file: commit any seed that appears. The clippy and rustdoc
 # lines are the members' own lint and docs legs, since the workspace-wide
 # ones exclude them; the guest's run for wasm32, the only target it builds
@@ -724,7 +725,7 @@ wasm32-pins: wasm32-pins-build
 
 # Build the interleaving-fuel wasm guest and its harness (both halves).
 suanpan-fuel-build:
-    cargo build -p suanpan-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }}
+    {{ fuel_guest_env }} cargo build -p suanpan-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }}
     cargo build -p suanpan-fuel-harness -p suanpan-fuel-protocol --tests --release --target-dir {{ suanpan_fuel_target }}
 
 # Run suanpan's interleaving-fuel property and the census of its skeletons.
