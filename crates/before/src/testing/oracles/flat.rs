@@ -77,6 +77,7 @@ use proptest::prelude::*;
 use crate::testing::oracles::{codec, tree};
 use crate::testing::shape_rows::{assert_tiles, Leaf};
 
+pub(crate) mod census;
 mod tests;
 
 // ─────────────────────────────── refinement ───────────────────────────────

@@ -2,10 +2,14 @@ use super::*;
 use crate::testing::bridge::from_oracle_version;
 use crate::testing::exhaustive::{cell_event, cell_heights};
 use crate::testing::generators::arb_oracle_version;
+use crate::testing::oracles::flat::census::Heights;
 use crate::{Clock, Span, Version};
+use core::ops::Range;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use std::sync::LazyLock;
+
+mod census;
 
 /// The organic witness set: a three-step chain on one party, a
 /// concurrent line on a second, and their join.
@@ -74,10 +78,11 @@ fn selected<T>(grid: &[T], index: usize) -> &T {
 
 /// The order a clause is evaluated in.
 ///
-/// Versions use production's causal order. Height vectors, the heights of
-/// versions constant on each cell of one shared uniform partition, use the
-/// pointwise order, which equals the causal order on such versions and shares
-/// no code with production.
+/// Versions use production's causal order. Height vectors use the pointwise
+/// order, which equals the causal order on the versions they describe and
+/// shares no code with production: the finer-pool tests read the heights of
+/// versions constant on each cell of one shared partition, and the census
+/// tests read height vectors off the flat model.
 trait CausalOrder {
     /// Whether `self` lies at or below `other`.
     fn le(&self, other: &Self) -> bool;
@@ -97,25 +102,22 @@ impl CausalOrder for Version {
     }
 }
 
-/// The heights of a version constant on each cell of a uniform dyadic
-/// partition, cell by cell.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Heights(Vec<u64>);
-
-/// The pointwise order on height vectors over one partition.
+/// The pointwise order on height vectors over one partition, which equals
+/// the causal order of the versions they describe.
 impl CausalOrder for Heights {
     fn le(&self, other: &Self) -> bool {
-        assert_eq!(
-            self.0.len(),
-            other.0.len(),
-            "height vectors share one partition"
-        );
-        self.0.iter().zip(&other.0).all(|(a, b)| a <= b)
+        Heights::le(self, other)
     }
 
     fn lt(&self, other: &Self) -> bool {
-        self.le(other) && self != other
+        Heights::le(self, other) && self != other
     }
+}
+
+/// Whether bit `k` of `sides` puts the `k`th conjoined item on the left of
+/// the conjunction so far, rather than on its right.
+fn on_left(sides: u64, k: usize) -> bool {
+    sides >> (k % 64) & 1 == 1
 }
 
 impl BoundClause {
@@ -140,6 +142,15 @@ impl BoundClause {
         match *self {
             Self::After(at) => query & after(selected(grid, at)),
             Self::Before(at) => query & before(selected(grid, at)),
+        }
+    }
+
+    /// Conjoins this bound in front of a neutral query, the operand order
+    /// [`Self::add_to_neutral`] reverses.
+    fn prepend_to_neutral<'a>(&self, query: Query<'a>, grid: &'a [Version]) -> Query<'a> {
+        match *self {
+            Self::After(at) => after(selected(grid, at)) & query,
+            Self::Before(at) => before(selected(grid, at)) & query,
         }
     }
 
@@ -192,16 +203,26 @@ impl BoundClause {
 
 /// Generates bounds throughout the complete two-party grid.
 fn bound_clause() -> impl Strategy<Value = BoundClause> {
+    bound_clause_among(0..9)
+}
+
+/// Generates bounds anchored at the pool indices `anchors` draws, which
+/// [`selected`] reduces modulo the pool's size.
+fn bound_clause_among(anchors: Range<usize>) -> impl Strategy<Value = BoundClause> {
     prop_oneof![
-        (0usize..9).prop_map(BoundClause::After),
-        (0usize..9).prop_map(BoundClause::Before),
+        anchors.clone().prop_map(BoundClause::After),
+        anchors.prop_map(BoundClause::Before),
     ]
 }
 
 /// One public downward-polar query form.
+///
+/// `Since` and `NotBefore` denote one predicate in its two public
+/// spellings, `since(v)` and `!before(v)`.
 #[derive(Clone, Debug)]
 enum DownClause {
     Since(usize),
+    NotBefore(usize),
     StrictlyAfter(usize),
     AfterOrConcurrent(usize),
     Delta(usize, usize),
@@ -212,6 +233,7 @@ impl DownClause {
     fn query<'a>(&self, grid: &'a [Version]) -> Query<'a, Down> {
         match *self {
             Self::Since(at) => since(selected(grid, at)),
+            Self::NotBefore(at) => !before(selected(grid, at)),
             Self::StrictlyAfter(at) => strictly_after(selected(grid, at)),
             Self::AfterOrConcurrent(at) => after(selected(grid, at)).or_concurrent(),
             Self::Delta(start, end) => delta(selected(grid, start), selected(grid, end)),
@@ -221,7 +243,7 @@ impl DownClause {
     /// Evaluates this clause directly from the order.
     fn admits<T: CausalOrder>(&self, probe: &T, grid: &[T]) -> bool {
         match *self {
-            Self::Since(at) => {
+            Self::Since(at) | Self::NotBefore(at) => {
                 let at_or_before = probe.le(selected(grid, at));
                 !at_or_before
             }
@@ -240,18 +262,29 @@ impl DownClause {
 
 /// Generates every public downward-polar query form across the grid.
 fn down_clause() -> impl Strategy<Value = DownClause> {
+    down_clause_among(0..9)
+}
+
+/// Generates every public downward-polar query form, anchored at the pool
+/// indices `anchors` draws.
+fn down_clause_among(anchors: Range<usize>) -> impl Strategy<Value = DownClause> {
     prop_oneof![
-        (0usize..9).prop_map(DownClause::Since),
-        (0usize..9).prop_map(DownClause::StrictlyAfter),
-        (0usize..9).prop_map(DownClause::AfterOrConcurrent),
-        (0usize..9, 0usize..9).prop_map(|(start, end)| DownClause::Delta(start, end)),
+        anchors.clone().prop_map(DownClause::Since),
+        anchors.clone().prop_map(DownClause::NotBefore),
+        anchors.clone().prop_map(DownClause::StrictlyAfter),
+        anchors.clone().prop_map(DownClause::AfterOrConcurrent),
+        (anchors.clone(), anchors).prop_map(|(start, end)| DownClause::Delta(start, end)),
     ]
 }
 
 /// One public upward-polar query form.
+///
+/// `Until` and `NotAfter` denote one predicate in its two public spellings,
+/// `until(v)` and `!after(v)`.
 #[derive(Clone, Debug)]
 enum UpClause {
     Until(usize),
+    NotAfter(usize),
     StrictlyBefore(usize),
     BeforeOrConcurrent(usize),
     Toward(usize, usize),
@@ -262,6 +295,7 @@ impl UpClause {
     fn query<'a>(&self, grid: &'a [Version]) -> Query<'a, Up> {
         match *self {
             Self::Until(at) => until(selected(grid, at)),
+            Self::NotAfter(at) => !after(selected(grid, at)),
             Self::StrictlyBefore(at) => strictly_before(selected(grid, at)),
             Self::BeforeOrConcurrent(at) => before(selected(grid, at)).or_concurrent(),
             Self::Toward(start, end) => toward(selected(grid, start), selected(grid, end)),
@@ -271,7 +305,7 @@ impl UpClause {
     /// Evaluates this clause directly from the order.
     fn admits<T: CausalOrder>(&self, probe: &T, grid: &[T]) -> bool {
         match *self {
-            Self::Until(at) => {
+            Self::Until(at) | Self::NotAfter(at) => {
                 let at_or_after = selected(grid, at).le(probe);
                 !at_or_after
             }
@@ -290,11 +324,18 @@ impl UpClause {
 
 /// Generates every public upward-polar query form across the grid.
 fn up_clause() -> impl Strategy<Value = UpClause> {
+    up_clause_among(0..9)
+}
+
+/// Generates every public upward-polar query form, anchored at the pool
+/// indices `anchors` draws.
+fn up_clause_among(anchors: Range<usize>) -> impl Strategy<Value = UpClause> {
     prop_oneof![
-        (0usize..9).prop_map(UpClause::Until),
-        (0usize..9).prop_map(UpClause::StrictlyBefore),
-        (0usize..9).prop_map(UpClause::BeforeOrConcurrent),
-        (0usize..9, 0usize..9).prop_map(|(start, end)| UpClause::Toward(start, end)),
+        anchors.clone().prop_map(UpClause::Until),
+        anchors.clone().prop_map(UpClause::NotAfter),
+        anchors.clone().prop_map(UpClause::StrictlyBefore),
+        anchors.clone().prop_map(UpClause::BeforeOrConcurrent),
+        (anchors.clone(), anchors).prop_map(|(start, end)| UpClause::Toward(start, end)),
     ]
 }
 
@@ -376,47 +417,85 @@ fn assert_denotes<P: Polarity>(
     Ok(())
 }
 
-/// Builds a neutral conjunction from public inclusive bounds.
-fn neutral_query<'a>(bounds: &[BoundClause], versions: &'a [Version]) -> Query<'a> {
-    bounds
-        .iter()
-        .fold(all(), |query, bound| bound.add_to_neutral(query, versions))
+/// Builds a neutral conjunction from public inclusive bounds, starting from
+/// `all()`.
+///
+/// Bound `k` joins the conjunction on the side [`on_left`] reads from bit
+/// `k` of `sides`, so both operand orders of each typed `&` occur.
+fn neutral_query<'a>(bounds: &[BoundClause], sides: u64, versions: &'a [Version]) -> Query<'a> {
+    bounds.iter().enumerate().fold(all(), |query, (k, bound)| {
+        if on_left(sides, k) {
+            bound.prepend_to_neutral(query, versions)
+        } else {
+            bound.add_to_neutral(query, versions)
+        }
+    })
 }
 
 /// Builds a downward-polar conjunction from public forms and inclusive bounds.
+///
+/// The first form seeds the conjunction. Each later form, then each bound,
+/// joins it on the side [`on_left`] reads from the next bit of `sides`, so
+/// both operand orders of each typed `&` occur.
 fn down_query<'a>(
     clauses: &[DownClause],
     bounds: &[BoundClause],
+    sides: u64,
     versions: &'a [Version],
 ) -> Query<'a, Down> {
-    let mut clauses = clauses.iter();
-    let first = clauses
-        .next()
+    let (first, rest) = clauses
+        .split_first()
         .expect("the strategy always generates a downward clause");
-    let query = clauses.fold(first.query(versions), |query, clause| {
-        query & clause.query(versions)
-    });
-    bounds
+    let query = rest
         .iter()
-        .fold(query, |query, bound| bound.add_to_down(query, versions))
+        .enumerate()
+        .fold(first.query(versions), |query, (k, clause)| {
+            if on_left(sides, k) {
+                clause.query(versions) & query
+            } else {
+                query & clause.query(versions)
+            }
+        });
+    bounds.iter().enumerate().fold(query, |query, (k, bound)| {
+        if on_left(sides, rest.len() + k) {
+            bound.prepend_to_down(query, versions)
+        } else {
+            bound.add_to_down(query, versions)
+        }
+    })
 }
 
 /// Builds an upward-polar conjunction from public forms and inclusive bounds.
+///
+/// The first form seeds the conjunction. Each later form, then each bound,
+/// joins it on the side [`on_left`] reads from the next bit of `sides`, so
+/// both operand orders of each typed `&` occur.
 fn up_query<'a>(
     clauses: &[UpClause],
     bounds: &[BoundClause],
+    sides: u64,
     versions: &'a [Version],
 ) -> Query<'a, Up> {
-    let mut clauses = clauses.iter();
-    let first = clauses
-        .next()
+    let (first, rest) = clauses
+        .split_first()
         .expect("the strategy always generates an upward clause");
-    let query = clauses.fold(first.query(versions), |query, clause| {
-        query & clause.query(versions)
-    });
-    bounds
+    let query = rest
         .iter()
-        .fold(query, |query, bound| bound.add_to_up(query, versions))
+        .enumerate()
+        .fold(first.query(versions), |query, (k, clause)| {
+            if on_left(sides, k) {
+                clause.query(versions) & query
+            } else {
+                query & clause.query(versions)
+            }
+        });
+    bounds.iter().enumerate().fold(query, |query, (k, bound)| {
+        if on_left(sides, rest.len() + k) {
+            bound.prepend_to_up(query, versions)
+        } else {
+            bound.add_to_up(query, versions)
+        }
+    })
 }
 
 proptest! {
@@ -447,10 +526,14 @@ proptest! {
     }
 
     /// Public query expressions denote the conjunction of their causal
-    /// relations, independently of normalization and fused evaluation.
+    /// relations, independently of normalization, operand order, and fused
+    /// evaluation.
     ///
-    /// Every case first exhausts a complete small two-party interval, making
-    /// both membership and exact coverage enumerable. The same expression is
+    /// Each expression joins every operand after its first on the side
+    /// `sides` picks, and spells each negation in either public form
+    /// (`since(v)` or `!before(v)`, `until(v)` or `!after(v)`). Every case
+    /// first exhausts a complete small two-party interval, making both
+    /// membership and exact coverage enumerable. The same expression is
     /// then applied to arbitrary normal-form versions whose shapes and numeric
     /// magnitudes cross the skyline walk's representation thresholds; those
     /// versions and their lattice corners exercise membership beyond the
@@ -461,21 +544,22 @@ proptest! {
         bounds in prop::collection::vec(bound_clause(), 0..=6),
         down in prop::collection::vec(down_clause(), 1..=6),
         up in prop::collection::vec(up_clause(), 1..=6),
+        sides in any::<u64>(),
         a in arb_oracle_version(),
         b in arb_oracle_version(),
         c in arb_oracle_version(),
     ) {
         let small = two_party_grid();
-        let neutral = neutral_query(&bounds, &small);
+        let neutral = neutral_query(&bounds, sides, &small);
         assert_denotes(&neutral, &small, |probe| {
             bounds.iter().all(|bound| bound.admits(probe, &small))
         })?;
-        let small_down = down_query(&down, &bounds, &small);
+        let small_down = down_query(&down, &bounds, sides, &small);
         assert_denotes(&small_down, &small, |probe| {
             bounds.iter().all(|bound| bound.admits(probe, &small))
                 && down.iter().all(|clause| clause.admits(probe, &small))
         })?;
-        let small_up = up_query(&up, &bounds, &small);
+        let small_up = up_query(&up, &bounds, sides, &small);
         assert_denotes(&small_up, &small, |probe| {
             bounds.iter().all(|bound| bound.admits(probe, &small))
                 && up.iter().all(|clause| clause.admits(probe, &small))
@@ -490,9 +574,9 @@ proptest! {
         large.push(&large[1] & &large[2]);
         large.push(&large[1] | &large[2]);
 
-        let neutral = neutral_query(&bounds, &large);
-        let down_query = down_query(&down, &bounds, &large);
-        let up_query = up_query(&up, &bounds, &large);
+        let neutral = neutral_query(&bounds, sides, &large);
+        let down_query = down_query(&down, &bounds, sides, &large);
+        let up_query = up_query(&up, &bounds, sides, &large);
         for probe in &large {
             prop_assert_eq!(
                 neutral.contains(probe),
@@ -1057,51 +1141,104 @@ fn members_between(pool: &[Heights], lo: &Heights, hi: &Heights) -> Vec<usize> {
         .collect()
 }
 
+/// A pool of versions constant on each cell of one partition, read on its
+/// cells halved, beside the *finer pool*: every height vector on the halved
+/// cells with heights up to the pool's largest.
+///
+/// The finer pool realizes every verdict that a version covered by a segment
+/// between pool versions can receive from a conjunction of clauses anchored
+/// at pool versions. Each clause compares a probe with an anchor constant on
+/// every cell of the partition, and `p <= a` holds exactly when `p`'s maximum
+/// on each cell is at most `a`'s height there, `a <= p` exactly when `p`'s
+/// minimum is at least it; the strict forms and equality combine the two. So
+/// a conjunction's verdict depends only on the probe's minimum and maximum on
+/// each cell. A version inside a segment takes integer heights between the
+/// endpoints' on each cell, and the finer pool holds every combination of
+/// heights on the halves, so the two halves of each cell realize every such
+/// pair of a minimum and a maximum, on all cells at once.
+///
+/// That is: a census over a segment agrees with the count over the finer
+/// pool's members inside it exactly when the census is exact on the segment.
+/// The finer-pool tests judge membership by the clauses' relations in the
+/// pointwise order on height vectors, so no production code takes part.
+struct FinerPool {
+    /// Each pool version's heights on the halved cells, in pool order.
+    lifted: Vec<Heights>,
+    /// The finer pool.
+    fine: Vec<Heights>,
+    /// Every segment between two pool versions.
+    segments: Vec<Segment>,
+}
+
+/// A segment between two pool versions, with what it covers in each pool.
+struct Segment {
+    /// The pool index of the segment's bottom endpoint.
+    lo: usize,
+    /// The pool index of the segment's top endpoint.
+    hi: usize,
+    /// The indices of the pool versions the segment covers.
+    members: Vec<usize>,
+    /// The indices of the finer pool's members the segment covers.
+    fine_members: Vec<usize>,
+}
+
+impl FinerPool {
+    /// Reads a pool given as each version's heights on the partition's
+    /// cells, and lists every segment between two of its versions, bottom
+    /// index outermost.
+    ///
+    /// # Panics
+    ///
+    /// If the pool is empty, or its height vectors differ in length.
+    fn new(pool: &[Vec<u64>]) -> FinerPool {
+        let lifted: Vec<Heights> = pool.iter().map(|heights| lifted(heights)).collect();
+        let cells = lifted.first().expect("a pool holds a version").0.len();
+        let cells = u32::try_from(cells).expect("a small partition's cell count fits in u32");
+        let max = lifted
+            .iter()
+            .flat_map(|heights| heights.0.iter().copied())
+            .max()
+            .unwrap_or(0);
+        let fine: Vec<Heights> = cell_heights(cells, max).into_iter().map(Heights).collect();
+        assert!(
+            lifted.iter().all(|heights| fine.contains(heights)),
+            "every pool version lifts into the finer pool"
+        );
+        let indices = 0..lifted.len();
+        let segments = indices
+            .clone()
+            .flat_map(|lo| indices.clone().map(move |hi| (lo, hi)))
+            .filter(|&(lo, hi)| lifted[lo].le(&lifted[hi]))
+            .map(|(lo, hi)| Segment {
+                lo,
+                hi,
+                members: members_between(&lifted, &lifted[lo], &lifted[hi]),
+                fine_members: members_between(&fine, &lifted[lo], &lifted[hi]),
+            })
+            .collect();
+        FinerPool {
+            lifted,
+            fine,
+            segments,
+        }
+    }
+}
+
 /// The cube holds a witness for every coverage verdict its query family
 /// produces.
 ///
 /// A segment between cube versions also covers versions outside the cube,
 /// such as one ticked on a single eighth of the unit interval. For every
 /// query of the cube's family and every segment between cube versions, the
-/// census over the cube must agree with the census over the 256 height
-/// vectors holding 0 or 1 on each eighth, a pool that contains the cube.
-///
-/// That pool is complete for these censuses. Each clause compares a probe with
-/// an anchor constant on every quarter, and `p <= a` holds exactly when `p`'s
-/// maximum on each quarter is at most `a`'s height there, `a <= p` exactly
-/// when `p`'s minimum is at least it; the strict forms and equality combine
-/// the two. So a conjunction's verdict depends only on the probe's minimum
-/// and maximum on each quarter. Inside a segment between cube versions, each
-/// quarter's pair is `(0, 0)`, `(1, 1)`, or `(0, 1)`, and the eighths realize
-/// all 81 combinations of the four quarters' pairs. Agreement therefore means
-/// the cube's census is exact over every version the segment covers.
-///
-/// Both censuses judge membership by the clauses' relations in the pointwise
-/// order on height vectors, so no production code takes part.
+/// census over the cube must agree with the count over its [`FinerPool`]:
+/// the 256 height vectors holding 0 or 1 on each eighth.
 #[test]
 fn cube_census_agrees_with_a_finer_pool() {
-    let fine: Vec<Heights> = cell_heights(8, 1).into_iter().map(Heights).collect();
-    let cube: Vec<Heights> = cell_heights(4, 1)
-        .iter()
-        .map(|heights| lifted(heights))
-        .collect();
-    assert!(
-        cube.iter().all(|heights| fine.contains(heights)),
-        "every cube vector lifts into the eighths pool"
-    );
-
-    let segments = cube_segments();
-    let covered: Vec<(Vec<usize>, Vec<usize>)> = segments
-        .iter()
-        .map(|&(lo, hi)| {
-            let (lo, hi) = (&cube[lo], &cube[hi]);
-            (
-                members_between(&cube, lo, hi),
-                members_between(&fine, lo, hi),
-            )
-        })
-        .collect();
-
+    let FinerPool {
+        lifted: cube,
+        fine,
+        segments,
+    } = FinerPool::new(&cell_heights(4, 1));
     let clauses = cube_clauses();
     let cube_table = admission_table(&clauses, &cube, &cube);
     let fine_table = admission_table(&clauses, &cube, &fine);
@@ -1112,11 +1249,13 @@ fn cube_census_agrees_with_a_finer_pool() {
         let fine_admitted: Vec<bool> = (0..fine.len())
             .map(|m| query.admits(&fine_table, m))
             .collect();
-        for (segment, (cube_members, fine_members)) in segments.iter().zip(&covered) {
+        for segment in &segments {
             assert_eq!(
-                coverage_of(cube_members.iter().map(|&m| cube_admitted[m])),
-                coverage_of(fine_members.iter().map(|&m| fine_admitted[m])),
-                "census of segment {segment:?} by {:?} & {:?}",
+                coverage_of(segment.members.iter().map(|&m| cube_admitted[m])),
+                coverage_of(segment.fine_members.iter().map(|&m| fine_admitted[m])),
+                "census of the segment from cube version {} to {} by {:?} & {:?}",
+                segment.lo,
+                segment.hi,
                 clauses[query.first],
                 query.second.map(|second| &clauses[second]),
             );
@@ -1124,61 +1263,24 @@ fn cube_census_agrees_with_a_finer_pool() {
     }
 }
 
-/// The two-party grid inside a finer pool, as height vectors on quarters,
-/// with the members of each that every segment between grid members covers.
-struct GridInFinerPool {
-    /// The grid's height vectors, index for index with [`two_party_grid`]:
-    /// each party owns one half, so its height fills both of that half's
-    /// quarters.
-    grid: Vec<Heights>,
-    /// The 81 height vectors holding 0, 1, or 2 on each quarter of the unit
-    /// interval, the grid's among them.
-    fine: Vec<Heights>,
-    /// Every valid segment between two grid members.
-    segments: Vec<GridSegment>,
-}
-
-/// A segment between two grid members, with what it covers in each pool.
-struct GridSegment {
-    /// The grid index of the segment's bottom endpoint.
-    lo: usize,
-    /// The grid index of the segment's top endpoint.
-    hi: usize,
-    /// The indices of the grid members the segment covers.
-    grid_members: Vec<usize>,
-    /// The indices of the finer pool's members the segment covers.
-    fine_members: Vec<usize>,
-}
-
-/// The pools `grid_census_agrees_with_a_finer_pool` compares, built once
-/// because every case reads the same ones.
-static GRID_IN_FINER_POOL: LazyLock<GridInFinerPool> = LazyLock::new(|| {
-    let grid: Vec<Heights> = (0..=2u64)
-        .flat_map(|a| (0..=2u64).map(move |b| lifted(&[a, b])))
+/// The two-party grid read on quarters beside its [`FinerPool`], built once
+/// because every case reads the same pools.
+///
+/// The grid's heights are listed index for index with [`two_party_grid`]:
+/// each party owns one half, so its height fills both of that half's
+/// quarters.
+static GRID_IN_FINER_POOL: LazyLock<FinerPool> = LazyLock::new(|| {
+    let grid: Vec<Vec<u64>> = (0..=2u64)
+        .flat_map(|a| (0..=2u64).map(move |b| vec![a, b]))
         .collect();
     for (version, heights) in two_party_grid().iter().zip(&grid) {
         assert_eq!(
             *version,
-            from_oracle_version(&cell_event(&heights.0)),
-            "the committed grid is the lifted height grid, index for index"
+            from_oracle_version(&cell_event(heights)),
+            "the committed grid is the height grid, index for index"
         );
     }
-    let fine: Vec<Heights> = cell_heights(4, 2).into_iter().map(Heights).collect();
-    let segments = (0..grid.len())
-        .flat_map(|lo| (0..grid.len()).map(move |hi| (lo, hi)))
-        .filter(|&(lo, hi)| grid[lo].le(&grid[hi]))
-        .map(|(lo, hi)| GridSegment {
-            lo,
-            hi,
-            grid_members: members_between(&grid, &grid[lo], &grid[hi]),
-            fine_members: members_between(&fine, &grid[lo], &grid[hi]),
-        })
-        .collect();
-    GridInFinerPool {
-        grid,
-        fine,
-        segments,
-    }
+    FinerPool::new(&grid)
 });
 
 proptest! {
@@ -1187,22 +1289,15 @@ proptest! {
     ///
     /// For conjunctions drawn from the same clause strategies, and every
     /// segment between grid members, the census [`pool_coverage`] takes over
-    /// the grid must agree with the census over the 81 height vectors holding
-    /// 0, 1, or 2 on each quarter.
-    ///
-    /// That pool is complete for these censuses: each clause's anchors are
-    /// constant on each half, so a conjunction's verdict depends only on the
-    /// probe's minimum and maximum on each half, and the two quarters of a
-    /// half realize all six pairs from `(0, 0)` to `(2, 2)`. Both censuses
-    /// judge membership by the clauses' relations in the pointwise order on
-    /// height vectors, so no production code takes part.
+    /// the grid must agree with the count over its [`FinerPool`]: the 81
+    /// height vectors holding 0, 1, or 2 on each quarter.
     #[test]
     fn grid_census_agrees_with_a_finer_pool(
         bounds in prop::collection::vec(bound_clause(), 0..=6),
         down in prop::collection::vec(down_clause(), 1..=6),
         up in prop::collection::vec(up_clause(), 1..=6),
     ) {
-        let GridInFinerPool { grid, fine, segments } = &*GRID_IN_FINER_POOL;
+        let FinerPool { lifted: grid, fine, segments } = &*GRID_IN_FINER_POOL;
         let neutral = |probe: &Heights| bounds.iter().all(|bound| bound.admits(probe, grid));
         let downward = |probe: &Heights| {
             neutral(probe) && down.iter().all(|clause| clause.admits(probe, grid))
@@ -1216,7 +1311,7 @@ proptest! {
             let fine_admitted: Vec<bool> = fine.iter().map(admits).collect();
             for segment in segments {
                 prop_assert_eq!(
-                    coverage_of(segment.grid_members.iter().map(|&m| grid_admitted[m])),
+                    coverage_of(segment.members.iter().map(|&m| grid_admitted[m])),
                     coverage_of(segment.fine_members.iter().map(|&m| fine_admitted[m])),
                     "census over [{:?}, {:?}]",
                     grid[segment.lo],
