@@ -110,10 +110,16 @@ fn module_of(krate: &Crate, id: Id) -> &rustdoc_types::Module {
 
 /// Record one module's items under `prefix`, following re-exports.
 ///
-/// `visited` guards against re-export cycles (`pub use` loops), keyed by
-/// the module id being expanded; a module re-exported at two paths is
-/// walked once per path, because each path names distinct public
-/// surface.
+/// `visited` guards against glob re-export cycles (`pub use m::*` loops),
+/// keyed by the path and the module id being expanded; a module
+/// re-exported at two paths is walked once per path, because each path
+/// names distinct public surface.
+///
+/// Recurses, through [`walk_named`] and [`walk_use`], once per module level
+/// along each reachable path, a depth `before`'s own modules and re-exports
+/// fix. That bound holds only while `before` has no named re-export of an
+/// enclosing module: `visited` keys on the path, which such a re-export would
+/// lengthen on every pass.
 fn walk_module(
     krate: &Crate,
     items: &[Id],
@@ -659,6 +665,9 @@ fn render_trait(krate: &Crate, trait_: &Path) -> String {
 /// bare names keep the pinned census legible. A type shape this crate's
 /// surface never uses panics rather than rendering approximately — a
 /// new shape must be named here before it can be pinned.
+///
+/// Recurses, with [`render_args`], once per level of type nesting, a depth
+/// `before`'s own signatures fix.
 fn render_type(krate: &Crate, ty: &Type) -> String {
     match ty {
         Type::ResolvedPath(path) => {

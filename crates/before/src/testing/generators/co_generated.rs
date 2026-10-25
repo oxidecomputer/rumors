@@ -44,7 +44,6 @@ use core::ops::{Range, RangeInclusive};
 use num_bigint::BigUint;
 use proptest::prelude::*;
 
-use crate::recurse::descend;
 use crate::testing::oracles::tree;
 
 /// The case-count divisor for properties over [`arb_wide_case`].
@@ -80,11 +79,11 @@ const SPINE_LEVELS: Range<usize> = 1..48;
 /// in this range nest more sites than one memo block
 /// ([`BLOCK_SLOTS`](crate::version::tick::BLOCK_SLOTS)) holds.
 ///
-/// The recursive oracle's unguarded tick, which computes each case's
-/// fill-fixed successor, recurses once per tree level, and a deep case is
-/// about as deep as its spine: a side region or the tip adds only a few
-/// levels. So the deepest case keeps the oracle within a few hundred native
-/// frames, the envelope in which the oracle differentials already run
+/// The recursive oracle's tick, which computes each case's fill-fixed
+/// successor, recurses once per tree level, and a deep case is about as deep
+/// as its spine: a side region or the tip adds only a few levels. So the
+/// deepest case keeps the oracle within a few hundred native frames, the
+/// envelope in which the oracle differentials already run
 /// [`leaf_list`](super::leaf_list)'s deep versions.
 const DEEP_SPINE_LEVELS: Range<usize> = 160..320;
 
@@ -221,7 +220,7 @@ pub(crate) fn arb_multi_scan_case() -> impl Strategy<Value = TickCase> {
 fn arb_case(regions: impl Strategy<Value = Region>) -> impl Strategy<Value = TickCase> {
     (regions, arb_palette(), 0..LATE_LEAVES, any::<u8>()).prop_map(
         |(region, palette, late_leaf, late_tag)| {
-            let (party, version) = resolve(&region, &palette, 0);
+            let (party, version) = resolve(&region, &palette);
             // A region tree with no owned region resolves to the empty party,
             // which cannot tick; the seed stands in for it.
             let party = if party.is_empty() {
@@ -390,18 +389,21 @@ fn height(palette: &[BigUint], tag: u8) -> BigUint {
 /// and `(0, 0)`, and version branches through [`tree::Version::node`] with a
 /// zero base, which lifts the children's common minimum and collapses equal
 /// leaf pairs; leaf heights are absolute.
-fn resolve(region: &Region, palette: &[BigUint], depth: usize) -> (tree::Party, tree::Version) {
+///
+/// Recurses once per level of the region tree, as deep as the region its
+/// strategy draws; [`DEEP_SPINE_LEVELS`] bounds the deepest. The recursive
+/// oracle's tick recurses as deep over every case.
+fn resolve(region: &Region, palette: &[BigUint]) -> (tree::Party, tree::Version) {
     match region {
-        Region::Owned(skeleton) => (tree::Party::seed(), heights(skeleton, palette, depth)),
-        Region::Unowned(skeleton) => (tree::Party::Leaf(false), heights(skeleton, palette, depth)),
+        Region::Owned(skeleton) => (tree::Party::seed(), heights(skeleton, palette)),
+        Region::Unowned(skeleton) => (tree::Party::Leaf(false), heights(skeleton, palette)),
         Region::OverLeaf(left, right, tag) => (
             tree::Party::node(left.clone(), right.clone()),
             tree::Version::leaf(height(palette, *tag)),
         ),
         Region::Aligned(left, right) => {
-            let (party_left, version_left) = descend!(depth + 1, resolve(left, palette, depth + 1));
-            let (party_right, version_right) =
-                descend!(depth + 1, resolve(right, palette, depth + 1));
+            let (party_left, version_left) = resolve(left, palette);
+            let (party_right, version_right) = resolve(right, palette);
             (
                 tree::Party::node(party_left, party_right),
                 tree::Version::node(0u8, version_left, version_right),
@@ -411,14 +413,15 @@ fn resolve(region: &Region, palette: &[BigUint], depth: usize) -> (tree::Party, 
 }
 
 /// Resolves a version skeleton's leaves to their palette heights.
-fn heights(skeleton: &VersionSkeleton, palette: &[BigUint], depth: usize) -> tree::Version {
+///
+/// Recurses once per skeleton level, at most the depth [`arb_skeleton`] was
+/// given.
+fn heights(skeleton: &VersionSkeleton, palette: &[BigUint]) -> tree::Version {
     match skeleton {
         VersionSkeleton::Leaf(tag) => tree::Version::leaf(height(palette, *tag)),
-        VersionSkeleton::Node(left, right) => tree::Version::node(
-            0u8,
-            descend!(depth + 1, heights(left, palette, depth + 1)),
-            descend!(depth + 1, heights(right, palette, depth + 1)),
-        ),
+        VersionSkeleton::Node(left, right) => {
+            tree::Version::node(0u8, heights(left, palette), heights(right, palette))
+        }
     }
 }
 
@@ -428,7 +431,7 @@ fn with_leaf_from_end(version: &tree::Version, from_end: usize, height: &BigUint
     let leaves = leaf_count(version);
     let target = leaves - 1 - from_end % leaves;
     let mut next = 0;
-    with_leaf(version, &BigUint::ZERO, target, &mut next, height, 0)
+    with_leaf(version, &BigUint::ZERO, target, &mut next, height)
 }
 
 /// Counts a version's leaves.
@@ -447,13 +450,17 @@ fn leaf_count(version: &tree::Version) -> usize {
 /// Rebuilds the subtree under absolute height `offset`, setting the leaf whose
 /// preorder index is `target` to `height`; `next` is the preorder index of the
 /// subtree's first leaf, and advances past its last.
+///
+/// Recurses once per level of `version`, a fill-fixed successor. A tick
+/// expands version leaves only along the party's branches, so the successor
+/// is no deeper than the deeper of the case's party and version, whose depth
+/// [`resolve`] bounds.
 fn with_leaf(
     version: &tree::Version,
     offset: &BigUint,
     target: usize,
     next: &mut usize,
     height: &BigUint,
-    depth: usize,
 ) -> tree::Version {
     match version {
         tree::Version::Leaf(base) => {
@@ -467,14 +474,8 @@ fn with_leaf(
         }
         tree::Version::Node(base, left, right) => {
             let offset = offset + base;
-            let left = descend!(
-                depth + 1,
-                with_leaf(left, &offset, target, next, height, depth + 1)
-            );
-            let right = descend!(
-                depth + 1,
-                with_leaf(right, &offset, target, next, height, depth + 1)
-            );
+            let left = with_leaf(left, &offset, target, next, height);
+            let right = with_leaf(right, &offset, target, next, height);
             tree::Version::node(0u8, left, right)
         }
     }

@@ -45,7 +45,14 @@ fn assert_stays_exhausted<I: FusedIterator>(
 ///
 /// This deliberately uses only the binary public operation. It is the direct
 /// behavioral reference for the compact count plan and one-pass path builder.
+/// Each level halves `count`, so the recursion is at most 64 levels deep.
+///
+/// # Panics
+///
+/// Panics if `count` is zero: a zero count halves to zero at every level and
+/// never reaches the single-share base case.
 fn recursive_forks(mut party: Party, count: usize) -> Vec<Party> {
+    assert!(count > 0, "a party forks into at least one share");
     if count == 1 {
         return vec![party];
     }

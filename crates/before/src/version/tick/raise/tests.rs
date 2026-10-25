@@ -16,13 +16,14 @@
 //! oracle for closed-form expected values (its test doc states each
 //! derivation).
 
+use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 
 use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::party::io::{BranchChoice, PartyNode, PartyReader};
-use crate::recurse::descend;
 use crate::testing::bridge::{
     from_oracle_party, from_oracle_version, to_oracle_party, to_oracle_version,
 };
@@ -81,7 +82,7 @@ fn spike(path: impl IntoIterator<Item = bool>) -> Version {
 /// inflation byte for byte; the return says whether the pair took the grow
 /// branch, so the deterministic grids can pin their coverage counts.
 fn assert_grow(v: &Version, p: &Party) -> bool {
-    match assert_grow_depth_safe(v, p) {
+    match assert_grow_without_oracle(v, p) {
         None => false,
         Some(out) => {
             let (raw, _) = to_oracle_version(v)
@@ -97,15 +98,18 @@ fn assert_grow(v: &Version, p: &Party) -> bool {
     }
 }
 
-/// The depth-safe half of [`assert_grow`].
+/// The half of [`assert_grow`] that consults no recursive oracle.
 ///
-/// Runs the branch decision, the route pin, and canonicality (the fused walk,
-/// the reference probe, and the splice are all stack-guarded or iterative),
-/// returning the ticked stream on the grow branch.
+/// Runs the branch decision, the route pin, and canonicality, returning the
+/// ticked stream on the grow branch. The fused walk and the splice are
+/// iterative; the reference probe keeps one native frame per party level, so a
+/// caller driving a deep party runs on a thread sized for it.
 ///
-/// The recursive oracle walks on native frames, so the deep-spine test calls
-/// this directly and takes its value witnesses from closed forms instead.
-fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<Version> {
+/// The recursive oracle, whose derived `Drop` and operations also recurse once
+/// per level, must stay inside its operating envelope, which a deep spine
+/// leaves. So the deep-spine test calls this directly and takes its value
+/// witnesses from closed forms instead.
+fn assert_grow_without_oracle(v: &Version, p: &Party) -> Option<Version> {
     match TickWalk::decide(v, p) {
         // fill moved the tree: the splice is unreachable for this pair.
         Decision::Simplified(_) => None,
@@ -140,24 +144,27 @@ enum RefId {
 /// Probe the cheapest inflation by direct recursion over the `(id, ev)` shape —
 /// the transliteration of the recursive walk whose route fold the fused tick
 /// walk carries, kept as its structural witness.
+///
+/// The recursion keeps one native frame per level of `party`, plus one for
+/// the full regime at a leaf. Every grid and property draws its parties from
+/// bounded pools and generators; [`deep_spines_grow_identically`] drives a
+/// [`DEEP_SPINE_DEPTH`]-level party, on a thread sized for it.
 fn reference_probe(version: &Version, party: &Party) -> (Route, Cost) {
     let mut route = Route::new(party.stored_len());
     let mut ev = VersionSpliceReader::new(version);
     let mut party = party.reader();
-    let cost = descend!(0, rec(&mut route, &mut ev, &mut party, RefId::At, false, 0));
+    let cost = rec(&mut route, &mut ev, &mut party, RefId::At, false);
     (route, cost)
 }
 
 /// One reference recursion step; `ev_zero` marks the virtual zero leaf below an
 /// expanded event leaf.
-#[allow(clippy::too_many_arguments)]
 fn rec(
     route: &mut Route,
     ev: &mut VersionSpliceReader<'_>,
     party: &mut PartyReader<'_>,
     id: RefId,
     ev_zero: bool,
-    depth: usize,
 ) -> Cost {
     match id {
         RefId::Empty => {
@@ -181,7 +188,7 @@ fn rec(
         RefId::At => {
             let key = party.offset();
             let PartyNode::Branch(branch) = party.read() else {
-                return rec(route, ev, party, RefId::Full, ev_zero, depth);
+                return rec(route, ev, party, RefId::Full, ev_zero);
             };
             let expand = ev_zero || ev.leaf().is_some();
             let la = if branch.has_left_child() {
@@ -189,13 +196,13 @@ fn rec(
             } else {
                 RefId::Empty
             };
-            let lc = descend!(depth + 1, rec(route, ev, party, la, expand, depth + 1));
+            let lc = rec(route, ev, party, la, expand);
             let ra = if branch.has_right_child() {
                 RefId::At
             } else {
                 RefId::Empty
             };
-            let rc = descend!(depth + 1, rec(route, ev, party, ra, expand, depth + 1));
+            let rc = rec(route, ev, party, ra, expand);
             combine(route, expand, key, lc, rc)
         }
     }
@@ -332,7 +339,7 @@ fn exhaustive_small_scope_grows_identically() {
     let taken = AtomicUsize::new(0);
     events.par_iter().for_each(|v| {
         for p in &parties {
-            if let Some(out) = assert_grow_depth_safe(v, p) {
+            if let Some(out) = assert_grow_without_oracle(v, p) {
                 taken.fetch_add(1, Ordering::Relaxed);
                 let (raw, _) = to_oracle_version(v)
                     .grow_for_test(&to_oracle_party(p))
@@ -415,23 +422,46 @@ fn worked_examples_grow_exactly() {
     }
 }
 
+/// The depth of the deep-spine test's unary id spine and alternating version
+/// spine.
+const DEEP_SPINE_DEPTH: usize = 4096;
+
+/// The stack the deep-spine test reserves per level of the reference probe.
+///
+/// The probe's frame measures 112 bytes per level on x86_64 in the dev
+/// profile, which builds `before` at opt-level 2, read as the span of stack
+/// addresses its recursion covers over a [`DEEP_SPINE_DEPTH`]-level party. A
+/// KiB per level leaves roughly nine times that, for targets and codegen
+/// settings with wider frames.
+const PROBE_LEVEL_STACK: usize = 1024;
+
+/// The deep-spine test thread's stack: [`PROBE_LEVEL_STACK`] for each frame
+/// of the reference probe's recursion, plus libtest's default 2 MiB test
+/// stack for everything else the test runs.
+///
+/// Over a spine of [`DEEP_SPINE_DEPTH`] branches, the probe holds one frame
+/// per branch, one at the owned leaf, and one for the full regime below it.
+const DEEP_SPINE_STACK: usize = (DEEP_SPINE_DEPTH + 2) * PROBE_LEVEL_STACK + 2 * 1024 * 1024;
+
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
 /// everywhere else: `depth` nested nodes, all bases zero, the single 1-leaf at
 /// the bottom left.
 ///
-/// Built as a text literal — the parser is iterative — so the expected tree
-/// shares no walk with grow.
+/// Built by projecting a uniform version onto the party that owns that
+/// interval, so the expected spine comes from the projection kernel rather
+/// than from the grow walk under test.
 fn left_spike(depth: usize) -> Version {
     spike(std::iter::repeat_n(true, depth))
 }
 
-/// Deep spines in the grow branch stay correct at depths that would overflow a
-/// native-frame walk.
+/// Deep spines in the grow branch grow to the right value along the
+/// reference route, [`DEEP_SPINE_DEPTH`] levels deep.
 ///
 /// The regimes: a deep expansion chain (unary id spine over one leaf) and a
 /// deep two-cursor descent mixing into an id-only expansion where the id
-/// outruns the event. These cases directly establish stack safety beyond the
-/// sizes sampled by the resource board.
+/// outruns the event. Stack safety at a depth that overflows any walk keeping
+/// a frame per level is `clock::tests::deep_tree_stack_safety`'s claim, which
+/// ticks the grow branch over a far deeper spine.
 ///
 /// The recursive oracle walks on native frames, so the value witnesses here are
 /// closed forms, derived per case: the deep unary id over the empty version
@@ -440,24 +470,34 @@ fn left_spike(depth: usize) -> Version {
 /// leaf, so the forced route raises exactly the owned region from 0 to 1 — the
 /// pointwise max with the spike. Each max is realized through the
 /// independently-pinned join kernel and is byte-exact by canonical uniqueness;
-/// canonicality and the route pin (the reference probe is stack-guarded) ride
-/// along.
+/// canonicality and the route pin ride along. The route pin's reference probe
+/// recurses on native frames, so the test runs on a thread of
+/// [`DEEP_SPINE_STACK`] bytes.
 #[test]
 fn deep_spines_grow_identically() {
-    let deep_id = party_of(&Shape::IdSpine.build_flagged(4096, false));
-    let spike = left_spike(4096);
-    let out = assert_grow_depth_safe(&Version::new(), &deep_id)
-        .expect("a leaf under a node id is a grow-branch pair");
-    assert_eq!(out, spike, "grow expands the chain to the owned tip");
+    let deep_spines = thread::Builder::new()
+        .name("deep_spines_grow_identically".into())
+        .stack_size(DEEP_SPINE_STACK)
+        .spawn(|| {
+            let deep_id = party_of(&Shape::IdSpine.build_flagged(DEEP_SPINE_DEPTH, false));
+            let spike = left_spike(DEEP_SPINE_DEPTH);
+            let out = assert_grow_without_oracle(&Version::new(), &deep_id)
+                .expect("a leaf under a node id is a grow-branch pair");
+            assert_eq!(out, spike, "grow expands the chain to the owned tip");
 
-    let deep_ev = version_of(&Shape::AltSpine.build1(4096));
-    let out = assert_grow_depth_safe(&deep_ev, &deep_id)
-        .expect("no full-id region meets a subdividable subtree: a grow-branch pair");
-    assert_eq!(
-        out,
-        &deep_ev | &spike,
-        "the grown stream is the pointwise max with the spike"
-    );
+            let deep_ev = version_of(&Shape::AltSpine.build1(DEEP_SPINE_DEPTH));
+            let out = assert_grow_without_oracle(&deep_ev, &deep_id)
+                .expect("no full-id region meets a subdividable subtree: a grow-branch pair");
+            assert_eq!(
+                out,
+                &deep_ev | &spike,
+                "the grown stream is the pointwise max with the spike"
+            );
+        })
+        .expect("the OS provides a thread with the deep-spine stack");
+    if let Err(failure) = deep_spines.join() {
+        panic::resume_unwind(failure);
+    }
 }
 
 proptest! {

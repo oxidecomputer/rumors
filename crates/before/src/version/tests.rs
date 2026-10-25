@@ -1076,19 +1076,14 @@ proptest! {
 /// The version built so far is constant over the current node's interval,
 /// because only the node's ancestors have ticked there, so each tick's fill
 /// changes nothing and its grow raises exactly the party's interval. The ticks
-/// spent are therefore the sum of the bases. The traversal recurses on the
-/// tree's depth through `descend!`.
+/// spent are therefore the sum of the bases.
+///
+/// The traversal recurses once per level of `target`, an oracle tree whose
+/// strategy bounds its depth by construction.
 fn realize(target: &crate::testing::oracles::tree::Version) -> (Version, BigUint) {
-    use crate::recurse::descend;
     use crate::testing::oracles::tree::Version as V;
 
-    fn visit(
-        node: &V,
-        depth: usize,
-        mut party: Party,
-        built: &mut Version,
-        spent: &mut BigUint,
-    ) -> Party {
+    fn visit(node: &V, mut party: Party, built: &mut Version, spent: &mut BigUint) -> Party {
         let (V::Leaf(base) | V::Node(base, ..)) = node;
         if *base != BigUint::ZERO {
             built.ticks(&party, Count(base.clone()));
@@ -1096,8 +1091,8 @@ fn realize(target: &crate::testing::oracles::tree::Version) -> (Version, BigUint
         }
         if let V::Node(_, left, right) = node {
             let right_half = party.fork();
-            party = descend!(depth + 1, visit(left, depth + 1, party, built, spent));
-            let right_half = descend!(depth + 1, visit(right, depth + 1, right_half, built, spent));
+            party = visit(left, party, built, spent);
+            let right_half = visit(right, right_half, built, spent);
             party
                 .join(right_half)
                 .expect("the two halves of one interval are disjoint");
@@ -1107,7 +1102,7 @@ fn realize(target: &crate::testing::oracles::tree::Version) -> (Version, BigUint
 
     let mut built = Version::new();
     let mut spent = BigUint::ZERO;
-    let seed = visit(target, 0, Party::seed(), &mut built, &mut spent);
+    let seed = visit(target, Party::seed(), &mut built, &mut spent);
     assert!(seed.is_seed(), "the history's parties rejoin into the seed");
     (built, spent)
 }

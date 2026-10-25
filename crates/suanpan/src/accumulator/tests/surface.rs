@@ -489,6 +489,10 @@ enum Operand {
 /// Build operand values exclusively through the public arithmetic surface.
 impl Operand {
     /// Return matching accumulator and big-integer representations.
+    ///
+    /// Recurses only through [`Negated`](Self::Negated), which
+    /// [`arb_operand`] nests at most once, since it negates only an
+    /// unnegated operand.
     fn values(&self) -> (Accumulator, BigInt) {
         match self {
             Operand::Primitive(value) => value.values(),

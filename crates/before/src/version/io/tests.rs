@@ -365,6 +365,8 @@ proptest! {
 /// The first leaf is absolute and later leaves are changes from their
 /// predecessor, just as in a stored version.
 fn inverted_flag_stream(t: &tree::Version) -> BitsWriter {
+    // Recurses once per level of `t`, an oracle tree inside the envelope its
+    // harness bounds.
     fn walk(t: &tree::Version, offset: &BigUint, prev: &mut Option<BigUint>, out: &mut BitsWriter) {
         match t {
             tree::Version::Leaf(n) => {

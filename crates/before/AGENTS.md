@@ -21,10 +21,12 @@ the gate do.
 ## Hard rules
 
 - No `unsafe`: the crate is `#![forbid(unsafe_code)]`. Where a capability
-  needs it, depend on a crate that encapsulates it, as the test-only stack
-  guard does with `stacker`.
+  needs it, depend on a crate that encapsulates it.
 - No library traversal recurses on tree depth: deep walks are iterative. A
-  deliberately recursive test helper routes each descent through
-  `recurse::descend!`.
+  test helper recurses only on depth bounded by construction, and states the
+  bound where it recurses; the recursive tree oracle's operating envelope
+  requires every harness that drives it to bound its input depth. A test that
+  must drive input-controlled depth through a recursion runs it iteratively,
+  or on a thread whose stack size is derived from the depth it drives.
 - The public API is stable: propose additions or reshapings, with your
   reasoning, rather than making them unbidden.

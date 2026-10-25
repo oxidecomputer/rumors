@@ -113,7 +113,9 @@ pub(crate) fn min_inflation_cost(id: &tree::Party, e: &tree::Version) -> Option<
 /// diverges from the global optimum, `grow`'s output will differ from this. The
 /// right-favoring rule is the paper's: descend left iff the left child's
 /// minimum is strictly cheaper than the right's (`cl < cr`), else descend
-/// right.
+/// right. Recursive over bounded test trees, as [`all_inflations`] is: each
+/// call descends a level or expands an event leaf under an id node, so the
+/// depth is at most twice the deeper of `id` and `e`.
 pub(crate) fn best_inflation(id: &tree::Party, e: &tree::Version) -> Option<(tree::Version, Cost)> {
     use tree::Party as P;
     use tree::Version as V;

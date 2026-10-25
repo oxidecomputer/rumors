@@ -437,7 +437,6 @@ mod fold;
 mod party;
 mod rank;
 mod ranked;
-mod recurse;
 mod span;
 mod text;
 mod version;

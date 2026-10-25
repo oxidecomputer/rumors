@@ -107,6 +107,8 @@ fn alternating_oracle_version(leaves: usize, high: &BigUint) -> oracle::Version 
     assert!(leaves.is_power_of_two(), "the tree must be balanced");
 
     /// Build one balanced range of the alternating leaf sequence.
+    ///
+    /// Each level halves `leaves`, so the recursion is under 64 levels deep.
     fn build(start: usize, leaves: usize, high: &BigUint) -> oracle::Version {
         if leaves == 1 {
             return oracle::Version::Leaf(if start.is_multiple_of(2) {
