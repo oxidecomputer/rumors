@@ -36,7 +36,7 @@ use super::{
 };
 use crate::causally::{Down, Polarity, Query, Up};
 use crate::testing::exhaustive::cell_heights;
-use crate::testing::generators::census::{
+use crate::testing::generators::census::seeded::{
     assert_default_case_count, assert_floors, regime_floor, sample, Tally, CENSUS_CASES,
 };
 use crate::testing::generators::divided_config;
@@ -763,7 +763,7 @@ fn reach(case: &QueryCase) -> Reach {
 
 /// Each census property's strategy keeps enough mass on the regimes its docs
 /// claim that each default run expects
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::REGIME_CASES_PER_RUN)
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::seeded::REGIME_CASES_PER_RUN)
 /// cases there.
 ///
 /// [`census_agrees_with_a_finer_pool`] claims the segments that can expose a

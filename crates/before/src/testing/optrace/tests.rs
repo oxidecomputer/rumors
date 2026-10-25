@@ -8,7 +8,7 @@ use proptest::test_runner::{Config, TestRunner};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
-use crate::testing::generators::census::{assert_default_case_count, regime_floor};
+use crate::testing::generators::census::seeded::{assert_default_case_count, regime_floor};
 use crate::testing::oracles::function::{ev_res, id_res, FunctionClock};
 use crate::testing::oracles::{flat, function, tree};
 use crate::testing::rng::strategy_rng;
@@ -230,7 +230,7 @@ impl Reach {
 /// and their consumers rely on for every default run of a consumer.
 ///
 /// Each default run of a consumer expects
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::REGIME_CASES_PER_RUN)
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::seeded::REGIME_CASES_PER_RUN)
 /// traces reaching each regime it relies on:
 ///
 /// - for [`world_strategy`], the regimes its doc claims: a `forks` step

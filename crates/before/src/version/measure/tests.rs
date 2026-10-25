@@ -19,7 +19,7 @@ use proptest::prelude::*;
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
 use crate::testing::generators::arb_oracle_version;
-use crate::testing::generators::census::{
+use crate::testing::generators::census::seeded::{
     assert_default_case_count, regime_floor, sample, CENSUS_CASES,
 };
 use crate::testing::generators::divided_config;
@@ -510,7 +510,7 @@ const MULTISCALE_CENSUS_SEED: u64 = 17;
 /// co-sweeps, and on exact rank ties.
 ///
 /// Each default run of every property drawing them must expect
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::REGIME_CASES_PER_RUN)
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::seeded::REGIME_CASES_PER_RUN)
 /// pairs in each regime.
 ///
 /// A pair defers in single folds when
