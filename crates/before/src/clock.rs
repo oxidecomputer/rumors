@@ -129,11 +129,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html")))]
-    #[cfg_attr(
-        not(doc),
-        doc = "`O(n)` in total input bytes; `O(|self| + |party| + log k)`"
-    )]
+    /// Takes `O(|self| + log k)` time; measured on [`Version::ticks`].
     ///
     /// # Example
     ///
@@ -537,8 +533,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |version|)` time; measured on [`Version::join`].
     ///
     /// # Example
     ///
@@ -1000,57 +995,53 @@ impl Debug for Clock {
 /// same expansion as the method it belongs to (`self` cannot cross a
 /// macro-invocation boundary).
 macro_rules! clock_join_matrix {
-    ($island:literal, $contract:literal, $opdoc:literal, $($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
-        $( clock_join_matrix!(@cell $island, $contract, $opdoc, $kind $lhs, $rhs); )*
+    ($cost:literal, $opdoc:literal, $($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
+        $( clock_join_matrix!(@cell $cost, $opdoc, $kind $lhs, $rhs); )*
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, op_l $lhs:ty, $rhs:ty) => {
+    (@cell $cost:literal, $opdoc:literal, op_l $lhs:ty, $rhs:ty) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = $contract)]
+        #[doc = $cost]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
-            fn bitor(mut self, r: $rhs) -> Clock {
-                self.absorb(r.borrow());
+            fn bitor(mut self, rhs: $rhs) -> Clock {
+                self.absorb(rhs.borrow());
                 self
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, op_r $lhs:ty, $rhs:ty) => {
+    (@cell $cost:literal, $opdoc:literal, op_r $lhs:ty, $rhs:ty) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = $contract)]
+        #[doc = $cost]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
-            fn bitor(self, mut r: $rhs) -> Clock {
-                r.absorb(self.borrow());
-                r
+            fn bitor(self, mut rhs: $rhs) -> Clock {
+                rhs.absorb(self.borrow());
+                rhs
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, as_clock $lhs:ty, $rhs:ty) => {
+    (@cell $cost:literal, $opdoc:literal, as_clock $lhs:ty, $rhs:ty) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = $contract)]
+        #[doc = $cost]
         impl BitOrAssign<$rhs> for $lhs {
-            fn bitor_assign(&mut self, r: $rhs) {
-                self.absorb(r.borrow());
+            fn bitor_assign(&mut self, rhs: $rhs) {
+                self.absorb(rhs.borrow());
             }
         }
     };
 }
 
 clock_join_matrix! {
-    "version_join",
-    "`O(n)` in total input bytes; `O(|self| + |other|)`",
+    "Takes `O(|self| + |rhs|)` time; measured on [`Version::join`].",
     "`clock | version` (in either operand order) and `clock |= version`: merge a received [`Version`] without marking an event, as [`Clock::absorb`].",
     op_l     Clock,    Version;
     op_l     Clock,    &Version;

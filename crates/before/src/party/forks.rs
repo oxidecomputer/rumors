@@ -290,16 +290,10 @@ impl Iterator for Plan {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n)` in total input bytes; a full drain costs `O(|self| + k (|self| + log k))`"
-)]
-///
 /// Construction costs `O(log k)` for the count representation. Each `next`
 /// costs `O(|p| + log k)` and dropping the iterator costs `O(1)`, with `|p|`
-/// the borrowed party's size.
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
+/// the borrowed party's size. A full drain takes `O(|p| + k (|p| + log k))`
+/// time; measured on [`Party::forks`].
 #[must_use = "`PartyForks` produces no child parties unless consumed"]
 pub struct PartyForks<'a> {
     /// The borrowed party, containing the residual and every untaken share.
@@ -376,11 +370,8 @@ mod tests;
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n)` in total input bytes; a full drain costs `O(|self| + k (|self| + log k))`"
-)]
+/// Takes `O(|party| + N (|party| + log N))` time; measured on
+/// [`Party::forks`].
 ///
 /// # Example
 ///

@@ -604,15 +604,15 @@ macro_rules! span_total_binop_matrix {
         $(#[$doc])*
         impl<'a, 'b, T: Into<Span<'b>>> $Op<T> for Span<'a> {
             type Output = Span<'static>;
-            fn $op(self, r: T) -> Span<'static> {
-                Span::$method(&self, r)
+            fn $op(self, rhs: T) -> Span<'static> {
+                Span::$method(&self, rhs)
             }
         }
         $(#[$doc])*
         impl<'a, 'b, T: Into<Span<'b>>> $Op<T> for &Span<'a> {
             type Output = Span<'static>;
-            fn $op(self, r: T) -> Span<'static> {
-                Span::$method(self, r)
+            fn $op(self, rhs: T) -> Span<'static> {
+                Span::$method(self, rhs)
             }
         }
     };
@@ -629,29 +629,29 @@ macro_rules! span_version_lhs_matrix {
         $(#[$doc])*
         impl<'b> $Op<Span<'b>> for Version {
             type Output = Span<'static>;
-            fn $op(self, r: Span<'b>) -> Span<'static> {
-                Span::$method(&Span::at(&self), r)
+            fn $op(self, rhs: Span<'b>) -> Span<'static> {
+                Span::$method(&Span::at(&self), rhs)
             }
         }
         $(#[$doc])*
         impl<'b> $Op<&Span<'b>> for Version {
             type Output = Span<'static>;
-            fn $op(self, r: &Span<'b>) -> Span<'static> {
-                Span::$method(&Span::at(&self), r)
+            fn $op(self, rhs: &Span<'b>) -> Span<'static> {
+                Span::$method(&Span::at(&self), rhs)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<Span<'b>> for &'a Version {
             type Output = Span<'static>;
-            fn $op(self, r: Span<'b>) -> Span<'static> {
-                Span::$method(&Span::at(self), r)
+            fn $op(self, rhs: Span<'b>) -> Span<'static> {
+                Span::$method(&Span::at(self), rhs)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<&Span<'b>> for &'a Version {
             type Output = Span<'static>;
-            fn $op(self, r: &Span<'b>) -> Span<'static> {
-                Span::$method(&Span::at(self), r)
+            fn $op(self, rhs: &Span<'b>) -> Span<'static> {
+                Span::$method(&Span::at(self), rhs)
             }
         }
     };
@@ -666,29 +666,29 @@ macro_rules! span_binop_matrix {
         $(#[$doc])*
         impl<'a, 'b> $Op<Span<'b>> for Span<'a> {
             type Output = $Out;
-            fn $op(self, r: Span<'b>) -> $Out {
-                Span::$method(&self, &r)
+            fn $op(self, rhs: Span<'b>) -> $Out {
+                Span::$method(&self, &rhs)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<&Span<'b>> for Span<'a> {
             type Output = $Out;
-            fn $op(self, r: &Span<'b>) -> $Out {
-                Span::$method(&self, r)
+            fn $op(self, rhs: &Span<'b>) -> $Out {
+                Span::$method(&self, rhs)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<Span<'b>> for &Span<'a> {
             type Output = $Out;
-            fn $op(self, r: Span<'b>) -> $Out {
-                Span::$method(self, &r)
+            fn $op(self, rhs: Span<'b>) -> $Out {
+                Span::$method(self, &rhs)
             }
         }
         $(#[$doc])*
         impl<'a, 'b> $Op<&Span<'b>> for &Span<'a> {
             type Output = $Out;
-            fn $op(self, r: &Span<'b>) -> $Out {
-                Span::$method(self, r)
+            fn $op(self, rhs: &Span<'b>) -> $Out {
+                Span::$method(self, rhs)
             }
         }
     };
@@ -702,8 +702,7 @@ span_total_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::join`].
     ///
     /// # Example
     ///
@@ -734,8 +733,7 @@ span_total_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::meet`].
     ///
     /// # Example
     ///
@@ -764,8 +762,7 @@ span_total_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::union`].
     ///
     /// # Example
     ///
@@ -795,8 +792,7 @@ span_version_lhs_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::join`].
     ///
     /// # Example
     ///
@@ -822,8 +818,7 @@ span_version_lhs_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::meet`].
     ///
     /// # Example
     ///
@@ -852,8 +847,7 @@ span_version_lhs_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::union`].
     ///
     /// # Example
     ///
@@ -881,8 +875,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::intersect`].
     ///
     /// # Example
     ///
@@ -913,8 +906,8 @@ macro_rules! span_assign_matrix {
     ($(#[$doc:meta])* $Assign:ident::$assign:ident, $method:ident) => {
         $(#[$doc])*
         impl<'a, 'b, T: Into<Span<'b>>> $Assign<T> for Span<'a> {
-            fn $assign(&mut self, r: T) {
-                *self = Span::$method(self, r);
+            fn $assign(&mut self, rhs: T) {
+                *self = Span::$method(self, rhs);
             }
         }
     };
@@ -927,8 +920,7 @@ span_assign_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::join`].
     BitOrAssign::bitor_assign, join
 }
 
@@ -939,8 +931,7 @@ span_assign_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::meet`].
     BitAndAssign::bitand_assign, meet
 }
 
@@ -951,8 +942,7 @@ span_assign_matrix! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
+    /// Takes `O(|self| + |rhs|)` time; measured on [`Span::union`].
     AddAssign::add_assign, union
 }
 
@@ -994,8 +984,8 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count")]
+    /// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+    /// [`Span::union_all`].
     ///
     /// # Example
     ///
@@ -1025,8 +1015,8 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count")]
+    /// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+    /// [`Span::union_all`].
     ('x, 'a) &'x Span<'a>
 }
 
@@ -1037,8 +1027,8 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count")]
+    /// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+    /// [`Span::union_all`].
     ///
     /// # Example
     ///
@@ -1061,8 +1051,8 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count")]
+    /// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+    /// [`Span::union_all`].
     ('x) &'x Version
 }
 
@@ -1095,8 +1085,8 @@ span_intersect_fold! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count")]
+    /// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+    /// [`Span::intersect_all`].
     ///
     /// # Example
     ///
@@ -1127,7 +1117,7 @@ span_intersect_fold! {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count")]
+    /// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+    /// [`Span::intersect_all`].
     ('x, 'a) &'x Span<'a>
 }

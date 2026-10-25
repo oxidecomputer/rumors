@@ -275,12 +275,9 @@ impl fmt::Display for Count {
 /// Returns [`ParseValue::InvalidSyntax`] unless the input is one or more
 /// decimal digits with no redundant leading zero.
 ///
-/// Parsing `d` decimal digits takes `O(d²)` time and `O(d)` space.
+/// Takes `O(|text|²)` time and `O(|text|)` space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/count_parse.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n^2)` in total input bytes; `O(n^2)` in text bytes"
-)]
+#[cfg_attr(not(doc), doc = "`O(n^2)` in total input bytes; `O(|text|^2)`")]
 impl core::str::FromStr for Count {
     type Err = ParseValue;
 

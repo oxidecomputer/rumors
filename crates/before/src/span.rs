@@ -100,11 +100,9 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_order.html")))]
-    #[cfg_attr(
-        not(doc),
-        doc = "directional (`<=`): `O(n)` in total input bytes; `O(|a| + |b|)`; stops when this direction is disproved"
-    )]
+    /// Takes `O(|lo| + |hi|)` time for the one directional comparison
+    /// `lo <= hi`, which stops when that direction is disproved; measured on
+    /// [`Version`]'s comparisons.
     ///
     /// # Errors
     ///
@@ -367,19 +365,15 @@ impl<'a> Span<'a> {
     /// and the version:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_contains.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
     /// Testing a [`Version`] against a point span produced by [`Span::at`]
     /// compares it once with the endpoint.
     ///
-    /// A [`Span`] requires two causal comparisons: one for its lower endpoints
-    /// and one for its upper endpoints. Each comparison costs:
-    ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_order.html")))]
-    #[cfg_attr(
-        not(doc),
-        doc = "directional (`<=`): `O(n)` in total input bytes; `O(|a| + |b|)`; stops when this direction is disproved"
-    )]
+    /// A [`Span`] requires two directional causal comparisons, one between the
+    /// lower endpoints and one between the upper endpoints, each stopping when
+    /// its direction is disproved. Together they take `O(|self| + |other|)`
+    /// time; measured on [`Version`]'s comparisons.
     ///
     /// # Example
     ///

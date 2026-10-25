@@ -386,7 +386,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Version FromStr"],
         size_measure: "canonical hexadecimal text bytes",
         variant: "",
-        contract: "`O(n)` in text bytes",
+        contract: "`O(|text|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             let text = hex::encode(&inputs[0]);
@@ -439,7 +439,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["shape::combine"],
         size_measure: M_SLICE_CAPPED,
         variant: "",
-        contract: "`O(N · total input size)` to drain, `N` the compile-time arity",
+        contract: "`O(N · |versions|)` to drain, `N` the compile-time arity",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, arity| {
             let n = load_slice(g, inputs);
@@ -637,7 +637,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &[VERSION_COMPARISONS],
         size_measure: M_BINARY,
         variant: "full relation",
-        contract: "`O(|a| + |b|)`",
+        contract: "`O(|self| + |other|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -651,7 +651,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &[VERSION_COMPARISONS],
         size_measure: M_BINARY,
         variant: "directional (`<=`)",
-        contract: "`O(|a| + |b|)`; stops when this direction is disproved",
+        contract: "`O(|self| + |other|)`; stops when this direction is disproved",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -683,7 +683,7 @@ pub const ROSTER: &[OpSpec] = &[
              the linear worst case (random distinct pairs would measure the \
              O(1) prefix exit)",
         variant: "equality",
-        contract: "`O(|a| + |b|)`: canonical byte compare, measured on equal pairs",
+        contract: "`O(|self| + |other|)`: canonical byte compare, measured on equal pairs",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -887,7 +887,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Party FromStr"],
         size_measure: "canonical hexadecimal text bytes",
         variant: "",
-        contract: "`O(n)` in text bytes",
+        contract: "`O(|text|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             let text = hex::encode(&inputs[0]);
@@ -1361,7 +1361,7 @@ pub const ROSTER: &[OpSpec] = &[
              derived by Version::rank in preparation; fuel includes writing the text \
              output)",
         variant: "",
-        contract: "`O(n)` in the size of the `Version` from which the rank was derived",
+        contract: "`O(|v|)` for `self = v.rank()`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1389,7 +1389,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Count FromStr"],
         size_measure: "encoded bytes of the version whose minimum count is rendered and parsed",
         variant: "",
-        contract: "`O(n^2)` in text bytes",
+        contract: "`O(|text|^2)`",
         compensation: Compensation::Claim("n^2"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -1547,7 +1547,7 @@ pub const ROSTER: &[OpSpec] = &[
         covers: &["Span::contains"],
         size_measure: M_SPAN_PROBE,
         variant: "",
-        contract: "`O(|self| + |version|)`",
+        contract: "`O(|self| + |other|)`",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -2235,7 +2235,7 @@ pub const ROSTER: &[OpSpec] = &[
              (each composed in unmeasured preparation as after(f) & all(); \
              the measured merge joins the floors — one version join walk)",
         variant: "",
-        contract: "`O(|a| + |b|)`: one fused join walk over the two bounds",
+        contract: "`O(|self| + |rhs|)`: one fused join walk over the two bounds",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
@@ -2254,7 +2254,7 @@ pub const ROSTER: &[OpSpec] = &[
              all(); the measured merge meets the ceilings — one version meet \
              walk, the order dual of query_conjoin_floors)",
         variant: "",
-        contract: "`O(|a| + |b|)`: one fused meet walk over the two bounds",
+        contract: "`O(|self| + |rhs|)`: one fused meet walk over the two bounds",
         compensation: Compensation::Claim("n"),
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);

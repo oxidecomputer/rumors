@@ -78,17 +78,17 @@ mod tests;
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "full relation: `O(n)` in total input bytes; `O(|a| + |b|)`"
+    doc = "full relation: `O(n)` in total input bytes; `O(|self| + |other|)`"
 )]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_order.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "directional (`<=`): `O(n)` in total input bytes; `O(|a| + |b|)`; stops when this direction is disproved"
+    doc = "directional (`<=`): `O(n)` in total input bytes; `O(|self| + |other|)`; stops when this direction is disproved"
 )]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_eq.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "equality: `O(n)` in total input bytes; `O(|a| + |b|)`: canonical byte compare, measured on equal pairs"
+    doc = "equality: `O(n)` in total input bytes; `O(|self| + |other|)`: canonical byte compare, measured on equal pairs"
 )]
 ///
 /// # Example
@@ -120,7 +120,7 @@ pub struct Version(Bits);
 
 /// Renders the version's canonical bytes as lowercase hexadecimal.
 ///
-/// Takes `O(n)` time and output space for `n` canonical bytes.
+/// Takes `O(|self|)` time and output space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_display.html")))]
 #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
 impl core::fmt::Display for Version {
@@ -139,9 +139,9 @@ impl core::fmt::Display for Version {
 /// [`ParseValue::InvalidEncoding`] when the decoded bytes are not a canonical
 /// [`Version`].
 ///
-/// Takes `O(n)` time and `O(n)` space for `n` text bytes.
+/// Takes `O(|text|)` time and space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_parse.html")))]
-#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` in text bytes")]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|text|)`")]
 impl core::str::FromStr for Version {
     type Err = ParseValue;
 
@@ -1240,11 +1240,8 @@ impl Default for Version {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count"
-)]
+/// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+/// [`Version::join_all`].
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl Sum<Version> for Version {
@@ -1257,11 +1254,8 @@ impl Sum<Version> for Version {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count"
-)]
+/// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+/// [`Version::join_all`].
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl<'a> Sum<&'a Version> for Version {
@@ -1274,11 +1268,8 @@ impl<'a> Sum<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count"
-)]
+/// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+/// [`Version::join_all`].
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl FromIterator<Version> for Version {
@@ -1291,11 +1282,8 @@ impl FromIterator<Version> for Version {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count"
-)]
+/// Takes `O(|iter| log k)` time, `k` the operand count; measured on
+/// [`Version::join_all`].
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl<'a> FromIterator<&'a Version> for Version {
@@ -1338,51 +1326,48 @@ impl Debug for Version {
 /// the receiver `self` is written in the same expansion as the method it
 /// belongs to (`self` cannot cross a macro-invocation boundary).
 macro_rules! binop_matrix {
-    ($island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident;
+    ($cost:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident;
      $($lhs:ty, $rhs:ty, $strat:tt);* $(;)?
     ) => {
-        $( binop_matrix!(@cell $island, $contract, $opdoc, $Op::$op, $Assign::$assign, $extreme, $lhs, $rhs, $strat); )*
+        $( binop_matrix!(@cell $cost, $opdoc, $Op::$op, $Assign::$assign, $extreme, $lhs, $rhs, $strat); )*
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, own) => {
+    (@cell $cost:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, own) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = $contract)]
+        #[doc = $cost]
         impl $Op<$rhs> for $lhs {
             type Output = Version;
-            fn $op(self, r: $rhs) -> Version {
+            fn $op(self, rhs: $rhs) -> Version {
                 let mut out: Version = self;
-                out.assign_extreme(Extreme::$extreme, r);
+                out.assign_extreme(Extreme::$extreme, rhs);
                 out
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, read) => {
+    (@cell $cost:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, read) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = $contract)]
+        #[doc = $cost]
         impl $Op<$rhs> for $lhs {
             type Output = Version;
-            fn $op(self, r: $rhs) -> Version {
-                self.extreme(Extreme::$extreme, r)
+            fn $op(self, rhs: $rhs) -> Version {
+                self.extreme(Extreme::$extreme, rhs)
             }
         }
     };
-    (@cell $island:literal, $contract:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, assign) => {
+    (@cell $cost:literal, $opdoc:literal, $Op:ident::$op:ident, $Assign:ident::$assign:ident, $extreme:ident, $lhs:ty, $rhs:ty, assign) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = $contract)]
+        #[doc = $cost]
         impl $Assign<$rhs> for $lhs {
-            fn $assign(&mut self, r: $rhs) {
-                self.assign_extreme(Extreme::$extreme, r);
+            fn $assign(&mut self, rhs: $rhs) {
+                self.assign_extreme(Extreme::$extreme, rhs);
             }
         }
     };
@@ -1410,8 +1395,7 @@ impl BitAndAssign<&Version> for Version {
 
 // The remaining join (`|`, `|=`) cells.
 binop_matrix! {
-    "version_join",
-    "`O(n)` in total input bytes; `O(|self| + |other|)`",
+    "Takes `O(|self| + |rhs|)` time; measured on [`Version::join`].",
     "`a | b` and `a |= b`: the causal join, the operator matrix of [`Version::join`] over owned and borrowed operands.",
     BitOr::bitor, BitOrAssign::bitor_assign, Higher;
     // value operator: an owned left operand is updated in place, a borrowed
@@ -1426,8 +1410,7 @@ binop_matrix! {
 
 // The remaining meet (`&`, `&=`) cells are its dual.
 binop_matrix! {
-    "version_meet",
-    "`O(n)` in total input bytes; `O(|self| + |other|)`",
+    "Takes `O(|self| + |rhs|)` time; measured on [`Version::meet`].",
     "`a & b` and `a &= b`: the causal meet, the operator matrix of [`Version::meet`] over owned and borrowed operands.",
     BitAnd::bitand, BitAndAssign::bitand_assign, Lower;
     // value operator: an owned left operand is updated in place, a borrowed
@@ -1530,18 +1513,17 @@ impl Version {
 /// or borrowed operand uniformly to `&Version`, so one arm covers all four
 /// cells.
 macro_rules! span_matrix {
-    ($island:literal, $contract:literal, $opdoc:literal, $($lhs:ty, $rhs:ty);* $(;)?) => {
+    ($cost:literal, $opdoc:literal, $($lhs:ty, $rhs:ty);* $(;)?) => {
         $(
             #[doc = $opdoc]
             #[doc = ""]
             #[doc = "# Complexity"]
             #[doc = ""]
-            #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-            #[cfg_attr(not(doc), doc = $contract)]
+            #[doc = $cost]
             impl BitXor<$rhs> for $lhs {
                 type Output = Span<'static>;
-                fn bitxor(self, r: $rhs) -> Span<'static> {
-                    Version::span(self.borrow(), r.borrow())
+                fn bitxor(self, rhs: $rhs) -> Span<'static> {
+                    Version::span(self.borrow(), rhs.borrow())
                 }
             }
         )*
@@ -1549,8 +1531,7 @@ macro_rules! span_matrix {
 }
 
 span_matrix! {
-    "version_span",
-    "`O(n)` in total input bytes; `O(|self| + |other|)`",
+    "Takes `O(|self| + |rhs|)` time; measured on [`Version::span`].",
     "`a ^ b`: the pair hull, the operator matrix of [`Version::span`].",
     Version,  Version;
     Version,  &Version;

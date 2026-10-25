@@ -131,11 +131,8 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n^2)` in total input bytes; the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`"
-)]
+/// Takes `O(|view| + |result|)` time, where `|result| = O(|view|^2)`;
+/// measured on [`OwnVersion::to_version`].
 ///
 /// # Example
 ///

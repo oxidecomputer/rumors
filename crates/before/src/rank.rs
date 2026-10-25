@@ -1069,16 +1069,16 @@ impl Default for Rank {
 ///
 /// # Complexity
 ///
-/// Writing the canonical value is linear in its binary width, `O(‖r‖)`. When
-/// `r = v.rank()`, `‖r‖ = O(|v|)`, where `|v|` is the size of `v`, so
-/// rendering is `O(|v|)`. Explicit padding adds time proportional to the
+/// Writing the canonical value is linear in its binary width, `O(‖self‖)`.
+/// When `self = v.rank()`, `‖self‖ = O(|v|)`, where `|v|` is the size of `v`,
+/// so rendering is `O(|v|)`. Explicit padding adds time proportional to the
 /// padding written. Precision limits work to the retained prefix. Formatting
 /// uses constant auxiliary space.
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n)` in total input bytes; `O(n)` in the size of the `Version` from which the rank was derived"
+    doc = "`O(n)` in total input bytes; `O(|v|)` for `self = v.rank()`"
 )]
 ///
 /// # Example

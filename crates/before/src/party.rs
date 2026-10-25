@@ -84,7 +84,7 @@ pub struct Party(Bits);
 
 /// Renders the party's canonical bytes as lowercase hexadecimal.
 ///
-/// Takes `O(n)` time and output space for `n` canonical bytes.
+/// Takes `O(|self|)` time and output space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_display.html")))]
 #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
 impl core::fmt::Display for Party {
@@ -103,9 +103,9 @@ impl core::fmt::Display for Party {
 /// [`ParseValue::InvalidEncoding`] when the decoded bytes are not a canonical
 /// [`Party`].
 ///
-/// Takes `O(n)` time and `O(n)` space for `n` text bytes.
+/// Takes `O(|text|)` time and space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_parse.html")))]
-#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(n)` in text bytes")]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|text|)`")]
 impl core::str::FromStr for Party {
     type Err = ParseValue;
 
@@ -229,8 +229,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html")))]
-    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |party|)`")]
+    /// Takes `O(|self| + |version|)` time; measured on [`Version::tick`].
     ///
     /// # Example
     ///
@@ -253,11 +252,8 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html")))]
-    #[cfg_attr(
-        not(doc),
-        doc = "`O(n)` in total input bytes; `O(|self| + |party| + log k)`"
-    )]
+    /// Takes `O(|self| + |version| + log k)` time; measured on
+    /// [`Version::ticks`].
     ///
     /// # Example
     ///
@@ -448,7 +444,7 @@ impl Party {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_is_disjoint.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
-    /// Auxiliary space is `O(n)`.
+    /// Auxiliary space is `O(|self| + |other|)`.
     ///
     /// # Example
     ///
@@ -475,7 +471,7 @@ impl Party {
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_covers.html")))]
     #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
-    /// Auxiliary space is `O(n)`.
+    /// Auxiliary space is `O(|self| + |other|)`.
     ///
     /// # Example
     ///
