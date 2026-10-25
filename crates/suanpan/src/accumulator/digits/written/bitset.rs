@@ -18,8 +18,12 @@
 //! positions, so that it has O(1 + log₆₄ `W`) levels:
 //!
 //! - [`insert`](Bitset::insert) and [`remove`](Bitset::remove) cost one word
-//!   per level they climb, at most every level, plus growing the levels when
-//!   an insertion lies beyond them.
+//!   per level they climb, at most every level. An insertion beyond the
+//!   levels first grows them, at O(1) plus amortized O(1) per word it adds:
+//!   growth fills each new word with zeros, from level 0 upward, and stops at
+//!   the first level already long enough, since each level above it holds
+//!   one word per 64 words of the level below, rounded up, and so is long
+//!   enough too.
 //! - [`last_below`](Bitset::last_below) climbs only while neither the
 //!   query's word below it nor the word before that holds a position, then
 //!   descends through the highest set bit of each word. The word before
@@ -60,6 +64,10 @@ pub struct Bitset {
     /// `levels[0]` holds one bit per position; each later level holds the
     /// summary bits of the level before it.
     levels: Vec<Vec<u64>>,
+    /// The levels [`cover`](Self::cover) has examined and left at their
+    /// length, counted so that tests can check where growth stops.
+    #[cfg(test)]
+    unchanged_levels_examined: usize,
 }
 
 /// Maintain positions and their summary bits, climbing only where a word
@@ -214,24 +222,41 @@ impl Bitset {
         self.levels.iter().map(Vec::capacity).sum()
     }
 
-    /// Grow every level so that `position` is addressable.
+    /// Grow the levels so that `position` is addressable, from level 0
+    /// upward, stopping at the first level already long enough or at a new
+    /// one-word top.
     ///
     /// A level created on top summarizes the level below it, so summary bits
     /// stay exact across growth.
     fn cover(&mut self, position: usize) {
         let mut needed = position / WORD_BITS + 1;
+        // Checking level 0 before the loop keeps the common insertion, one
+        // within the levels, off the loop's path; the loop's first iteration
+        // repeats the check only for a growing call.
         if self
             .levels
             .first()
             .is_some_and(|words| words.len() >= needed)
         {
+            #[cfg(test)]
+            {
+                self.unchanged_levels_examined += 1;
+            }
             return;
         }
         for level in 0.. {
             if let Some(words) = self.levels.get_mut(level) {
-                if words.len() < needed {
-                    words.resize(needed, 0);
+                // Each level above this one has `div_ceil(64)` of the words
+                // of the level below it, and `needed` shrinks the same way,
+                // so once one level is long enough, every level above it is.
+                if words.len() >= needed {
+                    #[cfg(test)]
+                    {
+                        self.unchanged_levels_examined += 1;
+                    }
+                    return;
                 }
+                words.resize(needed, 0);
             } else {
                 let mut words = vec![0; needed];
                 if let Some(below) = level.checked_sub(1).map(|below| &self.levels[below]) {
