@@ -1040,49 +1040,58 @@ impl<'a> Sum<&'a Rank> for Rank {
     }
 }
 
-/// Sums ranks through one accumulator and normalizes once at the end.
-///
-/// `exp` is the denominator exponent shared by the held numerator. A summand
-/// with a smaller exponent enters at the corresponding bit offset. If a
-/// summand needs a larger exponent, the running numerator must shift; choosing
-/// at least its current bit span may put `exp` beyond that summand, but those
-/// extra trailing zeroes disappear during final normalization. Each such shift
-/// at least doubles the occupied prefix, so the widths shifted form a geometric
-/// series bounded by the final span. Input order therefore cannot multiply the
-/// cost by the number of summands.
-///
-/// The `O(k + n)` bound rests on `suanpan`'s refinement for [updates of one
-/// sign](suanpan#updates-of-one-sign), not on its four cost rules alone: a
-/// shifted update adds a logarithm, so the rules charge each
-/// `add_shifted_limbs` at a nonzero shift one, which alone would give
-/// `O(n + k log n)`. Every summand is nonnegative, so from the
-/// accumulator's creation to the first `<<=`, and from each `<<=` to the
-/// next or to the final read, the fold adds limbs of one sign to a value of
-/// that sign, and asks only for `stored_bits` between them. Creation and
-/// each `<<=` begin a new storage, so each of those spans is a stretch the
-/// refinement covers: every summand costs amortized O(`L`) for its `L`
-/// limbs plus the storage it grows, each `<<=` costs its result's width
-/// `S`, and the comparison each `<<=` and the final read begin with can
-/// cost one logarithm of the storage width more. Summed over the fold:
-///
-/// - the limbs total `O(k + n)`;
-/// - each shift is at least the held span, so its `S` is at most twice the
-///   shift plus a constant, and its extra logarithm is within that `S`. The
-///   shifts total the final exponent less the first. A shift moves `exp` to
-///   the triggering summand's exponent `e`, or by the held span, which is
-///   within a constant of `exp` plus the widest numerator plus `log2 k`
-///   bits, and `exp` is below `e` when the shift triggers; so after every
-///   shift `exp` is at most twice the largest summand exponent plus that
-///   width and a constant, `O(n + log k)`.
-///   It can exceed every summand exponent: summing `2^64 - 1` and `1/2`
-///   shifts by the held span, 64 bits, and ends at `exp = 64`;
-/// - within a stretch nothing cancels, so the storage it grows totals at
-///   most the width the stretch ends at: the next shift's held span, at
-///   most that shift, or, for the last stretch, the result's width;
-/// - the final read costs the result's width plus one logarithm of it.
-///
-/// Each term is `O(k + n)`.
 impl Rank {
+    /// Sums ranks through one accumulator and normalizes once at the end.
+    ///
+    /// `exp` is the denominator exponent shared by the held numerator. A
+    /// summand with a smaller exponent enters at the corresponding bit offset.
+    /// If a summand needs a larger exponent, the running numerator must shift;
+    /// choosing at least its current bit span may put `exp` beyond that
+    /// summand, but those extra trailing zeroes disappear during final
+    /// normalization. Each such shift at least doubles the occupied prefix, so
+    /// the widths shifted form a geometric series bounded by the final span.
+    /// Input order therefore cannot multiply the cost by the number of
+    /// summands.
+    ///
+    /// The `O(k + n)` bound rests on a property of `suanpan` beyond its four
+    /// cost rules. A shifted update adds a logarithm, so the rules charge each
+    /// `add_shifted_limbs` at a nonzero shift one, which alone would give
+    /// `O(n + k log n)`. `suanpan`'s source also proves a refinement for
+    /// updates of one sign. A *storage* begins when an accumulator is created,
+    /// receives `clone_from`, or is shifted by a nonzero count, and a *stretch*
+    /// runs from there until the first operation other than an update by a
+    /// primitive or limbs, `stored_bits`, or `is_known_zero`. If every update
+    /// in a stretch has contributions of one sign, and the value at its start
+    /// is zero or has that sign, those updates pay no logarithm at any shift,
+    /// and the first comparison with zero after the stretch pays one logarithm
+    /// of the storage width, once.
+    ///
+    /// Every summand is nonnegative, so from the accumulator's creation to the
+    /// first `<<=`, and from each `<<=` to the next or to the final read, the
+    /// fold adds limbs of one sign to a value of that sign, and asks only for
+    /// `stored_bits` between them. Each of those spans is therefore a stretch:
+    /// every summand costs amortized O(`L`) for its `L` limbs plus the storage
+    /// it grows, each `<<=` costs its result's width `S`, and the comparison
+    /// each `<<=` and the final read begin with can cost one logarithm of the
+    /// storage width more. Summed over the fold:
+    ///
+    /// - the limbs total `O(k + n)`;
+    /// - each shift is at least the held span, so its `S` is at most twice the
+    ///   shift plus a constant, and its extra logarithm is within that `S`. The
+    ///   shifts total the final exponent less the first. A shift moves `exp` to
+    ///   the triggering summand's exponent `e`, or by the held span, which is
+    ///   within a constant of `exp` plus the widest numerator plus `log2 k`
+    ///   bits, and `exp` is below `e` when the shift triggers; so after every
+    ///   shift `exp` is at most twice the largest summand exponent plus that
+    ///   width and a constant, `O(n + log k)`. It can exceed every summand
+    ///   exponent: summing `2^64 - 1` and `1/2` shifts by the held span, 64
+    ///   bits, and ends at `exp = 64`;
+    /// - within a stretch nothing cancels, so the storage it grows totals at
+    ///   most the width the stretch ends at: the next shift's held span, at
+    ///   most that shift, or, for the last stretch, the result's width;
+    /// - the final read costs the result's width plus one logarithm of it.
+    ///
+    /// Each term is `O(k + n)`.
     fn sum_iter<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
         // The accumulator's shifted entry points and its left shift panic when
         // the result needs more storage than a buffer can address. That panic
