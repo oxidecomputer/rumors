@@ -15,6 +15,7 @@ use num_bigint::BigUint;
 use crate::{Clock, Count, Party, Rank, Version};
 
 use super::operand::value_content_bytes;
+use super::sampling::Sampling;
 
 // ─── family sizes at the default scale ───────────────────────────────────────
 
@@ -32,6 +33,10 @@ const HUGELEAF_BASE_MAGNITUDE_BITS: usize = 32_000;
 
 /// Id spine depth at the default scale.
 const ID_BASE_DEPTH: usize = 12_000;
+
+/// Zigzag id depth at the default scale: the id spine's, so the two party
+/// families differ only in their path's turns.
+const ZIGZAG_ID_BASE_DEPTH: usize = ID_BASE_DEPTH;
 
 /// Boundary-comb tooth magnitude (bits) and tooth count at the default scale;
 /// one parameter drives both, mirroring the meter suite's `k = n` convention.
@@ -284,6 +289,41 @@ const WIDE_STEP_SPINE_STEP_BITS: usize = 64;
 /// mechanism). `4 | c` keeps that remainder fixed across the level doubling,
 /// so the exponent leg compares like against like.
 const NARROW_FREEZES_BASE_CYCLES: usize = 64;
+
+/// Rank-tie plateau digits and turns (the `RT(s, s)` diagonal) at the default
+/// scale.
+///
+/// The stored versions grow linearly in the knob, but the puncture's
+/// construction stream spells its plateau once per turn, `Θ(s²)` bits, and
+/// the family builds that stream and mirrors it at every size, so the base
+/// sits at a quarter of [`PLATEAU_PUNCTURE_BASE_DIGITS`] to keep the build
+/// within the board's runtime at the top scale. It is a multiple of 32 for the same
+/// `rank_sum` remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the build
+/// arm floors the knob at the generator's minimum width, which binds only
+/// under extreme scale-down.
+const RANK_TIE_BASE_DIGITS: usize = 96;
+
+/// Nonzero digits of the sparse-written families' height `S(r)` at the default
+/// scale.
+///
+/// Both families hold their 32 leaves at depth 5, so their rank exponent is
+/// the same at every size, and the knob scales only the heights' width.
+const SPARSE_HEIGHT_BASE_DIGITS: usize = 64;
+
+/// Wide-offset comb teeth at the default scale, for both prefix arrangements.
+///
+/// A multiple of 32: the combs' rank exponent is the tooth count plus two, and
+/// `rank_sum` lands its small summands at bit remainder `exp mod 32` (the
+/// freeze-position base's derivation carries the mechanism), so `32 | k` keeps
+/// that remainder fixed across the level doubling.
+const WIDE_OFFSET_COMB_BASE_TEETH: usize = 256;
+
+/// Below-run spine fraction digits `m` at the default scale.
+///
+/// The spine's depth, `32(2m + 1)`, is its rank's exponent, a multiple of 32
+/// at every size, so `rank_sum`'s small summands land at one bit remainder
+/// across the ladder.
+const BELOW_RUN_BASE_DIGITS: usize = 256;
 
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
 /// per-level wide codes dominating the pair's size).
@@ -551,9 +591,9 @@ pub(super) struct FamilyData {
     pub(super) version: Option<Vec<u8>>,
     /// The comparison counterpart: `version` plus one seed tick, encoded.
     ///
-    /// Derived uniformly by the post-pass — except on the pair shapes
-    /// (jump-pair, concurrent-pair), whose build arms fill it with the pairing
-    /// the shape was constructed around and the post-pass leaves in place.
+    /// Derived uniformly by the post-pass, except where a pair shape's build
+    /// arm fills it with the pairing the shape was constructed around, which
+    /// the post-pass leaves in place.
     pub(super) version2: Option<Vec<u8>>,
     /// A disjoint encoded party pair within one universe: natural for the id
     /// pair and the benign halves, constructed by the disjoint-mount adapter from a
@@ -649,20 +689,18 @@ impl FamilyData {
         }
     }
 
-    /// Build a shape's operand bundle at `scale`, doubled `level` times.
+    /// Build a shape's operand bundle with its knobs set by `sampling`,
+    /// doubled `level` times.
     ///
-    /// `level` 0 and 1 are the two measurement scales of every cell. The arm
+    /// `level` 0 and 1 are the two measured sizes of every cell. The arm
     /// fills the slots the shape natively has; the post-pass below derives the
     /// rest uniformly (a cross shape's version is its event side, its party
     /// pair is the disjoint-mount adapter over its id side; every version gains
     /// its rank pair, and its ticked counterpart wherever the arm built no
     /// pairing of its own), so a new shape reaches every operation its bundle
     /// supplies without naming any.
-    pub(super) fn build(kind: FamilyId, scale: f64, level: u32) -> FamilyData {
-        let size = |base: usize| -> usize {
-            let scaled = ((base as f64) * scale).round() as usize;
-            scaled.max(MIN_SIZE_PARAM) << level
-        };
+    pub(super) fn build(kind: FamilyId, sampling: Sampling, level: u32) -> FamilyData {
+        let size = |base: usize| -> usize { sampling.knob(base, MIN_SIZE_PARAM) << level };
         let mut data = match kind {
             FamilyId::Dense => Self::event(
                 kind,
@@ -1195,6 +1233,63 @@ impl FamilyData {
                     .version()
                     .encode(),
             ),
+            FamilyId::RankTie => {
+                // One knob drives the plateau width and the turn count, floored
+                // at the generator's minimum width; the mirror is the
+                // comparison counterpart, so every pair row compares a tie.
+                let s = size(RANK_TIE_BASE_DIGITS).max(10);
+                let (puncture, mirrored) = Shape::RankTie.build_pair(s, s);
+                let mut data = Self::event(kind, puncture.version().encode());
+                data.version2 = Some(mirrored.version().encode());
+                data
+            }
+            FamilyId::SparseOscillation => Self::event(
+                kind,
+                Shape::SparseOscillation
+                    .build1(size(SPARSE_HEIGHT_BASE_DIGITS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::SparseFill => Self::event(
+                kind,
+                Shape::SparseFill
+                    .build1(size(SPARSE_HEIGHT_BASE_DIGITS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::CrossPrefixComb => Self::event(
+                kind,
+                Shape::CrossPrefixComb
+                    .build1(size(WIDE_OFFSET_COMB_BASE_TEETH))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::SamePrefixComb => Self::event(
+                kind,
+                Shape::SamePrefixComb
+                    .build1(size(WIDE_OFFSET_COMB_BASE_TEETH))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::BelowRunSpine => Self::event(
+                kind,
+                Shape::BelowRunSpine
+                    .build1(size(BELOW_RUN_BASE_DIGITS))
+                    .version()
+                    .encode(),
+            ),
+            FamilyId::ZigzagPair => {
+                let mut data = Self::bare(kind);
+                data.parties = Some((
+                    Shape::ZigzagId
+                        .build_flagged(size(ZIGZAG_ID_BASE_DEPTH), false)
+                        .bytes,
+                    Shape::ZigzagId
+                        .build_flagged(size(ZIGZAG_ID_BASE_DEPTH), true)
+                        .bytes,
+                ));
+                data
+            }
         };
         // ── the bundle post-pass: the derived slots, uniform across shapes ──
         // A cross shape's primary version is its event side.

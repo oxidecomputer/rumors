@@ -271,11 +271,31 @@ fn judge_window(
         if s.per_unit.is_none() {
             continue;
         }
-        let (exp_label, const_label, cell_label) = match c {
-            Currency::Heap => ("heap exponent", "heap constant", "heap cell constant"),
-            Currency::Scan => ("scan exponent", "scan constant", "scan cell constant"),
-            Currency::Touch => ("touch exponent", "touch constant", "touch cell constant"),
-            Currency::Fuel => ("fuel exponent", "fuel constant", "fuel cell constant"),
+        let [exp_label, const_label, cell_label, uncalibrated_label] = match c {
+            Currency::Heap => [
+                "heap exponent",
+                "heap constant",
+                "heap cell constant",
+                "heap cell uncalibrated",
+            ],
+            Currency::Scan => [
+                "scan exponent",
+                "scan constant",
+                "scan cell constant",
+                "scan cell uncalibrated",
+            ],
+            Currency::Touch => [
+                "touch exponent",
+                "touch constant",
+                "touch cell constant",
+                "touch cell uncalibrated",
+            ],
+            Currency::Fuel => [
+                "fuel exponent",
+                "fuel constant",
+                "fuel cell constant",
+                "fuel cell uncalibrated",
+            ],
         };
         if s.exp_judged && s.exp.is_some_and(|e| e > MAX_SCALING_EXPONENT) {
             red.push(exp_label);
@@ -284,19 +304,26 @@ fn judge_window(
         // the cell's own ceiling comes from its per-cell table (the
         // `cell_ceilings` module doc's rule). A sample over the outer bound
         // reads `constant`; one within it but over the cell's own ceiling
-        // reads `cell constant`, a move from the cell's calibrated reading.
+        // reads `cell constant`, a move from the cell's calibrated reading. A
+        // cell the table omits reads `cell uncalibrated` whatever its
+        // readings, and is judged against its outer bound, if it has one,
+        // beside that.
         let outer = s2
             .models
             .get(c)
             .and_then(|model| model.ceiling)
             .or(board_ceiling(c));
-        let own = calibration.table(c).map(|table| table.ceiling(op, family));
+        let table = calibration.table(c);
         assert!(
-            outer.is_some() || own.is_some(),
+            outer.is_some() || table.is_some(),
             "amp-board: {op} x {family} has no {} ceiling: the currency has no board-wide \
              ceiling and no per-cell table for the measured architecture",
             c.label()
         );
+        let own = table.and_then(|table| table.ceiling(op, family));
+        if table.is_some() && own.is_none() {
+            red.push(uncalibrated_label);
+        }
         let intercept = currency_intercept(c);
         let exceeds = |ceiling: f64| {
             [&s1, &s2].iter().any(|sample| {
@@ -357,9 +384,14 @@ pub(super) fn constant_units(sample: &Sample, currency: Currency) -> u64 {
         .map_or(sample.denom_bytes as u64, |model| model.constant_units)
 }
 
-/// Check small inputs against ceilings and liveness without fitting growth
-/// across allocation minima and inline-storage thresholds.
-pub(super) fn evaluate_small(
+/// Check a pair of samples outside the growth ladder against ceilings and
+/// liveness, without fitting growth across them.
+///
+/// The ladder judges two such pairs: the small inputs, where allocation
+/// minima and inline-storage thresholds dominate, and the knobs just past a
+/// power of two, which sit at a different point of every doubling period
+/// than the growth samples.
+pub(super) fn evaluate_without_fit(
     calibration: &Calibration,
     op: &'static str,
     family: &'static str,

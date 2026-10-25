@@ -33,11 +33,12 @@
 //! - `currency` is `heap`, `scan`, `touch`, or `fuel`. A capture holds rows for
 //!   the currencies its run measured: heap, scan, and touch from the native
 //!   board, fuel from the fuel board.
-//! - `scale` is the sampling scale and `sample` is `1` for its scaled size or
-//!   `2` for that size's double. Each cell and currency has one pair of lines
-//!   per sampling scale, in ladder order: the small-input pair
-//!   ([`SMALL_INPUT_SCALE`](super::SMALL_INPUT_SCALE)), then the growth
-//!   ladder's two pairs ([`DEFAULT_SCALE`](super::DEFAULT_SCALE), then
+//! - `scale` labels the sampling, as [`Sampling`](super::Sampling) renders it,
+//!   and `sample` is `1` for its size or `2` for that size's double. Each cell
+//!   and currency has one pair of lines per sampling, in ladder order: the
+//!   small-input pair ([`SMALL_INPUT_SCALE`](super::SMALL_INPUT_SCALE)), the
+//!   pair just past a power of two (`pow2+2`), then the growth ladder's two
+//!   pairs ([`DEFAULT_SCALE`](super::DEFAULT_SCALE), then
 //!   [`LADDER_TOP_SCALE`](super::LADDER_TOP_SCALE)).
 //! - `axis` is the size the board fits that currency's growth trend against,
 //!   in the cell's growth units (input bytes, unless the rendered board's row
@@ -58,22 +59,26 @@ use std::path::Path;
 use super::currency::{ByCurrency, Currency};
 use super::files::write_atomically;
 use super::judge::trend_units;
-use super::ladder::{Ladder, LADDER_SCALES};
+use super::ladder::{Ladder, LADDER_SAMPLINGS};
 use super::measure::Sample;
 
 #[cfg(test)]
 mod tests;
 
 /// The format name and version that open every capture's header.
-const FORMAT: &str = "amp-board readings v2";
+const FORMAT: &str = "amp-board readings v3";
 
-/// The readings each cell and currency carries: two samples at every scale,
-/// in [`LADDER_SCALES`] order.
-const LADDER_SIZES: usize = 2 * LADDER_SCALES.len();
+/// The readings each cell and currency carries: two samples at every
+/// sampling, in [`LADDER_SAMPLINGS`] order.
+const LADDER_SIZES: usize = 2 * LADDER_SAMPLINGS.len();
 
-/// The ladder index of the first growth-ladder size; the small-input pair
-/// precedes it.
-const GROWTH_START: usize = 2;
+/// The ladder index of the first size just past a power of two; the
+/// small-input pair precedes it.
+const PAST_POWER_START: usize = 2;
+
+/// The ladder index of the first growth-ladder size; the small-input and
+/// past-power pairs precede it.
+const GROWTH_START: usize = 4;
 
 /// One reading and the size it was measured at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,7 +218,7 @@ pub fn capture(ladder: &Ladder, source_tree: &str, out: &mut dyn Write) -> io::R
         !source_tree.contains(['\t', '\n']),
         "amp-board capture: a source tree's name may not contain a tab or newline"
     );
-    let sweeps = ladder.by_scale().map(|(_, cells)| cells);
+    let sweeps = ladder.by_sampling().map(|(_, cells)| cells);
     let measured = ByCurrency::from_fn(|currency| measured(ladder, currency));
     let cells = sweeps[0].len();
     let mut rows = Vec::with_capacity(cells * currencies().len());
@@ -286,7 +291,7 @@ pub fn capture_file(ladder: &Ladder, source_tree: &str, path: &Path) -> io::Resu
 /// Panics if the ladder measured `currency` in some samples but not others.
 pub(super) fn measured(ladder: &Ladder, currency: Currency) -> bool {
     let read: BTreeSet<bool> = ladder
-        .by_scale()
+        .by_sampling()
         .into_iter()
         .flat_map(|(_, cells)| cells.iter().flat_map(|(_, _, s1, s2)| [s1, s2]))
         .map(|sample| sample.readings.get(currency).is_some())
@@ -353,7 +358,7 @@ fn write_capture(capture: &Capture, out: &mut dyn Write) -> io::Result<()> {
                 op = row.op,
                 family = row.family,
                 currency = row.currency.label(),
-                scale = LADDER_SCALES[index / 2],
+                scale = LADDER_SAMPLINGS[index / 2],
                 sample = index % 2 + 1,
                 axis = point.axis,
                 reading = point.reading,
@@ -468,7 +473,7 @@ fn parse_line<'a>(
         .into_iter()
         .find(|known| known.label() == currency)
         .ok_or_else(|| malformed(name, number, "unknown currency"))?;
-    let (expected_scale, expected_sample) = (LADDER_SCALES[index / 2], index % 2 + 1);
+    let (expected_scale, expected_sample) = (LADDER_SAMPLINGS[index / 2], index % 2 + 1);
     if scale != expected_scale.to_string() || sample != expected_sample.to_string() {
         return Err(malformed(
             name,
@@ -639,10 +644,11 @@ fn compare_captures(before: Capture, after: Capture) -> Vec<Compared> {
     compared
 }
 
-/// Render one compared row's evidence: the per-size differences as
-/// `axis:difference`, the small-input pair set apart from the growth ladder;
-/// for a resized row, both captures' axes; for a row in one capture only,
-/// nothing.
+/// Render one compared row's evidence.
+///
+/// That is the per-size differences as `axis:difference`, the small-input and
+/// past-power pairs set apart from the growth ladder; for a resized row, both
+/// captures' axes; for a row in one capture only, nothing.
 fn evidence(compared: &Compared) -> String {
     let after = &compared.row.points;
     let Some(before) = &compared.before else {
@@ -669,8 +675,9 @@ fn evidence(compared: &Compared) -> String {
     let span =
         |indices: std::ops::Range<usize>| indices.map(difference).collect::<Vec<_>>().join(" ");
     format!(
-        "small {}  growth {}",
-        span(0..GROWTH_START),
+        "small {}  pow2 {}  growth {}",
+        span(0..PAST_POWER_START),
+        span(PAST_POWER_START..GROWTH_START),
         span(GROWTH_START..LADDER_SIZES)
     )
 }
@@ -683,7 +690,8 @@ fn evidence(compared: &Compared) -> String {
 /// class. Then every row that changed prints on one line: its class, currency,
 /// operation and family, the class's figure (a constant's shift, a growing
 /// difference's slope), and the difference at each ladder size as
-/// `axis:difference`, the small-input pair apart from the growth ladder. Rows
+/// `axis:difference`, the small-input and past-power pairs apart from the
+/// growth ladder. Rows
 /// print grouped by class in the order listed below, and unchanged rows are
 /// only counted.
 ///
@@ -692,8 +700,9 @@ fn evidence(compared: &Compared) -> String {
 /// A row present in both captures and measured at the same axes is classified
 /// by its difference `after − before`. The four growth-ladder sizes decide its
 /// shape, because they alone feed the board's growth fit; minimum allocation
-/// sizes dominate the small-input pair, which would otherwise read as changes
-/// in shape.
+/// sizes dominate the small-input pair, and the past-power pair sits at a
+/// different point of every doubling period, so either would otherwise read
+/// as changes in shape.
 ///
 /// - **growing**: the difference moves further from zero at every step up the
 ///   growth ladder, never crossing it. The slope is the difference's
@@ -706,9 +715,9 @@ fn evidence(compared: &Compared) -> String {
 ///   peak only while it overlaps the peak, so larger inputs' own allocations
 ///   absorb it and the difference shrinks toward zero across the ladder.
 /// - **constant**: the difference is the same nonzero value at all four
-///   growth sizes, or zero there with a change in the small-input pair alone
-///   (a zero shift).
-/// - **unchanged**: the difference is zero at all six sizes.
+///   growth sizes, or zero there with a change in the small-input or
+///   past-power pairs alone (a zero shift).
+/// - **unchanged**: the difference is zero at every size.
 ///
 /// Rows outside that rule are reported, never classified: **resized** when the
 /// captures measured the row at different axes (an I/O-denominated

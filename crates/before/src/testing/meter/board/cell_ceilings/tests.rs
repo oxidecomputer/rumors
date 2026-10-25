@@ -17,8 +17,8 @@ use super::{
 /// The operation and family of the synthetic cell these tests calibrate.
 const CELL: (&str, &str) = ("probe_op", "probe_family");
 
-/// The input bytes of the synthetic cell's six samples, in ladder order.
-const DENOMS: [usize; 6] = [10, 20, 1_000, 2_000, 4_000, 8_000];
+/// The input bytes of the synthetic cell's samples, in ladder order.
+const DENOMS: [usize; 8] = [10, 20, 1_200, 2_400, 1_000, 2_000, 4_000, 8_000];
 
 /// A sample of `denom` input bytes reading `heap` heap bytes and no other
 /// currency, with no liveness obligation and no model.
@@ -39,9 +39,9 @@ fn heap_sample(denom: usize, heap: u64) -> Sample {
     }
 }
 
-/// A one-cell ladder of [`CELL`], measured on `arch`, whose six samples read
+/// A one-cell ladder of [`CELL`], measured on `arch`, whose samples read
 /// `heap` at [`DENOMS`].
-fn ladder(arch: &str, heap: [u64; 6]) -> Ladder {
+fn ladder(arch: &str, heap: [u64; 8]) -> Ladder {
     let sweep = |first: usize| {
         let (op, family) = CELL;
         vec![(
@@ -58,8 +58,9 @@ fn ladder(arch: &str, heap: [u64; 6]) -> Ladder {
             os: "test".to_owned(),
         },
         small: sweep(0),
-        base: sweep(2),
-        top: sweep(4),
+        past_power: sweep(2),
+        base: sweep(4),
+        top: sweep(6),
     }
 }
 
@@ -80,6 +81,7 @@ fn modeled(mut ladder: Ladder) -> Ladder {
     let cells = ladder
         .small
         .iter_mut()
+        .chain(&mut ladder.past_power)
         .chain(&mut ladder.base)
         .chain(&mut ladder.top);
     for (_, _, first, second) in cells {
@@ -164,9 +166,9 @@ fn every_table_names_its_architectures_of_record() {
 /// alone.
 #[test]
 fn ceilings_add_headroom_to_the_worst_sample_and_round_up() {
-    let per_unit = [0.5, 1.0, 2.0, 2.5, 3.333, 1.0];
+    let per_unit = [0.5, 1.0, 2.0, 2.5, 3.0, 2.5, 3.333, 1.0];
     let heap = std::array::from_fn(|i| reading(DENOMS[i], per_unit[i]));
-    let worst = (0..6)
+    let worst = (0..DENOMS.len())
         .map(|i| (heap[i] as f64 - HEAP_INTERCEPT_BYTES as f64) / DENOMS[i] as f64)
         .fold(f64::NEG_INFINITY, f64::max);
     let ceiling = derived(&ladder("aarch64", heap), &[]);
@@ -179,7 +181,7 @@ fn ceilings_add_headroom_to_the_worst_sample_and_round_up() {
         "{ceiling} rounds up by more than a thousandth"
     );
 
-    let within_intercept = [0, 10, 512, 1_000, 1_024, 900];
+    let within_intercept = [0, 10, 700, 1_020, 512, 1_000, 1_024, 900];
     assert_eq!(derived(&ladder("aarch64", within_intercept), &[]), 0.0);
     assert_eq!(
         ceiling_thousandths(-3.7),
@@ -292,7 +294,7 @@ static OWN_CEILING: CellCeilings = CellCeilings {
 /// reads `per_unit` heap bytes per input byte above the intercept, judged
 /// under `table`.
 fn labels(per_unit: f64, table: Option<&'static CellCeilings>) -> Vec<&'static str> {
-    let heap: [u64; 6] = std::array::from_fn(|i| reading(DENOMS[i], per_unit));
+    let heap: [u64; 8] = std::array::from_fn(|i| reading(DENOMS[i], per_unit));
     let ladder = ladder("aarch64", heap);
     let calibration = Calibration {
         arch: "aarch64".to_owned(),
@@ -332,6 +334,27 @@ fn judge_applies_the_tighter_ceiling_and_names_it() {
     assert!(
         labels(3.0, None).is_empty(),
         "without a table the outer bound alone binds"
+    );
+}
+
+/// A table that holds no ceiling for a cell, because the cell is new since
+/// the calibration, judges it red as uncalibrated rather than refusing to
+/// judge, and its outer bound still binds.
+///
+/// A refusal would end the run before it writes its capture, and a
+/// recalibration needs that capture from the other architecture of record.
+#[test]
+fn a_cell_its_table_omits_is_red_as_uncalibrated() {
+    const OTHER_CELL: CellCeilings = CellCeilings {
+        currency: Currency::Heap,
+        archs: &["aarch64"],
+        provenance: None,
+        entries: &[("another_op", CELL.1, 2_000)],
+    };
+    assert_eq!(labels(1.5, Some(&OTHER_CELL)), ["heap cell uncalibrated"]);
+    assert_eq!(
+        labels(MAX_HEAP_BYTES_PER_INPUT_BYTE + 1.0, Some(&OTHER_CELL)),
+        ["heap cell uncalibrated", "heap constant"]
     );
 }
 
@@ -379,11 +402,11 @@ proptest! {
     /// both reading the model's.
     #[test]
     fn a_recalibrated_ladder_judges_green_and_red_past_its_ceiling(
-        per_unit in proptest::array::uniform6(0.0f64..10.0),
-        raised in 0usize..6,
+        per_unit in proptest::array::uniform8(0.0f64..10.0),
+        raised in 0usize..8,
     ) {
-        let units: [usize; 6] = DENOMS.map(|denom| MODEL_UNITS_PER_BYTE * denom);
-        let heap: [u64; 6] = std::array::from_fn(|i| reading(units[i], per_unit[i]));
+        let units: [usize; 8] = DENOMS.map(|denom| MODEL_UNITS_PER_BYTE * denom);
+        let heap: [u64; 8] = std::array::from_fn(|i| reading(units[i], per_unit[i]));
         let ladder = modeled(ladder("aarch64", heap));
         let entries = derive_ceilings(&ladder, &[], Currency::Heap).expect("no captures to refuse");
         let ceiling = entries[0].2;
@@ -397,14 +420,17 @@ proptest! {
             arch: "aarch64".to_owned(),
             tables: ByCurrency::from_fn(|c| (c == Currency::Heap).then_some(table)),
         };
-        let judge = |heap: [u64; 6]| -> Vec<&'static str> {
+        let judge = |heap: [u64; 8]| -> Vec<&'static str> {
             let ladder = modeled(self::ladder("aarch64", heap));
             let (_, _, b1, b2) = ladder.base[0].clone();
             let (_, _, t1, t2) = ladder.top[0].clone();
             let (_, _, s1, s2) = ladder.small[0].clone();
+            let (_, _, p1, p2) = ladder.past_power[0].clone();
             let (base, top) = evaluate_acceptance(&calibration, CELL.0, CELL.1, (b1, b2), (t1, t2));
-            let small = super::super::judge::evaluate_small(&calibration, CELL.0, CELL.1, s1, s2);
-            base.red.into_iter().chain(top.red).chain(small.red).collect()
+            let small = super::super::judge::evaluate_without_fit(&calibration, CELL.0, CELL.1, s1, s2);
+            let past_power =
+                super::super::judge::evaluate_without_fit(&calibration, CELL.0, CELL.1, p1, p2);
+            base.red.into_iter().chain(top.red).chain(small.red).chain(past_power.red).collect()
         };
         let green = judge(heap);
         prop_assert!(

@@ -8,8 +8,10 @@
 //!
 //! A *measured ceiling* is a proportional limit derived from the board's own
 //! readings rather than argued from the algorithm. Every proportional ceiling
-//! in this module is measured, and so are the ceilings that board rows declare
-//! beside themselves. All follow one rule.
+//! in this module but [`DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE`], which its doc
+//! derives from the decoder's mechanism, is measured, and so are the ceilings
+//! that board rows declare beside themselves. All the measured ones follow one
+//! rule.
 //!
 //! The rule inverts the judge's test. The board finds a sample within a
 //! ceiling `C` when the sample's reading is at most the ceiling's intercept
@@ -19,8 +21,8 @@
 //! its doc names; a fixed bound's denominator is one. Each sample therefore
 //! admits every `C` of at least `(reading - intercept) / denominator`. The
 //! rule takes the largest such value over every sample the release-profile
-//! acceptance board judges, at both ladder scales and at the small-input
-//! scale, adds 25% headroom, and rounds up to a whole number. That is,
+//! acceptance board judges, at every sampling of its ladder, adds 25%
+//! headroom, and rounds up to a whole number. That is,
 //! `C = ceil(1.25 * max((reading - intercept) / denominator))`.
 //!
 //! Subtracting the intercept lets one rule serve every ceiling. Fixed
@@ -172,17 +174,53 @@ pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 16.0;
 /// output, and, once a wide payload first collapses, the separate topology
 /// and payload streams that it interleaves once at the end. Each buffer grows
 /// by doubling, and sealing reallocates it to its exact size, which the heap
-/// meter counts beside the old buffer. The exponent remains judged
+/// meter counts beside the old buffer. Those buffers alone would bound the
+/// heap at five times the output, but the writer also keeps per-level
+/// stacks of branch directions and payload lengths, which that account does
+/// not bound per output byte, so the ceiling is measured by the module's
+/// rule rather than derived; the comb-scatter projection with its knob just
+/// past a power of two reads highest. The exponent remains judged
 /// independently.
-pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 5.0;
+pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 7.0;
 
 /// Heap ceiling for deserializing an owned serde buffer or a borsh stream, in
 /// bytes per input byte.
 ///
-/// Serde transfers its input allocation into the decoded value. Borsh grows
-/// one output buffer while reading. Both validate with compact parser state, so
-/// their remaining heap stays a small multiple of the encoding.
-pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 5.0;
+/// Unlike this module's other ceilings, this one is derived from the
+/// decoder's mechanism rather than measured. For `n` input bytes, of which
+/// `p` are payload codes:
+///
+/// - **The stream buffer.** A borsh decoder reads its stream into one byte
+///   vector that grows by doubling and is shrunk to fit at the end. Its
+///   capacity stays below twice the bytes read, and a growth step or the
+///   final shrink holds the old block and the new one together: at most
+///   `3n` during a reallocation, and `2n` between them. Serde adopts its
+///   input allocation instead, which costs less.
+/// - **The numeric state.** A payload's gamma code spends two input bits per
+///   value bit, so the codes hold at most `p/2` bytes of value. The decoded
+///   code holds at most `p/2` bytes, and the running height stores each
+///   32-bit digit in 8 bytes, so it holds at most `p` bytes; its capacity
+///   stays below `2p`, and a growth step holds both blocks: `3p`.
+/// - **The two never reallocate together.** The buffer grows only while a
+///   byte is read and the height only after a code is complete, so the peak
+///   is at most `max(3n + p/2 + 2p, 2n + p/2 + 3p)`, which is `5.5n` when
+///   every byte is payload, `p = n`.
+///
+/// Topology costs the parser two bits of stack per open ancestor: four with
+/// the stack's spare capacity, and six while it reallocates, more per flag
+/// bit than the payload's state per code bit. But every open ancestor also
+/// forces a later right child, a leaf flag and a code of at least one bit,
+/// so each spends at least three input bits, and the stack costs at most two
+/// bits per input bit, within the 2.5 the bound leaves beside a reallocating
+/// buffer; so topology never raises the bound. A composite's retained
+/// component (a clock's party, a span's lower endpoint) costs one byte per
+/// byte in place of its buffer's three. The
+/// bound's constant terms (minimum capacities, a carry digit) lie within
+/// [`HEAP_INTERCEPT_BYTES`]. A one-leaf version whose stream and digit count
+/// both sit just past a power of two reaches the bound: its stream buffer at
+/// twice the stream, its code at half, and its height's old and new blocks at
+/// three times.
+pub const DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 5.5;
 
 /// Heap ceiling for deserializing a rank, in bytes per input byte.
 ///
@@ -203,7 +241,9 @@ pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 /// may therefore have much greater overhead than other `before` values. This
 /// operation-specific limit excludes evaluation from the general heap ceiling
 /// while retaining the board's linear-growth check.
-pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 109.0;
+///
+/// A measured ceiling; the module doc states the rule.
+pub const QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE: f64 = 128.0;
 
 /// Base scale and size multiplier for a single-scale board run.
 ///

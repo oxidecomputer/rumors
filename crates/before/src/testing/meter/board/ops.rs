@@ -41,7 +41,7 @@ use super::floors::{
     masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines, scan_touch,
     sync_floors, tick_walk_floors, touch_delta_fold, touch_fold_first_merges, touch_pair_fold,
     touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE, NA_HEAP_QUERY_CLONE,
-    NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_QUERY_CLONE,
+    NA_HEAP_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_QUERY_CLONE,
     NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW,
     NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
     NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_SCAN_EXAMINES,
@@ -877,6 +877,40 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 Some(Cell::new(n, floors, move || {
                     std::iter::once(a).chain(ones).sum::<Rank>()
+                }))
+            },
+        },
+        Op {
+            name: "rank_sum_ascending",
+            prepare: |f| {
+                // The family-derived rank, then the unit fractions 2^-1
+                // through 2^-k, `k = 2(⌊√w⌋ + 1)` for the rank's content
+                // width `w`. Each fraction's exponent exceeds the one before.
+                // Where the family rank's exponent is smaller than the
+                // first fraction's (an integer rank), that fraction makes the
+                // running sum shift by its whole held span, and every later
+                // fraction then lands below the run the shift left: the
+                // shift costs the held width once, where a shift by the
+                // exponent gap alone would move it once per fraction, `k · w`
+                // work on `w + k²/2` bits of input. Where the family rank's
+                // exponent is larger, the fractions land inside its span. The
+                // denominator is the summands' total value content.
+                let (a, _) = f.rank_pair.clone()?;
+                let k = 2 * (a.content_bits().isqrt() + 1);
+                let fractions: Vec<Rank> =
+                    (1..=k).map(|j| Rank::from_raw(BigUint::ONE, j)).collect();
+                let n = rank_content_bytes(&a)
+                    + fractions.iter().map(rank_content_bytes).sum::<usize>();
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                    scan: na(NA_SCAN_NO_STREAM),
+                    touch: Liveness::Floor {
+                        min: k + 1,
+                        why: WHY_TOUCH_RANK_SUM,
+                    },
+                };
+                Some(Cell::new(n, floors, move || {
+                    std::iter::once(a).chain(fractions).sum::<Rank>()
                 }))
             },
         },
@@ -2200,6 +2234,63 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "party_forks_count",
+            prepare: |f| {
+                // The family's party forked into a count as wide as its
+                // version's encoded bits: the count's width follows the
+                // version side rather than the party's own size, so the fork
+                // plan's arithmetic on a wide count meets parties of shapes
+                // independent of it. The count is a power of two, so the
+                // plan's extra-share test compares every bit of its index
+                // before it decides.
+                let (mut party, _, _) = f.party_pair()?;
+                let party_bytes = f.parties.as_ref().map(|(party, _)| party.len())?;
+                let (_, version_bytes) = f.version()?;
+                let (count, count_bytes) = wide_fork_count(version_bytes);
+                let child_bytes = {
+                    let mut probe = party.dangerously_alias();
+                    probe
+                        .forks(count.clone())
+                        .next()
+                        .expect("the board requests a nonzero child count")
+                        .as_bytes()
+                        .len()
+                };
+                let floors = Floors {
+                    heap: heap_materializes(child_bytes),
+                    scan: scan_touch(),
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                // A count `w` bits wide gives the first share a path about
+                // `w` levels deep, and the residual party keeps the sibling
+                // of each level, so the required output is several times the
+                // count's own bytes: the row is I/O-denominated. Charged to
+                // its input alone, it would read about 17.6 heap bytes per
+                // input byte, above the board-wide 15. The `party_forks` row
+                // meters the same mechanism input-denominated, with a count
+                // only as wide as the party, so its output stays near its
+                // input.
+                Some(Cell::io(
+                    party_bytes + count_bytes,
+                    floors,
+                    |result| {
+                        let (residual, first) = result
+                            .downcast_ref::<(Party, Option<Party>)>()
+                            .expect("the counted party-forks cell keeps its residual and share");
+                        residual.as_bytes().len()
+                            + first.as_ref().map_or(0, |share| share.as_bytes().len())
+                    },
+                    move || {
+                        let first = {
+                            let mut forks = party.forks(count);
+                            forks.next()
+                        };
+                        (party, first)
+                    },
+                ))
+            },
+        },
+        Op {
             name: "party_split_array",
             prepare: |f| {
                 let (party, _, _) = f.party_pair()?;
@@ -2972,6 +3063,85 @@ pub(super) fn ops() -> Vec<Op> {
             },
         },
         Op {
+            name: "rank_decode_truncated",
+            prepare: |f| {
+                // The family-derived rank's canonical bytes without their
+                // last byte. Minimal packing ends the byte string in the byte
+                // holding the stream's closing bit, so the cut removes it and
+                // the decoder reads to the cut before it can reject.
+                let (a, _) = f.rank_pair.clone()?;
+                let mut fed = a.encode();
+                fed.pop();
+                let floors = Floors {
+                    heap: na(NA_HEAP_REJECTION),
+                    scan: na(NA_SCAN_RANK_BYTES),
+                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
+                };
+                Some(Cell::new(fed.len(), floors, move || {
+                    let err = Rank::decode(&fed[..]).expect_err("a truncated rank is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "ranked_decode_truncated",
+            prepare: |f| {
+                // The family version's composite key cut short in its
+                // version component, the key's tail: the decoder parses the
+                // rank prefix and the version to the cut. The scan floor
+                // counts the version component's fed bytes alone, since the
+                // rank prefix is read outside the metered stream primitives.
+                let (v, _) = f.version()?;
+                let ranked = Ranked::from(&v);
+                let rank_bytes = ranked.encode_rank().len();
+                let fed = truncated_bytes(&ranked.encode());
+                let floors = rejection_floors(fed.len() - rank_bytes, WHY_SCAN_REJECT_END);
+                Some(Cell::new(fed.len(), floors, move || {
+                    let err =
+                        Ranked::decode(&fed[..]).expect_err("a truncated composite is rejected");
+                    assert!(
+                        matches!(err, Decode::Truncated),
+                        "the placed defect is the cut, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
+            name: "ranked_decode_mismatch",
+            prepare: |f| {
+                // A composite key whose rank prefix is the rank of the
+                // family's version ticked once by the seed, over the
+                // version's own bytes. A tick raises the height on a region
+                // of positive width, so the two ranks differ, and the
+                // decoder can reject only after it has parsed both
+                // components and ranked the version: the latest-detected
+                // rejection the format has. The rank fold takes its floors.
+                let (v, n) = f.version()?;
+                let mut ticked = v.clone();
+                ticked.tick(&Party::seed());
+                let fed = [ticked.rank().encode(), v.encode()].concat();
+                let floors = Floors {
+                    heap: na(NA_HEAP_REJECTION),
+                    scan: scan_examines(n),
+                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
+                };
+                Some(Cell::new(fed.len(), floors, move || {
+                    let err = Ranked::decode(&fed[..])
+                        .expect_err("a rank prefix the version does not measure is rejected");
+                    assert!(
+                        matches!(err, Decode::NotCanonical),
+                        "the placed defect is the mismatched rank, not {err:?}"
+                    );
+                    (err, fed)
+                }))
+            },
+        },
+        Op {
             name: "party_join_overlap",
             prepare: |f| {
                 let (a_bytes, b_bytes) = f.overlap.clone()?;
@@ -3045,6 +3215,32 @@ pub(super) fn ops() -> Vec<Op> {
                     assert!(gone.is_none(), "removing a covering region leaves nothing");
                     (gone, b)
                 }))
+            },
+        },
+        Op {
+            name: "party_without_overlap",
+            prepare: |f| {
+                // A deep receiver: the overlap-mounted pair, whose one shared
+                // region sits at both operands' preorder ends. The
+                // disjointness check that `without` runs first reads both
+                // streams to that region, and the difference walk then reads
+                // both again and writes the receiver's remainder.
+                let (a_bytes, b_bytes) = f.overlap.clone()?;
+                let n = a_bytes.len() + b_bytes.len();
+                let a = decode_party(&a_bytes);
+                let b = decode_party(&b_bytes);
+                let remainder_bytes = a
+                    .dangerously_alias()
+                    .without(&b)
+                    .expect("the receiver keeps its left subtree, which the other operand lacks")
+                    .as_bytes()
+                    .len();
+                let floors = Floors {
+                    heap: heap_materializes(remainder_bytes),
+                    scan: scan_examines(n),
+                    touch: na(NA_TOUCH_ID_TREE),
+                };
+                Some(Cell::new(n, floors, move || (a.without(&b), b)))
             },
         },
     ];

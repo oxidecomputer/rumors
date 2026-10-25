@@ -11,6 +11,7 @@ use crate::Version;
 
 use super::currency::ByCurrency;
 use super::measure::Model;
+use super::Sampling;
 
 /// I/O-denominated Version rows charge the complete stored result, including a
 /// whole marker byte when the live encoding ends on a byte boundary.
@@ -81,7 +82,7 @@ fn party_fork_heap_floor_is_complete_child_storage() {
     use super::family::{decode_party, FamilyData};
     use super::ops::ops;
 
-    let family = FamilyData::build(FamilyId::IdPair, 0.01, 0);
+    let family = FamilyData::build(FamilyId::IdPair, Sampling::Scaled(0.01), 0);
     let source = &family
         .parties
         .as_ref()
@@ -119,7 +120,7 @@ fn many_hole_query_operands_exercise_both_fused_walks() {
     use super::family::FamilyData;
     use super::ops::QueryOperands;
 
-    let family = FamilyData::build(FamilyId::Scatter, 0.01, 0);
+    let family = FamilyData::build(FamilyId::Scatter, Sampling::Scaled(0.01), 0);
     let operands = QueryOperands::build(&family).expect("scatter supplies a population");
     assert!(
         operands
@@ -144,7 +145,7 @@ fn many_hole_query_operands_exercise_both_fused_walks() {
     assert_eq!(down.coverage(span), Coverage::Partial);
 
     for family in [FamilyId::Weave, FamilyId::Stagger, FamilyId::Benign] {
-        let data = FamilyData::build(family, 0.01, 0);
+        let data = FamilyData::build(family, Sampling::Scaled(0.01), 0);
         let operands = QueryOperands::build(&data).expect("the family supplies a population");
         assert!(
             operands
@@ -185,7 +186,7 @@ fn wide_query_probe_exercises_shared_numeric_state() {
 
     use super::family::{decode_version, FamilyData};
 
-    let family = FamilyData::build(FamilyId::Scatter, 0.125, 0);
+    let family = FamilyData::build(FamilyId::Scatter, Sampling::Scaled(0.125), 0);
     let fixture = family
         .query_probe
         .as_ref()
@@ -242,7 +243,7 @@ fn many_hole_conjunction_preserves_both_antichains() {
         FamilyId::Stagger,
         FamilyId::Benign,
     ] {
-        let data = FamilyData::build(family, 0.01, 0);
+        let data = FamilyData::build(family, Sampling::Scaled(0.01), 0);
         let operands = QueryOperands::build(&data).expect("the family supplies a population");
         for (i, hole) in operands.down_holes.iter().enumerate() {
             assert!(

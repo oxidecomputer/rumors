@@ -57,15 +57,27 @@ const MAX_RATE: i64 = 8;
 /// a saving this large.
 const MAX_SHIFT: i64 = 1_000;
 
-/// One row's axes, shaped like the board's ladder (a small-input pair at or
-/// below the base size, then a size, its double, four times it, and eight
-/// times it), and base readings large enough to absorb any applied saving.
+/// One row's axes, shaped like the board's ladder, and base readings large
+/// enough to absorb any applied saving.
+///
+/// The axes are a small-input pair at or below the base size, a past-power
+/// size between the base size and its double and that size's double, then a
+/// size, its double, four times it, and eight times it.
 fn ladder_row() -> impl Strategy<Value = ([u64; LADDER_SIZES], [u64; LADDER_SIZES])> {
     (1u64..1_000_000)
-        .prop_flat_map(|base| (Just(base), 1..=base, 1..=base))
-        .prop_flat_map(|(base, small, double)| {
+        .prop_flat_map(|base| (Just(base), 1..=base, 1..=base, base..=2 * base))
+        .prop_flat_map(|(base, small, double, past)| {
             let (small, double) = (small.min(double), small.max(double));
-            let axes = [small, double, base, 2 * base, 4 * base, 8 * base];
+            let axes = [
+                small,
+                double,
+                past,
+                2 * past,
+                base,
+                2 * base,
+                4 * base,
+                8 * base,
+            ];
             let readings = axes.map(|axis| {
                 let floor = MAX_RATE as u64 * axis + MAX_SHIFT as u64;
                 floor..floor + 1_000_000
@@ -137,9 +149,9 @@ proptest! {
 /// growth that registers only there, so the comparison names neither.
 #[test]
 fn a_step_at_the_largest_size_reads_uneven() {
-    let axes = [10, 19, 546, 1_090, 2_178, 4_354];
-    let before = capture_of(&[(axes, [34, 43, 1_073, 2_129, 4_241, 8_465])]);
-    let after = capture_of(&[(axes, [34, 43, 1_073, 2_129, 4_241, 8_577])]);
+    let axes = [10, 19, 600, 1_200, 546, 1_090, 2_178, 4_354];
+    let before = capture_of(&[(axes, [34, 43, 1_180, 2_340, 1_073, 2_129, 4_241, 8_465])]);
+    let after = capture_of(&[(axes, [34, 43, 1_180, 2_340, 1_073, 2_129, 4_241, 8_577])]);
     assert_eq!(outcomes(&before, &after), [Outcome::Uneven]);
 }
 
@@ -148,9 +160,12 @@ fn a_step_at_the_largest_size_reads_uneven() {
 /// zero, so its magnitude is bounded by its value at the smallest size.
 #[test]
 fn a_fixed_change_the_peak_absorbs_reads_uneven() {
-    let axes = [30, 60, 5_120, 10_240, 24_576, 49_152];
+    let axes = [30, 60, 6_000, 12_000, 5_120, 10_240, 24_576, 49_152];
     let before = capture_of(&[(axes, [10_000; LADDER_SIZES])]);
-    let after = capture_of(&[(axes, [5_904, 5_904, 5_907, 5_908, 5_909, 5_910])]);
+    let after = capture_of(&[(
+        axes,
+        [5_904, 5_904, 5_907, 5_908, 5_907, 5_908, 5_909, 5_910],
+    )]);
     assert_eq!(outcomes(&before, &after), [Outcome::Uneven]);
 }
 
@@ -159,9 +174,9 @@ fn a_fixed_change_the_peak_absorbs_reads_uneven() {
 /// rounds to zero.
 #[test]
 fn a_small_growing_slope_prints_without_rounding_to_zero() {
-    let axes = [1, 2, 10_000, 20_000, 40_000, 80_000];
+    let axes = [1, 2, 12_000, 24_000, 10_000, 20_000, 40_000, 80_000];
     let before = capture_of(&[(axes, [100; LADDER_SIZES])]);
-    let after = capture_of(&[(axes, [100, 100, 101, 102, 103, 104])]);
+    let after = capture_of(&[(axes, [100, 100, 100, 100, 101, 102, 103, 104])]);
     let mut out = Vec::new();
     compare(&text(&before), &text(&after), &mut out).expect("matching captures compare");
     let printed = String::from_utf8(out).expect("the comparison prints UTF-8");
@@ -173,7 +188,7 @@ fn a_small_growing_slope_prints_without_rounding_to_zero() {
 /// since no difference at equal size exists.
 #[test]
 fn rows_without_a_counterpart_at_equal_size_are_not_classified() {
-    let axes = [1, 2, 10, 20, 40, 80];
+    let axes = [1, 2, 12, 24, 10, 20, 40, 80];
     let readings = [100; LADDER_SIZES];
     let mut grown = axes;
     grown[LADDER_SIZES - 1] += 1;
@@ -195,7 +210,7 @@ fn rows_without_a_counterpart_at_equal_size_are_not_classified() {
 /// comparison is for.
 #[test]
 fn captures_from_different_builds_are_refused_and_different_trees_compared() {
-    let before = capture_of(&[([1, 2, 10, 20, 40, 80], [100; LADDER_SIZES])]);
+    let before = capture_of(&[([1, 2, 12, 24, 10, 20, 40, 80], [100; LADDER_SIZES])]);
     let mut other_build = before.clone();
     other_build.measured_on.debug_assertions = !other_build.measured_on.debug_assertions;
     let refused = compare(&text(&before), &text(&other_build), &mut Vec::new())

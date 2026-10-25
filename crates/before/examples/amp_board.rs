@@ -22,13 +22,14 @@
 //! `acceptance [--capture <file>]` (`just amp-board-acceptance`) sweeps the
 //! measurement ladder once (two sizes at each of the two growth sampling
 //! scales, `board::DEFAULT_SCALE` and `board::LADDER_TOP_SCALE`, plus a
-//! small-input pair at `board::SMALL_INPUT_SCALE`) and judges that one sweep
-//! twice:
+//! small-input pair at `board::SMALL_INPUT_SCALE` and a pair whose size knobs
+//! sit just past a power of two, `board::Sampling::PastPowerOfTwo`) and
+//! judges that one sweep twice:
 //!
 //! 1. The acceptance judgment renders one matrix per sweep (the ladder's
-//!    base, its top, and the small inputs), fitting each exponent as one trend
-//!    over the four growth points and judging every constant, model band, and
-//!    liveness floor at every size.
+//!    base, its top, the small inputs, and the past-power inputs), fitting
+//!    each exponent as one trend over the four growth points and judging
+//!    every constant, model band, and liveness floor at every size.
 //! 2. The worst-case ranking pin entry-compares the argmax family per
 //!    operation × currency at both growth scales against the committed table,
 //!    printing one drift line per disagreement.
@@ -97,7 +98,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use before::testing::meter::board::{self, Currency, HeapMeter, Meters};
+use before::testing::meter::board::{self, Currency, HeapMeter, Meters, Sampling};
 use peak_alloc::PeakAlloc;
 
 #[global_allocator]
@@ -155,19 +156,19 @@ fn shard_count() -> usize {
 }
 
 /// Build the child spawner: launch `count` copies of this binary
-/// concurrently, one cell-grid slice each at the given scale, and
+/// concurrently, one cell-grid slice each at the given sampling, and
 /// return their stdout captures in shard order (the merge validates
 /// each child's stamps).
-fn spawner(count: usize) -> impl Fn(f64) -> io::Result<Vec<Vec<u8>>> {
-    move |scale: f64| {
+fn spawner(count: usize) -> impl Fn(Sampling) -> io::Result<Vec<Vec<u8>>> {
+    move |sampling: Sampling| {
         let exe = std::env::current_exe()?;
         let children = (0..count)
             .map(|index| {
                 Command::new(&exe)
                     .arg("--shard")
                     .arg(format!("{index}/{count}"))
-                    .arg("--scale-bits")
-                    .arg(format!("{:016x}", scale.to_bits()))
+                    .arg("--sampling")
+                    .arg(sampling.token())
                     .stdout(Stdio::piped())
                     .spawn()
             })
@@ -214,16 +215,14 @@ fn run_child(args: &[String]) {
         args.get(1)
             .unwrap_or_else(|| panic!("amp-board: --shard requires an i/N argument")),
     );
-    let bits = match (args.get(2).map(String::as_str), args.get(3)) {
-        (Some("--scale-bits"), Some(bits)) if args.len() == 4 => bits,
-        _ => panic!("amp-board: --shard takes exactly `i/N --scale-bits <hex>`"),
+    let token = match (args.get(2).map(String::as_str), args.get(3)) {
+        (Some("--sampling"), Some(token)) if args.len() == 4 => token,
+        _ => panic!("amp-board: --shard takes exactly `i/N --sampling <token>`"),
     };
-    let scale = f64::from_bits(
-        u64::from_str_radix(bits, 16)
-            .unwrap_or_else(|_| panic!("amp-board: malformed --scale-bits argument {bits:?}")),
-    );
+    let sampling = Sampling::from_token(token)
+        .unwrap_or_else(|| panic!("amp-board: malformed --sampling argument {token:?}"));
     let mut out = std::io::stdout().lock();
-    board::emit_shard(scale, index, count, &meters(), &mut out).expect("stdout stays writable");
+    board::emit_shard(sampling, index, count, &meters(), &mut out).expect("stdout stays writable");
 }
 
 fn main() {

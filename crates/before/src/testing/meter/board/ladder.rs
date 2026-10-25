@@ -13,19 +13,26 @@ use super::ceilings::{DEFAULT_SCALE, LADDER_TOP_SCALE, SMALL_INPUT_SCALE};
 use super::cell_ceilings::{calibration, Calibration};
 use super::compare::{measured, BuildStamp};
 use super::currency::Currency;
-use super::judge::{evaluate, evaluate_acceptance, evaluate_small, CellResult};
+use super::judge::{evaluate, evaluate_acceptance, evaluate_without_fit, CellResult};
 use super::render::{render_results, Summary};
+use super::sampling::{Sampling, PAST_POWER_OFFSET};
 use super::shard::{merge_samples, Measured, ShardSpawner};
 use super::worst::{check_with, WORST_RANKINGS};
 
 #[cfg(test)]
 mod tests;
 
-/// The measurement ladder's sampling scales in sweep order: the small-input
-/// pair's scale, then the growth ladder's base and top.
-pub(super) const LADDER_SCALES: [f64; 3] = [SMALL_INPUT_SCALE, DEFAULT_SCALE, LADDER_TOP_SCALE];
+/// The measurement ladder's samplings in sweep order: the two pairs judged
+/// against ceilings and floors alone (the small inputs, then the knobs just
+/// past a power of two), then the growth ladder's base and top.
+pub(super) const LADDER_SAMPLINGS: [Sampling; 4] = [
+    Sampling::Scaled(SMALL_INPUT_SCALE),
+    Sampling::PastPowerOfTwo,
+    Sampling::Scaled(DEFAULT_SCALE),
+    Sampling::Scaled(LADDER_TOP_SCALE),
+];
 
-/// The whole board measured at every sampling scale of the ladder.
+/// The whole board measured at every sampling of the ladder.
 ///
 /// Every sweep holds the same cells in board row order (operation outer,
 /// family inner); [`Ladder::sweep`] establishes that, and every consumer
@@ -36,6 +43,9 @@ pub struct Ladder {
     pub(super) measured_on: BuildStamp,
     /// The small-input sweep, at [`SMALL_INPUT_SCALE`].
     pub(super) small: Vec<Measured>,
+    /// The sweep whose knobs sit just past a power of two
+    /// ([`Sampling::PastPowerOfTwo`]).
+    pub(super) past_power: Vec<Measured>,
     /// The growth ladder's base, at [`DEFAULT_SCALE`].
     pub(super) base: Vec<Measured>,
     /// The growth ladder's top, at [`LADDER_TOP_SCALE`].
@@ -61,10 +71,11 @@ impl Verdict {
 }
 
 impl Ladder {
-    /// Sweeps the whole board at each of the ladder's sampling scales across
+    /// Sweeps the whole board at each of the ladder's samplings across
     /// `shards` child processes.
     ///
-    /// `spawn` is invoked once per sampling scale, smallest first.
+    /// `spawn` is invoked once per sampling: the small inputs, the knobs just
+    /// past a power of two, then the growth ladder's base and top.
     ///
     /// # Errors
     ///
@@ -76,20 +87,24 @@ impl Ladder {
     /// module's refusal list), and if the sweeps measured different cell
     /// grids or came from differently built children.
     pub fn sweep(shards: usize, spawn: ShardSpawner<'_>) -> io::Result<Ladder> {
-        let sweep = |scale| -> io::Result<(BuildStamp, Vec<Measured>)> {
-            Ok(merge_samples(scale, shards, &spawn(scale)?))
+        let sweep = |sampling| -> io::Result<(BuildStamp, Vec<Measured>)> {
+            Ok(merge_samples(sampling, shards, &spawn(sampling)?))
         };
-        let [small, base, top] = LADDER_SCALES;
+        let [small, past_power, base, top] = LADDER_SAMPLINGS;
         let (small_stamp, small) = sweep(small)?;
+        let (past_power_stamp, past_power) = sweep(past_power)?;
         let (base_stamp, base) = sweep(base)?;
         let (top_stamp, top) = sweep(top)?;
         assert!(
-            small_stamp == base_stamp && top_stamp == base_stamp,
+            [&small_stamp, &past_power_stamp, &top_stamp]
+                .iter()
+                .all(|stamp| **stamp == base_stamp),
             "amp-board: the ladder's sweeps came from differently built children"
         );
         let ladder = Ladder {
             measured_on: base_stamp,
             small,
+            past_power,
             base,
             top,
         };
@@ -101,7 +116,9 @@ impl Ladder {
         };
         let base_grid = grid(&ladder.base);
         assert!(
-            grid(&ladder.small) == base_grid && grid(&ladder.top) == base_grid,
+            [&ladder.small, &ladder.past_power, &ladder.top]
+                .iter()
+                .all(|cells| grid(cells) == base_grid),
             "amp-board: the ladder's sweeps measured different cell grids"
         );
         Ok(ladder)
@@ -138,7 +155,7 @@ impl Ladder {
     /// nothing.
     pub(super) fn assert_models_override(&self) {
         let mut overrides: BTreeMap<(&str, Currency), bool> = BTreeMap::new();
-        for (_, cells) in self.by_scale() {
+        for (_, cells) in self.by_sampling() {
             for (op, _, s1, s2) in cells {
                 for sample in [s1, s2] {
                     for (currency, model) in sample.models.each() {
@@ -163,11 +180,16 @@ impl Ladder {
         }
     }
 
-    /// Returns each sweep paired with its sampling scale, in [`LADDER_SCALES`]
+    /// Returns each sweep paired with its sampling, in [`LADDER_SAMPLINGS`]
     /// order.
-    pub(super) fn by_scale(&self) -> [(f64, &[Measured]); 3] {
-        let [small, base, top] = LADDER_SCALES;
-        [(small, &self.small), (base, &self.base), (top, &self.top)]
+    pub(super) fn by_sampling(&self) -> [(Sampling, &[Measured]); 4] {
+        let [small, past_power, base, top] = LADDER_SAMPLINGS;
+        [
+            (small, &self.small),
+            (past_power, &self.past_power),
+            (base, &self.base),
+            (top, &self.top),
+        ]
     }
 
     /// Judges the sweep at `scale` as a single-scale run judges it
@@ -175,12 +197,12 @@ impl Ladder {
     ///
     /// # Panics
     ///
-    /// Panics unless `scale` is one of [`LADDER_SCALES`].
+    /// Panics unless `scale` is one of [`LADDER_SAMPLINGS`]' scales.
     fn judged_at(&self, scale: f64) -> Vec<CellResult> {
         let (_, cells) = self
-            .by_scale()
+            .by_sampling()
             .into_iter()
-            .find(|(at, _)| *at == scale)
+            .find(|(at, _)| *at == Sampling::Scaled(scale))
             .unwrap_or_else(|| panic!("amp-board: the ladder holds no sweep at scale {scale}"));
         let calibration = self.calibration();
         cells
@@ -198,11 +220,12 @@ impl Ladder {
     ///
     /// # The acceptance judgment
     ///
-    /// One matrix renders per sweep: the ladder's base, its top, and the small
-    /// inputs. Each currency's exponent is fitted once, as one trend over the
-    /// four growth points; every constant, declared-model band, and liveness
-    /// floor is judged at every size, exactly as a single-scale run judges it.
-    /// The small-input pair is checked against ceilings and liveness floors
+    /// One matrix renders per sweep: the ladder's base, its top, the small
+    /// inputs, and the knobs just past a power of two. Each currency's
+    /// exponent is fitted once, as one trend over the four growth points;
+    /// every constant, declared-model band, and liveness floor is judged at
+    /// every size, exactly as a single-scale run judges it. The small-input
+    /// and past-power pairs are checked against ceilings and liveness floors
     /// alone. Each matrix prints its own summary line; the returned summary
     /// counts distinct cells, so a cell red at several sizes counts once.
     ///
@@ -251,11 +274,12 @@ impl Ladder {
         Ok(Verdict { summary, pin_clean })
     }
 
-    /// Renders the acceptance judgment's three matrices and returns its
+    /// Renders the acceptance judgment's matrices, one per sweep, and returns its
     /// summary, as [`Ladder::judge`] states it.
     ///
     /// Each growth window is judged with one exponent fitted across the whole
-    /// ladder, and the small inputs against ceilings and floors alone.
+    /// ladder, and the small inputs and past-power knobs against ceilings and
+    /// floors alone.
     ///
     /// This is the whole verdict of a fuel run. The ranking pin is stated over
     /// heap, scan, and touch, which a fuel run does not measure, so only
@@ -269,9 +293,9 @@ impl Ladder {
     ///
     /// # Panics
     ///
-    /// Panics if a measured currency's per-cell table lacks one of the
-    /// ladder's cells, or if a cell has no ceiling at all for a measured
-    /// currency (fuel, with no table for the measured architecture).
+    /// Panics if a cell has no ceiling at all for a measured currency (fuel,
+    /// with no table for the measured architecture). A cell that a table
+    /// omits is judged red instead (the `cell_ceilings` module doc).
     pub fn accept(&self, required: &[Currency], out: &mut dyn Write) -> io::Result<Summary> {
         for &currency in required {
             if !measured(self, currency) {
@@ -304,8 +328,13 @@ impl Ladder {
         let mut base_cells = Vec::with_capacity(self.base.len());
         let mut top_cells = Vec::with_capacity(self.top.len());
         let mut small_cells = Vec::with_capacity(self.small.len());
-        for (((op, family, b1, b2), (_, _, t1, t2)), (_, _, s1, s2)) in
-            self.base.iter().zip(&self.top).zip(&self.small)
+        let mut past_power_cells = Vec::with_capacity(self.past_power.len());
+        for ((((op, family, b1, b2), (_, _, t1, t2)), (_, _, s1, s2)), (_, _, p1, p2)) in self
+            .base
+            .iter()
+            .zip(&self.top)
+            .zip(&self.small)
+            .zip(&self.past_power)
         {
             let (base, top) = evaluate_acceptance(
                 calibration,
@@ -316,12 +345,19 @@ impl Ladder {
             );
             base_cells.push(base);
             top_cells.push(top);
-            small_cells.push(evaluate_small(
+            small_cells.push(evaluate_without_fit(
                 calibration,
                 op,
                 family,
                 s1.clone(),
                 s2.clone(),
+            ));
+            past_power_cells.push(evaluate_without_fit(
+                calibration,
+                op,
+                family,
+                p1.clone(),
+                p2.clone(),
             ));
         }
         writeln!(out, "=== ladder base: sampling scale {DEFAULT_SCALE} ===")?;
@@ -333,10 +369,17 @@ impl Ladder {
             "=== small inputs: sampling scale {SMALL_INPUT_SCALE}, ceilings and floors ==="
         )?;
         render_results(calibration, &small_cells, out)?;
+        writeln!(
+            out,
+            "=== past a power of two: every knob {PAST_POWER_OFFSET} past a power of two, \
+             ceilings and floors ==="
+        )?;
+        render_results(calibration, &past_power_cells, out)?;
         let red: BTreeSet<(&'static str, &'static str)> = base_cells
             .iter()
             .chain(&top_cells)
             .chain(&small_cells)
+            .chain(&past_power_cells)
             .filter(|cell| !cell.red.is_empty())
             .map(|cell| (cell.op, cell.family))
             .collect();

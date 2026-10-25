@@ -17,6 +17,7 @@ use super::family::FamilyData;
 use super::judge::{currency_intercept, trend_resolution, CellResult, Score};
 use super::measure::{measure, Meters, Sample};
 use super::ops::Op;
+use super::sampling::Sampling;
 use crate::testing::meter::registry::FamilyId;
 
 /// The board's bottom line: how many cells scored green and red.
@@ -43,7 +44,8 @@ fn floor_value(liveness: Liveness) -> String {
 /// An `exponent` red is a scaling-class finding; a `constant` red is a
 /// proportionality finding at
 /// exponent ~1; a `floor` red is a liveness vacuity (a meter not watching the
-/// work) or a stale declared model.
+/// work) or a stale declared model; an `uncalibrated` red is a cell its
+/// per-cell table omits, awaiting a recalibration.
 fn mechanism(red: &[&'static str]) -> String {
     let mut kinds = Vec::new();
     if red.iter().any(|label| label.contains("exponent")) {
@@ -54,6 +56,9 @@ fn mechanism(red: &[&'static str]) -> String {
     }
     if red.iter().any(|label| label.contains("floor")) {
         kinds.push("floor");
+    }
+    if red.iter().any(|label| label.ends_with("uncalibrated")) {
+        kinds.push("uncalibrated");
     }
     kinds.join("+")
 }
@@ -243,19 +248,11 @@ fn row(out: &mut dyn Write, r: &CellResult, measured: &ByCurrency<bool>) -> io::
     )
 }
 
-/// The one scale guard, shared by every entry that measures.
-pub(super) fn assert_scale(scale: f64) {
-    assert!(
-        scale > 0.0 && scale.is_finite(),
-        "amp-board: scale must be a positive finite number"
-    );
-}
-
 /// Build one family's operand bundles at both sample levels.
-pub(super) fn build_pair(kind: FamilyId, scale: f64) -> (FamilyData, FamilyData) {
+pub(super) fn build_pair(kind: FamilyId, sampling: Sampling) -> (FamilyData, FamilyData) {
     (
-        FamilyData::build(kind, scale, 0),
-        FamilyData::build(kind, scale, 1),
+        FamilyData::build(kind, sampling, 0),
+        FamilyData::build(kind, sampling, 1),
     )
 }
 
@@ -326,7 +323,8 @@ pub(super) fn render_results(
          and every liveness floor met. All ceilings and floors apply at both sample sizes. \
          Growth fits require denominator span >= x{MIN_EXPONENT_DENOM_GROWTH}; {clamps} \
          only for that fit. Growth below that resolution is unobserved by the fit. \
-         Small-input samples check only ceilings and floors. An unjudged exponent renders \
+         Small-input and past-power samples check only ceilings and floors. An unjudged \
+         exponent renders \
          -.--. These finite checks are regression evidence, not universal resource \
          guarantees.",
         ceilings = ceilings.join(", "),

@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, MutexGuard};
 
-use before::testing::meter::board::{self, HeapMeter, Meters, BOARD_PRICED};
+use before::testing::meter::board::{self, HeapMeter, Meters, Sampling, BOARD_PRICED};
 use before::testing::meter::registry::FamilyId;
 
 /// Serializes in-process board sweeps, whose scan and touch counters are
@@ -51,12 +51,12 @@ fn measurement_guard() -> MutexGuard<'static, ()> {
 fn in_process_spawn(
     shards: usize,
     meters: &Meters,
-) -> impl Fn(f64) -> std::io::Result<Vec<Vec<u8>>> + '_ {
-    move |scale: f64| {
+) -> impl Fn(Sampling) -> std::io::Result<Vec<Vec<u8>>> + '_ {
+    move |sampling: Sampling| {
         (0..shards)
             .map(|index| {
                 let mut capture = Vec::new();
-                board::emit_shard(scale, index, shards, meters, &mut capture)?;
+                board::emit_shard(sampling, index, shards, meters, &mut capture)?;
                 Ok(capture)
             })
             .collect()
@@ -69,8 +69,8 @@ fn in_process_spawn(
 #[test]
 fn retaining_results_does_not_allocate_measured_heap() {
     let _guard = measurement_guard();
-    let captures =
-        in_process_spawn(1, &native_meters())(SMOKE_SCALE).expect("the in-process sweep succeeds");
+    let captures = in_process_spawn(1, &native_meters())(Sampling::Scaled(SMOKE_SCALE))
+        .expect("the in-process sweep succeeds");
     let text = std::str::from_utf8(&captures[0]).expect("the shard protocol is UTF-8");
     let mut checked = 0;
     for line in text.lines() {
@@ -274,7 +274,8 @@ fn worst_map_covers_every_operation_row() {
 fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
     let _guard = measurement_guard();
     let meters = native_meters();
-    let captures = in_process_spawn(1, &meters)(SMOKE_SCALE).expect("in-process capture succeeds");
+    let captures = in_process_spawn(1, &meters)(Sampling::Scaled(SMOKE_SCALE))
+        .expect("in-process capture succeeds");
     let text = String::from_utf8(captures[0].clone()).expect("shard captures are UTF-8");
     let lines: Vec<&str> = text.lines().collect();
     let declared: usize = lines
@@ -330,7 +331,7 @@ fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
             .nth(2)
             .expect("a cell line names its operation and family");
         let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let spawn = move |_scale: f64| Ok(tampered_capture.clone());
+            let spawn = move |_sampling: Sampling| Ok(tampered_capture.clone());
             let mut rendered = Vec::new();
             board::run(SMOKE_SCALE, 1, &spawn, &mut rendered).expect("writing to a Vec succeeds");
         }))

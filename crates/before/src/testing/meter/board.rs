@@ -24,8 +24,10 @@
 //! sizes and checks the largest per-byte cost. A cell is green only when every
 //! trend and constant stays within its ceiling. The acceptance judgment uses
 //! the complete measurement ladder; a single-scale run is diagnostic only.
-//! Additional small-input samples check ceilings and liveness without fitting
-//! growth through minimum allocation sizes. Every sample checks its full heap
+//! Two more pairs of samples check ceilings and liveness without entering the
+//! growth fit: small inputs, where minimum allocation sizes dominate, and
+//! inputs whose size knobs sit just past a power of two, where a buffer that
+//! grows by doubling holds its peak ([`Sampling`]). Every sample checks its full heap
 //! peak against `I + C * D`: `I` is [`HEAP_INTERCEPT_BYTES`], `C` defaults to
 //! [`MAX_HEAP_BYTES_PER_INPUT_BYTE`], and `D` is the row's declared constant
 //! units. Query evaluation has a separate coefficient
@@ -153,6 +155,7 @@ mod measure;
 mod operand;
 mod ops;
 mod render;
+mod sampling;
 mod shard;
 #[cfg(test)]
 mod tests;
@@ -181,5 +184,6 @@ pub use ladder::{Ladder, Verdict};
 pub use measure::{FuelMeter, HeapMeter, Meters};
 pub use operand::stored_nonzero_deltas;
 pub use render::Summary;
+pub use sampling::{Sampling, PAST_POWER_OFFSET};
 pub use shard::{emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
 pub use worst::{NEAR_TIE_RATIO, WORST_MAP_SCALES};

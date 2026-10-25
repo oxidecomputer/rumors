@@ -713,6 +713,45 @@ fn id_spine(d: usize, divert: bool) -> Encoding {
     Encoding::from_bits(bits)
 }
 
+/// The zigzag id `ZZ(d, divert)`: a unary chain of depth `d` whose one
+/// child alternates sides, left at even depths and right at odd, `2d + 2`
+/// bits.
+///
+/// [`id_spine`]'s chain with its stored path turning at every level: the same
+/// node count and depth per input bit, but no two consecutive tags alike, so
+/// a walk that keeps one direction per open ancestor records a direction
+/// change at every level, and any reading or writing that batches runs of
+/// equal tags finds runs of length one. With `divert`, the last unary node
+/// points the other way, so `ZZ(d, false)` and `ZZ(d, true)` share their
+/// first `d − 1` levels and own disjoint regions, the pair that drives
+/// two-operand id walks to full lockstep depth.
+///
+/// Layout: at depth `i` below `d − 1`, `10` (left only) for even `i` and `01`
+/// (right only) for odd `i`; then the last unary node, the same rule's tag or
+/// its opposite when diverted; then the terminal `00`. Normal form: no node
+/// has two present children, and none has two absent ones.
+///
+/// # Panics
+///
+/// Panics if `d == 0`.
+fn zigzag_id(d: usize, divert: bool) -> Encoding {
+    assert!(d >= 1, "zigzag id needs at least one unary node");
+    let mut bits = BitsWriter::with_capacity((2 * d + 2) as u64);
+    for depth in 0..d {
+        let right = depth % 2 == 1;
+        let right = if depth == d - 1 {
+            right != divert
+        } else {
+            right
+        };
+        bits.push(!right); // left child present, or ...
+        bits.push(right); // ... right child present
+    }
+    bits.push(false); // terminal tag "00": the single owned tip
+    bits.push(false);
+    Encoding::from_bits(bits)
+}
+
 /// The nested-full-sibling id `N(d)`: `(x, 1)` repeated down a left spine,
 /// `4d + 4` bits.
 ///
@@ -3738,6 +3777,406 @@ fn masked_hole(d: usize, h: usize) -> (Encoding, Encoding, Encoding) {
     let mut plateau = BitsWriter::with_capacity(4_u64);
     ev_leaf(&mut plateau, 2); // dominates every spine height (they are 0 or 1)
     (dense(d), id_spine(h, true), Encoding::from_bits(plateau))
+}
+
+/// The value whose base-2^32 digit is `digit` at every position below
+/// `positions` with parity `parity`, and zero at every other position.
+fn alternating_digits(positions: usize, parity: usize, digit: u32) -> BigUint {
+    let digits: Vec<u32> = (0..positions)
+        .map(|position| if position % 2 == parity { digit } else { 0 })
+        .collect();
+    BigUint::from_slice(&digits)
+}
+
+/// The sparse height `S(r)`: the digit 4 at every even position below
+/// `2r − 1`, so `r` nonzero digits with one zero digit between each pair.
+///
+/// Its bit length is `64r − 61`, and so is `S(r) + 1`'s, which makes its
+/// gamma code exactly `128r − 123` bits at every `r`.
+fn sparse_height(r: usize) -> BigUint {
+    alternating_digits(2 * r - 1, 0, 4)
+}
+
+/// The gap-filling height `O(r)`: the digit 1 at every odd position below
+/// `2r`, one in each zero digit of [`sparse_height`]'s `S(r)` and one more
+/// directly above its top digit.
+///
+/// Its bit length is `64r − 31`, and so is `O(r) + 1`'s, which makes its
+/// gamma code exactly `128r − 63` bits.
+fn gap_filling_height(r: usize) -> BigUint {
+    alternating_digits(2 * r, 1, 1)
+}
+
+/// Append the base-0 internal nodes of a complete binary tree whose `2^depth`
+/// bottom nodes lie `depth` levels below a root the caller has written, and
+/// each bottom node's children through `bottom`.
+///
+/// The tree is written in one pass over its bottom nodes rather than by
+/// recursion. In preorder, the nodes written just before bottom node `i` are
+/// its ancestors that bottom node `i − 1` does not share, `trailing_zeros(i)`
+/// of them, or the `depth − 1` below the root before the first bottom node;
+/// then comes the bottom node itself.
+///
+/// # Panics
+///
+/// Panics if `depth` is zero or at least 64.
+fn complete_tree_below_root(
+    bits: &mut BitsWriter,
+    depth: u32,
+    mut bottom: impl FnMut(&mut BitsWriter),
+) {
+    assert!(
+        (1..64).contains(&depth),
+        "the complete tree has bottom nodes below the root, and fewer than 2^64 of them"
+    );
+    for i in 0..1u64 << depth {
+        let opened = if i == 0 {
+            depth - 1
+        } else {
+            i.trailing_zeros()
+        };
+        // The new ancestors, then the bottom node itself, each at base 0.
+        for _ in 0..=opened {
+            bits.push(true);
+            bits.write_gamma(&BigUint::ZERO);
+        }
+        bottom(bits);
+    }
+}
+
+/// The depth of [`sparse_oscillation`]'s bottom nodes below the root.
+///
+/// Its 16 bottom nodes each carry two leaves, and [`sparse_fill`]'s 8 each
+/// carry two two-leaf nodes, so both families have 32 leaves at depth 5.
+const SPARSE_OSCILLATION_DEPTH: u32 = 4;
+
+/// The bottom-node depth of [`sparse_fill`]; see
+/// [`SPARSE_OSCILLATION_DEPTH`].
+const SPARSE_FILL_DEPTH: u32 = 3;
+
+/// The sparse oscillation `SO(r)`: 32 leaves at depth 5 whose heights
+/// alternate between [`sparse_height`]'s `S(r)` and 0, in exactly
+/// `2048r − 1858` bits.
+///
+/// Every change between neighboring leaves is `±S(r)`. A running height that
+/// receives `+S(r)` from zero writes `r` digit positions with a zero digit
+/// between each pair, so the accumulator's set of written positions takes
+/// its bitset form, and the next `−S(r)` cancels the top digit last: the
+/// descent to the next nonzero digit then crosses every one of the `r − 1`
+/// written positions below it, all zero, and removes each from the bitset.
+/// Each of the 16 rises and 16 falls repeats the insertions or the descent,
+/// so every operation that keeps a running height (decoding, comparison,
+/// join and meet, ticking, the rank and minimum folds) drives that set
+/// through its sparse form and its longest descent at every leaf, while the
+/// input pays one `S(r)` code per rise. One zero digit per gap is the
+/// densest sparse pattern: each written position costs the input two digits
+/// of code, and a wider gap would pay for more digits per position. Designed
+/// against `suanpan`'s written-position set.
+///
+/// Layout: the root `"11"` (internal flag + `gamma(0)`), then the complete
+/// tree's 30 base-0 internal nodes, `"11"` each, and under each of its 16
+/// bottom nodes the leaves `"0" · gamma(S(r))` (`128r − 122` bits) and
+/// `"01"`. Normal form: every bottom node has a 0 leaf, so every base is 0,
+/// and no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `r == 0`.
+fn sparse_oscillation(r: usize) -> Encoding {
+    assert!(r >= 1, "the sparse height needs at least one nonzero digit");
+    let wide = sparse_height(r);
+    let mut bits = BitsWriter::with_capacity((2048 * r - 1858) as u64);
+    bits.push(true); // the root
+    bits.write_gamma(&BigUint::ZERO);
+    complete_tree_below_root(&mut bits, SPARSE_OSCILLATION_DEPTH, |bits| {
+        ev_leaf_wide(bits, &wide); // the rise to S(r)
+        ev_leaf(bits, 0); // the fall back to 0
+    });
+    Encoding::from_bits(bits)
+}
+
+/// The sparse fill `SF(r)`: 32 leaves at depth 5 whose heights cycle through
+/// `S(r)`, `S(r) + O(r)`, `S(r)`, and 0, in exactly `3072r − 2370` bits,
+/// where `S(r)` is [`sparse_height`]'s and `O(r)` [`gap_filling_height`]'s.
+///
+/// `S(r)` leaves a zero digit between each pair of its nonzero digits, so a
+/// running height that receives it from zero takes its written-position set
+/// into bitset form, as [`sparse_oscillation`] does. `+O(r)` then writes the
+/// one digit inside every one of those gaps: each write lands below the
+/// set's run, where it costs one bitset insertion rather than the
+/// comparison a write within the run costs. `−O(r)` cancels the digit it
+/// wrote above `S(r)`'s top, and `−S(r)`
+/// then cancels the top and descends across all `2r − 2` written positions
+/// below it, every one zero. Each of the 8 cycles repeats this, while the
+/// input pays two `S(r)` codes and one `O(r)` code per cycle. Designed
+/// against `suanpan`'s written-position set.
+///
+/// Layout: the root `"11"`, then the complete tree's 14 base-0 internal
+/// nodes, and under each of its 8 bottom nodes two children: a node lifted
+/// by `S(r)` (`"1" · gamma(S(r))`) over the leaves `"01"` and
+/// `"0" · gamma(O(r))`, then a base-0 node `"11"` over the leaves
+/// `"0" · gamma(S(r))` and `"01"`. Normal form: every internal node has a
+/// child of base 0, and no two sibling leaves are equal.
+///
+/// # Panics
+///
+/// Panics if `r == 0`.
+fn sparse_fill(r: usize) -> Encoding {
+    assert!(r >= 1, "the sparse height needs at least one nonzero digit");
+    let wide = sparse_height(r);
+    let fill = gap_filling_height(r);
+    let mut bits = BitsWriter::with_capacity((3072 * r - 2370) as u64);
+    bits.push(true); // the root
+    bits.write_gamma(&BigUint::ZERO);
+    complete_tree_below_root(&mut bits, SPARSE_FILL_DEPTH, |bits| {
+        bits.push(true); // the first child, lifted to S(r)
+        bits.write_gamma(&wide);
+        ev_leaf(bits, 0); // S(r)
+        ev_leaf_wide(bits, &fill); // S(r) + O(r)
+        bits.push(true); // the second child, at base 0
+        bits.write_gamma(&BigUint::ZERO);
+        ev_leaf_wide(bits, &wide); // S(r)
+        ev_leaf(bits, 0); // 0
+    });
+    Encoding::from_bits(bits)
+}
+
+/// Mirror a construction-language event stream: every internal node's two
+/// children trade places.
+///
+/// The leaves come out in reverse order, each at its own depth and height,
+/// so the mirrored version has exactly the original's rank. Normal form is
+/// symmetric in a node's children, so the mirror of a canonical stream is
+/// canonical, and its size is the original's.
+///
+/// The nodes are read into a preorder list first, and each internal node's
+/// right subtree located by the end of its left one, computed from the back
+/// of the list; the mirrored stream is then written from an explicit stack,
+/// so no step recurses on the tree's depth.
+///
+/// # Panics
+///
+/// Panics if `shape` is not exactly one complete construction-language tree:
+/// a truncated tree and bits after a complete one both panic.
+fn mirror(shape: &Encoding) -> Encoding {
+    use crate::bits::BitRead;
+
+    let mut reader = shape.reader();
+    let mut nodes: Vec<(bool, BigUint)> = Vec::new();
+    let mut pending = 1usize;
+    while pending > 0 {
+        pending -= 1;
+        let internal = reader.read_bit().expect("the shape is one complete tree");
+        let base = reader.read_gamma().expect("the shape is one complete tree");
+        if internal {
+            pending += 2;
+        }
+        nodes.push((internal, base));
+    }
+    assert_eq!(
+        reader.position(),
+        shape.bits as u64,
+        "the shape is exactly one tree, with no bits after it"
+    );
+    // `end[i]` is the position just past node `i`'s subtree: a leaf's own
+    // successor, or the end of an internal node's right subtree, which
+    // starts where its left subtree (at `i + 1`) ends.
+    let mut end = vec![0usize; nodes.len()];
+    for i in (0..nodes.len()).rev() {
+        end[i] = if nodes[i].0 { end[end[i + 1]] } else { i + 1 };
+    }
+    let mut bits = BitsWriter::with_capacity(shape.bits as u64);
+    let mut stack = vec![0usize];
+    while let Some(i) = stack.pop() {
+        let (internal, base) = &nodes[i];
+        bits.push(*internal);
+        bits.write_gamma(base);
+        if *internal {
+            let left = i + 1;
+            stack.push(left); // written second
+            stack.push(end[left]); // the right subtree, written first
+        }
+    }
+    Encoding::from_bits(bits)
+}
+
+/// The rank-tie pair `RT(w, d)`: the plateau puncture `PP(w, d)` and its
+/// [`mirror`], two distinct versions of exactly equal rank.
+///
+/// `Ranked` orders by rank and then by version bytes, and an exact rank tie
+/// forces the comparison to resolve the whole rank difference to zero
+/// before it can fall to the bytes: the ordering's documented worst case.
+/// The puncture's rank embeds the product of a `Θ(w)`-digit plateau and a
+/// `Θ(d)`-term punctured mass ([`plateau_puncture`]), so the difference the
+/// comparison must resolve carries that product on both sides. Its size is
+/// `PP(w, d)`'s for each operand.
+///
+/// # Panics
+///
+/// As [`plateau_puncture`].
+fn rank_tie(w: usize, d: usize) -> (Encoding, Encoding) {
+    let puncture = plateau_puncture(w, d);
+    let mirrored = mirror(&puncture);
+    (puncture, mirrored)
+}
+
+/// The width, in bits, of the wide-offset combs' outer offset per tooth.
+///
+/// Sixty-four bits per tooth make the offset two machine words wider for
+/// every tooth the comb carries, so a minimum fold that copied the offset
+/// once per tooth would do quadratic work while the input pays the offset's
+/// code once.
+const WIDE_OFFSET_BITS_PER_TOOTH: usize = 64;
+
+/// Append the left-deep comb `M_k` over the teeth `T_1 = (0, 1)` and
+/// `T_i = 1 + (0, 1)`, with `M_k` lifted by `top` above its parent:
+/// `12k − 5 + |gamma(top)|` bits.
+///
+/// `M_i` is the node over `M_(i−1)` and `T_i`, and `M_1` is `T_1`, so the
+/// preorder runs `M_k, …, M_2, T_1, T_2, …, T_k`. A minimum fold suspends a
+/// narrow record at every `M_i` and closes it at `T_i`.
+fn left_comb(bits: &mut BitsWriter, k: usize, top: &BigUint) {
+    bits.push(true); // M_k, lifted by `top`
+    bits.write_gamma(top);
+    for _ in 0..k - 2 {
+        bits.push(true); // M_(k−1) down to M_2, each at base 0
+        bits.write_gamma(&BigUint::ZERO);
+    }
+    bits.push(true); // T_1, at base 0
+    bits.write_gamma(&BigUint::ZERO);
+    ev_leaf(bits, 0);
+    ev_leaf(bits, 1);
+    for _ in 2..=k {
+        bits.push(true); // T_i, one above its sibling M_(i−1)
+        bits.write_gamma(&BigUint::ONE);
+        ev_leaf(bits, 0);
+        ev_leaf(bits, 1);
+    }
+}
+
+/// The cross-prefix comb `CC(k)`: an outer minimum `J = 2^(64k)` above its
+/// first leaf, then a `k`-tooth [`left_comb`] one tick above it, in exactly
+/// `140k + 6` bits.
+///
+/// Its leaves are `0, J, J + 1, J + 2`, then `J + 2, J + 3` once for each of
+/// the comb's other `k − 1` teeth. `min_ticks` keeps each leaf and minimum as
+/// an offset from the height reference current when it observes it. The
+/// outer minimum's record holds the offset `J`, `64k` bits wide, from the
+/// first leaf's height. The narrow change after that wide rise freezes `J`
+/// into a new reference, so the comb's records, pushed and popped one per
+/// tooth directly above the outer minimum, hold offsets of a tick or two
+/// from a different reference than the outer minimum's: the name's two
+/// prefixes. The input pays the wide offset once, and the offset widens by
+/// [`WIDE_OFFSET_BITS_PER_TOOTH`] bits per tooth, so a fold that read or
+/// copied the outer offset at every record would do work quadratic in the
+/// input. [`same_prefix_comb`] keeps the outer minimum and the comb's records
+/// on one reference. Designed against `min_ticks`.
+///
+/// Layout: the root `"11"`, the first leaf `"01"`, the node `"1" ·
+/// gamma(J)` (`128k + 2` bits), its leaf `"01"`, then the comb lifted by 1.
+/// Normal form: every internal node has a child of base 0, and every tooth's
+/// leaves differ.
+///
+/// # Panics
+///
+/// Panics if `k < 2`: the comb needs at least two teeth.
+fn cross_prefix_comb(k: usize) -> Encoding {
+    assert!(k >= 2, "the wide-offset comb needs at least two teeth");
+    let b = WIDE_OFFSET_BITS_PER_TOOTH * k;
+    let mut bits = BitsWriter::with_capacity((140 * k + 6) as u64);
+    bits.push(true); // the root
+    bits.write_gamma(&BigUint::ZERO);
+    ev_leaf(&mut bits, 0); // the first leaf, 0
+    bits.push(true); // the outer node, at J
+    bits.write_gamma(&pow2(b));
+    ev_leaf(&mut bits, 0); // the outer minimum, J
+    left_comb(&mut bits, k, &BigUint::ONE);
+    Encoding::from_bits(bits)
+}
+
+/// The same-prefix comb `CS(k)`: an outer minimum of 1 below a first leaf
+/// of `H = 2^(64k)`, then a `k`-tooth [`left_comb`] lifted back to `H`, in
+/// exactly `268k + 6` bits.
+///
+/// Its leaves are `H, 1, H + 1, H + 2`, then `H + 2, H + 3` once for each of
+/// the comb's other `k − 1` teeth. No narrow change follows a wide recent
+/// change, so nothing freezes, and every record holds its offset from the
+/// first leaf's height, the one reference current throughout. The outer
+/// minimum's offset is `1 − H`, `64k` bits wide, and the comb's records,
+/// pushed and popped one per tooth directly above it, hold offsets of a tick
+/// or two from that same reference. [`cross_prefix_comb`] measures the two
+/// from different references. Designed against `min_ticks`.
+///
+/// Layout: the root `"1" · gamma(1)`, the first leaf `"0" · gamma(H − 1)`
+/// (`128k + 2` bits), the node `"11"`, its leaf `"01"`, then the comb lifted
+/// by `H` (its top code `128k + 2` bits). Normal form: every internal node
+/// has a child of base 0, and every tooth's leaves differ.
+///
+/// # Panics
+///
+/// Panics if `k < 2`: the comb needs at least two teeth.
+fn same_prefix_comb(k: usize) -> Encoding {
+    assert!(k >= 2, "the wide-offset comb needs at least two teeth");
+    let b = WIDE_OFFSET_BITS_PER_TOOTH * k;
+    let mut bits = BitsWriter::with_capacity((268 * k + 6) as u64);
+    bits.push(true); // the root, at 1
+    bits.write_gamma(&BigUint::ONE);
+    ev_leaf_wide(&mut bits, &pow2_minus_1(b)); // the first leaf, H
+    bits.push(true); // the outer node, at 1
+    bits.write_gamma(&BigUint::ZERO);
+    ev_leaf(&mut bits, 0); // the outer minimum, 1
+    left_comb(&mut bits, k, &pow2(b));
+    Encoding::from_bits(bits)
+}
+
+/// The integer part's lift in [`below_run_spine`]: `2^64`, whose one nonzero
+/// 32-bit digit sits two digits above the units digit.
+const BELOW_RUN_LIFT_BITS: usize = 64;
+
+/// The below-run spine `BR(m)`: a right spine of depth `D = 32(2m + 1)`
+/// under a root lifted by `2^64`, whose left leaf at every depth `32i`, `i`
+/// odd, sits one tick above the rest, in exactly `258m + 260` bits.
+///
+/// Its rank is `2^64 + Σ 2^(−32i)` over odd `i` from 1 to `2m + 1`: an
+/// integer part whose one nonzero digit sits two digits above the units
+/// digit, over a fraction with a nonzero digit at every other position.
+/// `Rank`'s `Sum` deposits a first summand of that rank as separate writes,
+/// one per fraction digit, which takes its accumulator's written-position
+/// set into bitset form and leaves the set's run at the top digit alone. A
+/// small integer summand after it then lands on the units digit: below the
+/// run, inside a gap of the bitset, the costliest path a single summand's
+/// write takes through the set. The board's `rank_sum` row adds one small
+/// integer per encoded byte after the family's rank, so it takes that path
+/// once per summand. Designed against `Rank`'s `Sum`.
+///
+/// Layout: the root `"1" · gamma(2^64)` (130 bits); then, for each depth `l`
+/// from 1 to `D − 1`, the leaf at depth `l` (`"0010"`, height `2^64 + 1`,
+/// where `l` is an odd multiple of 32; `"01"` otherwise) and the spine node
+/// below it, `"11"`; then the deepest node's leaves `"0010"` and `"01"`.
+/// Normal form: every internal node has a child of base 0, and the deepest
+/// node's two leaves differ.
+///
+/// # Panics
+///
+/// Panics if `m` is so large that `D` overflows a `usize`.
+fn below_run_spine(m: usize) -> Encoding {
+    let depth = m
+        .checked_mul(2)
+        .and_then(|twice| twice.checked_add(1))
+        .and_then(|odd| odd.checked_mul(32))
+        .expect("the below-run spine's depth fits a usize");
+    let lifted = |level: usize| level.is_multiple_of(32) && !(level / 32).is_multiple_of(2);
+    let mut bits = BitsWriter::with_capacity((258 * m + 260) as u64);
+    bits.push(true); // the root, lifted by 2^64
+    bits.write_gamma(&pow2(BELOW_RUN_LIFT_BITS));
+    for level in 1..depth {
+        ev_leaf(&mut bits, u64::from(lifted(level))); // the left leaf at `level`
+        bits.push(true); // the spine node at `level`
+        bits.write_gamma(&BigUint::ZERO);
+    }
+    ev_leaf(&mut bits, 1); // the deepest left leaf: `D` is an odd multiple of 32
+    ev_leaf(&mut bits, 0);
+    Encoding::from_bits(bits)
 }
 
 /// The base `2^b − 1`, whose gamma code is `0^b · 1 · 0^b`.

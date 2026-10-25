@@ -354,6 +354,29 @@ fn matrix_operands(family: FamilyId) -> MatrixOperands {
             vec![Shape::NarrowFreezes.build2(FREEZE_DRIFT_BITS, 1).version()],
             vec![],
         ),
+        // A plateau puncture and its mirror image: distinct, of equal rank.
+        FamilyId::RankTie => {
+            let (puncture, mirrored) = Shape::RankTie.build_pair(10, 2);
+            (vec![puncture.version(), mirrored.version()], vec![])
+        }
+        // Heights alternating between a sparse-digit value and 0.
+        FamilyId::SparseOscillation => (vec![Shape::SparseOscillation.build1(2).version()], vec![]),
+        // Heights filling a sparse-digit value's gaps and draining them.
+        FamilyId::SparseFill => (vec![Shape::SparseFill.build1(2).version()], vec![]),
+        // A comb above a wide outer minimum, on the next prefix.
+        FamilyId::CrossPrefixComb => (vec![Shape::CrossPrefixComb.build1(2).version()], vec![]),
+        // A comb above a wide outer minimum, on its own prefix.
+        FamilyId::SamePrefixComb => (vec![Shape::SamePrefixComb.build1(2).version()], vec![]),
+        // A rank two digits above its units digit over a sparse fraction.
+        FamilyId::BelowRunSpine => (vec![Shape::BelowRunSpine.build1(1).version()], vec![]),
+        // The diverted zigzag pair: mask parties turning at every level.
+        FamilyId::ZigzagPair => (
+            vec![],
+            vec![
+                decode_party(&Shape::ZigzagId.build_flagged(4, false)),
+                decode_party(&Shape::ZigzagId.build_flagged(4, true)),
+            ],
+        ),
     };
     MatrixOperands { versions, masks }
 }

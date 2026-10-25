@@ -1,5 +1,5 @@
 //! Checks that one ladder sweep reaches each of the board's consumers at the
-//! right sampling scale: the acceptance matrices, the ranking pin, and the
+//! right sampling: the acceptance matrices, the ranking pin, and the
 //! capture.
 //!
 //! The ladders here are synthetic: two families on one operation, with heap
@@ -19,13 +19,16 @@ use super::super::shard::Measured;
 use super::super::{
     HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE,
 };
-use super::{Ladder, Verdict, LADDER_SCALES};
+use super::{Ladder, Verdict, LADDER_SAMPLINGS};
 
 /// The one synthetic operation.
 const OP: &str = "probe_op";
 
 /// The smaller input size of the small-input sweep's pair, in bytes.
 const SMALL_DENOM: usize = 10;
+
+/// The smaller input size of the past-power sweep's pair, in bytes.
+const PAST_POWER_DENOM: usize = 1_200;
 
 /// The smaller input size of the growth ladder base's pair, in bytes.
 const BASE_DENOM: usize = 1_000;
@@ -87,10 +90,11 @@ fn sweep(denom: usize, alpha: u64, beta: u64) -> Vec<Measured> {
 }
 
 /// Returns `alpha`'s heap reading in each of [`ladder`]'s sweeps, in
-/// [`LADDER_SCALES`] order.
-fn alpha_readings() -> [u64; 3] {
+/// [`LADDER_SAMPLINGS`] order.
+fn alpha_readings() -> [u64; 4] {
     [
         green_cap(SMALL_DENOM) / 2,
+        green_cap(PAST_POWER_DENOM) / 4,
         green_cap(BASE_DENOM),
         green_cap(TOP_DENOM) / 2,
     ]
@@ -102,14 +106,16 @@ fn alpha_readings() -> [u64; 3] {
 /// At the base, `alpha` reads the green cap ([`green_cap`]) and `beta` half of
 /// it; at the top, the roles swap. Both families share each sweep's input
 /// sizes, so `alpha` is worst at the base and `beta` at the top. On the small
-/// inputs both read half the cap, a tie. No reading exceeds the fit's
-/// resolution, so every fitted exponent is flat, and every reading is within
-/// the heap ceiling at its size.
+/// inputs both read half the cap, and on the past-power inputs a quarter of
+/// it, ties. No reading exceeds the fit's resolution, so every fitted
+/// exponent is flat, and every reading is within the heap ceiling at its
+/// size.
 fn ladder() -> Ladder {
-    let [small, base, top] = alpha_readings();
+    let [small, past_power, base, top] = alpha_readings();
     Ladder {
         measured_on: uncalibrated_build(),
         small: sweep(SMALL_DENOM, small, small),
+        past_power: sweep(PAST_POWER_DENOM, past_power, past_power),
         base: sweep(BASE_DENOM, base, base / 2),
         top: sweep(TOP_DENOM, top, green_cap(TOP_DENOM)),
     }
@@ -151,8 +157,8 @@ fn judge(ladder: &Ladder, pins: &[(&str, &str, [&str; 3])]) -> (Verdict, String)
 /// sweep at the default scale and the top sweep at the acceptance scale: the
 /// same pin with its two scales' rows exchanged drifts at both.
 ///
-/// A pin check handed the small sweep fails the first half, because both
-/// families tie there. One handed base and top swapped comes up clean against
+/// A pin check handed the small or past-power sweep fails the first half,
+/// because both families tie there. One handed base and top swapped comes up clean against
 /// the exchanged pin, and fails the second half.
 #[test]
 fn ranking_pin_reads_each_growth_sweep_at_its_own_scale() {
@@ -208,26 +214,51 @@ fn small_input_red_fails_the_verdict_and_the_pin_still_runs() {
     );
 }
 
-/// Each acceptance matrix renders its own sweep: the base, top, and small-input
-/// matrices each show that sweep's per-byte heap reading for `alpha`.
+/// A cell red only on the past-power sweep fails the verdict.
 ///
-/// `alpha`'s reading per input byte differs between the three sweeps (the
+/// The past-power samples sit where a doubling buffer holds its peak, and
+/// their readings bind every ceiling though no growth fit reads them.
+#[test]
+fn past_power_red_fails_the_verdict() {
+    let mut red = ladder();
+    let over_ceiling = heap_ceiling(PAST_POWER_DENOM) as u64 + 1;
+    red.past_power = sweep(
+        PAST_POWER_DENOM,
+        over_ceiling,
+        green_cap(PAST_POWER_DENOM) / 4,
+    );
+    let (verdict, text) = judge(&red, PINS);
+    assert_eq!(verdict.summary.red, 1, "alpha is red once:\n{text}");
+    assert!(verdict.pin_clean, "the pin is unmoved:\n{text}");
+    assert!(!verdict.passed(), "a red cell fails the verdict");
+}
+
+/// Each acceptance matrix renders its own sweep: the base, top, small-input,
+/// and past-power matrices each show that sweep's per-byte heap reading for
+/// `alpha`.
+///
+/// `alpha`'s reading per input byte differs between the four sweeps (the
 /// test checks that premise first), so a matrix rendered from another sweep
 /// shows another value.
 #[test]
 fn acceptance_matrices_render_their_own_sweeps() {
     let per_byte = |reading: u64, denom: usize| format!("{:.1}/B", reading as f64 / denom as f64);
-    let [small, base, top] = alpha_readings();
+    let [small, past_power, base, top] = alpha_readings();
     let expected = [
         ("=== ladder base:", per_byte(base, BASE_DENOM)),
         ("=== ladder top:", per_byte(top, TOP_DENOM)),
         ("=== small inputs:", per_byte(small, SMALL_DENOM)),
+        (
+            "=== past a power of two:",
+            per_byte(past_power, PAST_POWER_DENOM),
+        ),
     ];
-    assert!(
-        expected[0].1 != expected[1].1
-            && expected[1].1 != expected[2].1
-            && expected[0].1 != expected[2].1,
-        "the fixture's per-byte readings must tell the three sweeps apart: {expected:?}"
+    let distinct: std::collections::BTreeSet<&String> =
+        expected.iter().map(|(_, reading)| reading).collect();
+    assert_eq!(
+        distinct.len(),
+        expected.len(),
+        "the fixture's per-byte readings must tell the four sweeps apart: {expected:?}"
     );
 
     let (_, text) = judge(&ladder(), PINS);
@@ -262,17 +293,20 @@ fn acceptance_matrices_render_their_own_sweeps() {
     }
 }
 
-/// The capture writes each sweep under its own sampling scale, in ladder
-/// order: the small pair, then the base pair, then the top pair.
+/// The capture writes each sweep under its own sampling's label, in ladder
+/// order: the small pair, the past-power pair, the base pair, then the top
+/// pair.
 ///
 /// Each sweep's `alpha` heap reading is distinct, so a capture that wrote one
-/// sweep under another's scale label shows the wrong reading on that line.
+/// sweep under another's label shows the wrong reading on that line.
 #[test]
-fn capture_writes_each_sweep_under_its_own_scale() {
+fn capture_writes_each_sweep_under_its_own_sampling() {
     let readings = alpha_readings();
-    assert!(
-        readings[0] != readings[1] && readings[1] != readings[2] && readings[0] != readings[2],
-        "the fixture's readings must tell the three sweeps apart: {readings:?}"
+    let distinct: std::collections::BTreeSet<u64> = readings.into_iter().collect();
+    assert_eq!(
+        distinct.len(),
+        readings.len(),
+        "the fixture's readings must tell the four sweeps apart: {readings:?}"
     );
 
     let mut out = Vec::new();
@@ -289,11 +323,11 @@ fn capture_writes_each_sweep_under_its_own_scale() {
                 .then(|| (scale.to_owned(), sample.to_owned(), reading.to_owned()))
         })
         .collect();
-    let expected: Vec<(String, String, String)> = LADDER_SCALES
+    let expected: Vec<(String, String, String)> = LADDER_SAMPLINGS
         .iter()
         .zip(readings)
-        .flat_map(|(scale, reading)| {
-            ["1", "2"].map(|sample| (scale.to_string(), sample.to_owned(), reading.to_string()))
+        .flat_map(|(sampling, reading)| {
+            ["1", "2"].map(|sample| (sampling.to_string(), sample.to_owned(), reading.to_string()))
         })
         .collect();
     assert_eq!(
@@ -329,6 +363,7 @@ fn restating_models(mut ladder: Ladder) -> Ladder {
     let cells = ladder
         .small
         .iter_mut()
+        .chain(&mut ladder.past_power)
         .chain(&mut ladder.base)
         .chain(&mut ladder.top);
     for (_, _, first, second) in cells {

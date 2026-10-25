@@ -22,6 +22,10 @@ use super::{
     wide_step_spine, wide_tooth_comb, Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS,
     PROMOTION_REARM_ARM_BITS,
 };
+use super::{
+    below_run_spine, cross_prefix_comb, gap_filling_height, rank_tie, same_prefix_comb,
+    sparse_fill, sparse_height, sparse_oscillation, zigzag_id,
+};
 
 /// Appended to the counter-comparison failures: the first cause to rule out is
 /// a shared-process test runner, under which the process-global counters bleed
@@ -1250,5 +1254,189 @@ proptest! {
                 "k + 2 > 2^b must panic: the ascent leaves the width-b code band"
             );
         }
+    }
+}
+
+/// The plateaus of a version whose leaves, left to right, sit at these
+/// absolute heights and depths: one plateau per leaf, each entered by its
+/// height's change from the leaf before, the first from 0.
+fn plateaus_of(leaves: &[(BigUint, u64)]) -> Vec<Plateau> {
+    let mut previous = BigUint::ZERO;
+    leaves
+        .iter()
+        .map(|(height, depth)| {
+            let rise = match height.cmp(&previous) {
+                std::cmp::Ordering::Greater => Some(Rise::Up(Count(height - &previous))),
+                std::cmp::Ordering::Less => Some(Rise::Down(Count(&previous - height))),
+                std::cmp::Ordering::Equal => None,
+            };
+            previous = height.clone();
+            Plateau {
+                rise,
+                depth: *depth,
+            }
+        })
+        .collect()
+}
+
+/// The leaves of a version, left to right, as absolute heights and depths:
+/// [`plateaus_of`]'s inverse, read from the version's own shape walk.
+fn leaves_of(version: &Version) -> Vec<(BigUint, u64)> {
+    let mut height = BigUint::ZERO;
+    version
+        .shape()
+        .map(|plateau| {
+            match plateau.rise {
+                Some(Rise::Up(Count(up))) => height += up,
+                Some(Rise::Down(Count(down))) => height -= down,
+                None => {}
+            }
+            (height.clone(), plateau.depth)
+        })
+        .collect()
+}
+
+proptest! {
+    /// `SO(r)` is canonical normal form at exactly `2048r − 1858` bits, and
+    /// its 32 leaves at depth 5 alternate between `S(r)` and 0, the
+    /// oscillation its written-position claim rests on.
+    #[test]
+    fn sparse_oscillation_decodes_canonically_as_an_oscillation(r in 1usize..=40) {
+        let shape = sparse_oscillation(r);
+        check_version(&shape, 2048 * r - 1858);
+        let wide = sparse_height(r);
+        let leaves: Vec<(BigUint, u64)> = (0..32)
+            .map(|leaf| (if leaf % 2 == 0 { wide.clone() } else { BigUint::ZERO }, 5))
+            .collect();
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
+    }
+
+    /// `SF(r)` is canonical normal form at exactly `3072r − 2370` bits, and
+    /// its 32 leaves at depth 5 cycle through `S(r)`, `S(r) + O(r)`, `S(r)`,
+    /// and 0, so its rises write `O(r)` into every zero digit `S(r)` leaves.
+    #[test]
+    fn sparse_fill_decodes_canonically_as_a_filling_cycle(r in 1usize..=40) {
+        let shape = sparse_fill(r);
+        check_version(&shape, 3072 * r - 2370);
+        let (wide, fill) = (sparse_height(r), gap_filling_height(r));
+        prop_assert_eq!(&wide & &fill, BigUint::ZERO, "O(r) writes only S(r)'s zero digits");
+        let cycle = [wide.clone(), &wide + &fill, wide.clone(), BigUint::ZERO];
+        let leaves: Vec<(BigUint, u64)> =
+            cycle.iter().cycle().take(32).map(|height| (height.clone(), 5)).collect();
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
+    }
+
+    /// `RT(w, d)` is two canonical versions at the plateau puncture's size,
+    /// each the other's leaves in reverse order at the same depths, distinct,
+    /// and of exactly equal rank.
+    #[test]
+    fn rank_tie_is_a_mirrored_pair_of_equal_rank(w in 10usize..=24, d in 1usize..=6) {
+        let (puncture, mirrored) = rank_tie(w, d);
+        let bits = d * (64 * w + 262) + 4;
+        check_version(&puncture, bits);
+        check_version(&mirrored, bits);
+        let (v, m) = (puncture.version(), mirrored.version());
+        let mut reversed = leaves_of(&v);
+        reversed.reverse();
+        prop_assert_eq!(leaves_of(&m), reversed);
+        prop_assert_ne!(&v, &m, "the pair must be distinct versions");
+        prop_assert_eq!(v.rank(), m.rank(), "mirroring preserves the rank");
+    }
+
+    /// `CC(k)` is canonical normal form at exactly `140k + 6` bits, with its
+    /// outer minimum at `J = 2^(64k)` above the first leaf and its comb's
+    /// teeth one and two ticks above that, at the next prefix.
+    #[test]
+    fn cross_prefix_comb_decodes_canonically_above_its_wide_minimum(k in 2usize..=40) {
+        let shape = cross_prefix_comb(k);
+        check_version(&shape, 140 * k + 6);
+        let j = BigUint::ONE << (64 * k);
+        let depth = k as u64;
+        let mut leaves = vec![
+            (BigUint::ZERO, 1),
+            (j.clone(), 2),
+            (&j + 1u8, depth + 2),
+            (&j + 2u8, depth + 2),
+        ];
+        for tooth in 2..=depth {
+            leaves.push((&j + 2u8, 4 + depth - tooth));
+            leaves.push((&j + 3u8, 4 + depth - tooth));
+        }
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
+    }
+
+    /// `CS(k)` is canonical normal form at exactly `268k + 6` bits, with its
+    /// outer minimum of 1 below a first leaf of `H = 2^(64k)` and its comb's
+    /// teeth one and two ticks above `H`, on the minimum's prefix.
+    #[test]
+    fn same_prefix_comb_decodes_canonically_above_its_wide_minimum(k in 2usize..=40) {
+        let shape = same_prefix_comb(k);
+        check_version(&shape, 268 * k + 6);
+        let h = BigUint::ONE << (64 * k);
+        let depth = k as u64;
+        let mut leaves = vec![
+            (h.clone(), 1),
+            (BigUint::ONE, 2),
+            (&h + 1u8, depth + 2),
+            (&h + 2u8, depth + 2),
+        ];
+        for tooth in 2..=depth {
+            leaves.push((&h + 2u8, 4 + depth - tooth));
+            leaves.push((&h + 3u8, 4 + depth - tooth));
+        }
+        let plateaus: Vec<Plateau> = shape.version().shape().collect();
+        prop_assert_eq!(plateaus, plateaus_of(&leaves));
+    }
+
+    /// `BR(m)` is canonical normal form at exactly `258m + 260` bits, and its
+    /// rank is `2^64 + Σ 2^(−32i)` over odd `i` up to `2m + 1`.
+    ///
+    /// That rank has a units digit and the digit above it zero under a top
+    /// digit of 1, over a fraction whose nonzero digits alternate with zero
+    /// ones.
+    #[test]
+    fn below_run_spine_ranks_two_digits_above_its_units_over_a_sparse_fraction(
+        m in 0usize..=6,
+    ) {
+        let shape = below_run_spine(m);
+        check_version(&shape, 258 * m + 260);
+        let depth = 32 * (2 * m + 1);
+        let fraction = (0..=2 * m)
+            .step_by(2)
+            .fold(BigUint::ZERO, |sum, i| sum + (BigUint::ONE << (32 * i)));
+        let numerator = (BigUint::ONE << (64 + depth)) + fraction;
+        prop_assert_eq!(shape.version().rank(), Rank::from_raw(numerator, depth as u64));
+    }
+}
+
+proptest! {
+    /// `ZZ(d, divert)` is canonical normal form at exactly `2d + 2` bits, with
+    /// its one owned region at depth `d` behind a path turning at every level.
+    ///
+    /// The diverted pair is disjoint, so their walks share every level but
+    /// the last.
+    #[test]
+    fn zigzag_id_decodes_canonically_as_a_turning_chain(d in 1usize..=500) {
+        let straight = check_party(&zigzag_id(d, false), 2 * d + 2);
+        let diverted = check_party(&zigzag_id(d, true), 2 * d + 2);
+        let bytes = zigzag_id(d, false).bytes;
+        let bit = |position: usize| bytes[position / 8] >> (7 - position % 8) & 1 == 1;
+        for depth in 0..d {
+            let (left, right) = (bit(2 * depth), bit(2 * depth + 1));
+            prop_assert!(left != right, "every level is unary");
+            prop_assert_eq!(right, depth % 2 == 1, "the path turns at every level");
+        }
+        for party in [&straight, &diverted] {
+            let owned: Vec<u64> = party
+                .shape()
+                .filter(|region| region.owned)
+                .map(|region| region.depth)
+                .collect();
+            prop_assert_eq!(owned, vec![d as u64], "one owned region, at depth d");
+        }
+        prop_assert!(straight.is_disjoint(&diverted));
     }
 }

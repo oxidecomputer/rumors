@@ -214,6 +214,22 @@ pub enum Shape {
     SiteHole,
     /// The masked-hole triple `MH(d, h)`: [`Shape::build_triple`]`(d, h)`.
     MaskedHoleTriple,
+    /// The sparse oscillation `SO(r)`: [`Shape::build1`]`(r)`.
+    SparseOscillation,
+    /// The sparse fill `SF(r)`: [`Shape::build1`]`(r)`.
+    SparseFill,
+    /// The rank-tie pair `RT(w, d)`, a plateau puncture and its mirror:
+    /// [`Shape::build_pair`]`(w, d)`.
+    RankTie,
+    /// The cross-prefix wide-offset comb `CC(k)`: [`Shape::build1`]`(k)`.
+    CrossPrefixComb,
+    /// The same-prefix wide-offset comb `CS(k)`: [`Shape::build1`]`(k)`.
+    SamePrefixComb,
+    /// The below-run spine `BR(m)`: [`Shape::build1`]`(m)`.
+    BelowRunSpine,
+    /// The zigzag id `ZZ(d, divert)`, a unary chain turning at every level:
+    /// [`Shape::build_flagged`]`(d, divert)`.
+    ZigzagId,
 }
 
 /// A registered constructor's signature class, binding one [`Shape`] to
@@ -332,6 +348,13 @@ impl Shape {
             Shape::RaiseHole => Builder::Pair2(super::raise_hole),
             Shape::SiteHole => Builder::Pair2(super::site_hole),
             Shape::MaskedHoleTriple => Builder::Triple2(super::masked_hole),
+            Shape::SparseOscillation => Builder::P1(super::sparse_oscillation),
+            Shape::SparseFill => Builder::P1(super::sparse_fill),
+            Shape::RankTie => Builder::Pair2(super::rank_tie),
+            Shape::CrossPrefixComb => Builder::P1(super::cross_prefix_comb),
+            Shape::SamePrefixComb => Builder::P1(super::same_prefix_comb),
+            Shape::BelowRunSpine => Builder::P1(super::below_run_spine),
+            Shape::ZigzagId => Builder::Flag(super::zigzag_id),
         }
     }
 
@@ -951,6 +974,65 @@ pub enum FamilyId {
     /// and freeze-parade families. Designed against the rank integrator's
     /// transient heap.
     NarrowFreezes,
+    /// The rank-tie pair `RT(s, s)`: a plateau puncture against its mirror
+    /// image, two distinct versions of exactly equal rank.
+    ///
+    /// The bundle's comparison counterpart is the mirror rather than a ticked
+    /// copy, so every pair row compares two versions whose ranks tie: the
+    /// rank comparisons must resolve the whole difference to zero before
+    /// `Ranked`'s order falls to the version bytes, the case its ordering
+    /// documentation names as the worst, and both ranks embed the product of
+    /// a `Θ(s)`-digit plateau and a `Θ(s)`-term punctured mass. Designed
+    /// against `Ranked`'s ordering.
+    RankTie,
+    /// The sparse oscillation `SO(r)`: 32 leaves whose heights alternate
+    /// between a value with one zero digit between each pair of nonzero
+    /// digits and 0.
+    ///
+    /// Every running height, in every row that keeps one, writes those
+    /// sparse digits at each rise, so its accumulator's written-position set
+    /// takes its bitset form, and cancels them at each fall, so its top
+    /// digit's descent crosses every written position below. Designed
+    /// against `suanpan`'s written-position set.
+    SparseOscillation,
+    /// The sparse fill `SF(r)`: 32 leaves whose heights cycle through the
+    /// sparse oscillation's value, that value with every gap filled, the
+    /// sparse value again, and 0.
+    ///
+    /// Filling the gaps writes each of their digits below the
+    /// written-position set's run, into its bitset, and the closing fall
+    /// descends across every written position. Designed against `suanpan`'s
+    /// written-position set.
+    SparseFill,
+    /// The cross-prefix comb `CC(k)`: `k` narrow records pushed and popped
+    /// directly above an outer minimum whose offset is `64k` bits wide, the
+    /// records measured from a frozen height reference after the minimum's.
+    ///
+    /// The input pays the wide offset once; a minimum fold that read or
+    /// copied it per record would work quadratically. Designed against
+    /// `min_ticks`.
+    CrossPrefixComb,
+    /// The same-prefix comb `CS(k)`: the cross-prefix comb's circulation with
+    /// the wide outer minimum and the records measured from one height
+    /// reference. Designed against `min_ticks`.
+    SamePrefixComb,
+    /// The below-run spine `BR(m)`: a version whose rank tops out two digits
+    /// above its units digit over a fraction with a zero digit between each
+    /// pair of nonzero digits.
+    ///
+    /// Summing that rank first leaves its accumulator's written-position set
+    /// in bitset form with its run at the top digit, so each small integer
+    /// the `rank_sum` row adds after it writes below the run, into the
+    /// bitset. Designed against `Rank`'s `Sum`.
+    BelowRunSpine,
+    /// The diverted zigzag pair `ZZ(d, ·)`: two deep unary id chains whose
+    /// path turns at every level, sharing all but the last.
+    ///
+    /// The id-pair family's walks, with no two consecutive levels stored
+    /// alike, so every per-level direction record and every run of equal tags
+    /// is as short as it can be. Designed against the identity operations'
+    /// deep walks.
+    ZigzagPair,
 }
 
 /// One family's row of record: the answers every instrument derives
@@ -976,16 +1058,16 @@ const DESERIALIZATION_FORMATS: usize =
     cfg!(feature = "serde") as usize + cfg!(feature = "borsh") as usize;
 
 /// Board rows reached by a family with version operands.
-const VERSION_BUNDLE_CELLS: usize = 80 + 6 * DESERIALIZATION_FORMATS;
+const VERSION_BUNDLE_CELLS: usize = 84 + 6 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with party operands.
-const PARTY_BUNDLE_CELLS: usize = 39 + 2 * DESERIALIZATION_FORMATS;
+const PARTY_BUNDLE_CELLS: usize = 40 + 2 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with version, party, and clock operands.
-const CROSS_BUNDLE_CELLS: usize = 101 + 7 * DESERIALIZATION_FORMATS;
+const CROSS_BUNDLE_CELLS: usize = 107 + 7 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a family with every operand bundle.
-const FULL_BUNDLE_CELLS: usize = 118 + 7 * DESERIALIZATION_FORMATS;
+const FULL_BUNDLE_CELLS: usize = 124 + 7 * DESERIALIZATION_FORMATS;
 
 /// Board rows reached by a population family.
 ///
@@ -998,7 +1080,7 @@ const SCATTER_BUNDLE_CELLS: usize = POPULATION_BUNDLE_CELLS + 4;
 
 impl FamilyId {
     /// Every registered family in board render order.
-    pub const ALL: [FamilyId; 61] = [
+    pub const ALL: [FamilyId; 68] = [
         FamilyId::Dense,
         FamilyId::Bigroot,
         FamilyId::Hugeleaf,
@@ -1060,6 +1142,13 @@ impl FamilyId {
         FamilyId::WideStepPairs,
         FamilyId::WideStepSpine,
         FamilyId::NarrowFreezes,
+        FamilyId::RankTie,
+        FamilyId::SparseOscillation,
+        FamilyId::SparseFill,
+        FamilyId::CrossPrefixComb,
+        FamilyId::SamePrefixComb,
+        FamilyId::BelowRunSpine,
+        FamilyId::ZigzagPair,
     ];
 
     /// This family's position in [`FamilyId::ALL`] — the roster-order tie the
@@ -1395,6 +1484,41 @@ impl FamilyId {
                 name: "narrow-freezes",
                 shapes: &[Shape::NarrowFreezes],
                 cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::RankTie => FamilySpec {
+                name: "rank-tie",
+                shapes: &[Shape::RankTie],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::SparseOscillation => FamilySpec {
+                name: "sparse-oscillation",
+                shapes: &[Shape::SparseOscillation],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::SparseFill => FamilySpec {
+                name: "sparse-fill",
+                shapes: &[Shape::SparseFill],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::CrossPrefixComb => FamilySpec {
+                name: "cross-prefix-comb",
+                shapes: &[Shape::CrossPrefixComb],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::SamePrefixComb => FamilySpec {
+                name: "same-prefix-comb",
+                shapes: &[Shape::SamePrefixComb],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::BelowRunSpine => FamilySpec {
+                name: "below-run-spine",
+                shapes: &[Shape::BelowRunSpine],
+                cells: VERSION_BUNDLE_CELLS,
+            },
+            FamilyId::ZigzagPair => FamilySpec {
+                name: "zigzag-pair",
+                shapes: &[Shape::ZigzagId],
+                cells: PARTY_BUNDLE_CELLS,
             },
         }
     }
