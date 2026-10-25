@@ -44,6 +44,16 @@
 //! run left higher up would make a write inside the gap below it a span
 //! below the run, and so a conversion.
 //!
+//! A clear reduces the set to position zero. The run then holds zero alone,
+//! as it does when zero is inserted into a new set, so that writes from zero
+//! upward extend the run at the cost of a comparison. A bitset keeps
+//! position zero as well. This is the one case in which a position is held
+//! both by the run and by the bitset, and the bitset then holds nothing else,
+//! because every other position it holds lies below the run's start. A later
+//! jump moves the run into the bitset, and finds zero already there: its
+//! insertions stop at the words they share with zero, where inserting zero
+//! into an emptied bitset would climb every level.
+//!
 //! # Costs
 //!
 //! Counting comparisons and the [`Bitset`]'s operations, whose costs its
@@ -59,8 +69,9 @@
 //!   position it removes, plus one query to find the remaining top;
 //! - [`clear`](WrittenPositions::clear) costs O(1) inline and one bitset span
 //!   clear otherwise. That clear is amortized: besides the words covering the
-//!   span, it touches one word per bitset level, charged to the insertions
-//!   that climbed those levels, as [`Bitset::clear`] explains.
+//!   span, it climbs above a level only after emptying a word there, and
+//!   each such climb is charged to the insertion that filled that word, as
+//!   [`Bitset::clear`] explains.
 //!
 //! Space is four words inline, and the bitset's [storage](bitset#space) once
 //! converted.
@@ -76,9 +87,11 @@ use bitset::Bitset;
 /// A set of positions, ordered for predecessor queries.
 #[derive(Clone)]
 pub struct WrittenPositions {
-    /// Consecutive positions, possibly none, above every position in `below`.
+    /// Consecutive positions, possibly none, above every position in `below`
+    /// other than a position zero that both hold.
     run: Range<usize>,
-    /// Every position of the set below `run.start`.
+    /// Every position of the set below `run.start`, and, in the bitset form
+    /// after a clear, position zero while the run holds it too.
     below: Below,
 }
 
@@ -93,6 +106,23 @@ enum Below {
     Prefix(usize),
     /// Any positions, in a bitset allocated when a second gap first appears,
     /// and kept from then on.
+    ///
+    /// In a set whose first insertion included position zero, as every set
+    /// `Digits` writes, the bitset holds zero from its creation on, which is
+    /// what lets [`clear`](WrittenPositions::clear) keep zero without
+    /// inserting it:
+    ///
+    /// - Zero stays in such a set: a truncation removes only the positions
+    ///   above the one it truncates to, and a clear keeps zero.
+    /// - The conversion that creates the bitset moves a prefix that holds
+    ///   zero. While the set holds zero, either the prefix holds it, or the
+    ///   run starts at zero; then nothing lies below the run, and a jump
+    ///   folds the run into the prefix rather than converting it.
+    /// - Once in the bitset, zero leaves it neither by truncation nor by a
+    ///   clear.
+    ///
+    /// A set that gains zero only after its bitset exists can hold zero in
+    /// the run alone.
     Bitset(Box<Bitset>),
 }
 
@@ -270,15 +300,24 @@ impl WrittenPositions {
         }
     }
 
-    /// Remove every position, given that each is zero or lies in
+    /// Reduce the set to position zero, given that the set's first insertion
+    /// included position zero and that every other position lies in
     /// `lowest..=highest`.
     ///
     /// Costs O(1) in the prefix form, and in the bitset form an amortized
     /// cost proportional to the span, as the [module](self#costs) explains;
-    /// a bitset keeps its storage for reuse. A position outside the span
-    /// fails the assertion in a debug build; in a release build, every later
-    /// operation on the set may then return a wrong result or panic.
+    /// a bitset keeps its storage, and position zero, for reuse. The bitset
+    /// clears without inserting zero first, because in such a set it already
+    /// holds zero ([`Below::Bitset`]). `Digits` inserts zero first into
+    /// every set it writes. A set without position zero, or with a position
+    /// outside the span, fails an assertion in a debug build, as does a
+    /// bitset without zero; in a release build, every later operation on the
+    /// set may then return a wrong result or panic.
     pub fn clear(&mut self, lowest: usize, highest: usize) {
+        debug_assert!(
+            self.last_below(1) == Some(0),
+            "clear's caller guarantees that the set holds position zero"
+        );
         debug_assert!(
             self.last_below(usize::MAX) <= Some(highest)
                 && self.last_below(lowest).is_none_or(|position| position == 0),
@@ -288,11 +327,13 @@ impl WrittenPositions {
             Below::Prefix(end) => *end = 0,
             Below::Bitset(bitset) => bitset.clear(lowest, highest),
         }
-        self.run = 0..0;
+        // In either form the run holds position zero, so that writes from
+        // zero upward extend it; a bitset holds zero as well.
+        self.run = 0..1;
     }
 
-    /// Check that the run lies above every other position, and the bitset's
-    /// own invariants.
+    /// Check that the run lies above every other position, except a position
+    /// zero that a bitset shares with it, and the bitset's own invariants.
     #[cfg(test)]
     pub fn assert_structure(&self, context: &dyn core::fmt::Debug) {
         assert!(
@@ -300,14 +341,22 @@ impl WrittenPositions {
             "the run {:?} is a range after {context:?}",
             self.run
         );
-        assert!(
-            self.below_positions()
-                .all(|position| position < self.run.start),
-            "a position below the run lies at or above it {:?} after {context:?}",
-            self.run
-        );
-        if let Below::Bitset(bitset) = &self.below {
-            bitset.assert_invariants(context);
+        match &self.below {
+            Below::Prefix(end) => assert!(
+                *end <= self.run.start,
+                "the prefix 0..{end} reaches the run {:?} after {context:?}",
+                self.run
+            ),
+            Below::Bitset(bitset) => {
+                assert!(
+                    bitset.iter().all(|position| position < self.run.start
+                        || (position == 0 && self.run.contains(&0))),
+                    "a bitset position other than a zero the run holds lies at or above the \
+                     run {:?} after {context:?}",
+                    self.run
+                );
+                bitset.assert_invariants(context);
+            }
         }
     }
 
@@ -338,12 +387,20 @@ impl WrittenPositions {
     }
 
     /// Iterate the positions below the run, in ascending order.
+    ///
+    /// A position zero that a bitset shares with the run is the run's to
+    /// list, so it is skipped here.
     fn below_positions(&self) -> impl Iterator<Item = usize> + '_ {
         let (prefix, bitset) = match &self.below {
             Below::Prefix(end) => (0..*end, None),
             Below::Bitset(bitset) => (0..0, Some(bitset.as_ref())),
         };
-        prefix.chain(bitset.into_iter().flat_map(Bitset::iter))
+        prefix.chain(
+            bitset
+                .into_iter()
+                .flat_map(Bitset::iter)
+                .filter(|position| !self.run.contains(position)),
+        )
     }
 }
 

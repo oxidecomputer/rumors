@@ -127,11 +127,11 @@ impl Digits {
         self.highest_nonzero = highest;
         // The pass wrote every position from `start` to its last carry, and
         // every digit below the floor stays zero, so the set becomes position
-        // zero and one run from the floor to the new top. Every position the
-        // set held other than zero lies in `floor..=old_highest`, which the
-        // pass covered, so clearing them stays within the pass's cost.
+        // zero, which the clear keeps, and one run from the floor to the new
+        // top. Every position the set held other than zero lies in
+        // `floor..=old_highest`, which the pass covered, so clearing them
+        // stays within the pass's cost.
         self.written.clear(floor, old_highest);
-        self.written.insert(0);
         self.written.insert_span(floor, highest);
         self.debug_assert_valid();
     }

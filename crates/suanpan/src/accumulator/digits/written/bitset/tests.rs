@@ -2,7 +2,8 @@
 //!
 //! The bitset's subtle work lies in its summary levels: climbing while a word
 //! changes between empty and nonempty, growing a new level on top, clearing a
-//! span at every level, and descending from a summary bit to a position.
+//! span level by level while leaving position zero, and descending from a
+//! summary bit to a position.
 //! Positions are therefore drawn near word and level boundaries, in runs that
 //! fill whole words, and far enough apart to need several levels, rather than
 //! uniformly, which would almost never exercise a climb.
@@ -44,9 +45,10 @@ enum Op {
     /// Remove a position the oracle holds, chosen by index; nothing when the
     /// oracle is empty.
     RemoveHeld(Index),
-    /// Clear from the oracle's least position other than zero, less the first
-    /// slack, through its largest position, plus the second, which satisfies
-    /// `clear`'s precondition.
+    /// Insert position zero, then clear from the oracle's least position
+    /// other than zero, less the first slack, through its largest position,
+    /// plus the second, which satisfies `clear`'s precondition, leaving
+    /// position zero alone.
     Clear(usize, usize),
 }
 
@@ -108,8 +110,10 @@ fn apply(op: &Op, set: &mut Bitset, oracle: &mut BTreeSet<usize>, touched: &mut 
                 .range(1..)
                 .next()
                 .map_or(highest, |&least| least.saturating_sub(below));
+            // `clear` requires position zero, which a removal may have taken.
+            set.insert(0);
             set.clear(lowest, highest);
-            oracle.clear();
+            *oracle = BTreeSet::from([0]);
             touched.extend([lowest, highest]);
         }
     }
@@ -213,6 +217,124 @@ fn growth_stops_at_the_first_level_long_enough() {
                  level lengths from {before:?} to {after:?}",
                 target - 1
             );
+        }
+    }
+}
+
+/// The position whose insertion gives the hierarchy four levels before each
+/// clear in [`a_clear_leaves_zero_and_climbs_only_past_emptied_words`].
+const TALL: usize = 64 * 64 * 64;
+
+/// Positions at and beside the word, level-1, and level-2 boundaries, from
+/// which [`a_clear_leaves_zero_and_climbs_only_past_emptied_words`] builds
+/// the sets it clears and draws the insertions that follow.
+const CLEAR_POINTS: [usize; 7] = [0, 1, 63, 64, 4095, 4096, TALL];
+
+/// Count the levels at which `position` lies in a word other than word zero:
+/// level `k` exactly when `position` reaches `64^(k + 1)`.
+fn levels_off_word_zero(position: usize) -> usize {
+    core::iter::successors(Some(WORD_BITS), |span| span.checked_mul(WORD_BITS))
+        .take_while(|&span| span <= position)
+        .count()
+}
+
+/// A clear leaves position zero alone, climbs only past levels at which it
+/// empties a word other than word zero, and leaves a hierarchy on which a
+/// later insertion and every query agree with the oracle.
+///
+/// A hierarchy of four levels is built by inserting position zero and
+/// [`TALL`], and clearing [`TALL`]. Then, for every subset of
+/// [`CLEAR_POINTS`], and for a span starting at the subset's least nonzero
+/// point and one starting at zero, the subset is inserted and cleared
+/// through its largest point. The clear must leave
+/// exactly position zero, with both invariants and the storage kept, having
+/// examined level 0 and one level more for each level at which the largest
+/// point lies outside word zero. An empty subset, or zero alone, therefore
+/// stops at level 0, where the span holds nothing but position zero. Each
+/// point, and the position after it, is then inserted into a copy. Because
+/// word zero stays nonempty at every level, the insertion must climb one
+/// level plus one for each level at which its position lies outside word
+/// zero, where an insertion into an emptied hierarchy would climb every
+/// level. Then `contains` and `last_below` must agree with the oracle at
+/// every probe.
+#[test]
+fn a_clear_leaves_zero_and_climbs_only_past_emptied_words() {
+    let mut tall = Bitset::default();
+    tall.insert(0);
+    tall.insert(TALL);
+    tall.clear(TALL, TALL);
+    assert_eq!(
+        tall.levels.len(),
+        4,
+        "a hierarchy covering {TALL} has four levels"
+    );
+    for mask in 0..1_u32 << CLEAR_POINTS.len() {
+        let subset: Vec<usize> = (0..CLEAR_POINTS.len())
+            .filter(|&index| mask & (1 << index) != 0)
+            .map(|index| CLEAR_POINTS[index])
+            .collect();
+        let highest = subset.last().copied().unwrap_or(0);
+        let least = subset
+            .iter()
+            .copied()
+            .find(|&point| point != 0)
+            .unwrap_or(highest);
+        for lowest in [least, 0] {
+            let mut set = tall.clone();
+            for &point in &subset {
+                set.insert(point);
+            }
+            let storage = set.storage_words();
+            set.cleared_levels_examined = 0;
+            set.clear(lowest, highest);
+            let context = format!("clearing {subset:?} over {lowest}..={highest}");
+            set.assert_invariants(&context);
+            assert_eq!(
+                set.iter().collect::<Vec<_>>(),
+                [0],
+                "position zero alone remains after {context}"
+            );
+            assert_eq!(
+                set.storage_words(),
+                storage,
+                "the storage is kept after {context}"
+            );
+            assert_eq!(
+                set.cleared_levels_examined,
+                1 + levels_off_word_zero(highest),
+                "levels examined by {context}"
+            );
+            for inserted in CLEAR_POINTS.iter().flat_map(|&point| [point, point + 1]) {
+                let mut after = set.clone();
+                after.inserted_levels_climbed = 0;
+                after.insert(inserted);
+                let oracle = BTreeSet::from([0, inserted]);
+                let touched = BTreeSet::from([lowest, highest, inserted]);
+                let context = format!("{context}, then inserting {inserted}");
+                after.assert_invariants(&context);
+                assert_eq!(
+                    after.inserted_levels_climbed,
+                    1 + levels_off_word_zero(inserted),
+                    "levels climbed by {context}"
+                );
+                assert_eq!(
+                    after.iter().collect::<Vec<_>>(),
+                    oracle.iter().copied().collect::<Vec<_>>(),
+                    "level 0 holds exactly the oracle's positions after {context}"
+                );
+                for probe in probes(&oracle, &touched) {
+                    assert_eq!(
+                        after.contains(probe),
+                        oracle.contains(&probe),
+                        "contains({probe}) after {context}"
+                    );
+                    assert_eq!(
+                        after.last_below(probe),
+                        oracle.range(..probe).next_back().copied(),
+                        "last_below({probe}) after {context}"
+                    );
+                }
+            }
         }
     }
 }
