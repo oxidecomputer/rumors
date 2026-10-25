@@ -63,7 +63,7 @@ use proptest::sample::Index;
 use proptest::strategy::Union;
 
 use crate::testing::oracles::{flat, tree};
-use crate::testing::shape_rows::{version_from_rows, Leaf};
+use crate::testing::shape_rows::{refine, version_from_rows, Leaf};
 
 use super::family_picks;
 
@@ -544,7 +544,7 @@ fn decompose(
     decomposition: Decomposition,
 ) -> (LeafList, LeafList) {
     let target_depths: Vec<u64> = target.leaves.iter().map(|leaf| leaf.depth).collect();
-    let cells = flat::refine(&[target_depths, partition.to_vec()]);
+    let cells = refine(&[target_depths, partition.to_vec()]);
     let (mut first, mut second) = (
         Vec::with_capacity(cells.len()),
         Vec::with_capacity(cells.len()),

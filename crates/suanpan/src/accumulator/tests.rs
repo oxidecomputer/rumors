@@ -48,6 +48,37 @@ impl Accumulator {
     }
 }
 
+/// The largest digit magnitude the digit representation permits, `2^33 − 1`.
+///
+/// Every stored digit has magnitude below twice the base `2^32`. The constant
+/// is written out here rather than taken from production, so the bound the
+/// observers check does not share its definition with the code under test.
+const LARGEST_DIGIT: u64 = (1 << 33) - 1;
+
+/// Assert the bounds that `stored_bits` places on the value.
+///
+/// The representation invariants keep every digit at most [`LARGEST_DIGIT`]
+/// in magnitude, so `n` stored digits hold at most `LARGEST_DIGIT · Σ_{i < n}
+/// 2^(32 i)`. With `B = 2^32` that sum is below `2B / (B − 1) · B^n < 2.01 ·
+/// 2^(32n)`, the bound on which the comparison with zero rests
+/// (`digits::sign`), and that is below `2^(32n + 2)`, the bound `stored_bits`
+/// documents publicly. These checks state both bounds through `stored_bits`
+/// itself, from the public bound inward, so the first failure names the most
+/// public promise broken. In the small form the working width is the value's
+/// own, which meets both.
+fn assert_stored_width_bounds(member: &Accumulator, oracle: &IBig, trace: &[u8]) {
+    let bits = member.stored_bits();
+    let magnitude = oracle.magnitude();
+    assert!(
+        magnitude.bits() <= bits + 2,
+        "the value is below 2^(stored_bits + 2) after {trace:?}"
+    );
+    assert!(
+        magnitude * 100u32 < UBig::from(201u32) << bits,
+        "the value is below 2.01 · 2^stored_bits after {trace:?}"
+    );
+}
+
 /// Start at zero in either the scalar or digit representation.
 ///
 /// Forcing digits lets each schedule exercise both paths even when all its

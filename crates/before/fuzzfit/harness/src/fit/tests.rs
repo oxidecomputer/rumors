@@ -1,10 +1,11 @@
-//! The staleness comparator's own tripwires.
+//! Unit checks of the fitter.
 //!
 //! [`line_divergence`] must read zero against an agreeing pin and read
 //! the exact perturbation against a hand-perturbed one — proven before
-//! the cross-check's tolerance means anything.
+//! the cross-check's tolerance means anything. A fit's widths must print
+//! the same on every host, which a negative zero would break.
 
-use super::{fit, line_divergence, Fit};
+use super::{fit, fit_constant, line_divergence, Fit};
 use crate::bands::Band;
 
 /// A band transcribing `f` exactly (the agreeing pin).
@@ -65,4 +66,24 @@ fn perturbed_pin_reads_its_perturbation() {
         (d - expected).abs() < 1e-12,
         "slope tilt read {d}, expected {expected}"
     );
+}
+
+/// A corpus with no spread fits widths of exactly `+0.0` on both sides,
+/// through both fitters.
+///
+/// Every sample lies on the line, so every residual is `+0.0` and the
+/// width below is taken over negated zeros. The calibrator prints the
+/// widths into `bands.rs`, where the width below would print as
+/// `-0.000000` when computed on x86-64 and `0.000000` on aarch64.
+#[test]
+fn spreadless_corpus_fits_positive_zero_widths() {
+    // A fuel of 1 has log10 exactly +0.0 under every libm, so the mean
+    // log-fuel equals each sample's exactly, and no rounding can lift a
+    // residual off zero.
+    let samples: Vec<(u64, u64)> = (64..=96).map(|d| (d, 1)).collect();
+    for f in [fit(&samples), fit_constant(&samples)] {
+        let f = f.expect("enough samples to fit");
+        assert_eq!(f.width_above.to_bits(), 0.0f64.to_bits(), "{f:?}");
+        assert_eq!(f.width_below.to_bits(), 0.0f64.to_bits(), "{f:?}");
+    }
 }

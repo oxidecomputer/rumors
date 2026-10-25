@@ -8,7 +8,7 @@ use proptest::test_runner::{Config, TestRunner};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
-use crate::testing::generators::{regime_floor, DEFAULT_CASES};
+use crate::testing::generators::census::{assert_default_case_count, regime_floor};
 use crate::testing::oracles::function::{ev_res, id_res, FunctionClock};
 use crate::testing::oracles::{flat, function, tree};
 use crate::testing::rng::strategy_rng;
@@ -232,7 +232,7 @@ impl Reach {
 /// and their consumers rely on for every default run of a consumer.
 ///
 /// Each default run of a consumer expects
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::REGIME_CASES_PER_RUN)
 /// traces reaching each regime it relies on:
 ///
 /// - for [`world_strategy`], the regimes its doc claims: a `forks` step
@@ -252,13 +252,7 @@ impl Reach {
 /// whatever it last measured.
 #[test]
 fn trace_strategies_keep_mass_on_their_regimes() {
-    if std::env::var_os("PROPTEST_CASES").is_none() {
-        assert_eq!(
-            Config::default().cases,
-            DEFAULT_CASES,
-            "the floors assume proptest's default case count"
-        );
-    }
+    assert_default_case_count();
     let reaches = Reach::sample(world_strategy());
     let capped = Reach::sample(world_strategy_up_to(CAP_REACHING_OPS));
     let count = |regime: fn(&Reach) -> bool| reaches.iter().filter(|reach| regime(reach)).count();

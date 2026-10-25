@@ -65,8 +65,8 @@ use crate::testing::generators::near_valid::{
     arb_clock_encoding, arb_party_encoding, arb_rank_encoding, arb_ranked_encoding,
     arb_span_encoding, arb_version_encoding, Expect, NearValid,
 };
-use crate::testing::oracles::codec;
 use crate::testing::oracles::codec::verdict::{self, Class, Ending, Verdict};
+use crate::testing::oracles::{codec, flat};
 use crate::testing::scripted_io::{arb_io_schedule, IoSchedule, ScriptedReader};
 use crate::{Clock, Party, Rank, Ranked, Span, Version};
 
@@ -210,7 +210,7 @@ impl Wire for Clock {
 /// endpoint's spelling followed by its upper endpoint's.
 ///
 /// The spelling exists only when the lower endpoint lies at or below the
-/// upper, which the flat forms judge independently of production's
+/// upper, which the flat model judges independently of production's
 /// comparison.
 impl Wire for Span<'static> {
     type Spec = (codec::Version, codec::Version);
@@ -237,15 +237,17 @@ impl Wire for Span<'static> {
 
     fn spelling(&self) -> Option<Vec<u8>> {
         let (lo, hi) = (flat_version(self.lo()), flat_version(self.hi()));
-        lo.le(&hi).then(|| [lo.encode(), hi.encode()].concat())
+        flat::Version::from_spelling(&lo)
+            .le(&flat::Version::from_spelling(&hi))
+            .then(|| [lo.encode(), hi.encode()].concat())
     }
 }
 
 /// A ranked key reads back as its version's flat form, and spells as the
 /// encoding of that version's rank followed by the version's spelling.
 ///
-/// The rank is the one the version's normalized flat form computes,
-/// independently of production's rank fold.
+/// The rank is the flat model's, computed independently of production's
+/// rank fold.
 impl Wire for Ranked<'static> {
     type Spec = codec::Version;
 
@@ -259,7 +261,7 @@ impl Wire for Ranked<'static> {
 
     fn spelling(&self) -> Option<Vec<u8>> {
         let version = flat_version(self.version());
-        let (num, exp) = version.rank();
+        let (num, exp) = flat::Version::from_spelling(&version).rank();
         Some([codec::encode_rank(&num, exp), version.encode()].concat())
     }
 }

@@ -21,14 +21,16 @@ use crate::testing::rng::strategy_rng;
 use crate::testing::shape_rows::{oracle_plateaus, version_from_rows, Leaf};
 use num_bigint::BigUint;
 
+use super::census::{
+    assert_default_case_count, assert_floors, regime_floor, sample, Tally, CENSUS_CASES,
+};
 use super::leaf_list::{
     arb_deep_or_correlated_pair, arb_deep_version, arb_deep_version_pair, arb_deep_version_triple,
     LeafList, ONE_VERSION_DIVISOR, THREE_VERSION_DIVISOR, TWO_VERSION_DIVISOR,
 };
 use super::regions::{arb_deep_party, arb_deep_party_family};
 use super::{
-    arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic, divided_config,
-    regime_floor, ARB_DEPTH, DEFAULT_CASES,
+    arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic, divided_config, ARB_DEPTH,
 };
 
 /// The census seed: names the sampled corpus (see
@@ -214,24 +216,17 @@ fn dyadic_generators_reach_their_claimed_regimes() {
 /// [`crate::testing::rng::strategy_rng`]).
 const DEEP_CENSUS_SEED: u64 = 13;
 
-/// Sampled cases per deep strategy.
-const DEEP_CENSUS_CASES: usize = 400;
-
 /// The depth past which the deep strategies claim their reach.
 ///
 /// Past 32 levels a leaf's width, `2^-depth`, is finer than a 32-bit
 /// fraction can hold.
 const DEEP_DEPTH: u32 = 32;
 
-/// Samples `strategy` [`DEEP_CENSUS_CASES`] times under the deep census seed.
+/// Samples `strategy` [`CENSUS_CASES`] times under the deep census seed.
 ///
-/// Each corpus draws from a fresh runner, so one strategy's draws never shift
-/// another's, and every regime over one strategy is judged on one corpus.
+/// Every regime over one strategy is judged on one corpus.
 fn deep_corpus<T>(strategy: impl Strategy<Value = T>) -> Vec<T> {
-    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(DEEP_CENSUS_SEED));
-    (0..DEEP_CENSUS_CASES)
-        .map(|_| strategy.new_tree(&mut runner).expect("strategy").current())
-        .collect()
+    sample(&strategy, DEEP_CENSUS_SEED).collect()
 }
 
 /// Counts the corpus members `in_regime` accepts.
@@ -270,7 +265,7 @@ fn join_and_meet_collapses((a, b): &(LeafList, LeafList)) -> [Collapses; 2] {
 
 /// Every deep strategy keeps enough generator mass on the regime its docs
 /// claim that each default run of the properties relying on it expects
-/// [`REGIME_CASES_PER_RUN`](super::REGIME_CASES_PER_RUN) cases there.
+/// [`REGIME_CASES_PER_RUN`](super::census::REGIME_CASES_PER_RUN) cases there.
 ///
 /// The regimes: canonical depth past [`DEEP_DEPTH`] for deep versions,
 /// pairs, triples, and parties; equal pairs, and distinct pairs of equal
@@ -288,13 +283,7 @@ fn join_and_meet_collapses((a, b): &(LeafList, LeafList)) -> [Collapses; 2] {
 /// family takes the two-version drivers' case count.
 #[test]
 fn deep_strategies_keep_mass_on_their_regimes() {
-    if std::env::var_os("PROPTEST_CASES").is_none() {
-        assert_eq!(
-            Config::default().cases,
-            DEFAULT_CASES,
-            "the floors assume proptest's default case count"
-        );
-    }
+    assert_default_case_count();
     let versions = deep_corpus(arb_deep_version().prop_map(|v| v.tree()));
     let pairs = deep_corpus(arb_deep_version_pair().prop_map(|(a, b)| (a.tree(), b.tree())));
     let triples =
@@ -303,69 +292,63 @@ fn deep_strategies_keep_mass_on_their_regimes() {
     let families = deep_corpus(arb_deep_party_family());
     let collapses =
         deep_corpus(arb_deep_or_correlated_pair().prop_map(|pair| join_and_meet_collapses(&pair)));
-    let two_version_floor = regime_floor(DEEP_CENSUS_CASES, TWO_VERSION_DIVISOR);
-    let regimes = [
-        (
+    let two_version_floor = regime_floor(CENSUS_CASES, TWO_VERSION_DIVISOR);
+    let tallies = [
+        Tally::new(
             "deep versions: canonical depth past 32",
             regime_count(&versions, is_deep),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep version pairs: an operand past depth 32",
             regime_count(&pairs, |(a, b)| is_deep(a) || is_deep(b)),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep version pairs: equal",
             regime_count(&pairs, |(a, b)| a == b),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep version pairs: distinct with equal ranks",
             regime_count(&pairs, |(a, b)| a != b && a.rank() == b.rank()),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep version triples: an operand past depth 32",
             regime_count(&triples, |triple| triple.iter().any(is_deep)),
-            regime_floor(DEEP_CENSUS_CASES, THREE_VERSION_DIVISOR),
+            regime_floor(CENSUS_CASES, THREE_VERSION_DIVISOR),
         ),
-        (
+        Tally::new(
             "deep parties: canonical depth past 32",
             regime_count(&parties, |p| id_depth(p) > DEEP_DEPTH),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep party families: pairwise disjoint, two or more parties",
             regime_count(&families, pairwise_disjoint),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep party families: overlapping",
             regime_count(&families, |family| !pairwise_disjoint(family)),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep or correlated pairs: a join or meet that cascades",
             regime_count(&collapses, |pair| pair.iter().any(|c| c.cascades > 0)),
             two_version_floor,
         ),
-        (
+        Tally::new(
             "deep or correlated pairs: a cascade keeping a wide code",
             regime_count(&collapses, |pair| pair.iter().any(|c| c.wide_cascades > 0)),
             two_version_floor,
         ),
     ];
-    for (regime, count, floor) in &regimes {
-        eprintln!("census: `{regime}` in {count} of {DEEP_CENSUS_CASES} cases (floor {floor})");
-    }
-    for (regime, count, floor) in regimes {
-        assert!(
-            count >= floor,
-            "generator mass on `{regime}` fell to {count} of {DEEP_CENSUS_CASES} sampled cases \
-             (floor {floor}): an arm has gone dead or normalization collapses its depth"
-        );
-    }
+    assert_floors(
+        &tallies,
+        "an arm has gone dead or normalization collapses its depth",
+    );
 }
 
 /// Checks that every leaf lies inside one plateau, at that plateau's height,

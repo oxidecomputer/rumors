@@ -41,6 +41,7 @@ use std::iter;
 use num_bigint::{BigInt, BigUint, Sign};
 
 use super::{pack, Party, Version};
+use crate::testing::oracles::flat;
 
 /// The fewest ones that make a rank's header declare a width that does not
 /// fit `u64`.
@@ -569,7 +570,13 @@ pub(crate) fn span(bytes: &[u8], ending: Ending) -> Verdict<(Version, Version)> 
     };
     check_trailing(&mut defects, ending, bytes, next);
     let (lo, hi) = (Version::from_leaves(lo), Version::from_leaves(hi));
-    if !defects.iter().any(|class| class.is_structural()) && !lo.le(&hi) {
+    // Out-of-order endpoints are judged only when no class applies yet: a
+    // structural class takes precedence over the order, and when the only
+    // class is `NotCanonical` the order adds nothing. With no class, both
+    // endpoints are canonical, so the flat model can order them.
+    if defects.is_empty()
+        && !flat::Version::from_spelling(&lo).le(&flat::Version::from_spelling(&hi))
+    {
         defects.insert(Class::NotCanonical);
     }
     conclude(defects, || (lo, hi), next)
@@ -598,7 +605,11 @@ pub(crate) fn ranked(bytes: &[u8], ending: Ending) -> Verdict<Version> {
         return Verdict::Reject(defects);
     };
     let version = Version::from_leaves(leaves);
-    if !defects.contains(&Class::NotCanonical) && version.rank() != rank {
+    // Without `NotCanonical`, the version is canonical, so the flat model can
+    // take its rank.
+    if !defects.contains(&Class::NotCanonical)
+        && flat::Version::from_spelling(&version).rank() != rank
+    {
         defects.insert(Class::NotCanonical);
     }
     let Some(next) = next else {

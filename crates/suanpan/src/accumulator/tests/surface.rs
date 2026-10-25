@@ -22,8 +22,8 @@ use num_bigint::{BigInt, BigUint};
 use proptest::prelude::*;
 
 use super::{
-    assert_value, cancelled_top, fresh, from_limbs, oracle_sign, own_digits, read_value,
-    Accumulator, TestBig as _,
+    assert_stored_width_bounds, assert_value, cancelled_top, fresh, from_limbs, oracle_sign,
+    own_digits, read_value, Accumulator,
 };
 
 /// One primitive integer, retaining its Rust type for trait dispatch.
@@ -1024,11 +1024,7 @@ fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u
         u64::try_from(stored_digits).unwrap() * 32,
         "stored bit width after {trace:?}"
     );
-    let (_, magnitude) = actual.sign_biguint();
-    assert!(
-        magnitude.bits() <= actual.stored_bits() + 2,
-        "stored width bounds the redundant value after {trace:?}"
-    );
+    assert_stored_width_bounds(actual, oracle, trace);
 
     if let Some(reported) = actual.stored_copy().cmp_zero_stable_under(comparison_bits) {
         assert_eq!(

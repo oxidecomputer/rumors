@@ -9,7 +9,10 @@
 //! spells deep trees as encodings, canonical and damaged, for the decoders.
 //! [`leaf_list`] and [`regions`] draw random versions and parties tens to
 //! hundreds of levels deep, past the arbitrary generators' depth cap of four.
+//! [`census`] holds the floors that require each strategy to keep generator
+//! mass on the regimes it claims.
 
+pub(crate) mod census;
 pub(crate) mod co_generated;
 pub(crate) mod leaf_list;
 pub(crate) mod near_valid;
@@ -294,7 +297,7 @@ pub(crate) fn deep_zigzag_party(depth: usize) -> Party {
 /// weakens it.
 pub(crate) const STACK_SAFETY_DEPTH: usize = 1 << 18;
 
-// ───────────────────────── case counts and census floors ─────────────────────────
+// ───────────────────────── case counts ─────────────────────────
 
 /// Proptest's default case count, at which the gate runs every property.
 pub(crate) const DEFAULT_CASES: u32 = 256;
@@ -312,28 +315,6 @@ pub(crate) fn divided_config(divisor: u32) -> ProptestConfig {
         cases: configured.cases.div_ceil(divisor),
         ..configured
     }
-}
-
-/// The regime cases each default run of a property must expect, under every
-/// census floor derived by [`regime_floor`].
-///
-/// A defect that every regime case exposes then escapes one default run with
-/// probability at most `e` to the minus this count: under a quarter of a
-/// percent.
-pub(crate) const REGIME_CASES_PER_RUN: usize = 6;
-
-/// Returns the census floor for a regime: the fewest regime cases among
-/// `census_cases` samples at which each default run of a property expects
-/// [`REGIME_CASES_PER_RUN`] of them.
-///
-/// The property runs the default case count divided by `divisor`. The floor
-/// follows from that premise and the property's case count, not
-/// from any measured reading, so a strategy whose regime mass falls below
-/// what its own property needs fails its census whatever it last measured.
-pub(crate) fn regime_floor(census_cases: usize, divisor: u32) -> usize {
-    let cases_per_run = usize::try_from(DEFAULT_CASES.div_ceil(divisor))
-        .expect("a case count fits in usize on every tested target");
-    (REGIME_CASES_PER_RUN * census_cases).div_ceil(cases_per_run)
 }
 
 // ───────────────────────── arbitrary normal-form ─────────────────────────

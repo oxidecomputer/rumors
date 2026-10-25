@@ -1,7 +1,6 @@
 //! Composite encodings: clocks, spans, and ranked keys, built from component
 //! encodings and their own relational defects.
 
-use num_bigint::BigInt;
 use proptest::prelude::*;
 use proptest::sample::Index;
 
@@ -12,6 +11,7 @@ use super::trees::{
 };
 use super::{damaged, Expect, NearValid, Regime, DEEP_LEVELS};
 use crate::testing::oracles::codec::{self, encode_rank, seal};
+use crate::testing::oracles::flat;
 
 /// What construction settles about two concatenated components, the first
 /// self-delimiting, before any edit to the whole.
@@ -60,6 +60,12 @@ pub(crate) fn arb_clock_encoding() -> impl Strategy<Value = NearValid> {
         })
 }
 
+/// The flat model of a canonical version tree, which judges the order, the
+/// lattice, and the rank these generators steer by.
+fn model(version: &codec::Version) -> flat::Version {
+    flat::Version::from_spelling(version)
+}
+
 /// How a span's endpoints derive from two canonical versions `a` and `b`.
 #[derive(Clone, Copy, Debug)]
 enum Endpoints {
@@ -74,17 +80,17 @@ enum Endpoints {
 }
 
 impl Endpoints {
-    /// The lower and upper endpoint trees.
+    /// The lower and upper endpoint trees, with the join and meet computed
+    /// by the flat model.
     fn of(self, a: codec::Version, b: codec::Version) -> (codec::Version, codec::Version) {
-        let join = |x: &BigInt, y: &BigInt| x.max(y).clone();
-        let meet = |x: &BigInt, y: &BigInt| x.min(y).clone();
+        let (model_a, model_b) = (model(&a), model(&b));
         match self {
-            Endpoints::Ordered => {
-                let hi = a.zip(&b, join);
-                (a, hi)
-            }
+            Endpoints::Ordered => (a, model_a.join(&model_b).spelled()),
             Endpoints::Equal => (a.clone(), a),
-            Endpoints::Reversed => (a.zip(&b, join), a.zip(&b, meet)),
+            Endpoints::Reversed => (
+                model_a.join(&model_b).spelled(),
+                model_a.meet(&model_b).spelled(),
+            ),
             Endpoints::Independent => (a, b),
         }
     }
@@ -110,7 +116,7 @@ fn span_encoding(
     let (bytes, expect) = match edit {
         Some(edit) => (edit.apply(bytes), Expect::Open),
         None => match concatenated(lo_input.expect, hi_input.expect) {
-            Expect::Canonical if !lo.le(&hi) => (bytes, Expect::Defective),
+            Expect::Canonical if !model(&lo).le(&model(&hi)) => (bytes, Expect::Defective),
             expect => (bytes, expect),
         },
     };
@@ -159,8 +165,15 @@ fn arb_tail_defect() -> impl Strategy<Value = TailDefect> {
 /// The endpoints are `a` and `b` when `a` is not below `b`, and otherwise
 /// `a` raised by one everywhere and then `a` itself, a reversed pair.
 fn structural_over_ordering(a: codec::Version, b: codec::Version, defect: TailDefect) -> NearValid {
-    let (lo, hi) = if a.le(&b) {
-        (a.zip(&a, |x: &BigInt, _: &BigInt| x + 1), a)
+    let (lo, hi) = if model(&a).le(&model(&b)) {
+        // Adding one to every height keeps sibling heights equal exactly
+        // where they were, so the raised tree stays canonical.
+        let raised = a
+            .leaves()
+            .iter()
+            .map(|(depth, height)| (*depth, height + 1))
+            .collect();
+        (codec::Version::from_leaves(raised), a)
     } else {
         (a, b)
     };
@@ -253,11 +266,11 @@ pub(crate) fn arb_ranked_encoding() -> impl Strategy<Value = NearValid> {
     )
         .prop_map(|(version, other, source, damage, edit)| {
             let input = damaged(&version, &damage.unwrap_or_else(Damage::none));
-            let own = version.rank();
+            let own = model(&version).rank();
             let (rank, rank_expect, mismatched) = match source {
                 RankSource::Own => (encode_rank(&own.0, own.1), Expect::Canonical, false),
                 RankSource::Other => {
-                    let theirs = other.rank();
+                    let theirs = model(&other).rank();
                     (
                         encode_rank(&theirs.0, theirs.1),
                         Expect::Canonical,

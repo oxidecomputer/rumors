@@ -28,8 +28,7 @@ use core::ops::{Range, RangeInclusive};
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use proptest::sample::Index;
-use proptest::strategy::ValueTree;
-use proptest::test_runner::{Config, TestCaseError, TestRunner};
+use proptest::test_runner::TestCaseError;
 
 use super::{
     bound_clause_among, down_clause_among, down_query, neutral_query, rendered_holes, selected,
@@ -37,11 +36,13 @@ use super::{
 };
 use crate::causally::{Down, Polarity, Query, Up};
 use crate::testing::exhaustive::cell_heights;
+use crate::testing::generators::census::{
+    assert_default_case_count, assert_floors, regime_floor, sample, Tally, CENSUS_CASES,
+};
+use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_deep_version, arb_deep_version_triple};
-use crate::testing::generators::{divided_config, regime_floor, DEFAULT_CASES};
 use crate::testing::oracles::flat::census::{census, classify, Grid, Heights};
 use crate::testing::oracles::flat::Version as FlatVersion;
-use crate::testing::rng::strategy_rng;
 use crate::testing::shape_rows::Leaf;
 use crate::{Span, Version};
 
@@ -714,22 +715,16 @@ proptest! {
 // ─────────────────────────────── floors ───────────────────────────────
 
 /// The floor census seed: names the sampled corpus (see
-/// [`strategy_rng`]).
+/// [`crate::testing::rng::strategy_rng`]).
 const FLOOR_SEED: u64 = 17;
-
-/// Sampled cases per strategy in the floor census.
-const FLOOR_CASES: usize = 400;
 
 /// The depth past which a site or a version counts as deep: a cell there is
 /// narrower than a 32-bit fraction can resolve.
 const DEEP_DEPTH: u64 = 32;
 
-/// Samples `strategy` [`FLOOR_CASES`] times under [`FLOOR_SEED`].
+/// Samples `strategy` [`CENSUS_CASES`] times under [`FLOOR_SEED`].
 fn floor_corpus<T>(strategy: impl Strategy<Value = T>) -> Vec<T> {
-    let mut runner = TestRunner::new_with_rng(Config::default(), strategy_rng(FLOOR_SEED));
-    (0..FLOOR_CASES)
-        .map(|_| strategy.new_tree(&mut runner).expect("strategy").current())
-        .collect()
+    sample(&strategy, FLOOR_SEED).collect()
 }
 
 /// What a case reaches: the holes production stores in its downward and
@@ -768,7 +763,7 @@ fn reach(case: &QueryCase) -> Reach {
 
 /// Each census property's strategy keeps enough mass on the regimes its docs
 /// claim that each default run expects
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::REGIME_CASES_PER_RUN)
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::REGIME_CASES_PER_RUN)
 /// cases there.
 ///
 /// [`census_agrees_with_a_finer_pool`] claims the segments that can expose a
@@ -785,13 +780,7 @@ fn reach(case: &QueryCase) -> Reach {
 /// premise and its property's case count.
 #[test]
 fn census_cases_keep_mass_on_their_regimes() {
-    if std::env::var_os("PROPTEST_CASES").is_none() {
-        assert_eq!(
-            Config::default().cases,
-            DEFAULT_CASES,
-            "the floors assume proptest's default case count"
-        );
-    }
+    assert_default_case_count();
     let antichains: Vec<Reach> = floor_corpus(arb_antichain_case())
         .iter()
         .map(reach)
@@ -811,59 +800,53 @@ fn census_cases_keep_mass_on_their_regimes() {
             .filter(|(finer, clauses)| has_interior_witness(finer, clauses, which))
             .count()
     };
-    let validator_floor = regime_floor(FLOOR_CASES, VALIDATOR_DIVISOR);
-    let antichain_floor = regime_floor(FLOOR_CASES, ANTICHAIN_DIVISOR);
-    let query_floor = regime_floor(FLOOR_CASES, QUERY_DIVISOR);
-    let regimes = [
-        (
+    let validator_floor = regime_floor(CENSUS_CASES, VALIDATOR_DIVISOR);
+    let antichain_floor = regime_floor(CENSUS_CASES, ANTICHAIN_DIVISOR);
+    let query_floor = regime_floor(CENSUS_CASES, QUERY_DIVISOR);
+    let tallies = [
+        Tally::new(
             "census check cases: a segment whose neutral query rejects both ends but admits inside",
             with_interior(Which::Neutral),
             validator_floor,
         ),
-        (
+        Tally::new(
             "census check cases: a segment whose downward query rejects both ends but admits inside",
             with_interior(Which::Downward),
             validator_floor,
         ),
-        (
+        Tally::new(
             "census check cases: a segment whose upward query rejects both ends but admits inside",
             with_interior(Which::Upward),
             validator_floor,
         ),
-        (
+        Tally::new(
             "antichain cases: three or more downward holes, a deep site, a wide height",
             count(&antichains, |r| r.down_holes >= 3 && r.deep_site && r.wide),
             antichain_floor,
         ),
-        (
+        Tally::new(
             "antichain cases: three or more upward holes, a deep site, a wide height",
             count(&antichains, |r| r.up_holes >= 3 && r.deep_site && r.wide),
             antichain_floor,
         ),
-        (
+        Tally::new(
             "query cases: a version past depth 32 and a wide height",
             count(&queries, |r| r.deep_version && r.wide),
             query_floor,
         ),
-        (
+        Tally::new(
             "query cases: a downward hole",
             count(&queries, |r| r.down_holes >= 1),
             query_floor,
         ),
-        (
+        Tally::new(
             "query cases: an upward hole",
             count(&queries, |r| r.up_holes >= 1),
             query_floor,
         ),
     ];
-    for (regime, count, floor) in &regimes {
-        eprintln!("census: `{regime}` in {count} of {FLOOR_CASES} cases (floor {floor})");
-    }
-    for (regime, count, floor) in regimes {
-        assert!(
-            count >= floor,
-            "generator mass on `{regime}` fell to {count} of {FLOOR_CASES} sampled cases \
-             (floor {floor}): an arm has gone dead or the bumps no longer form an antichain"
-        );
-    }
+    assert_floors(
+        &tallies,
+        "an arm has gone dead or the bumps no longer form an antichain",
+    );
 }
