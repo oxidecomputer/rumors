@@ -94,11 +94,6 @@ fn loaded(parent: Option<&Rumors<Vec<u8>>>, payloads: &[Vec<u8>]) -> Rumors<Vec<
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 24,
-        ..ProptestConfig::default()
-    })]
-
     /// Every directed stream of an arbitrary V2 gossip session is a pure
     /// CBOR sequence under the rumors-blind walk.
     #[test]

@@ -14,8 +14,9 @@ use rumors::{Error, Peer, Retire};
 
 use crate::common::wire::{assert_control_drained, block_on};
 
-/// A peer seeded deterministically, so two seeds with distinct stream ids get
-/// distinct (but reproducible) networks.
+/// A peer whose network identifier comes from stream `stream`: distinct
+/// streams give distinct networks, and the tests rely on nothing else about
+/// the identifiers.
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>(
     stream: u64,
 ) -> Peer<T> {

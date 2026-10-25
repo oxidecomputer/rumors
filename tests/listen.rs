@@ -18,8 +18,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version, causally};
 
 use crate::common::observer::{
@@ -389,26 +387,22 @@ fn stream_face_matches_and_terminates() {
 /// API exposes the pass checkpoint and not a per-item fold.
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
-    // Search deterministic universes for the counterexample shape: the
-    // *later*-created of two messages is delivered first. A leaf's path is
-    // the hash of its version, and paths vs. causal versions disagree
-    // about order roughly half the time, so varying the universe seed
-    // (which varies the created versions) finds the shape quickly.
+    // The counterexample shape: the *later*-created of two messages is
+    // delivered first. A leaf's path is the hash of its version, and two
+    // sends from a fresh seed make the same two versions in every universe
+    // (a universe's identifier never enters a version), so their path order
+    // is fixed; it puts the later version first.
     let later_value = 1u64;
-    let rumors = (0u64..256)
-        .find_map(|seed| {
-            let rumors = Peer::<u64>::seed_rng(&mut ChaChaRng::seed_from_u64(seed))
-                .sync_window_floor()
-                .into_rumors();
-            rumors.send(0).unwrap();
-            rumors.send(later_value).unwrap();
-            let snapshot = rumors.snapshot();
-            let first_yielded = snapshot.iter().next().expect("two live messages");
-            let later_first = *first_yielded.1 == later_value;
-            drop(snapshot);
-            later_first.then_some(rumors)
-        })
-        .expect("some universe must collide into path-before-version order");
+    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    rumors.send(0).unwrap();
+    rumors.send(later_value).unwrap();
+    let snapshot = rumors.snapshot();
+    let first_yielded = snapshot.iter().next().expect("two live messages");
+    assert_eq!(
+        *first_yielded.1, later_value,
+        "the two sends' paths must put the later version first"
+    );
+    drop(snapshot);
 
     // Deliver exactly one item — the later version — and stop mid-pass.
     let mut obs = rumors.unordered_messages();

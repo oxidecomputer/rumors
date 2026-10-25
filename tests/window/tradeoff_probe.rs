@@ -62,6 +62,7 @@ where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
+    // Fixed, so every cell measures the same reference corpus.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_7ade_0ff1);
     let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut ChaChaRng| {
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();

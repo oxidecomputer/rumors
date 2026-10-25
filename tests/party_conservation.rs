@@ -376,14 +376,6 @@ proptest! {
 }
 
 proptest! {
-    // Population scale is this property's sampling axis: each case runs a
-    // fleet an order of magnitude past the cycle schedules above, paying
-    // two wire sessions per peer, so the case count is pared to keep the
-    // suite inside its runtime budget while the schedule within each case
-    // stays fully random (provider choice, retirement order, absorber
-    // choice).
-    #![proptest_config(ProptestConfig::with_cases(32))]
-
     /// Retiring a fleet into one survivor preserves every message and the whole party.
     ///
     /// Provider choices, retirement order, and absorbers vary across populations

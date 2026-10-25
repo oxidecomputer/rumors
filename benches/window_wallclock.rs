@@ -60,6 +60,7 @@ fn window_wallclock(criterion: &mut Criterion) {
 
 /// Two peers with a shared prefix, diverged by `divergent` messages each.
 fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
+    // Fixed, so every run benchmarks the same corpus.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_0d0c_0002);
     let left = Peer::seed_rng(&mut rng)
         .sync_memory_budget(budget)

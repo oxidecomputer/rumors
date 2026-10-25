@@ -174,8 +174,6 @@ async fn record_sessions(
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(24))]
-
     /// Each session counts every data-frame byte exactly once, excluding stream labels.
     ///
     /// Reuse the link across consecutive epochs, favoring the CBOR length boundary

@@ -56,6 +56,7 @@ fn window_pipelines_disputed_scopes() {
 /// Two peers with shared history and concurrent additions, using one window choice.
 fn diverged_pair(window: WindowChoice) -> (Rumors<u64>, Rumors<u64>) {
     let left = window.apply(Peer::seed()).into_rumors();
+    // Fixed, so the latency ceiling is judged on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork_with_window(&left, window);

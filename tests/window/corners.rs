@@ -43,6 +43,7 @@ fn pair(
     right_extra: usize,
 ) -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
+    // Fixed, so the hop bounds are judged on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0003);
     send_random(&left, common.max(1), &mut rng);
 
@@ -197,6 +198,7 @@ fn growth_during_a_session_only_serializes() {
     let racer = left.clone();
     pollster::block_on(async {
         let (mut a, mut b) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        // Fixed, so the hop bounds are judged on the same corpus every run.
         let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0004);
         let race = async {
             for _ in 0..64 {

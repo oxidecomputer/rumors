@@ -255,12 +255,6 @@ proptest! {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        // Exercise the u64 union oracle across two default case budgets.
-        cases: ProptestConfig::default().cases * 2,
-        ..ProptestConfig::default()
-    })]
-
     /// One session unions `u64` content: each side reaches the union of the
     /// two pre-session readouts and the complete snapshots converge.
     ///

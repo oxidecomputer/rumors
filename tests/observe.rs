@@ -356,11 +356,6 @@ fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 24,
-        ..ProptestConfig::default()
-    })]
-
     /// Gossip reports each session and directed stream exactly once, with the
     /// wire's complete items and an election consistent with both speakers.
     #[test]

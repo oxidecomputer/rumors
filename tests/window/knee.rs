@@ -183,6 +183,7 @@ fn hops_over(divergent_per_side: usize, pipe_capacity: usize) -> u32 {
 /// Two peers with a shared prefix, diverged by `divergent` messages each.
 fn diverged(divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_memory_budget(BUDGET).into_rumors();
+    // Fixed, so the knee's hop pins are measured on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x0077_1e0f_0b05_2026);
     send_random(&left, COMMON, &mut rng);
 

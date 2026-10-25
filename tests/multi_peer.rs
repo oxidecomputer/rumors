@@ -2,9 +2,8 @@
 //!
 //! Each property runs a generated [`Schedule`] through the executor and a
 //! full-mesh quiesce. Assertions over the same result share one property;
-//! independent behaviors keep separate properties. The exact-oracle property
-//! uses four default case budgets for a broad schedule population, while the
-//! observation and fixed-point properties sample independently.
+//! independent behaviors keep separate properties, each drawing its own
+//! schedules.
 //!
 //! [`Schedule`]: crate::common::schedule::Schedule
 
@@ -71,12 +70,6 @@ where
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        // Give the shared exact-oracle assertions four default case budgets.
-        cases: ProptestConfig::default().cases * 4,
-        ..ProptestConfig::default()
-    })]
-
     /// Every peer's readout identity → value map equals the canonical
     /// map built from the originating peers' created `Version`s and the
     /// oracle's per-insert values, filtered by the oracle's redaction set.

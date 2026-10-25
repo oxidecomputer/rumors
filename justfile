@@ -158,8 +158,7 @@ test-all *args:
 
 # Run Rumors at a larger property-test count under the faster release profile.
 # This stays package-scoped: before's operation meters intentionally pin the
-# dev profile and have their own exhaustive verification. A few unusually
-# expensive stress properties retain their explicit, smaller case budgets.
+# dev profile and have their own exhaustive verification.
 test-release *args:
     PROPTEST_CASES={{ proptest_ci_cases }} cargo nextest run -p rumors --all-features --locked --cargo-profile release --profile high-count --no-fail-fast {{ args }}
 

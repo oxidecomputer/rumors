@@ -9,6 +9,7 @@
 
 use rumors_testkit::common;
 
+use proptest::prelude::*;
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
@@ -20,10 +21,22 @@ use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 /// supplied subtrees, so run batching is genuinely exercised on the wire.
 const DIVERGENT_PER_SIDE: usize = 96;
 
+/// Draws the payloads each side originates after the fork:
+/// [`DIVERGENT_PER_SIDE`] of them per side.
+fn arb_divergent_payloads() -> impl Strategy<Value = (Vec<u64>, Vec<u64>)> {
+    let side = || proptest::collection::vec(any::<u64>(), DIVERGENT_PER_SIDE);
+    (side(), side())
+}
+
 /// A divergent pair whose sides select different run targets before any
-/// session runs: each greeting advertises its side's setting, and every
-/// session between them runs at the exchanged minimum.
-fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumors<u64>) {
+/// session runs, then originate their own payloads: each greeting advertises
+/// its side's setting, and every session between them runs at the exchanged
+/// minimum.
+fn diverged_pair(
+    left_target: usize,
+    right_target: usize,
+    (left_payloads, right_payloads): (Vec<u64>, Vec<u64>),
+) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed()
             .sync_window_floor()
@@ -37,11 +50,8 @@ fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumor
             .target_message_size(right_target)
             .into_rumors();
 
-        let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
-        for _ in 0..DIVERGENT_PER_SIDE {
-            left.send(rng.next_u64()).unwrap();
-            right.send(rng.next_u64()).unwrap();
-        }
+        left.send_all(left_payloads).unwrap();
+        right.send_all(right_payloads).unwrap();
         (left, right)
     })
 }
@@ -58,19 +68,21 @@ fn assert_converges(pair: (Rumors<u64>, Rumors<u64>)) {
     );
 }
 
-/// A zero target degrades run batching to one leaf per message; the
-/// session still reconciles a divergent pair completely.
-#[test]
-fn zero_target_still_converges() {
-    assert_converges(diverged_pair(0, 0));
-}
+proptest! {
+    /// A zero target degrades run batching to one leaf per message; the
+    /// session still reconciles a divergent pair completely.
+    #[test]
+    fn zero_target_still_converges(payloads in arb_divergent_payloads()) {
+        assert_converges(diverged_pair(0, 0, payloads));
+    }
 
-/// Peers with different targets interoperate: the session runs at the
-/// exchanged minimum of the two greeting-carried settings — here zero, so
-/// both encoders unbatch.
-#[test]
-fn mixed_targets_interoperate() {
-    assert_converges(diverged_pair(0, DEFAULT_TARGET_MESSAGE_SIZE));
+    /// Peers with different targets interoperate: the session runs at the
+    /// exchanged minimum of the two greeting-carried settings — here zero, so
+    /// both encoders unbatch.
+    #[test]
+    fn mixed_targets_interoperate(payloads in arb_divergent_payloads()) {
+        assert_converges(diverged_pair(0, DEFAULT_TARGET_MESSAGE_SIZE, payloads));
+    }
 }
 
 /// Like [`diverged_pair`], but with deterministically seeded peer identities,

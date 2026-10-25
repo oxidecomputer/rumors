@@ -65,6 +65,7 @@ const TRANSIENT_SLACK: usize = 8 * 1024;
 /// messages on each side, both configured with `budget`.
 fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
+    // Fixed, so the residency bounds are judged on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x00c0_ffee_0b05_cafe);
     send_random(&left, 1_024, &mut rng);
 
@@ -228,6 +229,8 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
         .sync_memory_budget(TIGHT_BUDGET)
         .into_rumors()
     });
+    // The payload values cannot matter: the bounds measured here are over
+    // versions, which payloads never reach.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_1e77_a51a);
     send_random(&third, 2_048, &mut rng);
     reconcile(&third, &left);
@@ -283,6 +286,8 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     // party intervals stay shallow and stamps stay small — the many
     // frontiers accumulate in the join, not in any one leaf.
     let seed = Peer::seed().sync_window_floor().into_rumors();
+    // The payload values cannot matter: the bound measured here is over
+    // versions, which payloads never reach.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_f207_713a);
     send_random(&seed, 4, &mut rng);
     let mut swarm = vec![seed];

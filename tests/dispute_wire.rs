@@ -64,6 +64,8 @@ where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let left = window.apply(Peer::seed()).into_rumors();
+    // Fixed, so the pinned byte counts are measured on the same corpus every
+    // run.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_d15b_073e);
     let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut ChaChaRng| {
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();

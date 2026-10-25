@@ -234,8 +234,6 @@ fn forgotten_sibling_is_judged_at_leaf_height() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
-
     /// For any forgotten subset of a holder's sibling leaves, both sides
     /// hold the join oracle's tree in either orientation; the holder sheds
     /// exactly the forgotten leaves and the forgetter gains exactly the
