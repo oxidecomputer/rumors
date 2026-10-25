@@ -125,8 +125,9 @@ proptest! {
         steps in proptest::collection::vec(arb_step(4, true), 0..18),
         write_faults in arb_fault_bits(true),
         limit in prop_oneof![Just(rumors::DEFAULT_BOOKMARK_SIZE_LIMIT), 0usize..2000],
+        network_seed in any::<u64>(),
     ) {
-        let mut world = World::single_network(4);
+        let mut world = World::single_network(4, network_seed);
         let NodeState::Live(peer) = std::mem::replace(&mut world.nodes[2].state, NodeState::Dormant) else {
             unreachable!("the initial fleet is live");
         };

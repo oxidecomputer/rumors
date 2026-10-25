@@ -13,7 +13,7 @@ use crate::testing::oracles::tree;
 
 use crate::version::tick::BLOCK_SLOTS;
 
-use super::super::census::{
+use super::super::census::seeded::{
     assert_default_case_count, assert_floors, regime_floor, sample, Tally, CENSUS_CASES,
 };
 use super::{
@@ -23,6 +23,10 @@ use super::{
 
 /// The census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const CENSUS_SEED: u64 = 11;
 
 /// The lookahead sites the tick walk meets in one case.
@@ -101,7 +105,7 @@ fn census(strategy: impl Strategy<Value = TickCase>, in_regime: impl Fn(&Sites) 
 
 /// Every co-generated strategy keeps enough generator mass on its pre-scan
 /// regime that each default run of every property over it expects
-/// [`REGIME_CASES_PER_RUN`](super::super::census::REGIME_CASES_PER_RUN) cases there.
+/// [`REGIME_CASES_PER_RUN`](super::super::census::seeded::REGIME_CASES_PER_RUN) cases there.
 ///
 /// The regimes: sites nested three deep and a range holding two sites side by
 /// side (spine), sites nested more deeply than one memo block holds slots

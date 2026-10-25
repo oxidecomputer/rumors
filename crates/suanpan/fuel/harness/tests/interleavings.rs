@@ -2,10 +2,9 @@
 //! harness's own model, and the census showing the skeletons reach the
 //! regimes the checks rely on.
 //!
-//! The property runs [`GATE_CASES`] cases unless `PROPTEST_CASES` says
-//! otherwise; each case runs one guest instance per variant `judge`
-//! describes, one of them at values of a few megabytes and one over 4096
-//! repetitions. The census runs the model
+//! The property runs proptest's configured case count; each case runs one
+//! guest instance per variant `judge` describes, one of them at values of a
+//! few megabytes and one over 4096 repetitions. The census runs the model
 //! alone, from a fixed seed.
 
 use proptest::prelude::*;
@@ -21,25 +20,7 @@ use suanpan_fuel_protocol::{
     observe_stable, Direction, Form, LimbInput, Member, Pattern, Primitive, SignQuery, Step,
 };
 
-/// The property's case count when `PROPTEST_CASES` is unset.
-///
-/// A case takes about a tenth of a second on a shared host, so the default
-/// run takes about half a minute, far inside nextest's time limit;
-/// investigative runs raise `PROPTEST_CASES` into the thousands.
-const GATE_CASES: u32 = 256;
-
-/// Returns the property's case count: `PROPTEST_CASES` if set, otherwise
-/// [`GATE_CASES`].
-fn cases() -> u32 {
-    std::env::var("PROPTEST_CASES")
-        .ok()
-        .and_then(|cases| cases.parse().ok())
-        .unwrap_or(GATE_CASES)
-}
-
 proptest! {
-    #![proptest_config(Config::with_cases(cases()))]
-
     /// Over random interleavings of accumulator operations, fuel grows only
     /// as the bounds in `judge` allow when sizes and repetitions grow.
     ///
@@ -319,6 +300,10 @@ fn a_bitset_level_reallocating_at_the_upper_unit_alone_stays_within_the_copy_all
 }
 
 /// The seed of the census's skeleton stream.
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const CENSUS_SEED: [u8; 32] = *b"suanpan-fuel interleaving census";
 
 /// The number of skeletons the census draws.

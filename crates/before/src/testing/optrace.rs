@@ -62,7 +62,6 @@
 
 use proptest::prelude::*;
 use proptest::sample::Index;
-use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
 use num_bigint::BigUint;
@@ -84,15 +83,18 @@ pub(crate) trait TraceModel {
     type Clock;
     /// The version-like message transmitted by `send`.
     type Message;
+    /// The randomness this model's free choices draw on: `()` for a model
+    /// whose every step is determined by the trace alone.
+    type Rng;
 
     /// Create the initial clock.
     fn seed() -> Self::Clock;
     /// Register one event.
-    fn tick(clock: &mut Self::Clock, rng: &mut ChaChaRng);
+    fn tick(clock: &mut Self::Clock, rng: &mut Self::Rng);
     /// Register `count` events through the model's native spelling.
-    fn ticks(clock: &mut Self::Clock, count: u8, rng: &mut ChaChaRng);
+    fn ticks(clock: &mut Self::Clock, count: u8, rng: &mut Self::Rng);
     /// Split off a child clock.
-    fn fork(clock: &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock;
+    fn fork(clock: &mut Self::Clock, rng: &mut Self::Rng) -> Self::Clock;
     /// Return the first `taken` of the `count` children that
     /// [`Clock::forks`] yields, leaving `clock` the residual; `taken` is at
     /// most `count`.
@@ -100,15 +102,15 @@ pub(crate) trait TraceModel {
         clock: &mut Self::Clock,
         count: u8,
         taken: usize,
-        rng: &mut ChaChaRng,
+        rng: &mut Self::Rng,
     ) -> Vec<Self::Clock>;
     /// Split a clock into `arity` balanced shares, in the order the array
     /// conversion `<[Clock; N]>::from` deals them.
-    fn split(clock: Self::Clock, arity: Arity, rng: &mut ChaChaRng) -> Vec<Self::Clock>;
+    fn split(clock: Self::Clock, arity: Arity, rng: &mut Self::Rng) -> Vec<Self::Clock>;
     /// Advance and snapshot a message.
-    fn send(clock: &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message;
+    fn send(clock: &mut Self::Clock, rng: &mut Self::Rng) -> Self::Message;
     /// Merge a message and advance.
-    fn receive(clock: &mut Self::Clock, message: Self::Message, rng: &mut ChaChaRng);
+    fn receive(clock: &mut Self::Clock, message: Self::Message, rng: &mut Self::Rng);
     /// Snapshot a clock's message without advancing it.
     fn snapshot(clock: &Self::Clock) -> Self::Message;
     /// Merge a message without advancing.
@@ -116,26 +118,26 @@ pub(crate) trait TraceModel {
     /// Merge every message without advancing.
     fn absorb_all(clock: &mut Self::Clock, messages: Vec<Self::Message>);
     /// Reconcile two clocks, reporting whether synchronization succeeded.
-    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, rng: &mut ChaChaRng) -> bool;
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, rng: &mut Self::Rng) -> bool;
     /// Reconcile a clock with every other participant, in order, reporting
     /// whether synchronization succeeded.
     fn sync_all(
         clock: &mut Self::Clock,
         others: Vec<&mut Self::Clock>,
-        rng: &mut ChaChaRng,
+        rng: &mut Self::Rng,
     ) -> bool;
     /// Absorb a clock, returning it unchanged when its party overlaps.
     fn join(
         clock: &mut Self::Clock,
         other: Self::Clock,
-        rng: &mut ChaChaRng,
+        rng: &mut Self::Rng,
     ) -> Result<(), Self::Clock>;
     /// Absorb every input, returning the clocks not absorbed when any party
     /// overlaps.
     fn join_all(
         clock: &mut Self::Clock,
         others: Vec<Self::Clock>,
-        rng: &mut ChaChaRng,
+        rng: &mut Self::Rng,
     ) -> Result<(), Vec<Self::Clock>>;
     /// Move a clock through its byte encoding, reporting whether its bytes
     /// decoded; a model without a codec moves it unchanged.
@@ -152,33 +154,29 @@ pub(crate) struct Production;
 impl TraceModel for Production {
     type Clock = Clock;
     type Message = Version;
+    type Rng = ();
 
     fn seed() -> Self::Clock {
         Clock::seed()
     }
 
-    fn tick(clock: &mut Self::Clock, _rng: &mut ChaChaRng) {
+    fn tick(clock: &mut Self::Clock, _rng: &mut ()) {
         clock.tick();
     }
 
-    fn ticks(clock: &mut Self::Clock, count: u8, _rng: &mut ChaChaRng) {
+    fn ticks(clock: &mut Self::Clock, count: u8, _rng: &mut ()) {
         clock.ticks(u64::from(count));
     }
 
-    fn fork(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Clock {
+    fn fork(clock: &mut Self::Clock, _rng: &mut ()) -> Self::Clock {
         clock.fork()
     }
 
-    fn forks(
-        clock: &mut Self::Clock,
-        count: u8,
-        taken: usize,
-        _rng: &mut ChaChaRng,
-    ) -> Vec<Self::Clock> {
+    fn forks(clock: &mut Self::Clock, count: u8, taken: usize, _rng: &mut ()) -> Vec<Self::Clock> {
         clock.forks(count).take(taken).collect()
     }
 
-    fn split(clock: Self::Clock, arity: Arity, _rng: &mut ChaChaRng) -> Vec<Self::Clock> {
+    fn split(clock: Self::Clock, arity: Arity, _rng: &mut ()) -> Vec<Self::Clock> {
         match arity {
             Arity::One => Vec::from(<[Clock; 1]>::from(clock)),
             Arity::Two => Vec::from(<[Clock; 2]>::from(clock)),
@@ -188,11 +186,11 @@ impl TraceModel for Production {
         }
     }
 
-    fn send(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Message {
+    fn send(clock: &mut Self::Clock, _rng: &mut ()) -> Self::Message {
         clock.send().clone()
     }
 
-    fn receive(clock: &mut Self::Clock, message: Self::Message, _rng: &mut ChaChaRng) {
+    fn receive(clock: &mut Self::Clock, message: Self::Message, _rng: &mut ()) {
         clock.recv(&message);
     }
 
@@ -208,30 +206,22 @@ impl TraceModel for Production {
         clock.absorb_all(messages);
     }
 
-    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ChaChaRng) -> bool {
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ()) -> bool {
         left.sync(right).is_ok()
     }
 
-    fn sync_all(
-        clock: &mut Self::Clock,
-        others: Vec<&mut Self::Clock>,
-        _rng: &mut ChaChaRng,
-    ) -> bool {
+    fn sync_all(clock: &mut Self::Clock, others: Vec<&mut Self::Clock>, _rng: &mut ()) -> bool {
         clock.sync_all(others).is_ok()
     }
 
-    fn join(
-        clock: &mut Self::Clock,
-        other: Self::Clock,
-        _rng: &mut ChaChaRng,
-    ) -> Result<(), Self::Clock> {
+    fn join(clock: &mut Self::Clock, other: Self::Clock, _rng: &mut ()) -> Result<(), Self::Clock> {
         clock.join(other).map(|_| ())
     }
 
     fn join_all(
         clock: &mut Self::Clock,
         others: Vec<Self::Clock>,
-        _rng: &mut ChaChaRng,
+        _rng: &mut (),
     ) -> Result<(), Vec<Self::Clock>> {
         clock.join_all(others).map(|_| ())
     }
@@ -265,43 +255,39 @@ pub(crate) struct Recursive;
 impl TraceModel for Recursive {
     type Clock = tree::Clock;
     type Message = tree::Version;
+    type Rng = ();
 
     fn seed() -> Self::Clock {
         tree::Clock::seed()
     }
 
-    fn tick(clock: &mut Self::Clock, _rng: &mut ChaChaRng) {
+    fn tick(clock: &mut Self::Clock, _rng: &mut ()) {
         clock.tick();
     }
 
-    fn ticks(clock: &mut Self::Clock, count: u8, _rng: &mut ChaChaRng) {
+    fn ticks(clock: &mut Self::Clock, count: u8, _rng: &mut ()) {
         for _ in 0..count {
             clock.tick();
         }
     }
 
-    fn fork(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Clock {
+    fn fork(clock: &mut Self::Clock, _rng: &mut ()) -> Self::Clock {
         clock.fork()
     }
 
-    fn forks(
-        clock: &mut Self::Clock,
-        count: u8,
-        taken: usize,
-        _rng: &mut ChaChaRng,
-    ) -> Vec<Self::Clock> {
+    fn forks(clock: &mut Self::Clock, count: u8, taken: usize, _rng: &mut ()) -> Vec<Self::Clock> {
         clock.forks(usize::from(count), taken)
     }
 
-    fn split(clock: Self::Clock, arity: Arity, _rng: &mut ChaChaRng) -> Vec<Self::Clock> {
+    fn split(clock: Self::Clock, arity: Arity, _rng: &mut ()) -> Vec<Self::Clock> {
         clock.split(arity.shares())
     }
 
-    fn send(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Message {
+    fn send(clock: &mut Self::Clock, _rng: &mut ()) -> Self::Message {
         clock.send()
     }
 
-    fn receive(clock: &mut Self::Clock, message: Self::Message, _rng: &mut ChaChaRng) {
+    fn receive(clock: &mut Self::Clock, message: Self::Message, _rng: &mut ()) {
         clock.receive(message);
     }
 
@@ -319,30 +305,22 @@ impl TraceModel for Recursive {
         }
     }
 
-    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ChaChaRng) -> bool {
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ()) -> bool {
         left.sync(right).is_ok()
     }
 
-    fn sync_all(
-        clock: &mut Self::Clock,
-        others: Vec<&mut Self::Clock>,
-        _rng: &mut ChaChaRng,
-    ) -> bool {
+    fn sync_all(clock: &mut Self::Clock, others: Vec<&mut Self::Clock>, _rng: &mut ()) -> bool {
         clock.sync_all(others).is_ok()
     }
 
-    fn join(
-        clock: &mut Self::Clock,
-        other: Self::Clock,
-        _rng: &mut ChaChaRng,
-    ) -> Result<(), Self::Clock> {
+    fn join(clock: &mut Self::Clock, other: Self::Clock, _rng: &mut ()) -> Result<(), Self::Clock> {
         clock.join(other)
     }
 
     fn join_all(
         clock: &mut Self::Clock,
         others: Vec<Self::Clock>,
-        _rng: &mut ChaChaRng,
+        _rng: &mut (),
     ) -> Result<(), Vec<Self::Clock>> {
         clock.join_all(others)
     }
@@ -362,6 +340,7 @@ pub(crate) struct FunctionSpace;
 impl TraceModel for FunctionSpace {
     type Clock = FunctionClock;
     type Message = Event;
+    type Rng = ChaChaRng;
 
     fn seed() -> Self::Clock {
         FunctionClock::seed()
@@ -476,27 +455,23 @@ impl FlatParties {
 impl TraceModel for FlatParties {
     type Clock = flat::Party;
     type Message = ();
+    type Rng = ();
 
     fn seed() -> Self::Clock {
         flat::Party::seed()
     }
 
-    fn tick(_clock: &mut Self::Clock, _rng: &mut ChaChaRng) {}
+    fn tick(_clock: &mut Self::Clock, _rng: &mut ()) {}
 
-    fn ticks(_clock: &mut Self::Clock, _count: u8, _rng: &mut ChaChaRng) {}
+    fn ticks(_clock: &mut Self::Clock, _count: u8, _rng: &mut ()) {}
 
-    fn fork(clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Clock {
+    fn fork(clock: &mut Self::Clock, _rng: &mut ()) -> Self::Clock {
         let (kept, given) = clock.fork();
         *clock = kept;
         given
     }
 
-    fn forks(
-        clock: &mut Self::Clock,
-        count: u8,
-        taken: usize,
-        _rng: &mut ChaChaRng,
-    ) -> Vec<Self::Clock> {
+    fn forks(clock: &mut Self::Clock, count: u8, taken: usize, _rng: &mut ()) -> Vec<Self::Clock> {
         let mut shares = clock.shares(usize::from(count) + 1);
         let untaken = shares.split_off(taken + 1);
         let children = shares.split_off(1);
@@ -506,13 +481,13 @@ impl TraceModel for FlatParties {
         children
     }
 
-    fn split(clock: Self::Clock, arity: Arity, _rng: &mut ChaChaRng) -> Vec<Self::Clock> {
+    fn split(clock: Self::Clock, arity: Arity, _rng: &mut ()) -> Vec<Self::Clock> {
         clock.shares(arity.shares())
     }
 
-    fn send(_clock: &mut Self::Clock, _rng: &mut ChaChaRng) -> Self::Message {}
+    fn send(_clock: &mut Self::Clock, _rng: &mut ()) -> Self::Message {}
 
-    fn receive(_clock: &mut Self::Clock, _message: Self::Message, _rng: &mut ChaChaRng) {}
+    fn receive(_clock: &mut Self::Clock, _message: Self::Message, _rng: &mut ()) {}
 
     fn snapshot(_clock: &Self::Clock) -> Self::Message {}
 
@@ -520,7 +495,7 @@ impl TraceModel for FlatParties {
 
     fn absorb_all(_clock: &mut Self::Clock, _messages: Vec<Self::Message>) {}
 
-    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ChaChaRng) -> bool {
+    fn sync(left: &mut Self::Clock, right: &mut Self::Clock, _rng: &mut ()) -> bool {
         let mut whole = left.clone();
         if !Self::join_disjoint(&mut whole, right) {
             return false;
@@ -529,11 +504,7 @@ impl TraceModel for FlatParties {
         true
     }
 
-    fn sync_all(
-        clock: &mut Self::Clock,
-        others: Vec<&mut Self::Clock>,
-        _rng: &mut ChaChaRng,
-    ) -> bool {
+    fn sync_all(clock: &mut Self::Clock, others: Vec<&mut Self::Clock>, _rng: &mut ()) -> bool {
         let mut whole = clock.clone();
         if !others
             .iter()
@@ -548,11 +519,7 @@ impl TraceModel for FlatParties {
         true
     }
 
-    fn join(
-        clock: &mut Self::Clock,
-        other: Self::Clock,
-        _rng: &mut ChaChaRng,
-    ) -> Result<(), Self::Clock> {
+    fn join(clock: &mut Self::Clock, other: Self::Clock, _rng: &mut ()) -> Result<(), Self::Clock> {
         if Self::join_disjoint(clock, &other) {
             Ok(())
         } else {
@@ -563,7 +530,7 @@ impl TraceModel for FlatParties {
     fn join_all(
         clock: &mut Self::Clock,
         others: Vec<Self::Clock>,
-        _rng: &mut ChaChaRng,
+        _rng: &mut (),
     ) -> Result<(), Vec<Self::Clock>> {
         let rejected: Vec<flat::Party> = others
             .into_iter()
@@ -958,7 +925,7 @@ const FAILED_STEP: &str = "a step of a rule-respecting trace failed, which the c
 /// Panics if a join, `join_all`, sync, `sync_all`, or byte round trip
 /// fails, which the crate page promises no step of a rule-respecting trace
 /// does (see the module doc). The message names the model and the step.
-pub(crate) fn step<M: TraceModel>(clocks: &mut Vec<M::Clock>, op: &Op, rng: &mut ChaChaRng) {
+pub(crate) fn step<M: TraceModel>(clocks: &mut Vec<M::Clock>, op: &Op, rng: &mut M::Rng) {
     let Some(resolved) = op.resolve(clocks.len()) else {
         return;
     };
@@ -1060,7 +1027,7 @@ pub(crate) fn step<M: TraceModel>(clocks: &mut Vec<M::Clock>, op: &Op, rng: &mut
 /// # Panics
 ///
 /// Panics if any step fails, as [`step`] does.
-pub(crate) fn replay<M: TraceModel>(ops: &[Op], rng: &mut ChaChaRng) -> Vec<M::Clock> {
+pub(crate) fn replay<M: TraceModel>(ops: &[Op], rng: &mut M::Rng) -> Vec<M::Clock> {
     let mut clocks = vec![M::seed()];
     for op in ops {
         step::<M>(&mut clocks, op, rng);
@@ -1074,7 +1041,7 @@ pub(crate) fn replay<M: TraceModel>(ops: &[Op], rng: &mut ChaChaRng) -> Vec<M::C
 ///
 /// Panics if any step fails, as [`step`] does.
 pub(crate) fn run(ops: &[Op]) -> Vec<tree::Clock> {
-    replay::<Recursive>(ops, &mut ChaChaRng::seed_from_u64(0))
+    replay::<Recursive>(ops, &mut ())
 }
 
 /// A [`TraceModel`] backed by production clocks, which can also apply tick
@@ -1166,7 +1133,7 @@ pub(crate) fn production_strategy_up_to(
 pub(crate) fn step_production<M: ProductionModel>(
     clocks: &mut Vec<M::Clock>,
     op: &ProductionOp,
-    rng: &mut ChaChaRng,
+    rng: &mut M::Rng,
 ) {
     match op {
         ProductionOp::Shared(op) => step::<M>(clocks, op, rng),
@@ -1179,13 +1146,11 @@ pub(crate) fn step_production<M: ProductionModel>(
 
 /// Applies one production-side step to an existing production population.
 ///
-/// Production draws no randomness, so each call seeds a fresh generator.
-///
 /// # Panics
 ///
 /// Panics if a shared step fails, as [`step`] does.
 pub(crate) fn step_impl(imp: &mut Vec<Clock>, op: &ProductionOp) {
-    step_production::<Production>(imp, op, &mut ChaChaRng::seed_from_u64(0));
+    step_production::<Production>(imp, op, &mut ());
 }
 
 /// Every live clock's current version.

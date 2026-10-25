@@ -52,14 +52,16 @@ use crate::common::wire::{LINK_BUF, block_on};
 /// once.
 type Msg = u64;
 
-/// The seed of every [`World`]'s network RNG.
+/// The network seed of the deterministic scenarios: the seed of their
+/// [`World`]'s network RNG.
 ///
-/// Each universe the simulation creates draws its [`Network`] identifier
-/// from this stream, so the `(min_ticks, network)` tie-break between fresh
-/// peers is the same on every run and every replay of a plan. The stream is
+/// Each universe a world creates draws its [`Network`] identifier from that
+/// stream, and the identifiers decide the `(min_ticks, network)` tie-break
+/// between fresh peers. A scenario pins one path through those tie-breaks,
+/// so its seed stays fixed; the properties draw theirs. The stream is
 /// ChaCha, whose output for a seed is fixed across platforms and `rand`
-/// versions; the reconstructed tests pin paths derived from it.
-const NETWORK_SEED: u64 = 0;
+/// versions.
+const SCENARIO_NETWORK_SEED: u64 = 0;
 
 /// A hard ceiling on heal-phase full-mesh rounds, per peer. A correct fleet
 /// reaches a fixed point in a handful; the cap turns a convergence bug into a
@@ -275,8 +277,9 @@ struct World {
     next_seq: u64,
     /// Durable own-write progress, including records that a later store removes.
     protected: BTreeMap<Network, Version>,
-    /// The source of every universe's [`Network`] identifier, seeded with
-    /// [`NETWORK_SEED`] so the tie-break between fresh peers replays.
+    /// The source of every universe's [`Network`] identifier, seeded from
+    /// the world's network seed, so a run replays its tie-breaks between
+    /// fresh peers.
     rng: ChaChaRng,
     /// Every network this world has seeded, to assert they are pairwise
     /// distinct: two universes sharing an identifier would gossip as one
@@ -333,14 +336,15 @@ enum PathEvent {
 }
 
 impl World {
-    /// A world with no nodes yet and fresh per-world sources.
-    fn empty() -> Self {
+    /// A world with no nodes yet, whose network RNG starts from
+    /// `network_seed`.
+    fn empty(network_seed: u64) -> Self {
         World {
             nodes: Vec::new(),
             emissions: EmissionLog::default(),
             next_seq: 0,
             protected: BTreeMap::new(),
-            rng: ChaChaRng::seed_from_u64(NETWORK_SEED),
+            rng: ChaChaRng::seed_from_u64(network_seed),
             networks: BTreeSet::new(),
             path: Vec::new(),
             redacted: BTreeMap::new(),
@@ -368,9 +372,15 @@ impl World {
         peer
     }
 
-    /// Build `n` nodes, each its own freshly-seeded universe.
-    fn seed(n: usize, read_faults: Vec<Vec<bool>>, write_faults: Vec<Vec<bool>>) -> Self {
-        let mut world = World::empty();
+    /// Build `n` nodes, each its own freshly-seeded universe, with
+    /// identifiers from `network_seed`'s stream.
+    fn seed(
+        n: usize,
+        read_faults: Vec<Vec<bool>>,
+        write_faults: Vec<Vec<bool>>,
+        network_seed: u64,
+    ) -> Self {
+        let mut world = World::empty(network_seed);
         for label in 0..n {
             let store = Arc::new(Mutex::new(None));
             let faults = Arc::new(Mutex::new(FaultFeed::new(
@@ -407,11 +417,11 @@ impl World {
     /// (`fold` of all live and checkpointed regions equals [`Party::seed`])
     /// meaningful: a region a recovery drops shows up as a genuine gap rather
     /// than being re-created by a fresh fork.
-    fn single_network(n: usize) -> Self {
+    fn single_network(n: usize, network_seed: u64) -> Self {
         assert!(n >= 1, "a fleet needs at least one node");
         let reliable = || Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
 
-        let mut world = World::empty();
+        let mut world = World::empty(network_seed);
         let store = Arc::new(Mutex::new(None));
         let faults = reliable();
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
@@ -1441,6 +1451,9 @@ struct Plan {
     read_faults: Vec<Vec<bool>>,
     /// Per-participant failures indexed by bookmark store call.
     write_faults: Vec<Vec<bool>>,
+    /// The seed of the world's network RNG, whose identifiers decide every
+    /// tie-break between fresh peers.
+    network_seed: u64,
 }
 
 /// Sample sparse failures across a peer's storage calls, or disable failures.
@@ -1488,19 +1501,26 @@ fn arb_plan() -> impl Strategy<Value = Plan> {
             prop::collection::vec(arb_step(n, faults), 0..40),
             prop::collection::vec(arb_fault_bits(faults), n),
             prop::collection::vec(arb_fault_bits(faults), n),
+            any::<u64>(),
         )
-            .prop_map(|(n, steps, read_faults, write_faults)| Plan {
+            .prop_map(|(n, steps, read_faults, write_faults, network_seed)| Plan {
                 n,
                 steps,
                 read_faults,
                 write_faults,
+                network_seed,
             })
     })
 }
 
 /// Execute a plan to its post-heal end state.
 fn run_plan(plan: Plan) -> World {
-    let mut world = World::seed(plan.n, plan.read_faults, plan.write_faults);
+    let mut world = World::seed(
+        plan.n,
+        plan.read_faults,
+        plan.write_faults,
+        plan.network_seed,
+    );
     for step in plan.steps {
         match step {
             Step::Send(i) => world.send(i),
@@ -1542,12 +1562,17 @@ fn arb_reliable_step(n: usize) -> BoxedStrategy<Step> {
 /// peer is an explicit [`Step::Crash`] or [`Step::Retire`].
 fn arb_reliable_plan() -> impl Strategy<Value = Plan> {
     (2usize..=4).prop_flat_map(|n| {
-        prop::collection::vec(arb_reliable_step(n), 0..40).prop_map(move |steps| Plan {
-            n,
-            steps,
-            read_faults: vec![Vec::new(); n],
-            write_faults: vec![Vec::new(); n],
-        })
+        (
+            prop::collection::vec(arb_reliable_step(n), 0..40),
+            any::<u64>(),
+        )
+            .prop_map(move |(steps, network_seed)| Plan {
+                n,
+                steps,
+                read_faults: vec![Vec::new(); n],
+                write_faults: vec![Vec::new(); n],
+                network_seed,
+            })
     })
 }
 
@@ -1581,7 +1606,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     block_on(async move {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
-        let a = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(NETWORK_SEED))
+        let a = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(SCENARIO_NETWORK_SEED))
             .sync_window_floor()
             .bookmark(bm_a())
             .await
@@ -1672,7 +1697,7 @@ async fn boot_from_async(
 /// itself" holds by construction. (Retirement never extinguishes the network:
 /// the absorber stays live.)
 fn run_reliable_plan(plan: Plan) -> World {
-    let mut world = World::single_network(plan.n);
+    let mut world = World::single_network(plan.n, plan.network_seed);
     for step in plan.steps {
         match step {
             Step::Send(i) => world.send(i),
@@ -1703,7 +1728,7 @@ fn run_reliable_plan(plan: Plan) -> World {
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
-    let network = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(NETWORK_SEED))
+    let network = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(SCENARIO_NETWORK_SEED))
         .sync_window_floor()
         .network();
     let mut version = Version::new();
@@ -1792,7 +1817,7 @@ fn negative_control_classifier_rejects_codec_bugs() {
 #[test]
 fn reconstructed_reclaim_after_crash_keeps_durable_content() {
     let (a, b, c) = (2, 1, 0);
-    let mut world = World::single_network(3);
+    let mut world = World::single_network(3, SCENARIO_NETWORK_SEED);
     world.send(a);
     world.gossip(a, b, FaultPlan::NONE, FaultPlan::NONE);
     let network = world.nodes[b].network;
@@ -1846,7 +1871,7 @@ fn reconstructed_reclaim_after_crash_keeps_durable_content() {
 #[should_panic(expected = "before gossip 2<->1")]
 fn known_bad_stale_record_destroys_durable_content() {
     let (a, b, c) = (2, 1, 0);
-    let mut world = World::single_network(3);
+    let mut world = World::single_network(3, SCENARIO_NETWORK_SEED);
     let stale = world.nodes[a].store.lock().unwrap().clone();
     world.send(a);
     world.gossip(a, b, FaultPlan::NONE, FaultPlan::NONE);
@@ -1879,7 +1904,7 @@ fn known_bad_stale_record_destroys_durable_content() {
 /// an unrecorded redaction looks like.
 #[test]
 fn negative_control_unledgered_loss_fails_the_survival_check() {
-    let mut world = World::single_network(2);
+    let mut world = World::single_network(2, SCENARIO_NETWORK_SEED);
     world.send(0);
     world.gossip(0, 1, FaultPlan::NONE, FaultPlan::NONE);
     world.redact(0, 0);
@@ -1909,9 +1934,9 @@ proptest! {
     /// messages through restart and subsequent writes.
     #[test]
     fn late_checkpoint_failure_preserves_durable_messages(
-        who in 0usize..2, successful_checkpoints in 8usize..24,
+        who in 0usize..2, successful_checkpoints in 8usize..24, network_seed in any::<u64>(),
     ) {
-        let mut world = World::single_network(2);
+        let mut world = World::single_network(2, network_seed);
         let other = 1 - who;
         world.clean_gossip(0, 1);
 
@@ -2006,6 +2031,7 @@ fn reconstructed_crash_pair_then_retire() {
         ],
         read_faults: vec![vec![], vec![]],
         write_faults: vec![vec![], vec![]],
+        network_seed: SCENARIO_NETWORK_SEED,
     });
     assert_eq!(
         world.path,
@@ -2063,6 +2089,7 @@ fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
             vec![false, false, false, true],
             vec![false, false, false, false, true, false],
         ],
+        network_seed: SCENARIO_NETWORK_SEED,
     });
     assert_eq!(
         world.path,

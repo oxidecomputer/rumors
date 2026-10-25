@@ -24,7 +24,8 @@ use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
 
-/// Seed used for every independently built network.
+/// The seed of every independently built network, fixed so the pinned byte
+/// counts are measured on the same networks every run.
 const NETWORK_SEED: u64 = 0x4f56_4552_4845_4144;
 
 /// The message changes made after the replicas fork.

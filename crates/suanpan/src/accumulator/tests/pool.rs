@@ -21,7 +21,8 @@
 //! Each case enables a random subset of step kinds with random weights, which
 //! is swarm testing (Groce et al., ISSTA 2012): some programs grow wide values
 //! with no clear or compacting read among them, while others repeat one
-//! interaction many times.
+//! interaction many times. The census at the end floors the regimes whose
+//! mass that design fixes.
 
 use core::cmp::Ordering;
 use core::hash::BuildHasher;
@@ -29,6 +30,8 @@ use std::collections::hash_map::RandomState;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 use proptest::prelude::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::{Config, RngSeed, TestRunner};
 
 use super::{
     assert_stored_width_bounds, assert_value, fresh, from_limbs, oracle_sign, own_digits,
@@ -1169,5 +1172,163 @@ proptest! {
             pool.apply(step, &trace);
             pool.observe(&trace);
         }
+    }
+}
+
+// ─────────────────────────────── census ───────────────────────────────
+
+/// Programs the census samples: enough that each regime it floors gets a
+/// positive floor from its designed mass.
+const CENSUS_PROGRAMS: u64 = 2000;
+
+/// The own width, in digits, from which the census counts a member as
+/// thousands of digits wide.
+const WIDE_DIGITS: usize = 1000;
+
+/// The regime cases each run of [`pool_programs_match_the_oracle`] must
+/// expect in each regime the census floors.
+///
+/// A defect that every regime case exposes then escapes one run with
+/// probability at most `e` to the minus this count: under a quarter of a
+/// percent.
+const REGIME_CASES_PER_RUN: u64 = 6;
+
+/// Returns the census floor for a regime of designed mass
+/// `numerator / denominator` among `samples` programs: an integer no greater
+/// than `μ − sqrt(2 μ ln 2^30)`, where `μ` is the mean count.
+///
+/// A generator meeting its designed mass lands each program in the regime
+/// with probability at least that mass, so its count dominates a binomial
+/// count of mean `μ`, and Chernoff's lower tail bound puts it below the
+/// floor with probability at most `2^−30` per regime per run. The floor is
+/// `⌊μ⌋ − m` for the least `m` with
+/// `m² · denominator · 10⁶ ≥ 2 · 30 · 693148 · samples · numerator`, which
+/// computes the deviation with `0.693148 > ln 2` and rounds both terms down,
+/// all in exact integer arithmetic. It is the floor `before`'s generator
+/// census computes.
+fn census_floor(samples: u64, numerator: u64, denominator: u64) -> u64 {
+    let (samples, numerator, denominator) = (
+        u128::from(samples),
+        u128::from(numerator),
+        u128::from(denominator),
+    );
+    let mean_floor = samples * numerator / denominator;
+    let target = 2 * 30 * 693_148 * samples * numerator;
+    let scale = denominator * 1_000_000;
+    let mut deviation = 0u128;
+    while deviation * deviation * scale < target {
+        deviation += 1;
+    }
+    u64::try_from(mean_floor.saturating_sub(deviation)).expect("a floor fits in u64")
+}
+
+/// Returns a runner whose seed is fresh on every run, or fixed by
+/// `PROPTEST_RNG_SEED`, and prints that seed so a failure can be replayed.
+fn census_runner() -> TestRunner {
+    let seed = match Config::default().rng_seed {
+        RngSeed::Fixed(seed) => seed,
+        RngSeed::Random => TestRunner::default().rng().next_u64(),
+    };
+    eprintln!("census seed {seed}: rerun with PROPTEST_RNG_SEED={seed} to draw the same programs");
+    TestRunner::new(Config {
+        rng_seed: RngSeed::Fixed(seed),
+        ..Config::default()
+    })
+}
+
+/// The pool programs keep generator mass on the regimes the module doc
+/// claims whose mass the swarm's design fixes: one member passed as both
+/// operands of `&a ± &a`, and a member at least [`WIDE_DIGITS`] digits wide.
+///
+/// The census samples [`arb_program`] afresh, runs each program on the pool,
+/// and requires each regime's count to meet the floor [`census_floor`]
+/// derives from its designed mass. Each mass must also give each run of
+/// [`pool_programs_match_the_oracle`], at its configured case count,
+/// [`REGIME_CASES_PER_RUN`] programs in the regime.
+///
+/// # Designed masses
+///
+/// A program's kind of interest is enabled with probability `2/3`, at a
+/// weight of at least one. Each of the other twenty kinds draws weight zero
+/// a third of the time and otherwise 1 to 5, so their total has mean 40 and
+/// variance `20 · 10/3`, and by Cantelli's inequality stays below 60 with
+/// probability at least `1 − (200/3) / (200/3 + 400) = 6/7`. Enabling
+/// [`Kind::Limbs`] when every writer is disabled adds at most 3, so the kind
+/// of interest takes each step with probability at least `1/63`. A step of
+/// the regime's form, chosen with probability `q` among that kind's draws,
+/// then occurs in a program of `L` steps, `L` uniform from 1 to
+/// [`MAX_STEPS`], with probability at least
+/// `E[1 − (1 − q/63)^L] = 1 − (1 − r)(1 − (1 − r)^119) / (119 r)` for
+/// `r = q/63`.
+///
+/// - *One member as both operands*, `34/1000`: an accumulator step whose
+///   receiver is its operand, a third of the time, in the borrowed form, a
+///   fifth: `q = 1/15`, so at least `2/3 · 6/7 · 0.0609 ≥ 0.0348`.
+/// - *A member thousands of digits wide*, `39/1000`: a limb step with a
+///   nonzero first limb, `6/7 · (1 − 1/42 − 1/56 − 2^−63)`, at a shift of
+///   32,000 bits or more, `2/13 · 3/5`, makes some member's own width reach
+///   1000 digits: the member was already that wide, or its magnitude was
+///   below `2^31999` and the step lifts it to at least `2^31999`. So
+///   `q ≥ 0.0758`, and the mass is at least `2/3 · 6/7 · 0.0689 ≥ 0.0393`.
+///
+/// The module doc's other regimes, digits at the stored bound meeting reads
+/// and shifts, retained cancellation, and sparse written sets, arise only
+/// from what earlier steps left in a member, so the swarm's weights fix no
+/// mass for them, and the census does not floor them.
+#[test]
+fn pool_programs_reach_their_claimed_regimes() {
+    let mut runner = census_runner();
+    let strategy = arb_program();
+    let (mut both_operands, mut wide) = (0u64, 0u64);
+    for _ in 0..CENSUS_PROGRAMS {
+        let program = strategy.new_tree(&mut runner).expect("strategy").current();
+        both_operands += u64::from(program.steps.iter().any(|step| {
+            matches!(
+                step,
+                Step::Accumulator {
+                    receiver,
+                    operand,
+                    form: OperandForm::Borrowed,
+                    ..
+                } if receiver == operand
+            )
+        }));
+        let mut pool = Pool::new(program.digits);
+        let mut reached = false;
+        for step in &program.steps {
+            pool.apply(step, &[]);
+            reached |= pool
+                .oracles
+                .iter()
+                .any(|oracle| own_digits(oracle) >= WIDE_DIGITS);
+        }
+        wide += u64::from(reached);
+    }
+    let regimes = [
+        ("one member as both operands", both_operands, (34, 1000)),
+        ("a member thousands of digits wide", wide, (39, 1000)),
+    ];
+    let cases = u64::from(Config::default().cases);
+    for (regime, count, (numerator, denominator)) in regimes {
+        let floor = census_floor(CENSUS_PROGRAMS, numerator, denominator);
+        eprintln!("census: `{regime}` in {count} of {CENSUS_PROGRAMS} programs (floor {floor})");
+    }
+    for (regime, count, (numerator, denominator)) in regimes {
+        let floor = census_floor(CENSUS_PROGRAMS, numerator, denominator);
+        assert!(
+            floor > 0,
+            "`{regime}`'s designed mass sets no positive floor among {CENSUS_PROGRAMS} programs: \
+             the census must draw more"
+        );
+        assert!(
+            numerator * cases >= REGIME_CASES_PER_RUN * denominator,
+            "`{regime}`'s designed mass, {numerator}/{denominator}, gives a run of {cases} cases \
+             fewer than {REGIME_CASES_PER_RUN} expected regime cases"
+        );
+        assert!(
+            count >= floor,
+            "generator mass on `{regime}` fell to {count} of {CENSUS_PROGRAMS} sampled programs \
+             (floor {floor}): a step kind or form has gone dead"
+        );
     }
 }

@@ -395,7 +395,6 @@ fn arb_leaf_order() -> impl Strategy<Value = LeafOrder> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: 64,
         max_shrink_iters: 8_192,
         ..ProptestConfig::default()
     })]

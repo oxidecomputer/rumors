@@ -291,6 +291,7 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u
 /// A seed peer measuring shipped behavior: the default pipeline window is
 /// the production budget in every build shape (see `support/wire.rs`).
 fn production_seed() -> Rumors<u8> {
+    // Fixed, so every run benchmarks the same network.
     let mut rng = ChaChaRng::seed_from_u64(0xe9f4_fc18_d119_7299);
     Peer::seed_rng(&mut rng).into_rumors()
 }

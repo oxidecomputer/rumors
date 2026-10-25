@@ -19,7 +19,7 @@ use proptest::prelude::*;
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
 use crate::testing::generators::arb_oracle_version;
-use crate::testing::generators::census::{
+use crate::testing::generators::census::seeded::{
     assert_default_case_count, regime_floor, sample, CENSUS_CASES,
 };
 use crate::testing::generators::divided_config;
@@ -504,13 +504,17 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
 
 /// The multi-scale census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
+///
+/// Fixed because the census measures its generators
+/// deterministically: a regime it counts has no mass derived from the
+/// generators' weights, so its floors hold for this corpus alone.
 const MULTISCALE_CENSUS_SEED: u64 = 17;
 
 /// Multi-scale pairs keep generator mass on deferral, in single folds and in
 /// co-sweeps, and on exact rank ties.
 ///
 /// Each default run of every property drawing them must expect
-/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::REGIME_CASES_PER_RUN)
+/// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::seeded::REGIME_CASES_PER_RUN)
 /// pairs in each regime.
 ///
 /// A pair defers in single folds when

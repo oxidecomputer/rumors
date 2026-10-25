@@ -440,6 +440,7 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
+    // Fixed, so the pinned hop count is measured on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork(&left);
@@ -457,6 +458,8 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
+    // Fixed, as is the shuffle below, so the pinned hop count is measured on
+    // the same corpus and the same redactions every run.
     let mut rng = ChaChaRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork(&left);
@@ -524,10 +527,10 @@ fn trace_redaction_session() {
 /// its version's canonical bytes, so the shape is a property of the created
 /// version sequence; the self-checks below verify it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
-    // Stage by pool search: paths are version-derived, so the shape is a
-    // deterministic function of the seeded universe and send order — send
-    // a pool, pick the versions whose paths land the shape, redact the
-    // rest. The left peer keeps exactly two leaves sharing a root radix;
+    // Stage by pool search: paths are version-derived, and a universe's
+    // identifier never enters a version, so the shape is a deterministic
+    // function of the send order — send a pool, pick the versions whose
+    // paths land the shape, redact the rest. The left peer keeps exactly two leaves sharing a root radix;
     // the right keeps three ballast leaves outside it and advertises the
     // larger set.
     let path_radix = |version: &Version| sha3::Sha3_256::digest(version.as_bytes())[0];
@@ -541,7 +544,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         rumors.redact_all(&losers);
     };
 
-    let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
+    let left = Peer::seed()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let right = bootstrap_fork(&left);
@@ -635,6 +638,7 @@ fn trace_empty_session() {
     let left = Peer::seed()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
+    // Fixed, so the pinned hop count is measured on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x1234_5678_9abc_def0);
     send_random(&left, 64, &mut rng);
     let right = bootstrap_fork(&left);

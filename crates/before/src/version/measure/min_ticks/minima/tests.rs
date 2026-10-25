@@ -138,11 +138,33 @@ fn counters() -> [u64; 6] {
 /// charged to each neighbour, wide chunks moved whole, a negative coefficient
 /// stacked below the top and popped again, and more than one reference buried
 /// at once.
+///
+/// The reach check rests on measured per-case reach rates, not on a
+/// derivation from [`arb_tree`]'s weights: only the stacked and popped
+/// coefficients have an arm built to reach them, and the other paths arise
+/// in random trees. Over 4000 drawn trees, the cases reaching each path
+/// were:
+///
+/// | Path | Cases |
+/// |---|---|
+/// | record-trigger freezes | 2444 |
+/// | merges to the newer neighbour | 1333 |
+/// | merges to the older neighbour | 2634 |
+/// | wide chunks | 581 |
+/// | a stacked negative coefficient | 1018 |
+/// | a popped negative coefficient | 1018 |
+/// | two references buried at once | 1150 |
+///
+/// At the rarest rate, wide chunks in about 14.5% of cases, a run of
+/// proptest's default 256 cases misses a path with probability about
+/// `2^−58`, and about `2^−50` even at a rate three standard errors lower.
+/// The run takes the configured case count, so a lowered `PROPTEST_CASES`
+/// raises that probability.
 #[test]
 fn min_ticks_matches_the_tree_oracle_across_reference_paths() {
     let before = counters();
     MAX_BURIED.with(|c| c.set(0));
-    proptest!(ProptestConfig::with_cases(512), |(tree in arb_tree())| {
+    proptest!(|(tree in arb_tree())| {
         let version = from_oracle_version(&tree);
         prop_assert_eq!(version.min_ticks(), tree.min_ticks());
     });

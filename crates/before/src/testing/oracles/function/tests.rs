@@ -58,8 +58,8 @@ proptest! {
     /// while the seed keeps failures reproducible.
     #[test]
     fn replay_matches_across_references(ops in world_strategy(), seed in any::<u64>()) {
-        let production = optrace::replay::<Production>(&ops, &mut ChaChaRng::seed_from_u64(0));
-        let recursive = optrace::replay::<Recursive>(&ops, &mut ChaChaRng::seed_from_u64(0));
+        let production = optrace::replay::<Production>(&ops, &mut ());
+        let recursive = optrace::replay::<Recursive>(&ops, &mut ());
         let function_space = optrace::replay::<FunctionSpace>(
             &ops,
             &mut ChaChaRng::seed_from_u64(seed),
@@ -467,7 +467,7 @@ fn grid_cap_is_never_reached() {
     let max_d = AtomicU32::new(0);
     runner
         .run(&(world_strategy(), any::<u64>()), |(ops, seed)| {
-            let or = optrace::replay::<Recursive>(&ops, &mut ChaChaRng::seed_from_u64(0));
+            let or = optrace::replay::<Recursive>(&ops, &mut ());
             let se = optrace::replay::<FunctionSpace>(&ops, &mut ChaChaRng::seed_from_u64(seed));
             for c in &or {
                 max_d.fetch_max(ev_depth(&c.version()), AOrd::Relaxed);
@@ -513,6 +513,9 @@ fn fork_chain_raises_resolution_one_level_per_fork() {
         u32::try_from(MAX_TRACE_OPS).expect("small cap") <= GRID_N,
         "the grid ceiling no longer clears the deepest in-support bisection"
     );
+    // Every fork here is of a single piece, whose two halves `fork` pins to
+    // opposite sides over whatever it draws, so the generator's values
+    // cannot matter.
     let mut rng = ChaChaRng::seed_from_u64(0);
     let mut kept = FunctionClock::seed();
     for k in 1..=16u32 {
@@ -554,6 +557,9 @@ fn fork_chain_raises_resolution_one_level_per_fork() {
 /// staying strictly below [`GRID_N`].
 #[test]
 fn balanced_split_chain_raises_resolution_by_its_levels() {
+    // Every fork here is of a single piece, whose two halves `fork` pins to
+    // opposite sides over whatever it draws, so the generator's values
+    // cannot matter.
     let mut rng = ChaChaRng::seed_from_u64(0);
     for n in 1..=usize::from(MAX_FORKS_COUNT) + 1 {
         let mut lineage = seed_id();

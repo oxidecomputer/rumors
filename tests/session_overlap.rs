@@ -109,11 +109,6 @@ fn overlapped_install_never_loses_innocent_messages() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 48,
-        ..ProptestConfig::default()
-    })]
-
     /// Generated overlaps converge to exactly the sends not redacted by the schedule.
     ///
     /// Schedules include two sessions sharing a replica in either ordering,

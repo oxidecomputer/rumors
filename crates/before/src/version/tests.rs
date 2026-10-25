@@ -14,8 +14,6 @@ use std::rc::Rc;
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use proptest::sample::Index;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
 
 use super::{Ranked, Version};
 use crate::bits::BitsWriter;
@@ -837,6 +835,7 @@ struct WithCausalPast;
 impl TraceModel for WithCausalPast {
     type Clock = (Clock, CausalPast);
     type Message = (Version, CausalPast);
+    type Rng = ();
 
     fn seed() -> Self::Clock {
         let past = CausalPast {
@@ -847,17 +846,17 @@ impl TraceModel for WithCausalPast {
         (Production::seed(), past)
     }
 
-    fn tick((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) {
+    fn tick((clock, past): &mut Self::Clock, rng: &mut ()) {
         Production::tick(clock, rng);
         past.record(Count::from(1u64));
     }
 
-    fn ticks((clock, past): &mut Self::Clock, count: u8, rng: &mut ChaChaRng) {
+    fn ticks((clock, past): &mut Self::Clock, count: u8, rng: &mut ()) {
         Production::ticks(clock, count, rng);
         past.record(Count::from(u64::from(count)));
     }
 
-    fn fork((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock {
+    fn fork((clock, past): &mut Self::Clock, rng: &mut ()) -> Self::Clock {
         (Production::fork(clock, rng), past.clone())
     }
 
@@ -865,7 +864,7 @@ impl TraceModel for WithCausalPast {
         (clock, past): &mut Self::Clock,
         count: u8,
         taken: usize,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> Vec<Self::Clock> {
         Production::forks(clock, count, taken, rng)
             .into_iter()
@@ -873,24 +872,20 @@ impl TraceModel for WithCausalPast {
             .collect()
     }
 
-    fn split((clock, past): Self::Clock, arity: Arity, rng: &mut ChaChaRng) -> Vec<Self::Clock> {
+    fn split((clock, past): Self::Clock, arity: Arity, rng: &mut ()) -> Vec<Self::Clock> {
         Production::split(clock, arity, rng)
             .into_iter()
             .map(|share| (share, past.clone()))
             .collect()
     }
 
-    fn send((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message {
+    fn send((clock, past): &mut Self::Clock, rng: &mut ()) -> Self::Message {
         let message = Production::send(clock, rng);
         past.record(Count::from(1u64));
         (message, past.clone())
     }
 
-    fn receive(
-        (clock, past): &mut Self::Clock,
-        (message, sender): Self::Message,
-        rng: &mut ChaChaRng,
-    ) {
+    fn receive((clock, past): &mut Self::Clock, (message, sender): Self::Message, rng: &mut ()) {
         Production::receive(clock, message, rng);
         past.absorb(&sender);
         past.record(Count::from(1u64));
@@ -916,7 +911,7 @@ impl TraceModel for WithCausalPast {
     fn sync(
         (left, left_past): &mut Self::Clock,
         (right, right_past): &mut Self::Clock,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> bool {
         let synced = Production::sync(left, right, rng);
         if synced {
@@ -929,7 +924,7 @@ impl TraceModel for WithCausalPast {
     fn sync_all(
         (clock, past): &mut Self::Clock,
         others: Vec<&mut Self::Clock>,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> bool {
         let (others, other_pasts): (Vec<&mut Clock>, Vec<&mut CausalPast>) = others
             .into_iter()
@@ -950,7 +945,7 @@ impl TraceModel for WithCausalPast {
     fn join(
         (clock, past): &mut Self::Clock,
         (other, other_past): Self::Clock,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> Result<(), Self::Clock> {
         match Production::join(clock, other, rng) {
             Ok(()) => {
@@ -971,7 +966,7 @@ impl TraceModel for WithCausalPast {
     fn join_all(
         (clock, past): &mut Self::Clock,
         others: Vec<Self::Clock>,
-        rng: &mut ChaChaRng,
+        rng: &mut (),
     ) -> Result<(), Vec<Self::Clock>> {
         let (others, other_pasts): (Vec<Clock>, Vec<CausalPast>) = others.into_iter().unzip();
         let joined = Production::join_all(clock, others, rng);
@@ -1036,9 +1031,8 @@ proptest! {
     #[test]
     fn min_ticks_floors_every_history(ops in production_strategy()) {
         let mut clocks = vec![WithCausalPast::seed()];
-        let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
-            step_production::<WithCausalPast>(&mut clocks, op, &mut rng);
+            step_production::<WithCausalPast>(&mut clocks, op, &mut ());
             for (clock, past) in &clocks {
                 let v = clock.version();
                 let ticks = past.ticks();
@@ -1348,90 +1342,92 @@ fn rank_parts(r: &super::Rank) -> (BigUint, u64) {
     (BigUint::from_bytes_le(&num.to_bytes_le()), exp)
 }
 
-/// Build one worst-case `Rank` from a deterministic word stream.
+/// Draws one worst-case `Rank`.
 ///
-/// Odd numerators from one to a few hundred limbs wide (with all-ones
-/// runs so shared prefixes go deep), exponents from zero to well past
-/// any numerator width.
-fn stream_rank(next: &mut impl FnMut() -> u64) -> super::Rank {
-    let limbs = match next() % 8 {
-        0..=3 => 1,
-        4..=5 => 1 + (next() % 4) as usize,
-        6 => 8 + (next() % 8) as usize,
-        _ => 64 + (next() % 200) as usize,
-    };
-    let mut words: Vec<u64> = (0..limbs)
-        .map(|_| match next() % 4 {
-            0 => u64::MAX,
-            1 => 0,
-            _ => next(),
-        })
-        .collect();
-    if let Some(top) = words.last_mut() {
-        if *top == 0 {
-            *top = 1;
+/// Odd numerators from one to a few hundred limbs wide, whose limbs are
+/// all ones, zero, or arbitrary, so shared prefixes between two draws go
+/// deep, at exponents from zero to well past any numerator width.
+fn arb_wide_rank() -> impl Strategy<Value = super::Rank> {
+    let limbs = prop_oneof![
+        4 => Just(1usize),
+        2 => 1..=4usize,
+        1 => 8..=15usize,
+        1 => 64..=263usize,
+    ];
+    let limb = prop_oneof![
+        1 => Just(u64::MAX),
+        1 => Just(0u64),
+        2 => any::<u64>(),
+    ];
+    let words = limbs.prop_flat_map(move |limbs| proptest::collection::vec(limb.clone(), limbs));
+    (words, 0..100_000u64).prop_map(|(mut words, exp)| {
+        if let Some(top) = words.last_mut() {
+            if *top == 0 {
+                *top = 1;
+            }
         }
-    }
-    words[0] |= 1; // odd: the stored normalization invariant
-    let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-    let num = BigUint::from_bytes_le(&bytes);
-    let exp = next() % 100_000;
-    super::Rank::from_raw(num, exp)
+        words[0] |= 1; // odd: the stored normalization invariant
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        super::Rank::from_raw(BigUint::from_bytes_le(&bytes), exp)
+    })
 }
 
-/// The order-agreement sweep's fixed PRNG seed: every run replays the
-/// same comparison corpus.
-const RANK_CMP_SWEEP_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
-
-/// The class-first streamed `Rank` order agrees with the alignment oracle on
-/// 25,000 wide and differently scaled pairs.
-///
-/// The pairs cross random wide/narrow numerators with far-apart exponents (the
-/// mismatched-class fast path), forced class ties with deep shared prefixes
-/// (the streamed-window path), and exact duplicates (the equality path).
-/// `checked_sub`'s pre-check is asserted consistent on every pair: `Some`
-/// exactly when `rhs <= self`.
-#[test]
-fn rank_cmp_agrees_with_the_alignment_oracle_on_25k_pairs() {
-    let mut next = crate::testing::rng::word_stream(RANK_CMP_SWEEP_SEED);
-    for case in 0..25_000u32 {
-        let a = stream_rank(&mut next);
-        let b = match next() % 4 {
-            // An unrelated rank: usually a mismatched class.
-            0 => stream_rank(&mut next),
-            // An exact duplicate: the equality path.
-            1 => a.clone(),
-            // The same value at a perturbed exponent: a guaranteed class
-            // mismatch with an identical mantissa.
-            2 => {
-                let (num, exp) = rank_parts(&a);
-                super::Rank::from_raw(num, exp.saturating_add(next() % 64 + 1))
-            }
-            // A forced class tie: same exponent, same width, a low bit
-            // perturbed, so the streamed windows share a deep prefix.
-            _ => {
-                let (num, exp) = rank_parts(&a);
-                let flipped = num ^ (BigUint::from(2u8) << ((next() % 16) as usize));
-                let bits_kept = flipped.bits() == a_bits(&a);
-                let candidate = super::Rank::from_raw(flipped, exp);
-                if bits_kept {
-                    candidate
+/// Draws a wide rank and a second rank related to it in one of four ways,
+/// each reaching one path of the class-first streamed comparison.
+fn arb_rank_cmp_pair() -> impl Strategy<Value = (super::Rank, super::Rank)> {
+    arb_wide_rank().prop_flat_map(|a| {
+        let (num, exp) = rank_parts(&a);
+        let perturbed = {
+            let num = num.clone();
+            (1..=64u64).prop_map(move |shift| {
+                super::Rank::from_raw(num.clone(), exp.saturating_add(shift))
+            })
+        };
+        let tied = {
+            let a = a.clone();
+            (0..16usize).prop_map(move |bit| {
+                let flipped = &num ^ (BigUint::from(2u8) << bit);
+                if flipped.bits() == a_bits(&a) {
+                    super::Rank::from_raw(flipped, exp)
                 } else {
                     a.clone()
                 }
-            }
+            })
         };
+        let second = prop_oneof![
+            // An unrelated rank: usually a mismatched class.
+            arb_wide_rank(),
+            // An exact duplicate: the equality path.
+            Just(a.clone()),
+            // The same value at a perturbed exponent: a guaranteed class
+            // mismatch with an identical mantissa.
+            perturbed,
+            // A forced class tie: same exponent, same width, a low bit
+            // perturbed, so the streamed windows share a deep prefix.
+            tied,
+        ];
+        (Just(a), second)
+    })
+}
+
+proptest! {
+    /// The class-first streamed `Rank` order agrees with the alignment oracle
+    /// on wide and differently scaled pairs.
+    ///
+    /// The pairs cross random wide/narrow numerators with far-apart exponents
+    /// (the mismatched-class fast path), forced class ties with deep shared
+    /// prefixes (the streamed-window path), and exact duplicates (the equality
+    /// path). `checked_sub`'s pre-check is asserted consistent on every pair:
+    /// `Some` exactly when `rhs <= self`.
+    #[test]
+    fn rank_cmp_agrees_with_the_alignment_oracle((a, b) in arb_rank_cmp_pair()) {
         let want = alignment_cmp(&a, &b);
-        assert_eq!(a.cmp(&b), want, "case {case}: order disagrees: {a} vs {b}");
-        assert_eq!(
-            b.cmp(&a),
-            want.reverse(),
-            "case {case}: antisymmetry breaks: {b} vs {a}"
-        );
-        assert_eq!(
+        prop_assert_eq!(a.cmp(&b), want, "order disagrees: {} vs {}", a, b);
+        prop_assert_eq!(b.cmp(&a), want.reverse(), "antisymmetry breaks: {} vs {}", b, a);
+        prop_assert_eq!(
             a.checked_sub(&b).is_some(),
             want != core::cmp::Ordering::Less,
-            "case {case}: checked_sub pre-check disagrees with the order"
+            "checked_sub pre-check disagrees with the order"
         );
     }
 }
@@ -1444,8 +1440,7 @@ proptest! {
     /// raw accumulation with a final normalization changes the cost, never the
     /// result.
     #[test]
-    fn rank_sum_equals_the_pairwise_fold(seeds in proptest::collection::vec(any::<u64>(), 0..24)) {
-        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
+    fn rank_sum_equals_the_pairwise_fold(ranks in proptest::collection::vec(arb_wide_rank(), 0..24)) {
         assert_sum_is_the_pairwise_fold(ranks, None)?;
     }
 
@@ -1453,7 +1448,7 @@ proptest! {
     /// of dyadic ranks.
     ///
     /// [`arb_dyadic`] draws integral ranks, zero, and equal values, which the
-    /// seeded ranks of `rank_sum_equals_the_pairwise_fold` almost never are.
+    /// wide ranks of `rank_sum_equals_the_pairwise_fold` almost never are.
     /// The reference is [`Dyadic::add`]'s sum, rendered to text and parsed, so
     /// no production arithmetic computes the reference.
     #[test]
@@ -1506,9 +1501,10 @@ proptest! {
     /// the regime the version-derived driver in the algebraic-laws suite cannot
     /// reach.
     #[test]
-    fn rank_triple_laws_on_seeded_ranks(seeds in proptest::collection::vec(any::<u64>(), 3)) {
-        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
-        let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
+    fn rank_triple_laws_on_wide_ranks(
+        (a, b, c) in (arb_wide_rank(), arb_wide_rank(), arb_wide_rank()),
+    ) {
+        let (a, b, c) = (&a, &b, &c);
         for (name, law) in crate::testing::laws::RANK_TRIPLE {
             prop_assert!(law(a, b, c), "law violated: {}", name);
         }
@@ -1519,7 +1515,7 @@ proptest! {
     /// Every `laws::RANK_TRIPLE` law holds on ranks of dyadic rationals, and
     /// each rank agrees with its rational in value, text, and order.
     ///
-    /// `rank_triple_laws_on_seeded_ranks` draws odd numerators at exponents
+    /// `rank_triple_laws_on_wide_ranks` draws odd numerators at exponents
     /// below 100,000, so it almost never builds an integral rank, and never
     /// zero or one rank reached from two spellings of a value. [`arb_dyadic`]
     /// and [`arb_related_dyadic`] build all three often. Each rank comes from
@@ -1557,12 +1553,6 @@ proptest! {
             prop_assert!(law(a, b, c), "law violated: {}", name);
         }
     }
-}
-
-/// Build one deterministic wide rank from the shared
-/// test word stream.
-fn seeded_rank(seed: u64) -> super::Rank {
-    stream_rank(&mut crate::testing::rng::word_stream(seed))
 }
 
 // ─────────────────────── the rank wire form ───────────────────────
@@ -2188,13 +2178,13 @@ fn fraction_lengths_at_decode_boundaries() -> Vec<usize> {
 
 /// Generates decode inputs with known verdicts: the three cases of a rank
 /// ending at a read-path boundary, of a rank of any fraction length, or of a
-/// seeded rank, or else one arbitrary byte string.
+/// wide rank, or else one arbitrary byte string.
 fn arb_decode_cases() -> impl Strategy<Value = Vec<DecodeCase<Rank>>> {
     let rank = prop_oneof![
         2 => prop::sample::select(fraction_lengths_at_decode_boundaries())
             .prop_flat_map(arb_fraction_rank),
         1 => (0..=MAX_FRACTION_BITS).prop_flat_map(arb_fraction_rank),
-        1 => any::<u64>().prop_map(seeded_rank),
+        1 => arb_wide_rank(),
     ];
     // Zero bytes could pass for padding, so all-zero suffixes get their own arm.
     let suffix = prop_oneof![
@@ -2614,14 +2604,13 @@ proptest! {
     /// deepened fraction), with arbitrary suffix bytes on both keys.
     #[test]
     fn rank_lex_encoding_is_suffix_safe(
-        sa in any::<u64>(),
-        sb in any::<u64>(),
+        a in arb_wide_rank(),
+        unrelated in arb_wide_rank(),
         extend in any::<bool>(),
         deepen in 1u32..64,
         suffix_a in proptest::collection::vec(any::<u8>(), 0..5),
         suffix_b in proptest::collection::vec(any::<u8>(), 0..5),
     ) {
-        let a = seeded_rank(sa);
         let b = if extend {
             // A strict extension of `a`'s expansion: the case where
             // one stream continues past the other's content.
@@ -2631,7 +2620,7 @@ proptest! {
                 exp.saturating_add(u64::from(deepen)),
             )
         } else {
-            seeded_rank(sb)
+            unrelated
         };
         let (ea, eb) = (a.encode(), b.encode());
         if a != b {

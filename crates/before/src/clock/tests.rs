@@ -1,8 +1,6 @@
 //! Independent checks of `Clock` behavior against the recursive oracle.
 
 use proptest::prelude::*;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
 
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
@@ -252,16 +250,15 @@ proptest! {
     /// per-trace round trip at the end exercises separately.
     #[test]
     fn master_differential(ops in world_strategy()) {
-        let mut rng = ChaChaRng::seed_from_u64(0);
         let mut production = vec![Clock::seed()];
         let mut recursive = vec![tree::Clock::seed()];
         let mut parties = vec![flat::Party::seed()];
 
         for op in &ops {
             // Each `step` asserts that its model's step did not fail.
-            step::<Production>(&mut production, op, &mut rng);
-            step::<Recursive>(&mut recursive, op, &mut rng);
-            step::<FlatParties>(&mut parties, op, &mut rng);
+            step::<Production>(&mut production, op, &mut ());
+            step::<Recursive>(&mut recursive, op, &mut ());
+            step::<FlatParties>(&mut parties, op, &mut ());
 
             prop_assert_eq!(production.len(), recursive.len());
             prop_assert_eq!(production.len(), parties.len());

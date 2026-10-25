@@ -299,9 +299,6 @@ pub(crate) const STACK_SAFETY_DEPTH: usize = 1 << 18;
 
 // ───────────────────────── case counts ─────────────────────────
 
-/// Proptest's default case count, at which the gate runs every property.
-pub(crate) const DEFAULT_CASES: u32 = 256;
-
 /// The proptest configuration for a property whose cases each cost about
 /// `divisor` ordinary cases: the configured case count divided by `divisor`,
 /// rounded up.

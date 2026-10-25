@@ -109,7 +109,6 @@ fn completed(report: IoReport, fault: IoFault) -> usize {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: 32,
         max_shrink_iters: 2_048,
         ..ProptestConfig::default()
     })]

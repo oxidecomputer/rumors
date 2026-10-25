@@ -38,6 +38,7 @@ const UNBOUNDED: usize = 8 << 30;
 /// messages on each side, both configured with `budget`.
 fn diverged(budget: usize) -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
+    // Fixed, so the slowdown pins are measured on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_09e7_a707);
     send_random(&left, COMMON, &mut rng);
 
