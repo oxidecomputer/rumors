@@ -13,7 +13,7 @@ use super::digits::Digits;
 use super::limbs::Limbs;
 use super::operand::Update;
 use super::small::{SMALL_MAX, SMALL_SHIFT_MAX};
-use super::{touch, DIGIT_BITS};
+use super::DIGIT_BITS;
 
 /// An exact signed integer in one of two representations.
 ///
@@ -63,7 +63,6 @@ impl Value {
     #[inline]
     pub(crate) fn cmp_zero(&mut self) -> Ordering {
         if let Some(value) = self.small {
-            touch(1);
             return value.cmp(&0);
         }
         self.digits.cmp_zero()
@@ -89,7 +88,6 @@ impl Value {
         let adjustment_digits = bits.div_ceil(u64::from(DIGIT_BITS)).max(1);
 
         if let Some(value) = self.small {
-            touch(1);
             // Three times the first power above the adjustment covers the
             // extra range of a redundant top digit as well as an ordinary
             // magnitude. Overflow merely means this small value cannot prove
@@ -134,7 +132,6 @@ impl Value {
     /// touches.
     pub(crate) fn signed_magnitude(&mut self) -> (Ordering, Limbs) {
         if let Some(value) = self.small {
-            touch(self.stored_digit_count() as u64);
             return (value.cmp(&0), Limbs::from_u128(value.unsigned_abs()));
         }
         self.digits.normalized_limbs()
@@ -144,7 +141,6 @@ impl Value {
     /// normalizing what the read touches.
     pub(crate) fn scaled_signed_magnitude(&mut self) -> (Ordering, Limbs, u64) {
         if let Some(value) = self.small {
-            touch(self.stored_digit_count() as u64);
             return (value.cmp(&0), Limbs::from_u128(value.unsigned_abs()), 0);
         }
         self.digits.normalized_limbs_with_shift()
@@ -155,7 +151,6 @@ impl Value {
     pub(crate) fn clone_normalized_into(&mut self, target: &mut Value) {
         match self.small {
             Some(value) => {
-                touch(1);
                 target.digits.discard();
                 target.small = Some(value);
             }
@@ -174,7 +169,6 @@ impl Value {
     /// digits by flipping their flag, which writes no digit.
     pub(crate) fn negate(&mut self) {
         if let Some(value) = &mut self.small {
-            touch(1);
             *value = -*value;
         } else {
             self.digits.negate();
@@ -213,7 +207,6 @@ impl Value {
             let Some(shift) = self.addressable_shift(shift) else {
                 return;
             };
-            touch(1);
             if shift <= SMALL_SHIFT_MAX {
                 let shifted = value << shift;
                 if shifted.unsigned_abs() <= SMALL_MAX {

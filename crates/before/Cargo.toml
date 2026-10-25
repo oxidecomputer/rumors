@@ -79,40 +79,14 @@ meter = ["dep:tempfile"]
 # assert. Implies `meter`: the representational laws read the instrument-side
 # observations (`encoded_bits`) that feature exposes. Test/fuzz-only.
 laws = ["meter"]
-# Counts accumulator digit touches through `suanpan::touch_meter`. This exposes
-# arithmetic whose cost grows with retained accumulator width but does not
-# allocate or scan more input. Test-only and off by default.
-touch-meter = ["meter", "suanpan/touch-meter"]
-# Counts encoded-stream bits scanned and written (id tag reads and skip steps,
-# id-builder bit writes and splice lengths, event topology cursor advances and
-# gamma code-skips, every validator/decoder bit cursor) into a process-global
-# counter read via `before::testing::meter`. Traversal work over the encoded forms is
-# invisible to the heap and segment meters when it allocates nothing,
-# recurses nothing, and does no integer arithmetic — the id-side walks are
-# exactly that — so this is the column that sees it. Additive and off by
-# default: one relaxed atomic bump per primitive, out
-# of the bench builds, lit by `--all-features` runs and the metering suites that
-# assert it.
-scan-meter = ["meter"]
 
-# The board example judges scan and touch work against pinned floors and
-# ceilings; built without the counter features those columns
-# read `off` and every one of their verdicts silently renders green.
-# Requiring the features makes the unfeatured invocation a loud cargo
-# error instead of a board that looks judged and isn't.
+# The board example's deserialization rows compile only under `serde` and
+# `borsh`; built without them the board would omit those rows while still
+# rendering verdicts. Requiring the features makes the unfeatured invocation
+# a loud cargo error instead of a board that looks complete and isn't.
 [[example]]
 name = "amp_board"
-required-features = ["touch-meter", "scan-meter", "serde", "borsh"]
-
-# The focused meter tests pin touch and scan columns; built without the counter
-# features both columns would judge nothing. Requiring
-# the features makes an explicit `--test meter` without them a loud cargo
-# error naming them, while blanket `check`, `clippy --tests`, and
-# `nextest --workspace` runs skip the target; `just test` passes the
-# features for the package so the inner loop runs the suite.
-[[test]]
-name = "meter"
-required-features = ["touch-meter", "scan-meter"]
+required-features = ["serde", "borsh"]
 
 [[bench]]
 name = "party"

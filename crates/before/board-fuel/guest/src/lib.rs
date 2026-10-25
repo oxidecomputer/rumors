@@ -6,8 +6,8 @@
 //! every cell runs in a fresh instance and no state an earlier cell left,
 //! such as a lazily initialized static, reaches its reading. The guest
 //! supplies the board one meter, fuel, read through the host import
-//! `board_fuel.fuel_used`. `before` is built without the scan and touch
-//! probes, so every instruction fuel counts belongs to the measured code, the
+//! `board_fuel.fuel_used`. Every instruction fuel counts belongs to the
+//! measured code (with the `meter` feature's densification count), the
 //! board's own bookkeeping around it, or the allocator.
 //!
 //! The global allocator, [`window::WindowAllocator`], gives each measured

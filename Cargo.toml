@@ -6,6 +6,9 @@ members = [
     "crates/before-viz",
     "crates/before/board-fuel/guest",
     "crates/before/board-fuel/harness",
+    "crates/before/focused-fuel/guest",
+    "crates/before/focused-fuel/harness",
+    "crates/before/focused-fuel/protocol",
     "crates/before/fuzzfit/guest",
     "crates/before/fuzzfit/harness",
     "crates/before/surfacecheck",
@@ -82,6 +85,7 @@ criterion = "0.5"
 dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
+focused-fuel-protocol = { path = "crates/before/focused-fuel/protocol" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 fuzzfit-harness = { path = "crates/before/fuzzfit/harness" }
 hex = "0.4"
@@ -179,12 +183,6 @@ test-internals = ["tokio/rt", "dep:cbor-diag"]
 conformance = []
 # Atomic file storage for bookmarks, driven by caller-supplied blocking execution.
 fs = ["dep:tempfile"]
-# Lights `before`'s deterministic resource counters for this crate's own
-# metering tests (the branch bound memos' fold-cost comparison). Test-only
-# and off by default: the counters add an
-# atomic bump per operation, so they stay out of the default test and
-# bench builds and are lit by `--all-features` runs (the gate's test-all).
-meter = ["before/touch-meter", "before/scan-meter"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }
@@ -245,9 +243,8 @@ debug = "line-tables-only"
 # The test suite spends most of its time inside these two crates' kernels
 # (the skyline walks and the bignum arithmetic), so optimizing them cuts
 # test execution while leaving every other crate's compile untouched.
-# `debug-assertions` stays on, as the dev profile grants: the envelope
-# suite's scan and touch pins count work the `debug_assert!` comparisons
-# perform, and those are what `--release` would remove.
+# `debug-assertions` stays on, as the dev profile grants, so the tests run
+# the `debug_assert!` checks that `--release` would remove.
 [profile.dev.package.before]
 opt-level = 2
 

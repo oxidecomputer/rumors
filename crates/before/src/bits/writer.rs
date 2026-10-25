@@ -15,7 +15,6 @@
 
 use super::storage::Bits;
 use super::BitsReader;
-use crate::testing::instrument::scan;
 #[cfg(any(test, feature = "meter"))]
 use num_bigint::BigUint;
 
@@ -140,12 +139,6 @@ impl BitsWriter {
 
     /// Append one bit.
     pub(crate) fn push(&mut self, bit: bool) {
-        scan::record_bits(1);
-        self.append_bit(bit);
-    }
-
-    /// Append one bit without recording a second scan charge.
-    fn append_bit(&mut self, bit: bool) {
         let within = (self.live % 8) as u32;
         if within == 0 {
             self.bytes.push(if bit { 0x80 } else { 0x00 });
@@ -163,12 +156,6 @@ impl BitsWriter {
             len == 64 || value >> len == 0,
             "append value has bits above its stated width"
         );
-        scan::record_bits(u64::from(len));
-        self.append_bits(value, len);
-    }
-
-    /// Append one word without recording a second scan charge.
-    fn append_bits(&mut self, value: u64, len: u32) {
         if len == 0 {
             return;
         }
@@ -242,7 +229,6 @@ impl BitsWriter {
             len <= 63 && start + u64::from(len) <= self.len(),
             "word read lies within the writer"
         );
-        scan::record_bits(u64::from(len));
         let mut value = 0;
         for position in start..start + u64::from(len) {
             value = value << 1 | u64::from(self.bit(position));
@@ -309,7 +295,7 @@ impl BitsWriter {
     /// Append the canonical marker bit after the live stream.
     fn seal_padding(&mut self) {
         if !self.is_empty() {
-            self.append_bit(true);
+            self.push(true);
         }
         debug_assert!(
             self.tail_is_zeroed(),
@@ -357,10 +343,9 @@ impl BitsWriter {
             start <= end && end <= bytes.len() as u64 * 8,
             "copied range lies within the source storage"
         );
-        scan::record_bits(end - start);
         let mut position = start;
         while position < end && !position.is_multiple_of(8) {
-            self.append_bit(bit(bytes, position));
+            self.push(bit(bytes, position));
             position += 1;
         }
         let whole = ((end - position) / 8) as usize;
@@ -370,7 +355,7 @@ impl BitsWriter {
             position += whole as u64 * 8;
         }
         while position < end {
-            self.append_bit(bit(bytes, position));
+            self.push(bit(bytes, position));
             position += 1;
         }
     }

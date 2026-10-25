@@ -32,15 +32,6 @@ use value::Value;
 
 pub use limbs::Limbs;
 
-/// Record digit work; compile away completely without the meter feature.
-#[inline(always)]
-fn touch(count: u64) {
-    #[cfg(feature = "touch-meter")]
-    crate::touch_meter::record(count);
-    #[cfg(not(feature = "touch-meter"))]
-    let _ = count;
-}
-
 /// Bits in the positional base shared by storage and operand conversion.
 const DIGIT_BITS: u32 = 32;
 

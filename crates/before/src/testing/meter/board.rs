@@ -10,15 +10,9 @@
 //!
 //! # What a cell measures
 //!
-//! A cell runs at increasing input scales and records:
-//!
-//! - peak additional live heap bytes, including retained results;
-//! - bits scanned or written; and
-//! - accumulator digits touched.
-//!
-//! The last two counters are feature-gated because they instrument hot
-//! primitives. They cover work that allocation measurements cannot
-//! see: streaming traversal and arithmetic over wide running values.
+//! A cell runs at increasing input scales and records its peak additional
+//! live heap bytes, including retained results. The fuel board (below)
+//! measures the same cells' execution in Wasmtime fuel.
 //!
 //! For each quantity, the board fits a log-log scaling trend across the measured
 //! sizes and checks the largest per-byte cost. A cell is green only when every
@@ -52,17 +46,15 @@
 //!
 //! The same cells also run inside a wasm guest under Wasmtime fuel metering
 //! (the tool-side `board-fuel` crates under this one; `just amp-board-fuel`),
-//! where a fourth currency, *fuel*, counts every wasm instruction the cell
-//! body executes. Heap, scan, and touch see only the work that passes through
-//! their probes; fuel also sees element moves inside a `Vec`, arithmetic
-//! inside `num-bigint`, and buffer fills, which none of them counts. The guest
-//! builds without the scan and touch probes, so fuel counts the instructions
-//! of the production code the body calls, a few of the board's own around
-//! it, and the allocator's work for the body's own allocations. That last
-//! share depends on the body alone: the guest's allocator gives each body a
-//! fresh heap, so nothing the cell's preparation left in the heap reaches the
+//! where a second currency, *fuel*, counts every wasm instruction the cell
+//! body executes: element moves inside a `Vec`, arithmetic inside
+//! `num-bigint`, and buffer fills included. Fuel counts the instructions of
+//! the production code the body calls, a few of the board's own around it,
+//! and the allocator's work for the body's own allocations. That last share
+//! depends on the body alone: the guest's allocator gives each body a fresh
+//! heap, so nothing the cell's preparation left in the heap reaches the
 //! reading ([`FuelMeter`] describes the hooks). A fuel run judges fuel alone;
-//! the native board stays the measure of record for heap, scan, and touch.
+//! the native board stays the measure of record for heap.
 //!
 //! Fuel is judged by the same exponent bound and declared models as every
 //! other currency. Its proportional ceilings are calibrated per cell
@@ -88,9 +80,10 @@
 //!
 //! # Counter liveness
 //!
-//! An internal counter could read zero because the implementation bypassed its
-//! probes. Each cell therefore declares either a justified minimum reading or
-//! why no nonzero minimum exists. Falling below that floor is a failure, just like
+//! The heap counter could read zero because the implementation bypassed the
+//! counting allocator. Each cell therefore declares either a justified minimum
+//! heap reading or why no nonzero minimum exists; fuel, which no
+//! implementation can bypass, carries one floor for every cell. Falling below that floor is a failure, just like
 //! exceeding a ceiling. Floors detect a completely bypassed counter; they are
 //! not proofs that every relevant instruction was counted.
 //!
@@ -121,12 +114,11 @@
 //! # Target dependence
 //!
 //! Every reading is deterministic for a given build target. The native board's
-//! heap, scan, and touch ceilings and its worst-case pin are taken and checked
-//! on 64-bit hosts; fuel is taken and checked in a wasm32 guest, whose readings
+//! heap ceilings and its worst-case pin are taken and checked on 64-bit hosts; fuel is taken and checked in a wasm32 guest, whose readings
 //! depend on the guest's bytes and not on the host that runs it. A native
 //! reading differs between 64-bit hosts only when the measured operation
-//! reaches a target-conditional code path that changes allocation or what the
-//! scan and touch meters count. Architecture-specific code that only selects
+//! reaches a target-conditional code path that changes allocation.
+//! Architecture-specific code that only selects
 //! instructions, such as an intrinsic or an assembly routine, changes neither.
 //! For example, `num-bigint` chooses the divisor of its decimal conversion by
 //! architecture, so formatting a [`Count`](crate::Count) allocates differently
@@ -167,13 +159,12 @@ mod worst;
 
 pub use ceilings::{
     COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, DEFAULT_SCALE,
-    DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL, FUEL_INTERCEPT,
-    FUEL_TREND_RESOLUTION, HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, LADDER_TOP_SCALE,
+    DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, FUEL_INTERCEPT, FUEL_TREND_RESOLUTION,
+    HEAP_INTERCEPT_BYTES, HEAP_TREND_RESOLUTION_BYTES, LADDER_TOP_SCALE,
     MACHINE_WORD_MAGNITUDE_BITS, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
-    MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
-    QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE, RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE,
-    RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, SCAN_FLOOR_BITS_PER_INPUT_BYTE,
-    SCAN_TOUCH_FLOOR_BITS, SMALL_INPUT_SCALE, TICKS_BOARD_COUNT,
+    MIN_EXPONENT_DENOM_GROWTH, QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE,
+    RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE, RANK_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE,
+    SMALL_INPUT_SCALE, TICKS_BOARD_COUNT,
 };
 pub use cell_ceilings::{
     cell_ceilings, recalibrate, write_recalibrations, CellCeilings, Recalibration,
@@ -186,7 +177,6 @@ pub use currency::{ByCurrency, Currency, Floors, Liveness, FUEL_FLOOR};
 pub(crate) use family::WIDE_STEP_PAIRS_STEP_BITS;
 pub use ladder::{Ladder, Verdict};
 pub use measure::{FuelMeter, HeapMeter, Meters};
-pub use operand::stored_nonzero_deltas;
 pub use render::Summary;
 pub use sampling::{Sampling, PAST_POWER_OFFSET};
 pub use shard::{cell_shard, emit_shard, max_useful_shards, run, worst_map, ShardSpawner};

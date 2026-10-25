@@ -21,26 +21,28 @@
 //! - [`guest`] runs a program in the compiled guest (`suanpan-fuel-guest`)
 //!   under the fuel board's operator prices.
 //! - [`judge`] runs every variant of a skeleton and compares the readings.
+//! - [`claims`] runs fixed programs for the crate's focused cost claims, each
+//!   a sequence and a parameter chosen by hand, and states the forms the
+//!   claims in `tests/claims.rs` take.
 //!
-//! The suite runs from `just suanpan-fuel`, which builds the guest first.
+//! The suites run from `just suanpan-fuel`, which builds the guest first.
 //!
 //! # Testing
 //!
 //! Each program is its own control: every reading is compared with a reading
-//! of the same skeleton at another scale or repetition count, and no fuel
-//! number is committed anywhere. The [`judge`] module states each bound and
-//! what it rests on.
+//! of the same skeleton at another scale or repetition count, or of the same
+//! fixed program at another value of its parameter, and no fuel number is
+//! committed anywhere. The [`judge`] module states each bound of the
+//! interleaving property and what it rests on; [`claims`] states the forms
+//! of the focused claims.
 //!
-//! What this samples that no other instrument does is *order*. `suanpan`'s
-//! touch tests measure chosen operation sequences at fixed widths, and the
+//! What the interleaving property samples that no other instrument does is
+//! *order*. The focused claims measure chosen operation sequences, and the
 //! amplification board measures each operation on chosen worst-case
-//! families. Both fix the sequence. Here the sequence is drawn, over every
-//! regular operation (updates by primitives, limbs, and accumulators in every
-//! owned and borrowed spelling, shifted updates and shifts, negation, clear,
-//! sign queries, comparisons, conversions, magnitude reads and hashes,
-//! clones, `clone_from`, `abs_diff`, and sums), on operands shaped to cancel,
-//! borrow across long runs, and leave sparse high digits, so a cost that
-//! depends on which operation follows which is reachable.
+//! families; both fix the sequence. Here the sequence is drawn, over every
+//! step kind the generator knows ([`skeleton::Kind`]), on operands shaped to
+//! cancel, borrow across long runs, and leave sparse high digits, so a cost
+//! that depends on which operation follows which is reachable.
 //!
 //! What the checks see, by the shape of the excess work (the [`judge`]
 //! module states each bound and what it rests on):
@@ -72,6 +74,7 @@
 //!   step pays once, which is what amortization allows, from the same work
 //!   paid by a defect once.
 
+pub mod claims;
 pub mod guest;
 pub mod judge;
 pub mod model;

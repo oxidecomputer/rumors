@@ -22,8 +22,8 @@ use crate::error::Decode;
 use crate::{shape, Clock, Count, Party, Rank, Ranked, Span, Version};
 
 use super::ceilings::{
-    COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL,
-    MACHINE_WORD_MAGNITUDE_BITS, QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE, TICKS_BOARD_COUNT,
+    COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE, MACHINE_WORD_MAGNITUDE_BITS,
+    QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE, TICKS_BOARD_COUNT,
 };
 #[cfg(any(feature = "serde", feature = "borsh"))]
 use super::ceilings::{
@@ -37,51 +37,18 @@ use super::defect::{
 };
 use super::family::{decode_party, decode_version, FamilyData};
 use super::floors::{
-    clock_overlap_floors, comparison_floors, heap_materializes, id_rejection_floors,
-    masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines, scan_touch,
-    sync_floors, tick_walk_floors, touch_delta_fold, touch_fold_first_merges, touch_pair_fold,
-    touch_wide_stream, walk_floors, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE, NA_HEAP_QUERY_CLONE,
-    NA_HEAP_REJECTION, NA_SCAN_BYTE_COPY, NA_SCAN_EQ_BYTES, NA_SCAN_NO_STREAM, NA_SCAN_QUERY_CLONE,
-    NA_SCAN_RANK_BYTES, NA_SCAN_SEED_PARTY, NA_SCAN_SEED_PROJECTION, NA_TOUCH_GROW,
-    NA_TOUCH_ID_TREE, NA_TOUCH_NOT_FORCED, NA_TOUCH_PLACEMENT, NA_TOUCH_PROJECTION,
-    NA_TOUCH_RANK_ARITHMETIC, NA_TOUCH_SEED_RAISE, WHY_HEAP_FORK_HALF, WHY_SCAN_EXAMINES,
-    WHY_SCAN_OVERLAP_END, WHY_SCAN_REJECT_CROSSED, WHY_SCAN_REJECT_END, WHY_TOUCH_RANK_SUM,
+    heap_materializes, in_place, na, rejection, NA_HEAP_FORK_SHARES, NA_HEAP_IN_PLACE,
+    NA_HEAP_QUERY_CLONE, NA_HEAP_REJECTION, WHY_HEAP_FORK_HALF,
 };
-use super::operand::{stored_nonzero_deltas, version_output_bytes};
+use super::operand::version_output_bytes;
 use crate::testing::meter::registry::FamilyId;
 
 /// Arity used to exercise the public const-generic array operations.
 const ARRAY_ARITY: usize = 16;
 
-/// Scan ceiling for read-only Party comparisons, in bits per input byte.
-///
-/// A comparison needs one traversal, which reads eight bits per input byte.
-/// This ceiling keeps a second pass from hiding beneath the board's general
-/// scan ceiling, which admits several passes.
-///
-/// A measured ceiling; the [`ceilings`](super::ceilings) module states the rule.
-const PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE: f64 = 10.0;
-
-/// Touch ceiling for comparing through a fixed-depth ownership mask, a fixed
-/// bound in touches per comparison.
-///
-/// `MaskedHole` grows the version beneath one unowned mask region while the
-/// mask itself stays fixed. The comparison must skip that region as a block,
-/// so its arithmetic work cannot grow with the hidden version.
-///
-/// A measured ceiling; the [`ceilings`](super::ceilings) module states the rule.
-const MASKED_HOLE_TOUCH_CEILING: f64 = 18.0;
-
 /// Why shape iteration has no representation-independent heap floor.
 const NA_HEAP_SHAPE_WALK: &str =
     "paths and rises may share input storage or live inline; heap allocation is not required";
-
-/// Why [`Count`] arithmetic does not drive the accumulator meter.
-const NA_TOUCH_COUNT: &str =
-    "Count uses ordinary big-integer operations, not the skyline accumulator";
-
-/// Why [`Count`] operations do not drive the encoded-stream meter.
-const NA_SCAN_COUNT: &str = "Count has no encoded stream to walk";
 
 /// Why formatting a [`Count`] has no representation-independent heap floor.
 const NA_HEAP_COUNT_FORMAT: &str =
@@ -134,12 +101,10 @@ fn drain_shape(items: impl IntoIterator) {
     }
 }
 
-/// Resource floors shared by shape iterators that read every input bit.
-fn shape_floors(input_bytes: usize, touch: Liveness) -> Floors {
+/// The floors shared by shape iterators.
+fn shape_floors() -> Floors {
     Floors {
         heap: na(NA_HEAP_SHAPE_WALK),
-        scan: scan_examines(input_bytes),
-        touch,
     }
 }
 
@@ -205,18 +170,11 @@ fn multiplication_units(bytes: usize) -> u64 {
 
 /// Apply the balanced fold's `D log k` work model.
 ///
-/// Scan has a measured constant per reduction level. Touch and fuel keep their
-/// ordinary per-input-byte ceilings, but fit growth against the same
-/// logarithmic work axis so increasing arity is not mistaken for
-/// super-linearity.
+/// Fuel keeps its per-cell ceiling, but fits growth against the logarithmic
+/// work axis so increasing arity is not mistaken for super-linearity.
 fn fold_model(cell: Cell, arity: u64) -> Cell {
     let levels = (2.0 * arity as f64).log2();
-    cell.with_model(
-        Currency::Scan,
-        ModelSpec::scaled(levels, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL),
-    )
-    .with_model(Currency::Touch, ModelSpec::scaled_trend(levels))
-    .with_model(Currency::Fuel, ModelSpec::scaled_trend(levels))
+    cell.with_model(Currency::Fuel, ModelSpec::scaled_trend(levels))
 }
 
 /// The four balanced span folds measured by the board.
@@ -317,12 +275,10 @@ fn projected_span_output_bytes(result: &dyn std::any::Any) -> usize {
     span_bytes(projected)
 }
 
-/// Resource floors for span algebra, whose endpoint kernels may exit early.
+/// The floors for span algebra: no allocation is forced.
 fn span_algebra_floors() -> Floors {
     Floors {
         heap: na(NA_HEAP_IN_PLACE),
-        scan: scan_touch(),
-        touch: na(NA_TOUCH_NOT_FORCED),
     }
 }
 
@@ -398,11 +354,12 @@ struct MeasuredQuery {
     input_bytes: usize,
     /// Model units of work, which count steps rather than bytes held, so
     /// they are `u64` on every target.
-    touch_work: u64,
+    work: u64,
 }
 
 impl MeasuredQuery {
-    /// Package a query fixture and calculate its topology-touch allowance.
+    /// Package a query fixture and calculate its work allowance: a step per
+    /// input byte, and one per hole at each overlay interval.
     ///
     /// `overlay_intervals` is exact for a purpose-built fixture. The organic
     /// populations use their coarser, always-valid `i = O(n)` bound.
@@ -420,7 +377,7 @@ impl MeasuredQuery {
             .and_then(|bytes| bytes.checked_add(lower.as_ref().map_or(0, |lo| lo.as_bytes().len())))
             .expect("allocated query operands have a representable size");
         let intervals = overlay_intervals.unwrap_or(input_bytes) as u64;
-        let touch_work = (holes.len() as u64)
+        let work = (holes.len() as u64)
             .checked_mul(intervals)
             .and_then(|updates| (input_bytes as u64).checked_add(updates))
             .expect("a work bound over allocated query operands fits in a u64");
@@ -429,7 +386,7 @@ impl MeasuredQuery {
             lower,
             endpoint,
             input_bytes,
-            touch_work,
+            work,
         }
     }
 }
@@ -487,11 +444,8 @@ pub(super) fn ops() -> Vec<Op> {
             name: "version_decode",
             prepare: |f| {
                 let bytes = f.version.clone()?;
-                let v = decode_version(&bytes);
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    scan: scan_examines(bytes.len()),
-                    touch: touch_wide_stream(&v),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
                     decode_version(&bytes)
@@ -504,8 +458,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: na(NA_SCAN_BYTE_COPY),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (v.encode(), v)))
             },
@@ -518,8 +470,6 @@ pub(super) fn ops() -> Vec<Op> {
                     n,
                     Floors {
                         heap: heap_materializes(n * 2),
-                        scan: na(NA_SCAN_BYTE_COPY),
-                        touch: na(NA_TOUCH_NOT_FORCED),
                     },
                     hex_text_output_bytes,
                     move || (version.to_string(), version),
@@ -535,8 +485,6 @@ pub(super) fn ops() -> Vec<Op> {
                     text.len(),
                     Floors {
                         heap: heap_materializes(n),
-                        scan: scan_examines(n),
-                        touch: touch_wide_stream(&version),
                     },
                     move || {
                         text.parse::<Version>()
@@ -549,7 +497,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "version_cmp",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let floors = comparison_floors(&v, &w, n);
+                let floors = in_place();
                 Some(Cell::new(n, floors, move || {
                     let ord: Option<Ordering> = v.partial_cmp(&w);
                     (ord, v, w)
@@ -562,8 +510,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: na(NA_SCAN_EQ_BYTES),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (v == w, v, w)))
             },
@@ -572,7 +518,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "version_concurrent",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let floors = comparison_floors(&v, &w, n);
+                let floors = in_place();
                 Some(Cell::new(n, floors, move || (v.concurrent(&w), v, w)))
             },
         },
@@ -580,16 +526,14 @@ pub(super) fn ops() -> Vec<Op> {
             name: "version_join",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_pair_fold(&v, &w);
-                Some(Cell::new(n, walk_floors(n, touch), move || (&v | &w, v, w)))
+                Some(Cell::new(n, in_place(), move || (&v | &w, v, w)))
             },
         },
         Op {
             name: "version_join_assign",
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                let touch = touch_pair_fold(&v, &w);
-                Some(Cell::new(n, walk_floors(n, touch), move || {
+                Some(Cell::new(n, in_place(), move || {
                     v |= &w;
                     (v, w)
                 }))
@@ -599,16 +543,14 @@ pub(super) fn ops() -> Vec<Op> {
             name: "version_meet",
             prepare: |f| {
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_pair_fold(&v, &w);
-                Some(Cell::new(n, walk_floors(n, touch), move || (&v & &w, v, w)))
+                Some(Cell::new(n, in_place(), move || (&v & &w, v, w)))
             },
         },
         Op {
             name: "version_meet_assign",
             prepare: |f| {
                 let (mut v, w, n) = f.version_pair()?;
-                let touch = touch_pair_fold(&v, &w);
-                Some(Cell::new(n, walk_floors(n, touch), move || {
+                Some(Cell::new(n, in_place(), move || {
                     v &= &w;
                     (v, w)
                 }))
@@ -617,14 +559,9 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "version_span",
             prepare: |f| {
-                // The fused pair hull: one sweep feeds both endpoints,
-                // so the cell carries the same walk floors as the
-                // single-op join/meet rows it undercuts.
+                // The fused pair hull: one sweep feeds both endpoints.
                 let (v, w, n) = f.version_pair()?;
-                let touch = touch_pair_fold(&v, &w);
-                Some(Cell::new(n, walk_floors(n, touch), move || {
-                    (v.span(&w), v, w)
-                }))
+                Some(Cell::new(n, in_place(), move || (v.span(&w), v, w)))
             },
         },
         Op {
@@ -634,7 +571,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let lo = &v & &w;
                 let hi = &v | &w;
                 let n = lo.as_bytes().len() + hi.as_bytes().len();
-                let floors = comparison_floors(&lo, &hi, n);
+                let floors = in_place();
                 Some(Cell::new(n, floors, move || {
                     Span::new(lo, hi).expect("a meet precedes the corresponding join")
                 }))
@@ -688,8 +625,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = span.encode().len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: na(NA_SCAN_BYTE_COPY),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (span.encode(), span)))
             },
@@ -700,23 +635,14 @@ pub(super) fn ops() -> Vec<Op> {
                 // The hull's composite, encoded at prepare, outside
                 // measurement. The fused decode parses the first
                 // component, then one admission walk parses the second
-                // while validating dominance against the first, so the
-                // floors are the first component's parse plus the pair
-                // comparison's: both endpoints materialize, every
-                // stored payload of both streams decodes once, the
-                // whole composite is examined, and the walk folds the
-                // pair's nonzero deltas. The second component's
-                // standalone validation accumulator is what the fusion
-                // deletes, so no floor may demand it.
+                // while validating dominance against the first; both
+                // endpoints materialize.
                 let (v, w, _) = f.version_pair()?;
                 let span = v.span(&w);
                 let bytes = span.encode();
                 let n = bytes.len();
-                let (lo, hi) = span.into_parts();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(n),
-                    touch: touch_pair_fold(&lo, &hi),
                 };
                 Some(Cell::new(n, floors, move || {
                     Span::decode(&bytes[..]).expect("a canonical composite decodes")
@@ -730,7 +656,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // pair; every other family ticks its version with the
                 // seed.
                 if let Some((mut v, party, n)) = f.cross() {
-                    let floors = tick_walk_floors(&v, n);
+                    let floors = in_place();
                     return Some(Cell::new(n, floors, move || {
                         v.tick(&party);
                         (v, party)
@@ -738,14 +664,10 @@ pub(super) fn ops() -> Vec<Op> {
                 }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
-                Some(Cell::new(
-                    n + 1,
-                    walk_floors(n, na(NA_TOUCH_SEED_RAISE)),
-                    move || {
-                        v.tick(&party);
-                        v
-                    },
-                ))
+                Some(Cell::new(n + 1, in_place(), move || {
+                    v.tick(&party);
+                    v
+                }))
             },
         },
         Op {
@@ -758,7 +680,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // of tests/meter.rs pin the n axis; this cell pins the
                 // input axis).
                 if let Some((mut v, party, n)) = f.cross() {
-                    let floors = tick_walk_floors(&v, n);
+                    let floors = in_place();
                     return Some(Cell::new(n, floors, move || {
                         v.ticks(&party, TICKS_BOARD_COUNT);
                         (v, party)
@@ -766,14 +688,10 @@ pub(super) fn ops() -> Vec<Op> {
                 }
                 let (mut v, n) = f.version()?;
                 let party = Party::seed();
-                Some(Cell::new(
-                    n + 1,
-                    walk_floors(n, na(NA_TOUCH_SEED_RAISE)),
-                    move || {
-                        v.ticks(&party, TICKS_BOARD_COUNT);
-                        v
-                    },
-                ))
+                Some(Cell::new(n + 1, in_place(), move || {
+                    v.ticks(&party, TICKS_BOARD_COUNT);
+                    v
+                }))
             },
         },
         Op {
@@ -782,14 +700,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, _, _) = f.party_pair()?;
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let mut v = Version::new();
-                Some(Cell::new(
-                    n + 1,
-                    walk_floors(n, na(NA_TOUCH_GROW)),
-                    move || {
-                        v.tick(&a);
-                        (v, a)
-                    },
-                ))
+                Some(Cell::new(n + 1, in_place(), move || {
+                    v.tick(&a);
+                    (v, a)
+                }))
             },
         },
         Op {
@@ -798,8 +712,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || (v.rank(), v)))
             },
@@ -809,7 +721,9 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (rank, _) = f.rank_pair.clone()?;
                 let n = rank_content_bytes(&rank);
-                let floors = rank_floors(na(NA_HEAP_RANK_CLONE));
+                let floors = Floors {
+                    heap: na(NA_HEAP_RANK_CLONE),
+                };
                 Some(Cell::new(n, floors, move || (rank.clone(), rank)))
             },
         },
@@ -818,7 +732,9 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (a, b) = f.rank_pair.clone()?;
                 let n = rank_pair_bytes(&a, &b);
-                let floors = rank_floors(na(NA_HEAP_IN_PLACE));
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                };
                 Some(Cell::new(n, floors, move || (a.cmp(&b), a, b)))
             },
         },
@@ -827,7 +743,9 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (a, b) = f.rank_pair.clone()?;
                 let n = rank_pair_bytes(&a, &b);
-                let floors = rank_floors(na(NA_HEAP_IN_PLACE));
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                };
                 Some(Cell::new(n, floors, move || (&a + &b, a, b)))
             },
         },
@@ -837,7 +755,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, b) = f.rank_pair.clone()?;
                 let (larger, smaller) = if a >= b { (a, b) } else { (b, a) };
                 let n = rank_pair_bytes(&larger, &smaller);
-                let floors = rank_floors(na(NA_HEAP_IN_PLACE));
+                let floors = Floors {
+                    heap: na(NA_HEAP_IN_PLACE),
+                };
                 Some(Cell::new(n, floors, move || {
                     let difference = larger
                         .checked_sub(&smaller)
@@ -869,11 +789,6 @@ pub(super) fn ops() -> Vec<Op> {
                         .sum::<usize>();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: na(NA_SCAN_NO_STREAM),
-                    touch: Liveness::Floor {
-                        min: ones.len() as u64 + 1,
-                        why: WHY_TOUCH_RANK_SUM,
-                    },
                 };
                 Some(Cell::new(n, floors, move || {
                     std::iter::once(a).chain(ones).sum::<Rank>()
@@ -903,11 +818,6 @@ pub(super) fn ops() -> Vec<Op> {
                     + fractions.iter().map(rank_content_bytes).sum::<usize>();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: na(NA_SCAN_NO_STREAM),
-                    touch: Liveness::Floor {
-                        min: k + 1,
-                        why: WHY_TOUCH_RANK_SUM,
-                    },
                 };
                 Some(Cell::new(n, floors, move || {
                     std::iter::once(a).chain(fractions).sum::<Rank>()
@@ -942,8 +852,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    scan: na(NA_SCAN_NO_STREAM),
-                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
                 };
                 Some(Cell::io(
                     content.div_ceil(8) as usize,
@@ -971,8 +879,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let numerator_bytes = rank_numerator_bytes(&a);
                 let floors = Floors {
                     heap: heap_materializes(numerator_bytes),
-                    scan: na(NA_SCAN_RANK_BYTES),
-                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
                     Rank::decode(&bytes[..]).expect("a canonical rank encoding decodes")
@@ -985,7 +891,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let (rank, _) = f.rank_pair.clone()?;
                 let input_bytes = rank_content_bytes(&rank);
                 let output_bytes = rank.to_string().len();
-                let floors = rank_floors(heap_materializes(output_bytes));
+                let floors = Floors {
+                    heap: heap_materializes(output_bytes),
+                };
                 Some(Cell::io(
                     input_bytes,
                     floors,
@@ -1002,7 +910,9 @@ pub(super) fn ops() -> Vec<Op> {
                 // Fixed precision exercises truncation while leaving rank
                 // width as the only scaling input.
                 let output_bytes = format!("{rank:.1}").len();
-                let floors = rank_floors(heap_materializes(output_bytes));
+                let floors = Floors {
+                    heap: heap_materializes(output_bytes),
+                };
                 Some(Cell::io(
                     input_bytes,
                     floors,
@@ -1016,7 +926,9 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (rank, _) = f.rank_pair.clone()?;
                 let text = rank.to_string();
-                let floors = rank_floors(heap_materializes(rank_numerator_bytes(&rank)));
+                let floors = Floors {
+                    heap: heap_materializes(rank_numerator_bytes(&rank)),
+                };
                 Some(Cell::new(text.len(), floors, move || {
                     text.parse::<Rank>()
                         .expect("a displayed rank is canonical text")
@@ -1032,7 +944,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = count_input_bytes(&count);
                 Some(Cell::new(
                     n,
-                    count_floors(count_heap_floor(count_value_bytes(&count))),
+                    Floors {
+                        heap: count_heap_floor(count_value_bytes(&count)),
+                    },
                     move || (count.clone(), count),
                 ))
             },
@@ -1046,7 +960,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let output_bytes = count_value_bytes(&a).max(count_value_bytes(&b));
                 Some(Cell::new(
                     n,
-                    count_floors(count_heap_floor(output_bytes)),
+                    Floors {
+                        heap: count_heap_floor(output_bytes),
+                    },
                     move || (&a + &b, a, b),
                 ))
             },
@@ -1059,7 +975,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let output_bytes = counts.iter().map(count_value_bytes).max()?;
                 Some(Cell::new(
                     n,
-                    count_floors(count_heap_floor(output_bytes)),
+                    Floors {
+                        heap: count_heap_floor(output_bytes),
+                    },
                     move || {
                         let sum: Count = counts.iter().sum();
                         (sum, counts)
@@ -1082,7 +1000,9 @@ pub(super) fn ops() -> Vec<Op> {
                 Some(
                     Cell::io(
                         n,
-                        count_floors(na(NA_HEAP_COUNT_FORMAT)),
+                        Floors {
+                            heap: na(NA_HEAP_COUNT_FORMAT),
+                        },
                         count_text_output_bytes,
                         move || (formatted_len(format_args!("{count}")), count),
                     )
@@ -1103,7 +1023,9 @@ pub(super) fn ops() -> Vec<Op> {
                 Some(
                     Cell::new(
                         text.len(),
-                        count_floors(count_heap_floor(count_value_bytes(&count))),
+                        Floors {
+                            heap: count_heap_floor(count_value_bytes(&count)),
+                        },
                         move || {
                             text.parse::<Count>()
                                 .expect("displayed count text is canonical")
@@ -1119,8 +1041,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: touch_pair_fold(&v, &w),
                 };
                 Some(Cell::new(n, floors, move || (v.distance(&w), v, w)))
             },
@@ -1131,8 +1051,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: touch_pair_fold(&v, &w),
                 };
                 Some(Cell::new(n, floors, move || (v.lag(&w), v, w)))
             },
@@ -1141,14 +1059,10 @@ pub(super) fn ops() -> Vec<Op> {
             name: "ranked_cmp",
             prepare: |f| {
                 // The fused rank comparison: the distance/lag co-sweep
-                // with constant orientation, so it takes their floors
-                // (the walk decodes both streams, folds every nonzero
-                // delta, and answers a word-scale verdict).
+                // with constant orientation, answering a word-scale verdict.
                 let (v, w, n) = f.version_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: touch_pair_fold(&v, &w),
                 };
                 Some(Cell::new(n, floors, move || {
                     let ord = Ranked::from(&v).cmp(&Ranked::from(&w));
@@ -1159,9 +1073,9 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "ranked_encode",
             prepare: |f| {
-                // The composite key emission: the rank fold's
-                // floors plus the mandatory output (rank stream, then
-                // one copy of the version's encoded bytes).
+                // The composite key emission: the rank fold plus the
+                // mandatory output (rank stream, then one copy of the
+                // version's encoded bytes).
                 // Input-denominated: the provenance pin bounds the
                 // rank component within the encoded input plus one
                 // byte, and the version tail is exactly the encoded
@@ -1181,8 +1095,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || (Ranked::from(&v).encode(), v)))
             },
@@ -1190,8 +1102,8 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "ranked_encode_rank",
             prepare: |f| {
-                // The rank-to-bytes emission: the rank fold's
-                // floors plus the mandatory output. Input-denominated:
+                // The rank-to-bytes emission: the rank fold plus the
+                // mandatory output. Input-denominated:
                 // the provenance pin bounds the output within the
                 // encoded input (asserted here, so the bound is
                 // enforced at every family and scale), which makes
@@ -1208,8 +1120,6 @@ pub(super) fn ops() -> Vec<Op> {
                 );
                 let floors = Floors {
                     heap: heap_materializes(encoded_len),
-                    scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || {
                     (Ranked::from(&v).encode_rank(), v)
@@ -1224,15 +1134,11 @@ pub(super) fn ops() -> Vec<Op> {
                 // string itself, input-denominated like every codec row
                 // (the coding is canonical 1:1). The decode's dominant
                 // term is the verifying rank fold over the decoded
-                // version, so the row takes the fold's floors (the
-                // walk decodes the stream and folds every nonzero
-                // delta) plus the materialized owned version.
+                // version, and the owned version materializes.
                 let (v, n) = f.version()?;
                 let bytes = Ranked::from(&v).encode();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
                     Ranked::decode(&bytes[..]).expect("a canonical composite key decodes")
@@ -1244,12 +1150,10 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 // The exact fold walks the whole stream, decodes every
                 // stored code, and folds heights and minima on
-                // accumulators: the rank fold's floor spec exactly.
+                // accumulators, computing in place.
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(n, floors, move || (v.min_ticks(), v)))
             },
@@ -1262,11 +1166,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let mut versions: Vec<Version> =
                     versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
-                let touch = touch_fold_first_merges(&versions);
                 let rest = versions.split_off(1);
                 let receiver = versions.pop()?;
                 Some(fold_model(
-                    Cell::new(n, walk_floors(n, touch), move || receiver.join_all(rest)),
+                    Cell::new(n, in_place(), move || receiver.join_all(rest)),
                     arity,
                 ))
             },
@@ -1275,22 +1178,16 @@ pub(super) fn ops() -> Vec<Op> {
             name: "version_meet_all",
             prepare: |f| {
                 // The meet fold: the join fold's balanced reduction over
-                // the meet emitter, so the same declared fold model and
-                // the same first-level touch floor (the fused pair sweep
-                // walks both operands of every first-level merge; later
-                // levels' groups shrink toward the population's meet and
-                // canonical identity answers equal groups before any
-                // sweep).
+                // the meet emitter, so the same declared fold model applies.
                 let (versions, _) = f.population.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let mut versions: Vec<Version> =
                     versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
-                let touch = touch_fold_first_merges(&versions);
                 let rest = versions.split_off(1);
                 let receiver = versions.pop()?;
                 Some(fold_model(
-                    Cell::new(n, walk_floors(n, touch), move || receiver.meet_all(rest)),
+                    Cell::new(n, in_place(), move || receiver.meet_all(rest)),
                     arity,
                 ))
             },
@@ -1301,15 +1198,14 @@ pub(super) fn ops() -> Vec<Op> {
                 // The hull fold: one balanced reduction carrying both
                 // endpoints, its leaf combines fused (each first-level
                 // pair decoded once for both directions), so the same
-                // declared fold model and first-level touch floor as
-                // the single-direction fold rows apply.
+                // declared fold model as the single-direction fold rows
+                // applies.
                 let (versions, _) = f.population.as_ref()?;
                 let n = versions.iter().map(Vec::len).sum();
                 let versions: Vec<Version> = versions.iter().map(|b| decode_version(b)).collect();
                 let arity = versions.len() as u64;
-                let touch = touch_fold_first_merges(&versions);
                 Some(fold_model(
-                    Cell::new(n, walk_floors(n, touch), move || {
+                    Cell::new(n, in_place(), move || {
                         let hull = versions[0].span_all(&versions[1..]);
                         (hull, versions)
                     }),
@@ -1348,7 +1244,7 @@ pub(super) fn ops() -> Vec<Op> {
                     let p = decode_party(p_bytes);
                     let cell = Cell::io(
                         n,
-                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
+                        in_place(),
                         |r| {
                             let (out, _, _) = r
                                 .downcast_ref::<(Version, Version, Party)>()
@@ -1373,21 +1269,17 @@ pub(super) fn ops() -> Vec<Op> {
                 // event side through its id side, input-denominated (the
                 // `cell` module doc's do-not-re-denominate list).
                 if let Some((v, p, n)) = f.cross() {
-                    return Some(Cell::new(
-                        n,
-                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
-                        move || ((&v / &p).to_version(), v, p),
-                    ));
+                    return Some(Cell::new(n, in_place(), move || {
+                        ((&v / &p).to_version(), v, p)
+                    }));
                 }
                 // Small (half-interval) party × adversarial version.
                 if f.version.is_some() {
                     let (v, n) = f.version()?;
                     let half = Party::seed().fork();
-                    return Some(Cell::new(
-                        n + 1,
-                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
-                        move || ((&v / &half).to_version(), v, half),
-                    ));
+                    return Some(Cell::new(n + 1, in_place(), move || {
+                        ((&v / &half).to_version(), v, half)
+                    }));
                 }
                 // Adversarial party × small version.
                 let (a, _, _) = f.party_pair()?;
@@ -1395,11 +1287,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let mut v = Version::new();
                 v.tick(&a);
                 let input = n + v.encode().len();
-                Some(Cell::new(
-                    input,
-                    walk_floors(input, na(NA_TOUCH_PROJECTION)),
-                    move || ((&v / &a).to_version(), v, a),
-                ))
+                Some(Cell::new(input, in_place(), move || {
+                    ((&v / &a).to_version(), v, a)
+                }))
             },
         },
         Op {
@@ -1424,7 +1314,7 @@ pub(super) fn ops() -> Vec<Op> {
                     };
                 let cell = Cell::io(
                     input_bytes,
-                    walk_floors(input_bytes, na(NA_TOUCH_PROJECTION)),
+                    in_place(),
                     projected_span_output_bytes,
                     move || {
                         let projected = (&span / &party).to_span();
@@ -1488,16 +1378,10 @@ pub(super) fn ops() -> Vec<Op> {
                     let n = np + v.encode().len() + w.encode().len();
                     (v, a, w, n)
                 };
-                let floors = masked_cmp_floors(&(&v / &p).partial_cmp(&w), &v, &w, n);
-                let cell = Cell::new(n, floors, move || {
+                Some(Cell::new(n, in_place(), move || {
                     let ord = (&v / &p).partial_cmp(&w);
                     (ord, v, p, w)
-                });
-                Some(if matches!(f.kind, FamilyId::MaskedHole) {
-                    cell.with_model(Currency::Touch, ModelSpec::fixed(MASKED_HOLE_TOUCH_CEILING))
-                } else {
-                    cell
-                })
+                }))
             },
         },
         Op {
@@ -1557,7 +1441,7 @@ pub(super) fn ops() -> Vec<Op> {
                         (false, false) => return None,
                     }
                 };
-                let floors = masked_cmp_floors(&(&v / &a).partial_cmp(&(&w / &b)), &v, &w, n);
+                let floors = in_place();
                 Some(Cell::new(n, floors, move || {
                     let ord = (&v / &a).partial_cmp(&(&w / &b));
                     (ord, v, a, w, b)
@@ -1570,8 +1454,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: na(NA_SCAN_BYTE_COPY),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
@@ -1584,7 +1466,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "version_shape",
             prepare: |f| {
                 let (version, n) = f.version()?;
-                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                let floors = shape_floors();
                 Some(Cell::new(n, floors, move || {
                     drain_shape(version.shape());
                 }))
@@ -1594,7 +1476,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "shape_combine_pair",
             prepare: |f| {
                 let (left, right, n) = f.version_pair()?;
-                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                let floors = shape_floors();
                 Some(Cell::new(n, floors, move || {
                     drain_shape(shape::combine([&left, &right]));
                 }))
@@ -1619,7 +1501,7 @@ pub(super) fn ops() -> Vec<Op> {
                     .iter()
                     .map(|version| version.as_bytes().len())
                     .sum();
-                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                let floors = shape_floors();
                 Some(Cell::new(n, floors, move || {
                     drain_shape(shape::combine(versions.each_ref()));
                 }))
@@ -1628,11 +1510,8 @@ pub(super) fn ops() -> Vec<Op> {
         Op {
             name: "causally_contains",
             prepare: |f| {
-                // Membership is one-directional, so the floors fork on
-                // the verdict, not on comparability (the constructor's
-                // doc carries the derivation).
                 let (v, w, n) = f.version_pair()?;
-                let floors = membership_floors(&v, &w, n);
+                let floors = in_place();
                 Some(Cell::new(n, floors, move || {
                     let hit = causally::since(&v).contains(&w);
                     (hit, v, w)
@@ -1645,8 +1524,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (version, n) = f.version()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_QUERY_CONSTRUCTION),
-                    scan: na(NA_SCAN_QUERY_CLONE),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || {
                     (causally::strictly_after(version.clone()), version)
@@ -1659,13 +1536,12 @@ pub(super) fn ops() -> Vec<Op> {
         // endpoint is impossible while byte equality holds, so the
         // coincidence rung cannot collapse the walk; and the probe always
         // lies within its own pair's hull, so the verdict is confirming
-        // (full examination of all three streams is forced, and the
-        // full-examination scan floor applies to every family). The
+        // and forces full examination of all three streams. The
         // precedence row's probe re-decodes the meet instead: its watched
         // directions are the mirror pair (probe at-or-below each bound),
         // so only a probe at the span's own floor confirms both and
         // forces the full sweep; an in-hull probe above the meet refutes
-        // `probe <= lo` and legitimately stops the start stream's scan.
+        // `probe <= lo` and legitimately stops reading the start stream.
         Op {
             name: "span_place",
             prepare: |f| {
@@ -1673,14 +1549,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let span = v.span(&w);
                 let probe = decode_version(&v.encode());
                 let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
-                Some(Cell::new(
-                    n,
-                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
-                    move || {
-                        let verdict = span.place(&probe);
-                        (verdict, span, probe)
-                    },
-                ))
+                Some(Cell::new(n, in_place(), move || {
+                    let verdict = span.place(&probe);
+                    (verdict, span, probe)
+                }))
             },
         },
         Op {
@@ -1690,14 +1562,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let span = v.span(&w);
                 let probe = decode_version(&v.encode());
                 let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
-                Some(Cell::new(
-                    n,
-                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
-                    move || {
-                        let verdict = span.dominance(&probe);
-                        (verdict, span, probe)
-                    },
-                ))
+                Some(Cell::new(n, in_place(), move || {
+                    let verdict = span.dominance(&probe);
+                    (verdict, span, probe)
+                }))
             },
         },
         Op {
@@ -1707,14 +1575,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let span = v.span(&w);
                 let probe = decode_version(&span.lo().encode());
                 let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
-                Some(Cell::new(
-                    n,
-                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
-                    move || {
-                        let verdict = span.precedence(&probe);
-                        (verdict, span, probe)
-                    },
-                ))
+                Some(Cell::new(n, in_place(), move || {
+                    let verdict = span.precedence(&probe);
+                    (verdict, span, probe)
+                }))
             },
         },
         Op {
@@ -1724,14 +1588,10 @@ pub(super) fn ops() -> Vec<Op> {
                 let span = v.span(&w);
                 let probe = decode_version(&v.encode());
                 let n = span.lo().encode().len() + span.hi().encode().len() + probe.encode().len();
-                Some(Cell::new(
-                    n,
-                    walk_floors(n, na(NA_TOUCH_PLACEMENT)),
-                    move || {
-                        let verdict = span.contains(&probe);
-                        (verdict, span, probe)
-                    },
-                ))
+                Some(Cell::new(n, in_place(), move || {
+                    let verdict = span.contains(&probe);
+                    (verdict, span, probe)
+                }))
             },
         },
         Op {
@@ -1747,7 +1607,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let probe = decode_version(&v.encode());
                 let n = lo.encode().len() + hi.encode().len() + probe.encode().len();
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         let verdict = {
                             let query = causally::after(&lo) & causally::before(&hi);
                             query.contains(&probe)
@@ -1777,7 +1637,7 @@ pub(super) fn ops() -> Vec<Op> {
                     + span.lo().encode().len()
                     + span.hi().encode().len();
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         let verdict = {
                             let query = causally::delta(&v, &w);
                             query.coverage(span.reborrow())
@@ -1813,7 +1673,7 @@ pub(super) fn ops() -> Vec<Op> {
                     + span.lo().encode().len()
                     + span.hi().encode().len();
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         let verdict = {
                             let query = causally::after(&w) & causally::before(&v);
                             query.coverage(span.reborrow())
@@ -1832,18 +1692,17 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let operands = query_membership_operands(f)?;
                 let n = operands.input_bytes;
-                let work = operands.touch_work;
+                let work = operands.work;
                 let query = Query::<Up>::from_inclusive_holes(operands.holes);
                 let probe = operands.endpoint;
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         (query.contains(&probe), query, probe)
                     })
                     .with_model(
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
                     )
-                    .with_model(Currency::Touch, ModelSpec::work(work))
                     // The work units lie within the documented `O(k·n)` time
                     // bound.
                     .with_model(Currency::Fuel, ModelSpec::work(work)),
@@ -1858,18 +1717,17 @@ pub(super) fn ops() -> Vec<Op> {
                     .lower
                     .expect("coverage operands include a lower endpoint");
                 let n = operands.input_bytes;
-                let work = operands.touch_work;
+                let work = operands.work;
                 let query = Query::<Down>::from_inclusive_holes(operands.holes);
                 let span = lo.span(&operands.endpoint);
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         (query.coverage(span.reborrow()), query, span)
                     })
                     .with_model(
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
                     )
-                    .with_model(Currency::Touch, ModelSpec::work(work))
                     // The work units lie within the documented `O(k·n)` time
                     // bound.
                     .with_model(Currency::Fuel, ModelSpec::work(work)),
@@ -1887,18 +1745,16 @@ pub(super) fn ops() -> Vec<Op> {
                     Some(3),
                 );
                 let n = operands.input_bytes;
-                let work = operands.touch_work;
                 let query = Query::<Up>::from_inclusive_holes(operands.holes);
                 let probe = operands.endpoint;
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         (query.contains(&probe), query, probe)
                     })
                     .with_model(
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
-                    )
-                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                    ),
                 )
             },
         },
@@ -1913,18 +1769,16 @@ pub(super) fn ops() -> Vec<Op> {
                     Some(3),
                 );
                 let n = operands.input_bytes;
-                let work = operands.touch_work;
                 let query = Query::<Down>::from_inclusive_holes(operands.holes);
                 let probe = operands.endpoint;
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         (query.contains(&probe), query, probe)
                     })
                     .with_model(
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
-                    )
-                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                    ),
                 )
             },
         },
@@ -1942,18 +1796,16 @@ pub(super) fn ops() -> Vec<Op> {
                     .lower
                     .expect("coverage operands include a lower endpoint");
                 let n = operands.input_bytes;
-                let work = operands.touch_work;
                 let query = Query::<Down>::from_inclusive_holes(operands.holes);
                 let span = lo.span(&operands.endpoint);
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         (query.coverage(span.reborrow()), query, span)
                     })
                     .with_model(
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
-                    )
-                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                    ),
                 )
             },
         },
@@ -1971,18 +1823,16 @@ pub(super) fn ops() -> Vec<Op> {
                     .lower
                     .expect("coverage operands include a lower endpoint");
                 let n = operands.input_bytes;
-                let work = operands.touch_work;
                 let query = Query::<Up>::from_inclusive_holes(operands.holes);
                 let span = lo.span(&operands.endpoint);
                 Some(
-                    Cell::new(n, walk_floors(n, na(NA_TOUCH_PLACEMENT)), move || {
+                    Cell::new(n, in_place(), move || {
                         (query.coverage(span.reborrow()), query, span)
                     })
                     .with_model(
                         Currency::Heap,
                         ModelSpec::ceiling(QUERY_EVALUATION_HEAP_BYTES_PER_INPUT_BYTE),
-                    )
-                    .with_model(Currency::Touch, ModelSpec::work(work)),
+                    ),
                 )
             },
         },
@@ -2020,13 +1870,9 @@ pub(super) fn ops() -> Vec<Op> {
                 let right = Query::<Down>::from_inclusive_holes(right_holes);
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_touch(),
-                    touch: na(NA_TOUCH_PLACEMENT),
                 };
                 Some(
                     Cell::new(n, floors, move || left & right)
-                        .with_model(Currency::Scan, ModelSpec::work(work))
-                        .with_model(Currency::Touch, ModelSpec::work(work))
                         // The work units lie within the documented
                         // `O(n(k + m + 1))` time bound.
                         .with_model(Currency::Fuel, ModelSpec::work(work)),
@@ -2045,8 +1891,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let query = Query::<Down>::from_inclusive_holes(holes);
                 let floors = Floors {
                     heap: na(NA_HEAP_QUERY_CLONE),
-                    scan: na(NA_SCAN_QUERY_CLONE),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (query.clone(), query)))
             },
@@ -2059,8 +1903,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = a.len() + b.len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     (decode_party(&a), decode_party(&b))
@@ -2074,8 +1916,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: na(NA_SCAN_BYTE_COPY),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || (a.encode(), a)))
             },
@@ -2089,8 +1929,6 @@ pub(super) fn ops() -> Vec<Op> {
                     n,
                     Floors {
                         heap: heap_materializes(n * 2),
-                        scan: na(NA_SCAN_BYTE_COPY),
-                        touch: na(NA_TOUCH_ID_TREE),
                     },
                     hex_text_output_bytes,
                     move || (party.to_string(), party),
@@ -2107,8 +1945,6 @@ pub(super) fn ops() -> Vec<Op> {
                     text.len(),
                     Floors {
                         heap: heap_materializes(n),
-                        scan: scan_examines(n),
-                        touch: na(NA_TOUCH_ID_TREE),
                     },
                     move || {
                         text.parse::<Party>()
@@ -2137,12 +1973,6 @@ pub(super) fn ops() -> Vec<Op> {
                         min: child_bytes,
                         why: WHY_HEAP_FORK_HALF,
                     },
-                    scan: if a.is_seed() {
-                        na(NA_SCAN_SEED_PARTY)
-                    } else {
-                        scan_touch()
-                    },
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     let child = a.fork();
@@ -2167,12 +1997,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(child_bytes),
-                    scan: if party.is_seed() {
-                        na(NA_SCAN_SEED_PARTY)
-                    } else {
-                        scan_touch()
-                    },
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(party_bytes + count_bytes, floors, move || {
                     let first = {
@@ -2194,11 +2018,11 @@ pub(super) fn ops() -> Vec<Op> {
                 // The caller chooses whether to collect the iterator. Reserve
                 // the board's retained-result slots outside measurement.
                 let mut children = Vec::with_capacity(child_count);
-                // A borrowing drain may scan the stored party once per child;
+                // A borrowing drain may read the stored party once per child;
                 // count bookkeeping is bounded by the count's own width. This
                 // is the public `k (D + log k)` bound expressed in byte units,
-                // and it bounds the drain's time, so fuel fits against it too.
-                let scan_work = (child_count as u64)
+                // and it bounds the drain's time, which fuel fits against.
+                let work = (child_count as u64)
                     .checked_mul(input_bytes as u64)
                     .expect("the board's fork work model fits in a u64");
                 let floors = Floors {
@@ -2206,8 +2030,6 @@ pub(super) fn ops() -> Vec<Op> {
                     // collapses shorten them, at least one encoded byte per
                     // share must be materialized.
                     heap: heap_materializes(arity),
-                    scan: scan_touch(),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(
                     Cell::io(
@@ -2228,8 +2050,7 @@ pub(super) fn ops() -> Vec<Op> {
                             (party, children)
                         },
                     )
-                    .with_model(Currency::Scan, ModelSpec::work(scan_work))
-                    .with_model(Currency::Fuel, ModelSpec::work(scan_work)),
+                    .with_model(Currency::Fuel, ModelSpec::work(work)),
                 )
             },
         },
@@ -2258,8 +2079,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(child_bytes),
-                    scan: scan_touch(),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 // A count `w` bits wide gives the first share a path about
                 // `w` levels deep, and the residual party keeps the sibling
@@ -2301,12 +2120,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(output_bytes),
-                    scan: if party.is_seed() {
-                        na(NA_SCAN_SEED_PARTY)
-                    } else {
-                        scan_touch()
-                    },
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::io(
                     n,
@@ -2329,8 +2142,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (mut a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     let joined = a.join(b).is_ok();
@@ -2349,8 +2160,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let rest: Vec<Party> = parties.collect();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(fold_model(
                     Cell::new(n, floors, move || {
@@ -2369,15 +2178,8 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_touch(),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
-                Some(
-                    Cell::new(n, floors, move || (a.covers(&b), a, b)).with_model(
-                        Currency::Scan,
-                        ModelSpec::ceiling(PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE),
-                    ),
-                )
+                Some(Cell::new(n, floors, move || (a.covers(&b), a, b)))
             },
         },
         Op {
@@ -2386,15 +2188,8 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, b, n) = f.party_pair()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
-                Some(
-                    Cell::new(n, floors, move || (a.is_disjoint(&b), a, b)).with_model(
-                        Currency::Scan,
-                        ModelSpec::ceiling(PARTY_COMPARISON_SCAN_BITS_PER_INPUT_BYTE),
-                    ),
-                )
+                Some(Cell::new(n, floors, move || (a.is_disjoint(&b), a, b)))
             },
         },
         Op {
@@ -2404,8 +2199,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(_, b)| b.len())?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n + 1, floors, move || {
                     (Party::seed().without(&b), b)
@@ -2419,8 +2212,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = f.parties.as_ref().map(|(a, _)| a.len())?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: na(NA_SCAN_BYTE_COPY),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
@@ -2434,7 +2225,7 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 let (party, _, _) = f.party_pair()?;
                 let n = party.as_bytes().len();
-                let floors = shape_floors(n, na(NA_TOUCH_ID_TREE));
+                let floors = shape_floors();
                 Some(Cell::new(n, floors, move || {
                     drain_shape(party.shape());
                 }))
@@ -2448,8 +2239,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = clock.encode();
                 let floors = Floors {
                     heap: heap_materializes(bytes.len()),
-                    scan: scan_examines(bytes.len()),
-                    touch: touch_wide_stream(clock.version()),
                 };
                 Some(Cell::new(bytes.len(), floors, move || {
                     Clock::decode(&bytes[..]).expect("an encoded clock decodes back")
@@ -2462,8 +2251,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: na(NA_SCAN_BYTE_COPY),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || (clock.encode(), clock)))
             },
@@ -2474,7 +2261,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // The tick-walk families tick their own (id, event)
                 // clock; they reach no other clock row.
                 if let Some((v, p, n)) = f.cross() {
-                    let floors = tick_walk_floors(&v, n);
+                    let floors = in_place();
                     let mut clock = Clock::from_parts(p, v);
                     return Some(Cell::new(n, floors, move || {
                         clock.tick();
@@ -2482,15 +2269,7 @@ pub(super) fn ops() -> Vec<Op> {
                     }));
                 }
                 let (mut clock, n) = f.clock()?;
-                // A version-bearing shape's clock ticks its seed party (an
-                // in-place raise); the id pair's clock ticks an empty
-                // version (pure growth). Neither runs the accumulator.
-                let touch = if clock.version().is_empty() {
-                    na(NA_TOUCH_GROW)
-                } else {
-                    na(NA_TOUCH_SEED_RAISE)
-                };
-                Some(Cell::new(n, walk_floors(n, touch), move || {
+                Some(Cell::new(n, in_place(), move || {
                     clock.tick();
                     clock
                 }))
@@ -2502,12 +2281,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (mut clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_FORK_SHARES),
-                    scan: if clock.party().is_seed() {
-                        na(NA_SCAN_SEED_PARTY)
-                    } else {
-                        scan_touch()
-                    },
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || {
                     let child = clock.fork();
@@ -2532,12 +2305,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(child_bytes),
-                    scan: if clock.party().is_seed() {
-                        na(NA_SCAN_SEED_PARTY)
-                    } else {
-                        scan_touch()
-                    },
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n + count_bytes, floors, move || {
                     let first = {
@@ -2561,17 +2328,15 @@ pub(super) fn ops() -> Vec<Op> {
                 // reserved before the heap baseline.
                 let mut children = Vec::with_capacity(child_count);
                 // Clock delegates partitioning to Party. Its shared empty
-                // Version is neither scanned nor copied, so the scan model is
+                // Version is neither read nor copied, so the work model is
                 // the same `k (D + log k)` bound over party and count bytes,
-                // and fuel fits against it too, since it bounds the time.
-                let scan_work = (child_count as u64)
+                // which bounds the time fuel fits against.
+                let work = (child_count as u64)
                     .checked_mul((party_bytes + count_bytes) as u64)
                     .expect("the board's fork work model fits in a u64");
                 let mut clock = Clock::from_parts(party, Version::new());
                 let floors = Floors {
                     heap: heap_materializes(arity),
-                    scan: scan_touch(),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(
                     Cell::io(
@@ -2592,8 +2357,7 @@ pub(super) fn ops() -> Vec<Op> {
                             (clock, children)
                         },
                     )
-                    .with_model(Currency::Scan, ModelSpec::work(scan_work))
-                    .with_model(Currency::Fuel, ModelSpec::work(scan_work)),
+                    .with_model(Currency::Fuel, ModelSpec::work(work)),
                 )
             },
         },
@@ -2611,12 +2375,6 @@ pub(super) fn ops() -> Vec<Op> {
                 };
                 let floors = Floors {
                     heap: heap_materializes(output_party_bytes),
-                    scan: if clock.party().is_seed() {
-                        na(NA_SCAN_SEED_PARTY)
-                    } else {
-                        scan_touch()
-                    },
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::io(
                     party_bytes,
@@ -2637,8 +2395,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "clock_join",
             prepare: |f| {
                 let (mut a, b, n) = f.clock_pair()?;
-                let touch = touch_pair_fold(a.version(), b.version());
-                Some(Cell::new(n, walk_floors(n, touch), move || {
+                Some(Cell::new(n, in_place(), move || {
                     let joined = a.join(b).is_ok();
                     (joined, a)
                 }))
@@ -2648,11 +2405,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "clock_sync",
             prepare: |f| {
                 let (mut a, mut b, n) = f.clock_pair()?;
-                // Not the shared full-examination premise: the fused
-                // sync's party leg splices subtrees owned by one side
-                // alone without reading them, so its floors derive from
-                // the version join alone (`sync_floors`).
-                let floors = sync_floors(a.version(), b.version());
+                let floors = in_place();
                 Some(Cell::new(n, floors, move || {
                     let synced = a.sync(&mut b).is_ok();
                     (synced, a, b)
@@ -2669,11 +2422,6 @@ pub(super) fn ops() -> Vec<Op> {
                     .take(arity)
                     .map(|bytes| decode_version(bytes))
                     .collect();
-                let version_bytes: usize = versions
-                    .iter()
-                    .map(|version| version.as_bytes().len())
-                    .sum();
-                let touch = touch_fold_first_merges(&versions);
                 let mut clocks: Vec<Clock> = versions
                     .into_iter()
                     .zip(parties.iter().take(arity).map(|bytes| decode_party(bytes)))
@@ -2689,11 +2437,6 @@ pub(super) fn ops() -> Vec<Op> {
                     // reducing them, so the heap meter must observe arity even
                     // when the canonical result becomes small.
                     heap: heap_materializes(arity),
-                    // Every input version participates in the version fold;
-                    // party joins may splice exclusive subtrees without
-                    // reading their interiors.
-                    scan: scan_examines(version_bytes),
-                    touch,
                 };
                 Some(fold_model(
                     Cell::io(
@@ -2727,8 +2470,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // Small clock × adversarial received version.
                 if let Some((v, n)) = f.version() {
                     let mut clock = Clock::seed();
-                    let touch = touch_delta_fold(stored_nonzero_deltas(&v));
-                    return Some(Cell::new(n + 2, walk_floors(n, touch), move || {
+                    return Some(Cell::new(n + 2, in_place(), move || {
                         clock.recv(&v);
                         (clock, v)
                     }));
@@ -2739,8 +2481,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let mut clock = Clock::from_parts(a, Version::new());
                 let mut msg = Version::new();
                 msg.tick(&Party::seed());
-                let touch = touch_delta_fold(stored_nonzero_deltas(&msg));
-                Some(Cell::new(n + 2, walk_floors(n, touch), move || {
+                Some(Cell::new(n + 2, in_place(), move || {
                     clock.recv(&msg);
                     (clock, msg)
                 }))
@@ -2755,7 +2496,6 @@ pub(super) fn ops() -> Vec<Op> {
                     .map(|bytes| decode_version(bytes))
                     .collect();
                 let arity = versions.len() as u64;
-                let touch = touch_fold_first_merges(&versions);
                 let mut versions = versions.into_iter();
                 let receiver_version = versions.next()?;
                 let messages: Vec<Version> = versions.collect();
@@ -2768,7 +2508,7 @@ pub(super) fn ops() -> Vec<Op> {
                     + party.as_bytes().len();
                 let mut clock = Clock::from_parts(party, receiver_version);
                 Some(fold_model(
-                    Cell::new(input_bytes, walk_floors(input_bytes, touch), move || {
+                    Cell::new(input_bytes, in_place(), move || {
                         clock.recv_all(&messages);
                         (clock, messages)
                     }),
@@ -2792,7 +2532,7 @@ pub(super) fn ops() -> Vec<Op> {
                     let clock = Clock::from_parts(decode_party(p_bytes), decode_version(v_bytes));
                     let cell = Cell::io(
                         n,
-                        walk_floors(n, na(NA_TOUCH_PROJECTION)),
+                        in_place(),
                         |r| {
                             let (out, _) = r
                                 .downcast_ref::<(Version, Clock)>()
@@ -2812,21 +2552,10 @@ pub(super) fn ops() -> Vec<Op> {
                     });
                 }
                 let (clock, n) = f.clock()?;
-                // The whole-interval party's projection is the version
-                // itself, handed back as a buffer-sharing clone, so no
-                // stream walk is forced for a seed clock; any other
-                // party runs the projection walk whole.
-                let scan = if clock.party().is_seed() {
-                    na(NA_SCAN_SEED_PROJECTION)
-                } else {
-                    scan_examines(n)
-                };
                 Some(Cell::new(
                     n,
                     Floors {
                         heap: na(NA_HEAP_IN_PLACE),
-                        scan,
-                        touch: na(NA_TOUCH_PROJECTION),
                     },
                     move || (clock.own_version().to_version(), clock),
                 ))
@@ -2838,8 +2567,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, n) = f.clock()?;
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
-                    scan: na(NA_SCAN_BYTE_COPY),
-                    touch: na(NA_TOUCH_NOT_FORCED),
                 };
                 Some(Cell::new(n, floors, move || {
                     let mut hasher = DefaultHasher::new();
@@ -2852,7 +2579,7 @@ pub(super) fn ops() -> Vec<Op> {
             name: "clock_shape",
             prepare: |f| {
                 let (clock, n) = f.clock()?;
-                let floors = shape_floors(n, na(NA_TOUCH_NOT_FORCED));
+                let floors = shape_floors();
                 Some(Cell::new(n, floors, move || {
                     drain_shape(clock.shape());
                 }))
@@ -2865,7 +2592,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = f.version.clone()?;
                 let fed = truncated_bytes(&bytes);
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Version::decode(&fed[..]).expect_err("a truncated stream is rejected");
@@ -2883,7 +2610,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = f.version.clone()?;
                 let fed = trailing_bytes(&bytes);
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Version::decode(&fed[..]).expect_err("a trailing-bits stream is rejected");
@@ -2901,7 +2628,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (v, _) = f.version()?;
                 let fed = version_noncanonical_bytes(&v);
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Version::decode(&fed[..]).expect_err("a non-canonical tail is rejected");
@@ -2920,7 +2647,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = v.span(&w).encode();
                 let fed = truncated_bytes(&bytes);
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Span::decode(&fed[..]).expect_err("a truncated composite is rejected");
@@ -2939,7 +2666,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = v.span(&w).encode();
                 let fed = trailing_bytes(&bytes);
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Span::decode(&fed[..]).expect_err("a trailing-bits composite is rejected");
@@ -2963,7 +2690,7 @@ pub(super) fn ops() -> Vec<Op> {
                 assert_ne!(lo, hi, "a crossed witness needs a strictly ordered hull");
                 let fed = [hi.encode(), lo.encode()].concat();
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_CROSSED);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err = Span::decode(&fed[..]).expect_err("a crossed composite is rejected");
                     assert!(
@@ -2980,7 +2707,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
                 let fed = truncated_bytes(&bytes);
                 let n = fed.len();
-                let floors = id_rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err = Party::decode(&fed[..]).expect_err("a truncated stream is rejected");
                     assert!(
@@ -2997,7 +2724,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
                 let fed = trailing_bytes(&bytes);
                 let n = fed.len();
-                let floors = id_rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Party::decode(&fed[..]).expect_err("a trailing-bits stream is rejected");
@@ -3015,7 +2742,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a, _, _) = f.party_pair()?;
                 let fed = party_noncanonical_bytes(&a);
                 let n = fed.len();
-                let floors = id_rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Party::decode(&fed[..]).expect_err("a non-canonical tail is rejected");
@@ -3033,7 +2760,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, _) = f.clock()?;
                 let fed = truncated_bytes(&clock.encode());
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err = Clock::decode(&fed[..]).expect_err("a truncated stream is rejected");
                     assert!(
@@ -3050,7 +2777,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let (clock, _) = f.clock()?;
                 let fed = trailing_bytes(&clock.encode());
                 let n = fed.len();
-                let floors = rejection_floors(n, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let err =
                         Clock::decode(&fed[..]).expect_err("a trailing-bits stream is rejected");
@@ -3074,8 +2801,6 @@ pub(super) fn ops() -> Vec<Op> {
                 fed.pop();
                 let floors = Floors {
                     heap: na(NA_HEAP_REJECTION),
-                    scan: na(NA_SCAN_RANK_BYTES),
-                    touch: na(NA_TOUCH_RANK_ARITHMETIC),
                 };
                 Some(Cell::new(fed.len(), floors, move || {
                     let err = Rank::decode(&fed[..]).expect_err("a truncated rank is rejected");
@@ -3092,14 +2817,11 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 // The family version's composite key cut short in its
                 // version component, the key's tail: the decoder parses the
-                // rank prefix and the version to the cut. The scan floor
-                // counts the version component's fed bytes alone, since the
-                // rank prefix is read outside the metered stream primitives.
+                // rank prefix and the version to the cut.
                 let (v, _) = f.version()?;
                 let ranked = Ranked::from(&v);
-                let rank_bytes = ranked.encode_rank().len();
                 let fed = truncated_bytes(&ranked.encode());
-                let floors = rejection_floors(fed.len() - rank_bytes, WHY_SCAN_REJECT_END);
+                let floors = rejection();
                 Some(Cell::new(fed.len(), floors, move || {
                     let err =
                         Ranked::decode(&fed[..]).expect_err("a truncated composite is rejected");
@@ -3120,15 +2842,13 @@ pub(super) fn ops() -> Vec<Op> {
                 // of positive width, so the two ranks differ, and the
                 // decoder can reject only after it has parsed both
                 // components and ranked the version: the latest-detected
-                // rejection the format has. The rank fold takes its floors.
-                let (v, n) = f.version()?;
+                // rejection the format has.
+                let (v, _) = f.version()?;
                 let mut ticked = v.clone();
                 ticked.tick(&Party::seed());
                 let fed = [ticked.rank().encode(), v.encode()].concat();
                 let floors = Floors {
                     heap: na(NA_HEAP_REJECTION),
-                    scan: scan_examines(n),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&v)),
                 };
                 Some(Cell::new(fed.len(), floors, move || {
                     let err = Ranked::decode(&fed[..])
@@ -3148,7 +2868,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = a_bytes.len() + b_bytes.len();
                 let mut a = decode_party(&a_bytes);
                 let b = decode_party(&b_bytes);
-                let floors = id_rejection_floors(n, WHY_SCAN_OVERLAP_END);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let back = a
                         .join(b)
@@ -3163,8 +2883,8 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a_bytes, b_bytes) = f.overlap.clone()?;
                 let id_bytes = a_bytes.len() + b_bytes.len();
                 // Versions ride along where the bundle has them (empty
-                // otherwise); rejection does no version work (the party
-                // join is the gate), so the scan floor covers the ids.
+                // otherwise); rejection does no version work, since the
+                // party join is the gate.
                 let (v, w, nv) = match f.version_pair() {
                     Some(pair) => pair,
                     None => (Version::new(), Version::new(), 2),
@@ -3172,7 +2892,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = id_bytes + nv;
                 let mut a = Clock::from_parts(decode_party(&a_bytes), v);
                 let b = Clock::from_parts(decode_party(&b_bytes), w);
-                Some(Cell::new(n, clock_overlap_floors(id_bytes), move || {
+                Some(Cell::new(n, rejection(), move || {
                     let back = a
                         .join(b)
                         .expect_err("the overlap-mounted pair must be rejected");
@@ -3192,7 +2912,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = id_bytes + nv;
                 let mut a = Clock::from_parts(decode_party(&a_bytes), v);
                 let mut b = Clock::from_parts(decode_party(&b_bytes), w);
-                Some(Cell::new(n, clock_overlap_floors(id_bytes), move || {
+                Some(Cell::new(n, rejection(), move || {
                     let err = a
                         .sync(&mut b)
                         .expect_err("the overlap-mounted pair must be rejected");
@@ -3209,7 +2929,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let n = bytes.len() * 2;
                 let a = decode_party(&bytes);
                 let b = decode_party(&bytes);
-                let floors = id_rejection_floors(n, WHY_SCAN_EXAMINES);
+                let floors = rejection();
                 Some(Cell::new(n, floors, move || {
                     let gone = a.without(&b);
                     assert!(gone.is_none(), "removing a covering region leaves nothing");
@@ -3237,8 +2957,6 @@ pub(super) fn ops() -> Vec<Op> {
                     .len();
                 let floors = Floors {
                     heap: heap_materializes(remainder_bytes),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(Cell::new(n, floors, move || (a.without(&b), b)))
             },
@@ -3266,15 +2984,6 @@ fn rank_content_bytes(rank: &Rank) -> usize {
 /// The logical value width of two rank operands, rounded up to bytes.
 fn rank_pair_bytes(a: &Rank, b: &Rank) -> usize {
     (a.content_bits() + b.content_bits()).div_ceil(8) as usize
-}
-
-/// Resource floors shared by operations over decoded ranks.
-fn rank_floors(heap: Liveness) -> Floors {
-    Floors {
-        heap,
-        scan: na(NA_SCAN_NO_STREAM),
-        touch: na(NA_TOUCH_RANK_ARITHMETIC),
-    }
 }
 
 /// Read the rendered text length from a rank-formatting result.
@@ -3313,15 +3022,6 @@ fn count_input_bytes(count: &Count) -> usize {
 /// Bytes needed to store a count's significant bits.
 fn count_value_bytes(count: &Count) -> usize {
     count.0.bits().div_ceil(8) as usize
-}
-
-/// Resource floors shared by operations over [`Count`] values.
-fn count_floors(heap: Liveness) -> Floors {
-    Floors {
-        heap,
-        scan: na(NA_SCAN_COUNT),
-        touch: na(NA_TOUCH_COUNT),
-    }
 }
 
 /// Heap floor for a count result of `output_bytes` significant bytes.
@@ -3449,8 +3149,6 @@ fn serde_decode_ops() -> [Op; 7] {
                 let n = bytes.len();
                 let floors = Floors {
                     heap: na(OWNED_INPUT),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(
                     Cell::new(n, floors, move || serde_from_owned_bytes::<Party>(bytes))
@@ -3466,11 +3164,8 @@ fn serde_decode_ops() -> [Op; 7] {
             prepare: |f| {
                 let bytes = f.version.clone()?;
                 let n = bytes.len();
-                let version = decode_version(&bytes);
                 let floors = Floors {
                     heap: na(OWNED_INPUT),
-                    scan: scan_examines(n),
-                    touch: touch_wide_stream(&version),
                 };
                 Some(
                     Cell::new(n, floors, move || serde_from_owned_bytes::<Version>(bytes))
@@ -3489,8 +3184,6 @@ fn serde_decode_ops() -> [Op; 7] {
                 let n = bytes.len();
                 let floors = Floors {
                     heap: na(SPLIT_INPUT),
-                    scan: scan_examines(n),
-                    touch: touch_wide_stream(clock.version()),
                 };
                 Some(
                     Cell::new(n, floors, move || serde_from_owned_bytes::<Clock>(bytes))
@@ -3507,7 +3200,9 @@ fn serde_decode_ops() -> [Op; 7] {
                 let (rank, _) = f.rank_pair.clone()?;
                 let bytes = rank.encode();
                 let n = bytes.len();
-                let floors = rank_floors(heap_materializes(rank_numerator_bytes(&rank)));
+                let floors = Floors {
+                    heap: heap_materializes(rank_numerator_bytes(&rank)),
+                };
                 Some(
                     Cell::new(n, floors, move || serde_from_owned_bytes::<Rank>(bytes)).with_model(
                         Currency::Heap,
@@ -3523,8 +3218,6 @@ fn serde_decode_ops() -> [Op; 7] {
                 let bytes = Ranked::from(&version).encode();
                 let floors = Floors {
                     heap: na(SPLIT_INPUT),
-                    scan: scan_examines(bytes.len()),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&version)),
                 };
                 Some(
                     Cell::new(bytes.len(), floors, move || {
@@ -3544,11 +3237,8 @@ fn serde_decode_ops() -> [Op; 7] {
                 let span = v.span(&w);
                 let bytes = span.encode();
                 let n = bytes.len();
-                let (lo, hi) = span.into_parts();
                 let floors = Floors {
                     heap: na(SPLIT_INPUT),
-                    scan: scan_examines(n),
-                    touch: touch_pair_fold(&lo, &hi),
                 };
                 Some(
                     Cell::new(n, floors, move || {
@@ -3571,7 +3261,9 @@ fn serde_decode_ops() -> [Op; 7] {
                 let n = count_input_bytes(&count);
                 Some(Cell::new(
                     n,
-                    count_floors(count_heap_floor(count_value_bytes(&count))),
+                    Floors {
+                        heap: count_heap_floor(count_value_bytes(&count)),
+                    },
                     move || serde_count_from_limbs(limbs),
                 ))
             },
@@ -3590,8 +3282,6 @@ fn borsh_decode_ops() -> [Op; 7] {
                 let n = bytes.len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(n),
-                    touch: na(NA_TOUCH_ID_TREE),
                 };
                 Some(
                     Cell::new(n, floors, move || {
@@ -3610,11 +3300,8 @@ fn borsh_decode_ops() -> [Op; 7] {
             prepare: |f| {
                 let bytes = f.version.clone()?;
                 let n = bytes.len();
-                let version = decode_version(&bytes);
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(n),
-                    touch: touch_wide_stream(&version),
                 };
                 Some(
                     Cell::new(n, floors, move || {
@@ -3636,8 +3323,6 @@ fn borsh_decode_ops() -> [Op; 7] {
                 let n = bytes.len();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(n),
-                    touch: touch_wide_stream(clock.version()),
                 };
                 Some(
                     Cell::new(n, floors, move || {
@@ -3657,7 +3342,9 @@ fn borsh_decode_ops() -> [Op; 7] {
                 let (rank, _) = f.rank_pair.clone()?;
                 let bytes = rank.encode();
                 let n = bytes.len();
-                let floors = rank_floors(heap_materializes(rank_numerator_bytes(&rank)));
+                let floors = Floors {
+                    heap: heap_materializes(rank_numerator_bytes(&rank)),
+                };
                 Some(
                     Cell::new(n, floors, move || {
                         Rank::try_from_slice(&bytes)
@@ -3677,8 +3364,6 @@ fn borsh_decode_ops() -> [Op; 7] {
                 let bytes = Ranked::from(&version).encode();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(bytes.len()),
-                    touch: touch_delta_fold(stored_nonzero_deltas(&version)),
                 };
                 Some(
                     Cell::new(bytes.len(), floors, move || {
@@ -3699,11 +3384,8 @@ fn borsh_decode_ops() -> [Op; 7] {
                 let span = v.span(&w);
                 let bytes = span.encode();
                 let n = bytes.len();
-                let (lo, hi) = span.into_parts();
                 let floors = Floors {
                     heap: heap_materializes(n),
-                    scan: scan_examines(n),
-                    touch: touch_pair_fold(&lo, &hi),
                 };
                 Some(
                     Cell::new(n, floors, move || {
@@ -3728,7 +3410,9 @@ fn borsh_decode_ops() -> [Op; 7] {
                 let n = bytes.len();
                 Some(Cell::new(
                     n,
-                    count_floors(count_heap_floor(count_value_bytes(&count))),
+                    Floors {
+                        heap: count_heap_floor(count_value_bytes(&count)),
+                    },
                     move || {
                         Count::try_from_slice(&bytes)
                             .expect("board-generated Count limbs are canonical")

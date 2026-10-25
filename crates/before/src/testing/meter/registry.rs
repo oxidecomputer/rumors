@@ -633,8 +633,7 @@ pub enum FamilyId {
     /// floor, and the left-leaning spine closes each site's frame back into the
     /// floor frame between consecutive consumes: the width-`s` boundary
     /// difference is created at every consume and popped at every close. The
-    /// gate pins its touch cost in `tests/meter.rs`. The designated cross of
-    /// the two tick rows.
+    /// designated cross of the two tick rows.
     RevealComb,
     /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
     /// reveal-comb id.
@@ -654,9 +653,8 @@ pub enum FamilyId {
     ///
     /// `s` ascending wide leaves stack `s − 1` nonzero unit boundary
     /// differences and a terminal 0-cliff drives one width-`s` undercut residue
-    /// through all of them — the cascade whose per-hop fold direction the gate
-    /// pins in `tests/meter.rs` price in the touch currency these columns do
-    /// not carry. The designated cross of the two tick rows.
+    /// through all of them, the cascade whose per-hop fold direction the
+    /// focused fuel claims judge. The designated cross of the two tick rows.
     AscendCliff,
     /// The ascending-cliff control: `ascend_cliff_plateau(s, s)` × the
     /// ascending-cliff id.
@@ -715,9 +713,9 @@ pub enum FamilyId {
     /// event — the position weight is topology, so no code funds the gap — and
     /// every cancellation makes the accumulator's top settle back across the
     /// never-written gap. A settlement scan that steps the gap digit by digit
-    /// goes quadratic here; crossing the never-written gap in one step per
-    /// jump reads flat (`skyline_rank_weight_comb_is_flat_per_unit`).
-    /// Designed against the numeric-measure rows.
+    /// goes quadratic here; crossing the never-written gap in one step per jump
+    /// reads flat (the board's `version_rank` cell on this family). Designed
+    /// against the numeric-measure rows.
     WeightComb,
     /// The freeze-parade spine `freeze_parade(k)`: the deep-segment freeze
     /// sentinel.
@@ -728,9 +726,9 @@ pub enum FamilyId {
     /// segment read starts `Θ(k)` digits up. The accumulator's write watermark
     /// prices each read at the segment's written span; a scaled read that
     /// starts at digit 0 walks the never-written prefix per freeze and goes
-    /// quadratic in accumulator touches; the watermark stays flat in
-    /// `skyline_rank_freeze_parade_is_flat_per_unit`. The freeze-position
-    /// spine prices the numeric fold's
+    /// quadratic in accumulator digit operations; the watermark stays flat on
+    /// the board's `version_rank` cell. The freeze-position spine prices the
+    /// numeric fold's
     /// per-freeze accounting; this family prices the accumulator's read side
     /// under the same schedule. Designed against the numeric-measure rows.
     FreezeParade,
@@ -746,9 +744,8 @@ pub enum FamilyId {
     /// repeating those suffix walks. The mate is the same topology at unit
     /// bases, and the wide operand dominates it pointwise, so the pair rows run
     /// the co-sweep whose freezes and promotions fire on drift only the wide
-    /// operand deposited (the dense-suffix rank and distance bands in
-    /// `tests/meter/version_scaling/skip_adequacy.rs` carry the enforcement).
-    /// Designed against the numeric-measure rows.
+    /// operand deposited (the board's rank and distance cells on this family
+    /// judge it in fuel). Designed against the numeric-measure rows.
     DenseSuffix,
     /// Combines one wide counter change with a dense suffix.
     ///
@@ -780,10 +777,10 @@ pub enum FamilyId {
     /// prefix, and a segment feed or close read that is not amortized O(1) per
     /// interval scales with the tail, while the family's funded wide codes stay
     /// O(1). Exactly one freeze and no deferral occurs, so the column also
-    /// prices the settle's smallest nonempty configuration. The lone-freeze
-    /// bands in `tests/meter/version_scaling/freeze_schedules.rs` isolate each
-    /// axis at the generator minimum and carry the enforcement; the column
-    /// scales both together. Designed against the numeric-measure rows.
+    /// prices the settle's smallest nonempty configuration. The board column
+    /// scales both axes together, so a regression on either reads on its
+    /// doubling.
+    /// Designed against the numeric-measure rows.
     LoneFreeze,
     /// The concurrent pair `concurrent_pair(n)`: the emit side-switch density
     /// population.
@@ -801,14 +798,12 @@ pub enum FamilyId {
     /// same boundary, then reads `sign(D)` once per remaining boundary with no
     /// intervening write. Exact-`top` maintenance prices each read at the
     /// settled value's own width; a high-water bound re-walks the spike's `g`
-    /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the
-    /// `skyline_cmp_tooth_tail_is_flat_per_unit` carries both readings). Every
-    /// overlay boundary is shared by both operands and almost every stored
-    /// delta is zero, so the pair also witnesses the lowest required touch
-    /// count (the board floor module's `touch_pair_fold`): a conforming sweep
-    /// is forced to fold only the three nonzero deltas per operand, and the
-    /// measured per-boundary sign-read traffic sits far above that floor as
-    /// implementation, never mandate.
+    /// dead digits per read — `Θ(m·g)` on `Θ(m + g)` input (the board's
+    /// `version_cmp` cell on this pair judges it in fuel). Every overlay
+    /// boundary is shared by both operands and almost every stored delta is
+    /// zero, so a conforming sweep is forced to fold only the three nonzero
+    /// deltas per operand; the per-boundary sign reads it does beyond those
+    /// folds are implementation, never mandate.
     ToothTail,
     /// The fixed-seed organic control population.
     Benign,
@@ -878,7 +873,7 @@ pub enum FamilyId {
     ///
     /// The settlement's densification step routes each balanced-digit cluster through
     /// two zero-filled byte images sized by the cluster's *span*; the worst
-    /// artifact green on every width and touch counter is an image sized by
+    /// artifact green on every width and digit count is an image sized by
     /// the cluster's absolute digit *position* — zero fill that scales with
     /// depth, invisible because a zeroed byte no digit lands on enters no
     /// operand width and touches no accumulator digit. The tail knob moves
@@ -909,8 +904,8 @@ pub enum FamilyId {
     /// clearance regression reroutes the *plunge*'s hops onto the
     /// comparable-scale fold, whose per-hop cost is the residue's width
     /// instead of the dying boundary's — the plunge bands trip — while the
-    /// *stop*'s rerouted hop is touch-identical to its guarded arm (the
-    /// survivor's top digit decides its sign fold at one touch either way),
+    /// *stop*'s rerouted hop reads what its guarded arm reads (the survivor's
+    /// top digit decides its sign fold at one digit either way),
     /// so the stop band's charge is width conservation alone: the surviving
     /// boundary is never read across its width while it survives, and the
     /// arm's value flow rides the closed form. The descending- and
@@ -928,7 +923,7 @@ pub enum FamilyId {
     /// decision must not read across — so the per-decision marginal cost
     /// (the `k`-marginal at fixed `w`) is the claim's meter, and a decision
     /// that reads the latent's width doubles that marginal when `w`
-    /// doubles. The `latent_ladder` band in `tests/meter.rs` prices it.
+    /// doubles. The focused fuel claims judge that marginal.
     LatentLadder,
     /// The jump-entered rising spine `JR(b, d)` at a fixed entry jump of
     /// `2^40`: one suspended range minimum per level, each far above the

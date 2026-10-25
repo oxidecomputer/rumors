@@ -22,7 +22,6 @@ use crate::{
     count::CanonicalLimbs,
     error::Decode,
     span::Span,
-    testing::instrument::scan,
     Clock, Count, Party, Rank, Ranked, Version,
 };
 
@@ -106,9 +105,6 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
         }
         // An in-range byte index fits `usize`: it indexes the buffer.
         let bit = self.bytes[(self.position / 8) as usize] & (0x80 >> (self.position % 8)) != 0;
-        // Count the logical bit consumed; the meter observes the decoder's
-        // work rather than how reads are batched.
-        scan::record_bits(1);
         self.position += 1;
         Ok(bit)
     }
@@ -129,7 +125,6 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
         if let Some((n, next)) =
             BitsReader::gamma_from_window(&self.bytes, self.bytes.len() as u64 * 8, self.position)
         {
-            scan::record_bits(next - self.position);
             self.position = next;
             return Ok(BigUint::from(n));
         }

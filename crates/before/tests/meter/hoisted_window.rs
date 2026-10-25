@@ -10,16 +10,16 @@
 //! stays put. So across a tail doubling, span-priced work (the walk, the
 //! folds, the settle products, the images the settle densifies) grows
 //! only with the tail's own linear scan work, and work priced by a
-//! cluster's absolute position — the case invisible to the width and
-//! touch counters, because a zeroed image byte no digit lands on enters
+//! cluster's absolute position — the case invisible in operand widths and
+//! accumulator digits, because a zeroed image byte no digit lands on enters
 //! no operand width and touches no accumulator digit — scales with the
-//! knob instead.
+//! knob instead. The fold's time on this family is judged in fuel by the
+//! board's `version_rank` cell.
 
 use super::min_ticks_from_big;
 use before::testing::meter;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
-use suanpan::touch_meter;
 
 /// Arming width (base-2^32 digits) of every run: the narrowest arming
 /// the settle freeze defers, so the close settles a deferred height
@@ -42,13 +42,12 @@ const HOISTED_WINDOW_GAPS: usize = 40;
 const HOISTED_WINDOW_SMALL_TAIL: usize = 10_240;
 
 /// One public `Version::rank` run over `HW(w, d, t)` at the band's
-/// fixed width and gap knobs, with touch and densification counts.
+/// fixed width and gap knobs, with its densification count.
 ///
 /// Carries `min_ticks`' closed form as the cross-fold semantic leg —
 /// tail-independent by construction, so it also proves the tail adds
-/// no stored-base mass — and the one-touch-per-operand-byte liveness
-/// floor.
-fn run(t: usize) -> (u64, u64, u64) {
+/// no stored-base mass.
+fn run(t: usize) -> (u64, u64) {
     let v = Shape::HoistedWindow
         .build3(HOISTED_WINDOW_WIDTH, HOISTED_WINDOW_GAPS, t)
         .version();
@@ -63,62 +62,10 @@ fn run(t: usize) -> (u64, u64, u64) {
         "the family's stored-code sum disagrees with min_ticks: the \
          generator does not build the tree this band reasons about"
     );
-    touch_meter::reset();
     meter::reset_densified_digits();
     let rank = v.rank();
     std::hint::black_box(rank);
-    let touches = touch_meter::touches();
-    let densified = meter::densified_digits();
-    assert!(
-        touches >= bytes,
-        "rank at {bytes} operand bytes: {touches} digit touches under \
-         the one-per-byte floor: the fold's accumulator work is not \
-         metered",
-    );
-    (bytes, touches, densified)
-}
-
-/// Absolute two-scale touch ceilings for rank on the
-/// hoisted-window family, measured ×1.25 (the record and every re-pin's
-/// movement live in the pin commits).
-///
-/// Flat per encoded byte across the tail doubling: the tail's unit deltas
-/// add proportional accumulator work while the settle clusters do not grow.
-const HOISTED_WINDOW_CEILINGS: [u64; 2] = [15_952, 29_752];
-
-/// rank is flat per byte on the hoisted-window family: per-byte touch
-/// work stays within ×1.25 across a tail doubling, under
-/// absolute two-scale ceilings.
-///
-/// The tail doubling moves only the settle clusters' absolute digit
-/// positions; any accumulator work priced by such a position —
-/// a scaled read walking a never-written prefix, a settle product
-/// re-based on an absolute index — grows superlinearly here while the
-/// input grows only by tail bits.
-#[test]
-fn rank_hoisted_window_is_flat_per_unit() {
-    let (small_bytes, small_touches, _) = run(HOISTED_WINDOW_SMALL_TAIL);
-    let (large_bytes, large_touches, _) = run(2 * HOISTED_WINDOW_SMALL_TAIL);
-    eprintln!(
-        "MEASURED rank_hoisted_window: small={small_touches}/{small_bytes}B \
-         large={large_touches}/{large_bytes}B"
-    );
-    assert!(
-        small_touches <= HOISTED_WINDOW_CEILINGS[0] && large_touches <= HOISTED_WINDOW_CEILINGS[1],
-        "rank touches exceed the pinned ceilings on the hoisted-window \
-         family ({small_touches}/{small_bytes}B -> \
-         {large_touches}/{large_bytes}B against {} / {})",
-        HOISTED_WINDOW_CEILINGS[0],
-        HOISTED_WINDOW_CEILINGS[1],
-    );
-    assert!(
-        u128::from(large_touches) * u128::from(small_bytes) * 4
-            <= u128::from(small_touches) * u128::from(large_bytes) * 5,
-        "rank touches grew more than x1.25 per byte across the \
-         hoisted-window tail doubling ({small_touches}/{small_bytes}B -> \
-         {large_touches}/{large_bytes}B): work is scaling with the settle \
-         clusters' absolute positions",
-    );
+    (bytes, meter::densified_digits())
 }
 
 /// Absolute two-scale densify ceilings for rank on the hoisted-window
@@ -157,15 +104,14 @@ const HOISTED_WINDOW_DENSIFY_FLOOR: u64 = 4 * HOISTED_WINDOW_GAPS as u64;
 /// liveness floor.
 ///
 /// The tail moves cluster positions only, so this column must not move
-/// with it. This is the row the width and touch counters cannot express: an
+/// with it. Operand widths and accumulator digits cannot express it: an
 /// image sized by a cluster's absolute digit position zero-fills
 /// O(position) bytes per cluster that enter no operand width and touch
-/// no accumulator digit, so every other column reads byte-identical
-/// while this one scales with the tail knob.
+/// no accumulator digit, while this column scales with the tail knob.
 #[test]
 fn rank_hoisted_window_densify_span_band() {
-    let (small_bytes, _, small_densify) = run(HOISTED_WINDOW_SMALL_TAIL);
-    let (large_bytes, _, large_densify) = run(2 * HOISTED_WINDOW_SMALL_TAIL);
+    let (small_bytes, small_densify) = run(HOISTED_WINDOW_SMALL_TAIL);
+    let (large_bytes, large_densify) = run(2 * HOISTED_WINDOW_SMALL_TAIL);
     eprintln!(
         "MEASURED rank_hoisted_window_densify: small={small_densify}dg/{small_bytes}B \
          large={large_densify}dg/{large_bytes}B"

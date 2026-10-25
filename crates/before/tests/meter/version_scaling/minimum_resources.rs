@@ -1,12 +1,11 @@
-//! Heap, allocation, and touch ceilings for `min_ticks`' constant factors.
+//! Heap and allocation ceilings for `min_ticks`' constant factors.
 //!
 //! The board judges `min_ticks` against the heap ceiling every operation
 //! shares, which admits a several-fold regression in the bytes each suspended
 //! minimum costs. These checks pin `min_ticks`' own readings on the shapes
 //! that exercise each of its representation choices: the record slack, the
-//! working width up to which a buried reference's chunk is copied, the first
-//! height counted once, and the reused buffers that keep allocation counts
-//! independent of depth.
+//! working width up to which a buried reference's chunk is copied, and the
+//! reused buffers that keep allocation counts independent of depth.
 
 use super::*;
 use before::testing::meter::Encoding;
@@ -54,19 +53,6 @@ const COPIED_STEP_BITS: usize = 65;
 /// copy the boundary once a deeper level covers it: each wide level costs
 /// packed limbs, in proportion to the values' width.
 const WIDE_STEP_PAIRS_HEAP_CEILINGS: [usize; 2] = [65_120, 130_080];
-
-/// Hugeleaf widths of the touch ceilings' small runs, in bits (the large run
-/// doubles it): the board's `hugeleaf` sample at scale 1.0.
-const HUGELEAF_SMALL_BITS: usize = 32_000;
-
-/// Absolute touch ceilings at two widths for `min_ticks` on one leaf of value
-/// `2^b − 1`, measured ×1.25 (the record and every re-pin's movement live in
-/// the pin commits).
-///
-/// The only height is the first, which the fold counts once directly into its
-/// answer. Charging it to a reference as well, or reading it twice, doubles
-/// the touches and exceeds these ceilings.
-const HUGELEAF_TOUCH_CEILINGS: [u64; 2] = [3_129, 6_254];
 
 /// The closed-form `min_ticks` of the jump-entered rising spine `JR(b, d)`.
 ///
@@ -218,40 +204,4 @@ fn min_ticks_allocation_count_does_not_grow_with_spine_depth() {
             2 * RISING_SPINE_SMALL_DEPTH,
         );
     }
-}
-
-/// `min_ticks`' digit touches on one wide leaf stay within their measured
-/// ceilings at two widths.
-///
-/// The leaf is the first height, which the fold adds once to its answer;
-/// this pins that it is neither charged to a reference nor read again. The
-/// liveness floor is one touch: the fold reads the leaf's nonzero height into
-/// its answer, and a metered read touches at least one digit.
-#[test]
-fn min_ticks_touches_on_one_wide_leaf_stay_within_measured_ceilings() {
-    let [small, large] = [HUGELEAF_SMALL_BITS, 2 * HUGELEAF_SMALL_BITS].map(|b| {
-        let version = Shape::Hugeleaf.build1(b).version();
-        touch_meter::reset();
-        let ticks = version.min_ticks();
-        let run = QueryRun {
-            bytes: version.encode().len() as u64,
-            touches: touch_meter::touches(),
-        };
-        assert_eq!(
-            ticks,
-            min_ticks_from_big(&((BigUint::ONE << b) - BigUint::ONE)),
-            "min_ticks of one leaf is the leaf's height"
-        );
-        assert!(
-            run.touches >= 1,
-            "min_ticks read a {b}-bit leaf without a digit touch: the touch meter is not live"
-        );
-        run
-    });
-    assert_ceilings(
-        "min_ticks_hugeleaf",
-        &small,
-        &large,
-        HUGELEAF_TOUCH_CEILINGS,
-    );
 }

@@ -9,7 +9,7 @@ use std::io::{self, Write};
 
 use super::ceilings::{
     HEAP_INTERCEPT_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE, MAX_SCALING_EXPONENT,
-    MAX_SCAN_BITS_PER_INPUT_BYTE, MAX_TOUCHES_PER_INPUT_BYTE, MIN_EXPONENT_DENOM_GROWTH,
+    MIN_EXPONENT_DENOM_GROWTH,
 };
 use super::cell_ceilings::Calibration;
 use super::currency::{ByCurrency, Currency, Liveness};
@@ -86,8 +86,6 @@ pub(super) fn ceiling_text(currency: Currency, calibration: &Calibration) -> Str
         Currency::Heap => Some(format!(
             "heap <= {HEAP_INTERCEPT_BYTES} + {MAX_HEAP_BYTES_PER_INPUT_BYTE} * units bytes"
         )),
-        Currency::Scan => Some(format!("scan <= {MAX_SCAN_BITS_PER_INPUT_BYTE} bits/B")),
-        Currency::Touch => Some(format!("touch <= {MAX_TOUCHES_PER_INPUT_BYTE} touches/B")),
         Currency::Fuel => None,
     };
     let own = calibration.table(currency).map(|table| {
@@ -298,16 +296,16 @@ pub(super) fn render_results(
         .each()
         .into_iter()
         .filter(|(_, measured)| **measured)
-        .filter_map(|(currency, _)| {
-            let resolution = trend_resolution(currency)?;
+        .map(|(currency, _)| {
+            let resolution = trend_resolution(currency);
             let unit = match currency {
                 Currency::Heap => "B",
-                Currency::Scan | Currency::Touch | Currency::Fuel => currency.label(),
+                Currency::Fuel => currency.label(),
             };
-            Some(format!(
+            format!(
                 "{} readings are clamped to {resolution} {unit}",
                 currency.label()
-            ))
+            )
         })
         .collect();
     writeln!(

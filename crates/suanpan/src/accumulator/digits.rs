@@ -62,7 +62,7 @@ mod written;
 use core::cmp::Ordering;
 
 use super::operand::Update;
-use super::{touch, DIGIT_BITS};
+use super::DIGIT_BITS;
 use stored::StoredUpdate;
 use written::WrittenPositions;
 
@@ -234,7 +234,6 @@ impl Digits {
     pub fn copy_into(&self, target: &mut Digits) {
         self.debug_assert_valid();
         let prefix = self.stored_digits();
-        touch(prefix.len() as u64);
         target.digits.clear();
         target.digits.extend_from_slice(prefix);
         target.negated = self.negated;
@@ -297,7 +296,6 @@ impl Digits {
 
     /// Negate the value by flipping the flag, in O(1), writing no digit.
     pub fn negate(&mut self) {
-        touch(1);
         self.negated = !self.negated;
     }
 
@@ -316,10 +314,8 @@ impl Digits {
         let digits = &mut self.digits;
         // The set passes every position but zero, which it keeps, as the
         // field requires while the buffer holds digits.
-        touch(1);
         digits[0] = 0;
         self.written.clear(|position| {
-            touch(1);
             digits[position] = 0;
         });
         self.negated = false;
@@ -396,7 +392,6 @@ impl Digits {
                     .expect("a digit position must have a representable buffer length");
                 self.digits.resize(new_len, 0);
             }
-            touch(1);
             let total = i128::from(self.digits[position]) + contribution;
             let (digit, carry) = Self::recenter(total);
             self.digits[position] = digit;
@@ -460,7 +455,6 @@ impl Digits {
     #[inline(never)]
     fn descend_to_nonzero(&mut self) {
         while self.highest_nonzero > 0 && self.digits[self.highest_nonzero] == 0 {
-            touch(1);
             self.highest_nonzero = self
                 .written
                 .last_below(self.highest_nonzero)

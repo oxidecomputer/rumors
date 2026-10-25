@@ -9,13 +9,13 @@
 //!
 //! Usage: `just amp-board` (release, the profile of record; dev runs are
 //! a debugging view whose readings are never committed), or directly
-//! `cargo run -p before --example amp_board --features touch-meter,scan-meter
-//! -- [scale]` where the optional `scale` (a positive number, default
+//! `cargo run -p before --example amp_board --features serde,borsh -- [scale]`
+//! where the optional `scale` (a positive number, default
 //! `board::DEFAULT_SCALE`) multiplies every input family's base size and
-//! renders a single-scale debugging view whose verdicts never bind. The counter
-//! features are `required-features`: a build without them would render scan
-//! and touch unjudged while still printing verdict colors, so cargo refuses it
-//! outright.
+//! renders a single-scale debugging view whose verdicts never bind. The
+//! `serde` and `borsh` features are `required-features`: a build without them
+//! would leave the deserialization rows out of a board that still prints
+//! verdict colors, so cargo refuses it outright.
 //!
 //! # The verdict of record
 //!
@@ -104,10 +104,9 @@ use peak_alloc::PeakAlloc;
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
 
-/// The currencies this runner measures and its verdict requires: heap
-/// through the counting allocator, scan and touch through the
-/// `required-features` that compile their counters in.
-const MEASURED: [Currency; 3] = [Currency::Heap, Currency::Scan, Currency::Touch];
+/// The currencies this runner measures and its verdict requires: heap,
+/// through the counting allocator.
+const MEASURED: [Currency; 1] = [Currency::Heap];
 
 /// The shard-count override. Unset, the runner uses available
 /// parallelism.

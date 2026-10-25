@@ -102,6 +102,19 @@ pub enum Primitive {
     U128(u128),
 }
 
+/// A primitive integer type that [`Step::Convert`] converts to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Integer {
+    /// `i64`.
+    I64,
+    /// `u64`.
+    U64,
+    /// `i128`.
+    I128,
+    /// `u128`.
+    U128,
+}
+
 /// How the limbs of a [`LimbInput`] are filled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Pattern {
@@ -252,6 +265,19 @@ pub enum Step<L = u64> {
         /// Whether to negate a borrow, which clones first.
         borrowed: bool,
     },
+    /// `value + member` or `value - member`, with the primitive on the
+    /// left, replacing the member by the result.
+    ReversedPrimitive {
+        /// The member updated.
+        member: Member,
+        /// Whether to add the member or subtract it.
+        direction: Direction,
+        /// The primitive on the left.
+        value: Primitive,
+        /// Whether to read `&member`, which clones it first, rather than
+        /// consume it.
+        borrowed: bool,
+    },
     /// `member <<= shift`.
     Shift {
         /// The member shifted.
@@ -278,11 +304,14 @@ pub enum Step<L = u64> {
         /// The primitive it is compared with.
         value: i128,
     },
-    /// `i64::try_from(member)`, putting a value that does not fit back, and
-    /// replacing one that fits by `Accumulator::from` of it.
+    /// `TryFrom<Accumulator>` into the target type, putting a value that
+    /// does not fit back, and replacing one that fits by `Accumulator::from`
+    /// of it.
     Convert {
         /// The member converted.
         member: Member,
+        /// The type converted to.
+        target: Integer,
     },
     /// `left.cmp(&right)`.
     Compare {
@@ -393,6 +422,17 @@ impl<L> Step<L> {
                 member: *member,
                 borrowed: *borrowed,
             },
+            Step::ReversedPrimitive {
+                member,
+                direction,
+                value,
+                borrowed,
+            } => Step::ReversedPrimitive {
+                member: *member,
+                direction: *direction,
+                value: *value,
+                borrowed: *borrowed,
+            },
             Step::Shift { member, shift } => Step::Shift {
                 member: *member,
                 shift: bits(shift),
@@ -412,7 +452,10 @@ impl<L> Step<L> {
                 member: *member,
                 value: *value,
             },
-            Step::Convert { member } => Step::Convert { member: *member },
+            Step::Convert { member, target } => Step::Convert {
+                member: *member,
+                target: *target,
+            },
             Step::Compare { left, right } => Step::Compare {
                 left: *left,
                 right: *right,
@@ -516,11 +559,15 @@ pub fn observe_stable(answer: Option<Ordering>) -> u64 {
     answer.map_or(6, |order| 6 + observe_ordering(order))
 }
 
-/// Returns the observation word of an `i64` conversion: the value if it fit,
-/// or a refusal.
-pub fn observe_conversion(converted: Option<i64>) -> u64 {
+/// Returns the observation word of a conversion: the converted value's sign
+/// and magnitude if it fit, or a refusal.
+pub fn observe_conversion(converted: Option<(Ordering, u128)>) -> u64 {
     match converted {
-        Some(value) => splitmix64(10 ^ value as u64),
+        Some((sign, magnitude)) => splitmix64(
+            10 ^ observe_ordering(sign).rotate_left(4)
+                ^ splitmix64(magnitude as u64)
+                ^ splitmix64((magnitude >> 64) as u64).rotate_left(1),
+        ),
         None => 10,
     }
 }

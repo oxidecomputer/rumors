@@ -41,10 +41,11 @@
 
 use proptest::prelude::*;
 use suanpan_fuel_protocol::{
-    Direction, Form, LimbInput, Member, Pattern, Primitive, Program, Read, SignQuery, Step, POOL,
+    Direction, Form, Integer, LimbInput, Member, Pattern, Primitive, Program, Read, SignQuery,
+    Step, POOL,
 };
 
-use crate::model::{width, written_member, Model};
+use crate::model::{fits, width, written_member, Model};
 
 /// The base unit `u`, in bits: 40 limbs, 80 digits.
 ///
@@ -230,7 +231,7 @@ impl Skeleton {
     }
 
     /// Returns whether every conversion in `block`, replayed from `model`,
-    /// refuses because its value does not fit an `i64`.
+    /// refuses because its value does not fit the conversion's target type.
     ///
     /// A refusal returns the accumulator as it was, keeping its storage, so a
     /// block of refusing conversions stays value-neutral and fixed-charge. It
@@ -241,7 +242,7 @@ impl Skeleton {
         let mut model = model.clone();
         block.iter().all(|step| {
             let refuses = match step {
-                Step::Convert { member } => i64::try_from(&model.values()[member.index()]).is_err(),
+                Step::Convert { member, target } => !fits(&model.values()[member.index()], *target),
                 _ => true,
             };
             model.step(&resolve(step, UNIT_BITS));
@@ -330,7 +331,7 @@ impl Offsets {
     fn after(mut self, step: &Step<Extent>) -> Offsets {
         let o = &mut self.members;
         match step {
-            Step::Primitive { member, .. } => {
+            Step::Primitive { member, .. } | Step::ReversedPrimitive { member, .. } => {
                 let m = member.index();
                 o[m] = o[m].max(PRIMITIVE_BITS) + 1;
             }
@@ -365,7 +366,7 @@ impl Offsets {
                 o[m] += shift.offset_bits();
             }
             Step::Clear { member } => o[member.index()] = 0,
-            Step::Convert { member } => {
+            Step::Convert { member, .. } => {
                 let m = member.index();
                 o[m] = o[m].max(PRIMITIVE_BITS);
             }
@@ -460,27 +461,33 @@ kinds! {
     AbsDiff,
     /// [`Step::Sum`].
     Sum,
+    /// [`Step::ReversedPrimitive`].
+    ReversedPrimitive,
 }
 
 impl Kind {
     /// The kinds that can write a nonzero value into a pool of zeros. Every
     /// case enables at least one.
-    pub const WRITERS: [Kind; 4] = [
+    pub const WRITERS: [Kind; 5] = [
         Kind::Primitive,
         Kind::Limbs,
         Kind::GapRound,
         Kind::ParkExtreme,
+        Kind::ReversedPrimitive,
     ];
 
     /// The kinds the fixed-charge regime draws from: none reads, copies, or
     /// produces a whole value, so once the storage has grown, each step's
     /// charge is the same at every unit apart from its logarithm.
     ///
+    /// Negation and the primitive on the left take their owned forms there,
+    /// since their borrowed forms clone the whole value.
+    ///
     /// A conversion that succeeds replaces its member by a new accumulator,
     /// which starts a new storage; a later write above it grows storage
     /// again in every repetition, and the model charges that growth, so such
     /// a skeleton's steady repetition does not count as fixed-charge.
-    pub const FIXED_CHARGE: [Kind; 9] = [
+    pub const FIXED_CHARGE: [Kind; 10] = [
         Kind::Primitive,
         Kind::Limbs,
         Kind::GapRound,
@@ -490,6 +497,7 @@ impl Kind {
         Kind::Sign,
         Kind::ComparePrimitive,
         Kind::Convert,
+        Kind::ReversedPrimitive,
     ];
 }
 
@@ -501,6 +509,16 @@ fn arb_member() -> impl Strategy<Value = Member> {
 /// Generates either direction.
 fn arb_direction() -> impl Strategy<Value = Direction> {
     prop_oneof![Just(Direction::Add), Just(Direction::Sub)]
+}
+
+/// Generates any conversion target.
+fn arb_integer() -> impl Strategy<Value = Integer> {
+    prop_oneof![
+        Just(Integer::I64),
+        Just(Integer::U64),
+        Just(Integer::I128),
+        Just(Integer::U128),
+    ]
 }
 
 /// Machine words at the digit, limb, and sign boundaries, the pool
@@ -765,7 +783,9 @@ fn arb_steps(kind: Kind, fixed_charge: bool) -> BoxedStrategy<Vec<Step<Extent>>>
         )
             .prop_map(|(member, value)| Step::ComparePrimitive { member, value })
             .boxed()),
-        Kind::Convert => one(member().prop_map(|member| Step::Convert { member }).boxed()),
+        Kind::Convert => one((member(), arb_integer())
+            .prop_map(|(member, target)| Step::Convert { member, target })
+            .boxed()),
         Kind::Compare => one((member(), member())
             .prop_map(|(left, right)| Step::Compare { left, right })
             .boxed()),
@@ -798,6 +818,25 @@ fn arb_steps(kind: Kind, fixed_charge: bool) -> BoxedStrategy<Vec<Step<Extent>>>
                 members,
                 owned,
             })
+            .boxed()),
+        Kind::ReversedPrimitive => one((
+            member(),
+            arb_direction(),
+            arb_primitive(),
+            if fixed_charge {
+                Just(false).boxed()
+            } else {
+                any::<bool>().boxed()
+            },
+        )
+            .prop_map(
+                |(member, direction, value, borrowed)| Step::ReversedPrimitive {
+                    member,
+                    direction,
+                    value,
+                    borrowed,
+                },
+            )
             .boxed()),
     }
 }
@@ -860,18 +899,21 @@ fn arb_block_element() -> BoxedStrategy<Vec<Step<Extent>>> {
         }),
         arb_steps(Kind::Sign, true),
         arb_steps(Kind::ComparePrimitive, true),
-        member().prop_map(|member| {
-            // A large addend around the conversion makes it refuse unless
-            // the value nearly cancels it; `Skeleton::new` drops a block
-            // whose conversion would succeed.
+        (member(), arb_integer()).prop_map(|(member, target)| {
+            // Two addends of `u128::MAX` around the conversion add more than
+            // any primitive holds, so it refuses unless the value nearly
+            // cancels them; `Skeleton::new` drops a block whose conversion
+            // would succeed.
             let addend = |direction| Step::Primitive {
                 member,
                 direction,
-                value: Primitive::U128(1 << 100),
+                value: Primitive::U128(u128::MAX),
             };
             vec![
                 addend(Direction::Add),
-                Step::Convert { member },
+                addend(Direction::Add),
+                Step::Convert { member, target },
+                addend(Direction::Sub),
                 addend(Direction::Sub),
             ]
         }),

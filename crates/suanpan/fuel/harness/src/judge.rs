@@ -69,7 +69,7 @@
 
 use std::ops::AddAssign;
 
-use suanpan_fuel_protocol::{observe_stable, Step};
+use suanpan_fuel_protocol::{observe_stable, Integer, Step};
 
 use crate::guest::{self, Run};
 use crate::model::{Events, Model, Record};
@@ -284,9 +284,10 @@ pub fn regimes(skeleton: &Skeleton) -> Regimes {
             Step::Primitive { member, .. }
             | Step::Limbs { member, .. }
             | Step::Negate { member, .. }
+            | Step::ReversedPrimitive { member, .. }
             | Step::Sign { member, .. }
             | Step::ComparePrimitive { member, .. }
-            | Step::Convert { member } => *member,
+            | Step::Convert { member, .. } => *member,
             _ => return false,
         };
         crate::model::width(&base.values()[member.index()]) >= UNIT_BITS
@@ -657,8 +658,9 @@ fn repeated(base: &Variant, long: &Variant, n: usize) -> Result<f64, String> {
     Ok(margin)
 }
 
-/// The hard regimes one skeleton realized at one unit, counted over its
-/// first repetition.
+/// The hard regimes one skeleton realized at one unit, and how many of its
+/// steps convert to each target or put a primitive on the left in each
+/// ownership, counted over its first repetition.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Census {
     /// Steps with a receiver and contribution of opposite signs.
@@ -674,6 +676,12 @@ pub struct Census {
     pub sparse_values: usize,
     /// Updates at a nonzero shift.
     pub shifted_updates: usize,
+    /// Conversions, by target, in the order `i64`, `u64`, `i128`, `u128`.
+    pub conversions: [usize; 4],
+    /// Updates with a primitive on the left that consume their member.
+    pub owned_reversed_primitives: usize,
+    /// Updates with a primitive on the left that borrow their member.
+    pub borrowed_reversed_primitives: usize,
 }
 
 impl AddAssign for Census {
@@ -684,12 +692,37 @@ impl AddAssign for Census {
         self.growths += other.growths;
         self.sparse_values += other.sparse_values;
         self.shifted_updates += other.shifted_updates;
+        for (count, other) in self.conversions.iter_mut().zip(other.conversions) {
+            *count += other;
+        }
+        self.owned_reversed_primitives += other.owned_reversed_primitives;
+        self.borrowed_reversed_primitives += other.borrowed_reversed_primitives;
     }
 }
 
 impl Census {
-    /// Adds one step's events.
-    fn add(&mut self, events: &Events) {
+    /// Adds one step's spelling and events.
+    fn add(&mut self, step: &Step, events: &Events) {
+        match step {
+            Step::Convert { target, .. } => {
+                let index = match target {
+                    Integer::I64 => 0,
+                    Integer::U64 => 1,
+                    Integer::I128 => 2,
+                    Integer::U128 => 3,
+                };
+                self.conversions[index] += 1;
+            }
+            Step::ReversedPrimitive {
+                borrowed: false, ..
+            } => {
+                self.owned_reversed_primitives += 1;
+            }
+            Step::ReversedPrimitive { borrowed: true, .. } => {
+                self.borrowed_reversed_primitives += 1;
+            }
+            _ => {}
+        }
         self.mixed_signs += usize::from(events.mixed_sign);
         self.cancellations += usize::from(events.cancellation);
         self.borrow_runs += usize::from(events.borrow_run);
@@ -700,12 +733,13 @@ impl Census {
 }
 
 /// Counts the hard regimes `skeleton` realizes in one repetition at unit
-/// `unit`, from the model alone.
+/// `unit`, and its conversions and primitives on the left, from the model
+/// alone.
 pub fn census(skeleton: &Skeleton, unit: u64) -> Census {
     let mut model = Model::new(unit, true);
     let mut census = Census::default();
     for step in skeleton.steps_at(unit) {
-        census.add(&model.step(&step).events);
+        census.add(&step, &model.step(&step).events);
     }
     census
 }

@@ -28,7 +28,7 @@ use core::cmp::Ordering;
 
 use super::small::{SMALL_MAX, SMALL_SHIFT_MAX};
 use super::value::Value;
-use super::{digit_index, touch, DIGIT_BITS};
+use super::{digit_index, DIGIT_BITS};
 
 /// Whether a contribution is added to or subtracted from the accumulator.
 #[derive(Clone, Copy)]
@@ -85,7 +85,6 @@ impl Value {
             return;
         }
         if let Some(value) = self.small {
-            touch(1);
             let sum = match update {
                 Update::Add => value.checked_add_unsigned(magnitude),
                 Update::Sub => value.checked_sub_unsigned(magnitude),
@@ -106,8 +105,8 @@ impl Value {
 
     /// Add a widened, possibly negated 64-bit operand without splitting it.
     ///
-    /// One whole contribution preserves the word path's carry behavior and
-    /// meter count. Zero operands do not touch either representation.
+    /// One whole contribution preserves the word path's carry behavior. Zero
+    /// operands do not touch either representation.
     #[inline]
     pub(crate) fn add_word(&mut self, delta: i128) {
         if delta != 0 && !self.try_small_add(delta) {
@@ -119,7 +118,6 @@ impl Value {
     /// operand and skipping it if zero.
     pub(crate) fn apply_accumulator(&mut self, other: &mut Value, shift: u64, update: Update) {
         if let Some(operand_value) = other.small {
-            touch(1);
             if operand_value == 0 {
                 return;
             }
@@ -172,8 +170,8 @@ impl Value {
     /// Peek at most two limbs so the common one-word case stays allocation-free.
     ///
     /// Replaying the two peeked limbs with `chain` keeps the stream lazy and
-    /// allocation-free. High zero limbs still select the wide path and are
-    /// metered like all other yielded limbs.
+    /// allocation-free. High zero limbs still select the wide path and cost
+    /// like all other yielded limbs.
     pub(crate) fn apply_limbs<I: Iterator<Item = u64>>(
         &mut self,
         mut limbs: I,

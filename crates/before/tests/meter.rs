@@ -1,15 +1,14 @@
 //! Focused resource checks for claims the amplification board cannot express.
 //!
 //! The global board owns ordinary input-scaling and peak-heap coverage across
-//! the public operation surface. This suite retains only independent axes: an
-//! operation argument varied while operands stay fixed, a control-paired
-//! marginal, an implementation counter with no board currency, an exact
-//! early-exit relationship, or an exact heap parity between entry points that
-//! compute the same value.
+//! the public operation surface, and the `focused-fuel` harness judges the
+//! time claims the board cannot vary. This suite retains the memory and
+//! counter claims beside them: exact heap parities between entry points that
+//! compute the same value, heap and allocation ceilings at the shapes that
+//! exercise a representation choice, and the retained densification counter.
 
 use before::testing::meter;
-use before::testing::meter::registry::Shape;
-use before::{Count, Party, Version};
+use before::{Count, Version};
 use num_bigint::BigUint;
 
 /// Measure peak heap above the storage already live at entry.
@@ -19,11 +18,6 @@ use num_bigint::BigUint;
 fn peak_heap<T>(f: impl FnOnce() -> T) -> (usize, T) {
     let (stats, value) = alloc_meter::measure(f);
     (stats.peak_bytes, value)
-}
-
-/// Decode a generated party.
-fn party_of(encoded: &meter::Encoding) -> Party {
-    Party::decode(&encoded.bytes[..]).expect("the generated party is canonical")
 }
 
 /// Convert a generated event tree into its stored version representation.
@@ -60,53 +54,17 @@ fn power_of_two(exponent: usize) -> Count {
     ticks
 }
 
-/// Dense-spine depth used while varying only the `ticks` count.
-const DENSE_DEPTH: usize = 125_000;
-/// Ordinary count at the low end of the `ticks` argument band.
-const TICKS_POINT_LO: u64 = 512;
-/// Shared magnitude and depth of the wide tick operands.
-const TICK_CROSS_SCALE: usize = 4_000;
-/// Magnitude of the paired jump-comb family.
-const JUMP_PAIR_MAGNITUDE_BITS: usize = 512;
-
 #[path = "meter/answer_embedded_product.rs"]
 mod answer_embedded_product;
-#[cfg(feature = "touch-meter")]
 #[path = "meter/deferred_wide_arming.rs"]
 mod deferred_wide_arming;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/duplicate_runs.rs"]
-mod duplicate_runs;
 #[path = "meter/encode_allocation.rs"]
 mod encode_allocation;
-#[cfg(feature = "touch-meter")]
-#[path = "meter/eq_early_exit.rs"]
-mod eq_early_exit;
-#[cfg(feature = "touch-meter")]
 #[path = "meter/hoisted_window.rs"]
 mod hoisted_window;
-#[cfg(feature = "scan-meter")]
 #[path = "meter/identity_fast_paths.rs"]
 mod identity_fast_paths;
 #[path = "meter/lattice_clones.rs"]
 mod lattice_clones;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/placement.rs"]
-mod placement;
-#[cfg(feature = "touch-meter")]
-#[path = "meter/settle_flatness.rs"]
-mod settle_flatness;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/span.rs"]
-mod span;
-#[cfg(feature = "scan-meter")]
-#[path = "meter/span_codec.rs"]
-mod span_codec;
-#[path = "meter/tick_counts.rs"]
-mod tick_counts;
-#[cfg(feature = "touch-meter")]
 #[path = "meter/version_scaling.rs"]
 mod version_scaling;
-#[cfg(feature = "touch-meter")]
-#[path = "meter/width_circulation_cost.rs"]
-mod width_circulation_cost;

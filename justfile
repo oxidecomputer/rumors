@@ -71,7 +71,7 @@ fuzz_smoke_secs := "20"
 # member is built, linted, and tested by its own recipes. `manifestlint`
 # holds this list to the workspace; its header states the rules.
 
-tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude suanpan-fuel-guest --exclude suanpan-fuel-harness --exclude suanpan-fuel-protocol --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
+tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude focused-fuel-guest --exclude focused-fuel-harness --exclude focused-fuel-protocol --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude suanpan-fuel-guest --exclude suanpan-fuel-harness --exclude suanpan-fuel-protocol --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
 
 # The fuzz-fit guest's wasm: one artifact produced by one recipe and read
 # by two others (the fuzz-fit harness and the fuelscape pipeline).
@@ -109,6 +109,13 @@ wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/wasm32-pin
 board_fuel_target := justfile_directory() + "/target/board-fuel"
 board_fuel_guest_wasm := board_fuel_target + "/wasm32-unknown-unknown/fuel/board_fuel_guest.wasm"
 
+# The focused-fuel guest's wasm: produced by `focused-fuel-build` in the
+# `fuel` profile, read by the focused-fuel harness. Named and passed
+# explicitly for the same reason as the fuzz-fit guest above.
+
+focused_fuel_target := justfile_directory() + "/target/focused-fuel"
+focused_fuel_guest_wasm := focused_fuel_target + "/wasm32-unknown-unknown/fuel/focused_fuel_guest.wasm"
+
 # The environment every fuel-metered wasm guest builds under. A guest embeds
 # source paths (panic locations), and their lengths shift its memory layout
 # and so its fuel readings. Paths inside this workspace are already
@@ -134,24 +141,16 @@ default:
 # ── inner loop ───────────────────────────────────────────────────────────────
 
 # Type-check every host target: libs, tests, benches, examples. A target
-# with `required-features` (the focused before resource suite) is skipped here and
-# type-checked by `just test` and the gate's all-features legs instead.
+# with `required-features` (the amplification board example) is skipped here
+# and type-checked by the gate's all-features legs instead.
 check:
     cargo check --workspace {{ tool_members }} --all-targets
 
-# Run the test suites; pass a filter to narrow (`just test mirror`). The
-# focused resource suite (crates/before/tests/meter.rs) builds only with its touch
-# and scan meters (`required-features` on its test target), so the inner
-# loop lights them for that package. One `--workspace` build unifies
-# features, so this compiles the before lib with both meters for every
-# dependent and runs every before suite gated on them (the focused resource
-# suite, the fold and coincident-span suites, the touch-meter unit tests);
-# the other packages' own features stay default.
+# Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
-    cargo nextest run --workspace {{ tool_members }} --features before/touch-meter,before/scan-meter {{ args }}
+    cargo nextest run --workspace {{ tool_members }} {{ args }}
 
-# Every feature is lit here and nowhere else in the gate: the meter suites
-# and the conformance module build only under `--all-features`.
+# Every feature is lit here and nowhere else in the gate.
 
 # Run the test suites under every feature (the gate's test run).
 test-all *args:
@@ -512,6 +511,7 @@ gate-streams:
     start_stream board        10 _gate-board
     start_stream board-fuel   10 _gate-board-fuel
     start_stream suanpan-fuel 10 _gate-suanpan-fuel
+    start_stream focused-fuel 10 _gate-focused-fuel
     start_stream wasm         10 _gate-wasm
     start_stream fuzz         10 _gate-fuzz
     start_stream surface      10 _gate-surface
@@ -564,6 +564,9 @@ _gate-board-fuel: amp-board-fuel
 # suanpan's cost rules judged over random interleavings, in fuel.
 _gate-suanpan-fuel: suanpan-fuel
 
+# The cost claims the board cannot state, judged in fuel.
+_gate-focused-fuel: focused-fuel
+
 _gate-wasm: fuzzfit fuelscape-test wasm32-pins
 _gate-fuzz: fuzz-build
 _gate-surface: surface-totality
@@ -582,19 +585,15 @@ _gate-audit: supply-chain
 # Feature matrix: every cfg-gated surface on its own, so nothing rots behind `--all-features`.
 features:
     cargo check -p suanpan --no-default-features
-    cargo check -p suanpan --no-default-features --features touch-meter
     cargo check -p before --no-default-features
     cargo check -p before --no-default-features --features serde
     cargo check -p before --no-default-features --features borsh
     cargo check -p before --no-default-features --features oracle
     cargo check -p before --no-default-features --features meter
     cargo check -p before --no-default-features --features laws
-    cargo check -p before --no-default-features --features touch-meter
-    cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
     cargo check -p rumors --no-default-features --features fs
-    cargo check -p rumors --features meter
     cargo check -p rumors --no-default-features --features conformance
 
 # The viz engine must keep compiling for its real target, not just the host.
@@ -728,7 +727,8 @@ suanpan-fuel-build:
     {{ fuel_guest_env }} cargo build -p suanpan-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }}
     cargo build -p suanpan-fuel-harness -p suanpan-fuel-protocol --tests --release --target-dir {{ suanpan_fuel_target }}
 
-# Run suanpan's interleaving-fuel property and the census of its skeletons.
+# Run suanpan's interleaving-fuel property, the census of its skeletons, and
+# the focused cost claims judged on fixed programs.
 suanpan-fuel: suanpan-fuel-build
     cargo clippy -p suanpan-fuel-guest --target wasm32-unknown-unknown --target-dir {{ suanpan_fuel_target }} -- -D warnings
     cargo clippy -p suanpan-fuel-harness -p suanpan-fuel-protocol --all-targets --target-dir {{ suanpan_fuel_target }} -- -D warnings
@@ -880,15 +880,14 @@ bench target *filter:
 bench-quick target *filter:
     cargo bench --workspace {{ tool_members }} --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
-# Each board cell judges deterministic work counters (touches, scans, heap)
-# against its declared bounds: green means the samples fit, red is a resource
-# regression to investigate. The board
-# reads no clock, so its output is byte-identical under any machine load.
+# Each board cell judges a deterministic counter, peak heap, against its
+# declared bounds: green means the samples fit, red is a resource regression
+# to investigate. The board reads no clock, so its output is byte-identical
+# under any machine load.
 #
 # The board runs at the release profile, the profile of record: debug
-# assertions perform metered work through probe cursors, so a dev board
-# measures algorithm plus verification scaffolding while release measures the
-# production work alone. A dev run (`cargo run -p before --example amp_board ...`) remains
+# assertions run verification scaffolding, so a dev board measures algorithm
+# plus that scaffolding while release measures the production work alone. A dev run (`cargo run -p before --example amp_board ...`) remains
 # a legitimate debugging view; its numbers must never be pinned anywhere.
 #
 # Every mode that sweeps (all but `compare`, which reads two captures)
@@ -897,8 +896,7 @@ bench-quick target *filter:
 # each process and the runner spawns children that split the operation x
 # family cell grid instead, merging the measured samples back in board
 # order. Every judged quantity is a deterministic counter read from a
-# per-process allocator or a per-process global, so a reading is a
-# function of its cell alone: neither machine load nor the shard layout
+# per-process allocator, so a reading is a function of its cell alone: neither machine load nor the shard layout
 # that measured it can move one. AMP_BOARD_SHARDS overrides the count.
 #
 # A bare run (any single scale) is a debugging view whose verdicts never
@@ -910,7 +908,7 @@ bench-quick target *filter:
 
 # One command serves every board recipe, keeping the production profile part
 # of the instrument rather than a convention each entry point must repeat.
-amp_board_command := "cargo run --release -p before --example amp_board --features touch-meter,scan-meter,serde,borsh"
+amp_board_command := "cargo run --release -p before --example amp_board --features serde,borsh"
 
 # A board capture names the source tree it measured, so a calibration can
 # refuse to merge readings of another tree. This command prints that name:
@@ -980,12 +978,10 @@ amp-board-acceptance *args:
 # The fuel board runs every board cell inside a wasm32 guest under Wasmtime
 # fuel metering and judges fuel, a count of every wasm instruction the cell
 # body executes, by the board's own acceptance rules: the exponent bound,
-# declared models, and a ceiling calibrated per cell. It exists because heap,
-# scan, and touch count only the work that passes through their probes:
-# element moves inside a `Vec`, arithmetic inside `num-bigint`, and buffer
-# fills cost time that none of them sees, and a regression there is red
-# here. The native board above stays the measure of record for heap, scan,
-# and touch.
+# declared models, and a ceiling calibrated per cell. It is the board's
+# measure of execution time, element moves inside a `Vec`, arithmetic inside
+# `num-bigint`, and buffer fills included. The native board above stays the
+# measure of record for heap.
 #
 # Fuel is deterministic for a given guest build and cost table, so the
 # verdict is unaffected by machine load and by the worker count
@@ -1067,6 +1063,27 @@ amp-board-calibrate-fuel: amp-board-fuel-build
     set -euo pipefail
     tree="$({{ source_tree }})"
     AMP_BOARD_SOURCE_TREE="$tree" BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo run --release -p board-fuel-harness --target-dir {{ board_fuel_target }} -- calibrate
+
+# The focused-fuel suites state the cost claims the board cannot: that an
+# operation's cost does not depend on a parameter, that one entry point
+# costs another plus a fixed amount, that a fused walk costs less than the
+# composition it replaces, or that a cost grows along an axis no board
+# family scales. Each claim is a relation between readings of one guest, so
+# no fuel number is committed and the suites need no recalibration after a
+# toolchain or Wasmtime bump. The harness's crate docs name the forms.
+# The guest builds under `fuel_guest_env`, as the board's does. The members'
+# clippy runs here, since the workspace-wide clippy excludes them.
+
+# Build the focused-fuel wasm guest and its harness's tests.
+focused-fuel-build:
+    {{ fuel_guest_env }} cargo build -p focused-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ focused_fuel_target }}
+    cargo build -p focused-fuel-harness -p focused-fuel-protocol --tests --release --target-dir {{ focused_fuel_target }}
+
+# Run the cost claims the board cannot state, each judged in Wasmtime fuel.
+focused-fuel *args: focused-fuel-build
+    cargo clippy -p focused-fuel-guest --target wasm32-unknown-unknown --target-dir {{ focused_fuel_target }} -- -D warnings
+    cargo clippy -p focused-fuel-harness -p focused-fuel-protocol --all-targets --target-dir {{ focused_fuel_target }} -- -D warnings
+    FOCUSED_FUEL_GUEST_WASM={{ focused_fuel_guest_wasm }} cargo nextest run -p focused-fuel-harness -p focused-fuel-protocol --cargo-profile release --target-dir {{ focused_fuel_target }} {{ args }}
 
 # The surface-totality leg holds the resource board's operation inventory
 # against nightly rustdoc JSON — the compiler's own account of the public

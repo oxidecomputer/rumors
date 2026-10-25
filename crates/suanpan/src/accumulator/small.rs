@@ -18,7 +18,6 @@
 //! that width can represent, including the extra range of redundant signed
 //! digits.
 
-use super::touch;
 use super::value::Value;
 
 /// Largest magnitude retained as one `i128` value.
@@ -44,7 +43,6 @@ impl Value {
         };
         debug_assert!(current.unsigned_abs() <= SMALL_MAX);
         debug_assert!(delta.unsigned_abs() <= SMALL_MAX << SMALL_SHIFT_MAX);
-        touch(1);
         let sum = current + delta;
         if sum.unsigned_abs() <= SMALL_MAX {
             self.small = Some(sum);

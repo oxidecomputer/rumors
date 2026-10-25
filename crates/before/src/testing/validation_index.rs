@@ -232,10 +232,9 @@
 //! **The amplification board** (`crate::testing::meter::board`; rendered by
 //! `just amp-board`).
 //! The whole-surface dashboard: every operation × every committed
-//! worst-case family, a four-size measurement ladder per cell, judged on
-//! deterministic counters only (heap, scan bits, and digit touches) against
-//! one fitted exponent trend per currency, per-size
-//! constants, liveness floors, and owner-declared models. What
+//! worst-case family, a four-size measurement ladder per cell, judged on one
+//! deterministic counter, peak heap, against one fitted exponent trend,
+//! per-size constants, liveness floors, and owner-declared models. What
 //! it alone catches: **structural blindness** — a resource regression on
 //! a shape × operation pairing nobody thought to pin, and meter vacuity
 //! (a counter that stopped watching reads a floor trip, not a green).
@@ -251,11 +250,11 @@
 //! amp-board-fuel`). The same cells, each run in a fresh wasm32 guest
 //! instance and judged in Wasmtime *fuel*, a count of every instruction the
 //! body executes, against the board's exponent bound, its declared models,
-//! and a fuel ceiling calibrated per cell. What it alone catches: **time no
-//! probe counts** — element moves inside a `Vec`, arithmetic inside
-//! `num-bigint`, buffer fills, and allocator work, which cost instructions
-//! while leaving heap, scan, and touch unchanged, on the adversarial families
-//! the fuzz-fit bands' generated programs do not reach.
+//! and a fuel ceiling calibrated per cell. What it alone catches: **time on
+//! the adversarial families** — traversal, element moves inside a `Vec`,
+//! arithmetic inside `num-bigint`, buffer fills, and allocator work, which
+//! cost instructions while leaving heap unchanged, on the families the
+//! fuzz-fit bands' generated programs do not reach.
 //!
 //! **The interleaving-fuel property** (the `suanpan/fuel` crates; `just
 //! suanpan-fuel`). Random programs over a pool of `suanpan` accumulators,
@@ -263,7 +262,7 @@
 //! size at three scales 64-fold apart and over two repetition counts; each
 //! reading is judged against another reading of the same program. What it
 //! alone catches: **cost that depends on the order of operations**, which
-//! the touch tests and both boards, each fixing the operation sequence,
+//! the focused claims and both boards, each fixing the operation sequence,
 //! cannot reach — work that grows with the length of the history (seen by
 //! its long repetition); growth paid again after a clear, and an update,
 //! sign query, comparison with a primitive, or conversion that refuses whose
@@ -274,15 +273,35 @@
 //! deferred). It cannot tell work linear in a size the
 //! rules do not charge to a step from that step's own sized charge.
 //!
-//! **The focused resource checks** (`tests/meter.rs`). These vary an axis the
-//! board deliberately holds fixed: an operation argument at fixed operands, a
-//! paired control's marginal cost, the retained densification counter, or an
-//! exact early-exit relationship. What they alone catch: **orthogonal cost
-//! growth** that cannot be represented by scaling a board family's operands.
-//! They also hold exact heap parities between entry points that compute the
-//! same value, which catch **constant-size allocations** too small for the
-//! board's peak-heap column to resolve, such as an operand clone on a path that
-//! discards it.
+//! **The focused fuel claims** (the `focused-fuel` crates under this one;
+//! `just focused-fuel`). Each probe builds its operands in a fresh wasm32
+//! guest instance and reads the fuel of one measured call, or of a few calls
+//! measured together, and each claim is a relation between such readings:
+//! equal fuel at every value of a parameter the cost must not depend on, one
+//! entry point costing another plus a fixed amount, a fused walk costing less
+//! than the composition it replaces, or growth along an axis no board family
+//! scales. No fuel number is committed, so no claim needs recalibrating. What
+//! they alone catch: **lost fast paths, early exits, and fusions** — a clone,
+//! empty, or byte-equal rung that stops answering, an early exit that reads on
+//! past its deciding interval, or a fused walk that stops saving the decode
+//! it was built to save, each of which leaves every value unchanged and moves
+//! no board cell out of its linear bound.
+//!
+//! **The focused resource checks** (`tests/meter.rs`). These hold the memory
+//! and counter claims the board cannot express: heap and allocation ceilings
+//! at the shapes that exercise one representation choice, and the retained
+//! densification counter. They also hold exact heap parities between entry
+//! points that compute the same value, which catch **constant-size
+//! allocations** too small for the board's peak-heap column to resolve, such
+//! as an operand clone on a path that discards it, and **densification sized
+//! by absolute position** rather than span, which zero-fills bytes no operand
+//! width or accumulator digit shows.
+//!
+//! **The family answers** (`tests/family_answers.rs`). Each committed
+//! adversarial family's closed-form `min_ticks`, and its pair relations,
+//! checked at two sizes. What they alone catch: **a generator that builds the
+//! wrong tree**, which every cost judgment over its family would then measure
+//! without noticing.
 //!
 //! **The fuzz-fit bands** (the `fuzzfit` workspace under this crate).
 //! Public operations compiled to wasm and metered in wasmtime *fuel*
@@ -290,10 +309,8 @@
 //! calibrated from a deterministic corpus and enforced over random
 //! programs plus a deterministic prefix. What it alone catches:
 //! **shapes nobody chose** — the structural blind spot of every
-//! chosen-family instrument above — and total-cost drift that escapes
-//! the metered currencies while still costing instructions. Its bands
-//! carry liveness margins (`ENFORCE_MARGIN_BELOW`) so a dead
-//! measurement reads red, not green.
+//! chosen-family instrument above. Its bands carry liveness margins
+//! (`ENFORCE_MARGIN_BELOW`) so a dead measurement reads red, not green.
 //!
 //! **The population atlas** (the `before-fuelscape` crate, an external
 //! instrument). Per-operation heatmaps of deterministic fuel against
@@ -308,11 +325,11 @@
 //!
 //! # The documentation instruments
 //!
-//! **The asymptotics liveness pins** ([`super::asymptotics`]). One pin
-//! per documented non-linear mechanism — the fold entry points' log factor,
-//! the render merge's superlinear growth, the settle's answer-embedded
-//! product — each reading a deterministic counter or exact value
-//! identity on a committed family. What they alone catch: **a
+//! **The asymptotics liveness pins** ([`super::asymptotics`]). Exact value
+//! identities on committed families that hold the settle's answer-embedded
+//! product alive through rank, the pair measures, and ranked keys; the fold
+//! entry points' log factor is held alive by the `focused-fuel` fold suite's
+//! growth floors. What they alone catch: **a
 //! documented mechanism silently disappearing** — a cure or rewiring
 //! that removes the behavior the rustdoc's `# Complexity` section still
 //! claims flips the pin red, so the documentation moves in the same

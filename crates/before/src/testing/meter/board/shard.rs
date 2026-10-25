@@ -19,9 +19,9 @@
 //! capture judge or record the same samples (the `ladder` module holds one
 //! merged list per sampling for all of them).
 //!
-//! A cell's heap, scan, and touch readings are a function of the cell alone:
-//! each is a deterministic counter read from state a child owns privately (its
-//! own global allocator, its own process globals), so neither the shard count
+//! A cell's heap reading is a function of the cell alone: it is a
+//! deterministic counter read from state a child owns privately (its own
+//! global allocator), so neither the shard count
 //! nor which cells share a process with it can move a reading. A fuel reading
 //! need not be: the guest gives each measured body a fresh heap, but state
 //! outside the heap, such as a lazily initialized static, carries from one

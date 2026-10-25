@@ -53,23 +53,6 @@ pub(super) struct ModelSpec {
 }
 
 impl ModelSpec {
-    /// Require a resource to remain bounded by one fixed amount.
-    ///
-    /// Both axes use one unit, so neither operand growth nor output growth can
-    /// enlarge the allowance. This is the model for shortcuts whose work must
-    /// depend only on a fixed-size control operand.
-    pub(super) fn fixed(ceiling: f64) -> Self {
-        assert!(
-            ceiling.is_finite() && ceiling > 0.0,
-            "a model ceiling is positive"
-        );
-        Self {
-            trend: Units::Explicit(1),
-            constant: Units::Explicit(1),
-            ceiling: Some(ceiling),
-        }
-    }
-
     /// Use ordinary units and replace only the proportional ceiling.
     pub(super) fn ceiling(ceiling: f64) -> Self {
         assert!(
@@ -113,23 +96,6 @@ impl ModelSpec {
             trend: Units::Scale(factor),
             constant: Units::Default,
             ceiling: None,
-        }
-    }
-
-    /// Scale both axes and replace the proportional ceiling.
-    pub(super) fn scaled(factor: f64, ceiling: f64) -> Self {
-        assert!(
-            factor.is_finite() && factor > 0.0,
-            "a model scale is positive"
-        );
-        assert!(
-            ceiling.is_finite() && ceiling > 0.0,
-            "a model ceiling is positive"
-        );
-        Self {
-            trend: Units::Scale(factor),
-            constant: Units::Scale(factor),
-            ceiling: Some(ceiling),
         }
     }
 }

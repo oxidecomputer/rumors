@@ -1,13 +1,7 @@
 //! Tests for the board's judgment and liveness floors.
 
-#[cfg(feature = "scan-meter")]
-use crate::testing::meter::dense;
-#[cfg(any(feature = "scan-meter", feature = "touch-meter"))]
 use crate::testing::meter::Encoding;
-#[cfg(feature = "touch-meter")]
-use crate::Party;
-#[cfg(any(feature = "scan-meter", feature = "touch-meter"))]
-use crate::Version;
+use crate::{Party, Version};
 
 use super::currency::ByCurrency;
 use super::measure::Model;
@@ -45,11 +39,7 @@ fn version_output_denominator_includes_boundary_marker_byte() {
     let output_bytes = version.as_bytes().len();
     let cell = Cell::io(
         INPUT_BYTES,
-        Floors {
-            heap: na(PROBE_NA),
-            scan: na(PROBE_NA),
-            touch: na(PROBE_NA),
-        },
+        Floors { heap: na(PROBE_NA) },
         |result| {
             version_output_bytes(
                 result
@@ -268,11 +258,8 @@ fn many_hole_conjunction_preserves_both_antichains() {
     }
 }
 
-#[cfg(feature = "touch-meter")]
 use super::judge::trend;
-#[cfg(feature = "touch-meter")]
 use super::{operand::value_content_bytes, MAX_SCALING_EXPONENT};
-#[cfg(feature = "touch-meter")]
 use crate::testing::meter::cliff_comb;
 
 /// Use the board's default resource model for every currency.
@@ -290,138 +277,38 @@ fn uncalibrated() -> super::cell_ceilings::Calibration {
 }
 
 /// Lift a meter-generated encoded event shape into a [`Version`].
-#[cfg(any(feature = "scan-meter", feature = "touch-meter"))]
 fn version_of(p: &Encoding) -> Version {
     p.version()
 }
 
-/// Sum the stored bits of `v` by direct slice indexing: real linear traversal
-/// work that touches no metered primitive (no cursor, no builder, no
-/// arithmetic, no allocation).
-#[cfg(feature = "scan-meter")]
-fn bypass_walk(v: &Version) -> usize {
-    let bytes = v.as_bytes();
-    (0..v.stored_len())
-        .filter(|&position| bytes[(position / 8) as usize] >> (7 - position % 8) & 1 == 1)
-        .count()
-}
-
-/// A body that does its traversal outside the metered primitives reads green
-/// under ceilings alone and red under the committed liveness floors.
+/// On the boundary comb, the stored-byte denominator makes the board's trend
+/// fit read work linear in the tooth count as superlinear, and the
+/// value-content denominator reads it linear.
 ///
-/// A criterion of ceilings alone is vacuous against exactly this bypass; the
-/// floors close it.
-///
-/// The probe walks a decoded dense spine by direct indexing, so every counter
-/// column records ~nothing while real linear work runs. Both legs go through
-/// [`evaluate`] with the probe's real counter readings; the only difference is
-/// the declarations — all-NA (ceilings alone) versus the committed walk
-/// convention (scan floored at one bit per encoded byte). The two nearby sizes
-/// deliberately leave the exponent unjudged: this test isolates liveness,
-/// while the exponent-guard test covers that policy.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
-    use super::floors::{na, walk_floors};
-    use super::judge::{evaluate, SCAN_FLOOR_TRIP};
-    use super::measure::Sample;
-    use super::{ByCurrency, Floors};
-
-    const PROBE_NA: &str = "probe: the ceilings-alone leg declares no floors";
-    fn na_floors(_stored_bytes: usize) -> Floors {
-        Floors {
-            heap: na(PROBE_NA),
-            scan: na(PROBE_NA),
-            touch: na(PROBE_NA),
-        }
-    }
-    /// The committed walk convention with no touch floor declared:
-    /// the probe folds no accumulator, and the leg under test is the scan
-    /// floor.
-    fn probe_walk_floors(stored_bytes: usize) -> Floors {
-        walk_floors(stored_bytes, na(PROBE_NA))
-    }
-
-    let sample = |depth: usize, floors_of: fn(usize) -> Floors| -> Sample {
-        let encoded = dense(depth);
-        let v = version_of(&encoded);
-        let n = encoded.bytes.len();
-        crate::testing::meter::reset_scan_bits();
-        let ones = bypass_walk(&v);
-        let scanned = crate::testing::meter::scan_bits();
-        assert!(ones > 0, "the bypass walk does real work over real bits");
-        Sample {
-            denom_bytes: n,
-            exp_denom_bytes: n,
-            floors: floors_of(n).with_fuel(),
-            models: no_model_overrides(),
-            readings: ByCurrency {
-                heap: Some(0),
-                scan: Some(scanned),
-                touch: None,
-                fuel: None,
-            },
-        }
-    };
-
-    let ceilings_only = evaluate(
-        &uncalibrated(),
-        "bypass_probe",
-        "dense",
-        sample(1_000, na_floors),
-        sample(1_100, na_floors),
-    );
-    assert!(
-        ceilings_only.red.is_empty(),
-        "under ceilings alone the bypass walk must read green (every counter near zero): \
-         got {:?}",
-        ceilings_only.red
-    );
-
-    let floored = evaluate(
-        &uncalibrated(),
-        "bypass_probe",
-        "dense",
-        sample(1_000, probe_walk_floors),
-        sample(1_100, probe_walk_floors),
-    );
-    assert_eq!(
-        floored.red,
-        vec![SCAN_FLOOR_TRIP],
-        "under the committed floors the bypass walk must read red on exactly the scan \
-         floor: the meter is not watching its traversal"
-    );
-}
-
-/// The flat-denominator shape's stored-byte fit manufactures a superlinear
-/// exponent out of measured flat per-tooth work.
-///
-/// The value-content fit reads the same measurements linear. This is the
-/// tripwire the comb-scatter exponent re-denomination rests on: the comparison
-/// sweep's accumulator work per tooth is flat across a tooth-count doubling
-/// (the linear witness), the byte denominator grows under x1.5 because the
-/// fixed 1000-bit magnitude dominates it (the intercept premise), and the two
-/// fits disagree by an exponent class on identical readings.
-#[cfg(feature = "touch-meter")]
+/// This is the premise the comb-scatter exponent re-denomination rests on.
+/// The denominators are measured: at a fixed 1000-bit tooth magnitude, a
+/// version and its ticked successor store under x1.5 more bytes across a
+/// tooth-count doubling, because the fixed magnitude dominates their size,
+/// while their value content doubles. The work is constructed, a fixed
+/// amount per tooth, and the board's own `trend` fits it against each
+/// denominator: against stored bytes it reads more than twice the exponent
+/// bound, and against value content it reads within the bound.
 #[test]
 fn flat_denominator_stored_fit_manufactures_an_exponent() {
+    /// Work units per tooth: any fixed amount shows the separation.
+    const WORK_PER_TOOTH: u64 = 7;
     let measure = |teeth: usize| -> (usize, usize, u64) {
         let v = version_of(&cliff_comb(1_000, teeth));
         let mut w = v.clone();
         w.tick(&Party::seed());
         let stored = v.as_bytes().len() + w.as_bytes().len();
         let content = value_content_bytes(&v) + value_content_bytes(&w);
-        // The sweep's per-tooth work is accumulator folds, so digit touches
-        // provide the flat marginal quantity this tripwire needs.
-        suanpan::touch_meter::reset();
-        let ord = v.partial_cmp(&w);
-        let ops = suanpan::touch_meter::touches();
-        assert!(ord.is_some(), "a ticked counterpart stays comparable");
-        (stored, content, ops)
+        (stored, content, WORK_PER_TOOTH * teeth as u64)
     };
     let (build1, content1, ops1) = measure(128);
     let (build2, content2, ops2) = measure(256);
-    // The intercept premise and the content axis's liveness.
+    // The measured denominators: the intercept premise, and the content
+    // axis tracking the tooth count.
     let stored_growth = build2 as f64 / build1 as f64;
     let content_growth = content2 as f64 / content1 as f64;
     assert!(
@@ -432,23 +319,17 @@ fn flat_denominator_stored_fit_manufactures_an_exponent() {
         (1.9..=2.1).contains(&content_growth),
         "the value content must track the doubled tooth count: grew x{content_growth:.2}"
     );
-    // Per-tooth touch work stays flat under linear scaling.
-    let per_tooth = (ops1 as f64 / 128.0, ops2 as f64 / 256.0);
-    assert!(
-        per_tooth.1 <= per_tooth.0 * 1.25,
-        "per-tooth touch work must be flat across the doubling: {per_tooth:?}"
-    );
-    // The same readings, two fits, an exponent class apart.
+    // The constructed work under the two fits, an exponent class apart.
     let stored_fit = trend(&[(build1 as u64, ops1), (build2 as u64, ops2)]);
     let content_fit = trend(&[(content1 as u64, ops1), (content2 as u64, ops2)]);
     assert!(
         stored_fit > 2.0 * MAX_SCALING_EXPONENT,
-        "the stored-size fit must manufacture a superlinear exponent from flat marginal work: \
+        "the stored-size fit must manufacture a superlinear exponent from linear work: \
          read {stored_fit:.2}"
     );
     assert!(
         content_fit <= MAX_SCALING_EXPONENT,
-        "the content fit must read the same measurements linear: read {content_fit:.2}"
+        "the content fit must read the same work linear: read {content_fit:.2}"
     );
 }
 
@@ -460,15 +341,11 @@ fn heap_sample(denom: usize, heap: u64) -> super::measure::Sample {
         exp_denom_bytes: denom,
         floors: super::Floors {
             heap: na("the heap ceiling is under test"),
-            scan: na("no work counter in this probe"),
-            touch: na("no work counter in this probe"),
         }
         .with_fuel(),
         models: no_model_overrides(),
         readings: ByCurrency {
             heap: Some(heap),
-            scan: None,
-            touch: None,
             fuel: None,
         },
     }
@@ -538,17 +415,20 @@ fn heap_trend_resolution_does_not_exempt_peaks_from_the_ceiling() {
 }
 
 /// Nearly fixed denominators cannot support a useful growth fit, while the
-/// same fivefold work increase across a doubling remains a scaling failure.
+/// same fivefold growth across a doubling remains a scaling failure.
+///
+/// Both readings sit above the heap trend resolution, so the fit sees them
+/// unclamped.
 #[test]
 fn exponent_guard_depends_on_denominator_span() {
     use super::judge::evaluate;
+    use super::HEAP_TREND_RESOLUTION_BYTES;
+    let base = HEAP_TREND_RESOLUTION_BYTES as u64;
     for (second, judged) in [(7, false), (12, true)] {
-        let mut first = heap_sample(6, 0);
-        first.readings.scan = Some(12);
-        let mut last = heap_sample(second, 0);
-        last.readings.scan = Some(60);
-        let cell = evaluate(&uncalibrated(), "scan", "span", first, last);
-        assert_eq!(cell.red.contains(&"scan exponent"), judged);
+        let first = heap_sample(6, 12 * base);
+        let last = heap_sample(second, 60 * base);
+        let cell = evaluate(&uncalibrated(), "heap", "span", first, last);
+        assert_eq!(cell.red.contains(&"heap exponent"), judged);
     }
 }
 
@@ -572,29 +452,27 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
     use super::measure::Sample;
     use super::{ByCurrency, Floors, MAX_SCALING_EXPONENT};
     const PROBE_NA: &str = "probe: the exponent trend alone is under test";
-    let sample = |denom: usize, scan: u64| -> Sample {
+    let sample = |denom: usize, heap: u64| -> Sample {
         Sample {
             denom_bytes: denom,
             exp_denom_bytes: denom,
-            floors: Floors {
-                heap: na(PROBE_NA),
-                scan: na(PROBE_NA),
-                touch: na(PROBE_NA),
-            }
-            .with_fuel(),
+            floors: Floors { heap: na(PROBE_NA) }.with_fuel(),
             models: no_model_overrides(),
             readings: ByCurrency {
-                heap: Some(0),
-                scan: Some(scan),
-                touch: None,
+                heap: Some(heap),
                 fuel: None,
             },
         }
     };
-    // A linear counter (~2 per denominator byte) with the second point
-    // bumped: the lump an organic family rebuilt per scale can hand any
-    // sparse counter.
-    let ladder = [(134usize, 226u64), (288, 708), (549, 860), (1117, 1720)];
+    // A linear counter (~200 per denominator byte, above the heap trend
+    // resolution at every point) with the second point bumped: the lump an
+    // organic family rebuilt per scale can hand any sparse counter.
+    let ladder = [
+        (134usize, 22_600u64),
+        (288, 70_800),
+        (549, 86_000),
+        (1117, 172_000),
+    ];
     let window_fit = trend(&[
         (ladder[0].0 as u64, ladder[0].1),
         (ladder[1].0 as u64, ladder[1].1),
@@ -619,14 +497,14 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
     );
     for (label, cell) in [("lo", &lo), ("hi", &hi)] {
         assert!(
-            !cell.red.iter().any(|r| r.contains("scan exponent")),
+            !cell.red.iter().any(|r| r.contains("heap exponent")),
             "a single lump must not define the four-point trend ({label}: {:?})",
             cell.red
         );
     }
     // The same denominators carrying genuinely quadratic work: every point
     // bends, and the trend stays red in both windows.
-    let quadratic = |n: usize| (n * n / 100) as u64;
+    let quadratic = |n: usize| (n * n) as u64;
     let (lo, hi) = evaluate_acceptance(
         &uncalibrated(),
         "trend_probe",
@@ -642,7 +520,7 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
     );
     for (label, cell) in [("lo", &lo), ("hi", &hi)] {
         assert!(
-            cell.red.contains(&"scan exponent"),
+            cell.red.contains(&"heap exponent"),
             "a genuine super-linearity must stay red through the trend \
              ({label}: {:?})",
             cell.red
@@ -654,46 +532,40 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
 ///
 /// Across power-of-two arities from 2 through 1,024, cost proportional to
 /// `D log2(2k)` passes, quadratic cost fails its trend, and a proportional cost
-/// above the coefficient fails only its ceiling.
-#[cfg(feature = "scan-meter")]
+/// above the model's ceiling fails only its ceiling. The operands are wide
+/// enough that the heap intercept is small beside every reading.
 #[test]
 fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
     use super::floors::na;
     use super::judge::evaluate;
     use super::measure::{Model, Sample};
-    use super::{ByCurrency, Floors, FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL};
+    use super::{ByCurrency, Floors};
     const PROBE_NA: &str = "probe: the declared fold model alone is under test";
-    let sample = |denom: usize, arity: u64, scan: u64| -> Sample {
+    /// The model's ceiling, in units per reduction level and input byte.
+    const LEVEL_CEILING: f64 = 16.0;
+    let sample = |denom: usize, arity: u64, heap: u64| -> Sample {
+        let units = ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as u64;
         Sample {
             denom_bytes: denom,
             exp_denom_bytes: denom,
-            floors: Floors {
-                heap: na(PROBE_NA),
-                scan: na(PROBE_NA),
-                touch: na(PROBE_NA),
-            }
-            .with_fuel(),
+            floors: Floors { heap: na(PROBE_NA) }.with_fuel(),
             models: ByCurrency {
-                heap: None,
-                scan: Some(Model {
-                    trend_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as u64,
-                    constant_units: ((denom as f64) * (2.0 * arity as f64).log2()).ceil() as u64,
-                    ceiling: Some(FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL),
+                heap: Some(Model {
+                    trend_units: units,
+                    constant_units: units,
+                    ceiling: Some(LEVEL_CEILING),
                 }),
-                touch: None,
                 fuel: None,
             },
             readings: ByCurrency {
-                heap: Some(0),
-                scan: Some(scan),
-                touch: None,
+                heap: Some(heap),
                 fuel: None,
             },
         }
     };
     for exponent in 1..=10 {
         let arity = 1u64 << exponent;
-        let bytes = 64 * arity as usize;
+        let bytes = 4_096 * arity as usize;
         let units = |n: usize, k: u64| (n as f64 * (2.0 * k as f64).log2()) as u64;
         let cost = |coefficient: f64, n: usize, k: u64| (coefficient * units(n, k) as f64) as u64;
         let judge = |first, second| {
@@ -705,7 +577,7 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
                 sample(bytes * 2, arity * 2, second),
             )
         };
-        let within = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL - 1.0;
+        let within = LEVEL_CEILING - 1.0;
         let expected = judge(
             cost(within, bytes, arity),
             cost(within, bytes * 2, arity * 2),
@@ -719,29 +591,28 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
         let bytes_wide = bytes as u64;
         let quadratic = judge(bytes_wide * bytes_wide, 4 * bytes_wide * bytes_wide);
         assert!(
-            quadratic.red.contains(&"scan exponent"),
+            quadratic.red.contains(&"heap exponent"),
             "quadratic cost at arity {arity}"
         );
 
-        let over = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL + 1.0;
+        let over = LEVEL_CEILING + 1.0;
         let excessive = judge(cost(over, bytes, arity), cost(over, bytes * 2, arity * 2));
         assert!(
-            excessive.red.contains(&"scan constant"),
+            excessive.red.contains(&"heap constant"),
             "constant above the declared ceiling"
         );
         assert!(
-            !excessive.red.contains(&"scan exponent"),
+            !excessive.red.contains(&"heap exponent"),
             "proportional growth remains linear"
         );
     }
 }
 
-/// A resource model judges its stated work law without weakening either scan
-/// check.
+/// A resource model judges its stated work law without weakening either the
+/// constant or the exponent check.
 ///
 /// Work linear in the model reads green even when the model grows faster than
 /// encoded I/O. Work quadratic in that same model remains exponent-red.
-#[cfg(feature = "scan-meter")]
 #[test]
 fn resource_model_preserves_constant_and_exponent_checks() {
     use super::floors::na;
@@ -749,30 +620,21 @@ fn resource_model_preserves_constant_and_exponent_checks() {
     use super::measure::{Model, Sample};
     use super::{ByCurrency, Floors};
     const PROBE_NA: &str = "probe: the resource model alone is under test";
-    let sample = |denom: usize, work: usize, scan: u64| -> Sample {
+    let sample = |denom: usize, work: usize, heap: u64| -> Sample {
         Sample {
             denom_bytes: denom,
             exp_denom_bytes: denom,
-            floors: Floors {
-                heap: na(PROBE_NA),
-                scan: na(PROBE_NA),
-                touch: na(PROBE_NA),
-            }
-            .with_fuel(),
+            floors: Floors { heap: na(PROBE_NA) }.with_fuel(),
             models: ByCurrency {
-                heap: None,
-                scan: Some(Model {
+                heap: Some(Model {
                     trend_units: work as u64,
                     constant_units: work as u64,
                     ceiling: None,
                 }),
-                touch: None,
                 fuel: None,
             },
             readings: ByCurrency {
-                heap: Some(0),
-                scan: Some(scan),
-                touch: None,
+                heap: Some(heap),
                 fuel: None,
             },
         }
@@ -780,26 +642,26 @@ fn resource_model_preserves_constant_and_exponent_checks() {
 
     let linear = evaluate(
         &uncalibrated(),
-        "scan_work_probe",
+        "work_probe",
         "linear",
         sample(100, 1_000, 8_000),
         sample(200, 4_000, 32_000),
     );
     assert!(
-        !linear.red.iter().any(|reason| reason.starts_with("scan")),
+        !linear.red.iter().any(|reason| reason.starts_with("heap")),
         "work linear in the declared model must read green: {:?}",
         linear.red
     );
 
     let quadratic = evaluate(
         &uncalibrated(),
-        "scan_work_probe",
+        "work_probe",
         "quadratic",
         sample(100, 1_000, 8_000),
         sample(200, 4_000, 128_000),
     );
     assert!(
-        quadratic.red.contains(&"scan exponent"),
+        quadratic.red.contains(&"heap exponent"),
         "quadratic growth in declared work must remain red: {:?}",
         quadratic.red
     );
@@ -818,26 +680,17 @@ fn model_ceiling_tightens_only_the_constant() {
         Sample {
             denom_bytes: denom,
             exp_denom_bytes: denom,
-            floors: Floors {
-                heap: na(PROBE_NA),
-                scan: na(PROBE_NA),
-                touch: na(PROBE_NA),
-            }
-            .with_fuel(),
+            floors: Floors { heap: na(PROBE_NA) }.with_fuel(),
             models: ByCurrency {
                 heap: Some(Model {
                     trend_units: denom as u64,
                     constant_units: denom as u64,
                     ceiling: Some(3.0),
                 }),
-                scan: None,
-                touch: None,
                 fuel: None,
             },
             readings: ByCurrency {
                 heap: Some(heap),
-                scan: None,
-                touch: None,
                 fuel: None,
             },
         }
@@ -937,7 +790,7 @@ fn worst_rank_excludes_zero_readings() {
 /// Render one worst-map row for a two-family column at the given margin.
 fn rendered_row(worst_value: f64, runner_up_value: f64) -> String {
     let column = super::worst::CurrencyWorst {
-        currency: super::Currency::Touch,
+        currency: super::Currency::Heap,
         off: false,
         worst: vec![candidate("alpha", worst_value)],
         runner_up: Some(candidate("beta", runner_up_value)),
@@ -1099,7 +952,7 @@ fn target_dependent_pin_entries_name_their_code_path() {
 }
 
 /// Build a worst-map row whose heap column ranks `heap` worst (empty when no
-/// family drives it) and on which every family reads zero scan and touch.
+/// family drives it).
 fn map_row(op: &'static str, heap: &[&'static str]) -> super::worst::OpWorst {
     use super::worst::CurrencyWorst;
     use super::Currency;
@@ -1111,11 +964,7 @@ fn map_row(op: &'static str, heap: &[&'static str]) -> super::worst::OpWorst {
     };
     super::worst::OpWorst {
         op,
-        per_currency: vec![
-            column(Currency::Heap, heap),
-            column(Currency::Scan, &[]),
-            column(Currency::Touch, &[]),
-        ],
+        per_currency: vec![column(Currency::Heap, heap)],
     }
 }
 
@@ -1141,12 +990,12 @@ fn target_dependent_pin_accepts_any_live_worst_set_but_reports_a_dead_row() {
         map_row("exact_revived", &["alpha"]),
     ];
     let pins = [
-        ("probe", "marked_single", [TARGET_DEPENDENT, "-", "-"]),
-        ("probe", "marked_tie", [TARGET_DEPENDENT, "-", "-"]),
-        ("probe", "marked_dead", [TARGET_DEPENDENT, "-", "-"]),
-        ("probe", "exact_held", ["alpha", "-", "-"]),
-        ("probe", "exact_flipped", ["alpha", "-", "-"]),
-        ("probe", "exact_revived", ["-", "-", "-"]),
+        ("probe", "marked_single", [TARGET_DEPENDENT]),
+        ("probe", "marked_tie", [TARGET_DEPENDENT]),
+        ("probe", "marked_dead", [TARGET_DEPENDENT]),
+        ("probe", "exact_held", ["alpha"]),
+        ("probe", "exact_flipped", ["alpha"]),
+        ("probe", "exact_revived", ["-"]),
     ];
     let mut out = Vec::new();
     let clean = check_scale("probe", &map, &pins, &mut out).expect("writing to a Vec succeeds");

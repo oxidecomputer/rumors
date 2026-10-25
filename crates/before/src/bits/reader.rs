@@ -15,7 +15,6 @@ use dsi_bitstream::traits::{BitRead as DsiBitRead, BE};
 use num_bigint::BigUint;
 
 use crate::error::Decode;
-use crate::testing::instrument::scan;
 
 use super::Bits;
 
@@ -95,9 +94,7 @@ pub(crate) trait BitRead {
 
 /// A word-parallel sequential reader over a bounded bit range.
 ///
-/// Domain readers build their tree operations on this cursor. Every operation
-/// records the same scan-meter bits as an equivalent per-bit loop: the meter
-/// prices the input examined, not how reads are batched internally.
+/// Domain readers build their tree operations on this cursor.
 pub(crate) struct BitsReader<'a> {
     reader: BufBitReader<BE, ByteWords<'a>>,
     /// The position immediately after the last live bit read.
@@ -178,7 +175,6 @@ impl<'a> BitsReader<'a> {
             .reader
             .read_bits(len as usize)
             .expect("the requested word fits the live range");
-        scan::record_bits(u64::from(len));
         self.position += u64::from(len);
         Ok(value)
     }
@@ -206,16 +202,12 @@ impl<'a> BitsReader<'a> {
         }
     }
 
-    /// Reject at the live length, recording the examined tail.
+    /// Reject at the live length.
     ///
-    /// A rejecting read still examined every remaining live bit (a
-    /// self-delimiting stream's truncation is only discoverable by parsing to
-    /// its end, which is exactly what the truncation-reject scan floors demand
-    /// the meter see), so the tail records before the reject surfaces, and the
-    /// cursor parks at the live length, where the per-bit loop's failing read
-    /// leaves its own reader.
+    /// The cursor parks at the live length, where the per-bit loop's failing
+    /// read leaves its own reader, so a rejecting read leaves the cursor
+    /// where the equivalent per-bit reads would.
     fn truncated(&mut self) -> Truncated {
-        scan::record_bits(self.len - self.position);
         self.position = self.len;
         Truncated
     }
@@ -225,8 +217,7 @@ impl<'a> BitsReader<'a> {
     /// would be.
     ///
     /// The prefix length alone determines the code's width, so the skip is one
-    /// unary read plus a bit discard; it records the same scan-meter bits a
-    /// read would.
+    /// unary read plus a bit discard.
     pub(crate) fn skip_gamma(&mut self) -> Result<(), Truncated> {
         let k = self.unary_raw()?;
         let code_len = 2 * k + 1;
@@ -241,7 +232,6 @@ impl<'a> BitsReader<'a> {
                 .expect("the mantissa was proven to fit the live length");
             remaining -= chunk;
         }
-        scan::record_bits(code_len);
         self.position += code_len;
         Ok(())
     }
@@ -282,9 +272,6 @@ impl BitRead for BitsReader<'_> {
             .read_bits(1)
             .expect("the word source zero-fills to the live length")
             != 0;
-        // Record the logical bit examined, independent of the word-sized
-        // reads used underneath.
-        scan::record_bits(1);
         self.position += 1;
         Ok(bit)
     }
@@ -295,7 +282,6 @@ impl BitRead for BitsReader<'_> {
 
     fn read_unary(&mut self) -> Result<u64, Truncated> {
         let k = self.unary_raw()?;
-        scan::record_bits(k + 1);
         self.position += k + 1;
         Ok(k)
     }

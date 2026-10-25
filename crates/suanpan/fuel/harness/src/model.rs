@@ -36,7 +36,8 @@ use std::cmp::Ordering;
 use num_bigint::{BigInt, BigUint, Sign};
 use suanpan_fuel_protocol::{
     observe_bool, observe_conversion, observe_magnitude, observe_ordering, observe_stable,
-    Direction, Form, LimbInput, Member, Primitive, Read, SignQuery, Step, NO_OBSERVATION, POOL,
+    Direction, Form, Integer, LimbInput, Member, Primitive, Read, SignQuery, Step, NO_OBSERVATION,
+    POOL,
 };
 
 /// What the cost rules charge one step, in their own units.
@@ -115,12 +116,13 @@ pub struct Record {
     /// The floor counts one for the step itself; one for each limb of a limb
     /// update's operand; and one for each limb of the value that a
     /// `signed_magnitude` read returns, a hash consumes, or a clone,
-    /// `clone_from`, or borrowed negation copies. The step touches each of
-    /// those limbs at least once, and each touch costs at least one wasm
-    /// instruction or one byte of bulk memory traffic. Other work counts
-    /// nothing toward the floor, which only proves that fuel is counting: a
-    /// scaled read, which may leave out a span no update wrote, and the
-    /// clones inside composite steps add nothing.
+    /// `clone_from`, borrowed negation, or borrowed primitive on the left
+    /// copies. The step reads or writes each of those limbs at least once, and
+    /// each such access costs at least one wasm instruction or one byte of bulk
+    /// memory traffic. Other work counts nothing toward the floor, which only
+    /// proves that fuel is counting: a scaled read, which may leave out a span
+    /// no update wrote, and the clones inside accumulator operands, sums, and
+    /// `abs_diff` add nothing.
     pub floor: u64,
     /// The hard regimes the step realized; all false unless the model counts
     /// them.
@@ -183,6 +185,16 @@ fn limb_value(input: &LimbInput) -> BigUint {
         .flat_map(|limb| [limb as u32, (limb >> 32) as u32])
         .collect();
     BigUint::new(digits)
+}
+
+/// Returns whether `value` fits the primitive type `target`.
+pub fn fits(value: &BigInt, target: Integer) -> bool {
+    match target {
+        Integer::I64 => i64::try_from(value).is_ok(),
+        Integer::U64 => u64::try_from(value).is_ok(),
+        Integer::I128 => i128::try_from(value).is_ok(),
+        Integer::U128 => u128::try_from(value).is_ok(),
+    }
 }
 
 /// Applies a direction to a contribution.
@@ -381,6 +393,34 @@ impl Model {
                     charge.output_words = 1;
                 }
             }
+            Step::ReversedPrimitive {
+                member,
+                direction,
+                value,
+                borrowed,
+            } => {
+                let m = member.index();
+                let before = self.values[m].clone();
+                if *borrowed {
+                    // `value ± &member` clones the member, a new storage of
+                    // its width, and then updates the clone.
+                    let bits = width(&before);
+                    charge.output_words = words(bits);
+                    floor += limbs(bits);
+                    self.restart(m);
+                }
+                // `value - member` negates the member first.
+                if *direction == Direction::Sub {
+                    charge.output_words += 1;
+                    self.values[m] = -std::mem::take(&mut self.values[m]);
+                }
+                let negated = self.values[m].clone();
+                let contribution = primitive(*value);
+                self.values[m] += &contribution;
+                charge.input_words = 1;
+                self.additive_events(&mut events, &negated, &contribution, m);
+                written = Some(m);
+            }
             Step::Shift { member, shift } => {
                 let m = member.index();
                 self.values[m] <<= *shift;
@@ -415,10 +455,15 @@ impl Model {
                 observation =
                     observe_ordering(self.values[member.index()].cmp(&BigInt::from(*value)));
             }
-            Step::Convert { member } => {
+            Step::Convert { member, target } => {
                 let m = member.index();
                 charge.output_words = 1;
-                let converted = i64::try_from(&self.values[m]).ok();
+                let value = &self.values[m];
+                let converted = fits(value, *target).then(|| {
+                    let magnitude = u128::try_from(value.magnitude())
+                        .expect("a value that fits a primitive has a magnitude below 2^128");
+                    (sign(value), magnitude)
+                });
                 if converted.is_some() {
                     self.restart(m);
                 }
@@ -682,9 +727,10 @@ pub fn written_member(step: &Step<impl Sized>) -> Option<Member> {
         Step::Primitive { member, .. }
         | Step::Limbs { member, .. }
         | Step::Negate { member, .. }
+        | Step::ReversedPrimitive { member, .. }
         | Step::Shift { member, .. }
         | Step::Clear { member }
-        | Step::Convert { member } => Some(*member),
+        | Step::Convert { member, .. } => Some(*member),
         Step::Operand { receiver, .. }
         | Step::Clone { receiver, .. }
         | Step::CloneFrom { receiver, .. }

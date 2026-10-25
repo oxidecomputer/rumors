@@ -578,58 +578,6 @@ mod sync_constructed {
         assert_matches_composition(&x, &y);
     }
 
-    /// Synchronization does no more encoded-bit work than separate join and
-    /// fork operations.
-    ///
-    /// Deep cases cover merging a shared child, copying an exclusively owned
-    /// child, and following a long one-child chain. Copying exclusive children
-    /// must read only the two root tags and write each output bit once.
-    #[cfg(feature = "scan-meter")]
-    #[test]
-    fn sync_scan_work_never_exceeds_join_then_fork() {
-        let compare = |name: &str, a: &BitsWriter, b: &BitsWriter| -> u64 {
-            crate::testing::instrument::scan::reset();
-            party(a).sync(&party(b));
-            let fused = crate::testing::instrument::scan::scan_bits();
-
-            crate::testing::instrument::scan::reset();
-            let mut joined = party(a);
-            if joined.join(party(b)).is_ok() {
-                let _ = joined.fork();
-            }
-            let composed = crate::testing::instrument::scan::scan_bits();
-            assert!(
-                0 < fused && fused <= composed,
-                "{name}: fused walk scanned {fused} bits against the \
-                 composition's {composed}",
-            );
-            fused
-        };
-        for k in [256usize, 4096] {
-            let quarter_left = node(Some(&full()), None);
-            let quarter_right = node(None, Some(&full()));
-            let a = spine(k, true, node(Some(&leftmost(k)), Some(&quarter_left)));
-            let b = spine(
-                k,
-                true,
-                node(Some(&complement_leftmost(k)), Some(&quarter_right)),
-            );
-            compare(&format!("delegated k={k}"), &a, &b);
-            let a = node(Some(&full()), None);
-            let b = node(None, Some(&leftmost(k)));
-            let spliced = compare(&format!("splice k={k}"), &a, &b);
-            assert_eq!(
-                spliced,
-                4 + a.len() + b.len(),
-                "a splice-resolved pair reads each two-bit root tag once and \
-                 writes both results once",
-            );
-            let a = leftmost(k);
-            let b = spine(k - 1, true, node(None, Some(&full())));
-            compare(&format!("adjacent k={k}"), &a, &b);
-        }
-    }
-
     /// A root-owning party overlaps every nonempty party, including a deeply
     /// nested cell.
     #[test]
@@ -725,51 +673,6 @@ mod without_constructed {
     fn seed_without_deep_cell_is_its_complement() {
         for k in SCALES {
             assert_without(&full(), &leftmost(k), &complement_leftmost(k), k);
-        }
-    }
-
-    /// Copying or discarding a covered subtree scans no more than its input and
-    /// copied output, and no more than constructing its complement.
-    ///
-    /// The lower bound reads both operands once. The upper bound adds one write
-    /// of the surviving subtree and a small fixed amount for the root. A walk
-    /// that rebuilt the subtree region by region would exceed this envelope.
-    #[cfg(feature = "scan-meter")]
-    #[test]
-    fn without_covered_subtree_scan_never_exceeds_the_complement_walk() {
-        /// Constant scan overhead of a settled block beyond its operand reads
-        /// and output write: the root-level tag reservations and patches.
-        const BLOCK_SLACK: u64 = 8;
-        let scan = |a: &BitsWriter, b: &BitsWriter| -> u64 {
-            crate::testing::instrument::scan::reset();
-            let (a_bits, b_bits) = (a.clone().finalize(), b.clone().finalize());
-            PartyReader::from_bits(&a_bits).without(PartyReader::from_bits(&b_bits));
-            crate::testing::instrument::scan::scan_bits()
-        };
-        for k in [256usize, 4096] {
-            let spine = leftmost(k);
-            let unowned_cover = node(None, Some(&full()));
-            let owned_cover = node(Some(&full()), None);
-            let walk = scan(&owned_cover, &spine);
-            for (name, cover, output_len) in [
-                ("splice", &unowned_cover, spine.len()),
-                ("owned-cover block", &owned_cover, 0),
-            ] {
-                let blocked = scan(&spine, cover);
-                let floor = spine.len() + cover.len();
-                let ceiling = floor + output_len + BLOCK_SLACK;
-                assert!(
-                    floor <= blocked && blocked <= ceiling,
-                    "{name} k={k}: scanned {blocked} bits outside \
-                     [{floor}, {ceiling}] (every operand tag once, plus the \
-                     settled output written once)",
-                );
-                assert!(
-                    blocked <= walk,
-                    "{name} k={k}: scanned {blocked} bits against the \
-                     complement walk's {walk}",
-                );
-            }
         }
     }
 }

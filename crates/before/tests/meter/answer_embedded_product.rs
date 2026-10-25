@@ -20,15 +20,13 @@
 //! pins it), so any fold that answers exactly multiplies arbitrary
 //! input-funded integers — `Ω(M(|v|))` floors every settle and the
 //! `# Complexity` claims' worst case can never reach `O(|v|)` while
-//! integer multiplication is superlinear. The fold's own
-//! deterministic counters price its traffic — operand reads, the
-//! compacted segment, and the product's width — and read flat per byte.
+//! integer multiplication is superlinear. The fold's densified images
+//! read flat per byte.
 
 use super::min_ticks_from_big;
 use before::testing::meter;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
-use suanpan::touch_meter;
 
 /// Places a binary point `exp` digits from the right of an odd numerator.
 fn binary_rank_text(num: &BigUint, exp: usize) -> String {
@@ -43,15 +41,14 @@ fn binary_rank_text(num: &BigUint, exp: usize) -> String {
     digits
 }
 
-/// One public `Version::rank` run over `PP(s, s)`: input bytes and
-/// the touch and densify counters over the rank body alone.
+/// One public `Version::rank` run over `PP(s, s)`: input bytes and the
+/// densify counter over the rank body alone.
 ///
 /// Carries the `min_ticks` closed form (`s · x + 1` over the
-/// committed factors) as the generator's semantic leg, the
+/// committed factors) as the generator's semantic leg, and the
 /// exact-rank leg (the answer is the product `2·x·y + 1` — the
-/// `Ω(M(|v|))` mandate's witness), and the
-/// one-touch-per-operand-byte liveness floor.
-fn run(s: usize) -> (u64, u64, u64) {
+/// `Ω(M(|v|))` mandate's witness).
+fn run(s: usize) -> (u64, u64) {
     let v = Shape::PlateauPuncture.build2(s, s).version();
     let bytes = v.encode().len() as u64;
     let (x, y) = meter::plateau_puncture_factors(s, s);
@@ -62,11 +59,9 @@ fn run(s: usize) -> (u64, u64, u64) {
         "the family's stored-code sum disagrees with min_ticks: the \
          generator does not build the tree this band reasons about"
     );
-    touch_meter::reset();
     meter::reset_densified_digits();
     let rank = v.rank();
     std::hint::black_box(&rank);
-    let touches = touch_meter::touches();
     let densified = meter::densified_digits();
     // The answer itself is the product, so the value check keeps the
     // measured operation tied to the intended family.
@@ -76,27 +71,12 @@ fn run(s: usize) -> (u64, u64, u64) {
         binary_rank_text(&numerator, 66 * s),
         "the exact rank is the plateau times the punctured turn mass"
     );
-    assert!(
-        touches >= bytes,
-        "rank at {bytes} operand bytes: {touches} digit touches under \
-         the one-per-byte floor: the fold's accumulator work is not \
-         metered",
-    );
-    (bytes, touches, densified)
+    (bytes, densified)
 }
 
 /// Plateau digits (and turn count) of the band's small run (the
 /// large run doubles both).
 const PLATEAU_PUNCTURE_SMALL: usize = 500;
-
-/// Absolute two-scale touch ceilings for rank on the
-/// plateau-puncture family, measured ×1.25 (the record and every
-/// re-pin's movement live in the pin commits).
-///
-/// Flat per encoded byte across the doubling. A close-time settle that paid
-/// the parked plateau's width once per trailing-mass digit would exceed
-/// these ceilings.
-const PLATEAU_PUNCTURE_CEILINGS: [u64; 2] = [60_525, 121_058];
 
 /// Absolute two-scale densify ceilings for rank on the
 /// plateau-puncture family: the measured record ×1.25, rounded up (the
@@ -110,55 +90,35 @@ const PLATEAU_PUNCTURE_CEILINGS: [u64; 2] = [60_525, 121_058];
 /// positions grow.
 const PLATEAU_PUNCTURE_DENSIFY_CEILINGS: (u64, u64) = (2_580, 5_158);
 
-/// rank is flat per byte on the plateau-puncture family: per-byte
-/// touch work stays within ×1.25 across a `PP(s, s)`
-/// doubling, under absolute two-scale ceilings.
+/// rank's densified-image fill is flat per byte on the plateau-puncture
+/// family: the densify column stays within ×1.25 per byte across a
+/// `PP(s, s)` doubling, under absolute two-scale ceilings.
 ///
-/// Flat in the fold's own traffic, never in total work: the
-/// answer-embedded product runs inside the backend at the
-/// multiplication bound (the exact-rank leg in [`run`] proves the
-/// answer is still the product), so this band and that leg
-/// together witness both directions of the settle's bound —
-/// `O(M(|v|))` achieved, `Ω(M(|v|))` mandatory.
+/// Flat in the fold's own fill, never in total work: the answer-embedded
+/// product runs inside the backend at the multiplication bound (the
+/// exact-rank leg in [`run`] proves the answer is still the product). The
+/// fold's time on this family is judged in fuel by the board's
+/// `version_rank` cell.
 #[test]
-fn rank_plateau_puncture_is_flat_per_unit() {
-    let (small_bytes, small_touches, small_densify) = run(PLATEAU_PUNCTURE_SMALL);
-    let (large_bytes, large_touches, large_densify) = run(2 * PLATEAU_PUNCTURE_SMALL);
+fn rank_plateau_puncture_densify_is_flat_per_unit() {
+    let (small_bytes, small) = run(PLATEAU_PUNCTURE_SMALL);
+    let (large_bytes, large) = run(2 * PLATEAU_PUNCTURE_SMALL);
     eprintln!(
-        "MEASURED rank_plateau_puncture: small={small_touches}/{small_bytes}B \
-         (densify {small_densify}) \
-         large={large_touches}/{large_bytes}B \
-         (densify {large_densify})"
+        "MEASURED rank_plateau_puncture: densify small={small}/{small_bytes}B \
+         large={large}/{large_bytes}B"
     );
-    for (name, small, large, ceilings) in [
-        (
-            "touches",
-            small_touches,
-            large_touches,
-            (PLATEAU_PUNCTURE_CEILINGS[0], PLATEAU_PUNCTURE_CEILINGS[1]),
-        ),
-        (
-            "densified digits",
-            small_densify,
-            large_densify,
-            PLATEAU_PUNCTURE_DENSIFY_CEILINGS,
-        ),
-    ] {
-        assert!(
-            small <= ceilings.0 && large <= ceilings.1,
-            "rank ({name}) exceeds the pinned ceilings on the \
-             plateau-puncture family ({small}/{small_bytes}B -> \
-             {large}/{large_bytes}B against {} / {})",
-            ceilings.0,
-            ceilings.1,
-        );
-        assert!(
-            u128::from(large) * u128::from(small_bytes) * 4
-                <= u128::from(small) * u128::from(large_bytes) * 5,
-            "rank ({name}) grew more than x1.25 per byte across the \
-             plateau-puncture doubling ({small}/{small_bytes}B -> \
-             {large}/{large_bytes}B): the close-time settle is paying \
-             the parked width times the segment's density again",
-        );
-    }
+    let ceilings = PLATEAU_PUNCTURE_DENSIFY_CEILINGS;
+    assert!(
+        small <= ceilings.0 && large <= ceilings.1,
+        "rank's densify column exceeds the pinned ceilings on the plateau-puncture \
+         family ({small}/{small_bytes}B -> {large}/{large_bytes}B against {} / {})",
+        ceilings.0,
+        ceilings.1,
+    );
+    assert!(
+        u128::from(large) * u128::from(small_bytes) * 4
+            <= u128::from(small) * u128::from(large_bytes) * 5,
+        "rank's densify column grew more than x1.25 per byte across the \
+         plateau-puncture doubling ({small}/{small_bytes}B -> {large}/{large_bytes}B)",
+    );
 }

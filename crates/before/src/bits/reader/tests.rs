@@ -70,14 +70,13 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
     }
 }
 
-/// Skipping a gamma code records exactly the bits that reading it records.
+/// Skipping a gamma code advances the cursor exactly as far as reading it.
 ///
-/// Tree walks skip payloads whose values they do not need. This test prevents
-/// that shortcut from hiding work from the scan meter or charging work twice,
-/// across both word-sized and arbitrary-width codes.
-#[cfg(feature = "scan-meter")]
+/// Tree walks skip payloads whose values they do not need, so a skip that
+/// stopped short or ran on would misalign every later read. The codes span
+/// word-sized and arbitrary-width values, the machine-word ceiling included.
 #[test]
-fn skipping_gamma_records_exactly_the_bits_a_read_records() {
+fn skipping_gamma_advances_exactly_as_far_as_a_read() {
     for value in [
         BigUint::from(0u64),
         BigUint::from(30u64),
@@ -88,25 +87,17 @@ fn skipping_gamma_records_exactly_the_bits_a_read_records() {
         let mut bits = BitsWriter::new();
         bits.write_gamma(&value);
         let mut reader = bits.reader();
-        crate::testing::meter::reset_scan_bits();
         reader
             .read_gamma()
             .expect("the reader reads its own encoding");
-        let read_record = crate::testing::meter::scan_bits();
-        let width = reader.position();
         let mut skipper = bits.reader();
-        crate::testing::meter::reset_scan_bits();
         skipper
             .skip_gamma()
             .expect("the skip accepts what the read accepts");
-        let skip_record = crate::testing::meter::scan_bits();
         assert_eq!(
-            skip_record, width,
-            "skip_gamma must meter exactly the {width}-bit code it skips at {value}"
-        );
-        assert_eq!(
-            skip_record, read_record,
-            "skip_gamma and read_gamma must meter the identical code identically at {value}"
+            skipper.position(),
+            reader.position(),
+            "skip_gamma must consume exactly the code read_gamma consumes at {value}"
         );
     }
 }

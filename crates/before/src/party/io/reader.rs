@@ -17,7 +17,6 @@
 
 use crate::bits::Bits;
 use crate::party::Party;
-use crate::testing::instrument::scan;
 
 /// One complete subtree borrowed from a party reader.
 pub struct PartySubtree<'a> {
@@ -249,7 +248,6 @@ impl<'a> PartyReader<'a> {
         debug_assert_eq!(position % 2, 0, "Party tags are two-bit aligned");
         let byte = bits.as_raw_slice()[(position / 8) as usize];
         let shift = 6 - (position % 8) as u32;
-        scan::record_bits(2);
         match (byte >> shift) & 0b11 {
             0b00 => PartyNode::Owned,
             0b10 => PartyNode::Branch(PartyBranch::Left),

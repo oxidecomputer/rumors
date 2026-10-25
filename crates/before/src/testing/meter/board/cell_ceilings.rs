@@ -142,7 +142,6 @@ fn archs_of_record(currency: Currency) -> &'static [&'static str] {
     match currency {
         Currency::Heap => &HEAP_ARCHS,
         Currency::Fuel => &FUEL_ARCHS,
-        Currency::Scan | Currency::Touch => &[],
     }
 }
 

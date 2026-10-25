@@ -8,9 +8,10 @@
 //! The generators themselves are private: every instrument constructs its shapes
 //! through the family registry ([`registry`]), whose roster is the single
 //! source of truth for adversarial families. The amplification board ([`board`])
-//! applies every family to every compatible public operation. Focused tests in
-//! `tests/meter.rs` remain only for claims the board cannot express, such as
-//! changing an operation argument while holding the encoded operands fixed.
+//! applies every family to every compatible public operation. The
+//! `focused-fuel` harness and the focused tests in `tests/meter.rs` hold the
+//! claims the board cannot express, such as changing an operation argument
+//! while holding the encoded operands fixed.
 //!
 //! Every generator output is strict normal form: it round-trips through
 //! [`Party::decode`](crate::Party::decode)/[`Version::decode`](crate::Version::decode)
@@ -1319,8 +1320,8 @@ fn memo_comb_id(d: usize) -> Encoding {
 /// memo differences are all zero (and therefore unstored), while only the first
 /// site's deferred difference from the covering minimum carries the width — paid
 /// once, independent of `k`. A recording discipline that anchors each site to
-/// the covering floor instead materializes `k` wide records; the pinned
-/// absolute touch ceiling is what such a fan-out blows. Normal form: leaf pairs
+/// the covering floor instead materializes `k` wide records, work that grows
+/// with `k` at a fixed width. Normal form: leaf pairs
 /// `(2^b − 2, 2^b − 1)`, every subtree minimum 0 via the zero terminal under
 /// the root.
 ///
@@ -1355,8 +1356,8 @@ fn memo_fanout(k: usize, b: usize) -> Encoding {
 /// for even. Crossed with [`memo_chain_id`], every sibling memo difference is wide
 /// — but each site's range leaf codes the same width in the input, so the links
 /// are funded one-for-one by the oscillation the input already paid for: the
-/// control for the funding argument (flat touches per input byte, unlike the
-/// fan-out, whose input pays its width once). Normal form: as [`memo_chain`]'s.
+/// control for the funding argument (flat digit work per input byte, unlike
+/// the fan-out, whose input pays its width once). Normal form: as [`memo_chain`]'s.
 ///
 /// # Panics
 ///
@@ -2247,15 +2248,14 @@ fn parked_unit_spine(bits: &mut BitsWriter, s: usize) {
 /// weight being topology, not code. Every even-numbered block leaf cancels the
 /// digit and the accumulator's top must settle back across the never-written
 /// gap; every odd-numbered leaf re-raises it in one write. A settlement scan
-/// that steps the gap digit by digit pays `Θ(n)` unfunded touches per event
+/// that steps the gap digit by digit pays `Θ(n)` unfunded digit steps per event
 /// (`Θ(n²)` on linear input), and the parked digit-0 unit forecloses
 /// value-emptiness and write-watermark shortcuts, so crossing the never-written
-/// gap in one step per jump is what holds the cost flat
-/// (`skyline_rank_weight_comb_is_flat_per_unit` in
-/// `tests/meter/version_scaling/skip_adequacy.rs` carries both readings).
-/// `min_ticks(WC(n))` is the stored-base sum `34n − 1` (the spine's `32n − 1`
-/// unit leaves plus the block's `n` twos). Normal form: the innermost leaf pair
-/// is `(1, 0)`, every block pair is `(0, 2)`, and every subtree minimum is 0.
+/// gap in one step per jump is what holds the cost flat (the board's
+/// `version_rank` cell on this family judges it in fuel). `min_ticks(WC(n))` is
+/// the stored-base sum `34n − 1` (the spine's `32n − 1` unit leaves plus the
+/// block's `n` twos). Normal form: the innermost leaf pair is `(1, 0)`, every
+/// block pair is `(0, 2)`, and every subtree minimum is 0.
 ///
 /// # Panics
 ///
@@ -2298,14 +2298,14 @@ fn weight_comb(n: usize) -> Encoding {
 /// `Θ(k)` digits above digit 0 (the blocks are shallow; the deep spine only
 /// sets the scale). The write watermark is what lets each scaled read start at
 /// the written span; a read that starts at digit 0 walks the `Θ(k)`-digit
-/// never-written prefix per freeze — `Θ(k²)` touches on linear input, the
-/// zero-padded magnitudes with it. The meter suite's rank bands over this
-/// family measure its touches and allocation. The block is
+/// never-written prefix per freeze — `Θ(k²)` digit operations on linear
+/// input, the zero-padded magnitudes with it. The board's rank cells over
+/// this family measure its time and allocation. The block is
 /// min-lifted over a strictly descending run, every
 /// node's minimum its last leaf, so right children code base 0 and left
 /// children the difference of the halves' minima; `min_ticks(FZ(k))` is the
 /// printed-base sum, re-derived in closed form by this module's tests and the
-/// touch band `skyline_rank_freeze_parade_is_flat_per_unit`. Normal form: values strictly descend (no equal siblings) and every
+/// `family_answers` suite. Normal form: values strictly descend (no equal siblings) and every
 /// subtree minimum is 0 through the spine's parked unit.
 ///
 /// # Panics
@@ -2505,8 +2505,7 @@ fn narrow_freezes(e: usize, c: usize) -> Encoding {
 /// with no intervening write. Exact-`top` maintenance prices each read at the
 /// value's own width; a high-water bound re-walks the spike's `g` dead digits
 /// per read — `Θ(m·g)` on `Θ(m + g)` input, the cost the spike's own code paid
-/// once (`skyline_cmp_tooth_tail_is_flat_per_unit` in
-/// `tests/meter/version_scaling/skip_adequacy.rs` carries both readings).
+/// once (the board's `version_cmp` cell on this family judges it in fuel).
 /// `min_ticks` is the stored-base sum `m·h + 2^(32g)` per operand (`h` the
 /// operand's unit height, 1 for `a` and 2 for `b`), and `a` precedes `b` in the
 /// causal order. Normal form: every chain node's subtree minimum is 0 through
@@ -2938,13 +2937,12 @@ fn dominated_undercut_id(k: usize) -> Encoding {
 ///
 /// The smallest magnitude that is three base-2^32 digits wide with its top
 /// digit at the sign fold's decision bound (a top digit of 5 decides a
-/// domination read at its first touch).
+/// domination read at the first digit it reads).
 ///
 /// Every stacked boundary and every dying residue the seam shapes create holds
 /// exactly this width: wide enough that the compact boundary representation cannot
 /// store it inline (`u64` covers two digits), narrow enough that the dying
-/// side's one fold is three digit touches — the unit the seam bands' floors
-/// count in.
+/// side's one fold reads three digits.
 fn seam_rung() -> BigUint {
     pow2(66) + pow2(64)
 }
@@ -2955,8 +2953,7 @@ fn seam_rung() -> BigUint {
 /// The top digit of 5 makes every domination read a closed form: the sign
 /// fold's running partial reaches the decision bound (magnitude 3) at the top
 /// digit itself, so `cmp_zero_stable_under` decides, or returns `None`, based on
-/// the digit-index clearance alone, with no descent, in one digit touch
-/// (suanpan's witness `decision_bound_top_decides_on_the_first_touch`).
+/// the digit-index clearance alone, with no descent, reading one digit.
 fn seam_wide(w: usize) -> BigUint {
     pow2(32 * (w - 1) + 2) + pow2(32 * (w - 1))
 }
@@ -3173,7 +3170,7 @@ fn seam_stop_descent(bits: &mut BitsWriter, k: usize) {
 /// stale anchor with no pending range — a strictly negative word-scale
 /// `gap` against a live `w`-digit latent, the scale-disparate undercut
 /// decision `decide_undercut_through_latent` answers by top-index
-/// domination (the latent's top digit of 5 decides at its first touch),
+/// domination (the latent's top digit of 5 decides at the first digit read),
 /// returning "no undercut" with nothing changed. The `k` axis counts
 /// decisions; the `w` axis widens only the parked operand the decisions
 /// must *not* read across — the marginal decision cost across a `w`
@@ -3264,8 +3261,7 @@ const JUMP_PAIR_DIGIT_STRIDE: usize = 33;
 /// · k)` word operations against a `Θ(m·k + d)`-bit input, and the anchored-segment
 /// co-sweep (`version/measure/integral.rs`'s module doc) settles each
 /// crest against its own segment and stays linear — the separation the
-/// `skyline_distance_jump_pair_is_flat_per_unit` band test and the board cell
-/// hold. The **join** (the band
+/// board's fuel cell holds. The **join** (the band
 /// shades every gap) collapses to unit steps around one climb, and either
 /// operand's own rank is flat: both inputs are individually innocuous, and the
 /// shape exists only in the two-operand composition.
@@ -3604,8 +3600,8 @@ fn stagger_population(n: usize, m: usize) -> (Vec<Encoding>, Vec<Encoding>) {
 /// so the equal-shade combines are answered by the byte compare the band
 /// describes — never by the folds' clone-identity collapse, which would drop
 /// the shades before the fold reads them and turn the flatness band into a
-/// measurement of the collapse instead. The collapse has its own liveness pin
-/// (`identity_fast_paths` in `tests/meter.rs`).
+/// measurement of the collapse instead. The collapse has its own claim in the
+/// `focused-fuel` harness's identity suite.
 ///
 /// # Panics
 ///
@@ -3640,8 +3636,8 @@ fn meet_shade(d: usize, k: usize) -> Vec<crate::Version> {
 /// deltas — and the zero-check `sign(h_plateau)` on unowned intervals. An
 /// integrator that materializes either read pays `Θ(k)` word operations per 3-bit
 /// code; the balanced signed-digit accumulator answers both in amortized O(1)
-/// touches (the board measures the correlated triple, while the focused suite
-/// checks the independent-width axis). The verdict is `Less` — the projected comb sits under the plateau
+/// digit operations (the board measures the correlated triple, while the
+/// focused suite checks the independent-width axis). The verdict is `Less` — the projected comb sits under the plateau
 /// everywhere and strictly under it outside the mask — so the walk never exits
 /// early and the measurement prices the whole overlay.
 ///
@@ -3768,8 +3764,8 @@ fn scattered_id_offset(e: usize) -> Encoding {
 /// function of `h` alone, however deep the spine grows. The plateau
 /// strictly dominates every spine height, so the projected verdict is
 /// `Less` at every elementary interval and the walk never exits early. The
-/// board measures this correlated triple under a fixed touch ceiling across a
-/// spine-depth ladder — the bound a per-boundary walk cannot satisfy.
+/// board measures this correlated triple across a spine-depth ladder, where
+/// a per-boundary walk would grow with the depth.
 ///
 /// # Panics
 ///
@@ -4200,16 +4196,18 @@ fn pow2(b: usize) -> BigUint {
 /// The settle's densified-image digits zero-filled since the last
 /// [`reset_densified_digits`].
 ///
-/// The deterministic stand-in for allocation-fill work, which no other meter
-/// can see: the numeric folds' settle densifies each balanced-digit cluster
+/// The deterministic count of allocation-fill work, which the peak-heap meter
+/// cannot see: the numeric folds' settle densifies each balanced-digit cluster
 /// into two zero-filled byte images before multiplying, and a zeroed byte no
-/// digit lands on touches no accumulator digit or raises the peak while the
-/// image stays under the walk's own high-water mark. The count is the images' capacity in
-/// base-2^32 digits — two images per multi-digit cluster, each at the
-/// cluster's span — so span-priced densification counts linearly in the
-/// settle's cluster spans, and a densification sized by cluster *positions*
-/// counts by those positions instead (the axis the hoisted-window family
-/// isolates). Process-global, so each measurement must run alone.
+/// digit lands on raises neither a digit count nor the peak while the image
+/// stays under the walk's own high-water mark. Fuel sees the fill too, since it
+/// charges a bulk fill per byte, but only in the total of a cell's work. The
+/// count is the images' capacity in base-2^32 digits — two images per
+/// multi-digit cluster, each at the cluster's span — so span-priced
+/// densification counts linearly in the settle's cluster spans, and a
+/// densification sized by cluster *positions* counts by those positions instead
+/// (the axis the hoisted-window family isolates). Process-global, so each
+/// measurement must run alone.
 #[cfg(feature = "meter")]
 pub fn densified_digits() -> u64 {
     crate::version::instrument::densified_digits()
@@ -4219,47 +4217,6 @@ pub fn densified_digits() -> u64 {
 #[cfg(feature = "meter")]
 pub fn reset_densified_digits() {
     crate::version::instrument::reset_densified_digits()
-}
-
-/// The accumulator digit touches since the last [`reset_touch_ops`].
-///
-/// The deterministic stand-in for accumulator fold work. A word-scale fold
-/// rides the accumulator's quick register, so an algorithm that folds per leaf
-/// separates from one that folds per block. Delegates to
-/// `suanpan`'s own counter (`suanpan::touch_meter`), which the `touch-meter`
-/// feature compiles in. Process-global, so each measurement must run alone.
-#[cfg(feature = "touch-meter")]
-pub fn touch_ops() -> u64 {
-    suanpan::touch_meter::touches()
-}
-
-/// Reset the digit-touch counter behind [`touch_ops`] to zero.
-#[cfg(feature = "touch-meter")]
-pub fn reset_touch_ops() {
-    suanpan::touch_meter::reset()
-}
-
-/// The encoded bits scanned and written since the last
-/// [`reset_scan_bits`].
-///
-/// The deterministic stand-in for traversal work over the encoded forms, which
-/// every other meter can miss at once: an id-tree fold allocates little (no
-/// heap delta), loops rather than recurses (no segments), and does no `BigUint`
-/// magnitude arithmetic — the work is *reading and writing stream bits*, and
-/// this counter records exactly those, at the encoded
-/// primitives (id tag reads and skip steps, id-builder bit writes and splice
-/// lengths, event topology cursor advances and gamma code-skips, every
-/// sequential decoder/validator bit read). Unit: bits. Process-global; only compiled under the
-/// `scan-meter` feature, which adds the counting to the primitives themselves.
-#[cfg(feature = "scan-meter")]
-pub fn scan_bits() -> u64 {
-    crate::testing::instrument::scan::scan_bits()
-}
-
-/// Reset the scanned-bits counter behind [`scan_bits`] to zero.
-#[cfg(feature = "scan-meter")]
-pub fn reset_scan_bits() {
-    crate::testing::instrument::scan::reset()
 }
 
 #[cfg(test)]
