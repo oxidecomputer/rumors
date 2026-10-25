@@ -30,16 +30,35 @@ pub struct HeapMeter {
 ///
 /// Fuel is the Wasmtime host's count of the instructions a guest instance has
 /// executed, so only a guest can read it, through an import its host
-/// provides. The board reads `used` immediately before each cell's body and
-/// again once the body has produced its result; the difference is the cell's
-/// fuel reading.
+/// provides. The board calls `enter` immediately before each cell's body and
+/// `exit` once the body has produced its result, while the result is still
+/// alive. Each returns the fuel consumed so far; the difference is the cell's
+/// fuel reading, and the span between the two reads is the cell's *measured
+/// window*.
 ///
-/// A fuel reading depends on the allocator state that earlier work left in
-/// the same instance, so a runner measures each cell in a fresh instance (the
-/// `shard` module's one-cell deal).
+/// Besides reading fuel, the hooks open and close the window. A runner uses
+/// them to keep the reading a function of the body alone: what an allocator
+/// call costs depends on the heap it runs against, and the cell's preparation
+/// allocates in the same instance just before the window. The fuel guest's
+/// `enter` gives the body a fresh heap, primed so that its one-time setup is
+/// already done, and its `exit` retires it, so the allocator's share of a
+/// reading is its work for the body's own allocations.
+///
+/// Because each hook reads fuel itself, the board makes one call at each end
+/// of the window, so a runner whose `enter` reads fuel as its last act, and
+/// whose `exit` reads it as its first, runs nothing between the two reads
+/// that a bare fuel reader would not.
+///
+/// State outside the heap can carry between cells too, such as a lazily
+/// initialized static, so a runner also measures each cell in a fresh
+/// instance (the `shard` module's one-cell deal).
 pub struct FuelMeter {
-    /// Return the fuel this instance has consumed so far.
-    pub used: fn() -> u64,
+    /// Open the measured window, then return the fuel this instance has
+    /// consumed so far.
+    pub enter: fn() -> u64,
+    /// Return the fuel this instance has consumed so far, then close the
+    /// measured window.
+    pub exit: fn() -> u64,
 }
 
 /// The meters a runner supplies to the board.
@@ -111,11 +130,11 @@ pub(super) fn measure(meters: &Meters, mut cell: Cell, content: Option<usize>) -
     if let Some(heap) = &meters.heap {
         (heap.reset_peak)();
     }
-    let fuel_origin = meters.fuel.as_ref().map(|fuel| (fuel.used)());
+    let fuel_origin = meters.fuel.as_ref().map(|fuel| (fuel.enter)());
     let mut observation = None;
     (cell.body)(&mut |result| {
         let fuel = meters.fuel.as_ref().zip(fuel_origin).map(|(fuel, origin)| {
-            (fuel.used)()
+            (fuel.exit)()
                 .checked_sub(origin)
                 .expect("an instance's consumed fuel never decreases")
         });

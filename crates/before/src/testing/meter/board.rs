@@ -56,17 +56,21 @@
 //! body executes. Heap, scan, and touch see only the work that passes through
 //! their probes; fuel also sees element moves inside a `Vec`, arithmetic
 //! inside `num-bigint`, and buffer fills, which none of them counts. The guest
-//! builds without the scan and touch probes and installs no counting
-//! allocator, so fuel prices the production code alone, and a fuel run judges
-//! fuel alone. The native board stays the measure of record for heap, scan,
-//! and touch.
+//! builds without the scan and touch probes, so fuel counts the instructions
+//! of the production code the body calls, a few of the board's own around
+//! it, and the allocator's work for the body's own allocations. That last
+//! share depends on the body alone: the guest's allocator gives each body a
+//! fresh heap, so nothing the cell's preparation left in the heap reaches the
+//! reading ([`FuelMeter`] describes the hooks). A fuel run judges fuel alone;
+//! the native board stays the measure of record for heap, scan, and touch.
 //!
 //! Fuel is judged by the same exponent bound and declared models as every
 //! other currency. Its proportional ceilings are calibrated per cell
 //! ([`CellCeilings`]), because fuel per byte differs between cells by orders
-//! of magnitude. A fuel reading also depends on the allocator state that
-//! earlier cells leave in the same instance, so a fuel run measures each cell
-//! in a fresh guest instance; the `shard` module's docs give the deal.
+//! of magnitude. State outside the heap, such as a lazily initialized static,
+//! can carry from one cell to the next within an instance, so a fuel run
+//! measures each cell in a fresh guest instance; the `shard` module's docs
+//! give the deal.
 //!
 //! # The verdict of record
 //!
@@ -185,5 +189,5 @@ pub use measure::{FuelMeter, HeapMeter, Meters};
 pub use operand::stored_nonzero_deltas;
 pub use render::Summary;
 pub use sampling::{Sampling, PAST_POWER_OFFSET};
-pub use shard::{emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
+pub use shard::{cell_shard, emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
 pub use worst::{NEAR_TIE_RATIO, WORST_MAP_SCALES};

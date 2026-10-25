@@ -276,6 +276,8 @@ name = "board-fuel-guest"
 version = "0.0.0"
 dependencies = [
  "before",
+ "dlmalloc",
+ "spin",
 ]
 
 [[package]]
@@ -780,6 +782,17 @@ checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "const-oid",
  "crypto-common 0.2.2",
+]
+
+[[package]]
+name = "dlmalloc"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-sys",
 ]
 
 [[package]]
@@ -1996,6 +2009,12 @@ dependencies = [
  "libc",
  "windows-sys",
 ]
+
+[[package]]
+name = "spin"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0134f9043ed38b087ac4f7d4af44c79e2c9e5094421fe3164f435ce585953b10"
 
 [[package]]
 name = "sponge-cursor"

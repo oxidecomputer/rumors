@@ -3,28 +3,39 @@
 //!
 //! The harness instantiates this module once per board cell and calls
 //! [`shard`] with a one-cell deal (`board::max_useful_shards` shards), so
-//! every cell runs in a fresh instance and its fuel reading cannot depend on
-//! what earlier cells left in the allocator. The guest supplies the board
-//! one meter, fuel, read through the host import `board_fuel.fuel_used`. It
-//! installs no counting allocator, and `before` is built without the scan and
-//! touch probes, so every instruction fuel counts belongs to the measured
-//! code, the board's own bookkeeping around it, or the allocator.
+//! every cell runs in a fresh instance and no state an earlier cell left,
+//! such as a lazily initialized static, reaches its reading. The guest
+//! supplies the board one meter, fuel, read through the host import
+//! `board_fuel.fuel_used`. `before` is built without the scan and touch
+//! probes, so every instruction fuel counts belongs to the measured code, the
+//! board's own bookkeeping around it, or the allocator.
+//!
+//! The global allocator, [`window::WindowAllocator`], gives each measured
+//! window a fresh, primed heap through the meter's `enter` and `exit` hooks,
+//! so the allocator's share of a reading is its work for the body's own
+//! allocations, whatever the cell's preparation left in the heap.
 //!
 //! A cell that panics ends in a trap; [`panic_record`] keeps its message for
 //! the host.
 
 mod panic_record;
+mod window;
 
+use std::hint::black_box;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use before::testing::meter::board::{self, FuelMeter, Meters, Sampling};
 
-// The fuel board's one `unsafe` item: a wasm import can only be declared in
-// an `unsafe extern` block, and fuel can only be read through an import. The
-// block declares one function, which takes no arguments, touches no guest
-// memory, and returns an integer, so it is declared `safe` and no call site
-// is `unsafe`. It lives in this tool-side guest alone, which no production
-// crate links.
+#[global_allocator]
+static ALLOCATOR: window::WindowAllocator = window::WindowAllocator;
+
+// A wasm import can only be declared in an `unsafe extern` block, and fuel
+// can only be read through an import. The block declares one function, which
+// takes no arguments, touches no guest memory, and returns an integer, so it
+// is declared `safe` and no call site is `unsafe`. It lives in this tool-side
+// guest alone, which no production crate links; the guest's only other
+// `unsafe` code is its global allocator, in `window`.
 #[link(wasm_import_module = "board_fuel")]
 unsafe extern "C" {
     /// Returns the fuel this instance has consumed so far, read by the host
@@ -35,9 +46,75 @@ unsafe extern "C" {
     safe fn fuel_used() -> u64;
 }
 
-/// Reads this instance's consumed fuel; the board's [`FuelMeter`] reader.
-fn read_fuel() -> u64 {
+/// Opens a measured window, then returns this instance's consumed fuel: the
+/// board's [`FuelMeter`] `enter` hook.
+///
+/// The read is the hook's last act, and [`open_window`] keeps the rest of its
+/// work, including any stack frame that work needs, in a separate function,
+/// so no instruction of the hook runs after the read.
+fn enter_window() -> u64 {
+    open_window();
     fuel_used()
+}
+
+/// Returns this instance's consumed fuel, then closes the measured window:
+/// the board's [`FuelMeter`] `exit` hook.
+///
+/// The read is the hook's first act, and [`close_window`] keeps the rest of
+/// its work in a separate function, so no instruction of the hook runs before
+/// the read.
+fn exit_window() -> u64 {
+    let used = fuel_used();
+    close_window();
+    used
+}
+
+/// Opens the measured window, first allocating a spacer from the ordinary
+/// heap if [`set_spacer`] set a nonzero size; the spacer is held until the
+/// window closes.
+#[inline(never)]
+fn open_window() {
+    let bytes = SPACER_BYTES.load(Ordering::Relaxed);
+    if bytes != 0 {
+        let bytes = usize::try_from(bytes).expect("a u32 fits in wasm32's usize");
+        *spacer() = black_box(vec![0; bytes]);
+    }
+    window::enter();
+}
+
+/// Closes the measured window, then frees the spacer, if one is held.
+#[inline(never)]
+fn close_window() {
+    window::exit();
+    *spacer() = Vec::new();
+}
+
+/// The size in bytes of the spacer each measured window holds, or zero for
+/// none; set by [`set_spacer`].
+static SPACER_BYTES: AtomicU32 = AtomicU32::new(0);
+
+/// The spacer the open window holds, or an empty vector.
+static SPACER: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+
+/// Locks the spacer.
+///
+/// A panic aborts this guest without unwinding, so no guard is dropped
+/// mid-panic and the lock is never poisoned; recovering the inner buffer
+/// keeps the hooks total regardless.
+fn spacer() -> MutexGuard<'static, Vec<u8>> {
+    SPACER.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Makes every later measured window hold a spacer of `bytes` bytes,
+/// allocated from the ordinary heap just before the window opens and freed
+/// just after it closes; zero holds none, as in an ordinary run.
+///
+/// A spacer changes the heap state the cell's preparation leaves, and nothing
+/// the body does, so with the window allocator every reading must equal the
+/// reading without one. The harness's window test checks that.
+#[no_mangle]
+pub extern "C" fn set_spacer(bytes: u32) {
+    SPACER_BYTES.store(bytes, Ordering::Relaxed);
 }
 
 /// The shard wire form [`shard`] emitted, kept for the host to copy out.
@@ -67,7 +144,10 @@ pub extern "C" fn shard(sampling_tag: u32, sampling_word: u64, index: u32, count
     };
     let meters = Meters {
         heap: None,
-        fuel: Some(FuelMeter { used: read_fuel }),
+        fuel: Some(FuelMeter {
+            enter: enter_window,
+            exit: exit_window,
+        }),
     };
     let mut emitted = Vec::new();
     board::emit_shard(

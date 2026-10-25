@@ -3,10 +3,11 @@
 //!
 //! [`FuelBoard`] measures one sampling of the board by instantiating
 //! the guest afresh for every cell of the operation × family grid, on a work
-//! queue across threads. A fuel reading counts the allocator's instructions
-//! too, so a cell measured after other cells in the same instance would read
-//! what they left behind. Fresh instances make every reading a function of
-//! its cell alone, whatever the thread count.
+//! queue across threads. The guest gives each measured body a fresh heap, so
+//! a reading does not depend on what the cell's preparation left in the
+//! heap; fresh instances keep any other state an earlier cell left, such as a
+//! lazily initialized static, out of it too. Every reading is therefore a
+//! function of its cell alone, whatever the thread count.
 //!
 //! [`provenance`] names what a fuel reading depends on beyond the source tree
 //! and that the harness can read back: the compiler that built the guest, the
@@ -207,7 +208,7 @@ impl FuelBoard {
                             if index >= count {
                                 return;
                             }
-                            let capture = self.run_shard(&linker, sampling, index, count);
+                            let capture = self.run_shard(&linker, sampling, index, count, 0);
                             failed.fetch_or(capture.is_err(), Ordering::Relaxed);
                             captures
                                 .lock()
@@ -229,6 +230,30 @@ impl FuelBoard {
             .collect()
     }
 
+    /// Measures the cell that shard `index` of the one-cell deal owns (see
+    /// [`board::cell_shard`]), at `sampling`, in a fresh instance whose measured
+    /// windows each hold a spacer of `spacer` bytes, and returns the shard's
+    /// capture.
+    ///
+    /// The guest allocates the spacer from its ordinary heap just before each
+    /// window opens and frees it just after the window closes, so a spacer
+    /// changes the heap state the cell's preparation leaves and nothing the
+    /// body does. With the guest's window allocator, a capture under any
+    /// spacer equals the capture under none, byte for byte.
+    ///
+    /// # Errors
+    ///
+    /// Returns the guest's failure, as [`spawn`](Self::spawn) does.
+    pub fn spaced_shard(
+        &self,
+        sampling: Sampling,
+        index: usize,
+        spacer: u32,
+    ) -> io::Result<Vec<u8>> {
+        let count = board::max_useful_shards();
+        self.run_shard(&self.linker(), sampling, index, count, spacer)
+    }
+
     /// The linker that supplies the guest's one import: its consumed fuel.
     fn linker(&self) -> Linker<()> {
         let mut linker = Linker::new(&self.engine);
@@ -244,20 +269,26 @@ impl FuelBoard {
         linker
     }
 
-    /// Runs shard `index` of `count` at `sampling` in a fresh instance and
-    /// returns its capture.
+    /// Runs shard `index` of `count` at `sampling` in a fresh instance whose
+    /// measured windows each hold a spacer of `spacer` bytes (none if zero),
+    /// and returns its capture.
     fn run_shard(
         &self,
         linker: &Linker<()>,
         sampling: Sampling,
         index: usize,
         count: usize,
+        spacer: u32,
     ) -> io::Result<Vec<u8>> {
         let wire = |value: usize| u32::try_from(value).map_err(io::Error::other);
         let mut store = Store::new(&self.engine, ());
         store.set_fuel(FUEL_TANK).map_err(io::Error::other)?;
         let instance = linker
             .instantiate(&mut store, &self.module)
+            .map_err(io::Error::other)?;
+        instance
+            .get_typed_func::<u32, ()>(&mut store, "set_spacer")
+            .and_then(|set_spacer| set_spacer.call(&mut store, spacer))
             .map_err(io::Error::other)?;
         let shard = instance
             .get_typed_func::<(u32, u64, u32, u32), u32>(&mut store, "shard")

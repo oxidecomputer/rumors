@@ -73,6 +73,9 @@ ciborium = "=0.2.2"
 clap = "4"
 console_error_panic_hook = "0.1"
 criterion = "0.5"
+# The fuel board guest's allocator instances: an ordinary heap, and a fresh
+# heap for each measured window (the guest's `window` module says why).
+dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
@@ -117,6 +120,9 @@ serde_bytes = "0.11"
 serde_json = "1"
 serde_test = "1"
 smallvec = { version = "1.15", features = ["union"] }
+# The lock around the fuel board guest's heaps: a flag with no shadow-stack
+# spill on each allocator call (the guest's `window` module says why).
+spin = { version = "0.12", default-features = false, features = ["spin_mutex"] }
 stacker = "0.1"
 static_assertions = "1.1"
 strum_macros = "0.28.0"
