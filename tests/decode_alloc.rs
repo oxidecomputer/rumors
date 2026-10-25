@@ -1,15 +1,15 @@
-//! Allocator metering for the wire decoders' declared-length payload
-//! reads.
+//! Allocator metering for the wire decoders.
 //!
 //! A counting global allocator prices each decode in bytes requested from
 //! the allocator, holding decoder memory against the bytes a peer actually
-//! delivered. The two metered entries are the framing layer's
-//! declared-length payload read — the policy beneath every variable body
-//! a peer-declared length stands ahead of, the party hand-off's byte
-//! string included — and the streaming codec's supply read, which layers
-//! its run grammar over the same policy. The meter counts only the thread
-//! driving the decode, so test-harness work on other threads cannot perturb
-//! its bounds.
+//! delivered. The metered entries are the framing layer's declared-length
+//! payload read — the policy beneath every variable body a peer-declared
+//! length stands ahead of, the party hand-off's byte string included — the
+//! streaming codec's supply read, which layers its run grammar over the
+//! same policy, and record decoding, whose allocations and reallocations
+//! per record are bounded by the decode's steps. The meter counts only the
+//! thread driving the decode, so test-harness work on other threads cannot
+//! perturb its bounds.
 
 use alloc_meter::measure as metered;
 use rumors::testing::{CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
@@ -44,8 +44,23 @@ const METER_SLACK: usize = 2 * 1024;
 const EVENT_SLACK: usize = 16;
 
 /// Allocations needed to materialize one decoded record: the version's
-/// mutable and frozen byte stores, the payload bytes, and its typed `Arc`.
-const RECORD_ALLOCATIONS: usize = 4;
+/// byte store, the payload bytes, and its typed `Arc`.
+///
+/// The version adopts the buffer it reads its atom into as its storage.
+/// Sealed to its exact length, that buffer becomes the version's shared
+/// bytes without a separate sharing header, so the version allocates once.
+const RECORD_ALLOCATIONS: usize = 3;
+
+/// Reallocations allowed per decoded record: one, which seals the version's
+/// read buffer to its exact length.
+///
+/// Every decoded version owns storage sized to its encoding. When the read
+/// reserves more than the atom's length, sealing shrinks the buffer. A
+/// reallocation is the cheapest way to reach the exact size: at worst it
+/// moves the atom once, as copying it into a fresh allocation would, and the
+/// allocator may shrink the block in place. No other step of a record decode
+/// resizes a buffer.
+const RECORD_REALLOCATIONS: usize = 1;
 
 /// Reservation events of the doubling-clamped growth schedule for a fully
 /// delivered `len`-byte payload: one initial granule, then one doubling
@@ -73,7 +88,13 @@ fn run_body(len: usize) -> Vec<u8> {
 }
 
 /// Record decoding does not allocate an intermediate CBOR byte string per
-/// version atom.
+/// version atom: each added record costs at most `RECORD_ALLOCATIONS`
+/// allocations, and the whole decode at most `RECORD_REALLOCATIONS` per
+/// record.
+///
+/// An intermediate byte string costs one allocation per record beyond
+/// `RECORD_ALLOCATIONS`, and growing a buffer incrementally costs
+/// reallocations beyond the one seal per version.
 #[test]
 fn record_decode_avoids_an_intermediate_version_allocation() {
     let few_records = 1;
@@ -90,9 +111,16 @@ fn record_decode_avoids_an_intermediate_version_allocation() {
     let ceiling = added_records * RECORD_ALLOCATIONS;
     assert!(
         added <= ceiling,
-        "decoding {added_records} additional records allocated {added} times; the four owned-result allocations per record permit {ceiling}",
+        "decoding {added_records} additional records allocated {added} times; \
+         {RECORD_ALLOCATIONS} owned-result allocations per record permit {ceiling}",
     );
-    assert_eq!(many_cost.reallocations, 0);
+    let realloc_ceiling = many_records * RECORD_REALLOCATIONS;
+    assert!(
+        many_cost.reallocations <= realloc_ceiling,
+        "decoding {many_records} records reallocated {} times; one version seal \
+         per record permits {realloc_ceiling}",
+        many_cost.reallocations,
+    );
 }
 
 /// Ceiling: a declared 256 MiB payload with zero delivered bytes requests
