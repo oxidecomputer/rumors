@@ -1619,7 +1619,7 @@ fn ticks_composes_at_wide_n() {
 const ITERATED_TICKS: u8 = 4;
 
 /// Counts whose sums the composition check pairs: one, the top of `u64`, just
-/// past `2^64`, and a count three limbs wide.
+/// past `2^64`, and `2^200 - 1`, a count four 64-bit limbs wide.
 fn composition_counts() -> [BigUint; 4] {
     let one = BigUint::from(1u8);
     [
@@ -1730,6 +1730,24 @@ proptest! {
     /// later scan a wrong minimum.
     #[test]
     fn multiple_wide_pre_scans_tick_identically(case in co_generated::arb_multi_scan_case()) {
+        assert_co_generated(&case);
+    }
+}
+
+proptest! {
+    #![proptest_config(generators::divided_config(co_generated::DEEP_SPINE_CASE_DIVISOR))]
+
+    /// Co-generated spines a few hundred levels deep, their fill-fixed
+    /// successors, and late perturbations tick byte-identically to the
+    /// recursive oracle through `tick` and `ticks`.
+    ///
+    /// The walk and its pre-scan keep one frame per open branch, so these
+    /// spines carry both frame stacks' bits past one 64-bit word while their
+    /// nested sites fill more than one memo block, over random content. A tick
+    /// that goes wrong there can still satisfy every algebraic law; the exact
+    /// oracle sees it.
+    #[test]
+    fn deep_co_generated_spines_tick_identically(case in co_generated::arb_deep_spine_case()) {
         assert_co_generated(&case);
     }
 }

@@ -4,14 +4,15 @@
 //! Every driver expands from the law-group roster
 //! (`crate::for_each_law_group!`): the per-group proptests over arbitrary
 //! normal forms, the organic-populations drive list, the per-group proptests
-//! over deep inputs in [`deep`], and those over multi-scale pairs in
+//! over deep inputs in [`deep`], those over multi-scale pairs in
 //! [`multiscale`], which take the groups over one version, over two, and over
-//! ranks. So every registered group is driven here by construction. Each
-//! driver's doc comment states the meta-invariant; the individual laws'
-//! statements live with their predicates in [`crate::testing::laws`]. No
-//! assertion's right-hand side mentions the oracle: the laws hold by the ITC
-//! algebra, so they catch a defect the impl and the recursive oracle would
-//! share.
+//! ranks, and those over co-generated tick cases in [`co_generated`], which
+//! take the groups over one version and one party. So every registered group
+//! is driven here by construction. Each driver's doc comment states the
+//! meta-invariant; the individual laws' statements live with their predicates
+//! in [`crate::testing::laws`]. No assertion's right-hand side mentions the
+//! oracle: the laws hold by the ITC algebra, so they catch a defect the impl
+//! and the recursive oracle would share.
 
 use proptest::prelude::*;
 
@@ -451,7 +452,8 @@ proptest! {
     }
 }
 
-// ───────────────────────────── deep inputs ─────────────────────────────
+// ─────────────────── deep, multi-scale, and co-generated inputs ───────────────────
 
+mod co_generated;
 mod deep;
 mod multiscale;

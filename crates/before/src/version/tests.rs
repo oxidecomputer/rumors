@@ -3070,6 +3070,35 @@ fn div_can_fragment_and_raise_min_ticks() {
     assert_eq!(frag.min_ticks(), Count::from(2u64)); // but now two concurrent peaks
 }
 
+/// A tick that fills can *lower* `min_ticks`: the floor is not monotone under
+/// ticking.
+///
+/// Two concurrent peaks on the outer quarters (`min_ticks` 2) ticked by the
+/// party owning the two inner quarters fill to the uniform version at height
+/// 1, which one tick of the seed yields (`min_ticks` 1). The laws
+/// `tick_raises_min_ticks_by_at_most_one` and
+/// `ticks_raise_min_ticks_by_at_most_the_count` therefore bound only how far a
+/// tick raises `min_ticks`.
+#[test]
+fn tick_can_lower_min_ticks() {
+    use crate::testing::oracles::tree::{Party as P, Version as V};
+    let mut peaks = from_oracle_version(&V::node(
+        0u8,
+        V::node(0u8, V::leaf(1u8), V::leaf(0u8)),
+        V::node(0u8, V::leaf(0u8), V::leaf(1u8)),
+    ));
+    assert_eq!(peaks.min_ticks(), Count::from(2u64));
+    let inner_quarters = from_oracle_party(&P::node(
+        P::node(P::Leaf(false), P::Leaf(true)),
+        P::node(P::Leaf(true), P::Leaf(false)),
+    ));
+
+    peaks.tick(&inner_quarters);
+
+    assert_eq!(peaks, uniform(1u8)); // the fill raised both inner quarters to 1
+    assert_eq!(peaks.min_ticks(), Count::from(1u64));
+}
+
 /// The at-rest form is exactly the wire bytes' refcounted handle.
 ///
 /// A [`Version`] is exactly one immutable refcounted byte buffer
