@@ -11,7 +11,8 @@ laws! {
     ///
     /// The clock model's composite operations: `fork` preserves the version
     /// and splits the party, the balanced n-way fork's two forms agree and its
-    /// iterator keeps its documented size hint, `tick`/`send` advance strictly
+    /// iterator keeps its documented size hint, the shape iterator's size hint
+    /// brackets what it has left, `tick`/`send` advance strictly
     /// and fix the party, `ticks` agrees with the version entry point, peeks
     /// are stable, an own-message receive is a bare tick, an absorb is the
     /// anonymous join without recording an event, `sync` reconciles a fork,
@@ -70,6 +71,15 @@ laws! {
             let mut keeper = c.dangerously_alias();
             size_hints_are_exact(keeper.forks(k), k)
         })
+    }
+
+    /// The [`Overlay`](shape::Overlay) iterator's size hint brackets the
+    /// intervals it has left, at every step and after exhaustion.
+    ///
+    /// [`Iterator::size_hint`]'s contract requires the bracket, and the
+    /// iterator's `FusedIterator` impl promises that it stays exhausted.
+    fn clock_shape_size_hint_brackets_remaining {
+        size_hints_bracket(c.shape(), c.shape().count())
     }
 
     /// `version()` (peek) does not advance the clock: repeated peeks are equal
@@ -290,13 +300,29 @@ laws! {
     }
 
     /// The anonymous joins `Clock | Version` and `Version | Clock` merge the
-    /// versions and keep the clock's party, and agree with each other.
+    /// versions and keep the clock's party, and every spelling agrees: both
+    /// operand orders with an owned or borrowed version, and `|=` with
+    /// either.
     fn anonymous_join_merges_versions {
         let clock_version = c.dangerously_alias() | msg.clone();
-        let version_clock = msg.clone() | c.dangerously_alias();
+        let spellings = [
+            c.dangerously_alias() | msg,
+            msg.clone() | c.dangerously_alias(),
+            msg | c.dangerously_alias(),
+            {
+                let mut assigned = c.dangerously_alias();
+                assigned |= msg.clone();
+                assigned
+            },
+            {
+                let mut assigned = c.dangerously_alias();
+                assigned |= msg;
+                assigned
+            },
+        ];
         clock_version.party() == c.party()
             && *clock_version.version() == (c.version() | msg)
-            && version_clock == clock_version
+            && spellings.iter().all(|spelled| *spelled == clock_version)
     }
 
     /// `absorb` is the anonymous join without recording an event: the version

@@ -14,8 +14,8 @@ laws! {
     /// `distance`/`lag` metric laws, [`Ranked`]'s total order and its
     /// lexicographic key encoding, the degenerate-span identity tying span
     /// placement back to pairwise comparison, the pair span's definitional pin,
-    /// the span wire form's round-trip, and the version encoding's
-    /// prefix-freedom.
+    /// the span wire form's round-trip, the version encoding's
+    /// prefix-freedom, and the combined shape iterator's size hints.
     pub static VERSION_PAIR: (a: &Version, b: &Version);
 
     /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
@@ -414,6 +414,16 @@ laws! {
             }
         }
         true
+    }
+
+    /// The size hint of two versions' [`combine`](shape::combine)d shapes
+    /// brackets the cells they have left, at every step and after exhaustion.
+    ///
+    /// [`Iterator::size_hint`]'s contract requires the bracket, and the
+    /// [`Cells`](shape::Cells) iterator's `FusedIterator` impl promises that
+    /// it stays exhausted.
+    fn combined_shape_size_hint_brackets_remaining {
+        size_hints_bracket(shape::combine([a, b]), shape::combine([a, b]).count())
     }
 }
 

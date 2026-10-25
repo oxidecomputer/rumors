@@ -1,7 +1,8 @@
 //! Laws that need one version.
 //!
 //! These laws cover the lattice point identities, scalar observations, codec
-//! and text round trips, and the coherence of ranked views.
+//! and text round trips, the coherence of ranked views, and the documented
+//! behavior of trait impls.
 
 use super::*;
 
@@ -13,7 +14,8 @@ laws! {
     /// The lattice point laws at a single value (idempotence, the bottom
     /// element), observer coherence (`is_empty`, `concurrent`, `distance`,
     /// `rank`, `min_ticks`, [`Ranked`]), the representational round-trips
-    /// (codec, text, byte views), and the byte hash.
+    /// (codec, text, byte views), the byte hash, the `Debug` renderings of
+    /// [`Ranked`] and the atomic bounds, and the shape iterator's size hints.
     pub static VERSION_SOLO: (a: &Version);
 
     /// Idempotence: `a | a == a` (the LUB of a value and itself is that value).
@@ -170,6 +172,33 @@ laws! {
     /// derivation.
     fn version_hash_is_the_byte_hash {
         hash_of(a) == hash_of(a.as_bytes())
+    }
+
+    /// [`Ranked`]'s `Debug` renders what its documentation states: the viewed
+    /// version, tagged with the type's name.
+    ///
+    /// The law checks containment rather than an exact string, because the
+    /// documentation leaves the layout around the two parts unspecified.
+    fn ranked_debug_shows_name_and_version {
+        let rendered = format!("{:?}", Ranked::from(a));
+        rendered.contains("Ranked") && rendered.contains(&format!("{a:?}"))
+    }
+
+    /// Each atomic bound's `Debug` renders the causal expression it denotes,
+    /// `after(v)` or `before(v)`, as its documentation states, with `v` in
+    /// [`Version`]'s own `Debug` format.
+    fn atom_debug_renders_its_expression {
+        format!("{:?}", causally::after(a)) == format!("after({a:?})")
+            && format!("{:?}", causally::before(a)) == format!("before({a:?})")
+    }
+
+    /// The [`Plateaus`](shape::Plateaus) iterator's size hint brackets the
+    /// plateaus it has left, at every step and after exhaustion.
+    ///
+    /// [`Iterator::size_hint`]'s contract requires the bracket, and the
+    /// iterator's `FusedIterator` impl promises that it stays exhausted.
+    fn version_shape_size_hint_brackets_remaining {
+        size_hints_bracket(a.shape(), a.shape().count())
     }
 }
 

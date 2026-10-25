@@ -13,12 +13,12 @@ laws! {
     /// triangle inequalities with `lag`'s monotonicities, and
     /// the [`causally`] query and placement laws: conjunction as pointwise
     /// intersection across every atomic operand pairing and every typed `&`
-    /// form, coverage's sound arms and its point degeneracy to membership, the
-    /// segment-query/span-placement tie, the segment query's coverage of
-    /// other spans by containment, the nine-way [`Span::place`] verdict
-    /// as a pure transcription of the two endpoint comparisons, its
-    /// coarsening to `dominance`, and the span operators' associativity in
-    /// both of the span algebra's lattices.
+    /// form, a borrowed query's conversion to a copy, coverage's sound arms
+    /// and its point degeneracy to membership, the segment-query/span-placement
+    /// tie, the segment query's coverage of other spans by containment, the
+    /// nine-way [`Span::place`] verdict as a pure transcription of the two
+    /// endpoint comparisons, its coarsening to `dominance`, and the span
+    /// operators' associativity in both of the span algebra's lattices.
     pub static VERSION_TRIPLE: (a: &Version, b: &Version, c: &Version);
 
     /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
@@ -200,6 +200,20 @@ laws! {
             }
         }
         true
+    }
+
+    /// Converting a borrowed [`Query`] (`Query::from(&q)`) yields a copy of
+    /// `q`.
+    ///
+    /// The copy renders the same causal expression in `Debug` and admits
+    /// exactly the probes `q` admits, for each of the hole-free, down-polar,
+    /// and up-polar queries the triple laws build.
+    fn borrowed_query_converts_to_a_copy {
+        let (meet, join) = (b & c, b | c);
+        let probes = [a, b, c, &meet, &join];
+        converts_to_a_copy(&neutral_queries(b, c), &probes)
+            && converts_to_a_copy(&down_queries(b, c), &probes)
+            && converts_to_a_copy(&up_queries(b, c), &probes)
     }
 
     /// Coverage's verdicts are sound over the segment: `Full` admits the
@@ -553,14 +567,17 @@ laws! {
                 }
             }
             // A version operand is its coincident point span, on either
-            // side of the symbol, in the binary, assigning, and variadic
-            // forms alike.
+            // side of the symbol (every owned and borrowed cell when it is
+            // the receiver), in the binary, assigning, and variadic forms
+            // alike.
             let expected = s + &Span::at(a);
             let mut assigned = s.clone();
             assigned += a;
             let point = (s + a) == expected
                 && (a + s) == expected
                 && (a.clone() + s.clone()) == expected
+                && (a.clone() + s) == expected
+                && (a + s.clone()) == expected
                 && s.union(a) == expected
                 && s.union_all([a]) == expected
                 && assigned == expected;
@@ -663,14 +680,17 @@ laws! {
                 }
             }
             // A version operand is its coincident point span, on either
-            // side of the symbol, in the binary, assigning, and variadic
-            // forms alike.
+            // side of the symbol (every owned and borrowed cell when it is
+            // the receiver), in the binary, assigning, and variadic forms
+            // alike.
             let expected = s | &Span::at(a);
             let mut assigned = s.clone();
             assigned |= a;
             let point = (s | a) == expected
                 && (a | s) == expected
                 && (a.clone() | s.clone()) == expected
+                && (a.clone() | s) == expected
+                && (a | s.clone()) == expected
                 && s.join(a) == expected
                 && s.join_all([a]) == expected
                 && assigned == expected;
@@ -731,14 +751,17 @@ laws! {
                 }
             }
             // A version operand is its coincident point span, on either
-            // side of the symbol, in the binary, assigning, and variadic
-            // forms alike.
+            // side of the symbol (every owned and borrowed cell when it is
+            // the receiver), in the binary, assigning, and variadic forms
+            // alike.
             let expected = s & &Span::at(a);
             let mut assigned = s.clone();
             assigned &= a;
             let point = (s & a) == expected
                 && (a & s) == expected
                 && (a.clone() & s.clone()) == expected
+                && (a.clone() & s) == expected
+                && (a & s.clone()) == expected
                 && s.meet(a) == expected
                 && s.meet_all([a]) == expected
                 && assigned == expected;
@@ -866,6 +889,22 @@ fn up_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a, causally::Up>
         causally::before(b) & (!causally::after(c)),
         causally::after(b) & (!causally::after(c)),
     ]
+}
+
+/// Whether `Query::from(&q)` is a copy of `q` for every query in `queries`:
+/// equal `Debug` renderings (the stored floor, holes, and ceiling) and equal
+/// membership at every probe.
+fn converts_to_a_copy<P: causally::Polarity>(
+    queries: &[Query<'_, P>],
+    probes: &[&Version],
+) -> bool {
+    queries.iter().all(|query| {
+        let copy: Query<'_, P> = Query::from(query);
+        format!("{copy:?}") == format!("{query:?}")
+            && probes
+                .iter()
+                .all(|probe| copy.contains(probe) == query.contains(probe))
+    })
 }
 
 /// The span pairs the placement laws quantify over, from a version pair.

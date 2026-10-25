@@ -11,9 +11,10 @@ laws! {
     /// The fork/join round-trip and its disjointness geometry, the balanced
     /// n-way fork's two forms, the covering order's point laws (with a
     /// constructed transitivity chain), `without` at the reflexive corner,
-    /// aliasing, the representational round-trips, and the byte hash.
-    /// `join_all`'s fold laws are [`PARTY_AND_LIST`]'s: the width-quantified
-    /// family covers reunion, acceptance, and error conservation.
+    /// aliasing, the representational round-trips, the byte hash, and the
+    /// shape iterator's size hints. `join_all`'s fold laws are
+    /// [`PARTY_AND_LIST`]'s: the width-quantified family covers reunion,
+    /// acceptance, and error conservation.
     pub static PARTY_SOLO: (p: &Party);
 
     /// `fork` then `join` round-trips: the two halves reconstruct the original
@@ -158,6 +159,15 @@ laws! {
     /// coherent with `Eq`) fails.
     fn party_hash_is_the_byte_hash {
         hash_of(p) == hash_of(p.as_bytes())
+    }
+
+    /// The [`Regions`](shape::Regions) iterator's size hint brackets the
+    /// regions it has left, at every step and after exhaustion.
+    ///
+    /// [`Iterator::size_hint`]'s contract requires the bracket, and the
+    /// iterator's `FusedIterator` impl promises that it stays exhausted.
+    fn party_shape_size_hint_brackets_remaining {
+        size_hints_bracket(p.shape(), p.shape().count())
     }
 }
 

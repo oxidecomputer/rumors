@@ -1484,6 +1484,20 @@ fn assert_sum_is_the_pairwise_fold(
     Ok(())
 }
 
+/// `Sum` over no owned ranks is [`Rank::ZERO`], as the `Sum<Rank>` impl
+/// documents.
+#[test]
+fn empty_owned_rank_sum_is_zero() {
+    assert_eq!(core::iter::empty::<Rank>().sum::<Rank>(), Rank::ZERO);
+}
+
+/// `Sum` over no borrowed ranks is [`Rank::ZERO`], as the `Sum<&Rank>` impl
+/// documents.
+#[test]
+fn empty_borrowed_rank_sum_is_zero() {
+    assert_eq!(core::iter::empty::<&Rank>().sum::<Rank>(), Rank::ZERO);
+}
+
 /// A rank's numerator width for the tie construction above.
 fn a_bits(r: &super::Rank) -> u64 {
     rank_parts(r).0.bits()

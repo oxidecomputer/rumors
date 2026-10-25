@@ -67,6 +67,7 @@ use core::hash::{Hash, Hasher};
 
 use crate::causally::{self, Coverage, Query};
 use crate::error::Crossed;
+use crate::shape;
 use crate::span::{Dominance, Endpoint, Placement, Precedence, Span};
 use crate::{Clock, Count, Party, Rank, Ranked, Version};
 
@@ -236,6 +237,52 @@ fn hash_of<T: Hash + ?Sized>(value: &T) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Whether one comparison cell answers `expected` through every operator it
+/// implements: `partial_cmp`, `==`, `!=`, `<`, `<=`, `>`, and `>=`.
+///
+/// Generic over the operand types, so each call resolves to exactly the
+/// `PartialEq`/`PartialOrd` impl for `(L, R)`: passing `&x` instead of `x`
+/// selects the borrowed cell, and no auto-referencing can substitute another
+/// impl. The operators are checked one by one because `PartialEq` and
+/// `PartialOrd` let an impl override each of them, and the traits' documented
+/// contract requires every override to agree with `partial_cmp`.
+fn cmp_cell_agrees<L, R>(lhs: L, rhs: R, expected: Option<Ordering>) -> bool
+where
+    L: PartialOrd<R>,
+{
+    lhs.partial_cmp(&rhs) == expected
+        && (lhs == rhs) == (expected == Some(Ordering::Equal))
+        && (lhs != rhs) == (expected != Some(Ordering::Equal))
+        && (lhs < rhs) == (expected == Some(Ordering::Less))
+        && (lhs <= rhs) == matches!(expected, Some(Ordering::Less | Ordering::Equal))
+        && (lhs > rhs) == (expected == Some(Ordering::Greater))
+        && (lhs >= rhs) == matches!(expected, Some(Ordering::Greater | Ordering::Equal))
+}
+
+/// Whether `iter`'s size hint brackets the number of items it has left before
+/// every step and after exhaustion, and `iter` stays exhausted.
+///
+/// The bracket is [`Iterator::size_hint`]'s contract, and staying exhausted is
+/// what a [`FusedIterator`](core::iter::FusedIterator) promises. `len` is the
+/// iterator's full length, which the caller counts on a second traversal; the
+/// check fails if `iter` yields any other number of items.
+fn size_hints_bracket<I: Iterator>(mut iter: I, len: usize) -> bool {
+    let brackets = |(lower, upper): (usize, Option<usize>), remaining: usize| {
+        lower <= remaining && upper.is_none_or(|upper| remaining <= upper)
+    };
+    for remaining in (1..=len).rev() {
+        if !brackets(iter.size_hint(), remaining) || iter.next().is_none() {
+            return false;
+        }
+    }
+    // Two `next` calls after the last item: the first reports exhaustion, and
+    // the second must still return `None`, as a fused iterator promises.
+    brackets(iter.size_hint(), 0)
+        && iter.next().is_none()
+        && brackets(iter.size_hint(), 0)
+        && iter.next().is_none()
 }
 
 /// Whether `iter`'s size hint is exactly `(remaining, Some(remaining))` before

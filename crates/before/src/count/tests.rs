@@ -26,6 +26,20 @@ fn zero_forms_agree() {
     assert_eq!(Count::ZERO.to_string(), "0");
 }
 
+/// `Sum` over no owned counts is [`Count::ZERO`], as the `Sum<Count>` impl
+/// documents.
+#[test]
+fn empty_owned_sum_is_zero() {
+    assert_eq!(core::iter::empty::<Count>().sum::<Count>(), Count::ZERO);
+}
+
+/// `Sum` over no borrowed counts is [`Count::ZERO`], as the `Sum<&Count>` impl
+/// documents.
+#[test]
+fn empty_borrowed_sum_is_zero() {
+    assert_eq!(core::iter::empty::<&Count>().sum::<Count>(), Count::ZERO);
+}
+
 /// Addition constructs counts wider than `u128`, which retain their order and
 /// decimal rendering.
 #[test]
@@ -214,6 +228,31 @@ proptest! {
             prop_assert_eq!(ta.checked_sub(&tb), Some(expected.clone()));
             prop_assert_eq!(ta.saturating_sub(&tb), expected);
         }
+    }
+
+    /// Every spelling of addition computes the natural-number sum, for counts
+    /// of every size: the four owned and borrowed `+` cells, `+=` with an
+    /// owned or borrowed right operand, and `Sum` over owned or borrowed
+    /// items.
+    #[test]
+    fn addition_spellings_match_the_naturals(
+        a in crate::testing::generators::arb_magnitude(),
+        b in crate::testing::generators::arb_magnitude(),
+    ) {
+        let expected = Count(&a + &b);
+        let (ta, tb) = (Count(a), Count(b));
+        prop_assert_eq!(&ta + &tb, expected.clone());
+        prop_assert_eq!(ta.clone() + tb.clone(), expected.clone());
+        prop_assert_eq!(ta.clone() + &tb, expected.clone());
+        prop_assert_eq!(&ta + tb.clone(), expected.clone());
+        let mut by_ref = ta.clone();
+        by_ref += &tb;
+        prop_assert_eq!(by_ref, expected.clone());
+        let mut by_value = ta.clone();
+        by_value += tb.clone();
+        prop_assert_eq!(by_value, expected.clone());
+        prop_assert_eq!([&ta, &tb].into_iter().sum::<Count>(), expected.clone());
+        prop_assert_eq!([ta, tb].into_iter().sum::<Count>(), expected);
     }
 
     /// `Debug` renders a count exactly as `Display` does, as its
