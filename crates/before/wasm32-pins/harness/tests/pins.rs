@@ -11,6 +11,19 @@ use wasm32_pins_harness::{run, run_raw, Check, Failure, Outcome, Trap};
 /// exactly `2^32` live bits; the preceding byte has `2^32 - 8`.
 const FIRST_WIDE_VERSION_BYTES: u64 = (1 << 29) + 1;
 
+/// The smallest leaf exponent `k` whose one-leaf version's gamma code sets a
+/// bit past the largest position a wasm32 `usize` holds.
+///
+/// A leaf of height `2^k` stores the gamma code of `2^k + 1`, whose final
+/// mantissa bit, set, lies at position `2k + 1`: `2^32 + 1` at this exponent,
+/// and `2^32 - 1` at the one before. Past position `2^32 - 1` this version
+/// holds a clear mantissa bit, then two set bits (the last mantissa bit and
+/// the padding marker), which differ from the leaf flag and zeros that open
+/// the stream, so the decode's result depends on reading those positions from
+/// the version's last byte. At the exponent before, the bits there are the
+/// marker and padding, `1000_0000`, the same as the stream's first byte.
+const FIRST_WIDE_LEAF_EXPONENT: u64 = 1 << 31;
+
 /// A left payload width small enough that both join inputs remain addressable.
 const JOIN_LEFT_WIDTH: u64 = 100_000_000;
 
@@ -28,8 +41,13 @@ const JOIN_RIGHT_ABOVE: u64 = 2_047_483_646;
 /// largest `usize`; one more bit makes it `2^32`.
 const FIRST_UNINDEXABLE_STABILITY_WIDTH: u64 = 32 * (1 << 32) + 1;
 
-/// The documented panic of a `suanpan` contribution that lands at a digit
+/// The panic message of a `suanpan` contribution that lands at a digit
 /// position its buffer cannot address.
+///
+/// The panic condition is documented, under `add_shifted_limbs`'s `# Panics`
+/// and its siblings'; the message is not. This string is the message of
+/// `suanpan`'s private `digit_index`, which converts every landing position
+/// these pins reach into a buffer index.
 const UNADDRESSABLE_LANDING: &str = "a nonzero contribution needs an addressable digit position";
 
 /// Runs a check and reports its parameters if it fails.
@@ -100,6 +118,30 @@ fn version_decode_crosses_the_usize_position_boundary() {
     for size in [FIRST_WIDE_VERSION_BYTES - 1, FIRST_WIDE_VERSION_BYTES] {
         assert_passes(Check::VersionDecode, size, 0);
     }
+}
+
+/// Borsh decodes a version whose final payload bit and padding marker lie past
+/// bit position `2^32`, keeping its exact bytes and live length and reading
+/// nothing past its last byte.
+///
+/// The decoder's result must not depend on the width of `usize`; it meets
+/// that by counting its bit position in `u64` and converting it to a byte
+/// index only to read its buffer. Its word window sees only bytes already
+/// read, a single byte where the leaf's gamma code begins, so it reads every
+/// bit of this version one at a time. The version's last byte holds bit
+/// positions `2^32` through `2^32 + 7`: the mantissa's last two bits, zero
+/// then one, the marker, and padding.
+/// `version_decode_crosses_the_usize_position_boundary` pins the slice
+/// decoder at the same boundary.
+///
+/// The decode peaks at 40,989 wasm pages (2.50 GiB): the 512 MiB
+/// input, the decoder's byte buffer, the leaf's 256 MiB height, and the
+/// validator's copy of that height. After a change to the borsh decode path
+/// or to `Version`'s validation, this test may therefore abort on allocation,
+/// which the harness reports as a trap with no panic message.
+#[test]
+fn version_borsh_decode_crosses_the_usize_position_boundary() {
+    assert_passes(Check::VersionBorshDecode, FIRST_WIDE_LEAF_EXPONENT, 0);
 }
 
 /// Causal comparison can traverse a stored payload whose final bit position
@@ -212,9 +254,17 @@ fn rank_sum_straddles_the_usize_alignment_limit() {
 /// and `<<=`; the subtracting methods and `<<` reach the same paths. In each
 /// case, wrapping or narrowing the landing position would return normally
 /// after writing near the start of the buffer.
+///
+/// A limb stream lands each limb at a digit position, the shift's digits plus
+/// twice the limb's index, which becomes a buffer index only where the digit
+/// is stored, so it must not depend on the width of `usize` before then. The
+/// limb-stream cases differ in which term carries that position past
+/// `2^32 - 1`. In case 1 only the sum does, from shift digit `2^32 - 4` and
+/// index 2. In case 4 the index counter itself passes `usize::MAX`. In case 7
+/// the doubling alone does, at index `2^31`, which a 32-bit `usize` holds.
 #[test]
 fn suanpan_rejects_unaddressable_digit_landings() {
-    for case in 1..=6 {
+    for case in 1..=7 {
         assert_panics(Check::SuanpanLanding, case, 0, UNADDRESSABLE_LANDING);
     }
 }

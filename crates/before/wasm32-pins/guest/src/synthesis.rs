@@ -85,6 +85,32 @@ pub fn version(bytes: u64) -> Result<Vec<u8>, Failure> {
     Ok(stream.finish())
 }
 
+/// Encodes one leaf of height `2^k` in `ceil((2k + 3) / 8)` bytes, then one
+/// `0xFF` byte standing for the next field of a larger stream.
+///
+/// The leaf flag at bit 0 precedes the gamma code of `2^k + 1`: `k` zeros,
+/// then the `k + 1`-bit mantissa `1 0^(k-1) 1`, setting bits `k + 1` and
+/// `2k + 1`. The live bits therefore number `2k + 2`, and the padding marker
+/// lands at bit `2k + 2`.
+pub fn wide_leaf_then_field(k: u64) -> Result<Vec<u8>, Failure> {
+    if k == 0 {
+        return Err(Failure::InvalidArguments);
+    }
+    let marker = k
+        .checked_mul(2)
+        .and_then(|n| n.checked_add(2))
+        .ok_or(Failure::Synthesis)?;
+    let version_bytes = (marker + 1).div_ceil(8);
+    let field = version_bytes.checked_mul(8).ok_or(Failure::Synthesis)?;
+    let mut stream = Stream::zeroed(version_bytes + 1)?;
+    stream.set(0)?;
+    stream.set(k + 1)?;
+    stream.set(marker - 1)?;
+    stream.set(marker)?;
+    stream.fill(field, field + 7)?;
+    Ok(stream.finish())
+}
+
 /// Encodes `(2^(exp-65) + 1) / 2^exp` in canonical `Rank` form.
 ///
 /// Fraction groups each contribute one continuation bit and eight expansion

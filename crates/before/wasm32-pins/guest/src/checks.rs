@@ -10,6 +10,7 @@ use core::hint::black_box;
 use core::iter;
 
 use before::{Clock, Count, Party, Rank, Version};
+use borsh::BorshDeserialize;
 use suanpan::Accumulator;
 use wasm32_pins_protocol::{Check, Failure};
 
@@ -31,6 +32,7 @@ pub fn run(check: Check, a: u64, b: u64) -> Result<(), Failure> {
         Check::SuanpanZeroShift => suanpan_zero_shift(a),
         Check::SuanpanStabilityWidth => suanpan_stability_width(a),
         Check::HarnessAllocationFailure => exhaust_memory(),
+        Check::VersionBorshDecode => version_borsh_decode(a),
     }
 }
 
@@ -159,6 +161,29 @@ fn version_decode(size: u64) -> Result<(), Failure> {
     let expected = size
         .checked_mul(8)
         .and_then(|bits| bits.checked_sub(8))
+        .ok_or(Failure::Synthesis)?;
+    if version.encoded_bits() != expected {
+        return Err(Failure::WrongLength);
+    }
+    Ok(())
+}
+
+/// Checks that borsh decodes the one-leaf version of height `2^k` to exactly
+/// its canonical bytes and live length, leaving the next field unread.
+///
+/// The decoder reads from a byte slice, which it advances past every byte it
+/// consumes, so the slice left over must be exactly the next field.
+fn version_borsh_decode(k: u64) -> Result<(), Failure> {
+    let stream = synthesis::wide_leaf_then_field(k)?;
+    let (canonical, next_field) = stream.split_at(stream.len() - 1);
+    let mut unread = &stream[..];
+    let version = Version::deserialize_reader(&mut unread).map_err(|_| Failure::DecodeRejected)?;
+    if unread != next_field || version.as_bytes() != canonical {
+        return Err(Failure::WrongBytes);
+    }
+    let expected = k
+        .checked_mul(2)
+        .and_then(|bits| bits.checked_add(2))
         .ok_or(Failure::Synthesis)?;
     if version.encoded_bits() != expected {
         return Err(Failure::WrongLength);
@@ -316,6 +341,12 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
             accumulator += 1_u64;
             accumulator <<= 32 * (max + 1);
         }
+        // A limb stream at shift 0 whose landing passes 2^32 - 1 through the
+        // doubling alone: zero limbs fill indices 0 through 2^31 - 1, and the
+        // 1 sits at index 2^31, which a 32-bit `usize` holds. Each limb spans
+        // two digits, so the 1 lands at digit 2^32, which no 32-bit `usize`
+        // holds.
+        7 => accumulator.add_shifted_limbs(0, iter::repeat_n(0, 1 << 31).chain([1])),
         _ => return Err(Failure::InvalidArguments),
     }
 

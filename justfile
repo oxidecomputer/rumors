@@ -552,9 +552,10 @@ _gate-audit: supply-chain
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `serde` is compiled in every build that includes `rumors`, which enables it,
 # and `oracle` in every `before` test build, through `before`'s dev-dependency
-# on itself. No manifest enables `borsh`, so outside `--all-features` builds
-# only this recipe compiles it. The `serde`+`borsh` pair matters because both
-# derive on the same types.
+# on itself. Only the wasm32-pins guest enables `borsh`, together with
+# `meter`, so outside `--all-features` builds only this recipe compiles
+# `borsh` alone or with only `serde`. The `serde`+`borsh` pair matters
+# because both derive on the same types.
 
 # Feature matrix: every cfg-gated surface on its own, so nothing rots behind `--all-features`.
 features:

@@ -43,6 +43,9 @@ pub enum Check {
     /// Deliberately exhaust the guest's memory, proving that the harness tells
     /// an allocation-failure abort from a panic.
     HarnessAllocationFailure = 12,
+    /// Borsh-decode the canonical one-leaf version whose leaf height is `2^a`,
+    /// leaving the byte after it, which stands for the next field, unread.
+    VersionBorshDecode = 13,
 }
 
 impl From<Check> for u32 {
