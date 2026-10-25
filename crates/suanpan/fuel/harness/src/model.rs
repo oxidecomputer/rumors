@@ -8,13 +8,13 @@
 //!
 //! # The charge
 //!
-//! The crate's precise statement bounds each operation by
-//! `c · (1 + in + out + Δh + σ · log₆₄(h + 1))`, in 64-bit words: `in` the
-//! words it reads from operands, `out` the words it produces, `Δh` how far it
-//! raises its storage's width `h`, and `σ` 1 for an update at a nonzero
-//! shift. Composite steps are charged part by part, as the statement
-//! decomposes them: a clone and then an owned operator, a negation and then
-//! an addition, one addition per term of a sum.
+//! `suanpan`'s cost derivation states the claim the rules summarize, which
+//! bounds each operation by `c · (1 + in + out + Δh + σ · log₆₄(h + 1))`, in
+//! 64-bit words: `in` the words it reads from operands, `out` the words it
+//! produces, `Δh` how far it raises its storage's width `h`, and `σ` 1 for an
+//! update at a nonzero shift. Composite steps are charged part by part, as
+//! the derivation decomposes them: a clone and then an owned operator, a
+//! negation and then an addition, one addition per term of a sum.
 //!
 //! The rules define `h` as the highest bit written since the storage began,
 //! which only the implementation sees. The model tracks the running maximum
@@ -587,7 +587,7 @@ impl Model {
     }
 
     /// Applies an accumulator operand to member `r` in `form`, charging the
-    /// parts the crate's precise statement decomposes it into.
+    /// parts `suanpan`'s cost derivation decomposes it into.
     fn operand(
         &mut self,
         charge: &mut Charge,

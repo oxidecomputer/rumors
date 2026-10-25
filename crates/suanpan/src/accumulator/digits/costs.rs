@@ -6,8 +6,8 @@
 //! update adds a logarithm. Every method's cost follows from them, from the
 //! rule for ownership, and from the costs the crate states beside them for
 //! negation, shifts, formatting, and comparing two accumulators. This module
-//! holds no code: it records the argument behind each rule, one section per
-//! rule, so that a change to
+//! holds no code: it states the claim the rules summarize and records the
+//! argument behind each rule, one section per rule, so that a change to
 //! [`Digits`](super::Digits) or to
 //! [`WrittenPositions`](super::written::WrittenPositions) can be checked
 //! against the argument it must preserve. If you change how a write, a scan,
@@ -39,17 +39,28 @@
 //! and a *sign* below is a sign of stored digits and stored sums. Negation
 //! flips the flag and changes no digit and no term of the potential.
 //!
-//! A *storage* begins when an accumulator is created, receives
-//! `clone_from`, or is shifted by a nonzero count, and lasts until the next
+//! A *storage* begins when an accumulator is created (by `new`, `Default`,
+//! `From`, `clone`, or a borrowed `<<`), receives `clone_from`, or is shifted
+//! by a nonzero count with `<<=` or an owned `<<`, and lasts until the next
 //! of these; every other operation, `clear` included, keeps it, and an owned
 //! operator's result keeps the storage of the operand it reuses. Its *width*
 //! `h` is the highest position written since it began. The digit buffer
 //! never shrinks within a storage: `clone_from` shortens it to the copy, and
 //! a shift of a value held in digits replaces it. A shift of a small value,
-//! or of a zero, keeps its buffer, so counting it as a new storage, as the
-//! crate does to keep the definition in terms a caller can see, only
-//! shortens a storage's life; that can only make the rules charge more, not
-//! less, as "Rule 3" shows.
+//! or of a zero, keeps its buffer, so counting it as a new storage, as this
+//! definition does to stay in terms a caller can see, only shortens a
+//! storage's life; that can only make the rules charge more, not less, as
+//! "Rule 3" shows.
+//!
+//! Write `|x|` for the bit length of an accumulator's value, taken to be at
+//! least 1. For each operation, `in` counts the 64-bit words it reads from
+//! operands: 1 for a primitive, `L` for limbs, and `1 + |b| / 64` for an
+//! accumulator operand `b`, or for the narrower of two compared or
+//! owned-added operands. `out` counts the words it produces: 1 for an
+//! ordering, a primitive, or an owned negation, the result's width for a
+//! magnitude read, hash, clone, or shift, and that width squared for
+//! `Display`. An operation built from others satisfies the claim below part
+//! by part, as "Ownership" decomposes it.
 //!
 //! # The potential
 //!
@@ -58,9 +69,21 @@
 //! for a new accumulator. Over any sequence of operations, the amortized costs
 //! then sum to at least the actual costs (Tarjan's potential method). The
 //! potential of a program is the sum over its accumulators, so an operation
-//! that reads another accumulator may spend that accumulator's potential. Each
-//! accumulator's potential is a weighted sum of four terms, and each term pays
-//! for one kind of deferred work.
+//! that reads another accumulator may spend that accumulator's potential.
+//!
+//! **Claim.** There is a potential `Φ` such that every operation satisfies
+//!
+//! `actual + ΔΦ ≤ c · (1 + in + out + Δh + σ · log₆₄(h + 1))`,
+//!
+//! where `Δh` is how far the operation raises its storage's width and `σ` is
+//! 1 for an update at a nonzero shift and 0 otherwise. The four rules
+//! summarize this claim. Summing gives the total over a sequence: at most `c`
+//! times the inputs, outputs, and logarithms, plus each storage's final
+//! width. One call's actual cost is at most O(`in` + `out` + `Δh` +
+//! log₆₄(`h` + 1)) plus the storage widths of the accumulators it touches.
+//!
+//! Each accumulator's potential is a weighted sum of four terms, and each
+//! term pays for one kind of deferred work.
 //!
 //! 1. *Carry potential* is the sum of `max(0, |d| - B/2) / B` over the stored
 //!    digits `d`, with `B = 2^32`. A digit never holds more than 3/2 of it,
@@ -595,6 +618,8 @@
 //!   sum of owned accumulators makes one owned addition per input after the
 //!   first; a sum of borrowed ones adds each input at shift 0 into a new
 //!   accumulator.
+//! - An operator on a borrowed left operand costs at most a clone and then
+//!   the owned operator.
 //! - `a - b` is `a + -b`: negating `b` costs O(1), and owned addition then
 //!   reads the narrower operand into the wider one's storage, as above.
 //!   `&a - b` is `-b + &a`, and a primitive minus an accumulator negates the
@@ -606,12 +631,18 @@
 //!
 //! # Updates of one sign
 //!
-//! The crate states this refinement on its own, because a caller's cost
-//! argument can rest on it. A *stretch* is the sequence of operations from the start of
-//! a storage until the first operation other than an update by a primitive
-//! or limbs, a `stored_bits` query, or an `is_known_zero` query; the queries
-//! change nothing. Suppose every update in a stretch has contributions of one
-//! sign `s`, and the value at its start is zero or has sign `s`.
+//! This refinement goes beyond the four rules, and a caller's cost argument
+//! can rest on it. A *stretch* is the sequence of operations from the start
+//! of a storage until the first operation other than an update by a
+//! primitive or limbs, a `stored_bits` query, or an `is_known_zero` query;
+//! the queries change nothing. Suppose every update in a stretch has
+//! contributions of one sign `s`, and the value at its start is zero or has
+//! sign `s`. Then those updates pay no logarithm, at any shift, and the first
+//! comparison with zero after the stretch, which every read, comparison, and
+//! nonzero shift begins with, pays one logarithm of the storage width, once.
+//! A sum of terms of one sign can therefore shift its total to a finer scale
+//! between stretches, since each nonzero shift begins a storage, and pay each
+//! shift only its result's width.
 //!
 //! These are signs of values, and the argument below is about stored digits.
 //! The flag is constant through a stretch. Within a storage, only negation

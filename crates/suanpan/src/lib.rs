@@ -172,59 +172,6 @@
 //! # assert!(total.is_positive());
 //! ```
 //!
-//! ## The precise statement
-//!
-//! Write `|x|` for the bit length of an accumulator's value, taken to be at
-//! least 1. A *storage* begins when an accumulator is created (by `new`,
-//! `Default`, `From`, `clone`, or a borrowed `<<`), receives `clone_from`, or
-//! is shifted by a nonzero count with `<<=` or an owned `<<`. Every other
-//! operation keeps it, `clear` included, and an owned operator's result
-//! keeps the storage of the operand it reuses. Its width `h` is the highest
-//! bit an operation has written since it began. For each operation, `in`
-//! counts the 64-bit words it reads from operands: 1 for a primitive, `L` for
-//! limbs, and `1 + |b| / 64` for an accumulator operand `b`, or for the
-//! narrower of two compared or owned-added operands. `out` counts the words
-//! it produces: 1 for an ordering, a primitive, or an owned negation, the
-//! result's width for a magnitude read, hash, clone, or shift, and that
-//! width squared for `Display`. An operation built from others satisfies the
-//! claim part by part: an operator on a borrowed left operand costs at most
-//! a clone and then the owned operator; `a - b` is `a + -b`, `&a - b` is
-//! `-b + &a`, and a primitive minus an accumulator is a negation and then an
-//! addition; `abs_diff` subtracts the narrower operand from the wider and
-//! negates a negative result; and `Sum` is one addition per input.
-//!
-//! **Claim.** There is a potential `Φ`, a nonnegative function of every
-//! accumulator's stored state that is zero for a new accumulator, such that
-//! every operation satisfies
-//!
-//! `actual + ΔΦ ≤ c · (1 + in + out + Δh + σ · log₆₄(h + 1))`,
-//!
-//! where `Δh` is how far the operation raises its storage's width and `σ` is
-//! 1 for an update at a nonzero shift and 0 otherwise. Summing gives the
-//! total over a sequence: at most `c` times the inputs, outputs, and
-//! logarithms, plus each storage's final width. One call's actual cost is at
-//! most O(`in` + `out` + `Δh` + log₆₄(`h` + 1)) plus the storage widths of
-//! the accumulators it touches.
-//!
-//! ## Updates of one sign
-//!
-//! A *stretch* is the sequence of operations from the start of a storage
-//! until the first operation other than an update by a primitive or limbs,
-//! [`stored_bits`](Accumulator::stored_bits), or
-//! [`is_known_zero`](Accumulator::is_known_zero). Suppose every update in a
-//! stretch has contributions of one sign, and the value at the stretch's
-//! start is zero or has that sign. Then those updates pay no logarithm, at
-//! any shift, and the first comparison with zero after the stretch, which
-//! every read, comparison, and nonzero shift begins with, pays one logarithm
-//! of the storage width, once. A stretch cannot begin at
-//! [`clear`](Accumulator::clear) or at a read, because neither begins a
-//! storage: updates after them can pay a logarithm each, refilling
-//! bookkeeping across the width the storage has reached.
-//!
-//! A sum of terms of one sign can therefore shift its total to a finer scale
-//! between stretches, since each nonzero shift begins a storage, and pay each
-//! shift only its result's width.
-//!
 //! # Scope
 //!
 //! This is an accumulator, not a general-purpose integer: it has no
