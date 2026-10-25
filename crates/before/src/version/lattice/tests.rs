@@ -17,13 +17,17 @@ use suanpan::Accumulator;
 
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
+use crate::testing::generators::divided_config;
+use crate::testing::generators::leaf_list::{arb_deep_or_correlated_pair, TWO_VERSION_DIVISOR};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::Encoding;
+use crate::testing::oracles::flat::{self, check_version};
 use crate::testing::{generators, optrace};
 use crate::version::instrument::validate;
 use crate::version::io::regions::{HeightChange, RegionReader, VersionRegionReader};
-use crate::{Clock, Version};
+use crate::{Clock, Span, Version};
 use num_bigint::BigUint;
+use proptest::sample::Index;
 
 /// Decode a meter-generated encoded shape as a [`Version`].
 fn version_of(p: &Encoding) -> Version {
@@ -472,4 +476,185 @@ fn grid_version(values: &[BigUint]) -> Version {
         values.len()
     );
     from_oracle_version(&build(values))
+}
+
+// ───────────────────────── against the flat model ─────────────────────────
+
+/// A production version decoded again from its own bytes: equal to it, in
+/// storage of its own.
+fn redecode(version: &Version) -> Version {
+    Version::decode(version.as_bytes()).expect("a version's bytes decode")
+}
+
+/// Checks every join and meet spelling of `a` and `b` against the flat
+/// model's join and meet of `ma` and `mb`.
+///
+/// The spellings include both endpoints of both hull spellings, and the
+/// stored lengths of an operand and both results are checked against the
+/// model's.
+fn check_lattice_spellings(
+    a: &Version,
+    b: &Version,
+    ma: &flat::Version,
+    mb: &flat::Version,
+) -> Result<(), TestCaseError> {
+    let (join, meet) = (ma.join(mb), ma.meet(mb));
+    let (mut join_borrowed, mut join_owned) = (a.clone(), a.clone());
+    join_borrowed |= b;
+    join_owned |= b.clone();
+    let (mut meet_borrowed, mut meet_owned) = (a.clone(), a.clone());
+    meet_borrowed &= b;
+    meet_owned &= b.clone();
+    let hull = a.span(b);
+    let xor = a ^ b;
+    let joins = [
+        ("a.join(b)", a.join(b)),
+        ("&a | &b", a | b),
+        ("a | &b", a.clone() | b),
+        ("&a | b", a | b.clone()),
+        ("a | b", a.clone() | b.clone()),
+        ("a |= &b", join_borrowed),
+        ("a |= b", join_owned),
+        ("a.span(b).hi()", hull.hi().clone()),
+        ("(&a ^ &b).hi()", xor.hi().clone()),
+    ];
+    let meets = [
+        ("a.meet(b)", a.meet(b)),
+        ("&a & &b", a & b),
+        ("a & &b", a.clone() & b),
+        ("&a & b", a & b.clone()),
+        ("a & b", a.clone() & b.clone()),
+        ("a &= &b", meet_borrowed),
+        ("a &= b", meet_owned),
+        ("a.span(b).lo()", hull.lo().clone()),
+        ("(&a ^ &b).lo()", xor.lo().clone()),
+    ];
+    for (spelling, got) in &joins {
+        check_version(got, &join, spelling)?;
+    }
+    for (spelling, got) in &meets {
+        check_version(got, &meet, spelling)?;
+    }
+    prop_assert_eq!(
+        a.is_empty(),
+        ma.is_empty(),
+        "whether the first operand is empty"
+    );
+    prop_assert_eq!(
+        a.encoded_bits(),
+        ma.bits(),
+        "the first operand's stored length"
+    );
+    prop_assert_eq!(
+        joins[0].1.encoded_bits(),
+        join.bits(),
+        "the join's stored length"
+    );
+    prop_assert_eq!(
+        meets[0].1.encoded_bits(),
+        meet.bits(),
+        "the meet's stored length"
+    );
+    Ok(())
+}
+
+/// How a fold item is taken from its pool member.
+#[derive(Clone, Copy, Debug)]
+enum Take {
+    /// A clone, sharing the member's storage.
+    Shared,
+    /// A separate decode of the member's bytes, in storage of its own.
+    Separate,
+    /// A clone of the previous item, or a shared clone of the member when
+    /// there is none.
+    Repeat,
+}
+
+proptest! {
+    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+
+    /// Every join and meet spelling, and both endpoints of both hull
+    /// spellings, equal the flat model's join and meet byte for byte, and the
+    /// stored lengths equal the model's.
+    ///
+    /// The operand pairs are a deep pair in both orders, a version with its
+    /// clone and with a separately decoded copy, and the two endpoints of a
+    /// decoded span, which are slices of one buffer. The deep pairs are
+    /// related by construction, and half are built through the model so that
+    /// their joins and meets collapse in cascades; every operand reaches
+    /// production through the independent encoder, so production's writer
+    /// is judged against the model's canonical form, never against itself.
+    #[test]
+    fn lattice_matches_the_flat_model_on_deep_pairs((a, b) in arb_deep_or_correlated_pair()) {
+        let (ma, mb) = (flat::Version::from_rows(a.leaves()), flat::Version::from_rows(b.leaves()));
+        let (va, vb) = (ma.production(), mb.production());
+        check_lattice_spellings(&va, &vb, &ma, &mb)?;
+        check_lattice_spellings(&vb, &va, &mb, &ma)?;
+        check_lattice_spellings(&va, &va.clone(), &ma, &ma)?;
+        check_lattice_spellings(&va, &redecode(&va), &ma, &ma)?;
+        let wire = Span::decode(&va.span(&vb).encode()[..]).expect("a span's bytes decode");
+        check_lattice_spellings(wire.lo(), wire.hi(), &ma.meet(&mb), &ma.join(&mb))?;
+    }
+
+    /// `join_all`, `meet_all`, and `span_all`, over owned and borrowed
+    /// items, and `Sum` and `collect` over both, equal the flat model's left
+    /// folds byte for byte, at arities from 0 to 40.
+    ///
+    /// The items come from a pool of a deep pair, its join and meet, and the
+    /// empty version, each a shared clone, a separate decode, or a repeat of
+    /// the item before; repeats share storage, which the folds' run
+    /// deduplication skips. Arities to 40 reach every carry of the balanced
+    /// fold's binary counter through 32 inputs.
+    #[test]
+    fn folds_match_the_flat_model_on_deep_pools(
+        (a, b) in arb_deep_or_correlated_pair(),
+        receiver in any::<Index>(),
+        picks in proptest::collection::vec(
+            (
+                any::<Index>(),
+                prop_oneof![Just(Take::Shared), Just(Take::Separate), Just(Take::Repeat)],
+            ),
+            0..=40,
+        ),
+    ) {
+        let (ma, mb) = (flat::Version::from_rows(a.leaves()), flat::Version::from_rows(b.leaves()));
+        let models = [ma.join(&mb), ma.meet(&mb), ma, mb, flat::Version::empty()];
+        let pool: Vec<Version> = models.iter().map(flat::Version::production).collect();
+        let receiver = receiver.index(pool.len());
+        let mut items: Vec<Version> = Vec::with_capacity(picks.len());
+        let mut chosen: Vec<&flat::Version> = Vec::with_capacity(picks.len());
+        for (pick, take) in &picks {
+            let (item, model) = match (take, items.last()) {
+                (Take::Repeat, Some(last)) => (last.clone(), chosen[chosen.len() - 1]),
+                (Take::Separate, _) => {
+                    let i = pick.index(pool.len());
+                    (redecode(&pool[i]), &models[i])
+                }
+                _ => {
+                    let i = pick.index(pool.len());
+                    (pool[i].clone(), &models[i])
+                }
+            };
+            items.push(item);
+            chosen.push(model);
+        }
+        let join = models[receiver].join_all(chosen.iter().copied());
+        let meet = models[receiver].meet_all(chosen.iter().copied());
+        let sum = flat::Version::empty().join_all(chosen.iter().copied());
+        let recv = &pool[receiver];
+        check_version(&recv.join_all(&items), &join, "join_all over borrowed items")?;
+        check_version(&recv.join_all(items.clone()), &join, "join_all over owned items")?;
+        check_version(&recv.meet_all(&items), &meet, "meet_all over borrowed items")?;
+        check_version(&recv.meet_all(items.clone()), &meet, "meet_all over owned items")?;
+        let span = recv.span_all(&items);
+        check_version(span.lo(), &meet, "span_all over borrowed items, lo")?;
+        check_version(span.hi(), &join, "span_all over borrowed items, hi")?;
+        let span = recv.span_all(items.clone());
+        check_version(span.lo(), &meet, "span_all over owned items, lo")?;
+        check_version(span.hi(), &join, "span_all over owned items, hi")?;
+        check_version(&items.iter().sum::<Version>(), &sum, "Sum over borrowed items")?;
+        check_version(&items.clone().into_iter().sum::<Version>(), &sum, "Sum over owned items")?;
+        check_version(&items.iter().collect::<Version>(), &sum, "collect over borrowed items")?;
+        check_version(&items.into_iter().collect::<Version>(), &sum, "collect over owned items")?;
+    }
 }

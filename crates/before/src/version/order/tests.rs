@@ -10,14 +10,19 @@
 //! from the oracle on each pair, in both operand orders.
 
 use core::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use proptest::prelude::*;
 use rayon::prelude::*;
 
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
+use crate::testing::generators::divided_config;
+use crate::testing::generators::leaf_list::{arb_deep_or_correlated_pair, TWO_VERSION_DIVISOR};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::Encoding;
+use crate::testing::oracles::flat;
 use crate::testing::oracles::tree;
 use crate::testing::{generators, optrace};
 use crate::{Clock, Version};
@@ -338,5 +343,91 @@ proptest! {
                 );
             }
         }
+    }
+}
+
+// ───────────────────────── against the flat model ─────────────────────────
+
+/// The hash of a value under the standard library's default hasher.
+fn hash_of<T: Hash>(value: &T) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Checks every comparison spelling of `a` against `b`, in both directions,
+/// against the causal relation `want`, and that equal versions hash equally.
+fn check_order_spellings(
+    a: &Version,
+    b: &Version,
+    want: Option<Ordering>,
+) -> Result<(), TestCaseError> {
+    let le = matches!(want, Some(Ordering::Less | Ordering::Equal));
+    let ge = matches!(want, Some(Ordering::Greater | Ordering::Equal));
+    let (lt, gt, eq) = (
+        want == Some(Ordering::Less),
+        want == Some(Ordering::Greater),
+        want == Some(Ordering::Equal),
+    );
+    prop_assert_eq!(a.partial_cmp(b), want, "a.partial_cmp(b)");
+    prop_assert_eq!(
+        b.partial_cmp(a),
+        want.map(Ordering::reverse),
+        "b.partial_cmp(a)"
+    );
+    prop_assert_eq!(
+        (a <= b, a < b, a >= b, a > b, a == b, a != b),
+        (le, lt, ge, gt, eq, !eq),
+        "&a against &b"
+    );
+    prop_assert_eq!(
+        (b <= a, b < a, b >= a, b > a, b == a, b != a),
+        (ge, gt, le, lt, eq, !eq),
+        "&b against &a"
+    );
+    prop_assert_eq!(
+        (*a <= b, *a < b, *a >= b, *a > b, *a == b),
+        (le, lt, ge, gt, eq),
+        "a against &b"
+    );
+    prop_assert_eq!(
+        (a <= *b, a < *b, a >= *b, a > *b, a == *b),
+        (le, lt, ge, gt, eq),
+        "&a against b"
+    );
+    prop_assert_eq!(a.concurrent(b), want.is_none(), "a.concurrent(b)");
+    prop_assert_eq!(b.concurrent(a), want.is_none(), "b.concurrent(a)");
+    if eq {
+        prop_assert_eq!(hash_of(a), hash_of(b), "equal versions hash equally");
+    }
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+
+    /// Every comparison spelling, in both directions, agrees with the flat
+    /// model's pointwise order, and equal versions hash equally.
+    ///
+    /// The pairs are a deep pair, a version with its clone and with a
+    /// separately decoded copy, each operand against the pair's join and
+    /// meet, and the join against the meet. The deep pairs are related by
+    /// construction, so equal, comparable, and concurrent pairs are all
+    /// common, and every operand reaches production through the independent
+    /// encoder.
+    #[test]
+    fn order_matches_the_flat_model_on_deep_pairs((a, b) in arb_deep_or_correlated_pair()) {
+        let (ma, mb) = (flat::Version::from_rows(a.leaves()), flat::Version::from_rows(b.leaves()));
+        let (mj, mm) = (ma.join(&mb), ma.meet(&mb));
+        let (va, vb, vj, vm) = (ma.production(), mb.production(), mj.production(), mm.production());
+        let copy = Version::decode(va.as_bytes()).expect("a version's bytes decode");
+        check_order_spellings(&va, &vb, ma.relation(&mb))?;
+        check_order_spellings(&va, &va.clone(), Some(Ordering::Equal))?;
+        check_order_spellings(&va, &copy, Some(Ordering::Equal))?;
+        check_order_spellings(&va, &vj, ma.relation(&mj))?;
+        check_order_spellings(&va, &vm, ma.relation(&mm))?;
+        check_order_spellings(&vb, &vj, mb.relation(&mj))?;
+        check_order_spellings(&vm, &vb, mm.relation(&mb))?;
+        check_order_spellings(&vj, &vm, mj.relation(&mm))?;
     }
 }

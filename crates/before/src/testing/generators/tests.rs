@@ -14,6 +14,7 @@ use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::{Config, TestRunner};
 
+use crate::testing::oracles::flat::{self, Collapses};
 use crate::testing::oracles::function::{ev_depth, id_depth};
 use crate::testing::oracles::tree;
 use crate::testing::rng::strategy_rng;
@@ -21,8 +22,8 @@ use crate::testing::shape_rows::{oracle_plateaus, version_from_rows, Leaf};
 use num_bigint::BigUint;
 
 use super::leaf_list::{
-    arb_deep_version, arb_deep_version_pair, arb_deep_version_triple, ONE_VERSION_DIVISOR,
-    THREE_VERSION_DIVISOR, TWO_VERSION_DIVISOR,
+    arb_deep_or_correlated_pair, arb_deep_version, arb_deep_version_pair, arb_deep_version_triple,
+    LeafList, ONE_VERSION_DIVISOR, THREE_VERSION_DIVISOR, TWO_VERSION_DIVISOR,
 };
 use super::regions::{arb_deep_party, arb_deep_party_family};
 use super::{
@@ -253,6 +254,20 @@ fn pairwise_disjoint((receiver, items): &(tree::Party, Vec<tree::Party>)) -> boo
         .all(|(i, a)| family[i + 1..].iter().all(|b| a.is_disjoint(b)))
 }
 
+/// The collapses that canonicalizing a pair's join and its meet takes, in
+/// the flat model: each is the pointwise extremum over the canonical
+/// operands' common refinement, collapsed bottom up.
+fn join_and_meet_collapses((a, b): &(LeafList, LeafList)) -> [Collapses; 2] {
+    let (a, b) = (
+        flat::Version::from_rows(a.leaves()),
+        flat::Version::from_rows(b.leaves()),
+    );
+    [
+        flat::Version::collapses(&a.pointwise_cells(&b, |x, y| x.max(y).clone())),
+        flat::Version::collapses(&a.pointwise_cells(&b, |x, y| x.min(y).clone())),
+    ]
+}
+
 /// Every deep strategy keeps enough generator mass on the regime its docs
 /// claim that each default run of the properties relying on it expects
 /// [`REGIME_CASES_PER_RUN`](super::REGIME_CASES_PER_RUN) cases there.
@@ -261,7 +276,12 @@ fn pairwise_disjoint((receiver, items): &(tree::Party, Vec<tree::Party>)) -> boo
 /// pairs, triples, and parties; equal pairs, and distinct pairs of equal
 /// rank, which independent draws never produce; and, for party families,
 /// both pairwise disjoint families of two or more parties, which `join_all`
-/// must accept, and overlapping ones, which it must reject. Each floor
+/// must accept, and overlapping ones, which it must reject. The pairs the
+/// flat model's differentials draw must reach joins or meets whose
+/// canonicalization cascades, a collapsed pair collapsing again with its
+/// sibling, and cascades whose surviving leaf's code is wider than the
+/// version writer's one-word limit; the lattice differential, which claims
+/// them, takes the two-version drivers' case count. Each floor
 /// follows from that premise and the case count of the most demanding
 /// property that draws the strategy: the clock-family driver holds deep
 /// versions and deep parties beside a family, so a deep version, party, or
@@ -281,6 +301,8 @@ fn deep_strategies_keep_mass_on_their_regimes() {
         deep_corpus(arb_deep_version_triple().prop_map(|(a, b, c)| [a.tree(), b.tree(), c.tree()]));
     let parties = deep_corpus(arb_deep_party());
     let families = deep_corpus(arb_deep_party_family());
+    let collapses =
+        deep_corpus(arb_deep_or_correlated_pair().prop_map(|pair| join_and_meet_collapses(&pair)));
     let two_version_floor = regime_floor(DEEP_CENSUS_CASES, TWO_VERSION_DIVISOR);
     let regimes = [
         (
@@ -321,6 +343,16 @@ fn deep_strategies_keep_mass_on_their_regimes() {
         (
             "deep party families: overlapping",
             regime_count(&families, |family| !pairwise_disjoint(family)),
+            two_version_floor,
+        ),
+        (
+            "deep or correlated pairs: a join or meet that cascades",
+            regime_count(&collapses, |pair| pair.iter().any(|c| c.cascades > 0)),
+            two_version_floor,
+        ),
+        (
+            "deep or correlated pairs: a cascade keeping a wide code",
+            regime_count(&collapses, |pair| pair.iter().any(|c| c.wide_cascades > 0)),
             two_version_floor,
         ),
     ];

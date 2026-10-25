@@ -17,11 +17,15 @@ use proptest::test_runner::{Config, TestRunner};
 
 use crate::testing::bridge::{from_oracle_version, to_oracle_party, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, all_normal_ids, EV_SMALL_DEPTH};
-use crate::testing::generators::leaf_list::{arb_multiscale_pair, TWO_VERSION_DIVISOR};
+use crate::testing::generators::divided_config;
+use crate::testing::generators::leaf_list::{
+    arb_deep_or_correlated_pair, arb_multiscale_pair, TWO_VERSION_DIVISOR,
+};
 use crate::testing::generators::{arb_oracle_version, regime_floor, DEFAULT_CASES};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::{Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIGITS};
 use crate::testing::optrace;
+use crate::testing::oracles::flat::{self, check_rank};
 use crate::testing::oracles::function;
 use crate::testing::rng::strategy_rng;
 use crate::{Clock, Party, Rank, Version};
@@ -1032,5 +1036,58 @@ fn mirrored_arming_trains_cancel_to_equal_across_their_box() {
             "liveness: the mirrored {train} must freeze and defer under rank_cmp \
              ({freezes} freezes, {deferrals} deferrals)"
         );
+    }
+}
+
+/// Checks every measure of a pair, in both operand orders, against the flat
+/// model's exact values.
+///
+/// The values are each rank's normalized parts and bytes, the distance, both
+/// lags, and the rank order through `rank_cmp` and through [`Rank`]'s own
+/// order.
+fn check_measures_exact(a: &flat::Version, b: &flat::Version) -> Result<(), TestCaseError> {
+    let (va, vb) = (a.production(), b.production());
+    let (rank_a, rank_b) = (va.rank(), vb.rank());
+    check_rank(&rank_a, &a.rank(), "rank(a)")?;
+    check_rank(&rank_b, &b.rank(), "rank(b)")?;
+    let distance = a.distance(b);
+    check_rank(&va.distance(&vb), &distance, "a.distance(b)")?;
+    check_rank(&vb.distance(&va), &distance, "b.distance(a)")?;
+    check_rank(&va.lag(&vb), &a.lag(b), "a.lag(b)")?;
+    check_rank(&vb.lag(&va), &b.lag(a), "b.lag(a)")?;
+    let order = a.rank_cmp(b);
+    prop_assert_eq!(va.rank_cmp(&vb), order, "a.rank_cmp(b)");
+    prop_assert_eq!(vb.rank_cmp(&va), order.reverse(), "b.rank_cmp(a)");
+    prop_assert_eq!(rank_a.cmp(&rank_b), order, "rank(a).cmp(rank(b))");
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+
+    /// Every rank, distance, lag, and rank order of a deep pair equals the
+    /// flat model's exact value, in both operand orders.
+    ///
+    /// The model integrates each measure directly over the pair's common
+    /// refinement, sharing nothing with the streaming integral or the tree
+    /// fold. The deep pairs are related by construction, so equal pairs,
+    /// distinct pairs of equal rank, and pairs differing by a narrow amount
+    /// over wide heights are all common.
+    #[test]
+    fn measures_match_the_flat_model_on_deep_pairs((a, b) in arb_deep_or_correlated_pair()) {
+        check_measures_exact(&flat::Version::from_rows(a.leaves()), &flat::Version::from_rows(b.leaves()))?;
+    }
+
+    /// Every rank, distance, lag, and rank order of a multi-scale pair equals
+    /// the flat model's exact value, in both operand orders.
+    ///
+    /// These pairs drive the integral through freezes and deferrals and tie
+    /// exactly in rank while differing as versions
+    /// (`multiscale_pairs_keep_mass_on_deferral_and_ties` floors each
+    /// regime); here their values are judged against the model rather than
+    /// the tree fold.
+    #[test]
+    fn measures_match_the_flat_model_on_multiscale_pairs((a, b) in arb_multiscale_pair()) {
+        check_measures_exact(&flat::Version::from_rows(a.leaves()), &flat::Version::from_rows(b.leaves()))?;
     }
 }

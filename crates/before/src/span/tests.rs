@@ -5,6 +5,11 @@ use proptest::prelude::*;
 use super::*;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::generators::arb_oracle_version;
+use crate::testing::generators::divided_config;
+use crate::testing::generators::leaf_list::{
+    arb_deep_or_correlated_pair, arb_deep_version, THREE_VERSION_DIVISOR,
+};
+use crate::testing::oracles::flat::{self, check_version};
 use crate::Clock;
 
 /// Build a five-version chain and one version concurrent with the whole chain.
@@ -1016,4 +1021,136 @@ fn own_span_projects_both_endpoints() {
     // The endpoint views compare as the projections they name.
     assert_eq!(view.lo(), (&a1 / alice.party()).to_version());
     assert_eq!(view.hi(), (&both / alice.party()).to_version());
+}
+
+// ───────────────────────── against the flat model ─────────────────────────
+
+/// The placement the verdict docs give a version whose causal relations to
+/// a span's endpoints are `to_lo` and `to_hi`.
+fn placement_of(to_lo: Option<Ordering>, to_hi: Option<Ordering>) -> Placement {
+    use Ordering::{Equal, Greater, Less};
+    match (to_lo, to_hi) {
+        (Some(Less), _) => Placement::Before,
+        (Some(Equal), Some(Equal)) => Placement::At(Endpoint::Both),
+        (Some(Equal), _) => Placement::At(Endpoint::Start),
+        (Some(Greater), Some(Less)) => Placement::Between,
+        (Some(Greater), Some(Equal)) => Placement::At(Endpoint::End),
+        (Some(Greater), Some(Greater)) => Placement::After,
+        (Some(Greater), None) => Placement::Concurrent(Endpoint::End),
+        (None, None) => Placement::Concurrent(Endpoint::Both),
+        (None, Some(_)) => Placement::Concurrent(Endpoint::Start),
+    }
+}
+
+/// A span under test and the flat model's endpoints.
+struct JudgedSpan {
+    /// How the span was built, for failure messages.
+    kind: &'static str,
+    /// The production span.
+    span: Span<'static>,
+    /// The model's lower endpoint.
+    lo: flat::Version,
+    /// The model's upper endpoint.
+    hi: flat::Version,
+}
+
+proptest! {
+    #![proptest_config(divided_config(THREE_VERSION_DIVISOR))]
+
+    /// Every span over a pool of deep versions has the flat model's
+    /// endpoints and the verdicts the model's order implies.
+    ///
+    /// The endpoints equal the model's byte for byte, and the `place`,
+    /// `dominance`, `precedence`, and `contains` verdicts on every pool member
+    /// follow from the model's order as the verdict docs state.
+    ///
+    /// The pool is a deep pair, a third deep version, the pair's join and
+    /// meet, and the empty version. Its spans are point spans sharing one
+    /// endpoint's storage, point spans over two separate decodes, the hull of
+    /// every two members, and a decoded span whose endpoints are slices of
+    /// one buffer.
+    #[test]
+    fn span_verdicts_match_the_flat_model_on_deep_pools(
+        (a, b) in arb_deep_or_correlated_pair(),
+        c in arb_deep_version(),
+    ) {
+        let (ma, mb) = (flat::Version::from_rows(a.leaves()), flat::Version::from_rows(b.leaves()));
+        let models = [
+            ma.join(&mb),
+            ma.meet(&mb),
+            flat::Version::from_rows(c.leaves()),
+            ma,
+            mb,
+            flat::Version::empty(),
+        ];
+        let pool: Vec<Version> = models.iter().map(flat::Version::production).collect();
+        let mut spans = Vec::new();
+        for (i, (version, model)) in pool.iter().zip(&models).enumerate() {
+            let separate = Version::decode(version.as_bytes()).expect("a version's bytes decode");
+            spans.push(JudgedSpan {
+                kind: "a point sharing storage",
+                span: Span::at(version.clone()),
+                lo: model.clone(),
+                hi: model.clone(),
+            });
+            spans.push(JudgedSpan {
+                kind: "a point over separate decodes",
+                span: Span::new(version.clone(), separate).expect("equal endpoints are ordered"),
+                lo: model.clone(),
+                hi: model.clone(),
+            });
+            for (other, other_model) in pool[i + 1..].iter().zip(&models[i + 1..]) {
+                spans.push(JudgedSpan {
+                    kind: "a hull",
+                    span: version.span(other),
+                    lo: model.meet(other_model),
+                    hi: model.join(other_model),
+                });
+            }
+        }
+        let wire = pool[3].span(&pool[4]).encode();
+        spans.push(JudgedSpan {
+            kind: "a decoded span",
+            span: Span::decode(&wire[..]).expect("a span's bytes decode"),
+            lo: models[1].clone(),
+            hi: models[0].clone(),
+        });
+        for judged in &spans {
+            let kind = judged.kind;
+            check_version(judged.span.lo(), &judged.lo, kind)?;
+            check_version(judged.span.hi(), &judged.hi, kind)?;
+            for (probe, model) in pool.iter().zip(&models) {
+                let (to_lo, to_hi) = (model.relation(&judged.lo), model.relation(&judged.hi));
+                let at_least = |relation: Option<Ordering>| {
+                    matches!(relation, Some(Ordering::Greater | Ordering::Equal))
+                };
+                let at_most = |relation: Option<Ordering>| {
+                    matches!(relation, Some(Ordering::Less | Ordering::Equal))
+                };
+                let dominance = if at_least(to_hi) {
+                    Dominance::After
+                } else if at_least(to_lo) {
+                    Dominance::Between
+                } else {
+                    Dominance::Before
+                };
+                let precedence = if at_most(to_lo) {
+                    Precedence::Before
+                } else if at_most(to_hi) {
+                    Precedence::Between
+                } else {
+                    Precedence::After
+                };
+                prop_assert_eq!(judged.span.place(probe), placement_of(to_lo, to_hi), "place on {}", kind);
+                prop_assert_eq!(judged.span.dominance(probe), dominance, "dominance on {}", kind);
+                prop_assert_eq!(judged.span.precedence(probe), precedence, "precedence on {}", kind);
+                prop_assert_eq!(
+                    judged.span.contains(probe),
+                    at_least(to_lo) && at_most(to_hi),
+                    "contains on {}",
+                    kind
+                );
+            }
+        }
+    }
 }

@@ -5,8 +5,10 @@ use proptest::prelude::*;
 use super::Party;
 use crate::party::io::PartyReader;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
+use crate::testing::generators::regions::arb_deep_party;
 use crate::testing::generators::{arb_oracle_party_nonempty, arb_party_family};
 use crate::testing::optrace::{run, world_strategy};
+use crate::testing::oracles::flat::{self, check_party};
 use crate::testing::oracles::{function, tree};
 
 // ───────────────────────────── the join fold ─────────────────────────────
@@ -903,4 +905,27 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
         );
     }
     assert!(root.is_seed(), "the fully unwound fan is the seed again");
+}
+
+proptest! {
+    /// `fork` splits a deep party exactly as the flat model's split does,
+    /// and so does each later fork of a randomly chosen half, through four
+    /// rounds.
+    ///
+    /// The model finds the smallest dyadic interval holding the set and
+    /// splits it at its midpoint, with no tree; the parties are deep and
+    /// fragmented, so the splits land at every depth, inside one-child runs
+    /// and at owned leaves.
+    #[test]
+    fn fork_matches_the_flat_model_on_deep_parties(p in arb_deep_party(), keep_left in proptest::collection::vec(any::<bool>(), 4)) {
+        let mut model = flat::Party::from_oracle(&p);
+        let mut party = model.production();
+        for keep_left in keep_left {
+            let given = party.fork();
+            let (kept_model, given_model) = model.fork();
+            check_party(&party, &kept_model, "the kept half")?;
+            check_party(&given, &given_model, "the given half")?;
+            (party, model) = if keep_left { (party, kept_model) } else { (given, given_model) };
+        }
+    }
 }

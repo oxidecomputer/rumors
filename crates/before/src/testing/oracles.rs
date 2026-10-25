@@ -17,11 +17,19 @@
 //! The test-only dyadic oracle models an exact rank as an unnormalized dyadic
 //! rational, so rank values, order, and text are judged without production's
 //! arithmetic or codecs.
+//!
+//! The test-only flat model realizes versions as leaf lists and parties as
+//! interval sets, and computes every answer by loops over their common
+//! refinement. It shares neither the tree recursion nor any production
+//! writer, and unlike the function oracle it judges inputs hundreds of
+//! levels deep; production meets it only through the codec module's bytes.
 
 #[cfg(test)]
 pub(crate) mod codec;
 #[cfg(test)]
 pub(crate) mod dyadic;
+#[cfg(test)]
+pub(crate) mod flat;
 #[cfg(test)]
 pub(crate) mod function;
 

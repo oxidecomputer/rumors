@@ -23,6 +23,7 @@
 //! | Heights | [`arb_boundary_heights`] | a few levels whose differences straddle `2^31` and `2^32`, the limits of the writer's one-word codes, and pass `2^64` |
 //! | Heights | [`arb_near_equal_wide_heights`] | values one or two apart at widths from 31 to 1,000 bits |
 //! | Pairs | [`arb_relation`] | a second leaf list that is independent, perturbed, refined, resplit into the same version, edited at one leaf, mirrored, or rotated |
+//! | Pairs | [`arb_correlated_pair`] | a version combined with a sparse version by sum, difference, join, or meet, or two operands decomposing a target, built through the [flat model](crate::testing::oracles::flat) |
 //!
 //! The mirrored and rotated relations keep every leaf's width and height, so
 //! they tie exactly in rank while usually differing as versions.
@@ -44,6 +45,9 @@
 //!   co-sweeps, and exact rank ties at freezing scale, which no arbitrary
 //!   pair reaches. The measure tests feed it to their tree-oracle checks, and
 //!   law drivers over one or two versions and over ranks take it too.
+//! - [`arb_deep_or_correlated_pair`] draws from [`arb_deep_version_pair`] and
+//!   [`arb_correlated_pair`] in equal shares, for the flat model's
+//!   differentials.
 //!
 //! [`LeafList::tree`] normalizes through the recursive oracle's constructors,
 //! so a leaf list's canonical depth can be less than its listed depth. The
@@ -58,7 +62,7 @@ use proptest::prelude::*;
 use proptest::sample::Index;
 use proptest::strategy::Union;
 
-use crate::testing::oracles::tree;
+use crate::testing::oracles::{flat, tree};
 use crate::testing::shape_rows::{version_from_rows, Leaf};
 
 use super::family_picks;
@@ -393,6 +397,203 @@ pub(crate) fn arb_multiscale_pair() -> impl Strategy<Value = (LeafList, LeafList
         let b = a.related(&relation);
         (a, b)
     })
+}
+
+// ─────────────────────────── pairs built by the flat model ───────────────────────────
+
+/// How [`arb_correlated_pair`] combines a version with a sparse version to
+/// build its partner.
+#[derive(Clone, Copy, Debug)]
+enum SparseOp {
+    /// Adds the sparse version's heights.
+    Sum,
+    /// Subtracts the sparse version's heights, stopping at zero.
+    Difference,
+    /// Joins with the sparse version.
+    Join,
+    /// Meets with the sparse version.
+    Meet,
+}
+
+impl SparseOp {
+    /// Applies the operation pointwise, through the flat model.
+    fn apply(self, version: &flat::Version, sparse: &flat::Version) -> flat::Version {
+        match self {
+            SparseOp::Sum => version.pointwise(sparse, |a, b| a + b),
+            SparseOp::Difference => {
+                version.pointwise(sparse, |a, b| if a > b { a - b } else { BigUint::ZERO })
+            }
+            SparseOp::Join => version.join(sparse),
+            SparseOp::Meet => version.meet(sparse),
+        }
+    }
+}
+
+/// Which result of a decomposed pair equals the target.
+#[derive(Clone, Copy, Debug)]
+enum Decomposition {
+    /// The pair's join is the target: off-target cells sit below it.
+    Join,
+    /// The pair's meet is the target: off-target cells sit above it.
+    Meet,
+}
+
+/// Which operand of a decomposed pair holds the target on one cell.
+#[derive(Clone, Copy, Debug)]
+enum Holder {
+    /// The first operand holds the target, and the second sits off it.
+    First,
+    /// The second operand holds the target, and the first sits off it.
+    Second,
+    /// Both operands hold the target.
+    Both,
+}
+
+/// One refinement cell's draws in a decomposition: how far the operand off
+/// the target sits from it, and which operand holds the target.
+#[derive(Clone, Debug)]
+struct CellDraw {
+    /// The off-target operand's distance from the target.
+    delta: BigUint,
+    /// Which operand holds the target.
+    holder: Holder,
+}
+
+impl Size {
+    /// Draws a leaf list of this size whose heights are mostly zero.
+    ///
+    /// A mask of 1 to 16 bits, each set with probability a quarter, cycles
+    /// over the leaves: a leaf keeps its drawn height where its bit is set,
+    /// and otherwise sits at zero.
+    fn arb_sparse(self) -> BoxedStrategy<LeafList> {
+        (
+            self.arb_version(),
+            proptest::collection::vec(prop::bool::weighted(0.25), 1..=16),
+        )
+            .prop_map(|(list, mask)| {
+                let leaves = list
+                    .leaves
+                    .into_iter()
+                    .zip(mask.iter().cycle())
+                    .map(|(leaf, &keep)| Leaf {
+                        height: if keep { leaf.height } else { BigUint::ZERO },
+                        ..leaf
+                    })
+                    .collect();
+                LeafList { leaves }
+            })
+            .boxed()
+    }
+
+    /// Draws a version of this size and a partner built through the flat
+    /// model: the version combined with a sparse one, in either order, or
+    /// two operands decomposing a target.
+    fn arb_correlated_pair(self) -> BoxedStrategy<(LeafList, LeafList)> {
+        let widest = self.widest_exponent();
+        let op = prop::sample::select(vec![
+            SparseOp::Sum,
+            SparseOp::Difference,
+            SparseOp::Join,
+            SparseOp::Meet,
+        ]);
+        let draw = (
+            prop_oneof![(1u8..4).prop_map(BigUint::from), arb_boundary_level(widest)],
+            prop_oneof![
+                Just(Holder::First),
+                Just(Holder::Second),
+                Just(Holder::Both)
+            ],
+        )
+            .prop_map(|(delta, holder)| CellDraw { delta, holder });
+        prop_oneof![
+            2 => (self.arb_version(), self.arb_sparse(), op, any::<bool>()).prop_map(
+                |(list, sparse, op, swap)| {
+                    let version = flat::Version::from_rows(&list.leaves);
+                    let partner = op.apply(&version, &flat::Version::from_rows(&sparse.leaves));
+                    let partner = LeafList { leaves: partner.rows().to_vec() };
+                    if swap { (partner, list) } else { (list, partner) }
+                }
+            ),
+            2 => (
+                self.arb_version(),
+                self.arb_topology(),
+                proptest::collection::vec(draw, 1..=32),
+                prop_oneof![Just(Decomposition::Join), Just(Decomposition::Meet)],
+            )
+                .prop_map(|(target, partition, draws, decomposition)| {
+                    decompose(&target, &partition.depths(), &draws, decomposition)
+                }),
+        ]
+        .boxed()
+    }
+}
+
+/// Two operands whose join or meet, as `decomposition` says, is exactly the
+/// target.
+///
+/// On each cell of the target's refinement by `partition`, the next draw,
+/// cycled, says which operand holds the target's height; the other sits
+/// `delta` below it (stopping at zero) for a join, or `delta` above it for a
+/// meet, unless both hold it. The
+/// result therefore collapses back to the target's leaves wherever the
+/// target is flat, while each operand keeps the partition's structure.
+fn decompose(
+    target: &LeafList,
+    partition: &[u64],
+    draws: &[CellDraw],
+    decomposition: Decomposition,
+) -> (LeafList, LeafList) {
+    let target_depths: Vec<u64> = target.leaves.iter().map(|leaf| leaf.depth).collect();
+    let cells = flat::refine(&[target_depths, partition.to_vec()]);
+    let (mut first, mut second) = (
+        Vec::with_capacity(cells.len()),
+        Vec::with_capacity(cells.len()),
+    );
+    for (cell, draw) in cells.iter().zip(draws.iter().cycle()) {
+        let height = &target.leaves[cell.leaves[0]].height;
+        let off = match decomposition {
+            Decomposition::Join if *height > draw.delta => height - &draw.delta,
+            Decomposition::Join => BigUint::ZERO,
+            Decomposition::Meet => height + &draw.delta,
+        };
+        let (a, b) = match draw.holder {
+            Holder::First => (height.clone(), off),
+            Holder::Second => (off, height.clone()),
+            Holder::Both => (height.clone(), height.clone()),
+        };
+        first.push(Leaf {
+            depth: cell.depth,
+            height: a,
+        });
+        second.push(Leaf {
+            depth: cell.depth,
+            height: b,
+        });
+    }
+    (LeafList { leaves: first }, LeafList { leaves: second })
+}
+
+/// Draws a deep version and a partner built through the flat model.
+///
+/// Half the pairs combine a version with a sparse version, by sum,
+/// difference, join, or meet, so the pair is often comparable or nearly so.
+/// The other half are two operands decomposing a target, whose join or meet
+/// is the target exactly: on every refinement cell one operand holds the
+/// target and the other sits below it, for a join, or above it, for a meet.
+/// Canonicalizing that join or meet, from the cells of the operands' common
+/// refinement, collapses them back to the target's leaves, often through
+/// cascades in which a collapsed pair collapses again with its sibling. The
+/// census in this module's sibling tests floors those cascades, as the flat
+/// model's canonicalization counts them, and cascades whose surviving code is
+/// wider than the version writer's one-word limit.
+pub(crate) fn arb_correlated_pair() -> impl Strategy<Value = (LeafList, LeafList)> {
+    arb_sized(Size::arb_correlated_pair)
+}
+
+/// Draws a deep version pair for the flat model's differentials: half from
+/// [`arb_deep_version_pair`] and half from [`arb_correlated_pair`].
+pub(crate) fn arb_deep_or_correlated_pair() -> impl Strategy<Value = (LeafList, LeafList)> {
+    prop_oneof![arb_deep_version_pair(), arb_correlated_pair()]
 }
 
 // ──────────────────────────────── topology ────────────────────────────────

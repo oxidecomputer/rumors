@@ -6,12 +6,19 @@
 //! lives here is the Panics contract's negative space — the silent sweep over
 //! the canonicality violations the walk does not structurally notice.
 
+use core::cmp::Ordering;
+
 use num_bigint::BigUint;
+use proptest::prelude::*;
 
 use crate::bits::BitsWriter;
 use crate::error::Decode;
+use crate::testing::generators::divided_config;
+use crate::testing::generators::leaf_list::{arb_deep_or_correlated_pair, TWO_VERSION_DIVISOR};
+use crate::testing::generators::regions::arb_deep_party;
+use crate::testing::oracles::flat::{self, check_version};
 use crate::version::io::validate::whole;
-use crate::Version;
+use crate::{OwnVersion, Version};
 
 use super::Comparison;
 
@@ -51,4 +58,101 @@ fn collapsible_sibling_pair_sweeps_without_panicking() {
     let _ = Comparison::order(&good, &bad);
     let _ = Comparison::equal(&bad, &good);
     let _ = Comparison::equal(&good, &bad);
+}
+
+/// Checks every comparison spelling of a view against a version, in both
+/// directions, against the causal relation `want`.
+fn check_view_against_version(
+    view: &OwnVersion<'_>,
+    version: &Version,
+    want: Option<Ordering>,
+) -> Result<(), TestCaseError> {
+    let le = matches!(want, Some(Ordering::Less | Ordering::Equal));
+    let ge = matches!(want, Some(Ordering::Greater | Ordering::Equal));
+    let (lt, gt, eq) = (
+        want == Some(Ordering::Less),
+        want == Some(Ordering::Greater),
+        want == Some(Ordering::Equal),
+    );
+    prop_assert_eq!(view.partial_cmp(version), want, "view.partial_cmp(version)");
+    prop_assert_eq!(
+        version.partial_cmp(view),
+        want.map(Ordering::reverse),
+        "version.partial_cmp(view)"
+    );
+    prop_assert_eq!(
+        (
+            *view <= *version,
+            *view < *version,
+            *view >= *version,
+            *view > *version,
+            *view == *version
+        ),
+        (le, lt, ge, gt, eq),
+        "view against version"
+    );
+    prop_assert_eq!(
+        (
+            *version >= *view,
+            *version > *view,
+            *version <= *view,
+            *version < *view,
+            *version == *view
+        ),
+        (le, lt, ge, gt, eq),
+        "version against view"
+    );
+    prop_assert_eq!(
+        version.concurrent(view),
+        want.is_none(),
+        "version.concurrent(view)"
+    );
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+
+    /// A deep version's view through a deep party agrees with the flat
+    /// model's restriction, as a version and in every comparison.
+    ///
+    /// Through `/` and through `project`, the view materializes to the model's
+    /// restriction byte for byte, and every comparison of the view against a
+    /// version and against another view agrees with the model's order of the
+    /// restrictions.
+    ///
+    /// The versions are a deep pair, the second viewed through its own
+    /// party, and the parties are deep and fragmented, so a view's owned
+    /// cells start and stop at many depths among the version's leaves. Every
+    /// operand reaches production through the independent encoder.
+    #[test]
+    fn projection_matches_the_flat_model_on_deep_operands(
+        (a, b) in arb_deep_or_correlated_pair(),
+        p in arb_deep_party(),
+        q in arb_deep_party(),
+    ) {
+        let (ma, mb) = (flat::Version::from_rows(a.leaves()), flat::Version::from_rows(b.leaves()));
+        let (mp, mq) = (flat::Party::from_oracle(&p), flat::Party::from_oracle(&q));
+        let (va, vb) = (ma.production(), mb.production());
+        let (pp, pq) = (mp.production(), mq.production());
+        let (restricted_a, restricted_b) = (ma.project(&mp), mb.project(&mq));
+        let (view_a, view_b) = (&va / &pp, &vb / &pq);
+        check_version(&view_a.to_version(), &restricted_a, "(a / p).to_version()")?;
+        check_version(&Version::from(va.project(&pp)), &restricted_a, "Version::from(a.project(p))")?;
+        check_version(&view_b.to_version(), &restricted_b, "(b / q).to_version()")?;
+        check_view_against_version(&view_a, &vb, restricted_a.relation(&mb))?;
+        check_view_against_version(&view_a, &va, restricted_a.relation(&ma))?;
+        let want = restricted_a.relation(&restricted_b);
+        prop_assert_eq!(view_a.partial_cmp(&view_b), want, "view_a.partial_cmp(view_b)");
+        prop_assert_eq!(view_b.partial_cmp(&view_a), want.map(Ordering::reverse), "view_b.partial_cmp(view_a)");
+        let le = matches!(want, Some(Ordering::Less | Ordering::Equal));
+        let ge = matches!(want, Some(Ordering::Greater | Ordering::Equal));
+        prop_assert_eq!(
+            (view_a <= view_b, view_a < view_b, view_a >= view_b, view_a > view_b, view_a == view_b),
+            (le, want == Some(Ordering::Less), ge, want == Some(Ordering::Greater), want == Some(Ordering::Equal)),
+            "view_a against view_b"
+        );
+        let materialized = view_a.to_version();
+        prop_assert!(view_a == materialized && materialized == view_a, "a view equals its materialization");
+    }
 }

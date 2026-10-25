@@ -6,11 +6,15 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
+use crate::testing::generators::divided_config;
+use crate::testing::generators::leaf_list::{arb_deep_version_pair, TWO_VERSION_DIVISOR};
+use crate::testing::generators::regions::{arb_deep_clock_family, arb_disjoint_parties};
 use crate::testing::generators::{
     arb_clock_family, deep_left_spine_party, deep_right_spine_party, deep_zigzag_party,
     STACK_SAFETY_DEPTH,
 };
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
+use crate::testing::oracles::flat::{self, check_party, check_version};
 use crate::testing::oracles::{function, tree};
 use crate::{Clock, Party, Version};
 
@@ -1728,5 +1732,87 @@ fn static_orbit_ids_freeze_and_versions_grow_log() {
             8 * i - 4,
             "max version bits over the octave ending at 2^{i}"
         );
+    }
+}
+
+proptest! {
+    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+
+    /// `Clock::sync` of two deep clocks agrees with the flat model, whether
+    /// their parties are disjoint or overlap in part.
+    ///
+    /// It succeeds exactly when the parties are disjoint, and then gives the
+    /// clocks the model's split of the parties' union and the model's join of
+    /// their versions; when the parties overlap in part, neither clock
+    /// changes, byte for byte.
+    ///
+    /// The overlapping parties are built through the model: two disjoint
+    /// parties each joined with a third, so they share that third and
+    /// neither covers the other.
+    #[test]
+    fn sync_matches_the_flat_model_after_partial_overlaps(
+        dealt in arb_disjoint_parties(3),
+        (a, b) in arb_deep_version_pair(),
+        overlap in any::<bool>(),
+    ) {
+        let [x, y, shared] = <[tree::Party; 3]>::try_from(dealt)
+            .expect("the strategy deals exactly three parties")
+            .map(|party| flat::Party::from_oracle(&party));
+        let (x, y) = if overlap { (x.union(&shared), y.union(&shared)) } else { (x, y) };
+        let (ma, mb) = (flat::Version::from_rows(a.leaves()), flat::Version::from_rows(b.leaves()));
+        let mut first = Clock::from_parts(x.production(), ma.production());
+        let mut second = Clock::from_parts(y.production(), mb.production());
+        let before = (first.encode(), second.encode());
+        let disjoint = x.is_disjoint(&y);
+        let synced = first.sync(&mut second).is_ok();
+        prop_assert_eq!(synced, disjoint, "sync succeeds exactly on disjoint parties");
+        if disjoint {
+            let (kept, given) = x.union(&y).fork();
+            let joined = ma.join(&mb);
+            check_party(first.party(), &kept, "the receiver's party")?;
+            check_party(second.party(), &given, "the other clock's party")?;
+            check_version(first.version(), &joined, "the receiver's version")?;
+            check_version(second.version(), &joined, "the other clock's version")?;
+        } else {
+            prop_assert_eq!((first.encode(), second.encode()), before, "a failed sync changed a clock");
+        }
+    }
+
+    /// `Clock::sync_all` over two to ten deep clocks deals the flat model's
+    /// balanced shares, or fails and changes no clock.
+    ///
+    /// It succeeds exactly when the parties are pairwise disjoint, and then
+    /// deals the model's balanced shares of the parties' union in participant
+    /// order, the receiver first, each with the model's join of every
+    /// version; when it fails, no clock changes, byte for byte.
+    #[test]
+    fn sync_all_deals_the_flat_models_shares((receiver, items) in arb_deep_clock_family()) {
+        let family: Vec<(flat::Party, flat::Version)> = core::iter::once(&receiver)
+            .chain(&items)
+            .map(|(party, version)| (flat::Party::from_oracle(party), flat::Version::from_oracle(version)))
+            .collect();
+        let mut clocks: Vec<Clock> = family
+            .iter()
+            .map(|(party, version)| Clock::from_parts(party.production(), version.production()))
+            .collect();
+        let before: Vec<Vec<u8>> = clocks.iter().map(Clock::encode).collect();
+        let disjoint = family
+            .iter()
+            .enumerate()
+            .all(|(i, (a, _))| family[i + 1..].iter().all(|(b, _)| a.is_disjoint(b)));
+        let (first, rest) = clocks.split_first_mut().expect("a family holds at least two clocks");
+        let synced = first.sync_all(rest.iter_mut()).is_ok();
+        prop_assert_eq!(synced, disjoint, "sync_all succeeds exactly on pairwise disjoint parties");
+        if disjoint {
+            let union = family.iter().fold(flat::Party::empty(), |acc, (party, _)| acc.union(party));
+            let joined = family.iter().fold(flat::Version::empty(), |acc, (_, version)| acc.join(version));
+            for (clock, share) in clocks.iter().zip(union.shares(family.len())) {
+                check_party(clock.party(), &share, "a participant's share")?;
+                check_version(clock.version(), &joined, "a participant's version")?;
+            }
+        } else {
+            let after: Vec<Vec<u8>> = clocks.iter().map(Clock::encode).collect();
+            prop_assert_eq!(after, before, "a failed sync_all changed a clock");
+        }
     }
 }
