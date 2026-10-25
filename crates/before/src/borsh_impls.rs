@@ -147,6 +147,11 @@ impl Decode {
     }
 }
 
+/// The canonical bytes of [`Party::encode`], unframed.
+///
+/// Borsh is a transport for the one wire form, never a second format; the
+/// encoding is byte-aligned and self-delimiting, so it needs no length prefix
+/// inside a larger stream.
 impl BorshSerialize for Party {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         writer.write_all(self.as_bytes())
@@ -165,6 +170,11 @@ impl BorshDeserialize for Party {
     }
 }
 
+/// The canonical bytes of [`Version::encode`], unframed.
+///
+/// Borsh is a transport for the one wire form, never a second format; the
+/// encoding is byte-aligned and self-delimiting, so it needs no length prefix
+/// inside a larger stream.
 impl BorshSerialize for Version {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         writer.write_all(self.as_bytes())
@@ -180,6 +190,12 @@ impl BorshDeserialize for Version {
     }
 }
 
+/// The canonical composite of [`Clock::encode`], unframed: the party's
+/// canonical bytes, then the version's.
+///
+/// Borsh is a transport for the one wire form, never a second format; both
+/// components are byte-aligned and self-delimiting, so the composite needs no
+/// length prefix inside a larger stream.
 impl BorshSerialize for Clock {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         self.encode_to(writer)
@@ -255,8 +271,8 @@ impl BorshDeserialize for Ranked<'static> {
     }
 }
 
-/// The canonical composite of [`Span::encode`], unframed: the meet's
-/// canonical bytes, then the join's.
+/// The canonical composite of [`Span::encode`], unframed: the lower
+/// endpoint's canonical bytes, then the upper endpoint's.
 ///
 /// Borsh is a transport for the one wire form, never a second format;
 /// both components are byte-aligned and self-delimiting, so the
@@ -272,7 +288,7 @@ impl BorshSerialize for Span<'_> {
 /// fused pass.
 ///
 /// [`Span::decode`]'s contract exactly — crossed and concurrent pairs
-/// rejected — with the bytes after the join belonging to the next
+/// rejected — with the bytes after the upper endpoint belonging to the next
 /// borsh field.
 impl BorshDeserialize for Span<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {

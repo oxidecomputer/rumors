@@ -223,9 +223,10 @@ laws! {
     /// representative bound at another, against the constructed ordered,
     /// coincident, and incidental spans; probes are the endpoints and `(lo | x)
     /// & hi` — a version within the segment by construction — so both sound
-    /// arms are exercised against genuinely interior points. `Partial` promises
-    /// nothing pointwise: the [`Coverage`] docs carry the precision contract,
-    /// including why `Empty` cannot be complete.
+    /// arms are exercised against points between the endpoints. This law
+    /// checks soundness only and does not check `Partial` pointwise;
+    /// `causally::tests::coverage_is_exact_on_the_two_party_grid` checks all
+    /// three verdicts exactly over the two-party grid.
     fn coverage_bounds_membership {
         for (lo, hi) in &span_candidates(b, c) {
             let Ok(span) = Span::new(lo, hi) else {

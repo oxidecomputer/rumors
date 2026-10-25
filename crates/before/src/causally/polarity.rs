@@ -225,10 +225,10 @@ mod sealed {
 ///
 /// - A [`Neutral`] query has no holes; it is a pure causal
 ///   range.
-/// - A [`Down`] query has one or more holes which are
-///   *down-sets* (sets of versions with a common upper-bound).
-/// - An [`Up`] query has one or more holes which are
-///   *up-sets* (sets of versions with a common lower-bound).
+/// - A [`Down`] query's holes, if any, are *down-sets*: a hole that holds
+///   a version also holds every version before it.
+/// - An [`Up`] query's holes, if any, are *up-sets*: a hole that holds a
+///   version also holds every version after it.
 ///
 /// Queries of opposite polarity cannot be combined.
 pub trait Polarity: sealed::Sealed + Send + Sync + 'static {}

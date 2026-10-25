@@ -72,7 +72,7 @@ impl<'a, P: Polarity> Query<'a, P> {
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_floors.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n)` in total input bytes; `O(|a| + |b|)`: one fused join walk over the two bounds"
+    doc = "`O(n)` in total input bytes; `O(|self| + |rhs|)`: one fused join walk over the two bounds"
 )]
 impl<'a> BitAnd for Floor<'a> {
     type Output = Floor<'a>;
@@ -92,7 +92,7 @@ impl<'a> BitAnd for Floor<'a> {
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_ceilings.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n)` in total input bytes; `O(|a| + |b|)`: one fused meet walk over the two bounds"
+    doc = "`O(n)` in total input bytes; `O(|self| + |rhs|)`: one fused meet walk over the two bounds"
 )]
 impl<'a> BitAnd for Ceiling<'a> {
     type Output = Ceiling<'a>;

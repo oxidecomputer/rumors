@@ -15,10 +15,12 @@ use crate::error::{ParseValue, TooWide};
 /// Counts have no semantic ceiling, so this type is unbounded rather than
 /// fixed-width. Conversions from unsigned machine integers are total. Owned
 /// and borrowed conversions out to every unsigned machine integer return
-/// [`TooWide`] when the count does not fit. [`limbs`](Count::limbs) spells any
-/// count in base-2^64 for consumers with their own wide arithmetic, and
-/// [`Display`](fmt::Display) and [`FromStr`](core::str::FromStr) use canonical
-/// unsigned decimal.
+/// [`TooWide`] when the count does not fit. The range of `usize` follows the
+/// target's pointer width, so the same count can convert to `usize` on a
+/// 64-bit target and return [`TooWide`] on a 32-bit one.
+/// [`limbs`](Count::limbs) spells any count in base-2^64 for consumers with
+/// their own wide arithmetic, and [`Display`](fmt::Display) and
+/// [`FromStr`](core::str::FromStr) use canonical unsigned decimal.
 ///
 /// Counts are totally ordered ([`Ord`]), can be added ([`Add`], [`AddAssign`],
 /// [`Sum`]), and support checked or saturating subtraction. [`ZERO`](Count::ZERO)
@@ -275,12 +277,9 @@ impl fmt::Display for Count {
 /// Returns [`ParseValue::InvalidSyntax`] unless the input is one or more
 /// decimal digits with no redundant leading zero.
 ///
-/// Parsing `d` decimal digits takes `O(d²)` time and `O(d)` space.
+/// Takes `O(|text|²)` time and `O(|text|)` space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/count_parse.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n^2)` in total input bytes; `O(n^2)` in text bytes"
-)]
+#[cfg_attr(not(doc), doc = "`O(n^2)` in total input bytes; `O(|text|^2)`")]
 impl core::str::FromStr for Count {
     type Err = ParseValue;
 

@@ -40,8 +40,17 @@ fn witnesses() -> Witnesses {
     }
 }
 
-/// A complete interval of versions over two parties, with each party at
-/// heights zero through two.
+/// Builds the grid of versions in which each of two forked parties has ticked
+/// zero, one, or two times.
+///
+/// The grid is not the whole interval from the empty version to its top: that
+/// interval also holds canonical versions off the grid, such as one in which
+/// one party's identity, split in two, has ticked twice on one half and once
+/// on the other. A census over the grid still decides coverage exactly for
+/// queries anchored on it, because the grid holds a witness for every verdict
+/// a segment between grid versions supports;
+/// `grid_census_agrees_with_a_finer_pool` checks that premise against every
+/// version the segments cover, up to the clauses' verdicts.
 fn two_party_grid() -> Vec<Version> {
     let mut alice = Clock::seed();
     let mut bob = alice.fork();
@@ -201,7 +210,7 @@ impl BoundClause {
     }
 }
 
-/// Generates bounds throughout the complete two-party grid.
+/// Generates bounds at every version of the two-party grid.
 fn bound_clause() -> impl Strategy<Value = BoundClause> {
     bound_clause_among(0..9)
 }
@@ -381,8 +390,8 @@ fn pool_coverage(
     )
 }
 
-/// Checks membership and exact span coverage against an independent predicate
-/// over the complete grid.
+/// Checks membership at every grid version, and coverage of every span between
+/// two of them, against an independent predicate.
 fn assert_denotes<P: Polarity>(
     query: &Query<'_, P>,
     grid: &[Version],
@@ -532,13 +541,13 @@ proptest! {
     /// Each expression joins every operand after its first on the side
     /// `sides` picks, and spells each negation in either public form
     /// (`since(v)` or `!before(v)`, `until(v)` or `!after(v)`). Every case
-    /// first exhausts a complete small two-party interval, making both
-    /// membership and exact coverage enumerable. The same expression is
-    /// then applied to arbitrary normal-form versions whose shapes and numeric
-    /// magnitudes cross the skyline walk's representation thresholds; those
-    /// versions and their lattice corners exercise membership beyond the
-    /// finite interval without pretending that a sparse sample proves span
-    /// coverage.
+    /// first exhausts the two-party grid, on which membership is enumerable
+    /// and a census decides coverage exactly (see `two_party_grid`). The same
+    /// expression is then applied to arbitrary normal-form versions whose
+    /// shapes and numeric magnitudes cross the skyline walk's representation
+    /// thresholds; those versions and their lattice corners exercise
+    /// membership beyond the grid without pretending that a sparse sample
+    /// proves span coverage.
     #[test]
     fn public_queries_match_their_relational_denotation(
         bounds in prop::collection::vec(bound_clause(), 0..=6),
@@ -792,10 +801,10 @@ fn coverage_clamp_refinement_is_exact() {
     }
 }
 
-/// Coverage is exact over the complete two-party small scope.
+/// Coverage is exact over the two-party grid.
 ///
-/// `Full`, `Partial`, and `Empty` each hold iff the brute-force membership
-/// census says so, for every version of the tick grid, every ordered segment of
+/// `Full`, `Partial`, and `Empty` each hold iff the membership census over the
+/// grid says so, for every version of the tick grid, every ordered segment of
 /// it, and a query family covering both polarities, all hole spellings, and
 /// their conjunctions. The family sets each polarity's hole beside a floor,
 /// beside a ceiling, and beside both: the bound that clamps the hole's covering
@@ -803,10 +812,16 @@ fn coverage_clamp_refinement_is_exact() {
 /// an up-set's bottom by a floor), the bound that does not, and a floor and a
 /// ceiling together, whose crossed clamp reads `Empty` whatever the holes
 /// cover.
+///
+/// Every segment that holds an off-grid version, one the census never counts,
+/// also checks production's verdict there: `Full` must admit it and `Empty`
+/// must reject it. No other test judges a verdict at a version strictly inside
+/// a segment and outside the pool its census counts.
 #[test]
 fn coverage_is_exact_on_the_two_party_grid() {
-    // The complete interval [⊥, A2B2]: with two parties and no
-    // sub-forks, every version is a pair of per-party tick heights.
+    // The grid of per-party tick heights zero to two, as `two_party_grid`
+    // builds it, from this test's own seed so that the off-grid version below
+    // shares its universe.
     let mut alice = Clock::seed();
     let mut bob = alice.fork();
     let a1 = alice.tick().clone();
@@ -826,6 +841,21 @@ fn coverage_is_exact_on_the_two_party_grid() {
             })
             .collect()
     };
+
+    // Alice's identity, split in two: one half ticks twice from the empty
+    // version and the other once. The join lies strictly between `a1` and
+    // `a2`, inside the grid's interval but off the grid.
+    let (mut alice_left, _) = alice.into_parts();
+    let alice_right = alice_left.fork();
+    let mut twice = Version::new();
+    alice_left.ticks(&mut twice, 2u8);
+    let mut once = Version::new();
+    alice_right.tick(&mut once);
+    let off_grid = twice | once;
+    assert!(
+        a1 < off_grid && off_grid < a2 && !grid.contains(&off_grid),
+        "{off_grid:?} lies strictly between a1 and a2, off the grid"
+    );
 
     let a1b1 = &a1 | &b1;
     let anchors = [&a1, &b1, &a1b1];
@@ -856,39 +886,62 @@ fn coverage_is_exact_on_the_two_party_grid() {
         }
     }
 
-    // The census counts membership over the grid versions each segment
-    // covers. It is the exact coverage because the grid holds a witness for
-    // every verdict these queries can produce, a premise
-    // `grid_census_agrees_with_a_finer_pool` checks over the same clause
-    // forms.
+    /// Checks `q`'s verdict over `span` against the census, and, when the
+    /// segment holds `off_grid`, its soundness at that version. `Partial`
+    /// promises nothing about any one version.
+    ///
+    /// The census counts membership over the grid versions the segment
+    /// covers. It is the exact coverage because the grid holds a witness for
+    /// every verdict these queries can produce, a premise
+    /// `grid_census_agrees_with_a_finer_pool` checks over the same clause
+    /// forms.
+    fn check<P: Polarity>(q: &Query<'_, P>, span: &Span<'_>, grid: &[Version], off_grid: &Version) {
+        let (lo, hi) = (span.lo(), span.hi());
+        let verdict = q.coverage(span.reborrow());
+        assert_eq!(
+            verdict,
+            pool_coverage(grid, lo, hi, |v| q.contains(v)),
+            "{q:?} over [{lo:?}, {hi:?}]"
+        );
+        if lo <= off_grid && off_grid <= hi {
+            match verdict {
+                Coverage::Full => assert!(
+                    q.contains(off_grid),
+                    "{q:?} is Full over [{lo:?}, {hi:?}] but rejects {off_grid:?}"
+                ),
+                Coverage::Empty => assert!(
+                    !q.contains(off_grid),
+                    "{q:?} is Empty over [{lo:?}, {hi:?}] but admits {off_grid:?}"
+                ),
+                Coverage::Partial => {}
+            }
+        }
+    }
+
+    let mut segments_holding_off_grid = 0;
     for lo in &grid {
         for hi in &grid {
             let Ok(span) = Span::new(lo, hi) else {
                 continue;
             };
+            if *lo <= off_grid && off_grid <= *hi {
+                segments_holding_off_grid += 1;
+            }
             for q in &neutral {
-                assert_eq!(
-                    q.coverage(span.reborrow()),
-                    pool_coverage(&grid, lo, hi, |v| q.contains(v)),
-                    "{q:?} over [{lo:?}, {hi:?}]"
-                );
+                check(q, &span, &grid, &off_grid);
             }
             for q in &down {
-                assert_eq!(
-                    q.coverage(span.reborrow()),
-                    pool_coverage(&grid, lo, hi, |v| q.contains(v)),
-                    "{q:?} over [{lo:?}, {hi:?}]"
-                );
+                check(q, &span, &grid, &off_grid);
             }
             for q in &up {
-                assert_eq!(
-                    q.coverage(span.reborrow()),
-                    pool_coverage(&grid, lo, hi, |v| q.contains(v)),
-                    "{q:?} over [{lo:?}, {hi:?}]"
-                );
+                check(q, &span, &grid, &off_grid);
             }
         }
     }
+    assert!(
+        segments_holding_off_grid > 0,
+        "no grid segment holds the off-grid version, so its soundness check never ran"
+    );
 }
 
 /// The boolean cube: the sixteen versions whose four quarter cells each hold

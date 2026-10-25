@@ -347,10 +347,13 @@ impl MemberCursors<'_> {
 
 /// The membership walk's slot roster.
 ///
-/// Priority `[PROBE, bound 0, bound 1, …]`: the probe steps first on every
-/// tie because it is every comparison's first operand and the overlay law's
-/// equal-depth arm steps that operand first. The bounds' order only resolves
-/// simultaneous crossings; it does not change the intervals observed.
+/// Priority `[PROBE, bound 0, bound 1, …]`. Every order of a tie yields the
+/// same verdict: each step only adds its crossing into the absolute heights,
+/// and into a private difference unless the step finds the heights too far
+/// apart and drops that difference. No sign is read until the whole tied group
+/// has stepped, and a read that finds no difference takes the sign from the
+/// absolute heights themselves, so a dropped difference changes no verdict.
+/// The order is fixed only so that accumulator work is reproducible.
 impl CursorSet for MemberCursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         0..self.sides.len() + 1
@@ -661,11 +664,12 @@ impl SpanCursors<'_> {
 
 /// The coverage walk's slot roster.
 ///
-/// Priority `[HI, LO, bound 0, bound 1, …]`: probe endpoints step first on
-/// every tie because each is its comparison's first operand and the overlay
-/// law's equal-depth arm steps that operand first. `hi` before `lo`, and the
-/// bounds' order among themselves, only resolve simultaneous crossings; they
-/// do not change the intervals observed.
+/// Priority `[HI, LO, bound 0, bound 1, …]`. Every order of a tie yields the
+/// same verdict, for the reason the membership walk's roster gives: steps only
+/// add into heights or drop a private difference, and a read after the tied
+/// group takes its sign from the heights whenever the difference is gone. Only
+/// a read settles a pair, so no step within the group changes which pairs fold.
+/// The order is fixed only so that accumulator work is reproducible.
 impl CursorSet for SpanCursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         0..self.sides.len() + 2

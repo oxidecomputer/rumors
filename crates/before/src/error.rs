@@ -109,12 +109,13 @@ pub enum Decode {
     /// input cut just before it is truncated, not trailing-malformed.
     #[error("unexpected end of input")]
     Truncated,
-    /// A complete value was followed by bits or bytes that are not part of its
-    /// canonical encoding.
+    /// The input holds bits or bytes outside the value's minimal packing,
+    /// after the value or inside it.
     ///
     /// For marker-padded values this includes a cleared marker, nonzero padding,
-    /// and bytes after the padded value. An input that ends before required
-    /// padding arrives is [`Decode::Truncated`] instead.
+    /// and bytes after the padded value. For a [`Rank`](crate::Rank) it also
+    /// includes an all-zero final fraction group. An input that ends before
+    /// required padding arrives is [`Decode::Truncated`] instead.
     #[error("malformed or spurious trailing input")]
     TrailingBits,
     /// The input is readable but violates the requested type's canonical-form

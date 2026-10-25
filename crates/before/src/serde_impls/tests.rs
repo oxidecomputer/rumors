@@ -2,6 +2,7 @@
 
 use core::fmt::Debug;
 
+use num_bigint::BigUint;
 use proptest::prelude::*;
 use serde::de::value::{Error as ValueError, MapDeserializer, SeqDeserializer, StrDeserializer};
 use serde::de::{DeserializeOwned, IntoDeserializer};
@@ -29,6 +30,53 @@ fn byte_token(bytes: Vec<u8>) -> Token {
 /// Convert owned text into a static serde-test token.
 fn text_token(text: String) -> Token {
     Token::Str(text.leak())
+}
+
+/// The CBOR major type of a byte string, in an item's top three bits.
+const CBOR_BYTE_STRING: u8 = 2;
+
+/// The CBOR major type of an array, in an item's top three bits.
+const CBOR_ARRAY: u8 = 4;
+
+/// Writes `bytes` to CBOR as an array of byte-sized integers.
+fn cbor_byte_array(bytes: &[u8]) -> Vec<u8> {
+    let mut cbor = Vec::new();
+    ciborium::ser::into_writer(bytes, &mut cbor).expect("writing CBOR to a Vec succeeds");
+    cbor
+}
+
+/// Writes `bytes` to CBOR as one byte string.
+fn cbor_byte_string(bytes: &[u8]) -> Vec<u8> {
+    let mut cbor = Vec::new();
+    ciborium::ser::into_writer(serde_bytes::Bytes::new(bytes), &mut cbor)
+        .expect("writing CBOR to a Vec succeeds");
+    cbor
+}
+
+/// Checks that `T`'s binary deserializer reads `value` from a CBOR array of
+/// its canonical bytes, and rejects that array once a trailing zero byte makes
+/// its content non-canonical.
+fn assert_reads_cbor_byte_array<T>(value: &T, canonical: &[u8]) -> Result<(), TestCaseError>
+where
+    T: DeserializeOwned + PartialEq + Debug,
+{
+    let array = cbor_byte_array(canonical);
+    prop_assert_eq!(
+        array[0] >> 5,
+        CBOR_ARRAY,
+        "the bytes are written as an array"
+    );
+    let read: T = ciborium::de::from_reader(&array[..])
+        .map_err(|error| TestCaseError::fail(format!("the array is rejected: {error}")))?;
+    prop_assert_eq!(&read, value);
+
+    let mut extended = canonical.to_vec();
+    extended.push(0);
+    prop_assert!(
+        ciborium::de::from_reader::<T, _>(&cbor_byte_array(&extended)[..]).is_err(),
+        "an array holding a trailing byte is accepted"
+    );
+    Ok(())
 }
 
 /// Binary formats preserve the byte encodings; readable formats use the public
@@ -254,6 +302,56 @@ proptest! {
         limbs.push(0);
         let redundant = postcard::to_allocvec(&limbs).unwrap();
         prop_assert!(postcard::from_bytes::<Count>(&redundant).is_err());
+    }
+
+    /// The binary deserializers accept what CBOR bridges between byte strings
+    /// and sequences, in both directions, as the module doc promises, and
+    /// still require canonical content.
+    ///
+    /// Every byte-encoded type reads its value back from a CBOR array of its
+    /// canonical bytes and rejects the array once it holds a trailing byte. A
+    /// CBOR byte string reads as the `Count` whose least-significant-first
+    /// limbs are its bytes, computed here from the bytes directly; one ending
+    /// in a zero byte spells a redundant high limb and is rejected.
+    #[test]
+    fn binary_serde_accepts_cbor_bridging_with_canonical_content(
+        op in arb_oracle_party_nonempty(),
+        oa in arb_oracle_version(),
+        ob in arb_oracle_version(),
+        low_limbs in prop::collection::vec(any::<u8>(), 0..8),
+        top_limb in 1u8..,
+    ) {
+        let party = from_oracle_party(&op);
+        let a = from_oracle_version(&oa);
+        let b = from_oracle_version(&ob);
+        let clock = Clock::from_parts(party, a.clone());
+        let rank = a.rank();
+        let ranked = Ranked::from(a.clone());
+        let span = a.span(&b);
+
+        assert_reads_cbor_byte_array(clock.party(), clock.party().as_bytes())?;
+        assert_reads_cbor_byte_array(clock.version(), clock.version().as_bytes())?;
+        assert_reads_cbor_byte_array(&clock, &clock.encode())?;
+        assert_reads_cbor_byte_array(&rank, &rank.encode())?;
+        assert_reads_cbor_byte_array(&ranked, &ranked.encode())?;
+        assert_reads_cbor_byte_array(&span, &span.encode())?;
+
+        let mut limbs = low_limbs;
+        limbs.push(top_limb);
+        let string = cbor_byte_string(&limbs);
+        prop_assert_eq!(string[0] >> 5, CBOR_BYTE_STRING, "the limbs are written as a byte string");
+        let expected = limbs
+            .iter()
+            .rev()
+            .fold(BigUint::ZERO, |high, &limb| (high << 64u32) + limb);
+        let read: Count = ciborium::de::from_reader(&string[..]).unwrap();
+        prop_assert_eq!(read, Count(expected));
+
+        limbs.push(0);
+        prop_assert!(
+            ciborium::de::from_reader::<Count, _>(&cbor_byte_string(&limbs)[..]).is_err(),
+            "a byte string ending in a zero limb is accepted"
+        );
     }
 }
 

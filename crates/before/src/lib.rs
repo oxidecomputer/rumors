@@ -274,7 +274,7 @@
 //!
 //! ## Comparing and ordering versions
 //!
-//! [`Version`]'s [`PartialEq`] describes a causal ordering: `a <= b` tests
+//! [`Version`]'s [`PartialOrd`] describes a causal ordering: `a <= b` tests
 //! containment of history, and two versions with no containing order are
 //! [`concurrent`](Version::concurrent). Three tools extend it:
 //!

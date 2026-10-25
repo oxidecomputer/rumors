@@ -67,8 +67,13 @@ impl BitsWriter {
     }
 
     /// A buffer of `len` copies of `bit`.
+    ///
+    /// `len` must be at most the bit length of a value already held in memory,
+    /// so that its byte count fits `usize`: a tick's route passes the stored
+    /// length of the party it spans.
     pub(crate) fn repeat(bit: bool, len: u64) -> Self {
-        let whole = usize::try_from(len.div_ceil(8)).expect("a repeated buffer is allocatable");
+        let whole = usize::try_from(len.div_ceil(8))
+            .expect("the repeated length is at most a held value's, whose bytes fit usize");
         let mut this = BitsWriter {
             bytes: vec![if bit { 0xFF } else { 0x00 }; whole],
             live: len,

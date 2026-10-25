@@ -4,6 +4,8 @@
 //! returned share with a clone of the parent's version; the consuming array
 //! conversion applies the same pairing to a fixed-size party split.
 
+use core::iter::FusedIterator;
+
 use crate::{party, Clock, Count, Party, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
@@ -18,16 +20,12 @@ use crate::{party, Clock, Count, Party, Version};
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n)` in total input bytes; a full drain costs at most `O(|self| + k (|self| + log k))`"
-)]
-///
 /// Construction costs `O(log k)` for the count representation. Each `next`
-/// costs `O(|party| + log k)`; the child's version shares the parent's stored
-/// bytes through an `O(1)` clone.
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
+/// costs `O(|p| + log k)`, with `|p|` the size of the borrowed clock's party
+/// when the iterator was created; the child's version shares the parent's
+/// stored bytes through an `O(1)` clone. A full drain takes at most
+/// `O(|c| + k (|c| + log k))` time, with `|c|` the borrowed clock's size;
+/// measured on [`Clock::forks`].
 #[must_use = "`ClockForks` produces no child clocks unless consumed"]
 pub struct ClockForks<'a> {
     /// The lazy partition of party shares.
@@ -65,6 +63,9 @@ impl Iterator for ClockForks<'_> {
     }
 }
 
+/// Once `next` returns `None`, it returns `None` forever.
+impl FusedIterator for ClockForks<'_> {}
+
 /// Splits a [`Clock`] into exactly `N` balanced child clocks, consuming it.
 ///
 /// The static counterpart of [`forks`](Clock::forks). Each child pairs one
@@ -91,11 +92,8 @@ impl Iterator for ClockForks<'_> {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n)` in total input bytes; a full drain costs at most `O(|self| + k (|self| + log k))`"
-)]
+/// Takes `O(|clock| + N (|clock| + log N))` time; measured on
+/// [`Clock::forks`].
 ///
 /// # Example
 ///

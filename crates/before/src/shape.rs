@@ -310,7 +310,7 @@ impl FusedIterator for Overlay<'_> {}
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/shape_combine.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n)` in total input bytes; `O(N · total input size)` to drain, `N` the compile-time arity"
+    doc = "`O(n)` in total input bytes; `O(N · |versions|)` to drain, `N` the compile-time arity"
 )]
 ///
 /// # Example

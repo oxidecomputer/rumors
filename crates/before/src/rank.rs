@@ -7,10 +7,12 @@
 //!
 //! # Canonical representation
 //!
-//! A rank is stored as `num / 2^exp`. The numerator is odd unless the value is
-//! zero, whose exponent is also zero. This normalization gives every value one
-//! in-memory representation and makes structural equality exact numeric
-//! equality.
+//! A rank is stored as `num / 2^exp` in lowest terms: the numerator and the
+//! denominator share no factor of two. A positive exponent therefore comes
+//! with an odd numerator, zero is stored with exponent zero, and an integral
+//! rank has exponent zero and a numerator that may be even. This
+//! normalization gives every value one in-memory representation and makes
+//! structural equality exact numeric equality.
 //!
 //! # Canonical byte encoding
 //!
@@ -126,8 +128,8 @@ use crate::error::{Decode, ParseRank};
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Rank {
-    /// The numerator. Normalized: odd, or zero with `exp` zero, so each
-    /// value has exactly one representation.
+    /// The numerator. Normalized: odd whenever `exp` is positive, and zero
+    /// only with `exp` zero, so each value has exactly one representation.
     ///
     num: BigUint,
     /// The binary exponent of the denominator `2^exp`.
@@ -1016,15 +1018,41 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// cost by the number of summands.
 impl Rank {
     fn sum_iter<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
-        // The accumulator's shifted entry points document a panic at digit
-        // positions past `usize` (`shift / 32 > usize::MAX`, so from
-        // `shift = 2^37` on a 32-bit target). The exponent gaps fed here stay
-        // orders of magnitude below it on any addressable input: a decoded
-        // rank's exponent is counted from fraction bits actually read — under
-        // 2^35 even if a whole 32-bit address space were one fraction — and a
-        // version-derived exponent is bounded by its tree's stored bit length
-        // (under 2^32, the storage bound), so the documented panic is
-        // unreachable from this fold.
+        // The accumulator's shifted entry points and its left shift panic when
+        // the result needs more storage than a buffer can address. That panic
+        // has two halves, and this fold can reach only the second.
+        //
+        // The digit-index half fires when a nonzero contribution would land
+        // at or beyond digit position `usize::MAX`; on a 32-bit target that is
+        // bit position `32 * (2^32 - 1)`, just under 2^37. The fold stays
+        // below it:
+        //
+        // - `exp` is at most one summand's exponent plus the accumulator's
+        //   held working width, because the widening shift below starts
+        //   under that summand's exponent and moves by at most the larger of
+        //   the gap and the held width.
+        // - Every contribution lands at most a summand's numerator width, or
+        //   the held working width, above `exp`.
+        // - Each of these three quantities counts bits held in one buffer. A
+        //   rank's exponent was counted from bits held when it was built
+        //   (fraction bits the decoder or parser held, or a version's depth,
+        //   which its stored bits bound), and arithmetic never raises the
+        //   largest operand's exponent. Numerators and the accumulator's
+        //   digits are stored densely.
+        //
+        // One buffer holds at most `isize::MAX` bytes, so on a 32-bit target
+        // each quantity is under 2^34 bits, and every position is under
+        // `3 * 2^34` plus the few digits a carry can climb above the highest
+        // contribution. The same count holds at any pointer width `w`: each
+        // quantity is under `2^(w + 2)` bits, against a threshold just under
+        // `2^(w + 5)`.
+        //
+        // The capacity half can fire. The accumulator stores each 32-bit
+        // digit in a 64-bit word, so on a 32-bit target its buffer reaches
+        // `isize::MAX` bytes at about 2^28 digit positions, a working width
+        // near 2^33 bits, which summands held in memory can exceed. A sum
+        // whose working width needs more than a buffer can address panics
+        // there, as the accumulator documents for its allocation limit.
         let mut acc = Accumulator::new();
         let mut exp = 0u64;
         let mut has_value = false;
@@ -1069,16 +1097,16 @@ impl Default for Rank {
 ///
 /// # Complexity
 ///
-/// Writing the canonical value is linear in its binary width, `O(‖r‖)`. When
-/// `r = v.rank()`, `‖r‖ = O(|v|)`, where `|v|` is the size of `v`, so
-/// rendering is `O(|v|)`. Explicit padding adds time proportional to the
+/// Writing the canonical value is linear in its binary width, `O(‖self‖)`.
+/// When `self = v.rank()`, `‖self‖ = O(|v|)`, where `|v|` is the size of `v`,
+/// so rendering is `O(|v|)`. Explicit padding adds time proportional to the
 /// padding written. Precision limits work to the retained prefix. Formatting
 /// uses constant auxiliary space.
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
 #[cfg_attr(
     not(doc),
-    doc = "`O(n)` in total input bytes; `O(n)` in the size of the `Version` from which the rank was derived"
+    doc = "`O(n)` in total input bytes; `O(|v|)` for `self = v.rank()`"
 )]
 ///
 /// # Example

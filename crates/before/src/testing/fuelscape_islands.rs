@@ -18,8 +18,8 @@
 //! a claim nothing measured. The suite holds the line after every island
 //! include to the literal of record (`$OUT_DIR/fuelscape-contracts/`),
 //! and every claim-shaped literal anywhere in the sources to some text
-//! of record, which covers the macro invocations that pass the literal
-//! through a `$contract` parameter.
+//! of record, so a literal that no island include anchors still states a
+//! measured claim.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -28,8 +28,8 @@ use std::path::Path;
 /// with its reviewed reason.
 ///
 /// Currently empty: every measured operation's island reaches the
-/// rendered docs (the operator matrices and the conjunction cells carry
-/// theirs through their generating macros).
+/// rendered docs (the conjunction cells carry theirs through their
+/// generating macro).
 const EXEMPTIONS: &[(&str, &str)] = &[];
 
 /// Every emitted island is included by some doc comment or exempted with
@@ -65,15 +65,11 @@ fn every_island_is_included_or_exempted() {
                     if let Some(op) = island_include(line) {
                         // The crate root's open variant pairs with its op's text.
                         let op = op.strip_suffix(".open").unwrap_or(op);
-                        let want = if op == "\", $island, \"" {
-                            // A macro body: the literal arrives as a parameter.
-                            "$contract".to_string()
-                        } else if island_shaped(op) {
-                            format!("\"{}\"", text_of_record(contracts, op))
-                        } else {
+                        if !island_shaped(op) {
                             // Prose naming the directory, this suite's own included.
                             continue;
-                        };
+                        }
+                        let want = format!("\"{}\"", text_of_record(contracts, op));
                         let found = not_doc_literal(&lines[i + 1..]);
                         if found.as_deref() != Some(want.as_str()) {
                             faults.push(format!(
@@ -84,8 +80,8 @@ fn every_island_is_included_or_exempted() {
                             ));
                         }
                     }
-                    // Any claim-shaped literal, a `$contract` argument included,
-                    // must be some text of record.
+                    // Any claim-shaped literal, anchored or not, must be some
+                    // text of record.
                     if let Some(claim) = claim_literal(line) {
                         if !of_record.contains(claim) {
                             faults.push(format!(

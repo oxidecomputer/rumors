@@ -313,11 +313,8 @@ impl<'a> Div<&'a Party> for &'a Span<'a> {
 ///
 /// # Complexity
 ///
-#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html")))]
-#[cfg_attr(
-    not(doc),
-    doc = "`O(n^2)` in total input bytes; the view is `O(1)`; materializing both endpoints: `O(|self| + |result|)`, `|result| = O(|self|^2)`"
-)]
+/// Takes `O(|view| + |result|)` time to materialize both endpoints, where
+/// `|result| = O(|view|^2)`; measured on [`OwnSpan::to_span`].
 ///
 /// # Example
 ///
