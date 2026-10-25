@@ -22,7 +22,8 @@ use num_bigint::{BigInt, BigUint};
 use proptest::prelude::*;
 
 use super::{
-    assert_value, cancelled_top, from_limbs, oracle_sign, read_value, Accumulator, TestBig as _,
+    assert_value, cancelled_top, from_limbs, oracle_sign, own_digits, read_value, Accumulator,
+    TestBig as _,
 };
 
 /// One primitive integer, retaining its Rust type for trait dispatch.
@@ -851,13 +852,9 @@ impl Operation {
             Operation::Read { scaled } => {
                 let previous_digits = actual.stored_digit_count();
                 assert_eq!(&read_value(actual, *scaled), oracle, "in-place read");
-                let own_digits = usize::try_from(oracle.magnitude().bits())
-                    .expect("generated values have addressable widths")
-                    .div_ceil(32)
-                    .max(1);
                 assert_eq!(
                     actual.stored_digit_count(),
-                    own_digits,
+                    own_digits(oracle),
                     "a read leaves the value's own working width"
                 );
                 assert!(

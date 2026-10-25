@@ -9,14 +9,12 @@
 use num_bigint::BigInt as IBig;
 use proptest::prelude::*;
 
-use super::{assert_value, cancelled_top, from_limbs, Accumulator};
+use super::{assert_value, cancelled_top, from_limbs, own_digits, Accumulator};
 
 /// Whether `copy` holds `value` within the value's own width plus the one
 /// position a normalized form can add.
 fn holds_its_own_width(copy: &Accumulator, value: &IBig) -> bool {
-    let own_digits = usize::try_from(value.magnitude().bits().div_ceil(32).max(1))
-        .expect("tested values have addressable widths");
-    copy.stored_digit_count() <= own_digits + 1
+    copy.stored_digit_count() <= own_digits(value) + 1
 }
 
 /// A generated history: an optional cancelled top, then shifted limb updates
