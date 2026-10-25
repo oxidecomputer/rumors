@@ -70,7 +70,7 @@ mod tests;
 ///
 /// All comparisons are linear in the combined input size, but they need not
 /// read the same amount. [`partial_cmp`](PartialOrd::partial_cmp) must
-/// distinguish all four outcomes — less, equal, greater, or concurrent — so
+/// distinguish all four outcomes (less, equal, greater, or concurrent), so
 /// it continues until the full causal relation is known. A directional
 /// operator such as `<=` asks only whether one history is contained in the
 /// other and stops at the first counterexample. Equality compares the
@@ -192,7 +192,7 @@ impl Version {
     pub fn new() -> Self {
         // The canonical empty version is exactly the 2-bit stream `11`
         // (the single-leaf topology flag, then gamma(0), the single bit
-        // `1` — see `is_empty`), marker-padded to the one static byte
+        // `1`; see `is_empty`), marker-padded to the one static byte
         // `0b1110_0000`: construction allocates nothing, and every empty
         // version shares the one static buffer (clone identity holds
         // even across separate `new()` calls). A `static`, not a
@@ -717,13 +717,13 @@ impl Version {
     {
         // One balanced fold, two-sided accumulator: the hull needs both lattice
         // directions, and carrying `(lo, hi)` through the counter feeds them
-        // from a single pass — the caller's iterator is never buffered, and
+        // from a single pass: the caller's iterator is never buffered, and
         // each input is read at its combines alone.
         //
         // A leaf combine (two raw inputs) derives the pair hull through the
         // fused pair walk, each input decoded once for both endpoints; an
         // interior combine folds per side, because its two legs read
-        // *different* operand pairs (`lo₁ ∧ lo₂` and `hi₁ ∨ hi₂`) — no shared
+        // *different* operand pairs (`lo₁ ∧ lo₂` and `hi₁ ∨ hi₂`); no shared
         // pair walk exists there to fuse.
         //
         // Adjacent clone-identical inputs (the receiver included) collapse
@@ -1065,7 +1065,8 @@ impl Version {
     ///   incomplete;
     /// - [`Decode::TrailingBits`] if the padding is malformed or followed by
     ///   more bytes;
-    /// - [`Decode::NotCanonical`] if the tree is not in normal form;
+    /// - [`Decode::NotCanonical`] if the tree is not in normal form or a
+    ///   leaf's height is negative;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity
@@ -1092,7 +1093,7 @@ impl Version {
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before its
-    /// padding — the marker bit and zero-pad to the byte boundary, so
+    /// padding (the marker bit and zero-pad to the byte boundary), so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// This method is available under the `meter` feature for exact
@@ -1234,7 +1235,7 @@ impl Default for Version {
 // over an `Iterator` and `.collect()` into a `Version`. Both run the balanced
 // reduction behind [`join_all`](Version::join_all) with no receiver to seed it
 // (the empty case is the empty version), taking the borrowed forms' references
-// as they come. There is deliberately no meet counterpart here — the meet has
+// as they come. There is deliberately no meet counterpart here: the meet has
 // no identity to give an empty iterator, so its only fold is the
 // receiver-seeded [`Version::meet_all`].
 
@@ -1323,8 +1324,8 @@ impl Debug for Version {
 ///
 /// Parameterized over the value operator `$Op::$op` (e.g. `BitOr::bitor`), its
 /// assigning form `$Assign::$assign` (e.g. `BitOrAssign::bitor_assign`), and
-/// the family's pointwise [`Extreme`]. Each strategy — `own`/`read` for value
-/// cells and `assign` for an owned right-hand side — has its own `@cell` arm so
+/// the family's pointwise [`Extreme`]. Each strategy (`own`/`read` for value
+/// cells and `assign` for an owned right-hand side) has its own `@cell` arm so
 /// the receiver `self` is written in the same expansion as the method it
 /// belongs to (`self` cannot cross a macro-invocation boundary).
 macro_rules! binop_matrix {
@@ -1503,7 +1504,7 @@ impl Version {
 //
 // `a ^ b` is `a.span(&b)`: the tightest `Span` containing both operands, `[a &
 // b, a | b]`. Unlike the join and meet matrices above, the result leaves the
-// operand type — a `Span`, not a `Version` — so the family has no assigning
+// operand type (a `Span`, not a `Version`), so the family has no assigning
 // form (nothing of the receiver's type to assign back) and no owned-operand
 // strategy: every cell reads both operands in place and constructs the endpoints
 // owned, exactly as the named method does.

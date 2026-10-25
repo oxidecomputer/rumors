@@ -118,7 +118,7 @@ fn stability_covers_extreme_accumulator_operands() {
         "partial 3 at index floor + 2 is the decision edge"
     );
     // operand: an accumulator stored in digits 0..=floor at the digit limit
-    // edge — magnitude (2^33 − 1)(2^32 + 1), far beyond any u64.
+    // edge, magnitude (2^33 − 1)(2^32 + 1), far beyond any u64.
     let mut operand = Accumulator::new();
     park_extreme_negative_digit(&mut operand, 0);
     park_extreme_negative_digit(&mut operand, 1);
@@ -159,7 +159,7 @@ fn small_value_stability_threshold_is_tight_from_below() {
         "2^65 remains in the small representation"
     );
     assert_value(&larger, &(IBig::from(1) << 65usize));
-    // operand: every digit 0..=floor parked at the digit limit —
+    // operand: every digit 0..=floor parked at the digit limit,
     // magnitude 2^65 + 2^32 − 1, strictly above the larger value 2^65.
     let mut operand = Accumulator::new();
     park_extreme_negative_digit(&mut operand, 0);
@@ -212,9 +212,9 @@ fn maximum_adjustment_width_never_decides() {
 ///
 /// The value 5 · 2^64 is stored at digit 2, below a cancelling top: digit 10
 /// holds 1 and digit 9 holds −2^32. Answering `None` must not skip the scan,
-/// which decides at digit 2 and leaves three stored digits. The wasm32 pins
-/// check the same construction where the adjustment's top digit index cannot
-/// fit a 32-bit `usize`.
+/// which decides at digit 2 and leaves three stored digits. The
+/// `wasm32-pins` executor checks the same construction where the
+/// adjustment's top digit index cannot fit a 32-bit `usize`.
 #[test]
 fn maximum_adjustment_width_still_compacts() {
     let mut acc = Accumulator::new();
@@ -464,9 +464,9 @@ fn full_small_value(negative: bool) -> (Accumulator, IBig) {
 /// boundaries. Each result must match the independent arbitrary-width oracle.
 #[test]
 fn small_value_extremes_spill_exactly() {
-    // The headroom derivation itself, pinned executable: a full
-    // small value plus the widest shifted operand the small path accepts stays
-    // strictly inside i128.
+    // The headroom derivation itself, checked at run time: a full small value
+    // plus the widest shifted operand the small path accepts stays strictly
+    // inside i128.
     let ceiling = i128::try_from(SMALL_MAX).expect("the ceiling fits i128");
     let widest_fold = ceiling
         .checked_shl(SMALL_SHIFT_MAX as u32)
@@ -625,7 +625,7 @@ fn reserve_bits_is_value_neutral() {
     let mut oracle = IBig::from(7);
     assert_value(&acc, &oracle);
 
-    // In the digit representation, before and after the covered writes — and a
+    // In the digit representation, before and after the covered writes; and a
     // reservation smaller than the stored width is a no-op.
     acc.add_limb_value(&(UBig::from(1u8) << 3_200usize));
     oracle += IBig::from(UBig::from(1u8) << 3_200usize);

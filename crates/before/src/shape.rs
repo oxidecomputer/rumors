@@ -15,13 +15,13 @@
 //!
 //! Every interval in this vocabulary is *dyadic*: it has width
 //! `2^-depth`, and each item carries its own `depth`. Positions are never
-//! materialized as numbers — an item stream lists its intervals left to
+//! materialized as numbers: an item stream lists its intervals left to
 //! right, and consecutive widths tile the unit interval exactly, so a
 //! consumer that wants coordinates accumulates them (widths sum to
 //! exactly 1 over any complete walk).
 //!
-//! [`Version`] heights travel as *rises* — the signed change entering each
-//! plateau — rather than absolute values: heights are event counts with
+//! [`Version`] heights travel as *rises*, the signed change entering each
+//! plateau, rather than absolute values: heights are event counts with
 //! no ceiling, so a delta stream is what keeps the walk linear in the
 //! value's size rather than in the magnitudes it reaches. The
 //! walk starts at height 0 on the interval's left edge, so the first
@@ -125,7 +125,7 @@ pub struct Cell<const N: usize> {
     /// One entry per input, in [`combine`] argument order: the rise
     /// entering this cell from that input.
     ///
-    /// `None` continues level — including on every fragment after the
+    /// `None` continues level, including on every fragment after the
     /// first when a cell subdivides an input's plateau: an input's rise
     /// appears exactly once, on the first cell of the plateau it enters.
     pub rises: [Option<Rise>; N],

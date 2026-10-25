@@ -1,7 +1,7 @@
 //! Focused entry points for deterministic resource measurements.
 //!
-//! These wrappers bypass public shortcuts when the meter needs to observe an
-//! operation's full traversal. They do not define the production module
+//! These wrappers bypass public shortcuts when a resource measurement needs
+//! an operation's full traversal. They do not define the production module
 //! hierarchy or expose the stored representation.
 
 use crate::error::Decode;
@@ -15,7 +15,7 @@ pub fn validate(version: &Version) -> Result<(), Decode> {
 /// Extra bits of working width the rank integrator's accumulated height
 /// change may hold beyond the newest code's bit length before it freezes.
 ///
-/// Meter families that must fire a freeze derive their widths from this.
+/// Measurement families that must fire a freeze derive their widths from this.
 #[cfg(any(test, feature = "meter"))]
 pub(crate) const HEIGHT_FREEZE_ALLOWANCE_BITS: u64 =
     super::measure::integral::HEIGHT_FREEZE_ALLOWANCE_BITS;

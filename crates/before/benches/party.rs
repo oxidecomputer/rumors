@@ -19,7 +19,7 @@ fn rng(salt: u64) -> ChaChaRng {
 /// `fork`: split a party in two.
 ///
 /// Destructive (mutates self, returns the sibling), so each iteration starts
-/// from a fresh value rebuilt in the untimed `iter_batched` setup —
+/// from a fresh value rebuilt in the untimed `iter_batched` setup:
 /// `decode` for the impl (not `Clone`), `clone` for the oracle.
 fn bench_fork(c: &mut Criterion) {
     let mut g = c.benchmark_group("party/fork");

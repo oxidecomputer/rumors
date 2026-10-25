@@ -4,9 +4,9 @@
 //! The splice runs exactly when the fused walk's changed flag stays clear
 //! (`fill(i, e) = e`), so every grid here decides the branch per pair and holds
 //! the grow-branch members to: the recursive oracle's `grow` (through the
-//! bridge) as the byte-level value witness — canonical uniqueness makes the
-//! differential total; a reference *recursive* probe pinning the fused walk's
-//! [`Route`] bit vector — the explicit guard against a walk/emit coordinate
+//! bridge) as the byte-level value witness (canonical uniqueness makes the
+//! differential total); a reference *recursive* probe pinning the fused walk's
+//! [`Route`] bit vector, the explicit guard against a walk/emit coordinate
 //! drift, which would misread a direction silently rather than panic; and the
 //! brute-force minimal-inflation search, holding the whole kernel to `grow`'s
 //! defining optimality directly, not merely to another implementation of the
@@ -141,8 +141,8 @@ enum RefId {
     Empty,
 }
 
-/// Probe the cheapest inflation by direct recursion over the `(id, ev)` shape —
-/// the transliteration of the recursive walk whose route fold the fused tick
+/// Probe the cheapest inflation by direct recursion over the `(id, ev)` shape:
+/// the transliteration of the recursive traversal whose route fold the fused tick
 /// walk carries, kept as its structural witness.
 ///
 /// The recursion keeps one native frame per level of `party`, plus one for
@@ -208,8 +208,8 @@ fn rec(
     }
 }
 
-/// Pick the cheaper child, record the direction, and fold the branch cost — one
-/// expansion and one depth per expansion-chain level, one depth otherwise —
+/// Pick the cheaper child, record the direction, and fold the branch cost (one
+/// expansion and one depth per expansion-chain level, one depth otherwise),
 /// exactly as the fused walk's fold does.
 ///
 /// Infeasibility propagates; feasible components remain in the shifted,
@@ -322,8 +322,8 @@ const EXHAUSTIVE_GROW_PAIRS: usize = 114_621;
 /// brute-force right-favoring minimal inflation, with the coverage count pinned
 /// exactly.
 ///
-/// Brute force reaches every reachable branch case — increments, expansions at
-/// every depth, ties in both cost components — deterministically rather than by
+/// Brute force reaches every reachable branch case (increments, expansions at
+/// every depth, ties in both cost components) deterministically rather than by
 /// sampling.
 #[test]
 fn exhaustive_small_scope_grows_identically() {
@@ -463,11 +463,11 @@ fn left_spike(depth: usize) -> Version {
 /// a frame per level is `clock::tests::deep_tree_stack_safety`'s claim, which
 /// ticks the grow branch over a far deeper spine.
 ///
-/// The recursive oracle walks on native frames, so the value witnesses here are
+/// The recursive oracle's traversals run on native frames, so the value witnesses here are
 /// closed forms, derived per case: the deep unary id over the empty version
 /// grows the expansion chain to its owned tip, the left spike; and over the
 /// deep alternating spine the same id turns left into the spine's depth-2 zero
-/// leaf, so the forced route raises exactly the owned region from 0 to 1 — the
+/// leaf, so the forced route raises exactly the owned region from 0 to 1: the
 /// pointwise max with the spike. Each max is realized through the
 /// independently-pinned join kernel and is byte-exact by canonical uniqueness;
 /// canonicality and the route pin ride along. The route pin's reference probe
@@ -533,7 +533,7 @@ proptest! {
     /// grow-branch pairs they produce.
     ///
     /// Every clock from one op-trace history is exercised from
-    /// its own party — and from every *other* clock's party, the
+    /// its own party, and from every *other* clock's party, the
     /// concurrent-editor shape.
     #[test]
     fn organic_histories_grow_identically(ops in optrace::production_strategy_up_to(40)) {

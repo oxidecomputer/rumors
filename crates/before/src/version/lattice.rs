@@ -16,11 +16,11 @@
 //!
 //! # The side-switch algebra
 //!
-//! On each output region the height equals one input — the *side*, `a` when
+//! On each output region the height equals one input, the *side*: `a` when
 //! `sign(D)` favors it, `b` when it favors the other, sticky at ties (`D = 0`
 //! keeps the current side, which both inputs then agree on). Join and meet are
-//! one [`sweep`] with the side selection reversed — pointwise max follows the
-//! higher side, pointwise min the lower — and the selection is everything that
+//! one [`sweep`] with the side selection reversed (pointwise max follows the
+//! higher side, pointwise min the lower), and the selection is everything that
 //! distinguishes them: each entry point passes one [`Extreme`] per output it
 //! requests, and the sweep reads those values only through [`Extreme::pick`],
 //! never asking which operation it is running. Because the crossing sequence
@@ -30,13 +30,13 @@
 //! boundary needs no absolute heights:
 //!
 //! - **Same side**: the output moves with its side, so the delta is
-//!   that side's own step delta — zero when the boundary belonged to
+//!   that side's own step delta, zero when the boundary belonged to
 //!   the other stream alone.
 //! - **Switch**: the output jumps from the old side's plateau to the
 //!   new side's. With `D′` the difference *after* the boundary's folds
 //!   and `δ` the old side's step delta at this boundary (zero if it
 //!   did not step), the jump is `+D′ + δ` switching to `a`, `−D′ + δ`
-//!   switching to `b` — both from one sign-and-magnitude read of the
+//!   switching to `b`, both from one sign-and-magnitude read of the
 //!   accumulator plus one signed sum. A switch means `D` crossed or
 //!   left zero at this boundary, so `|D′|` is bounded by the deltas
 //!   just folded, and the read is priced by the codes that carried

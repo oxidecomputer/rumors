@@ -2,12 +2,12 @@
 //!
 //! One generated program updates an [`Accumulator`] and an independent
 //! [`BigInt`] in lockstep. After every instruction, the observer checks every
-//! public query and primitive conversion, reading stored copies so that observing
-//! never changes the tested history; cancellation therefore builds up across
-//! steps until an instruction reads in place. Instructions cover the standard
-//! arithmetic traits with owned and borrowed operands on either side, shifted
-//! limb and accumulator inputs, sums, `abs_diff`, reservation, clear, and
-//! in-place reads.
+//! public query and primitive conversion, reading stored copies so that
+//! observing never changes the tested history; cancellation therefore builds up
+//! across steps until an instruction reads in place. Instructions cover the
+//! standard arithmetic traits with owned and borrowed operands on either side,
+//! shifted limb and accumulator inputs, sums, `abs_diff`, reservation, clear,
+//! and in-place reads.
 //!
 //! The generators put explicit weight on the representation's boundaries:
 //! 30-bit small-path shifts, 32-bit digits, 64-bit limbs, the `2^96` small

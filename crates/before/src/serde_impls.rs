@@ -18,7 +18,7 @@
 //! records below does all of this; a hand-written one must too.
 //!
 //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
-//! [`Party::decode`]/[`Clock::decode`] do — nothing ties serialized bytes to
+//! [`Party::decode`]/[`Clock::decode`] do: nothing ties serialized bytes to
 //! their source, so their linearity notes apply verbatim at this entry point
 //! ([Safety rules](crate#safety-rules)).
 

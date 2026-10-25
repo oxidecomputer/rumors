@@ -4,7 +4,7 @@
 //! *minimal* inflation: `e < e'` and `e'` dominates no more than needed. `grow`
 //! delivers this by a dynamic-programming search that, at every branch node,
 //! greedily descends the cheaper child. Both the recursive oracle and the
-//! encoded impl realize that *same* DP — so the op-trace and arbitrary-tree
+//! encoded impl realize that *same* DP, so the op-trace and arbitrary-tree
 //! differentials (impl == oracle) can only confirm the two agree, never that
 //! the shared DP is actually optimal. That is this module's job, and it is
 //! independent of the DP: it enumerates the *entire* feasible single-region
@@ -40,7 +40,7 @@ pub(crate) fn all_inflations(id: &tree::Party, e: &tree::Version) -> Vec<(tree::
     use tree::Party as P;
     use tree::Version as V;
     match (id, e) {
-        // id full over a leaf: the one free inflation — increment in place.
+        // id full over a leaf: the one free inflation, increment in place.
         (P::Leaf(true), V::Leaf(n)) => vec![(V::Leaf(n + 1u32), (0, 0))],
         // id full over a node: descend either child; the id stays full (`1`) under it.
         (P::Leaf(true), V::Node(n, el, er)) => {

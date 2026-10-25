@@ -26,7 +26,7 @@ impl PartyReader<'_> {
         Comparison::holds(self, other, |first| first.is_none())
     }
 
-    /// Whether `self` (a normal-form party) *covers* `other` — every region
+    /// Whether `self` (a normal-form party) *covers* `other`: every region
     /// `other` owns is also owned by `self` (`self ⊇ other`).
     ///
     /// `O(|self| + |other|)`: both cursors advance without backtracking, and a
@@ -133,8 +133,8 @@ impl<'a, 'b> Comparison<'a, 'b> {
     /// left pair when either side has one. If both left children are absent,
     /// enter the right pair directly.
     ///
-    /// A pair absent on both sides is never walked — both predicates hold
-    /// trivially on it, and neither cursor moves for it — which is what keeps
+    /// A pair absent on both sides is never walked (both predicates hold
+    /// trivially on it, and neither cursor moves for it), which is what keeps
     /// the pending stack empty on unary chains. Both pairs absent cannot
     /// happen: a branch has at least one present child.
     fn descend(&mut self, first: PartyBranch, second: PartyBranch) {

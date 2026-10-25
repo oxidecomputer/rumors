@@ -277,7 +277,7 @@ impl<'a> Comparison<'a> {
     /// projected heights).
     ///
     /// After each interval's sign fold, `exit` sees the surviving directions
-    /// and may declare the question decided — the `Break` payload carries the
+    /// and may declare the question decided: the `Break` payload carries the
     /// verdict, so the earliest stop and its answer are one value (an early
     /// exit leaves the direction the question does not need wherever the folded
     /// prefix left it, which is why directions are never handed back early). At
@@ -431,7 +431,7 @@ impl CursorSet for Comparison<'_> {
     /// that side; a Party slot changes ownership but no height.
     ///
     /// The watchers are `diff` always, plus the side's height integrator when
-    /// present. A mask crossing carries no delta — ownership is per-region
+    /// present. A mask crossing carries no delta: ownership is per-region
     /// state read between boundaries.
     fn step(&mut self, slot: usize) -> u64 {
         match slot {

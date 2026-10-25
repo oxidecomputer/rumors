@@ -35,7 +35,7 @@ pub const WORST_MAP_SCALES: [(&str, f64); 2] =
 /// The band is the constant-factor headroom the board's calibrated ceilings
 /// grant a single reading (a ratified ceiling is the worst reading ×1.25): two
 /// families inside it are one reading apart, not two classes, so their rank
-/// order is a fact about the chosen scale's constants, not about the shapes —
+/// order is a fact about the chosen scale's constants, not about the shapes;
 /// the flag stops a reader from over-reading rank 1 vs rank 2. The flag never
 /// enters the pin: the pin records the exact deterministic argmax of every cell
 /// it does not declare target-dependent, and a flip inside the band is still

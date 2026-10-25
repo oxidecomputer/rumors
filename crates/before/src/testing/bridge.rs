@@ -6,7 +6,7 @@
 //! correctness. These conversions require normal-form oracle trees, and a
 //! [`Party`] must also be nonempty because production has no anonymous party.
 //! The inverse `to_oracle_*` rebuilds the oracle's tree shape from the impl's
-//! internal stored bits — the party bits and the version's skyline stream — so
+//! internal stored bits (the party bits and the version's skyline stream), so
 //! a differential test can compare structures with `==` without
 //! round-tripping the byte codec (which is exercised separately). The checked
 //! inputs and reconstructed outputs are normalized, so structural `==` is
@@ -116,8 +116,8 @@ pub(crate) fn from_oracle_clock(c: &tree::Clock) -> Clock {
 // Structural lowering for differential agreement: rebuild the oracle's tree
 // shape from the impl's *internal* stored bits (the party bits; the version's
 // skyline stream), then compare with `==`. This is the inverse of
-// `from_oracle_*`. It walks the stored bits directly — the impl's at-rest
-// storage — rather than round-tripping the public `encode`/`decode`, so the
+// `from_oracle_*`. It walks the stored bits directly (the impl's at-rest
+// storage) rather than round-tripping the public `encode`/`decode`, so the
 // master harness checks algorithm correctness without sharing a failure mode
 // with the byte codec (which is exercised separately). Recursive over a bounded
 // tree (test-only; the impl's own traversals are iterative). Both

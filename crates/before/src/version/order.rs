@@ -210,7 +210,7 @@ impl OrderState {
 /// [`OrderState`].
 ///
 /// After each interval's sign fold, `exit` sees the surviving directions and
-/// may declare the question decided — the `Break` payload carries the verdict,
+/// may declare the question decided: the `Break` payload carries the verdict,
 /// so the earliest stop and its answer are one value. A break carries `V`
 /// rather than the directions because the direction the question ignores may
 /// be stale at an early exit: only the fully-swept directions `finish` maps

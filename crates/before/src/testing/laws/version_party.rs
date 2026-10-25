@@ -9,7 +9,7 @@ laws! {
     /// Laws over a version and a live party.
     ///
     /// The event laws (`tick` strictly advances, and only within the party's
-    /// region — §4's `e' = e + f·i`), the entry points' agreement (`tick` and
+    /// region: §4's `e' = e + f·i`), the entry points' agreement (`tick` and
     /// `ticks`, each across its two spellings), the fused multi-tick's point
     /// laws (`ticks(0)` the identity, `ticks(1)` the tick, small counts
     /// against the iterated ground truth, a fresh line realizing the tick
@@ -73,7 +73,7 @@ laws! {
     }
 
     /// `ticks(n)` equals `n` sequential `tick`s, checked at every count a
-    /// short iterated run reaches (0..=3) — the ground-truth seam the wide
+    /// short iterated run reaches (0..=3), the ground-truth seam the wide
     /// counts compose over ([`ticks_composes`] in the pair-party group).
     fn ticks_agrees_with_iterated_ticks {
         let mut iterated = a.clone();
@@ -161,8 +161,8 @@ laws! {
 
     /// Projection is idempotent: `(a / p) / p == a / p`.
     ///
-    /// The inner projection is materialized — idempotence quantifies over the
-    /// projected *object* — and the outer one stays a view: the equality is
+    /// The inner projection is materialized (idempotence quantifies over the
+    /// projected *object*), and the outer one stays a view: the equality is
     /// the fused view-vs-version comparison.
     fn projection_idempotent {
         let projected = (a / p).to_version();
@@ -170,11 +170,11 @@ laws! {
     }
 
     /// Projection is additive across a fork: a party's contribution equals the
-    /// join of its two halves' contributions — the homomorphism the join/meet
+    /// join of its two halves' contributions, the homomorphism the join/meet
     /// distribution rests on.
     ///
-    /// The halves' contributions are materialized — the join needs its
-    /// operands as objects — and the whole-party side stays a view: the
+    /// The halves' contributions are materialized (the join needs its
+    /// operands as objects), and the whole-party side stays a view: the
     /// equality is the fused version-vs-view comparison.
     fn projection_additive_over_fork {
         let mut keeper = p.dangerously_alias();
@@ -183,7 +183,7 @@ laws! {
     }
 
     /// The named spelling is the operator's, exactly: `a.project(p)` is
-    /// `a / p` — the same view, the same materialization.
+    /// `a / p`: the same view, the same materialization.
     fn project_is_the_operator_spelling {
         a.project(p) == (a / p) && a.project(p).to_version() == (a / p).to_version()
     }
@@ -232,13 +232,13 @@ laws! {
 
     /// Projection is a short map (1-Lipschitz) for the metric quantities:
     /// masking both operands to one region can only shrink `distance` and
-    /// `lag` — `d(a/p, b/p) <= d(a, b)` and `lag(a/p, b/p) <= lag(a, b)`.
+    /// `lag`: `d(a/p, b/p) <= d(a, b)` and `lag(a/p, b/p) <= lag(a, b)`.
     ///
     /// The projection homomorphism family's metric member: a region carries
     /// `rank(v) == rank(v/p) + rank(v/p̄)` (disjoint regions carve disjoint
     /// histories, and projection is additive over a region split), so the
     /// whole metric splits into the in-region part plus the complement's,
-    /// each nonnegative — subtracting across a mask never inflates. At the
+    /// each nonnegative, so subtracting across a mask never inflates. At the
     /// seed party both sides are equal.
     fn projection_is_a_short_map {
         let (pa, pb) = ((a / p).to_version(), (b / p).to_version());
@@ -246,7 +246,7 @@ laws! {
     }
 
     /// Projection is monotone in the version: on the constructed comparable
-    /// pair `a <= a | b`, the projections compare the same way — and whenever
+    /// pair `a <= a | b`, the projections compare the same way, and whenever
     /// the inputs happen to compare directly, so do their projections.
     fn projection_monotone_in_version {
         let ab = a | b;
@@ -313,7 +313,7 @@ laws! {
     /// materializes, exactly as the eagerly projected span.
     ///
     /// Endpoints, the placement verdicts, the dominance and precedence
-    /// coarsenings, membership, and both materialization entry points —
+    /// coarsenings, membership, and both materialization entry points,
     /// quantified over the pair's hull and the coincident span, with probes at
     /// the operands and the projected endpoints (reaching the at-endpoint
     /// corners). Every probe built from the operands dominates the projected
@@ -353,7 +353,7 @@ laws! {
     }
 
     /// The named spelling is the operator's, exactly: `span.project(p)` is
-    /// `span / p` — the same endpoint views, the same materialization —
+    /// `span / p` (the same endpoint views, the same materialization),
     /// quantified over the pair's hull and the coincident span.
     fn span_project_is_the_operator_spelling(a, b, party) {
         let hull = a.span(b);
@@ -391,7 +391,7 @@ laws! {
     }
 
     /// Projection is monotone in the region: a constructed subregion (a fork
-    /// half of `p`) keeps no more than `p` does — and whenever `p` happens to
+    /// half of `p`) keeps no more than `p` does, and whenever `p` happens to
     /// cover `q`, `v / q <= v / p`.
     fn projection_monotone_in_region {
         let mut keeper = p.dangerously_alias();
@@ -429,7 +429,7 @@ laws! {
     /// fork geometry; the ragged region pairs `without` carves are that law's
     /// negative space, and overlapping arbitrary parties keep them inhabited
     /// under mass. When `q` carves nothing out of `p` (it covers `p`, or is
-    /// disjoint from it — every pair in a one-world population, whose parties
+    /// disjoint from it, as every pair in a one-world population, whose parties
     /// are pairwise disjoint), the law constructs the decomposition from `p`'s
     /// own fork half through the same `without` entry points instead: the
     /// additivity equation runs on every call, so no population can leave this

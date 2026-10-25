@@ -90,16 +90,16 @@ laws! {
     }
 
     /// THE LAW of the rank wire form: byte-wise lexicographic order on
-    /// canonical encodings equals `Ord` on the ranks — ties included, so byte
+    /// canonical encodings equals `Ord` on the ranks, ties included, so byte
     /// equality on encodings is exactly `Eq`.
     fn rank_lex_order(a, b, _c) {
         a.encode().cmp(&b.encode()) == a.cmp(b)
     }
 
     /// Rank encodings are prefix-free: distinct ranks' encodings are never
-    /// byte prefixes of one another — what lets one encoding self-delimit
-    /// inside a composite key, and byte order stay rank order under any
-    /// appended tiebreak.
+    /// byte prefixes of one another, so one encoding self-delimits inside a
+    /// composite key, and byte order stays rank order under any appended
+    /// tiebreak.
     fn rank_encoding_prefix_free(a, b, _c) {
         a == b || {
             let (ea, eb) = (a.encode(), b.encode());
@@ -107,8 +107,8 @@ laws! {
         }
     }
 
-    /// Value-equal ranks built along different operation paths — pairwise
-    /// addition, `Sum`, and add-then-subtract — are one structural value.
+    /// Value-equal ranks built along different operation paths (pairwise
+    /// addition, `Sum`, and add-then-subtract) are one structural value.
     ///
     /// Equal under `Eq` and under `Hash`: the normalization invariant `Ord`'s
     /// class-first fast path and every container key rest on.

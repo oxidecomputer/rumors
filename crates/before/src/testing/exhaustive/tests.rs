@@ -40,7 +40,7 @@ use crate::testing::oracles::tree;
 use crate::{Party, Version};
 
 /// Run `body(i, j)` for every ordered pair `(i, j)` in `0..n × 0..n`, with the outer index
-/// parallelized across the `rayon` pool. The diagonal (`i == j`) is included — the reflexive
+/// parallelized across the `rayon` pool. The diagonal (`i == j`) is included; the reflexive
 /// cases are deliberate coverage.
 fn par_for_pairs(n: usize, body: impl Fn(usize, usize) + Sync) {
     (0..n).into_par_iter().for_each(|i| {
@@ -53,7 +53,7 @@ fn par_for_pairs(n: usize, body: impl Fn(usize, usize) + Sync) {
 /// Lower the enumerated oracle ids to their impl `Party` forms, once, dropping
 /// the anonymous tree.
 ///
-/// A standalone `Party` is never anonymous — see the module doc. Used by the
+/// A standalone `Party` is never anonymous; see the module doc. Used by the
 /// intrinsic symmetry laws, which have no oracle side to filter against.
 fn impl_ids(depth: usize) -> Vec<Party> {
     all_normal_ids(depth)
@@ -108,8 +108,8 @@ fn check_id_fork(ids: &[tree::Party], imp: &[Party]) {
 ///
 /// The cross-product reaches the overlap (`is_disjoint == false`) and partial-
 /// and non-overlap (`covers == false`) arms exhaustively. Both verdicts read
-/// borrowed operands and allocate nothing — the only pair legs cheap enough
-/// to cross the deep bound at all (see the parent module doc's leg split) —
+/// borrowed operands and allocate nothing (the only pair legs cheap enough
+/// to cross the deep bound at all (see the parent module doc's leg split),
 /// yet the deep `corpus²` product is still the dominant phase of
 /// [`exhaustive_deep`], whose doc carries the measured state.
 fn check_id_pair_verdicts(ids: &[tree::Party], imp: &[Party]) {
@@ -137,7 +137,7 @@ fn check_id_pair_verdicts(ids: &[tree::Party], imp: &[Party]) {
 /// The cross-product reaches the overlap-join (`Err`) and covered-difference
 /// (`None`) arms exhaustively. Both ops build a result tree per pair (and the
 /// operands are duplicated per pair, since `join` mutates and consumes and
-/// `without` consumes), so this check runs at the small bound only — the
+/// `without` consumes), so this check runs at the small bound only; the
 /// parent module doc states the split.
 fn check_id_pair_algebra(ids: &[tree::Party], imp: &[Party]) {
     par_for_pairs(ids.len(), |i, j| {
@@ -253,8 +253,8 @@ fn check_ev_pairs(evs: &[tree::Version], imp: &[Version]) {
 ///
 /// When the pair takes the `grow` branch, the impl's inflation is additionally
 /// pinned to the brute-force cost-minimal, right-favoring region
-/// ([`best_inflation`]) — holding the encoded `grow`'s DP to the global optimum
-/// directly, not merely to the oracle that realizes the same DP — and the
+/// ([`best_inflation`]), holding the encoded `grow`'s DP to the global optimum
+/// directly, not merely to the oracle that realizes the same DP, and the
 /// metamorphic minimality condition (no feasible candidate sits strictly
 /// between `e` and `e'`) is checked on the impl's own causal order.
 fn check_tick(ids: &[tree::Party], imp_ids: &[Party], evs: &[tree::Version], imp_evs: &[Version]) {
@@ -305,10 +305,10 @@ fn check_tick(ids: &[tree::Party], imp_ids: &[Party], evs: &[tree::Version], imp
 /// The enumerated corpora at the given bounds, each lowered to its impl form
 /// once so the pair loops borrow rather than re-lower.
 ///
-/// The two corpora grow at different rates, so their bounds are decoupled — see
+/// The two corpora grow at different rates, so their bounds are decoupled; see
 /// the parent module doc. The anonymous (empty) id is dropped here, up front:
 /// a standalone `Party` is never anonymous (module doc), and testing emptiness
-/// per row instead would put two boxed-tree walks inside the deep bound's
+/// per row instead would put two boxed-tree traversals inside the deep bound's
 /// ~4.3-billion-iteration pair loops.
 #[allow(clippy::type_complexity)]
 fn corpora_at(
@@ -411,7 +411,7 @@ fn exhaustive_deep() {
 // ───────────────────────────── intrinsic symmetry laws ─────────────────────────────
 //
 // The op symmetries are intrinsic algebraic properties of the impl, so they are
-// tested DIRECTLY on the impl — no oracle, and not folded into the differential
+// tested DIRECTLY on the impl, with no oracle, and not folded into the differential
 // checks above. Two payoffs: a symmetry bug the oracle happened to *share* is
 // still caught here, and (being deterministic + total over the small-scope
 // corpus) the guarantee is total, not sampled.
@@ -503,13 +503,13 @@ fn event_meet_is_commutative() {
 ///   `≤ d` are in bijection with the owned-cell subsets of the `2^d`-cell
 ///   dyadic grid (the semantic-oracle embedding: normal form is the unique
 ///   tree spelling of each region), so the corpus counts exactly
-///   `2^(2^d)` — derived in-test, not transcribed from the enumerator.
+///   `2^(2^d)`, derived in-test, not transcribed from the enumerator.
 ///
 /// - **Events, by denotation distinctness plus the committed size**: no
 ///   two enumerated event trees share a step function over the level-
 ///   [`EV_SMALL_DEPTH`] grid (evaluated here by an independent path-sum
-///   walk, no `node`/normalization involved), and the corpus size is the
-///   committed `691` of the module doc — so a shrink moves the literal and
+///   traversal, no `node`/normalization involved), and the corpus size is the
+///   committed `691` of the module doc, so a shrink moves the literal and
 ///   a dedup bug that conflated distinct denotations would shrink the
 ///   distinct-vector set below the corpus size.
 #[test]
@@ -525,7 +525,7 @@ fn corpus_counts_are_exact() {
 
     /// The step-function vector of an oracle event tree over the level-`depth`
     /// dyadic grid: cell `c`'s value is the sum of bases along `c`'s path
-    /// (an independent evaluation — no `node`, no normalization, no dedup key).
+    /// (an independent evaluation, with no `node`, no normalization, no dedup key).
     fn ev_vector(t: &tree::Version, depth: usize) -> Vec<BigUint> {
         use tree::Version as V;
         (0..(1usize << depth))

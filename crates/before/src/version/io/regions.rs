@@ -176,7 +176,7 @@ impl RegionReader for VersionRegionReader<'_> {
 ///
 /// The driver reads only topology bits; the payload code at each yielded leaf
 /// is the caller's. The cursor is a per-call argument rather than owned state
-/// so the caller keeps it between calls — the consuming walks read their
+/// so the caller keeps it between calls: the consuming walks read their
 /// payloads through the same cursor the driver descends with, and their
 /// surrounding state (range-minimum stacks, output builders, height accumulators)
 /// borrows freely alongside.
@@ -200,7 +200,7 @@ impl VersionSubtreeReader {
     }
 
     /// Advance to the next leaf, returning its depth below the walked subtree's
-    /// root — or `None` when the previous leaf was the subtree's last.
+    /// root, or `None` when the previous leaf was the subtree's last.
     ///
     /// Each call closes the ancestors the previous leaf completed (the pop-flip
     /// backtrack), then descends to the leaf at the cursor.
@@ -208,14 +208,14 @@ impl VersionSubtreeReader {
     /// Between calls the caller must advance the cursor past exactly the
     /// yielded leaf's payload code (`read_gamma` or `skip_gamma`): the driver reads
     /// topology only, and the next descent starts at the following node's flag.
-    /// The backtrack is pure path bookkeeping — it reads no bits — so a caller
+    /// The backtrack is pure path bookkeeping (it reads no bits), so a caller
     /// that stops mid-subtree (a position-bounded prefix pass) simply stops
     /// calling.
     ///
     /// # Panics
     ///
     /// The stream must be canonical. The violations this walk structurally
-    /// notices — truncation, malformation — panic; the rest walk silently
+    /// notices (truncation, malformation) panic; the rest walk silently
     /// with an unspecified result (the contract of
     /// [`Version::partial_cmp`], stated once there).
     pub fn descend(&mut self, cursor: &mut VersionTreeReader<'_>) -> Option<u64> {

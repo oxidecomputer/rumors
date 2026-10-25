@@ -21,7 +21,7 @@ laws! {
     /// operators' associativity in both of the span algebra's lattices.
     pub static VERSION_TRIPLE: (a: &Version, b: &Version, c: &Version);
 
-    /// Associativity: `(a | b) | c == a | (b | c)` — with commutativity and
+    /// Associativity: `(a | b) | c == a | (b | c)`; with commutativity and
     /// idempotence, `|` is a join-semilattice operation.
     fn merge_associative {
         (&(a | b) | c) == (a | &(b | c))
@@ -65,7 +65,7 @@ laws! {
     }
 
     /// Transitivity on a constructed chain: `a <= a|b <= a|b|c` holds by the
-    /// upper-bound law, so the endpoints must compare — arbitrary inputs rarely
+    /// upper-bound law, so the endpoints must compare. Arbitrary inputs rarely
     /// chain by chance, so the chain is built rather than awaited.
     fn order_transitive_constructed {
         let mid = a | b;
@@ -79,14 +79,14 @@ laws! {
         !(a <= b && b <= c) || a <= c
     }
 
-    /// The triangle inequality: `d(a, c) <= d(a, b) + d(b, c)` — the defining
+    /// The triangle inequality: `d(a, c) <= d(a, b) + d(b, c)`, the defining
     /// metric law, which holds because the strictly monotone valuation `rank`
     /// lives on a *distributive* lattice.
     fn distance_triangle_inequality {
         a.distance(c) <= a.distance(b) + b.distance(c)
     }
 
-    /// The directed triangle inequality: `a.lag(c) <= a.lag(b) + b.lag(c)` —
+    /// The directed triangle inequality: `a.lag(c) <= a.lag(b) + b.lag(c)`,
     /// the quasi-metric law for the directed half of `distance`.
     ///
     /// Holds by rank's modularity (`rank_is_a_valuation`) plus
@@ -101,7 +101,7 @@ laws! {
     /// much to learn.
     ///
     /// Constructed on `b <= b | c` (so the comparable pair exists on every
-    /// call), and incidentally whenever the operands happen to compare —
+    /// call), and incidentally whenever the operands happen to compare:
     /// `b <= c ⟹ a.lag(b) <= a.lag(c)`, by the join's monotonicity under
     /// the rank valuation.
     fn lag_monotone_in_the_message {
@@ -115,7 +115,7 @@ laws! {
     /// learn.
     ///
     /// Constructed on `a <= a | c`, and incidentally whenever the operands
-    /// happen to compare — `a <= a' ⟹ a'.lag(b) <= a.lag(b)`, by rank's
+    /// happen to compare: `a <= a' ⟹ a'.lag(b) <= a.lag(b)`, by rank's
     /// modularity applied to `u = a | b`, `v = a'` (the meet `(a|b) & a'`
     /// dominates `a`, so the gap can only shrink).
     fn lag_antitone_in_the_receiver {
@@ -170,7 +170,7 @@ laws! {
     /// One equation per distinct merge path: the two elementary same-side
     /// collapses (which stay atoms, exercising the strictness-survival rule on
     /// comparable bounds and its dissolution on concurrent ones), the two side
-    /// merges, and the cross-side pairings that land in a [`Query`] — the paths
+    /// merges, and the cross-side pairings that land in a [`Query`], the paths
     /// every macro-generated impl delegates to.
     fn conjunction_operand_forms_agree {
         use causally::{after, before, since, strictly_after, strictly_before};
@@ -222,7 +222,7 @@ laws! {
     /// Quantified over conjunctions of an atomic query at one version with a
     /// representative bound at another, against the constructed ordered,
     /// coincident, and incidental spans; probes are the endpoints and `(lo | x)
-    /// & hi` — a version within the segment by construction — so both sound
+    /// & hi` (a version within the segment by construction), so both sound
     /// arms are exercised against points between the endpoints. This law
     /// checks soundness only and does not check `Partial` pointwise;
     /// `causally::tests::coverage_is_exact_on_the_two_party_grid` checks all
@@ -263,8 +263,8 @@ laws! {
     }
 
     /// Coverage of a coincident span is membership: `Full` for a member,
-    /// `Empty` otherwise — `Partial` is unreachable when the segment is one
-    /// version — through both the span entry point and the version entry point.
+    /// `Empty` otherwise (`Partial` is unreachable when the segment is one
+    /// version), through both the span entry point and the version entry point.
     fn coverage_matches_membership_on_points {
         /// One family's point-degeneracy check.
         macro_rules! check {
@@ -346,8 +346,8 @@ laws! {
         true
     }
 
-    /// `precedence` is `place` coarsened to the precedence question — the
-    /// dominance coarsening's dual, mirrored bucket by bucket — on every span.
+    /// `precedence` is `place` coarsened to the precedence question (the
+    /// dominance coarsening's dual, mirrored bucket by bucket) on every span.
     ///
     /// `Precedence::Before` collects the verdicts with `p <= lo` (`Before`,
     /// `At(Start)`, `At(Both)`), `Precedence::Between` those with `p <= hi` but
@@ -381,14 +381,14 @@ laws! {
     }
 
     /// `contains` is segment membership: `lo <= p <= hi`, exactly the
-    /// placements at an endpoint or between them — a `Concurrent` placement is
+    /// placements at an endpoint or between them; a `Concurrent` placement is
     /// beside the segment, never within it.
     ///
     /// Every argument shape answers alike: a borrowed version, an owned
     /// version, the coincident span at the probe (the fast path), and
     /// byte-equal coincident endpoints in distinct buffers (the general
     /// arm). A span argument is contained iff both its endpoints place
-    /// within — the containment order — with the borrowed and owned span
+    /// within (the containment order), with the borrowed and owned span
     /// entry points agreeing.
     fn span_contains_matches_place {
         let meet = b & c;
@@ -439,7 +439,7 @@ laws! {
     ///
     /// The tie between the two constructions: a span is the concrete pair, and
     /// its segment-as-predicate is the `after(lo) & before(hi)` cell of the
-    /// query language — every other placement verdict (outside either endpoint,
+    /// query language; every other placement verdict (outside either endpoint,
     /// or concurrent to one) is exactly non-membership.
     fn segment_query_matches_span_place {
         let meet = b & c;
@@ -639,7 +639,7 @@ laws! {
     ///
     /// Commutative, idempotent, with the coincident empty span as identity,
     /// every owned/borrowed cell (`|=` included: assigning is the value
-    /// operator written back), the `join` method spelling exactly — and on
+    /// operator written back), the `join` method spelling exactly, and on
     /// coincident operands it restricts to the version join exactly (the
     /// lifting is a lattice homomorphism on points, where `+` yields the
     /// hull instead). A version operand is its coincident point span, in
@@ -710,7 +710,7 @@ laws! {
     ///
     /// Commutative, idempotent, absorbing with `|` in the pointwise lattice,
     /// every owned/borrowed cell (`&=` included: assigning is the value
-    /// operator written back), the `meet` method spelling exactly — and on
+    /// operator written back), the `meet` method spelling exactly, and on
     /// coincident operands it restricts to the version meet exactly. A
     /// version operand is its coincident point span, in the binary,
     /// assigning, and variadic forms alike.
@@ -780,8 +780,8 @@ laws! {
     ///
     /// Componentwise the version lattice's meet on the lows and join on the
     /// his, each associative, so both association orders build the same span
-    /// — the associativity half of the containment lattice the span docs
-    /// claim.
+    /// (the associativity half of the containment lattice the span docs
+    /// claim).
     fn span_union_associative {
         for s in &operand_spans(a, b) {
             for t in &operand_spans(b, c) {
@@ -799,7 +799,7 @@ laws! {
     /// association orders agree in definedness and, where defined, in value.
     ///
     /// Both orders are defined exactly when the joint condition
-    /// `lo_s | lo_t | lo_u <= hi_s & hi_t & hi_u` holds — the joint condition
+    /// `lo_s | lo_t | lo_u <= hi_s & hi_t & hi_u` holds: the joint condition
     /// implies every pairwise one (the pairwise join is below the joint join,
     /// the pairwise meet above the joint meet), so neither order can fail an
     /// inner intersection where the other survives; the same shape as
@@ -822,7 +822,7 @@ laws! {
     /// `|` (the pointwise join) is associative: `(s | t) | u == s | (t | u)`.
     ///
     /// Componentwise the version join on both endpoint pairs, so span `|`
-    /// inherits its associativity — the associativity half of the pointwise
+    /// inherits its associativity, the associativity half of the pointwise
     /// lattice the span docs claim.
     fn span_join_associative {
         for s in &operand_spans(a, b) {
@@ -854,7 +854,7 @@ laws! {
 }
 
 /// The hole-free queries over a version pair: the unbounded query, each atom
-/// alone, and the interval — the [`causally::Neutral`] fragment's shapes.
+/// alone, and the interval: the [`causally::Neutral`] fragment's shapes.
 fn neutral_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a>> {
     vec![
         causally::all(),
@@ -864,8 +864,8 @@ fn neutral_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a>> {
     ]
 }
 
-/// Down-polar queries over a version pair: every down-hole spelling — negation,
-/// widening, strict floor — alone and conjoined, so the merge kernel's
+/// Down-polar queries over a version pair: every down-hole spelling (negation,
+/// widening, strict floor) alone and conjoined, so the merge kernel's
 /// absorption and pruning arms are all reached.
 fn down_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a, causally::Down>> {
     vec![
@@ -923,7 +923,7 @@ fn span_candidates(b: &Version, c: &Version) -> Vec<(Version, Version)> {
 }
 
 /// [`Placement`], transcribed from the two raw causal comparisons against the
-/// endpoints — the nine-state table stated relation by relation, with the start
+/// endpoints: the nine-state table stated relation by relation, with the start
 /// relation examined first.
 fn place_from_relations(lo: &Version, hi: &Version, p: &Version) -> Placement {
     match p.partial_cmp(lo) {
@@ -949,7 +949,7 @@ fn place_from_relations(lo: &Version, hi: &Version, p: &Version) -> Placement {
 
 /// The valid spans the operator laws quantify over, from a version pair: the
 /// pair's hull, the coincident span at the meet, and the raw pair whenever it
-/// happens to order — settled owned so the operand cells can consume them.
+/// happens to order, settled owned so the operand cells can consume them.
 fn operand_spans(b: &Version, c: &Version) -> Vec<Span<'static>> {
     span_candidates(b, c)
         .into_iter()

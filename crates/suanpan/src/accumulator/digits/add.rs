@@ -189,7 +189,7 @@ impl Digits {
         for (limb_index, limb) in (0_u128..).zip(limbs) {
             touch(1);
             // Each 32-bit half shifts by at most 31 bits, so both
-            // contributions fit comfortably in the carry intermediate.
+            // contributions stay below 2^63, inside the carry intermediate.
             let low = i128::from(limb & DIGIT_MASK) << bit_shift;
             let high = i128::from(limb >> DIGIT_BITS) << bit_shift;
             let position = u128::from(digit_shift) + 2 * limb_index;

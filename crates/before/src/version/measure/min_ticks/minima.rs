@@ -34,8 +34,11 @@
 //! # Why the cost stays linear
 //!
 //! Every unit of work below is charged to input the event consumes or to a
-//! value it destroys, so no surviving wide value is read again for free. Each
-//! line names the item whose documentation carries the local argument.
+//! value it destroys, so no surviving wide value is read again for free.
+//! Every accumulator update here is at shift zero, so under `suanpan`'s [cost
+//! rules](suanpan#costs) it costs what it adds, never a logarithm of its
+//! receiver's storage, and every sign read costs amortized O(1). Each line
+//! below names the item whose documentation carries the local argument.
 //!
 //! - **A height change** is folded once into the live change `L` and once
 //!   into the range tracker's running height, each reading only the change.
@@ -147,9 +150,9 @@ impl SubtreeMinima {
     ///
     /// The range tracker settles the record of every distinct minimum the leaf
     /// ends, innermost first, and the leaf's own record goes on top if it
-    /// begins a new innermost minimum. Only a leaf that arms ranges or truly
-    /// undercuts the innermost minimum, which an amortized sign read decides,
-    /// does more than O(1) work.
+    /// begins a new innermost minimum. Only a leaf that arms ranges or lies
+    /// strictly below the innermost minimum, which an amortized sign read
+    /// decides, does more than O(1) work.
     pub fn observe_leaf(
         &mut self,
         leaf: &LeafHeight,

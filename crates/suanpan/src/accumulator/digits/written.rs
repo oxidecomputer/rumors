@@ -1,5 +1,5 @@
-//! A set of positions shaped for descending scans: a run of consecutive top
-//! positions above the rest.
+//! A set of positions organized for descending scans: a run of consecutive
+//! top positions above the rest.
 //!
 //! [`WrittenPositions`] answers the two questions a scan down a digit buffer
 //! asks: which position below this one is in the set

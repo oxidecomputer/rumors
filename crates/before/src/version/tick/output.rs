@@ -50,7 +50,7 @@ impl Output {
     /// Whether no leaf has been emitted or matched: the next emission is
     /// the output's first leaf, coded absolute rather than as a delta.
     ///
-    /// Read before a divergence materializes the prefix — [`Output::Built`]
+    /// Read before a divergence materializes the prefix: [`Output::Built`]
     /// does not record whether it was entered empty.
     pub fn is_unstarted(&self) -> bool {
         matches!(self, Output::Unstarted)
@@ -74,7 +74,7 @@ impl Output {
     ///
     /// # Panics
     ///
-    /// Panics on a verbatim walk — unreachable there: matched emissions
+    /// Panics on a verbatim walk, unreachable there: matched emissions
     /// return before their bodies, and diverging ones materialize first.
     fn writer(&mut self) -> &mut VersionWriter {
         match self {

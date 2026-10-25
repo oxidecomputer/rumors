@@ -11,10 +11,12 @@
 //! convert the same wide value in both directions. A clear keeps any
 //! allocated digit buffer so a later wide value can reuse it.
 //!
-//! The sign-preservation query can inspect this exact value directly. Its
-//! threshold, `3 * 2^(32 * (floor + 1))`, exceeds the greatest adjustment the
-//! supplied width can represent, including the extra range of redundant
-//! signed digits.
+//! The stability query,
+//! [`cmp_zero_stable_under`](super::Accumulator::cmp_zero_stable_under), can
+//! inspect this exact value directly. For an adjustment `d` whole digits
+//! wide, its threshold, `3 * 2^(32 * d)`, exceeds the greatest adjustment
+//! that width can represent, including the extra range of redundant signed
+//! digits.
 
 use super::touch;
 use super::value::Value;

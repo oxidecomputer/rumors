@@ -1,7 +1,7 @@
 //! The measurement discipline and the printed matrix: how one grid cell is
 //! measured and judged, and how a whole board's judged cells render.
 //!
-//! The sweep itself is the `shard` module's — a child measures its slice of the
+//! The sweep itself is the `shard` module's: a child measures its slice of the
 //! operation × family grid through [`measure_cell`] and the parent renders the
 //! merged cells through [`render_results`].
 
@@ -256,7 +256,7 @@ pub(super) fn build_pair(kind: FamilyId, sampling: Sampling) -> (FamilyData, Fam
     )
 }
 
-/// Measure one grid cell's two samples — or nothing, where the family's
+/// Measure one grid cell's two samples, or nothing, where the family's
 /// bundle supplies no operand for the operation's signature.
 ///
 /// The board's one measurement discipline, driven by every shard child (the

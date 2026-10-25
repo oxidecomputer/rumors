@@ -173,7 +173,7 @@ impl<'a> Span<'a> {
     ///
     /// Like [`intersect`](Span::intersect) and unlike the total operators' `_all`
     /// forms, items are true [`Span`]s only: a point item would silently empty
-    /// the intersection unless every input contains it — spell [`Span::at`]
+    /// the intersection unless every input contains it; spell [`Span::at`]
     /// to intersect with versions.
     ///
     /// # Complexity
@@ -978,8 +978,8 @@ macro_rules! span_union_fold {
 }
 
 span_union_fold! {
-    /// The union of every span in the iterator — the fold of `+`, run through
-    /// the balanced n-ary fold of [`Span::union_all`] — or [`None`] on an
+    /// The union of every span in the iterator (the fold of `+`, run through
+    /// the balanced n-ary fold of [`Span::union_all`]), or [`None`] on an
     /// empty iterator (union has no identity span).
     ///
     /// # Complexity
@@ -1022,8 +1022,8 @@ span_union_fold! {
 
 span_union_fold! {
     /// The tightest span covering every version in the iterator, each treated
-    /// as its point span — the hull of the whole collection,
-    /// mirroring [`Version::span_all`], or [`None`] on an empty iterator.
+    /// as its point span (the hull of the whole collection,
+    /// mirroring [`Version::span_all`]), or [`None`] on an empty iterator.
     ///
     /// # Complexity
     ///
@@ -1057,11 +1057,11 @@ span_union_fold! {
 }
 
 /// Generates the intersection-fold [`Product`] impl for one item shape:
-/// multiplying out an iterator of spans yields their intersection — the fold
-/// of `*` — through the same balanced n-ary fold as [`Span::intersect_all`].
+/// multiplying out an iterator of spans yields their intersection, the fold
+/// of `*`, through the same balanced n-ary fold as [`Span::intersect_all`].
 ///
 /// [`None`] covers both an empty iterator and a nonempty family sharing no
-/// version — the two ways there is no product. Intersection has no identity:
+/// version: the two ways there is no product. Intersection has no identity:
 /// that identity would be a span covering every span, from the bottom version
 /// to a top element, and the version lattice has no top. Items are true
 /// [`Span`]s rather than implicitly widened versions: a point item would
@@ -1079,8 +1079,8 @@ macro_rules! span_intersect_fold {
 }
 
 span_intersect_fold! {
-    /// The intersection of every span in the iterator — the fold of `*`, run
-    /// through the balanced n-ary fold of [`Span::intersect_all`] — or
+    /// The intersection of every span in the iterator (the fold of `*`, run
+    /// through the balanced n-ary fold of [`Span::intersect_all`]), or
     /// [`None`] on an empty iterator or an empty intersection.
     ///
     /// # Complexity

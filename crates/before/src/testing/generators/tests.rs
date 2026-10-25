@@ -4,7 +4,7 @@
 //! is its analog for the sampled tier. Every bound proved over generated
 //! inputs is a bound over the universe the generators actually reach, so a
 //! silently dead arm or depth regression shrinks that universe with no red
-//! anywhere — every differential keeps passing, on less. The census samples
+//! anywhere: every differential keeps passing, on less. The census samples
 //! the strategies under a committed seed and holds a positive floor for each
 //! named input class the suites rely on. The deep strategies' floors follow
 //! from [`regime_floor`]'s premise; the multi-scale pairs' census lives with
@@ -101,7 +101,7 @@ fn census_of(v: &tree::Version) -> VersionCensus {
 /// wide (beyond-`2^64`) bases, three-limb bases, bases beyond every narrow
 /// arm's ceiling (the genuinely-wide arm's mass), small nonzero multiples of
 /// `2^64` (the aligned arm's zero-low-limb class), full-depth trees, and the
-/// full-depth-and-wide conjunction — for parties, full-depth reach. Floors
+/// full-depth-and-wide conjunction; for parties, full-depth reach. Floors
 /// are liveness floors set well below the seed's measured counts (a quarter
 /// to a half): they assert each class is alive, not its distribution, so
 /// re-measuring is needed only when the strategies or the proptest draw
@@ -354,7 +354,7 @@ fn deep_strategies_keep_mass_on_their_regimes() {
 /// Checks that every leaf lies inside one plateau, at that plateau's height,
 /// and that the plateaus cover exactly the leaves.
 ///
-/// Both listings tile `[0, 1)` in stream order, so one pass walks them in
+/// Both listings tile `[0, 1)` in stream order, so one pass traverses them in
 /// step. Widths count cells of the finest leaf depth, as `BigUint` because
 /// depths pass 128: a leaf at depth `d` spans `2^(finest − d)` cells. A leaf
 /// wider than what remains of the current plateau straddles a plateau

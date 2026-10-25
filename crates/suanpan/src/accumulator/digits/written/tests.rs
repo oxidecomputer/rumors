@@ -4,11 +4,10 @@
 //! (extending the run, moving it down on a jump, shortening or dropping it on
 //! a truncation, parking it above what remains, sharing position zero with a
 //! bitset after a clear), and where the inline prefix gives way to a bitset.
-//! Positions are drawn near the bitset's word and level
-//! boundaries, in spans that extend the top run and fill whole words, and far
-//! enough apart to need several levels, so that the set's results also cross
-//! the bitset's own boundaries; the bitset's own model test covers those
-//! boundaries directly.
+//! Positions are drawn near the bitset's word and level boundaries, in spans
+//! that extend the top run and fill whole words, and far enough apart to need
+//! several levels, so that the set's results also cross the bitset's own
+//! boundaries; the bitset's own model test covers those boundaries directly.
 
 use std::collections::BTreeSet;
 

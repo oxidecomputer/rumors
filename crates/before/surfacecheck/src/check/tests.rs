@@ -23,7 +23,7 @@ fn names(entries: &[&str]) -> BTreeSet<String> {
 }
 
 /// A surface whose functions are the given names, with no impls and no
-/// items — the shape most function-coverage tests need.
+/// items, the form most function-coverage tests need.
 fn functions(entries: &[&str]) -> Surface {
     Surface {
         functions: names(entries),
@@ -273,7 +273,7 @@ fn module_exception_live_through_impls_and_items() {
     assert!(findings.is_clean(), "{findings:?}");
 }
 
-/// A walk that returns nothing cannot read green: the liveness anchors
+/// A traversal that returns nothing cannot read green: the liveness anchors
 /// are missing-anchor findings even when coverage and extraction agree on
 /// the empty surface.
 #[test]

@@ -99,7 +99,7 @@ pub fn advance<A: RegionReader, B: RegionReader>(
 ///
 /// An absent or dropped slot reads depth zero and is never stepped: a depth-0
 /// plateau tiles the whole interval and is final, so a live, unexhausted cursor
-/// sits strictly deeper — a done slot is always strictly shallower than any
+/// sits strictly deeper: a done slot is always strictly shallower than any
 /// not-done one. The pick therefore always lands on a live slot, and a tied
 /// step requires depth at or above a flip level, which is at least one.
 pub trait CursorSet {
@@ -226,8 +226,8 @@ pub fn advance_diff(
 /// opening heights.
 ///
 /// The shared opening move of every two-Version walk, stated once so the
-/// seeding's orientation — `a` positive, `b` negative, the orientation [`Side::fold`]
-/// applies to every later crossing — has one home. The opening heights ride
+/// seeding's orientation (`a` positive, `b` negative, the orientation [`Side::fold`]
+/// applies to every later crossing) has one home. The opening heights ride
 /// along for the clients that consume an absolute opening (the emission sweep's
 /// first output leaf, the masked walk's height integrators); the seeded
 /// difference already carries their values, so the comparison sweep and the

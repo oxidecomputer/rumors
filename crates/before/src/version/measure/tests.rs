@@ -5,10 +5,13 @@
 //! independent Riemann-sum implementation. Distance and lag are checked both
 //! against the tree oracle and against their join/meet identities.
 //!
-//! Every equality here is exact — `Rank` equality is structural on the
-//! normalized form, projection agreement is byte identity of the emitted
-//! canonical streams — so a fold that drifts by any amount anywhere has no
-//! rounding to hide behind.
+//! Every equality here is exact: `Rank` equality is structural on the
+//! normalized form, and projection agreement is byte identity of the emitted
+//! canonical streams. A fold that is off by any amount anywhere therefore
+//! fails.
+//!
+//! `rank_cmp`, `distance`, and `lag` each traverse both operands together in
+//! one *co-sweep*, which integrates a function of their pointwise difference.
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
@@ -64,24 +67,24 @@ fn assert_projection(v: &Version, p: &Party) {
 
 /// Assert the pair folds against the recursive oracle *and* the composed forms.
 ///
-/// Two independent witnesses per measure, both exact:
+/// Each measure is checked against two independent oracles, both exact:
 ///
 /// - **The paper oracle**: each measure re-derived from the recursive
 ///   oracle's join, meet, and rank through the valuation identities the
-///   rustdoc states — `distance = rank(a ∨ b) − rank(a ∧ b)` and
+///   rustdoc states, `distance = rank(a ∨ b) − rank(a ∧ b)` and
 ///   `lag(a, b) = rank(a ∨ b) − rank(a)`.
 /// - **The composed forms**: the same identities assembled from this
-///   crate's own kernels — the emission sweep's join/meet streams, the
-///   rank fold over them, and [`Rank::checked_sub`] — so the pair
-///   measures are pinned digit-exact against rank-of-meet arithmetic
-///   computed along a code path they do not share.
+///   crate's own kernels (the emission sweep's join/meet streams, the
+///   rank fold over them, and [`Rank::checked_sub`]), so the pair measures
+///   are checked digit for digit against rank arithmetic computed along a
+///   code path they do not share.
 ///
-/// The signed co-sweep rides every pairing too: `rank_cmp` is pinned against
-/// the oracle's rank order in both operand orders — the one fold whose total
-/// carries a sign, and whose `Equal` answer demands the signed settle cancel
-/// exactly through whatever parked or deferred state the pair creates (the
-/// nonnegative measures never need that answer: their totals are monotone
-/// differences, debug-asserted nonnegative at the fold).
+/// Every pairing also checks the signed co-sweep: `rank_cmp` must match the
+/// oracle's rank order in both operand orders. It is the one fold whose total
+/// carries a sign, and its `Equal` answer requires the signed settlement to
+/// cancel exactly through whatever parked or deferred state the pair creates.
+/// The nonnegative measures never need that answer: their totals are
+/// monotone differences, debug-asserted nonnegative at the fold.
 fn assert_pair(a: &Version, b: &Version) {
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
     let order = ta.rank().cmp(&tb.rank());
@@ -142,7 +145,7 @@ fn family_pool() -> Vec<Version> {
         version_of(&Shape::CliffComb.build2(16, 16)),
         version_of(&Shape::WideToothComb.build3(16, 8, 8)),
         // Wide teeth over the freeze allowance: bounded oscillation that
-        // must ride the live component without freezing.
+        // must stay in the live component without freezing.
         version_of(&Shape::WideToothComb.build3(320, 300, 6)),
         // The stale-drift shape: the mid-stream jump is wide enough that
         // the first cheap delta behind it fires a freeze.
@@ -179,10 +182,10 @@ fn party_pool() -> Vec<Party> {
 /// The id-pool cross checks the oracle's projection mask; the ordered pairs
 /// check distance and lag as re-derived from the oracle's lattice folds.
 ///
-/// The families are exactly the shapes whose costs the meter rows pin — carry
-/// cliffs, wide teeth, cancelling chains, harmonic spines — so a
-/// height-tracking or freeze bookkeeping error surfaces here before any
-/// envelope moves.
+/// The families are the shapes the amplification board measures (carry
+/// cliffs, wide teeth, cancelling chains, harmonic spines), so a
+/// height-tracking or freeze bookkeeping error fails here before any cost
+/// bound does.
 #[test]
 fn families_agree_with_the_encodings() {
     let pool = family_pool();
@@ -204,10 +207,12 @@ fn families_agree_with_the_encodings() {
 /// sizes.
 ///
 /// The other pools stay under the freeze allowance almost everywhere: a
-/// unit-funded fold freezes only past 9 digits (288 bits) of live drift, and
-/// `arb_magnitude` tops out near 2^128, under half of that, so arbitrary trees
-/// do not reach the deferred-height reduction. These shapes do, and the arming
-/// trains create multiple entries with both uniform and alternating signs.
+/// unit-funded fold freezes only when its live drift is wider than
+/// [`HEIGHT_FREEZE_ALLOWANCE_BITS`](super::integral::HEIGHT_FREEZE_ALLOWANCE_BITS)
+/// plus one bit, and `arb_magnitude` tops out near 2^128, under half of
+/// that, so arbitrary trees do not reach the deferred-height reduction. These
+/// shapes do, and the arming trains create multiple entries with both
+/// uniform and alternating signs.
 fn deferral_pool() -> Vec<Version> {
     vec![
         version_of(&Shape::PromotionRearm.build1(1)),
@@ -224,16 +229,15 @@ fn deferral_pool() -> Vec<Version> {
         version_of(&Shape::NarrowFreezes.build2(FREEZE_DRIFT_BITS, 1)),
         version_of(&Shape::PlateauPuncture.build2(10, 3)),
         version_of(&Shape::PlateauPuncture.build2(12, 1)),
-        // The first-freeze-gate straddles: the sweep's one freeze fired
-        // arbitrarily late (a long never-freezing plateau prefix) and fired
-        // early ahead of a long never-freezing tail — the settle's smallest
-        // nonempty configuration, one parked drift against one final segment,
-        // from both sides of the gate.
+        // The sweep's one freeze, fired late (after a long plateau prefix
+        // that never freezes) and fired early (ahead of a long tail that
+        // never freezes): the settlement's smallest nonempty configuration,
+        // one parked drift against one final segment, from both sides.
         version_of(&Shape::LoneFreeze.build2(2, 2)),
         version_of(&Shape::LoneFreeze.build2(6, 2)),
         version_of(&Shape::LoneFreeze.build2(2, 6)),
-        // The multi-arming trains: same-sign and alternating, so the settle's
-        // parked sums are exercised both accumulating and cancelling across
+        // The multi-arming trains, same-sign and alternating, so the
+        // settlement's parked sums both accumulate and cancel across
         // aggregate merge boundaries.
         version_of(&Shape::ArmingTrain.build_train(1, 19, 1, false)),
         version_of(&Shape::ArmingTrain.build_train(3, 19, 1, false)),
@@ -246,13 +250,13 @@ fn deferral_pool() -> Vec<Version> {
 /// min_ticks, and every ordered pair agrees on distance and lag against both
 /// the oracle and the composed forms.
 ///
-/// The settle's value witness at the shapes the flatness bands and red pins
-/// price: single and repeated armings, mixed-sign armings whose parked sums
-/// cancel digit-wise inside the balanced reduction's aggregates, dense windows
-/// between armings, and the arming-free close-time settle (the plateau-puncture
-/// family). The pair sweep crosses wide operands with wide operands — both
-/// sides deferring, orientation flips inside wide plateaus — which the meter
-/// bands' unit-twin mates never reach.
+/// This checks the settlement's values at the shapes the cost tests measure:
+/// single and repeated armings, mixed-sign armings whose parked sums cancel
+/// digit by digit inside the balanced reduction's aggregates, dense windows
+/// between armings, and the arming-free settlement at the close (the
+/// plateau-puncture family). The pair sweep crosses wide operands with wide
+/// operands, with both sides deferring and orientation flips inside wide
+/// plateaus, which the families' unit-base mates never reach.
 ///
 /// The [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors keep both
 /// claims live: the single folds defer, and so do the pair measures'
@@ -435,18 +439,18 @@ proptest! {
 /// reads `Equal` on a mirrored equal-rank pair, with the freeze tap
 /// proving both legs actually park drift.
 ///
-/// The signed co-sweep's value witness in the freeze-and-deferral regime, with
-/// its liveness floors: the pool cross pins the sign against the oracle's rank
-/// order in both operand orders where the sweeps park, defer, and settle wide
-/// drift, and the mirrored pair — one deferring shape hung on
-/// each side of a fresh root fork, two distinct streams of exactly equal
-/// rank — pins the `Equal` answer, which demands that the signed settle cancel
-/// to zero through the whole parked, deferred, and settled pipeline. The
+/// This checks the signed co-sweep's values where freezes and deferrals
+/// fire. The pool cross checks the sign against the oracle's rank order in
+/// both operand orders where the sweeps park, defer, and settle wide drift.
+/// The mirrored pair, one deferring shape on each side of a fresh root fork,
+/// is two distinct streams of exactly equal rank, so it checks the `Equal`
+/// answer, which requires the signed settlement to cancel to zero through
+/// parking, deferral, and settlement. The
 /// [`FREEZE_HITS`](super::integral::FREEZE_HITS) and
-/// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors make the regime
-/// claim non-vacuous: a pool or pair that never froze, or froze without
-/// deferring, would pass any value pin while exercising none of the deferred
-/// reduction.
+/// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors show that the
+/// regime is reached: a pool or pair that never froze, or froze without
+/// deferring, would pass every value check while running none of the
+/// deferred reduction.
 #[test]
 fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
     let assert_cmp = |a: &Version, b: &Version| {
@@ -566,11 +570,11 @@ fn freezes_and_deferrals_during(measure: impl FnOnce()) -> (u64, u64) {
     (freezes_after - freezes, deferrals_after - deferrals)
 }
 
-/// Every meter family built to fire the integral's freeze fires exactly the
-/// freezes and deferrals its layout implies.
+/// Every registry family built to fire the integral's freeze fires exactly
+/// the freezes and deferrals its layout implies.
 ///
-/// A family that stops freezing or deferring still passes its value pins and
-/// its cost ceilings, while measuring a cheaper regime than its band claims, so
+/// A family that stops freezing or deferring still passes its value checks and
+/// its cost ceilings, while measuring a cheaper regime than it claims, so
 /// each count is asserted here by name. The wide drifts are
 /// [`FREEZE_DRIFT_BITS`](crate::testing::meter::FREEZE_DRIFT_BITS) or wider, so
 /// they trip the trigger in every stored form, and no compaction of `live` can
@@ -687,11 +691,12 @@ fn freeze_families_fire_their_freezes() {
 /// on distance and lag, at their own constructed pairings.
 ///
 /// The jump-pair dimensions straddle the freeze allowance (`k = 3` up to `k =
-/// 512`, past the 256-bit digit bound), so the pair measures are pinned on
-/// shapes where the difference's live component rides wide drift across the
-/// other operand's cheap boundaries — the interleaving the family exists to
-/// reach; the concurrent pair pins the side-switch density population, where
-/// the difference's sign flips at every one of the `n − 1` overlay boundaries.
+/// 512`, past the 256-bit digit bound), so the pair measures are checked on
+/// shapes where the difference's live component carries wide drift across
+/// the other operand's cheap boundaries, the interleaving the family exists
+/// to reach. The concurrent pair checks the side-switch density population,
+/// where the difference's sign flips at every one of the `n − 1` overlay
+/// boundaries.
 #[test]
 fn pair_families_agree() {
     for (k, m, d) in [(3, 1, 1), (16, 4, 2), (320, 6, 3), (512, 8, 2)] {
@@ -736,9 +741,9 @@ fn exhaustive_small_scope_agrees() {
 /// sweep's exhaustive suite reaches (aligned ties, flush-right ties at unequal
 /// depths, plateau consumption, zero deltas across subtree boundaries) crossed
 /// with every orientation schedule reachable at this scope, by brute force
-/// rather than sampling. The oracle leg over the same identities rides the
-/// family and proptest sweeps; here the composed kernels are the witness so the
-/// quadratic pair product stays fast.
+/// rather than sampling. The family and proptest sweeps check the same
+/// identities against the oracle; here the composed kernels are the oracle,
+/// so the quadratic pair product stays fast.
 #[test]
 fn exhaustive_small_scope_pairs_agree() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
@@ -771,8 +776,8 @@ proptest! {
     /// measure fold.
     ///
     /// Rank is additionally realized by the semantic oracle's Riemann sum over
-    /// the resolving grid — the geometric ground truth that shares no
-    /// recursion, no delta, and no accumulator with either implementation.
+    /// the resolving grid, which shares no recursion, no delta, and no
+    /// accumulator with either implementation.
     #[test]
     fn arbitrary_trees_agree(oa in arb_oracle_version(), ob in arb_oracle_version()) {
         let a = from_oracle_version(&oa);
@@ -796,8 +801,8 @@ proptest! {
     /// One organic op-trace history agrees with the recursive
     /// oracle on every measure fold.
     ///
-    /// Projection runs onto the history's own parties — the operand pairing
-    /// production code actually builds.
+    /// Projection runs onto the history's own parties, the operand pairing
+    /// production code builds.
     #[test]
     fn organic_histories_agree(ops in optrace::production_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
@@ -874,16 +879,16 @@ proptest! {
     /// y)) = (2·x·y + 1) / 2^bits(2y)` for every positive `x` and `y`, through
     /// the public fold.
     ///
-    /// The `Ω(M(·))` floor's evidence of record — a reduction from arbitrary
-    /// integer multiplication, not a bet on one committed shape: `V(x, y)`
+    /// This is the evidence for the `Ω(M(·))` lower bound: a reduction from
+    /// arbitrary integer multiplication, not one committed shape. `V(x, y)`
     /// stores `Θ(bits(x) + bits(y))` bits, and its exact rank's numerator
     /// carries the full product (one subtraction and one shift recover `x·y`),
     /// so any fold that answers this family exactly multiplies two arbitrary
-    /// input-funded factors at linear overhead. The independent witness is the
+    /// input-funded factors at linear overhead. The independent oracle is the
     /// backend's own multiplication, computed here outside any fold. The pair
-    /// measures inherit the floor through their valuation identities — against
-    /// the empty version, distance and lag both collapse to the rank — asserted
-    /// here on the public entry points.
+    /// measures inherit the bound through their valuation identities: against
+    /// the empty version, distance and lag both reduce to the rank, which the
+    /// test asserts on the public entry points.
     #[test]
     fn arbitrary_factors_embed_their_product_in_exact_rank(
         x_bytes in proptest::collection::vec(any::<u8>(), 1..64),
@@ -901,14 +906,14 @@ proptest! {
             &v,
             "the constructor's output must be canonical"
         );
-        // The reduction's size premise, pinned where the reduction is
-        // constructed: the STORED stream is Θ(bits(x) + bits(y)) — the deltas
-        // collapse to one climb (≤ 2·bits(x) + 1 code bits) and one plunge (≤
-        // 2·bits(x) + 3), and each of the `bits(2y)` levels costs O(1) topology
-        // and payload bits — even though the encoded construction spells the
-        // plateau per turn. Without this bound the floor argument would rest on
-        // a stored size nothing checks: a fold could be charged M(|v|) against
-        // an operand secretly as large as the product itself.
+        // The reduction's size premise, checked where the reduction is
+        // constructed: the *stored* stream is Θ(bits(x) + bits(y)), even
+        // though the encoded construction spells the plateau per turn. The
+        // deltas collapse to one climb (≤ 2·bits(x) + 1 code bits) and one
+        // plunge (≤ 2·bits(x) + 3), and each of the `bits(2y)` levels costs
+        // O(1) topology and payload bits. Without this check the lower-bound
+        // argument would rest on a stored size nothing verifies: a fold could
+        // be charged M(|v|) against an operand as large as the product itself.
         prop_assert!(
             v.encoded_bits() <= 4 * x.bits() + 4 * (y.bits() + 1) + 64,
             "the stored stream must stay linear in the factors' widths: \
@@ -984,14 +989,13 @@ fn arming_trains_agree_across_their_box() {
 /// fork, yields two distinct streams of exactly equal rank, and `rank_cmp`
 /// reads `Equal` on them in both operand orders, freezing and deferring.
 ///
-/// The `Equal` generator arm of the signed co-sweep's freeze-regime
-/// coverage: over the train dimensions, the signed settle must cancel to
-/// zero through the parked, deferred, and settled pipeline — the one
-/// answer the nonnegative pair measures can never exercise (their totals
-/// are monotone differences), and one no organically drawn pair reaches
-/// at freezing scale. Every mirrored train parks and defers drift under the
-/// co-sweep, which the freeze and deferral floors check, so the test
-/// exercises the intended path.
+/// This covers the signed co-sweep's `Equal` answer where freezes fire: over
+/// the train dimensions, the signed settlement must cancel to zero through
+/// parking, deferral, and settlement. The nonnegative pair measures never
+/// produce that answer (their totals are monotone differences), and no
+/// organically drawn pair reaches it at freezing scale. Every mirrored train
+/// parks and defers drift under the co-sweep, which the freeze and deferral
+/// floors check, so the test runs the intended path.
 #[test]
 fn mirrored_arming_trains_cancel_to_equal_across_their_box() {
     use crate::testing::oracles::tree::Version as V;

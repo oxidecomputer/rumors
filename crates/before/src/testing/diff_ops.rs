@@ -72,8 +72,8 @@ pub(crate) enum Legs {
 /// descriptor never spells its own comparison and the drivers never carry
 /// an assert-kind switch: the result types decide. Verdicts and carrier
 /// quantities compare directly; tree-shaped results compare *both ways*
-/// across the bridge — the production value equals the oracle value raised
-/// through it, and lowering the production value returns the oracle value —
+/// across the bridge (the production value equals the oracle value raised
+/// through it, and lowering the production value returns the oracle value),
 /// so a result that is right in meaning but not in normal form is a
 /// failure, not a pass.
 pub(crate) trait Matches<Reference> {
@@ -136,7 +136,7 @@ impl Matches<Rank> for Rank {
     }
 }
 
-/// Shape rows — plateau, region, overlay, and refinement-cell listings —
+/// Shape rows (plateau, region, overlay, and refinement-cell listings)
 /// compare directly: both sides are already folded into the same
 /// absolute vocabulary.
 impl Matches<Vec<Leaf>> for Vec<Leaf> {
@@ -427,8 +427,8 @@ diff_ops! {
     /// Production answers lazily and materializes on demand, so the
     /// production leg spells the materialization the oracle's projection
     /// returns directly. The function space realizes it as the pointwise
-    /// mask — keep the value where the party owns the region, zero it
-    /// everywhere else — the shares-no-recursion witness that projection
+    /// mask (keep the value where the party owns the region, zero it
+    /// everywhere else), the shares-no-recursion witness that projection
     /// masks exactly the owned region.
     fn version_projection_matches_the_oracle {
         production: (&a / &p).to_version(),
@@ -544,8 +544,8 @@ diff_ops! {
     /// Region algebra over a pair of parties.
     ///
     /// The arbitrary population admits the anonymous party and pairs that
-    /// genuinely overlap, so the partial-overlap arms — neither region
-    /// covering the other, a difference that empties — are reachable at
+    /// genuinely overlap, so the partial-overlap arms (neither region
+    /// covering the other, a difference that empties) are reachable at
     /// all; a seed-derived pipeline produces only disjoint siblings. The
     /// organic pairings run in both operand orders, which is what the
     /// asymmetric operations need.
@@ -566,7 +566,7 @@ diff_ops! {
         ),
     }
 
-    /// `is_disjoint`: the two regions share nothing — geometrically, no
+    /// `is_disjoint`: the two regions share nothing: geometrically, no
     /// grid point owned by both.
     ///
     /// This population is where the function-space comparison's `false` arm lives: the
@@ -580,7 +580,7 @@ diff_ops! {
     }
 
     /// `without`: the region difference, which production answers as
-    /// `None` where the oracle answers with the empty region — and the
+    /// `None` where the oracle answers with the empty region, and the
     /// function space as the pointwise mask `a ∧ ¬b`, the all-`false`
     /// function when `b` covers `a`.
     fn party_without_matches_the_oracle {
@@ -603,7 +603,7 @@ diff_ops! {
     static PARTY_DISJOINT_PAIR: (a: disjoint_party, b: disjoint_party);
 
     /// `join` on disjoint parties: the union of the two regions, which every
-    /// reference realizes without a hand-back — the function space as the
+    /// reference realizes without a hand-back, the function space as the
     /// pointwise `or`.
     fn party_disjoint_join_matches_the_oracle {
         production: {
@@ -629,7 +629,7 @@ diff_ops! {
     /// `min_ticks`: the events every region of the version has seen.
     ///
     /// The function space recovers it by pulling per-node floors up the
-    /// dyadic subdivision — the geometric mirror of tree normalization,
+    /// dyadic subdivision, the geometric mirror of tree normalization,
     /// sharing no code with either fold.
     fn version_min_ticks_matches_the_oracle {
         production: a.min_ticks(),
@@ -667,8 +667,8 @@ diff_ops! {
     /// Lattice, order, and distance operations over two versions.
     ///
     /// The regime the arbitrary population reaches is the *unrelated*
-    /// pair — independent shapes and independent base magnitudes, where
-    /// arm selection and the normalization corners live; the organic
+    /// pair (independent shapes and independent base magnitudes, where
+    /// arm selection and the normalization corners live); the organic
     /// populations supply the causally related pairs, where domination and
     /// equality actually occur.
     static VERSION_PAIR: (a: version, b: version);
@@ -686,7 +686,7 @@ diff_ops! {
     /// Production folds the public combined walk's per-input rises into
     /// per-cell absolute rows (the fold asserts nonzero rises,
     /// nonnegative running heights, and exact tiling in passing); the
-    /// oracle computes the refinement directly by recursion — splitting
+    /// oracle computes the refinement directly by recursion, splitting
     /// only where some input splits, which also pins the tiling as the
     /// coarsest one; the function space scans each rebuilt column
     /// against its own geometric lift.
@@ -703,7 +703,7 @@ diff_ops! {
     /// in the function space as the pointwise minimum.
     ///
     /// The function-space leg is the non-recursive witness that the
-    /// tree recursion computes the true GLB — the dual of the pointwise
+    /// tree recursion computes the true GLB, the dual of the pointwise
     /// maximum the replay differential exercises through `join`/`send`.
     fn version_meet_matches_the_oracle {
         production: a & b,
@@ -732,7 +732,7 @@ diff_ops! {
     /// Production computes it in one fused sweep; the tree leg pins the
     /// arithmetic with rank differences over the oracle's own join and
     /// meet, and the function-space leg pins the meaning with Riemann sums over the
-    /// function space's — three computations sharing no walk, no
+    /// function space's: three computations sharing no walk, no
     /// accumulator, and no normalization sink.
     fn version_distance_matches_the_oracle {
         production: a.distance(&b),
@@ -751,7 +751,7 @@ diff_ops! {
         },
     }
 
-    /// `lag`: how far `a` lags behind `b` — the rank of the version `b`
+    /// `lag`: how far `a` lags behind `b`: the rank of the version `b`
     /// records that `a` does not, the join's rank less `a`'s own.
     ///
     /// The directed half of `distance`, pinned the same two independent

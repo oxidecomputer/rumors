@@ -489,7 +489,7 @@ impl Neg for &Accumulator {
 /// Shifts by every primitive count type.
 macro_rules! shifts {
     ($($integer:ty),* $(,)?) => {$(
-        /// Multiply by `2^shift`, reusing retained storage when possible.
+        /// Multiply by `2^shift`.
         ///
         /// # Complexity
         ///

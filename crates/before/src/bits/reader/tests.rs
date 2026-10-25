@@ -1,5 +1,5 @@
 //! Equivalence pins for the word-parallel cursor against the per-bit readers it
-//! replaces: same bits consumed, same values decoded, same rejects — or the
+//! replaces: same bits consumed, same values decoded, same rejects, or the
 //! cursor is not the same reader.
 
 use proptest::prelude::*;
@@ -26,7 +26,7 @@ fn decode_gamma(bytes: &[u8], len: u64, position: u64) -> Result<(BigUint, u64),
 ///
 /// Witnessed at the largest machine-word code (`k = 63`), the first
 /// big-integer code (`k = 64`), the next (`k = 65`), and wider codes
-/// (`k ≈ 100`) — widths a reader passing on narrow values alone cannot
+/// (`k ≈ 100`): widths a reader passing on narrow values alone cannot
 /// fake, since our coding has no value cap while dsi-bitstream's own
 /// `read_gamma` stops at `u64`.
 #[test]

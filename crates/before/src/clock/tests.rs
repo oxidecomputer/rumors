@@ -341,8 +341,8 @@ proptest! {
         if n < 2 {
             return Ok(());
         }
-        // Derive two distinct members directly rather than rejecting collisions
-        // — small populations collide often, and `prop_assume` would blow the
+        // Derive two distinct members directly rather than rejecting collisions:
+        // small populations collide often, and `prop_assume` would blow the
         // reject cap under a high case count (see the oracle `sync` test).
         let i = i % n;
         let j = (i + 1 + j % (n - 1)) % n;
@@ -408,7 +408,7 @@ proptest! {
     }
 
     /// Assigning forms. The `Clock` assigning join surfaces merge the version
-    /// and leave the party untouched, matching the oracle — complementing the
+    /// and leave the party untouched, matching the oracle, complementing the
     /// by-value `Clock | Version` above.
     ///
     /// Covers `Clock |= Version` and `Clock |= &Version`.
@@ -526,7 +526,7 @@ proptest! {
 // `encoded_bits` against `encode().len()` is one law per type
 // (version_/party_/clock_encoded_bits_matches_encode_len in `crate::testing::laws`),
 // and the clock length's additivity over its parts is the byte-concatenation
-// law encode_frames_party_then_version — all driven on the three law
+// law encode_frames_party_then_version, all driven on the three law
 // populations.
 
 // ───────────────────────────── robustness ─────────────────────────────
@@ -591,7 +591,7 @@ fn deep_tree_stack_safety() {
     // predates the `send`/`recv` ticks, so `early < clock.version()`: their
     // meet (GLB) is the older `early`, their join (LUB) the newer current
     // version. The operands are distinct and non-empty, so neither the
-    // ``==`` nor the empty-operand fast path fires — the
+    // ``==`` nor the empty-operand fast path fires: the
     // full-length sweep is exercised rather than skipped.
     let current = clock.version().clone();
     assert!(early.clone() & current.clone() == early);
@@ -641,7 +641,7 @@ fn deep_tree_stack_safety() {
 /// query membership and coverage, and projection through a deep id.
 ///
 /// `deep_tree_stack_safety` above proves the clock ops at this depth; this is
-/// the same proof for the surfaces it does not drive — every one an iterative
+/// the same proof for the surfaces it does not drive, every one an iterative
 /// walk whose depth lives on explicit heap or bit stacks, exercised here at a
 /// depth that overflows any walk keeping one call frame per level.
 #[test]
@@ -686,7 +686,7 @@ fn deep_tree_query_and_causal_stack_safety() {
 
     // The span algebra at depth: each operator's legs run the join and meet
     // kernels over the deep endpoints, the multi-clock join drives the balanced
-    // fold's combine arms, and the quotient view runs the masked co-walks —
+    // fold's combine arms, and the quotient view runs the masked co-walks,
     // every constituent iterative, pinned here at the entry point.
     let head = Span::new(&early, &early).expect("coincident");
     assert_eq!(&head + &span, span);
@@ -1259,12 +1259,12 @@ proptest! {
     }
 
     /// `serde_json` represents `serialize_bytes` as a JSON number-array,
-    /// decoded back via `visit_seq` — so it never exercises the binary
+    /// decoded back via `visit_seq`, so it never exercises the binary
     /// `serialize_bytes`/`visit_bytes` path.
     ///
     /// Pin that path through two non-JSON formats: `postcard`
     /// (non-self-describing, length-prefixed bytes) and `ciborium`
-    /// (self-describing CBOR, which emits a *typed* byte-string — CBOR major
+    /// (self-describing CBOR, which emits a *typed* byte-string, CBOR major
     /// type 2). Every type must round-trip through both: the serialized form is
     /// the canonical encoding, deserialization re-validates it, and the CBOR
     /// typed-bytes path is the one `serde_json` alone can never reach.
@@ -1312,7 +1312,7 @@ proptest! {
     ///
     /// Each type serializes to the same stream as its own `encode()` bytes
     /// handed to the format as a plain byte sequence, so the wire form is
-    /// `encode()` with nothing added, reordered, or wrapped — the serde mirror
+    /// `encode()` with nothing added, reordered, or wrapped: the serde mirror
     /// of the borsh `bytes == as_bytes` pin, witnessed through postcard, whose
     /// byte-sequence framing is a length prefix plus the raw bytes.
     #[test]
@@ -1446,11 +1446,11 @@ proptest! {
 // *iterated* operation is its own pin surface. These orbits are fully
 // deterministic (fixed populations, fixed arithmetic schedules, no randomness
 // in any operation), so every trajectory below is pinned by exact measured
-// numbers, asserted across the whole orbit — shape over point: tuning any one
+// numbers, asserted across the whole orbit, shape over point, so tuning any one
 // round cannot pass. The two scenario orbits transcribe the ITC 2008 paper's §6
 // experiment (also reproduced statistically by
-// `examples/space_consumption.rs`): the paper's observed shape — rapid early
-// growth, then stabilization with a minor logarithmic component — is here a
+// `examples/space_consumption.rs`): the paper's observed shape (rapid early
+// growth, then stabilization with a minor logarithmic component) is here a
 // committed criterion, not a chart.
 
 /// Build the scenario orbits' fixed population: `n` clocks balanced- forked
@@ -1503,13 +1503,13 @@ fn fork_join_round_trip_orbit_is_byte_stationary() {
 /// The fork+tick+join round-trip orbit grows only the counter's code width.
 ///
 /// Forking a child, ticking it once, and joining it back leaves the party
-/// byte-identical to the seed every round, and the version — a fixed two-leaf
-/// scaffold holding one counter at the child's leaf, `(0, 0, k)` exactly —
+/// byte-identical to the seed every round, and the version (a fixed two-leaf
+/// scaffold holding one counter at the child's leaf, `(0, 0, k)` exactly)
 /// reads exactly `7 + 2·⌊log2 k⌋` encoded bits after round k: the k accumulated
 /// events cost one gamma code's width (2 bits per doubling), never a ratcheting
 /// tree [measured: exact at all 512 rounds].
 ///
-/// Liveness floor: the exact form at `k = 512` is the floor — a round trip that
+/// Liveness floor: the exact form at `k = 512` is the floor; a round trip that
 /// dropped events would read a smaller counter. Budget: 512 rounds,
 /// milliseconds.
 #[test]
@@ -1547,9 +1547,9 @@ fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
 ///
 /// Over a population held at 8 by one fork, one tick, one anonymous version
 /// exchange, and one retiring join per round on a fixed arithmetic schedule,
-/// the population's maximum id size plateaus in a fixed band — the octave
+/// the population's maximum id size plateaus in a fixed band (the octave
 /// maxima climb through a transient and then sit flat at 132–134 bits, tail
-/// octaves no higher than the plateau's first — and its maximum version size
+/// octaves no higher than the plateau's first), and its maximum version size
 /// grows only with the counters' code widths: per-octave growth bounded by a
 /// constant that is itself shrinking (65 → 48 → 42 bits per doubling over the
 /// tail), logarithmic in the round count, never per round. Both trajectories
@@ -1557,7 +1557,7 @@ fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
 /// 4096 rounds].
 ///
 /// Liveness floor: the population count is asserted every round and the pinned
-/// arrays are strictly positive and rising through the transient — a scenario
+/// arrays are strictly positive and rising through the transient; a scenario
 /// that stopped forking, ticking, or joining would flatten them. Budget: 4096
 /// rounds over ≤ 470-bit values, well under a second.
 #[test]
@@ -1638,12 +1638,12 @@ fn churn_orbit_sizes_reach_a_bounded_band() {
 /// version exchange per round on a fixed arithmetic schedule keeps every id
 /// byte-identical forever (messages carry no id), and the population's maximum
 /// version size is monotone nondecreasing and grows exactly 8 bits per doubling
-/// of the round count — the eight counters' gamma widths, 1 bit each per
-/// doubling — reading exactly `8·i − 4` bits over the octave ending at round
+/// of the round count (the eight counters' gamma widths, 1 bit each per
+/// doubling), reading exactly `8·i − 4` bits over the octave ending at round
 /// `2^i`, flat per round, logarithmic in total [measured: exact at octave
 /// resolution, 4096 rounds].
 ///
-/// Liveness floor: the closed form's equality at every octave is the floor —
+/// Liveness floor: the closed form's equality at every octave is the floor;
 /// peers that stopped ticking or exchanging would read short. Budget: 4096
 /// rounds over ≤ 100-bit versions, well under a second.
 #[test]

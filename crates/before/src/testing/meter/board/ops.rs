@@ -1,7 +1,7 @@
 //! The operation axis: the board's row table.
 //!
 //! Each row declares the bundle slots its signature consumes and prepares its
-//! cell from them alone — never from the shape's identity — so a row reaches
+//! cell from them alone, never from the shape's identity, so a row reaches
 //! every shape that supplies its operands.
 
 use std::cmp::Ordering;
@@ -700,7 +700,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // The hull's composite, encoded at prepare, outside
                 // measurement. The fused decode parses the first
                 // component, then one admission walk parses the second
-                // while validating dominance against the first — so the
+                // while validating dominance against the first, so the
                 // floors are the first component's parse plus the pair
                 // comparison's: both endpoints materialize, every
                 // stored payload of both streams decodes once, the
@@ -753,7 +753,7 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 // The fused multi-tick at a fixed count: the same walk
                 // and splice as the tick rows, with the count's gamma
-                // width the only n-dependence — so the cell must scale
+                // width the only n-dependence, so the cell must scale
                 // exactly as the tick cell above it (the flatness rows
                 // of tests/meter.rs pin the n axis; this cell pins the
                 // input axis).
@@ -922,7 +922,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // measurement. I/O-denominated: value content in, the
                 // actual canonical bytes out (the `cell` module doc's
                 // rank denomination), with the output bound
-                // asserted here — a canonical encoding is at most
+                // asserted here: a canonical encoding is at most
                 // `9⁄8 · ‖r‖ + O(log ‖r‖)` bits, so padding the output
                 // side of the denominator trips the run instead of
                 // greening the cell. Derivation of the bound: the
@@ -931,7 +931,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // and `exp` each sit inside `content = bits(num) + exp`
                 // (so the 9⁄8 shows up as `content/8`), and `2ρ + 11`
                 // stays under 64 for any integral part narrower than
-                // 2²⁶ bits — orders beyond every committed family.
+                // 2²⁶ bits, orders beyond every committed family.
                 let (a, _) = f.rank_pair.clone()?;
                 let content = a.content_bits();
                 let encoded_len = a.encode().len();
@@ -1167,8 +1167,8 @@ pub(super) fn ops() -> Vec<Op> {
                 // byte, and the version tail is exactly the encoded
                 // input again (asserted here, so the bound is enforced
                 // at every family and scale), which makes input bytes
-                // the stricter denominator — the codec rows'
-                // rule — and lets the flat-denominator shape's content
+                // the stricter denominator (the codec rows'
+                // rule) and lets the flat-denominator shape's content
                 // exponent govern exactly as on the version_rank cell
                 // this row extends.
                 let (v, n) = f.version()?;
@@ -1195,8 +1195,8 @@ pub(super) fn ops() -> Vec<Op> {
                 // the provenance pin bounds the output within the
                 // encoded input (asserted here, so the bound is
                 // enforced at every family and scale), which makes
-                // input bytes the stricter denominator — the
-                // codec rows' rule — and lets the flat-denominator
+                // input bytes the stricter denominator (the
+                // codec rows' rule) and lets the flat-denominator
                 // shape's content exponent govern exactly as on the
                 // version_rank cell this row extends.
                 let (v, n) = f.version()?;
@@ -1448,7 +1448,7 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 // The fused three-stream comparison `(v / p) ⋚ w`: lazy at
                 // every spelling, so the cell stays input-denominated on
-                // every shape — the output-domination crosses included,
+                // every shape, the output-domination crosses included,
                 // which is the point: comparing a projection never pays
                 // its materialization.
                 let (v, p, w, n) = if let Some(masked) = &f.masked_against {
@@ -1659,12 +1659,12 @@ pub(super) fn ops() -> Vec<Op> {
         // endpoint is impossible while byte equality holds, so the
         // coincidence rung cannot collapse the walk; and the probe always
         // lies within its own pair's hull, so the verdict is confirming
-        // — full examination of all three streams is forced, and the
-        // full-examination scan floor applies to every family. The
+        // (full examination of all three streams is forced, and the
+        // full-examination scan floor applies to every family). The
         // precedence row's probe re-decodes the meet instead: its watched
         // directions are the mirror pair (probe at-or-below each bound),
         // so only a probe at the span's own floor confirms both and
-        // forces the full sweep — an in-hull probe above the meet refutes
+        // forces the full sweep; an in-hull probe above the meet refutes
         // `probe <= lo` and legitimately stops the start stream's scan.
         Op {
             name: "span_place",
@@ -1767,7 +1767,7 @@ pub(super) fn ops() -> Vec<Op> {
                 // The anti-entropy delta classified against the pair's
                 // hull: the fused two-probe walk over hole and ceiling,
                 // plus the clamp legs on verdicts the walk alone cannot
-                // close — the tree walk's per-subtree verdict.
+                // close: the tree walk's per-subtree verdict.
                 let (v, w, _) = f.version_pair()?;
                 let lo = &v & &w;
                 let hi = &v | &w;
@@ -2781,7 +2781,7 @@ pub(super) fn ops() -> Vec<Op> {
             prepare: |f| {
                 // The clock spelling of the explicit materialization:
                 // `clock.own_version()` is an O(1) view (no cell of its
-                // own — nothing scales), and this row prices its
+                // own; nothing scales), and this row prices its
                 // `.to_version()`. Adversarial × adversarial with
                 // mandatory dominating output: a clock holding the cross's
                 // event side whose party is its id side, I/O-denominated
@@ -3163,8 +3163,8 @@ pub(super) fn ops() -> Vec<Op> {
                 let (a_bytes, b_bytes) = f.overlap.clone()?;
                 let id_bytes = a_bytes.len() + b_bytes.len();
                 // Versions ride along where the bundle has them (empty
-                // otherwise); rejection does no version work — the party
-                // join is the gate — so the scan floor covers the ids.
+                // otherwise); rejection does no version work (the party
+                // join is the gate), so the scan floor covers the ids.
                 let (v, w, nv) = match f.version_pair() {
                     Some(pair) => pair,
                     None => (Version::new(), Version::new(), 2),

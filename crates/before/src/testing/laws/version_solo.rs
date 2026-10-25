@@ -64,7 +64,7 @@ laws! {
         a.distance(a) == Rank::ZERO
     }
 
-    /// The directed metric's point law at the diagonal: `a.lag(a) == 0` —
+    /// The directed metric's point law at the diagonal: `a.lag(a) == 0`:
     /// a version lags itself by nothing (`rank(a | a) == rank(a)` by
     /// idempotence).
     fn lag_to_self_is_zero {
@@ -72,7 +72,7 @@ laws! {
     }
 
     /// The hull at the diagonal: a version's span with itself is the
-    /// coincident span `[a, a]` — both endpoints equal `a`, and the empty
+    /// coincident span `[a, a]`: both endpoints equal `a`, and the empty
     /// n-ary hull (`span_all` of nothing) agrees with it.
     fn span_with_self_is_coincident {
         let span = a.span(a);
@@ -112,7 +112,7 @@ laws! {
     /// Every entry views the same version (both `From` constructors and
     /// the `Version::ranked` method spelling), `rank` (and the `From`
     /// materialization, and the fused `encode_rank` through both its
-    /// entries — the view's and `Version::encode_rank`) realize exactly
+    /// entries, the view's and `Version::encode_rank`) realize exactly
     /// `Version::rank`'s value, the composite `encode` is the rank
     /// encoding followed by the version's canonical bytes,
     /// `decode ∘ encode` is the identity exactly (same version, equal
@@ -144,7 +144,7 @@ laws! {
     }
 
     /// `decode ∘ encode == id`, and the round-tripped value re-encodes to the
-    /// same bytes (the codec is a section of canonical bytes — what byte-level
+    /// same bytes (the codec is a section of canonical bytes, which byte-level
     /// `Eq`/`Hash` rest on).
     fn version_codec_roundtrip {
         let bytes = a.encode();

@@ -4,9 +4,9 @@
 //! rows.
 //!
 //! The folds are deliberately assertive: every fold checks the item
-//! stream's own invariants in passing — nonzero rise magnitudes, a
+//! stream's own invariants in passing (nonzero rise magnitudes, a
 //! never-negative running height, and widths that tile the unit interval
-//! exactly — so every descriptor and test that folds a walk also holds
+//! exactly), so every descriptor and test that folds a walk also holds
 //! those invariants on its whole population. The reconstruction helpers
 //! close the loop for the function-space legs: rows rebuild into normal
 //! oracle trees (the normalizing constructors collapse any fragments a
@@ -428,7 +428,7 @@ pub(crate) fn party_as_steps(tree: &tree::Party) -> tree::Version {
 }
 
 /// Rebuild the oracle event tree a [`Leaf`] row listing describes, through
-/// the normalizing constructor — fragments a refinement introduced collapse
+/// the normalizing constructor: fragments a refinement introduced collapse
 /// back, so the result is the normal form of the rows' step function.
 ///
 /// Inverse to [`oracle_plateaus`] on normal-form trees. Iterative, so rows of

@@ -35,8 +35,8 @@ use super::bridge::{from_oracle_party, from_oracle_version};
 ///
 /// The spines (depth linear in `scale`) stress right-child
 /// location; the bushy shape stresses multi-region cost comparisons (a node
-/// whose two children are both feasible), which the spines — with a single
-/// owned leaf — never produce.
+/// whose two children are both feasible), which the spines, with a single
+/// owned leaf, never produce.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Shape {
     /// Every node leans left: `(…((·,·),·)…,·)`.
@@ -105,7 +105,7 @@ fn bushy_party(lo: usize, leaves: usize) -> tree::Party {
 ///
 /// The expansion-heavy shape: the bushy left subtree makes the tick
 /// walk's route fold weigh two feasible children at every branch, while
-/// the right terminal is the cheapest inflation at every scale — so the
+/// the right terminal is the cheapest inflation at every scale, so the
 /// splice's chosen path (and its one skip of the whole off-path bushy
 /// subtree) is scale-independent.
 pub(crate) fn bushy_expand_party(scale: usize) -> Party {
@@ -146,7 +146,7 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
 ///
 /// The deep-operand differentials draw `wide` from [`arb_magnitude`], so a walk's
 /// suspended-ancestor state and pre-scan latents carry genuinely wide values
-/// across real depth — the conjunction that neither the depth-capped
+/// across real depth, the conjunction that neither the depth-capped
 /// arbitrary trees nor the small-valued deep shapes reach on their own.
 /// Raising one distinct counter by `wide` keeps every leaf base distinct, so
 /// the shape and size survive normalization unchanged.
@@ -228,7 +228,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// Used by the stack-safety tests, which need structures far deeper than the
 /// recursive oracle bridge (`emit_id`) or the oracle's own recursive `Drop`
 /// could build or tear down. In the pruned encoding each spine node is a
-/// `Left-only` tag (`10`: left child present, right absent — the `0` right
+/// `Left-only` tag (`10`: left child present, right absent; the `0` right
 /// children take no bits), and the deep-left tip is a terminal (`00`). The
 /// result `(((…(1, 0)…), 0), 0)` is normal form (no node has two terminal
 /// children). Built with a flat loop: no recursion at any depth, in the builder

@@ -16,7 +16,7 @@ fn rng(salt: u64) -> ChaChaRng {
     ChaChaRng::seed_from_u64(SEED.wrapping_add(salt))
 }
 
-/// A randomized version paired with the party that owns its id-space — the operand `tick`
+/// A randomized version paired with the party that owns its id-space, the operand `tick`
 /// needs. Returns the impl version's bytes (for fresh `decode`s) and the impl party, plus
 /// the oracle version and party.
 fn version_and_party(
@@ -65,7 +65,7 @@ fn bench_tick(c: &mut Criterion) {
     g.finish();
 }
 
-/// Repeated mutation: applying `k` ticks — fused and per-tick.
+/// Repeated mutation: applying `k` ticks, fused and per-tick.
 ///
 /// The fused series is one `ticks(k)` call (two walks at most, whatever
 /// `k`); the per-tick series applies each tick through the fill splice,
@@ -254,7 +254,7 @@ fn bench_hole(c: &mut Criterion) {
             },
         );
         // The asymmetric form: the projection against its own (small)
-        // materialization — one deep masked side against a shallow
+        // materialization: one deep masked side against a shallow
         // plain one, the shape whose interior boundaries the masked
         // walk consumes alone.
         let projected = (&version / &party).to_version();

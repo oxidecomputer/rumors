@@ -20,7 +20,7 @@ fn descend((expansions, depth): Cost) -> Cost {
     (expansions, depth + 1)
 }
 
-/// Account for turning an event leaf into the branch the recursion just walked.
+/// Account for turning an event leaf into the branch the recursion just traversed.
 fn add_expansion((expansions, depth): Cost) -> Cost {
     (expansions + 1, depth)
 }
@@ -37,7 +37,7 @@ fn left_is_cheaper(left: Option<Cost>, right: Option<Cost>) -> bool {
 /// Event component.
 ///
 /// Bases are the arbitrary-precision `BigUint`, matching the implementation's leaf
-/// payloads, so large-base differentials lower losslessly — there is no `u64`
+/// payloads, so large-base differentials lower losslessly; there is no `u64`
 /// truncation point. Literal/`u64` construction still works via
 /// `Version::leaf`/`Version::node` (both take `impl Into<BigUint>`) and the
 /// [`From<u64>`](Version) conversion.
@@ -45,7 +45,7 @@ fn left_is_cheaper(left: Option<Cost>, right: Option<Cost>) -> bool {
 /// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
 /// paper's subtree-preserving cases (`shift` rebuilding only a root, `grow`
 /// keeping the sibling it didn't inflate) share structure instead of
-/// deep-copying, which keeps every oracle walk linear in the tree it visits.
+/// deep-copying, which keeps every oracle traversal linear in the tree it visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
     Leaf(BigUint),
@@ -169,7 +169,7 @@ impl Version {
     /// Lift this event tree into absolute value by adding `off` to its root base
     /// (every value in the subtree rises by `off`).
     ///
-    /// Normal form is preserved — the children are untouched, so neither the
+    /// Normal form is preserved: the children are untouched, so neither the
     /// one-zero-base nor the non-collapsible invariant can break.
     fn shift(&self, off: &BigUint) -> Version {
         match self {
@@ -183,7 +183,7 @@ impl Version {
     /// `off`), and zero it everywhere `id` does not own.
     ///
     /// Masking rebuilds from **absolute** values because a non-negative event
-    /// base cannot be undone below a split — the same reason the impl's
+    /// base cannot be undone below a split, the same reason the impl's
     /// `project` threads its offset.
     fn project_off(&self, id: &Party, off: &BigUint) -> Version {
         match id {
@@ -210,7 +210,7 @@ impl Version {
         }
     }
 
-    /// `self / id` — the part of the version contributed within `id`'s region,
+    /// `self / id`: the part of the version contributed within `id`'s region,
     /// zero everywhere `id` does not own. The reference for the impl's quotient
     /// [`Version / &Party`](crate::Version).
     pub(crate) fn project(&self, id: &Party) -> Version {
@@ -233,7 +233,7 @@ impl Version {
         }
     }
 
-    /// The causal rank — the exact area under the event tree: a leaf is its
+    /// The causal rank, the exact area under the event tree: a leaf is its
     /// base, a node is its base plus half the sum of its children. The
     /// reference for [`Version::rank`](crate::Version::rank).
     pub fn rank(&self) -> crate::Rank {
@@ -365,7 +365,7 @@ impl Version {
         }
     }
 
-    /// `fill(id, self)` — `pub(crate)` so tests can detect when `event` takes
+    /// `fill(id, self)`, `pub(crate)` so tests can detect when `event` takes
     /// the `grow` branch (`fill` left the tree unchanged) versus the `fill`
     /// branch.
     #[cfg(test)]
@@ -384,7 +384,7 @@ impl Version {
         self.grow(id)
     }
 
-    /// `norm(self)` — `pub(crate)` so tests can normalize a raw `grow` output
+    /// `norm(self)`, `pub(crate)` so tests can normalize a raw `grow` output
     /// before comparing it to `event`'s (normalized) result.
     #[cfg(test)]
     pub(crate) fn normalized_for_test(&self) -> Version {
@@ -399,7 +399,7 @@ impl Version {
     /// family here as one list.
     ///
     /// The sequential fold of the binary meet; `None` because the
-    /// meet-semilattice has no identity (no version dominates all others) —
+    /// meet-semilattice has no identity (no version dominates all others),
     /// the same missing top that makes the production entry point seed its fold
     /// with the receiver.
     pub fn meet_all(iter: impl IntoIterator<Item = Version>) -> Option<Version> {
@@ -414,7 +414,7 @@ impl Version {
     ///
     /// The paper has no fused form, so the reference for
     /// [`Version::ticks`](crate::Version::ticks) is the definitionally
-    /// direct loop — `O(n · tree)`, fit for small `n` only (the module
+    /// direct loop, `O(n · tree)`, fit for small `n` only (the module
     /// doc's operating envelope; each differential suite caps the counts
     /// it hands this side, and wide-`n` coverage lives impl-side on
     /// composition laws and closed forms).
@@ -476,8 +476,8 @@ impl BitOrAssign<Version> for Version {
 
 // `&`/`&=` are the meet (GLB), the dual of `|`/`|=`, on `Version` only. They
 // are deliberately *not* offered on `Clock`: the id (`Party`) component has no
-// safe meet — intersecting two small disjoint shares could synthesize an
-// ancestor they share with a third live party, violating disjoint linearity —
+// safe meet: intersecting two small disjoint shares could synthesize an
+// ancestor they share with a third live party, violating disjoint linearity,
 // so the meet lives purely on the event component.
 impl BitAnd<Version> for Version {
     type Output = Version;
@@ -494,9 +494,9 @@ impl BitAndAssign<Version> for Version {
 
 // `/`/`/=` project a `Version` onto a `Party`'s region (the quotient),
 // materialized eagerly: the oracle is the *other side* of the impl's
-// projection differentials — the reference the impl's lazy view
+// projection differentials (the reference the impl's lazy view
 // (`OwnVersion`) and its `to_version()` materialization are both pinned
-// against — so it stays a plain projected `Version`, never a view. The
+// against), so it stays a plain projected `Version`, never a view. The
 // oracle `Party` is `Clone`, so the borrowed party is incidental; the
 // by-value and assign forms survive here for the oracle's own ergonomics.
 impl Div<&Party> for &Version {

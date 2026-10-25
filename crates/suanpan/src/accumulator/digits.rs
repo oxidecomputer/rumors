@@ -5,10 +5,9 @@
 //! `d[0] + d[1]B + d[2]B² + ...`.
 //!
 //! A digit may be negative, regardless of the whole value's sign, and its
-//! magnitude is kept below `2B`. This deliberate redundancy is what makes the
-//! accumulator useful: an update can change a few nearby digits without first
-//! normalizing the entire integer. Subtraction is the same operation with
-//! negative contributions.
+//! magnitude is kept below `2B`. This redundancy lets an update change a few
+//! nearby digits without first normalizing the entire integer. Subtraction is
+//! the same operation with negative contributions.
 //!
 //! The value is that sum, or its negation when a flag kept beside the digits
 //! is set, so negation flips the flag and writes no digit. The flag lives at
@@ -46,9 +45,9 @@
 //! crate's time and space bounds from them and from the written set's
 //! structure.
 //!
-//! Comparisons with zero scan downward and rewrite the part they inspect so the same
-//! cancellation is not paid for twice. A magnitude read likewise normalizes
-//! the digits it reads in place.
+//! Comparisons with zero scan downward and rewrite the part they inspect, so
+//! the same cancellation is not paid for twice. A magnitude read likewise
+//! normalizes the digits it reads in place.
 
 mod add;
 mod costs;

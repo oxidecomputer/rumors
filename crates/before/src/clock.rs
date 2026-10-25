@@ -64,7 +64,7 @@ pub struct Clock {
 }
 
 // Identity Linearity (the crate docs' second safety rule) is compiler-enforced
-// within a process because `Clock` — like the [`Party`] it owns — is `!Clone`:
+// within a process because `Clock`, like the [`Party`] it owns, is `!Clone`:
 // duplicating a live clock would put its party's share in two hands. The
 // absence is pinned here at the definition, where a tempting `derive` would
 // land.
@@ -875,7 +875,8 @@ impl Clock {
     ///   padding;
     /// - [`Decode::TrailingBits`] if either component's padding is malformed or
     ///   bytes follow the version;
-    /// - [`Decode::NotCanonical`] if either component is not in normal form;
+    /// - [`Decode::NotCanonical`] if either component is not in normal form,
+    ///   or a leaf of the version has a negative height;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity
@@ -910,12 +911,12 @@ impl Clock {
     }
 
     /// The exact length in bits of [`encode`](Self::encode) before the final
-    /// byte's padding — the marker bit and zero-pad to the byte boundary, so
+    /// byte's padding (the marker bit and zero-pad to the byte boundary), so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// The encoding byte-concatenates the [`Party`] and [`Version`] (see
-    /// [`encode`](Self::encode)), so the party occupies whole bytes — its own
-    /// padding included — and only the version's final byte is left to pad:
+    /// [`encode`](Self::encode)), so the party occupies whole bytes, its own
+    /// padding included, and only the version's final byte is left to pad:
     /// this is the byte-aligned party length plus the version's own bit
     /// length.
     ///
@@ -1006,9 +1007,9 @@ impl Debug for Clock {
 /// Generates the `Clock` join matrix.
 ///
 /// A `|` cell owns its clock operand (whichever side it is on) and returns it;
-/// a `|=` cell merges into the receiver in place. Each position — `op_l`/`op_r`
+/// a `|=` cell merges into the receiver in place. Each position (`op_l`/`op_r`
 /// for the clock as the left or right `|` operand, `as_clock` for the `|=`
-/// receiver — has its own `@cell` arm so the receiver `self` is written in the
+/// receiver) has its own `@cell` arm so the receiver `self` is written in the
 /// same expansion as the method it belongs to (`self` cannot cross a
 /// macro-invocation boundary).
 macro_rules! clock_join_matrix {
@@ -1069,14 +1070,14 @@ clock_join_matrix! {
 }
 
 // The matrix above is the entire `|` surface a `Clock` participates in, and
-// its shape is load-bearing:
+// each of these properties of it is required:
 //
 // - No cell reunites two clocks, in any borrow shape: `Clock::join` is the
 //   only reunion, fallible because it must verify the parties are disjoint,
 //   and an infallible `|` would silently merge overlapping shares.
 // - No cell borrows its clock operand: the `clock | version` impls are
 //   carried by `Clock` itself, `BitOr::bitor` takes its receiver by value,
-//   and `Clock` is `!Copy` (pinned at the definition) — so `|` moves the
+//   and `Clock` is `!Copy` (pinned at the definition), so `|` moves the
 //   clock, and any later use of it is rejected by the compiler as a
 //   use-after-move. An impl carried by `&Clock` would instead hand back a
 //   merged clock while the operand stayed live: two holders of one share.

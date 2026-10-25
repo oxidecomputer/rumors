@@ -30,7 +30,7 @@ use crate::{
 ///
 /// The encodings are prefix-free and the bytes after a tree belong to the
 /// next borsh field, so this reader pulls one byte at a time,
-/// each strictly on demand — only when the parse asks for a bit past what has
+/// each strictly on demand: only when the parse asks for a bit past what has
 /// already been read. Those bytes accumulate in `bytes`, which serves twice
 /// over: it is the decode window ([`read_bit`](BitRead::read_bit) is an
 /// index + mask into it; [`read_gamma`](BitRead::read_gamma) proves whole gamma
@@ -52,7 +52,7 @@ struct StreamBitsReader<'a, R> {
     ///
     /// `u64`, not `usize`: a field's byte count is bounded only by what the
     /// reader yields, and `8 · bytes.len()` outgrows a 32-bit `usize` from
-    /// 512 MiB of field — exactly representable here.
+    /// 512 MiB of field; `u64` represents it exactly.
     ///
     /// [`read_bit`]: BitRead::read_bit
     /// [`read_gamma`]: BitRead::read_gamma
@@ -71,7 +71,7 @@ impl<'a, R: Read> StreamBitsReader<'a, R> {
 
     /// Consume the tree's padding and hand back the field's canonical bytes.
     ///
-    /// The padding — one `1` marker, then zeros to the byte boundary — is
+    /// The padding (one `1` marker, then zeros to the byte boundary) is
     /// consumed through the same on-demand reads as the parse: when the live
     /// bits end flush against a byte boundary, the padding is a whole
     /// `1000_0000` byte the parse never pulled, and leaving it unread would
@@ -95,7 +95,7 @@ impl<'a, R: Read> StreamBitsReader<'a, R> {
 impl<R: Read> BitRead for StreamBitsReader<'_, R> {
     // The rich error type, not the in-memory reader's `Truncated`: this is the boundary
     // where `Decode::Io` enters, and it is constructed only when a read
-    // actually fails — never on the per-bit success path.
+    // actually fails, never on the per-bit success path.
     type Error = Decode;
 
     fn read_bit(&mut self) -> Result<bool, Decode> {
@@ -120,7 +120,7 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
     fn read_gamma(&mut self) -> Result<BigUint, Decode> {
         // Word fast path over the bytes already read, exactly as
         // the in-memory decoder: the window's proven bits end at the
-        // buffer's end, so it can never consume — or even inspect — a byte
+        // buffer's end, so it can never consume, or even inspect, a byte
         // the reader has not yielded, and speculative reads (which would
         // steal bytes from the next borsh field) are impossible by
         // construction. It fires when earlier refills left enough unconsumed
@@ -240,7 +240,7 @@ impl BorshDeserialize for Rank {
 ///
 /// Borsh is a transport for the one wire form, never a second format,
 /// so byte-wise order on the serialized bytes is still [`Ord`] on the
-/// views, ties included — the causal ordering survives the transport.
+/// views, ties included: the causal ordering survives the transport.
 impl BorshSerialize for Ranked<'_> {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         self.encode_to(writer)
@@ -287,8 +287,8 @@ impl BorshSerialize for Span<'_> {
 /// streams, the second parsed and validated against the first in one
 /// fused pass.
 ///
-/// [`Span::decode`]'s contract exactly — crossed and concurrent pairs
-/// rejected — with the bytes after the upper endpoint belonging to the next
+/// [`Span::decode`]'s contract exactly (crossed and concurrent pairs
+/// rejected), with the bytes after the upper endpoint belonging to the next
 /// borsh field.
 impl BorshDeserialize for Span<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
@@ -304,8 +304,8 @@ impl BorshDeserialize for Span<'static> {
             Admission::Refuted => return Err(Decode::NotCanonical.into_borsh_error()),
             // The coincident span stores one buffer twice: the admission
             // walk proved the second stream byte-equal to the first, so
-            // the join is the meet's clone — an `O(1)` refcount bump the
-            // ptr_eq fast paths then recognize — and the parsed bytes are
+            // the join is the meet's clone (an `O(1)` refcount bump the
+            // ptr_eq fast paths then recognize), and the parsed bytes are
             // dropped unstored.
             Admission::Equal => lo.clone(),
             Admission::Dominates => Version::from_canonical(Bits::from_canonical_vec(bytes)),

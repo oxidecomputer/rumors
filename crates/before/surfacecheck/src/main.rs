@@ -1,7 +1,7 @@
 //! Public-surface totality against rustdoc JSON.
 //!
 //! This binary parses `before`'s nightly rustdoc JSON, built with all features
-//! so feature-gated modules remain visible. It walks the publicly reachable
+//! so feature-gated modules remain visible. It traverses the publicly reachable
 //! item tree and gives every item exactly one disposition:
 //!
 //! - function-like items (free functions, inherent methods, and
@@ -93,7 +93,7 @@ fn main() -> ExitCode {
 
     // The format gate, before any schema-typed parse: a nightly that
     // emits a different format version must fail HERE, naming both
-    // numbers — deserializing mismatched JSON through the pinned schema
+    // numbers: deserializing mismatched JSON through the pinned schema
     // could otherwise succeed incidentally and report a wrong surface.
     let found = value.get("format_version").and_then(|v| v.as_u64());
     if found != Some(u64::from(rustdoc_types::FORMAT_VERSION)) {

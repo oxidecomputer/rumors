@@ -3556,8 +3556,8 @@ fn stagger_id(n: usize, m: usize, i: usize) -> Encoding {
 /// The staggered fold population `(versions, ids)`: all `n`
 /// [`stagger_comb`]/[`stagger_id`] operands in bit-reversed feed order.
 ///
-/// The feed order is the population's second load-bearing axis: the balanced
-/// binary-counter reduction merges arrival-adjacent inputs first, and
+/// The feed order is the second property the population depends on: the
+/// balanced binary-counter reduction merges arrival-adjacent inputs first, and
 /// bit-reversing the operand indices makes every merged pair's slot indices
 /// diverge at their *most* significant bit — so every internal merge, at every
 /// level, joins region sets that interleave maximally and swell to near the sum

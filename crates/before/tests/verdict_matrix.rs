@@ -4,9 +4,9 @@
 //! [`Version::partial_cmp`] supplies the reference relation. Projected
 //! versions, spans, ranked versions, and causal queries must agree with the
 //! corresponding relation-level result. The operand pool is derived
-//! exhaustively from the meter family registry, then closed under join and
-//! meet. Its census must include every relevant verdict class so agreement
-//! cannot pass on a degenerate population.
+//! exhaustively from the family registry (`testing::meter::registry`), then
+//! closed under join and meet. Its census must include every relevant verdict
+//! class so agreement cannot pass on a degenerate population.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -36,7 +36,7 @@ fn decode_party(encoded: &Encoding) -> Party {
 }
 
 /// The scatter population's smallest organic instance: two balanced-fork
-/// halves of one universe, one tick each — concurrent, rank-tied, and
+/// halves of one universe, one tick each: concurrent, rank-tied, and
 /// byte-distinct, the committed witness for the rank-tiebreak leg.
 fn scatter_pair() -> (Version, Version) {
     let mut a = Clock::seed();
@@ -62,7 +62,7 @@ fn weave_pair() -> (Version, Version) {
 }
 
 /// The benign control's smallest organic instance: a shared history
-/// prefix, then divergent ticks — the ordinary overlapping-past pair every
+/// prefix, then divergent ticks, the ordinary overlapping-past pair every
 /// call site holds.
 fn benign_pair() -> (Version, Version) {
     let mut a = Clock::seed();
@@ -79,8 +79,8 @@ fn benign_pair() -> (Version, Version) {
 /// coverage pattern: a new family fails to compile until it answers here,
 /// and its answer is held nonempty by the floor test below. Each arm
 /// yields the first operands of the family's registered shapes in spec
-/// order — capped at two versions and two masks, the pool-budget rule the
-/// module doc derives — at the smallest committed-valid knobs, so every
+/// order (capped at two versions and two masks, the pool-budget rule the
+/// module doc derives), at the smallest committed-valid knobs, so every
 /// operand stays tens to hundreds of bytes while keeping its
 /// family's distinguishing structure.
 fn matrix_operands(family: FamilyId) -> MatrixOperands {
@@ -397,7 +397,7 @@ struct Pool {
     /// The mask parties the masked axis cycles through.
     masks: Vec<Party>,
     /// One record per consecutive seed pair: `[a, b, meet, join]` as pool
-    /// indices — the span roster and conjunction grid derive from these.
+    /// indices; the span roster and conjunction grid derive from these.
     adjacent: Vec<[usize; 4]>,
 }
 
@@ -816,7 +816,7 @@ fn check(pool: &Pool) -> Outcome {
                 // The scheduled mask, keyed on the roster-stable ordinals.
                 // Each cell exercises the unmasked identity above and one
                 // scheduled mask; the (pair, mask) cells this leaves
-                // unexercised are the intended model — the projected-class
+                // unexercised are the intended model: the projected-class
                 // floors hold the exercised cells non-vacuous, and the
                 // masked walks' totality over mask arrangements is the
                 // differential family's charge beside `OwnVersion`'s own
@@ -915,8 +915,8 @@ fn check(pool: &Pool) -> Outcome {
             }
 
             // Placement axis, degenerate spans: a coincident span's
-            // verdicts collapse to the pairwise relation — the composed
-            // transcription with both endpoint relations equal — and
+            // verdicts collapse to the pairwise relation (the composed
+            // transcription with both endpoint relations equal), and
             // Span::new accepts exactly the ordered pairs.
             let place = at_j.place(vi);
             outcome.census.placements.insert(placement_label(place));
@@ -1167,8 +1167,8 @@ fn every_family_answers_the_matrix_coverage_question() {
     );
 }
 
-/// The pool witnesses every sweep verdict class — less, equal, greater,
-/// and concurrent — so no axis of the matrix can pass on a vacuous
+/// The pool witnesses every sweep verdict class (less, equal, greater,
+/// and concurrent), so no axis of the matrix can pass on a vacuous
 /// population.
 #[test]
 fn pool_witnesses_every_verdict_class() {
@@ -1206,7 +1206,7 @@ fn verdict_class_floors_read_red_on_degenerate_pools() {
 /// The production verdict matrix: every surface on the axis roster
 /// agrees on every ordered pool pair, with every liveness floor holding.
 ///
-/// The floors: every verdict class — plain and projected — placement,
+/// The floors: every verdict class (plain and projected), placement,
 /// dominance, precedence, coverage, and membership witnessed, and at
 /// least one distinct-version rank tie exercising the byte tiebreak.
 #[test]

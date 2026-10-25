@@ -222,11 +222,11 @@ pub(super) struct CellResult {
     pub(super) red: Vec<&'static str>,
 }
 
-/// Score one window (a cell's two samples — two sizes — at one sampling
+/// Score one window (a cell's two samples, two sizes, at one sampling
 /// scale) against the ceilings, the declared models, and the liveness
 /// floors.
 ///
-/// The exponent legs are judged at the supplied fits — the trend over every
+/// The exponent legs are judged at the supplied fits: the trend over every
 /// point the run measured, which for a single-scale run is exactly this
 /// window and for the acceptance judgment spans the whole ladder.
 ///

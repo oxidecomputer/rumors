@@ -1,5 +1,5 @@
 //! Checks for the `usize` scan over rustdoc's type grammar, and for the
-//! reachability walk over module graphs with cycles.
+//! reachability traversal over module graphs with cycles.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -151,7 +151,7 @@ fn function(id: u32, name: &str) -> Item {
     item(id, Some(name), inner)
 }
 
-/// The walk terminates on a module graph with cycles, and records every
+/// The traversal terminates on a module graph with cycles, and records every
 /// spelling whose path passes through no module twice.
 ///
 /// Module `a` re-exports itself by name as `again`, which lengthens the path

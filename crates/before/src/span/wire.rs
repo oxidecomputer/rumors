@@ -1,6 +1,6 @@
 //! [`Span`]'s canonical byte encoding and strict decoder.
 //!
-//! The composite is the two endpoints' canonical encodings concatenated —
+//! The composite is the two endpoints' canonical encodings concatenated:
 //! each byte-aligned, independently canonical, and self-delimiting, so no
 //! length prefix is needed. Decoding validates both component encodings and
 //! their order before constructing the span.

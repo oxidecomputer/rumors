@@ -394,7 +394,7 @@ impl<const N: usize> From<Party> for [Party; N] {
         const { assert!(N >= 1, "a `Party` cannot fork into zero shares") }
         let mut partition = party.into_shares(N);
         // `from_fn` calls indices `0..N` in order, and the consuming traversal
-        // yields in preorder, so share `i` lands at index `i` — the same order
+        // yields in preorder, so share `i` lands at index `i`, the same order
         // `forks` hands them out.
         let shares = core::array::from_fn(|_| {
             partition

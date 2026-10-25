@@ -6,6 +6,14 @@
 //! validates the complete stream before adopting its bytes. Domain readers and
 //! writers traverse this storage without reconstructing trees or exposing bit
 //! operations to the tree algorithms.
+//!
+//! A *walk* is a single left-to-right pass over one or more encoded trees'
+//! preorder bit streams, as opposed to a *traversal* of a structure held in
+//! memory, such as an explicit stack or a recursive oracle's tree. The crate's
+//! docs use the word in this sense, as do
+//! [`TickWalk`](crate::version::tick::TickWalk),
+//! [`VersionWalk`](crate::version::shape::VersionWalk), and
+//! [`PartyWalk`](crate::version::shape::PartyWalk).
 
 mod reader;
 pub mod stack;

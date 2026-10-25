@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 /// Every allowed public re-export of a dependency (`pub use`,
 /// `pub extern crate`, or a `pub type` alias of a foreign type), as
-/// `(file, line-content)` — empty at this tip: `before` re-exports no
+/// `(file, line-content)`, empty at this tip: `before` re-exports no
 /// foreign surface.
 const FOREIGN_REEXPORT_ROSTER: &[(&str, &str)] = &[];
 

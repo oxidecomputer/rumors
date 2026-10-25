@@ -130,8 +130,8 @@ fn truncated_borsh_stream_reports_unexpected_eof() {
 /// A canonicality violation crosses the borsh boundary as `InvalidData`
 /// carrying the exact [`Decode`] variant, never conflated with truncation.
 ///
-/// The input is the collapsible id `(1, 1)` — tag `11`, then two terminal
-/// `00`s — which id normal form forbids ([`Decode::NotCanonical`]).
+/// The input is the collapsible id `(1, 1)` (tag `11`, then two terminal
+/// `00`s), which id normal form forbids ([`Decode::NotCanonical`]).
 #[test]
 fn non_canonical_borsh_bytes_report_invalid_data() {
     let err = Party::try_from_slice(&[0b1100_0000]).unwrap_err();
@@ -229,7 +229,7 @@ proptest! {
     /// Both decoding APIs classify a party missing its full padding byte as truncated.
     ///
     /// `UnexpectedEof` from the borsh reader, [`Decode::Truncated`] from
-    /// the whole-slice decode — at the end of the input (`Party`) and at
+    /// the whole-slice decode, at the end of the input (`Party`) and at
     /// the boundary inside a clock, where the party lacks its padding byte and
     /// the version is absent.
     #[test]
@@ -284,7 +284,7 @@ proptest! {
 /// `fork; fork; join` reunites two quarter-regions into `(0, 1)`, normalizing
 /// the build buffer's tree to a smaller one. The collapse sheds bits into the
 /// buffer's final byte, where an unsealed freeze would leave them for
-/// [`as_bytes`](Party::as_bytes) — which borsh serializes — to carry as
+/// [`as_bytes`](Party::as_bytes), which borsh serializes, to carry as
 /// bytes that `Party::decode` would reject as `TrailingBits`. The chosen joins
 /// force that collapse before the round-trip assertion.
 #[test]
@@ -315,7 +315,7 @@ fn joined_party_roundtrips_through_borsh() {
 proptest! {
     /// Every `Party`/`Version`/`Clock` reachable by an arbitrary
     /// production-side op-trace history (via [`step_impl`]), wide tick counts
-    /// included, round-trips through borsh — the
+    /// included, round-trips through borsh, the
     /// on-wire form the gossip protocol ships.
     ///
     /// Drives the impl's own operations, not oracle-lowered values, so it
@@ -349,8 +349,8 @@ proptest! {
 // ─────────────── wire cursor ≡ per-bit reference (differential) ───────────────
 //
 // `StreamBitsReader` reads bits by byte-index and integers through the word
-// window over its already-read bytes; the per-bit cursor below — a growing
-// bit buffer, per-bit reads only — is the specification. These tests pin the
+// window over its already-read bytes; the per-bit cursor below (a growing
+// bit buffer, per-bit reads only) is the specification. These tests pin the
 // wire decode to it differentially: same accepts, same rejects, same error
 // variants, and byte-for-byte identical consumption from the reader.
 
@@ -384,7 +384,7 @@ impl<R: Read> BitRead for BitwiseStreamReader<'_, R> {
 }
 
 /// Consume a tree's padding through per-bit reads: one `1` marker, then
-/// zeros to the byte boundary — reading the whole-byte marker when the
+/// zeros to the byte boundary, reading the whole-byte marker when the
 /// live bits end flush against a boundary, exactly as the wire cursor's
 /// `finish` does.
 fn reference_consume_padding<R: Read>(
@@ -423,7 +423,7 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
 ///
 /// Replicates the wire pipeline stage for stage: parse, padding
 /// consumption, truncate to the consumed live bits. The id grammar has no
-/// empty production, so the parsed id is a nonzero share — exactly as
+/// empty production, so the parsed id is a nonzero share, exactly as
 /// `Party::deserialize_reader` relies on.
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let mut cursor = BitwiseStreamReader {
@@ -483,8 +483,8 @@ proptest! {
     /// The windowed wire cursor decodes a `Version` stream exactly like the
     /// per-bit reference: same value or same error, same bytes consumed.
     ///
-    /// Byte consumption is the wire contract — the bytes after the encoding
-    /// belong to the next borsh field — so it is asserted unconditionally,
+    /// Byte consumption is the wire contract (the bytes after the encoding
+    /// belong to the next borsh field), so it is asserted unconditionally,
     /// on accepts and rejects alike. Streams cover canonical encodings, bit
     /// flips, truncations, raw noise, and trailing junk.
     #[test]
@@ -537,7 +537,7 @@ proptest! {
     }
 }
 
-/// Decode one clock — an id tree, then an event tree — per-bit through
+/// Decode one clock (an id tree, then an event tree) per-bit through
 /// [`BitwiseStreamReader`], replicating the wire entry point's composition: the
 /// version decode starts exactly where the party decode stopped.
 fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
@@ -546,8 +546,8 @@ fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
     Ok(Clock::from_parts(party, version))
 }
 
-/// Decode one composite key — a self-delimiting rank stream, then an
-/// version skyline — with the version leg per-bit through
+/// Decode one composite key (a self-delimiting rank stream, then an
+/// version skyline) with the version leg per-bit through
 /// [`BitwiseStreamReader`] and the wire entry point's own cross-check after it.
 ///
 /// The rank stream has exactly one parser, shared with the wire entry point
@@ -571,8 +571,8 @@ fn reference_ranked<R: Read>(reader: &mut R) -> Result<Ranked<'static>, Decode> 
 /// replicating the wire pipeline stage for stage.
 ///
 /// The stages, in the wire entry point's order: the meet's tree and padding, the
-/// fused admission walk over the join, the join's padding consumption —
-/// which outranks the pair verdict — then the verdict.
+/// fused admission walk over the join, the join's padding consumption,
+/// which outranks the pair verdict, then the verdict.
 fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
     let lo = reference_version(reader)?;
     let mut cursor = BitwiseStreamReader {
@@ -594,8 +594,8 @@ fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
 }
 
 proptest! {
-    /// The windowed wire cursor decodes a `Clock` stream — an id tree,
-    /// then an event tree — exactly like the per-bit reference: same
+    /// The windowed wire cursor decodes a `Clock` stream (an id tree,
+    /// then an event tree) exactly like the per-bit reference: same
     /// value or same error, same bytes consumed.
     ///
     /// The clock entry point is the two component entry points composed, so beyond the
@@ -637,7 +637,7 @@ proptest! {
     /// consumed.
     ///
     /// The rank stream has exactly one parser, shared by both sides, so
-    /// the differential surface is the version leg — window, refills, and
+    /// the differential surface is the version leg: window, refills, and
     /// padding handling and the mismatched-pair cross-check around it,
     /// which bit flips in the rank prefix breed. Streams cover canonical
     /// composite keys, bit flips, truncations, raw noise, and trailing
@@ -790,7 +790,7 @@ proptest! {
     /// value while consuming exactly the encoding's bytes.
     ///
     /// The encodings are prefix-free with no length prefix, so the decoder
-    /// must find its own end: the trailing bytes — the next borsh fields —
+    /// must find its own end: the trailing bytes (the next borsh fields)
     /// stay in the reader untouched, for every `Party`/`Version`/`Clock` an
     /// impl-driven history reaches. A `Clock` doubles as the composition
     /// witness: its `Version` decode starts wherever its `Party` decode
@@ -873,8 +873,8 @@ fn deep_trees_roundtrip_through_borsh() {
 
 // ─────────────────────────────── rank ───────────────────────────────
 
-/// A [`Rank`]'s borsh bytes are exactly its canonical encoding — no
-/// length prefix, no second format — and the [`Ranked`] view
+/// A [`Rank`]'s borsh bytes are exactly its canonical encoding, with no
+/// length prefix and no second format, and the [`Ranked`] view
 /// serializes its own composite key; both round-trip.
 ///
 /// Zero, an integral-only rank, and a deep small fraction cover the
@@ -1000,8 +1000,8 @@ fn rank_borsh_preserves_decode_errors() {
 }
 
 proptest! {
-    /// Version-derived ranks round-trip through borsh, and — the raw
-    /// framing's inheritance — byte-wise order on the serialized
+    /// Version-derived ranks round-trip through borsh, and (the raw
+    /// framing's inheritance) byte-wise order on the serialized
     /// bytes is rank order, the lexicographic law surviving the
     /// transport unchanged.
     #[test]
@@ -1130,7 +1130,7 @@ proptest! {
 /// pairs `(A, B)`, serializing `a` then `b` into one stream and reading
 /// them back field by field consumes exactly the first encoding's bytes
 /// before the second begins, leaves nothing after the second, and each
-/// recovered value re-serializes to exactly its own segment — so no
+/// recovered value re-serializes to exactly its own segment, so no
 /// type's decoder can over- or under-read into a neighbor of any type.
 #[test]
 fn borsh_every_type_pair_composes_with_exact_boundaries() {
@@ -1231,7 +1231,7 @@ fn borsh_every_type_pair_composes_with_exact_boundaries() {
 /// self-delimiting encoding: a set padding bit inside the middle
 /// element's final byte crosses the boundary as `InvalidData` carrying
 /// [`Decode::TrailingBits`], and a stream cut inside the middle element
-/// surfaces as the reader's own `UnexpectedEof` — the sequence context
+/// surfaces as the reader's own `UnexpectedEof`: the sequence context
 /// neither masks the error nor shifts its attribution, and the
 /// same corrupted stream still yields element 0 when read field by
 /// field.
@@ -1350,7 +1350,7 @@ fn coincident_span_keeps_borsh_container_framing() {
 /// The Equal arm drops the parsed join bits and stores the meet's
 /// clone, so a rewrite that settled the verdict before the cursor's
 /// final-byte padding check would accept a dirty join stream and
-/// re-encode it clean — invisible to every round-trip assert. The
+/// re-encode it clean, invisible to every round-trip assert. The
 /// padding check outranks the pair verdict at this entry point exactly as the
 /// byte-slice decode orders them.
 #[test]
@@ -1383,7 +1383,7 @@ fn coincident_span_borsh_rejects_tampered_join_padding() {
 /// wire path too.
 ///
 /// The bytes are the fuzz seed set's `span_negative_join` witness: a
-/// canonical empty meet, then a join whose height dips negative — root
+/// canonical empty meet, then a join whose height dips negative: root
 /// internal `0`, left leaf height gamma(0), right leaf delta zigzag(-1),
 /// padding marker. No encode produces it, so only a constructed stream
 /// reaches the verdict's rejection arm under a `StreamBitsReader`; it rides
@@ -1412,7 +1412,7 @@ fn span_borsh_rejects_negative_height_join() {
 /// close-out canonicality check fires under a `StreamBitsReader` too.
 ///
 /// The bytes are a canonical empty meet, then an internal node whose two
-/// leaf children carry height 0 and delta 0 — a sibling pair normal form
+/// leaf children carry height 0 and delta 0, a sibling pair normal form
 /// forbids. It rides beside
 /// [`span_wire_decode_matches_bitwise_reference`] as a direct check of the
 /// final canonicality check.

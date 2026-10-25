@@ -29,18 +29,18 @@
 //!
 //! Groups are named by the borrowed inputs their predicates take: [`Version`]s
 //! are any canonical versions, [`Party`]s are any *live* (non-anonymous)
-//! parties — exactly what `decode` accepts and the crate can construct —
+//! parties (exactly what `decode` accepts and the crate can construct),
 //! [`Rank`]s are any ranks, and [`Clock`]s are any canonical party/version
-//! pairings. The list groups take a slice of the same inputs at *any* arity —
+//! pairings. The list groups take a slice of the same inputs at *any* arity:
 //! the length is a quantified variable, and every driver sweeps it across the
 //! balanced fold's structural boundaries (the drivers' strategies document the
-//! derivation) — and the receiver-and-items groups additionally distinguish the
+//! derivation), and the receiver-and-items groups additionally distinguish the
 //! element the operation's receiver supplies.
 //!
 //! # Linearity
 //!
 //! `Party` and `Clock` are `!Clone`, and the operations under law (`fork`,
-//! `join`, `tick`, `without`, `sync`) consume or mutate their operands — a
+//! `join`, `tick`, `without`, `sync`) consume or mutate their operands; a
 //! shared borrow alone cannot exercise them. Every predicate therefore takes
 //! shared borrows and materializes its own working copies with
 //! [`Party::dangerously_alias`] / [`Clock::dangerously_alias`]: the aliases
@@ -54,7 +54,7 @@
 //! Laws over fallible operations (`Party::join` and friends return `Result`)
 //! quantify over the *outcome*: both sides of an equation must agree in arm
 //! (`Ok`/`Err`) **and** payload. "Join is commutative" means both orders accept
-//! the same pairs and produce equal unions — and hand back equal values when
+//! the same pairs and produce equal unions, and hand back equal values when
 //! they refuse.
 
 // The group statics are slices of (name, fn pointer) tuples: the fn-pointer
@@ -119,7 +119,7 @@ macro_rules! for_each_law_group {
 /// Emits the registration surface from the roster.
 ///
 /// The name chain (`registered_names`) and the group list (`REGISTERED_GROUPS`)
-/// — both test-only, so code spans rather than links here — expand from
+/// (both test-only, so code spans rather than links here) expand from
 /// `for_each_law_group!`'s single spelling, so they cannot drift from each
 /// other or from what the derived drivers execute.
 #[cfg(test)]
@@ -127,8 +127,8 @@ macro_rules! emit_registration {
     (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         /// Every registered law name, across all groups.
         ///
-        /// The collection read from the tables themselves — the same entries
-        /// the roster-derived drivers execute — so anything that consumes law
+        /// The collection read from the tables themselves (the same entries
+        /// the roster-derived drivers execute), so anything that consumes law
         /// names (currently the uniqueness pin) resolves against what actually
         /// runs, never against a text scan that a stray same-named `fn` could
         /// satisfy.
@@ -138,7 +138,7 @@ macro_rules! emit_registration {
                 .collect()
         }
 
-        /// Every group static the roster carries, by name — the same single
+        /// Every group static the roster carries, by name: the same single
         /// list, stringified, for the totality pin against the `pub static`
         /// declarations in the focused law modules.
         pub(crate) const REGISTERED_GROUPS: &[&str] = &[$(stringify!($group)),*];
@@ -154,7 +154,7 @@ crate::for_each_law_group!(emit_registration);
 /// The header names the group and the parameters every law in the block shares;
 /// each `fn` that follows is one law. The macro gives the predicate the
 /// header's parameters and its `-> bool` return, and registers it in the slice
-/// under its own name (`stringify!`ed) — a law cannot be written without being
+/// under its own name (`stringify!`ed): a law cannot be written without being
 /// registered, nor registered under a name that is not its own. A law that
 /// deliberately ignores an input restates the parameter list with its own names
 /// (`fn law(a, b, _c) { ... }`), arity-checked against the header; the types

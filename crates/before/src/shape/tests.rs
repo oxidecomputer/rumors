@@ -38,7 +38,7 @@ proptest! {
     }
 
     /// The causal order agrees with the pointwise order over combined
-    /// shapes: `a <= b` iff no cell's height crosses, in each direction —
+    /// shapes: `a <= b` iff no cell's height crosses, in each direction;
     /// the public-entry point witness of the comparison kernel.
     #[test]
     fn comparison_agrees_with_pointwise_order(

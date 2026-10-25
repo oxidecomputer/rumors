@@ -34,7 +34,7 @@ use crate::Version;
 
 /// A validating leaf cursor over one untrusted Version stream.
 ///
-/// [`VersionRegionReader`]'s region vocabulary — depth, done, step — with the strict
+/// [`VersionRegionReader`]'s region vocabulary (depth, done, step), with the strict
 /// validator's obligations folded into the same reads: truncation surfaces as
 /// the cursor's own errors, and minimal topology (no collapsible sibling pair)
 /// is checked as each internal node closes. It need not track `hi`'s height
@@ -44,8 +44,8 @@ use crate::Version;
 /// Two parallel per-ancestor bit stacks ride the walk: the branch path (the
 /// advance law's tie test, as [`VersionRegionReader`]'s), and the validator's
 /// left-was-leaf bits (what the sibling-collapse check reads at each close).
-/// `open_lefts` counts the path's left branches, so exhaustion — the tree's
-/// root completing — is an O(1) question where the path itself would need a
+/// `open_lefts` counts the path's left branches, so exhaustion (the tree's
+/// root completing) is an O(1) question where the path itself would need a
 /// full scan.
 struct CheckedVersionReader<'a, C> {
     cursor: &'a mut C,
@@ -56,13 +56,13 @@ struct CheckedVersionReader<'a, C> {
     /// placeholder `false` until that child completes).
     left_was_leaf: BitStack,
     /// The count of `false` bits in `path`: zero exactly when the current
-    /// leaf's plateau ends at the unit interval's right edge — the tree is
+    /// leaf's plateau ends at the unit interval's right edge: the tree is
     /// whole and the stream's bits end here.
     ///
     /// `u64`, as the path height it counts within: each open left branch
     /// is one stored path bit.
     open_lefts: u64,
-    /// Whether the current leaf's payload code was zero — the collapsible-pair
+    /// Whether the current leaf's payload code was zero, the collapsible-pair
     /// check's right-child half. Never read for the first leaf (preorder puts
     /// it leftmost, so it is no ancestor's right child).
     last_delta_zero: bool,
@@ -211,7 +211,7 @@ pub enum Admission {
     /// interval sits strictly above.
     Dominates,
     /// Dominance refuted: some elementary interval has `lo` strictly above the
-    /// parsed stream. The pair is crossed or concurrent — no span encodes it.
+    /// parsed stream. The pair is crossed or concurrent; no span encodes it.
     ///
     /// This also covers a parsed stream whose running height becomes negative:
     /// such a stream cannot dominate the nonnegative `lo`. Callers therefore
@@ -220,11 +220,11 @@ pub enum Admission {
 }
 
 /// Strictly parse one Version tree from `cursor`, deciding in the same pass
-/// whether its version dominates — or equals — the canonical stream `lo` (`lo
+/// whether its version dominates, or equals, the canonical stream `lo` (`lo
 /// <= hi` pointwise over the party space).
 ///
 /// Returns with the cursor just past the tree, carrying the [`Admission`]
-/// verdict. The walk never pronounces the pair rejection itself — the caller
+/// verdict. The walk never pronounces the pair rejection itself: the caller
 /// first checks the required marker and zero padding, then converts a
 /// [`Refuted`](Admission::Refuted) verdict to [`Decode::NotCanonical`]. This
 /// preserves structural errors found while parsing the complete stream.
@@ -243,7 +243,7 @@ pub enum Admission {
 ///
 /// # Panics
 ///
-/// `lo` must be a canonical Version stream — its cursor is the pair sweep's and
+/// `lo` must be a canonical Version stream: its cursor is the pair sweep's and
 /// shares [`Version::partial_cmp`]'s contract. The parsed
 /// stream needs no such trust; that is the point.
 pub fn dominating_from<C: BitRead>(lo: &Version, cursor: &mut C) -> Result<Admission, Decode>
@@ -259,7 +259,7 @@ where
     diff.sub_shifted_limbs(0, hi_first.iter_u64_digits());
     // Equality rides the same sign reads: the pair is equal exactly when no
     // elementary interval reads a strict `Less` (and none reads `Greater`,
-    // which refutes outright) — canonical uniqueness then makes the verdict
+    // which refutes outright); canonical uniqueness then makes the verdict
     // byte equality of the two streams.
     let mut equal = true;
     loop {

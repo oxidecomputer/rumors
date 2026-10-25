@@ -66,7 +66,7 @@ fn empty_version_is_the_two_bit_stream() {
 
 /// One fork `(1, 0, 2)` codes as hand-derived: 3 topology bits, `gamma(1)` for
 /// the first leaf (height 1), and `zigzag(+2) = 4 -> gamma(4)` for the second
-/// (height 3), 11 bits total — and round-trips.
+/// (height 3), 11 bits total, and round-trips.
 #[test]
 fn one_fork_matches_hand_derivation() {
     let v = from_oracle_version(&tree::Version::node(
@@ -109,8 +109,8 @@ fn rejects_zero_right_sibling_delta() {
     assert!(matches!(whole(bits.reader()), Err(Decode::NotCanonical)));
 }
 
-/// A collapsible sibling pair whose closing ancestor is NOT the root —
-/// root(leaf 5, node(leaf 5, leaf 5)), the pair closing one level down — is
+/// A collapsible sibling pair whose closing ancestor is NOT the root,
+/// root(leaf 5, node(leaf 5, leaf 5)), the pair closing one level down, is
 /// rejected as [`Decode::NotCanonical`].
 ///
 /// This ensures validation checks every completed sibling pair, not only the
@@ -123,7 +123,7 @@ fn rejects_non_root_collapsible_pair() {
     push_leaf(&mut bits, 5); // gamma(5): the first leaf, absolute
     bits.push(false); // right child: internal
     push_leaf(&mut bits, 0); // zigzag(0): leaf 5 again, non-sibling (legal)
-    push_leaf(&mut bits, 0); // zigzag(0): its equal sibling — the pair
+    push_leaf(&mut bits, 0); // zigzag(0): its equal sibling, the pair
     assert!(matches!(whole(bits.reader()), Err(Decode::NotCanonical)));
 }
 
@@ -152,13 +152,13 @@ fn leaf_code_ranges(bits: &BitsWriter) -> Vec<(u64, u64)> {
 
 proptest! {
     /// Splitting any single leaf of a canonical stream into an equal-sibling
-    /// zero-delta pair — the collapsible pair, planted at a proptest-chosen
-    /// preorder position — is rejected as [`Decode::NotCanonical`].
+    /// zero-delta pair (the collapsible pair, planted at a proptest-chosen
+    /// preorder position) is rejected as [`Decode::NotCanonical`].
     ///
     /// Generalizes the hand-pinned pair rejects beyond the root-sibling
     /// position: the planted node closes at an arbitrary ancestor depth, so a
     /// validator weakened to judge pairs only at particular closes reads red
-    /// here. The suffix rides verbatim — the planted sibling's zero delta
+    /// here. The suffix rides verbatim: the planted sibling's zero delta
     /// leaves the running height unchanged, so every later delta stays valid
     /// and the stream stays well-formed; only canonicality breaks.
     #[test]
@@ -184,7 +184,7 @@ proptest! {
 /// expected version.
 #[test]
 fn accepts_zero_delta_across_a_subtree_boundary() {
-    // (0, (0, 0, 1), 1): preorder leaves 0, 1, 1 — the second delta is 0, legal
+    // (0, (0, 0, 1), 1): preorder leaves 0, 1, 1; the second delta is 0, legal
     // because the leaves flank a subtree boundary.
     let expected = from_oracle_version(&tree::Version::node(
         0u64,
@@ -204,7 +204,7 @@ fn accepts_zero_delta_across_a_subtree_boundary() {
 
 /// A delta that drives the running leaf height negative is rejected as
 /// [`Decode::NotCanonical`]: leaf heights are naturals, and no topology bit can
-/// see this — only the running value state can.
+/// see this; only the running value state can.
 #[test]
 fn rejects_negative_running_height() {
     // (1, -1): internal root, leaf height 1, then delta -2.
@@ -279,7 +279,7 @@ fn rejects_trailing_bits() {
 /// The zigzag map is a bijection with no negative-zero spelling, checked
 /// exhaustively at small scope.
 ///
-/// This is why the reject corpus has no "non-canonical zigzag" member — the
+/// This is why the reject corpus has no "non-canonical zigzag" member: the
 /// class is empty by construction, as is non-minimal gamma (a prefix code with
 /// one spelling per natural).
 #[test]
@@ -496,7 +496,7 @@ fn assert_mutation_never_aliases(v: &Version, bits: &BitsWriter, flip: u64) {
 }
 
 /// Exhaustive small scope: flipping any single bit of any depth-2 normal form's
-/// encoding either rejects or round-trips to a different canonical value — no
+/// encoding either rejects or round-trips to a different canonical value, with no
 /// silent acceptance of non-canonical spellings.
 #[test]
 fn exhaustive_single_bit_mutations_never_alias() {

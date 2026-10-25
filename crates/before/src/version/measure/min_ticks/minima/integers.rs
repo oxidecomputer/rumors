@@ -20,9 +20,13 @@ pub(super) mod tests;
 /// The widest magnitude, in bits, packed into the shared bit stack.
 ///
 /// A wider magnitude pays a separate allocation's fixed cost, so a client
-/// should push one only when it has input to charge that cost to. `min_ticks`
-/// does: a record offset this wide comes from a leaf whose own height change
-/// is at least `PACKED_BITS − RECORD_SLACK_BITS` bits.
+/// should push one only when input pays for that cost or a constant bounds
+/// it. The stack's uses in `min_ticks` meet that condition: a record offset
+/// this wide comes from a leaf whose own height change is at least
+/// `PACKED_BITS − RECORD_SLACK_BITS` bits, which pays for the allocation,
+/// and a copied reference chunk is at most two bits wider than this bound,
+/// so its allocation costs a constant, as
+/// [`INLINE_CHUNK_BITS`](super::heights::INLINE_CHUNK_BITS) explains.
 pub const PACKED_BITS: u64 = 256;
 
 /// Limbs of a packed magnitude at most.

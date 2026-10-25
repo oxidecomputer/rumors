@@ -655,7 +655,7 @@ fn rendered_holes<P: Polarity>(q: &Query<'_, P>) -> usize {
 }
 
 /// Every atom, negation, widening, and strict form keeps exactly its
-/// advertised relation on an organic witness set — the point verdicts
+/// advertised relation on an organic witness set: the point verdicts
 /// the quantified laws sweep, pinned here against named versions.
 #[test]
 fn forms_keep_their_relations() {
@@ -703,7 +703,7 @@ fn forms_keep_their_relations() {
 /// Conjunction normalizes to the collapse laws.
 ///
 /// Elementary bounds join and meet, comparable holes absorb, holes
-/// the merged bounds avoid are pruned — and strictness dissolves
+/// the merged bounds avoid are pruned, and strictness dissolves
 /// across concurrent bounds, because the join sits strictly above
 /// both. The hole census is read through the `Debug` window, the
 /// module's one structural surface.
@@ -746,7 +746,7 @@ fn conjunction_normalizes() {
 }
 
 /// Coverage's three verdicts on an organic witness matrix: full,
-/// empty (by floor, by ceiling, and by hole), and genuinely mixed —
+/// empty (by floor, by ceiling, and by hole), and genuinely mixed,
 /// with the coincident span degenerating to membership.
 #[test]
 fn coverage_witness_matrix() {
@@ -814,8 +814,8 @@ fn coverage_clamp_refinement_is_exact() {
     let a2b1 = &a2 | &b1;
     let a1b2 = &a1 | &b2;
 
-    // Floor and ceiling each straddle [a1, a2b1] — the fused folds
-    // alone read mixed — but nothing is at once above a2 and within
+    // Floor and ceiling each straddle [a1, a2b1] (the fused folds
+    // alone read mixed), but nothing is at once above a2 and within
     // a1b1: the clamp crosses.
     let crossed = after(&a2) & before(&a1b1);
     let span = a1.span(&a2b1);
@@ -1410,7 +1410,7 @@ proptest! {
     }
 }
 
-/// A degenerate hole — one nothing can fall into — rides through
+/// A degenerate hole, one nothing can fall into, rides through
 /// inert: it subtracts nothing on every path, and no corner-case
 /// machinery exists (or is needed) to strip it.
 #[test]
@@ -1463,8 +1463,8 @@ fn conversions_denote() {
     assert!(!owned.contains(&w.b1));
 }
 
-/// `Debug` renders the expression vocabulary — the module's one
-/// structural window — with holes as the negated atoms they equal.
+/// `Debug` renders the expression vocabulary (the module's one
+/// structural window), with holes as the negated atoms they equal.
 #[test]
 fn debug_renders_expressions() {
     let w = witnesses();

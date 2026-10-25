@@ -34,8 +34,8 @@ pub struct Limbs(Storage);
 /// Where the limbs live.
 ///
 /// The inline variants fit beside `Vec`'s own niche, so `Limbs` is no larger
-/// than the `Vec` alone: a caller storing many of them, as `before`'s
-/// deferred integrals do, pays nothing for the inline cases.
+/// than the `Vec` alone: a caller storing many of them pays nothing for the
+/// inline cases.
 #[derive(Clone)]
 enum Storage {
     /// No limbs: the magnitude is zero.

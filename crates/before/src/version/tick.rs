@@ -379,7 +379,7 @@ impl TickWalk<'_> {
                 }
                 // An ordinary node: the left child first; the party cursor then
                 // sits exactly at the right child's tag, so an owned right child
-                // is one `O(1)` peek on the way back up — no lookahead over the
+                // is one `O(1)` peek on the way back up, with no lookahead over the
                 // left party subtree.
                 frames.push_node(key, branch.has_right_child());
                 self.minima.open(1);

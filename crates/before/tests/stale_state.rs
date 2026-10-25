@@ -2,7 +2,7 @@
 //! into play.
 //!
 //! A version carries no record of who ticked it, and a party's tick is a
-//! pure function of the version it is applied to — so re-running a party
+//! pure function of the version it is applied to, so re-running a party
 //! over a duplicated version produces the same successors. For a
 //! *version* that is valid use: a version records causal knowledge, not
 //! event identity, and duplicating one to stamp divergent timelines is
@@ -24,7 +24,7 @@ use before::{Clock, Party, Version};
 /// produces equal versions.
 ///
 /// Valid by the model: the two timelines carry equal causal knowledge,
-/// so their stamps compare equal — a version is not an event identifier.
+/// so their stamps compare equal: a version is not an event identifier.
 #[test]
 fn same_party_ticks_on_divergent_clones_produce_equal_versions() {
     let p = Party::seed();
@@ -61,7 +61,7 @@ fn join_of_same_party_ticked_clones_equals_either_line() {
 ///
 /// A clock backed up (encode), advanced (tick = event X), then restored
 /// from the backup and ticked again (event Y) hands both events the
-/// *same* version — and the restored party overlaps the original, so
+/// *same* version, and the restored party overlaps the original, so
 /// the system holds two live non-disjoint parties from one seed and
 /// zero forks.
 #[test]
@@ -83,7 +83,7 @@ fn restored_pre_tick_clock_conflates_without_any_fork() {
 ///
 /// Valid by the model: the party is the moved, latest state of the
 /// identity, and the version it is paired with is knowledge, free to
-/// duplicate — the pairing entry point is a version-duplication site.
+/// duplicate: the pairing entry point is a version-duplication site.
 #[test]
 fn from_parts_over_an_earlier_version_reproduces_its_successor() {
     let mut c = Clock::seed();

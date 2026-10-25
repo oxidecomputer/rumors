@@ -103,8 +103,8 @@ macro_rules! group_drivers {
             /// fork-derived disjoint party pairs.
             ///
             /// The pair is the paper split of one arbitrary nonempty
-            /// region — two nonempty disjoint halves, run in both operand
-            /// orders — so the population premise the group's descriptors
+            /// region (two nonempty disjoint halves, run in both operand
+            /// orders), so the population premise the group's descriptors
             /// rest on holds on every case, and is asserted rather than
             /// assumed.
             #[test]
@@ -189,7 +189,7 @@ mod deep;
 struct Organic<'a> {
     /// Three versions from the trace, causally related.
     v: [&'a tree::Version; 3],
-    /// Two live parties from the same trace — distinct picks are disjoint by
+    /// Two live parties from the same trace: distinct picks are disjoint by
     /// single-seed linearity, but the pairing indices are independent, so
     /// the two may be the same clock's party (overlapping with itself).
     p: [&'a tree::Party; 2],
@@ -216,7 +216,7 @@ macro_rules! organic_drive {
     };
     // A disjoint organic pair is derived, never picked: the two picks may
     // alias the same clock's party (the pairing indices are independent), so
-    // the arm forks one organic region into its two disjoint halves — the
+    // the arm forks one organic region into its two disjoint halves, the
     // same derivation as the arbitrary driver, on organic shapes.
     (@one $env:expr, $group:ident, (disjoint_party, disjoint_party)) => {
         let mut left = ::core::clone::Clone::clone($env.p[0]);
@@ -248,7 +248,7 @@ proptest! {
     ///
     /// The drive list runs twice per case, over two pairings of the same
     /// picks. In the first, each version travels with its *own* clock's
-    /// party — the regime where that party owns exactly the regions the
+    /// party, the regime where that party owns exactly the regions the
     /// version may advance. In the second the parties are exchanged, so a version
     /// meets a sibling's region: the cross-region shapes masking and
     /// projection answer non-trivially on.

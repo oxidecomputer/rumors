@@ -11,9 +11,9 @@ over the most adversarially pessimal inputs.
 
 A causal clock answers the question wall-clock time cannot: given two
 updates made on different machines, did one *know about* the other, or did
-they happen concurrently? The classic solutions to the problem — [*version
+they happen concurrently? The classic solutions to the problem, [*version
 vectors*](https://en.wikipedia.org/wiki/Version_vector) and [*vector
-clocks*](https://en.wikipedia.org/wiki/Vector_clock) — pay a cost linear in
+clocks*](https://en.wikipedia.org/wiki/Vector_clock), pay a cost linear in
 the number of total participants who have *ever* registered an event,
 regardless of whether they are presently part of the system. Without global
 coordination, these causal clocks continue to grow unboundedly as
@@ -22,8 +22,8 @@ participants join and leave.
 Interval tree clocks solve this problem using much less space, often by more
 than one or two orders of magnitude, and in dynamic settings they *recycle
 identity*: a departing participant `join`s its clock into a
-surviving peer's, returning its share of the *id space* — the range of
-identity the participants partition among themselves — and its history, so
+surviving peer's, returning its share of the *id space* (the range of
+identity the participants partition among themselves) and its history, so
 the clocks avoid unbounded growth.
 
 ### The types
@@ -50,7 +50,7 @@ use before::Clock;
 // Every system of clocks descends from one seed (see the safety rules).
 let mut alice = Clock::seed();
 
-// New participants fork off a live clock, never mint themselves.
+// New participants fork off a live clock; they never seed their own.
 let mut bob = alice.fork();
 
 // Each participant ticks its own clock to record a local event.
@@ -61,14 +61,14 @@ bob.tick();
 assert!(alice.version().concurrent(bob.version()));
 
 // Versions are the timestamps that travel. Joining a received version
-// (`|=`) merges history only; bob then knows strictly more than alice —
+// (`|=`) merges history only; bob then knows strictly more than alice:
 // her whole history, plus his own tick that she has not seen.
 bob |= alice.version();
 assert!(bob.version() > alice.version());
 
 // Joining a whole *clock* merges identity too: it retires bob, recycling
-// his share of the id space into alice. It is fallible — the two parties
-// must be disjoint — hence the `unwrap`.
+// his share of the id space into alice. It is fallible (the two parties
+// must be disjoint), hence the `unwrap`.
 alice.join(bob).unwrap();
 
 // Clocks and versions cross process boundaries as canonical bytes: one
@@ -134,7 +134,7 @@ bob |= msg;
 
 // Bob's clock now dominates or equals the message and Alice's version.
 // (`>=`, not `>`: incorporating a version records no event, so a Bob
-// with no history of his own would end exactly equal to the message —
+// with no history of his own would end exactly equal to the message;
 // contrast the vector-clock example below.)
 assert!(bob.version() >= msg);
 assert!(bob.version() >= alice.version());
@@ -286,7 +286,7 @@ containment of history, and two versions with no containing order are
   `since(a)` is everything `a` does not already
   contain, `before(b)` everything `b` contains, and
   `delta(a, b)` everything `b` contains but `a` does
-  not — and any compatible bounds conjoin with `&` into a
+  not; any compatible bounds conjoin with `&` into a
   `causally::Query`, whose membership predicate is causal
   containment and which classifies whole version regions at once
   (`coverage`). For questions about a

@@ -57,7 +57,7 @@ use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::Version;
 
 /// A side's disposition when a verdict hook leaves the walk running: keep
-/// sweeping its stream, or drop its cursor — the side's relation is decided as
+/// sweeping its stream, or drop its cursor; the side's relation is decided as
 /// far as the verdict cares, and its stream is never scanned further.
 enum Fate {
     Sweep,
@@ -286,7 +286,7 @@ pub fn contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
         lo,
         hi,
         // `lo <= probe` refuted: the probe is below or beside the
-        // start — outside the segment, whatever the end relation.
+        // start, outside the segment, whatever the end relation.
         |directions, _| {
             if directions.allows_ge() {
                 ControlFlow::Continue(Fate::Sweep)

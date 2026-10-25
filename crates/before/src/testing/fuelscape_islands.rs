@@ -7,7 +7,7 @@
 //! comments pull islands in by `include_str!` path. A dangling include
 //! is already a compile error, so the direction this suite must hold is
 //! the other one: an island nothing includes renders nowhere, silently.
-//! Membership is enforced, never remembered — the exemption reasons are
+//! Membership is enforced, never remembered: the exemption reasons are
 //! the reviewed artifact, in the ops-roster [`EXEMPTIONS`] idiom.
 //!
 //! Every island site also states its claim as a literal for the readers
