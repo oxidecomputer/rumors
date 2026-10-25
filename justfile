@@ -408,12 +408,13 @@ supply-chain:
 # expensive and nondeterministic for per-commit judgment.
 # Needs cargo-fuzz: `cargo install cargo-fuzz`.
 
-# Verify the detached fuzz crate and compile every libFuzzer target (nightly).
+# Verify the detached fuzz crate against its committed lockfile and compile
+# every libFuzzer target (nightly).
 [working-directory("crates/before/fuzz")]
 fuzz-build:
     cargo fmt --check
-    cargo clippy --all-targets -- -D warnings
-    cargo test --lib
+    cargo clippy --locked --all-targets -- -D warnings
+    cargo test --locked --lib
     cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The gate runs in two tiers. First `gate-lints`, sequential and
