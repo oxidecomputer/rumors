@@ -17,8 +17,8 @@
 //!   printing every cell whose ceiling moved.
 //!
 //! `AMP_BOARD_FUEL_THREADS` sets the number of worker threads (default: the
-//! available parallelism, at most [`DEFAULT_THREADS`]). It moves no reading:
-//! every cell runs in its own instance.
+//! available parallelism). It moves no reading: every cell runs in its own
+//! instance.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -31,17 +31,6 @@ const GUEST_ENV: &str = "BOARD_FUEL_GUEST_WASM";
 
 /// The environment variable overriding the worker count.
 const THREADS_ENV: &str = "AMP_BOARD_FUEL_THREADS";
-
-/// The most worker threads a run starts unless `AMP_BOARD_FUEL_THREADS`
-/// says otherwise.
-///
-/// Each worker holds one guest instance, whose memory reaches about 125 MiB
-/// at the ladder's top scale, so the workers' memory grows with their count;
-/// and the gate runs this leg beside its other streams on shared hosts.
-/// Twenty-four workers sweep the board in a few minutes, and on a host with
-/// hundreds of hardware threads an uncapped run would hold gigabytes of guest
-/// memory for little more speed.
-const DEFAULT_THREADS: usize = 24;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -86,9 +75,7 @@ fn sweep(wasm: &[u8]) -> Ladder {
             .ok()
             .filter(|&threads| threads > 0)
             .unwrap_or_else(|| fail(&format!("{THREADS_ENV} must be a positive integer"))),
-        Err(_) => std::thread::available_parallelism()
-            .map_or(1, usize::from)
-            .min(DEFAULT_THREADS),
+        Err(_) => std::thread::available_parallelism().map_or(1, usize::from),
     };
     let fuel_board = exit_on_error(FuelBoard::new(wasm, threads), "compiling the guest");
     exit_on_error(
