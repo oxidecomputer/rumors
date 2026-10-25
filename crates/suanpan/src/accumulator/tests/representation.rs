@@ -40,8 +40,9 @@ struct Operands {
     max64: IBig,
 }
 
-/// Number of update and sign-query operations explored at each step.
-const REPRESENTATION_OPS: u8 = 11;
+/// Number of update, negation, and sign-query operations explored at each
+/// step.
+const REPRESENTATION_OPS: u8 = 12;
 
 /// Apply the finite operation alphabet using its precomputed operands.
 impl Operands {
@@ -51,6 +52,8 @@ impl Operands {
     /// Jumps to digits three and seven create, clear, and split zero runs.
     /// Depositing a whole coefficient of ±2^32 at digit six makes the sign
     /// fold reach a run with either a small nonzero or exactly zero partial.
+    /// Negation sets or clears the digits' flag, so every later update and
+    /// comparison also runs against flagged digits.
     fn apply(&self, acc: &mut Accumulator, oracle: &mut IBig, op: u8) {
         match op {
             0 => {
@@ -92,6 +95,10 @@ impl Operands {
             9 => {
                 acc.add_value_shl(&self.word32, 192);
                 *oracle += &self.p224;
+            }
+            10 => {
+                *acc = -core::mem::take(acc);
+                *oracle = -core::mem::take(oracle);
             }
             _ => {
                 assert_eq!(acc.sign(), oracle_sign(oracle), "comparison with zero");
@@ -161,14 +168,15 @@ fn representation_invariants_hold_exhaustively() {
 ///
 /// [`apply_stream_step`] gives the arms their meaning: limb updates of either
 /// sign, a whole-word subtraction, a primitive update, an accumulator operand
-/// whose stored digits have mixed signs, added or subtracted at the step's
-/// shift, and a comparison with zero. Together they leave runs, gaps,
-/// cancelled tops, and digits of both signs, the varied stored forms that the
-/// normalization and shift properties below start from.
+/// whose stored digits have mixed signs, negated or not, added or subtracted
+/// at the step's shift, a negation, and a comparison with zero. Together they
+/// leave runs, gaps, cancelled tops, digits of both signs, and either state
+/// of the digits' flag, the varied stored forms that the normalization and
+/// shift properties below start from.
 pub(super) fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u64)>> {
     proptest::collection::vec(
         (
-            0u8..6,
+            0u8..7,
             proptest::collection::vec(any::<u64>(), 1..=2),
             0u64..4_096,
         ),
@@ -208,10 +216,16 @@ pub(super) fn apply_stream_step(
             // Positive digits from position 2 up over negative ones below:
             // the operand's stored digits have mixed signs, and most shifts
             // land them at a nonzero bit offset.
+            // Negating it on some steps sets its flag, so the deposit reads
+            // digits whose sum is the operand's negation.
             let mut operand = Accumulator::new();
             operand.add_shifted_limbs(64, limbs.iter().copied());
             operand.sub_shifted_limbs(0, [limbs[0]]);
-            let operand_value = (IBig::from(value.clone()) << 64_usize) - limbs[0];
+            let mut operand_value = (IBig::from(value.clone()) << 64_usize) - limbs[0];
+            if limbs[0] % 4 >= 2 {
+                operand = -operand;
+                operand_value = -operand_value;
+            }
             let scaled_operand = operand_value << usize::try_from(*shift).unwrap();
             if limbs[0] % 2 == 0 {
                 acc.add_shifted(*shift, &operand);
@@ -220,6 +234,10 @@ pub(super) fn apply_stream_step(
                 acc.sub_shifted(*shift, &operand);
                 *oracle -= scaled_operand;
             }
+        }
+        5 => {
+            *acc = -core::mem::take(acc);
+            *oracle = -core::mem::take(oracle);
         }
         _ => {
             prop_assert_eq!(acc.sign(), oracle_sign(oracle), "sign at step {}", step);
@@ -295,26 +313,33 @@ fn polarity(sign: Ordering) -> i64 {
     }
 }
 
-/// Assert that a value held in digits is normalized: every stored digit has
-/// the sign `sign` or is zero, and has magnitude below the base.
+/// Assert that a value of sign `sign` held in digits is normalized: every
+/// stored digit has the stored sum's sign or is zero, and has magnitude below
+/// the base.
+///
+/// The stored sum is the value, or its negation when the digits' flag is set,
+/// which normalization neither reads nor changes.
 fn assert_normalized(acc: &Accumulator, sign: Ordering, context: &dyn core::fmt::Debug) {
     let stored = acc.stored();
     if stored.small.is_some() {
         return;
     }
+    let sign = stored.digits.stored_sign(sign);
     let polarity = polarity(sign);
     for (position, &digit) in stored.digits.stored_digits().iter().enumerate() {
         assert!(
             polarity * digit >= 0 && digit.abs() < BASE,
-            "normalized digit {position} = {digit} lacks the value's sign {sign:?} or \
+            "normalized digit {position} = {digit} lacks the stored sum's sign {sign:?} or \
              reaches the base after {context:?}"
         );
     }
 }
 
 /// Assert that the stored digits are *sign-led* for a nonzero value of
-/// `sign`: the top digit has that sign, and no digit has the other sign with
-/// magnitude above `B / 2`.
+/// `sign`: the top digit has the stored sum's sign, and no digit has the
+/// other sign with magnitude above `B / 2`.
+///
+/// The stored sum is the value, or its negation when the digits' flag is set.
 ///
 /// The crate's cost argument for updates of one sign starts from this state
 /// and keeps it. In it, the partial a comparison with zero folds reaches at
@@ -329,17 +354,18 @@ fn assert_sign_led(acc: &Accumulator, sign: Ordering, context: &dyn core::fmt::D
     if stored.small.is_some() || sign == Ordering::Equal {
         return;
     }
+    let sign = stored.digits.stored_sign(sign);
     let polarity = polarity(sign);
     let digits = stored.digits.stored_digits();
     let top = *digits.last().expect("the stored prefix holds digit zero");
     assert!(
         polarity * top > 0,
-        "top digit {top} lacks the value's sign {sign:?} after {context:?}"
+        "top digit {top} lacks the stored sum's sign {sign:?} after {context:?}"
     );
     for (position, &digit) in digits.iter().enumerate() {
         assert!(
             polarity * digit >= -HALF_BASE,
-            "digit {position} = {digit} opposes the value's sign {sign:?} by more than \
+            "digit {position} = {digit} opposes the stored sum's sign {sign:?} by more than \
              half the base after {context:?}"
         );
     }
@@ -371,8 +397,9 @@ proptest! {
         assert_value(&acc, &oracle);
     }
 
-    /// Clearing after any stream zeroes every retained digit, keeps the
-    /// buffer, and leaves the written set holding position zero alone.
+    /// Clearing after any stream zeroes every retained digit, clears the
+    /// digits' flag, keeps the buffer, and leaves the written set holding
+    /// position zero alone.
     ///
     /// A second stream after the clear stays exact, with every invariant
     /// after every step.
@@ -393,7 +420,8 @@ proptest! {
         let retained = acc.stored().digits.retained_len();
         acc.clear();
         // The cleared value is small, so this checks that every retained
-        // digit is zero and that the written set holds nothing but zero.
+        // digit is zero, that the flag is clear, and that the written set
+        // holds nothing but zero.
         acc.stored().assert_invariants(&[]);
         prop_assert!(acc.is_known_zero(), "a clear leaves zero");
         prop_assert_eq!(
@@ -412,8 +440,8 @@ proptest! {
     }
 
     /// Normalizing digits in place keeps the value and gives every stored
-    /// digit the value's sign, with magnitude below the base, from any stored
-    /// form a stream reaches.
+    /// digit the stored sum's sign, with magnitude below the base, from any
+    /// stored form a stream reaches, flagged or not.
     ///
     /// A magnitude read normalizes the digits it reads this way, and keeps
     /// the normalized form. The normalization changes the representation
@@ -551,6 +579,67 @@ proptest! {
         shifted.stored().assert_invariants(&[]);
         assert_sign_led(&shifted, sign, &(spelling, shift));
         assert_value(&shifted, &shifted_oracle);
+    }
+
+    /// A nonzero shift of a zero whose digits cancel keeps its storage and
+    /// its set flag, and updates of one sign from there keep the digits
+    /// sign-led in the stored sum's sign, exact, and no narrower.
+    ///
+    /// The comparison with zero that the shift begins with compacts the
+    /// cancelling digits to zero, so the storage begins with zero digits and
+    /// the flag set. Every contribution the stretch stores then has the sign
+    /// opposite to the update's, which the crate's cost argument for updates
+    /// of one sign allows: the flag cannot change within a stretch.
+    #[test]
+    fn a_flagged_storage_after_a_shift_stays_sign_led(
+        shift in 1u32..=4_096,
+        steps in proptest::collection::vec(
+            (any::<bool>(), proptest::collection::vec(any::<u64>(), 1..=3), 0u64..2_048),
+            1..40,
+        ),
+        negative: bool,
+    ) {
+        // `2^32` at digit one, negated, then `2^32` added at digit zero: the
+        // stored digits `[−2^32, 1]` cancel, under a set flag.
+        let mut acc = Accumulator::new();
+        acc.add_shifted_limbs(32, [1]);
+        acc = -acc;
+        acc += 1_u64 << 32;
+        prop_assert!(!acc.is_known_zero(), "the digits cancel");
+        acc <<= shift;
+        prop_assert!(acc.stored().digits.is_negated(), "the shift keeps the flag");
+        prop_assert!(acc.is_known_zero(), "the shift's comparison zeroed the digits");
+        let mut oracle = IBig::from(0);
+        let mut schedule: Vec<u8> = Vec::new();
+        for (limb_update, limbs, at) in &steps {
+            schedule.push(u8::from(*limb_update));
+            let width_before = acc.stored_digit_count();
+            if *limb_update {
+                let scaled = IBig::from(from_limbs(limbs)) << usize::try_from(*at).unwrap();
+                if negative {
+                    acc.sub_shifted_limbs(*at, limbs.iter().copied());
+                    oracle -= scaled;
+                } else {
+                    acc.add_shifted_limbs(*at, limbs.iter().copied());
+                    oracle += scaled;
+                }
+            } else if negative {
+                acc -= limbs[0];
+                oracle -= limbs[0];
+            } else {
+                acc += limbs[0];
+                oracle += limbs[0];
+            }
+            acc.stored().assert_invariants(&schedule);
+            assert_sign_led(&acc, oracle_sign(&oracle), &schedule);
+            prop_assert!(
+                acc.stored_digit_count() >= width_before,
+                "the working width fell after {:?}",
+                schedule
+            );
+        }
+        prop_assert!(acc.stored().digits.is_negated(), "the stretch keeps the flag");
+        assert_value(&acc, &oracle);
     }
 
     /// From creation, updates of one sign interleaved with left shifts in

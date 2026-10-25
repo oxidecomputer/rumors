@@ -2,8 +2,9 @@
 //!
 //! Assignment is the primitive operation: an accumulator updates one running
 //! value. Consuming operators reuse their left operand's storage, and owned
-//! addition reuses whichever input is wider. An operator on a borrowed left
-//! operand starts from a clone of that operand.
+//! addition and subtraction reuse whichever input is wider: negating an owned
+//! accumulator costs O(1), so `a - b` is `a + -b`. An operator on a borrowed
+//! left operand starts from a clone of that operand.
 //!
 //! An accumulator operand is read, never copied, and the read compacts any
 //! cancellation at its top. An assignment borrows its receiver mutably, so its
@@ -232,7 +233,7 @@ macro_rules! forwarded_primitive_operators {
         }
 
         /// Subtract the owned right operand, as `-rhs + self`, reusing its
-        /// storage: the cost of `+=` plus negating `rhs`, its value's width.
+        /// storage, at the cost of `+=`.
         impl Sub<Accumulator> for $operand {
             type Output = Accumulator;
 
@@ -242,7 +243,7 @@ macro_rules! forwarded_primitive_operators {
         }
 
         /// Subtract a borrowed accumulator into a new one, as `-rhs + self`:
-        /// the cost of `-` on a borrow plus `+=`.
+        /// the cost of [`clone`](Clone::clone) plus `+=`.
         impl Sub<&Accumulator> for $operand {
             type Output = Accumulator;
 
@@ -328,10 +329,13 @@ impl AddAssign for Accumulator {
     }
 }
 
-/// Subtract an owned accumulator, at the cost of `-=` with a borrowed one.
+/// Subtract an owned accumulator, reusing the wider input's storage.
+///
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
+/// in limbs.
 impl SubAssign for Accumulator {
     fn sub_assign(&mut self, rhs: Accumulator) {
-        *self -= &rhs;
+        *self = core::mem::take(self) - rhs;
     }
 }
 
@@ -357,14 +361,17 @@ impl Add for Accumulator {
     }
 }
 
-/// Subtract owned accumulators, at the cost of `-=` with a borrowed one,
-/// which reads all of `rhs`.
+/// Subtract owned accumulators, as `self + -rhs`, reading the narrower into
+/// the wider's storage.
+///
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
+/// in limbs, as owned addition does: negating `rhs` costs O(1). On equal
+/// widths the left operand's storage is kept.
 impl Sub for Accumulator {
     type Output = Accumulator;
 
-    fn sub(mut self, rhs: Accumulator) -> Accumulator {
-        self -= &rhs;
-        self
+    fn sub(self, rhs: Accumulator) -> Accumulator {
+        self + -rhs
     }
 }
 
@@ -405,15 +412,13 @@ impl Add<Accumulator> for &Accumulator {
     }
 }
 
-/// Subtract the owned right operand, as `-(rhs - self)`, reusing its storage.
-///
-/// Takes the cost of `-=` with a borrowed operand plus negating the
-/// difference, its value's width.
+/// Subtract the owned right operand, as `-rhs + self`, reusing its storage,
+/// at the cost of `+=` with a borrowed operand.
 impl Sub<Accumulator> for &Accumulator {
     type Output = Accumulator;
 
     fn sub(self, rhs: Accumulator) -> Accumulator {
-        -(rhs - self)
+        -rhs + self
     }
 }
 
@@ -462,8 +467,7 @@ impl<'a> Sum<&'a Accumulator> for Accumulator {
     }
 }
 
-/// Negate in place, in amortized O(1 + `Q`) time for a value `Q` limbs
-/// wide, and O(1) additional space.
+/// Negate in place, in O(1) time and space, whatever the value's width.
 impl Neg for Accumulator {
     type Output = Accumulator;
 
@@ -473,8 +477,7 @@ impl Neg for Accumulator {
     }
 }
 
-/// Negate a clone, at the cost of [`clone`](Clone::clone) plus negating the
-/// value's own width.
+/// Negate a clone, at the cost of [`clone`](Clone::clone).
 impl Neg for &Accumulator {
     type Output = Accumulator;
 

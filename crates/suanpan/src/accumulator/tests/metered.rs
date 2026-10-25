@@ -218,13 +218,21 @@ fn sign_query_skips_unwritten_zeros() {
 /// as for `add_shifted` and `sub_shifted`, whose deposits land past the
 /// receiver's digits. Owned addition first compares the receiver, whose
 /// working width is the greater, with zero in one touch, then adds the
-/// operand as `+=` does: 9 in all. Each total holds at either receiver width
-/// and either shift. Adding the compacted operand again costs 3: one deciding
-/// touch, a read, and a deposit onto the digit the carry cleared.
+/// operand as `+=` does: 9 in all. Owned subtraction negates its right
+/// operand in one touch and adds the result as owned addition does, reading
+/// only the narrow operand whichever side it stands on: the wide side's
+/// comparison (1), the operand's compaction, read, and deposit (7), and no
+/// carry, since `−2` remains: 9 for `a − b`, `a −= b`, and `b − a`. With a
+/// flagged right operand, the negation clears the flag and the addition
+/// carries as `+=` does: 10 for `a − (−b)` and `b − (−a)`. Each
+/// total holds at either receiver width and either shift. Adding the
+/// compacted operand again costs 3: one deciding touch, a read, and a
+/// deposit onto the digit the carry cleared.
 ///
 /// This is the rule that an update costs what it adds, for an accumulator
 /// operand at any receiver width and shift, pinned exact at its canonical
-/// shape.
+/// shape, and the ownership rule that owned subtraction reads only the
+/// narrower operand, as owned addition does.
 #[test]
 fn an_accumulator_operand_costs_its_digits_at_any_receiver_width_and_shift() {
     // A two-digit operand: digits 0 and 1 hold 1 each.
@@ -290,6 +298,55 @@ fn an_accumulator_operand_costs_its_digits_at_any_receiver_width_and_shift() {
             magnitude,
             (UBig::from(1u8) << held_bits as usize) - 1u8 + UBig::from((1u64 << 32) | 1)
         );
+
+        let wide_minus_narrow = IBig::from(wide_value.clone()) - IBig::from((1u64 << 32) | 1);
+        for spelling in ["a - b", "a -= b", "b - a"] {
+            let operand = narrow();
+            let mut receiver = Accumulator::new();
+            receiver.add_limb_value(&wide_value);
+            touch_meter::reset();
+            let (difference, expected) = match spelling {
+                "a - b" => (receiver - operand, wide_minus_narrow.clone()),
+                "a -= b" => {
+                    receiver -= operand;
+                    (receiver, wide_minus_narrow.clone())
+                }
+                _ => (operand - receiver, -wide_minus_narrow.clone()),
+            };
+            assert_eq!(
+                touch_meter::touches(),
+                9,
+                "owned `{spelling}` at {held_bits} bits: 1 negating the right operand, \
+                 1 for the wide side's sign, then 7 for the narrow operand only"
+            );
+            assert_value(&difference, &expected);
+        }
+
+        // A flagged right operand: negating it clears the flag, so the
+        // difference is the plain sum, carry included.
+        let wide_plus_narrow = IBig::from(wide_value.clone()) + IBig::from((1u64 << 32) | 1);
+        for spelling in ["a - -b", "b - -a"] {
+            let mut wide = Accumulator::new();
+            wide.add_limb_value(&wide_value);
+            let (wide, narrow) = (wide, narrow());
+            let difference = if spelling == "a - -b" {
+                let flagged = -narrow;
+                touch_meter::reset();
+                wide - flagged
+            } else {
+                let flagged = -wide;
+                touch_meter::reset();
+                narrow - flagged
+            };
+            assert_eq!(
+                touch_meter::touches(),
+                10,
+                "owned `{spelling}` at {held_bits} bits: 1 negating the flagged right \
+                 operand back, 1 for the wide side's sign, then 8 adding the narrow \
+                 operand as `+=` does, carry included"
+            );
+            assert_value(&difference, &wide_plus_narrow);
+        }
     }
     // Each scaled merge compacts the operand the same way, for the same total
     // at both shifts and in both signs.
@@ -393,15 +450,13 @@ fn merge_tie_reads_the_operand() {
     }
 }
 
-/// Negation, a clear after a shift, shift assignment, and magnitude reads
-/// take exact totals at 64 and 128 held digits, and shift assignment's total
-/// is independent of the shift.
+/// A clear after a shift, shift assignment, and magnitude reads take exact
+/// totals at 64 and 128 held digits, and shift assignment's total is
+/// independent of the shift.
 ///
 /// Each costs the width it produces or clears.
 ///
 /// With `d` held digits:
-/// - unary `-` reads the top digit to compare with zero, which settles on
-///   that digit, then touches each digit once: `d + 1`;
 /// - `clear` after `<<= 32` touches each written position once: the `d`
 ///   positions the shift wrote, and position zero, which every written set
 ///   holds: `d + 1`;
@@ -424,15 +479,6 @@ fn width_producing_operations_cost_the_held_digits() {
         let wide_value = (UBig::from(1u8) << bits as usize) - 1u8;
         let mut acc = Accumulator::new();
         acc.add_limb_value(&wide_value);
-
-        touch_meter::reset();
-        acc = -acc;
-        assert_eq!(
-            touch_meter::touches(),
-            held_digits + 1,
-            "negation at {held_digits} held digits: one deciding touch and one per digit"
-        );
-        acc = -acc;
 
         touch_meter::reset();
         let (sign, magnitude) = acc.sign_biguint();
@@ -508,6 +554,59 @@ fn width_producing_operations_cost_the_held_digits() {
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!(sign, Ordering::Greater);
     assert_eq!(magnitude, wide_value << 33usize);
+}
+
+/// Negating an owned accumulator costs one touch at any width and in any
+/// stored form, so a primitive minus an owned accumulator costs what adding
+/// the primitive costs.
+///
+/// Negation flips the digits' flag, or negates a small value, and reads and
+/// writes no digit: 1 for `2^k − 1` filling 64 and 128 digits, for 5 under a
+/// top that cancels at those positions, uncompacted, and for a small value.
+/// `5 − a` negates `a` (1) and adds 5 at digit zero, one deposit without a
+/// carry or, for the small value, one scalar addition (1): 2 in every case.
+#[test]
+fn negation_costs_one_touch_at_any_width() {
+    for digits in [64u64, 128] {
+        let wide_value: IBig = (IBig::from(1) << usize::try_from(32 * digits).unwrap()) - 1;
+        let wide = || {
+            let mut acc = Accumulator::new();
+            acc.add_limb_value(wide_value.magnitude());
+            acc
+        };
+        let five_under_top = || {
+            let mut acc = cancelled_top(digits);
+            acc += 5_u8;
+            acc
+        };
+        let small = || Accumulator::from(7);
+        let cases: [(&str, &dyn Fn() -> Accumulator, IBig); 3] = [
+            ("2^k - 1", &wide, wide_value.clone()),
+            ("5 under a cancelled top", &five_under_top, IBig::from(5)),
+            ("a small value", &small, IBig::from(7)),
+        ];
+        for (name, build, value) in cases {
+            let acc = build();
+            touch_meter::reset();
+            let negated = -acc;
+            assert_eq!(
+                touch_meter::touches(),
+                1,
+                "negating {name} at {digits} digits"
+            );
+            assert_value(&negated, &-&value);
+
+            let acc = build();
+            touch_meter::reset();
+            let difference = 5_u8 - acc;
+            assert_eq!(
+                touch_meter::touches(),
+                2,
+                "5 minus {name} at {digits} digits"
+            );
+            assert_value(&difference, &(IBig::from(5) - &value));
+        }
+    }
 }
 
 /// Updates by an unsigned machine word are amortized O(1) at the top of the
@@ -900,8 +999,8 @@ fn accumulator_operands_cost_their_value_width() {
 }
 
 /// A value of 5 whose stored top cancels `k` digits up costs the same at
-/// every `k` to compare, round after round, to add or `abs_diff` as an owned
-/// operand, and to negate.
+/// every `k` to compare, round after round, and to add or `abs_diff` as an
+/// owned operand.
 ///
 /// Each of these compares with zero, which compacts the cancelled top, before
 /// it chooses what to read.
@@ -911,9 +1010,8 @@ fn accumulator_operands_cost_their_value_width() {
 /// `five < 2^(32k)`; the rounds' writes cost O(1) once the storage reaches
 /// `k`. Owned addition and `abs_diff` meet `2^(32·(k/2))`, which is wider in
 /// value but narrower in working width than the uncompacted 5, so reading the
-/// operand of narrower working width would read `k/2` digits. Negating the
-/// uncompacted 5 would otherwise negate `k` digits. Each count must be equal
-/// at `k` of 1,000 and 2,000, and far below either.
+/// operand of narrower working width would read `k/2` digits. Each count
+/// must be equal at `k` of 1,000 and 2,000, and far below either.
 #[test]
 fn a_cancelled_top_never_widens_what_a_choice_of_operand_reads() {
     let counts_at = |position: u64| -> Vec<u64> {
@@ -951,18 +1049,12 @@ fn a_cancelled_top_never_widens_what_a_choice_of_operand_reads() {
         counts.push(touch_meter::touches());
         assert_eq!(order, Ordering::Less);
         assert_value(&gap, &(&half_value - 5));
-
-        let operand = five_under_top();
-        touch_meter::reset();
-        let negated = -operand;
-        counts.push(touch_meter::touches());
-        assert_value(&negated, &IBig::from(-5));
         counts
     };
     let (at_1_000, at_2_000) = (counts_at(1_000), counts_at(2_000));
     assert_eq!(
         at_1_000, at_2_000,
-        "comparisons, owned addition, abs_diff, and negation cost the same at both widths"
+        "comparisons, owned addition, and abs_diff cost the same at both widths"
     );
     assert!(
         at_1_000.iter().all(|&count| count <= 32),
@@ -1102,9 +1194,8 @@ fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
     }
 }
 
-/// `abs_diff` negates its result only when the wider value is the smaller,
-/// and then within the result's own width: the whole width when the wider
-/// operand is negative, and nothing for a cancelled top.
+/// `abs_diff` costs the narrower operand alone, whichever operand is the
+/// smaller value, at any width of the wider.
 ///
 /// The narrow operand is `n` digits of `2^32 − 1`. A value of 5 under a top
 /// cancelled at position `p` has the greater working width, so `abs_diff`
@@ -1116,10 +1207,9 @@ fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
 /// value of `−2^(32p)` is wider and smaller: comparing it with zero folds the
 /// top digit into the one below (5), after which it is still the wider, the
 /// subtraction costs `1 + 2n`, the result's sign decides on the folded digit
-/// (1), and negation decides once more (1) and walks the `p` remaining
-/// digits: `p + 2n + 8`.
+/// (1), and negating the result costs one touch: `2n + 8` at both `p`.
 #[test]
-fn abs_diff_negates_within_the_result_width() {
+fn abs_diff_costs_the_narrower_operand_whichever_is_smaller() {
     for position in [1_000u64, 2_000] {
         for narrow_digits in [4u64, 40] {
             let mut narrow = Accumulator::new();
@@ -1148,7 +1238,7 @@ fn abs_diff_negates_within_the_result_width() {
             assert_eq!(order, Ordering::Less);
             assert_eq!(
                 touch_meter::touches(),
-                position + 2 * narrow_digits + 8,
+                2 * narrow_digits + 8,
                 "-2^(32·{position}) against {narrow_digits} digits"
             );
             assert_value(

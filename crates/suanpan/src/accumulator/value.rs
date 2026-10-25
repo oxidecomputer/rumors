@@ -168,7 +168,8 @@ impl Value {
         }
     }
 
-    /// Negate in place.
+    /// Negate in place, in O(1): a small value directly, and a value held in
+    /// digits by flipping their flag, which writes no digit.
     pub(crate) fn negate(&mut self) {
         if let Some(value) = &mut self.small {
             touch(1);
@@ -243,10 +244,11 @@ impl Value {
     /// with zero, which compacts its top, and its magnitude then streams into
     /// the new value's zeroed digits, normalized as it goes and with the
     /// value's sign, in one pass that leaves this value's stored digits as
-    /// they are. That deposit is an update of one sign into zeroed storage,
-    /// which leaves the new digits *sign-led*, as the crate's cost argument
-    /// for updates of one sign defines it: the top digit has the value's
-    /// sign, and no digit opposes that sign by more than half the base.
+    /// they are. The new digits sum to the value, with their flag clear. That
+    /// deposit is an update of one sign into zeroed storage, which leaves the
+    /// new digits *sign-led*, as the crate's cost argument for updates of one
+    /// sign defines it: the top digit has the value's sign, and no digit
+    /// opposes that sign by more than half the base.
     /// Depositing the stored digits as they stand would instead copy their
     /// mixed signs into the new value.
     ///
@@ -272,7 +274,7 @@ impl Value {
             result.start_digits();
             result
                 .digits
-                .add_magnitude(self.digits.stored_digits(), sign, shift, Update::Add);
+                .add_magnitude(&self.digits, sign, shift, Update::Add);
         }
         result
     }

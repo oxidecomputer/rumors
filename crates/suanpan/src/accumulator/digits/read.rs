@@ -1,11 +1,13 @@
 //! Read a normalized magnitude by normalizing the digits it reads.
 //!
-//! A read first compares with zero, which compacts any cancelled top and
-//! supplies the sign. It then normalizes the stored digits from its starting
-//! position upward, collecting each unsigned magnitude digit as the pass
-//! writes it. The stored form keeps the normalized digits, so a repeated read
-//! costs the result's width rather than the cancellation the first read
-//! removed. The digits are paired into minimal 64-bit limbs as they arrive.
+//! A read first compares the stored digits' sum with zero, which compacts any
+//! cancelled top and supplies the sign the pass needs; the read returns the
+//! value's sign, with the flag applied. It then normalizes the stored digits
+//! from its starting position upward, collecting each unsigned magnitude
+//! digit as the pass writes it. The stored form keeps the normalized digits,
+//! so a repeated read costs the result's width rather than the cancellation
+//! the first read removed. The digits are paired into minimal 64-bit limbs
+//! as they arrive.
 //!
 //! An unscaled read starts at position zero. A scaled read starts at
 //! `lowest_written`, because every lower digit is zero, and reports the skipped
@@ -38,9 +40,10 @@ impl Digits {
 
     /// Normalize from the read's starting position and collect the magnitude.
     ///
-    /// Returns the sign, the minimal limbs, and the starting digit position.
+    /// Returns the value's sign, the minimal limbs, and the starting digit
+    /// position.
     fn read_normalized(&mut self, scaled: bool) -> (Ordering, Limbs, usize) {
-        let sign = self.cmp_zero();
+        let sign = self.cmp_stored_zero();
         // The comparison may deposit one digit below `lowest_written`, so the
         // scaled start is chosen only after it.
         let start = if scaled { self.written_floor() } else { 0 };
@@ -57,6 +60,6 @@ impl Digits {
             limbs.is_empty(),
             "the readout's limbs are empty exactly at zero"
         );
-        (sign, limbs, start)
+        (self.orient(sign), limbs, start)
     }
 }

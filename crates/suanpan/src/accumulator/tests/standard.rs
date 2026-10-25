@@ -92,12 +92,22 @@ fn display_matches_bigint_near_powers() {
 }
 
 /// Zero formats as `0` in the scalar form, the digit form, and a cancelled
-/// digit form.
+/// digit form, and in both digit forms negated, which sets the digits' flag
+/// on a zero.
 #[test]
 fn zero_formats_as_zero_in_every_form() {
-    let mut digits = Accumulator::new();
-    digits.value.get_mut().ensure_digits();
-    for zero in [Accumulator::new(), digits, cancelled_top(30)] {
+    let digits = || {
+        let mut digits = Accumulator::new();
+        digits.value.get_mut().ensure_digits();
+        digits
+    };
+    for zero in [
+        Accumulator::new(),
+        digits(),
+        cancelled_top(30),
+        -digits(),
+        -cancelled_top(30),
+    ] {
         assert_eq!(zero.to_string(), "0");
         assert_eq!(format!("{zero:+}"), "+0");
         assert_eq!(zero.sign_biguint().1, BigUint::ZERO);

@@ -24,6 +24,9 @@
 //! than `0.99 B^i`; an adjustment occupying positions through `f` has
 //! magnitude below `2.01 B^(f + 1)`. Thus `i >= f + 2` is sufficient. Failure
 //! to meet that test says only that this scan did not establish the guarantee.
+//!
+//! The scan reads and rewrites the stored digits' sum. The public methods
+//! report the value's sign, applying the flag on return.
 
 use core::cmp::Ordering;
 
@@ -36,6 +39,15 @@ pub(super) const COMPARISON_DECIDED: i128 = 3;
 impl Digits {
     /// Compare the exact value with zero, compacting cancellation along the way.
     pub fn cmp_zero(&mut self) -> Ordering {
+        let stored = self.cmp_stored_zero();
+        self.orient(stored)
+    }
+
+    /// Compare the stored digits' sum with zero, compacting cancellation
+    /// along the way.
+    ///
+    /// This is the value's sign, reversed when the flag is set.
+    pub(super) fn cmp_stored_zero(&mut self) -> Ordering {
         self.compact_until_order_known().1.cmp(&0)
     }
 
@@ -51,7 +63,7 @@ impl Digits {
         // A bound near `u64::MAX` must still yield `None`; wrapping
         // adjustment_high + 2 would instead create a small threshold.
         (partial.abs() >= COMPARISON_DECIDED && index >= adjustment_high.saturating_add(2))
-            .then(|| partial.cmp(&0))
+            .then(|| self.orient(partial.cmp(&0)))
     }
 
     /// Return the stopping position and replace the scanned suffix by its value.
@@ -100,7 +112,7 @@ impl Digits {
             // position zero, which stays written.
             self.written.truncate(index);
             if partial != 0 {
-                self.add_at(index, partial);
+                self.add_stored_at(index, partial);
             }
         }
         self.debug_assert_valid();

@@ -34,8 +34,8 @@ division, or right shift:
   primitive integer.
 - `+`, `-`, `+=`, `-=`, unary `-`, `<<`, `<<=`, and `Sum` take owned and
   borrowed accumulators and primitive integers. A primitive may stand on
-  either side of `+` and `-`; `5 - total` negates `total`. Shift counts
-  are primitives, owned or borrowed.
+  either side of `+` and `-`. Shift counts are primitives, owned or
+  borrowed.
 - `==`, `<`, `cmp`, and `Hash` work by value, against another
   accumulator or against a primitive integer on the right.
   `abs_diff` compares two accumulators and
@@ -125,24 +125,23 @@ only rule 4's logarithm at a nonzero shift. A normalized big integer's
 update can cost its whole width, carrying or borrowing through high bits
 the update never touched; an accumulator's update cannot.
 
-The remaining operations cost as follows. Negation and shifts build a new
-value, and cost its width, as a clone does. `Display` adds to its read a
-decimal conversion that costs the square of the value's width. Comparing
-two accumulators reads only the narrower one, and costs its width.
-`clear` costs amortized O(1).
+The remaining operations cost as follows. Negating an owned accumulator
+costs O(1), whatever its width, and negating a borrowed one costs a
+clone. Shifts build a new value, and cost its width, as a clone does.
+`Display` adds to its read a decimal conversion that costs the square of
+the value's width. Comparing two accumulators reads only the narrower
+one, and costs its width. `clear` costs amortized
+O(1).
 
 In arithmetic, ownership decides only what the result can reuse. A
 borrowed accumulator is read in full, and an owned one can lend its
 storage to the result; of two owned operands, only the narrower is read.
-So `a + b` reads only the narrower of the two, `a + &b` reads `b`, and
-`&a + &b` reads both. Subtraction reads its right operand in full, owned
-or borrowed, because reusing it would mean negating it: `a - b` subtracts
-`b` into `a`'s storage, `&a - b` subtracts `a` from `b` and negates the
-result, and `5 - a` negates `a` and adds 5.
-`abs_diff` reads only the narrower of its two
-owned operands, then negates the result when the wider operand was the
-smaller value, which costs the result's width. An operator and the method
-it names cost the same.
+Addition and subtraction follow the rule alike. So `a + b` and `a - b`
+read only the narrower of the two, `a + &b` and `a - &b` read `b`,
+`&a + b` and `&a - b` read `a`, and `&a + &b` and `&a - &b` read both;
+`5 - a` costs what `a + 5` costs. `abs_diff`
+reads only the narrower of its two owned operands. An operator and the
+method it names cost the same.
 
 ```rust
 use suanpan::Accumulator;
@@ -185,13 +184,13 @@ bit an operation has written since it began. For each operation, `in`
 counts the 64-bit words it reads from operands: 1 for a primitive, `L` for
 limbs, and `1 + |b| / 64` for an accumulator operand `b`, or for the
 narrower of two compared or owned-added operands. `out` counts the words
-it produces: 1 for an ordering or a primitive, the result's width for a
-magnitude read, hash, clone, negation, or shift, and that width squared
-for `Display`. An operation built from others satisfies the claim part
-by part: an operator on a borrowed left operand costs at most a clone
-and then the owned operator; `a - b` is `a -= &b`, `&a - b` is
-`-(b - &a)`, and a primitive minus an accumulator is a negation and then
-an addition; `abs_diff` subtracts the narrower operand from the wider and
+it produces: 1 for an ordering, a primitive, or an owned negation, the
+result's width for a magnitude read, hash, clone, or shift, and that
+width squared for `Display`. An operation built from others satisfies the
+claim part by part: an operator on a borrowed left operand costs at most
+a clone and then the owned operator; `a - b` is `a + -b`, `&a - b` is
+`-b + &a`, and a primitive minus an accumulator is a negation and then an
+addition; `abs_diff` subtracts the narrower operand from the wider and
 negates a negative result; and `Sum` is one addition per input.
 
 **Claim.** There is a potential `Φ`, a nonnegative function of every

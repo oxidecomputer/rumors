@@ -12,7 +12,7 @@ impl Digits {
     /// nonzero sign `sign`, as [`add_magnitude`](Digits::add_magnitude)
     /// streams them, and return the digits it yields, from the lowest.
     pub fn streamed_magnitude_digits(&self, sign: Ordering) -> Vec<u32> {
-        let mut magnitude = MagnitudeCarry::new(sign);
+        let mut magnitude = MagnitudeCarry::new(self.orient(sign));
         let mut streamed: Vec<u32> = self
             .stored_digits()
             .iter()
@@ -20,6 +20,18 @@ impl Digits {
             .collect();
         streamed.extend(core::iter::from_fn(|| magnitude.next_above()));
         streamed
+    }
+
+    /// Return whether the flag is set, so that the value is the negation of
+    /// the stored digits' sum.
+    pub fn is_negated(&self) -> bool {
+        self.negated
+    }
+
+    /// Return the sign of the stored digits' sum for a value of sign `sign`:
+    /// `sign` itself, or its reverse when the flag is set.
+    pub fn stored_sign(&self, sign: Ordering) -> Ordering {
+        self.orient(sign)
     }
 
     /// The positions the written set holds, in ascending order.
@@ -49,6 +61,10 @@ impl Digits {
             assert!(
                 matches!(self.written.positions()[..], [] | [0]),
                 "a scalar value leaves no written position but zero after {schedule:?}"
+            );
+            assert!(
+                !self.negated,
+                "a scalar value leaves the digits' flag clear after {schedule:?}"
             );
             return;
         }
