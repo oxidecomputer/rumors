@@ -161,6 +161,33 @@ impl Party {
         b
     }
 
+    /// Splits the party into its balanced partition of `n` shares, in order,
+    /// by the paper's splits: the keeper's half takes the first `⌈n/2⌉`
+    /// shares and the other half the rest, recursively.
+    ///
+    /// This is the partition production's `forks`, array conversions, and
+    /// `sync_all` deal. A stack of pending `(party, count)` pairs, the other
+    /// half pushed first, keeps the shares in order without recursing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n` is zero.
+    pub fn shares(&self, n: usize) -> Vec<Party> {
+        assert!(n > 0, "a party has no partition into zero shares");
+        let mut shares = Vec::with_capacity(n);
+        let mut pending = vec![(self.clone(), n)];
+        while let Some((mut party, n)) = pending.pop() {
+            if n == 1 {
+                shares.push(party);
+                continue;
+            }
+            let give = party.fork();
+            pending.push((give, n / 2));
+            pending.push((party, n.div_ceil(2)));
+        }
+        shares
+    }
+
     pub fn join(&mut self, other: Party) -> Result<(), Party> {
         if !self.is_disjoint(&other) {
             return Err(other);

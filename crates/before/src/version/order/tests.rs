@@ -304,11 +304,11 @@ proptest! {
         assert_verdicts(&met, &vb);
     }
 
-    /// Every pair of versions produced by one organic fork/tick/send/sync/join
-    /// history yields identical verdicts from the sweep and the recursive
+    /// Every pair of versions produced by one organic op-trace history
+    /// yields identical verdicts from the sweep and the recursive
     /// oracle.
     #[test]
-    fn organic_histories_agree(ops in optrace::world_strategy_up_to(40)) {
+    fn organic_histories_agree(ops in optrace::production_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);

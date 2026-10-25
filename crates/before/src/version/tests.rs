@@ -5,7 +5,7 @@
 //! `min_ticks`, and projection (`/`).
 
 use crate::testing::meter::registry::Shape;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -29,7 +29,8 @@ use crate::testing::generators::{
 };
 use crate::testing::grow_brute_force::{all_inflations, best_inflation};
 use crate::testing::optrace::{
-    leq as oracle_leq, run, step, versions, world_strategy, Production, TraceModel,
+    leq as oracle_leq, production_strategy, run, step_production, versions, world_strategy, Arity,
+    Production, ProductionModel, TraceModel,
 };
 use crate::testing::oracles::dyadic::Dyadic;
 use crate::testing::oracles::function;
@@ -153,7 +154,7 @@ proptest! {
     /// the two input deltas there. Its code is therefore no wider than the
     /// wider input code; the opening height comes from one input and collapse
     /// only removes data. Probed here over churned
-    /// (fork/send/sync/retire) populations — the causally related pairs live
+    /// op-trace populations — the causally related pairs live
     /// replicas hold, including the normalization corners churn produces.
     #[test]
     fn join_stored_size_is_subadditive(ops in world_strategy(), i in 0usize..64, j in 0usize..64) {
@@ -783,30 +784,35 @@ proptest! {
 /// yields its version.
 #[derive(Clone)]
 struct CausalPast {
-    batches: BTreeMap<u64, u64>,
+    batches: BTreeMap<u64, Count>,
     /// The history's next unused batch number, shared by every clock split
     /// from its one seed.
     next_batch: Rc<Cell<u64>>,
     /// The ticks the whole history has recorded, shared the same way.
-    history_ticks: Rc<Cell<u64>>,
+    history_ticks: Rc<RefCell<Count>>,
 }
 
 impl CausalPast {
     /// Records one batch of `ticks` ticks under a fresh batch number.
-    fn record(&mut self, ticks: u64) {
+    fn record(&mut self, ticks: Count) {
         let batch = self.next_batch.get();
         self.next_batch.set(batch + 1);
+        *self.history_ticks.borrow_mut() += &ticks;
         self.batches.insert(batch, ticks);
-        self.history_ticks.set(self.history_ticks.get() + ticks);
     }
 
     /// Adds every batch in `other` that this past lacks.
     fn absorb(&mut self, other: &CausalPast) {
-        self.batches.extend(&other.batches);
+        self.batches.extend(
+            other
+                .batches
+                .iter()
+                .map(|(batch, ticks)| (*batch, ticks.clone())),
+        );
     }
 
     /// The number of ticks in this past.
-    fn ticks(&self) -> u64 {
+    fn ticks(&self) -> Count {
         self.batches.values().sum()
     }
 }
@@ -814,11 +820,18 @@ impl CausalPast {
 /// Production clocks paired with their causal pasts, driven through the trace
 /// schedule as one model.
 ///
-/// Each operation calls [`Production`]'s and then updates the past: a tick or
-/// `ticks(k)` records a batch of 1 or `k`, a fork copies the past, a send
-/// records the sender's tick and carries its past, a receive absorbs that past
-/// and records its own tick, and a sync or join leaves the clocks it merges
-/// holding the union.
+/// Each operation calls [`Production`]'s and then updates the past:
+///
+/// - a tick, `ticks(k)`, or a wide tick count records a batch of 1 or `k`;
+/// - a fork, `forks`, or array split gives each child or share a copy of the
+///   past;
+/// - a send records the sender's tick and carries its past, and a receive
+///   absorbs that past and records its own tick;
+/// - an absorb or `absorb_all` absorbs every source's past and records no
+///   tick, since it registers no event;
+/// - a sync or `sync_all` leaves every participant holding the union of their
+///   pasts, and a join or `join_all` leaves the receiver holding it;
+/// - a byte round trip leaves the past unchanged.
 struct WithCausalPast;
 
 impl TraceModel for WithCausalPast {
@@ -829,28 +842,47 @@ impl TraceModel for WithCausalPast {
         let past = CausalPast {
             batches: BTreeMap::new(),
             next_batch: Rc::new(Cell::new(0)),
-            history_ticks: Rc::new(Cell::new(0)),
+            history_ticks: Rc::new(RefCell::new(Count::ZERO)),
         };
         (Production::seed(), past)
     }
 
     fn tick((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) {
         Production::tick(clock, rng);
-        past.record(1);
+        past.record(Count::from(1u64));
     }
 
     fn ticks((clock, past): &mut Self::Clock, count: u8, rng: &mut ChaChaRng) {
         Production::ticks(clock, count, rng);
-        past.record(u64::from(count));
+        past.record(Count::from(u64::from(count)));
     }
 
     fn fork((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Clock {
         (Production::fork(clock, rng), past.clone())
     }
 
+    fn forks(
+        (clock, past): &mut Self::Clock,
+        count: u8,
+        taken: usize,
+        rng: &mut ChaChaRng,
+    ) -> Vec<Self::Clock> {
+        Production::forks(clock, count, taken, rng)
+            .into_iter()
+            .map(|child| (child, past.clone()))
+            .collect()
+    }
+
+    fn split((clock, past): Self::Clock, arity: Arity, rng: &mut ChaChaRng) -> Vec<Self::Clock> {
+        Production::split(clock, arity, rng)
+            .into_iter()
+            .map(|share| (share, past.clone()))
+            .collect()
+    }
+
     fn send((clock, past): &mut Self::Clock, rng: &mut ChaChaRng) -> Self::Message {
         let message = Production::send(clock, rng);
-        past.record(1);
+        past.record(Count::from(1u64));
         (message, past.clone())
     }
 
@@ -861,7 +893,24 @@ impl TraceModel for WithCausalPast {
     ) {
         Production::receive(clock, message, rng);
         past.absorb(&sender);
-        past.record(1);
+        past.record(Count::from(1u64));
+    }
+
+    fn snapshot((clock, past): &Self::Clock) -> Self::Message {
+        (Production::snapshot(clock), past.clone())
+    }
+
+    fn absorb((clock, past): &mut Self::Clock, (message, source): Self::Message) {
+        Production::absorb(clock, message);
+        past.absorb(&source);
+    }
+
+    fn absorb_all((clock, past): &mut Self::Clock, messages: Vec<Self::Message>) {
+        let (messages, sources): (Vec<Version>, Vec<CausalPast>) = messages.into_iter().unzip();
+        Production::absorb_all(clock, messages);
+        for source in &sources {
+            past.absorb(source);
+        }
     }
 
     fn sync(
@@ -873,6 +922,27 @@ impl TraceModel for WithCausalPast {
         if synced {
             left_past.absorb(right_past);
             right_past.clone_from(left_past);
+        }
+        synced
+    }
+
+    fn sync_all(
+        (clock, past): &mut Self::Clock,
+        others: Vec<&mut Self::Clock>,
+        rng: &mut ChaChaRng,
+    ) -> bool {
+        let (others, other_pasts): (Vec<&mut Clock>, Vec<&mut CausalPast>) = others
+            .into_iter()
+            .map(|(other, other_past)| (other, other_past))
+            .unzip();
+        let synced = Production::sync_all(clock, others, rng);
+        if synced {
+            for other_past in &other_pasts {
+                past.absorb(other_past);
+            }
+            for other_past in other_pasts {
+                other_past.clone_from(past);
+            }
         }
         synced
     }
@@ -889,6 +959,46 @@ impl TraceModel for WithCausalPast {
             }
             Err(other) => Err((other, other_past)),
         }
+    }
+
+    /// Absorbs every input's past into the receiver's.
+    ///
+    /// A failed `join_all` may hand back unions of its inputs and may have
+    /// absorbed some of them, so no input's own past can be paired with what
+    /// it returns. Each clock it touches then takes the union of every
+    /// input's past, which holds each one's true past; the trace's `step`
+    /// fails on the error before any past is read.
+    fn join_all(
+        (clock, past): &mut Self::Clock,
+        others: Vec<Self::Clock>,
+        rng: &mut ChaChaRng,
+    ) -> Result<(), Vec<Self::Clock>> {
+        let (others, other_pasts): (Vec<Clock>, Vec<CausalPast>) = others.into_iter().unzip();
+        let joined = Production::join_all(clock, others, rng);
+        for other_past in &other_pasts {
+            past.absorb(other_past);
+        }
+        joined.map_err(|returned| {
+            returned
+                .into_iter()
+                .map(|other| (other, past.clone()))
+                .collect()
+        })
+    }
+
+    fn transmit((clock, _): &mut Self::Clock) -> bool {
+        Production::transmit(clock)
+    }
+
+    fn transmit_parts((clock, _): &mut Self::Clock) -> bool {
+        Production::transmit_parts(clock)
+    }
+}
+
+impl ProductionModel for WithCausalPast {
+    fn wide_ticks((clock, past): &mut Self::Clock, count: &Count) {
+        Production::wide_ticks(clock, count);
+        past.record(count.clone());
     }
 }
 
@@ -909,8 +1019,10 @@ fn min_ticks_known_values() {
 
 proptest! {
     /// `min_ticks` floors each clock's own causal past: after every step of any
-    /// fork/tick/send/sync/join history, every live clock's `min_ticks` is at
+    /// production-side op-trace history, every live clock's `min_ticks` is at
     /// most the number of ticks in that clock's causal past.
+    ///
+    /// The histories include tick counts wider than `u64`.
     ///
     /// `min_ticks` is a floor over every history that yields a version, and a
     /// clock's causal past is one such history. Checking each clock against its
@@ -922,25 +1034,27 @@ proptest! {
     /// recursive oracle's sum of bases; the min_ticks descriptor's
     /// function-space leg supplies an independent second computation.
     #[test]
-    fn min_ticks_floors_every_history(ops in world_strategy()) {
+    fn min_ticks_floors_every_history(ops in production_strategy()) {
         let mut clocks = vec![WithCausalPast::seed()];
         let mut rng = ChaChaRng::seed_from_u64(0);
         for op in &ops {
-            step::<WithCausalPast>(&mut clocks, op, &mut rng);
+            step_production::<WithCausalPast>(&mut clocks, op, &mut rng);
             for (clock, past) in &clocks {
                 let v = clock.version();
+                let ticks = past.ticks();
+                let history_ticks = past.history_ticks.borrow();
                 prop_assert!(
-                    past.ticks() <= past.history_ticks.get(),
+                    ticks <= *history_ticks,
                     "a clock's causal past holds {} ticks, more than the history's {}",
-                    past.ticks(),
-                    past.history_ticks.get(),
+                    ticks,
+                    *history_ticks,
                 );
                 prop_assert_eq!(v.min_ticks(), to_oracle_version(v).min_ticks());
                 prop_assert!(
-                    v.min_ticks() <= Count::from(past.ticks()),
+                    v.min_ticks() <= ticks,
                     "min_ticks {} exceeded the {} ticks in its clock's causal past after {:?}",
                     v.min_ticks(),
-                    past.ticks(),
+                    ticks,
                     op,
                 );
             }

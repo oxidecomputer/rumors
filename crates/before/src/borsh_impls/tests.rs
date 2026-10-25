@@ -13,7 +13,7 @@ use crate::testing::generators::{
     arb_flush_party, arb_flush_version, arb_magnitude, arb_oracle_party_nonempty,
     arb_oracle_version, deep_left_spine_party,
 };
-use crate::testing::optrace::{step_impl, world_strategy};
+use crate::testing::optrace::{production_strategy, step_impl};
 use crate::version::instrument::allocation_capacity as version_capacity;
 use crate::version::io::validate::{dominating_from, Admission};
 use crate::{Clock, Count, Party, Rank, Ranked, Version};
@@ -313,15 +313,16 @@ fn joined_party_roundtrips_through_borsh() {
 }
 
 proptest! {
-    /// Every `Party`/`Version`/`Clock` reachable by an arbitrary impl-driven
-    /// history (`fork`/`join`/`sync`/`tick` via [`step_impl`]) round-trips
-    /// through borsh — the on-wire form the gossip protocol ships.
+    /// Every `Party`/`Version`/`Clock` reachable by an arbitrary
+    /// production-side op-trace history (via [`step_impl`]), wide tick counts
+    /// included, round-trips through borsh — the
+    /// on-wire form the gossip protocol ships.
     ///
     /// Drives the impl's own operations, not oracle-lowered values, so it
     /// covers the reused-buffer path that the per-view equivalence test also
     /// guards.
     #[test]
-    fn borsh_roundtrips_over_impl_history(ops in world_strategy()) {
+    fn borsh_roundtrips_over_impl_history(ops in production_strategy()) {
         let mut imp = vec![Clock::seed()];
         for op in &ops {
             step_impl(&mut imp, op);
@@ -796,7 +797,7 @@ proptest! {
     /// stopped.
     #[test]
     fn embedded_decode_consumes_exactly_the_encoding(
-        ops in world_strategy(),
+        ops in production_strategy(),
         trailing in proptest::collection::vec(any::<u8>(), 0..16),
     ) {
         let mut imp = vec![Clock::seed()];

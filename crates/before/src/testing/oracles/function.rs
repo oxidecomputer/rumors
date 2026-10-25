@@ -64,19 +64,23 @@ use num_bigint::BigUint;
 /// ([`id_res`]/[`ev_res`]), and this caps `g`.
 ///
 /// Derived from the op-trace cap, so it clears every in-support trace by
-/// construction: resolution starts at zero (the seed owns all of `[0,1)`)
-/// and grows only when [`fork`] bisects an indivisible piece — at most one
-/// level per op — so a trace of fewer than
-/// [`optrace::MAX_TRACE_OPS`] ops keeps every resolution strictly below
+/// construction. Resolution starts at zero (the seed owns all of `[0,1)`)
+/// and grows only when [`fork`] bisects an indivisible piece, at most one
+/// level per fork. A step that deals `n` balanced shares ([`shares`]) forks
+/// at most `⌈log₂ n⌉` times along any share's lineage, which is the
+/// [`Op::levels`](optrace::Op::levels) it declares, and
+/// [`optrace::world_strategy`] keeps its steps' levels summed below
+/// [`optrace::MAX_TRACE_OPS`]. So every resolution stays strictly below
 /// `MAX_TRACE_OPS`, and both the bisection and the one extra level the
 /// comparison scans add stay within `MAX_TRACE_OPS` itself; the `+ 2` is
-/// margin beyond that. `fork` asserts the ceiling rather than
-/// clamping to it, so an out-of-derivation trace fails loudly instead of
-/// splitting off an empty half. [`tests::grid_cap_is_never_reached`] sweeps
-/// the growth-rate premise distributionally, and the deterministic fork
-/// chain beside it pins the rate with equality on the worst in-support
-/// schedule. Replaying a generator deeper than [`optrace::world_strategy`]
-/// against the function space requires rederiving this ceiling first.
+/// margin beyond that. `fork` asserts the ceiling rather than clamping to
+/// it, so an out-of-derivation trace fails loudly instead of splitting off
+/// an empty half. [`tests::grid_cap_is_never_reached`] sweeps the
+/// growth-rate premise distributionally, and the deterministic fork and
+/// balanced-split chains beside it pin the rate with equality on the worst
+/// in-support schedules. Replaying a generator deeper than
+/// [`optrace::world_strategy`] against the function space requires
+/// rederiving this ceiling first.
 pub(crate) const GRID_N: u32 = optrace::MAX_TRACE_OPS as u32 + 2;
 
 /// The comparison grid for a descriptor-table fs leg: one level below the
@@ -454,6 +458,37 @@ pub(crate) fn fork(i: &Id, rng: &mut ChaChaRng) -> (Id, Id) {
     )
 }
 
+/// Draws a random §4-valid partition of `i` into `n` nonempty shares, in the
+/// balanced shape production deals.
+///
+/// One random [`fork`] gives the first `⌈n/2⌉` shares to one half and the
+/// rest to the other, recursively, freshly drawn each call. §4 pins only
+/// that the shares cover `⟦i⟧` disjointly, so any partition is valid; the
+/// balanced shape is kept because it bounds resolution growth. Each share
+/// descends through at most `⌈log₂ n⌉` forks, and each raises resolution by
+/// at most one level, which is the per-step bound the op traces budget for.
+/// A stack of pending `(id, count)` pairs, the second half pushed first,
+/// keeps the shares in order without recursing.
+///
+/// # Panics
+///
+/// Panics if `n` is zero, or if a fork would bisect below [`GRID_N`].
+pub(crate) fn shares(i: &Id, n: usize, rng: &mut ChaChaRng) -> Vec<Id> {
+    assert!(n > 0, "an id has no partition into zero shares");
+    let mut shares = Vec::with_capacity(n);
+    let mut pending = vec![(i.clone(), n)];
+    while let Some((id, n)) = pending.pop() {
+        if n == 1 {
+            shares.push(id);
+            continue;
+        }
+        let (first, second) = fork(&id, rng);
+        pending.push((second, n / 2));
+        pending.push((first, n.div_ceil(2)));
+    }
+    shares
+}
+
 // ───────────────────────────── resolution probing ─────────────────────────────
 
 /// The owned cells of `i` at resolution `level`, by index. `level` is `≥` the
@@ -490,6 +525,38 @@ pub(crate) fn ev_res(e: &Event) -> u32 {
         .map(|k| e.at(Dyadic::center(k, ceiling)))
         .collect();
     resolution(&samples, ceiling)
+}
+
+/// Tabulates `i` on the `2^g` cells of level `g`, returning the function
+/// that reads each point's value from its cell.
+///
+/// When `g` is at least `i`'s resolution, `⟦i⟧` is constant on every cell,
+/// so one interior sample decides each cell (as in [`owned_cells`]) and the
+/// result is the same function. When `g` is coarser, the result is a
+/// different, coarsened function: each cell takes its center's value. The
+/// trade is memory for time. A function built by many sums evaluates every
+/// path through its history at each point, so comparing a population pair
+/// by pair pays that cost once per pair and point; the table holds `2^g`
+/// entries per member, and comparing tables pays the cost once per member
+/// and point.
+pub(crate) fn tabulate_id(i: &Id, g: u32) -> Id {
+    let table: Vec<bool> = (0..(1u64 << g))
+        .map(|k| i.at(Dyadic::center(k, g)))
+        .collect();
+    Id::new(g, move |x| table[cell_at(x, g)])
+}
+
+/// Tabulates `e` on the `2^g` cells of level `g`, returning the step
+/// function that reads each point's value from its cell.
+///
+/// The result is the same step function when `g` is at least `e`'s
+/// resolution, and a coarsened one otherwise, for `2^g` entries of memory;
+/// [`tabulate_id`] explains the hazard and the trade.
+pub(crate) fn tabulate_ev(e: &Event, g: u32) -> Event {
+    let table: Vec<BigUint> = (0..(1u64 << g))
+        .map(|k| e.at(Dyadic::center(k, g)))
+        .collect();
+    Event::new(g, move |x| table[cell_at(x, g)].clone())
 }
 
 /// Finest boundary level present in a row of `2^level` cell samples: the
@@ -739,6 +806,44 @@ impl FunctionClock {
         }
     }
 
+    /// Collects the children `forks(count).take(taken)` yields from the
+    /// crate's clock, over a random partition of `count + 1` shares.
+    ///
+    /// Children take shares 1 through `taken` of the partition ([`shares`]),
+    /// each with this clock's event, and `self` keeps share 0 summed with
+    /// every untaken share.
+    pub(crate) fn forks(
+        &mut self,
+        count: usize,
+        taken: usize,
+        rng: &mut ChaChaRng,
+    ) -> Vec<FunctionClock> {
+        let mut shares = shares(&self.id, count + 1, rng).into_iter();
+        let first = shares.next().expect("a partition has a first share");
+        let children = shares
+            .by_ref()
+            .take(taken)
+            .map(|id| FunctionClock {
+                id,
+                ev: self.ev.clone(),
+            })
+            .collect();
+        self.id = shares.fold(first, sum);
+        children
+    }
+
+    /// Splits the clock as the crate's array conversion does, over a random
+    /// partition ([`shares`]) of `n` shares, each with this clock's event.
+    pub(crate) fn split(self, n: usize, rng: &mut ChaChaRng) -> Vec<FunctionClock> {
+        shares(&self.id, n, rng)
+            .into_iter()
+            .map(|id| FunctionClock {
+                id,
+                ev: self.ev.clone(),
+            })
+            .collect()
+    }
+
     /// Absorb a disjoint clock; on overlap return it unchanged. The
     /// disjointness scan runs at the ids' tracked ceilings, which resolve
     /// both exactly.
@@ -792,6 +897,39 @@ impl FunctionClock {
         } else {
             Err(())
         }
+    }
+
+    /// Reconcile `self` with every clock in `others`, keeping all of them,
+    /// or change nothing if any two ids overlap.
+    ///
+    /// When the ids are pairwise disjoint, every participant takes the LUB
+    /// of all their events, and a random partition ([`shares`]) of their
+    /// ids' union is dealt in participant order, `self` first.
+    ///
+    /// Each id is checked against the union of those before it, at the
+    /// tracked ceilings, which resolve both exactly.
+    pub(crate) fn sync_all(
+        &mut self,
+        others: Vec<&mut FunctionClock>,
+        rng: &mut ChaChaRng,
+    ) -> Result<(), ()> {
+        let mut whole = self.id.clone();
+        for other in &others {
+            let g = whole.res_ceiling().max(other.id.res_ceiling());
+            if !disjoint(&whole, &other.id, g) {
+                return Err(());
+            }
+            whole = sum(whole, other.id.clone());
+        }
+        let merged = join_all(
+            core::iter::once(self.ev.clone()).chain(others.iter().map(|other| other.ev.clone())),
+        );
+        let mut shares = shares(&whole, others.len() + 1, rng).into_iter();
+        for participant in core::iter::once(self).chain(others) {
+            participant.id = shares.next().expect("one share per participant");
+            participant.ev = merged.clone();
+        }
+        Ok(())
     }
 
     /// Advance, then snapshot the event to transmit.

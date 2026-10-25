@@ -390,10 +390,10 @@ proptest! {
         prop_assert_eq!(a.meet(&a.join(&b)), a);
     }
 
-    /// Every pair of versions produced by one organic fork/tick/send/sync/join
-    /// history emits byte-identically to the recursive oracle.
+    /// Every pair of versions produced by one organic op-trace history
+    /// emits byte-identically to the recursive oracle.
     #[test]
-    fn organic_histories_emit_identically(ops in optrace::world_strategy_up_to(40)) {
+    fn organic_histories_emit_identically(ops in optrace::production_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);

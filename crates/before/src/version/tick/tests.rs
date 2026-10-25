@@ -1138,11 +1138,11 @@ proptest! {
     /// Organic histories tick byte-identically to the recursive oracle's event,
     /// with the changed flag agreeing with the oracle's fill.
     ///
-    /// Every clock produced by one fork/tick/send/sync/join history is
+    /// Every clock produced by one op-trace history is
     /// exercised from its own party — and from every *other* clock's party, the
     /// concurrent-editor shape.
     #[test]
-    fn organic_histories_tick_and_flag_identically(ops in optrace::world_strategy_up_to(40)) {
+    fn organic_histories_tick_and_flag_identically(ops in optrace::production_strategy_up_to(40)) {
         let mut clocks = vec![Clock::seed()];
         for op in &ops {
             optrace::step_impl(&mut clocks, op);

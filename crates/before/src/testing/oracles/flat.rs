@@ -580,6 +580,15 @@ impl Party {
         }
     }
 
+    /// The whole interval `[0, 1)`, which [`Party::seed`](crate::Party::seed)
+    /// represents.
+    pub(crate) fn seed() -> Party {
+        Party {
+            scale: 0,
+            intervals: vec![(BigUint::ZERO, BigUint::from(1u8))],
+        }
+    }
+
     /// Builds a party from sorted, disjoint intervals at `scale`, dropping
     /// empty ones, merging adjacent ones, and lowering the scale while every
     /// endpoint is even.
