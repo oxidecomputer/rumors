@@ -266,7 +266,8 @@ impl Wire for Ranked<'static> {
     }
 }
 
-/// The defect class a decode error names, or `None` for a reader failure.
+/// The defect class a decode error names, or `None` for a reader failure or
+/// an input too large to measure, which no test input can reach.
 fn class_of(error: &Decode) -> Option<Class> {
     match error {
         Decode::Truncated => Some(Class::Truncated),

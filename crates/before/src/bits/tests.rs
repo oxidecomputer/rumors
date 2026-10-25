@@ -10,7 +10,7 @@ use proptest::prelude::*;
 
 use proptest::test_runner::TestCaseError;
 
-use super::{bits_writer, BitRead, BitsReader, BitsWriter, ReferenceBitsReader};
+use super::{bits_in, bits_writer, BitRead, BitsReader, BitsWriter, ReferenceBitsReader};
 use crate::span::Span;
 use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
@@ -1414,5 +1414,44 @@ proptest! {
         let cut = &bytes[..bytes.len() - 1];
         prop_assert!(matches!(Party::decode(cut), Err(Decode::Truncated)));
         prop_assert!(matches!(Clock::decode(cut), Err(Decode::Truncated)));
+    }
+}
+
+// ───────────────────────── byte-length bit counts ─────────────────────────
+
+/// The fewest bytes whose length in bits no `u64` can hold.
+const OVERSIZED_BYTES: u64 = 1 << 61;
+
+/// Byte counts within this distance of [`OVERSIZED_BYTES`] are checked
+/// exhaustively.
+const BYTE_WINDOW: u64 = 64;
+
+/// The bits in `bytes` bytes, computed in `u128` and kept only if they fit a
+/// `u64`: the oracle for [`bits_in`].
+fn widened_bits(bytes: u64) -> Option<u64> {
+    u64::try_from(u128::from(bytes) * 8).ok()
+}
+
+/// `bits_in` counts the bits of every byte length below 2^61 and of none from
+/// 2^61, matching widened arithmetic over every length near that limit.
+#[test]
+fn bit_counts_of_byte_lengths_stop_exactly_at_2_pow_61() {
+    assert_eq!(bits_in(OVERSIZED_BYTES - 1), Some(u64::MAX - 7));
+    assert_eq!(bits_in(OVERSIZED_BYTES), None);
+    for bytes in OVERSIZED_BYTES - BYTE_WINDOW..=OVERSIZED_BYTES + BYTE_WINDOW {
+        assert_eq!(bits_in(bytes), widened_bits(bytes), "{bytes} bytes");
+    }
+}
+
+proptest! {
+    /// Across all of `u64`, `bits_in` agrees with widened arithmetic.
+    #[test]
+    fn bit_counts_of_byte_lengths_agree_with_widened_arithmetic(
+        bytes in prop_oneof![
+            any::<u64>(),
+            OVERSIZED_BYTES - BYTE_WINDOW..=OVERSIZED_BYTES + BYTE_WINDOW,
+        ],
+    ) {
+        prop_assert_eq!(bits_in(bytes), widened_bits(bytes));
     }
 }

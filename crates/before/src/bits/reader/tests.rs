@@ -9,6 +9,7 @@ use num_bigint::BigUint;
 use crate::bits::{BitRead, BitsWriter, ReferenceBitsReader};
 use crate::error::Decode;
 
+use super::gamma::code_len_within;
 use super::{BitsReader, Truncated};
 
 /// Decode one gamma value from a declared live range for comparison tests.
@@ -262,5 +263,57 @@ proptest! {
             }
             prop_assert_eq!(reader.position(), reference.position());
         }
+    }
+}
+
+/// Prefix lengths within this distance of the overflow point are checked
+/// exhaustively.
+const PREFIX_WINDOW: u64 = 64;
+
+/// The fewest leading zeros whose gamma code is too long for a `u64`.
+const OVERSIZED_PREFIX: u64 = 1 << 63;
+
+/// The length a gamma code with `zeros` leading zeros needs, computed in
+/// `u128`, if it fits within `remaining` bits: the oracle for
+/// [`code_len_within`].
+fn widened_code_len(zeros: u64, remaining: u64) -> Option<u64> {
+    let code_len = 2 * u128::from(zeros) + 1;
+    (code_len <= u128::from(remaining)).then_some(code_len as u64)
+}
+
+/// A gamma code fits exactly when its full length fits in the remaining bits,
+/// even for prefixes of 2^63 zeros or more, whose length no `u64` holds.
+///
+/// The length counts the prefix, the terminator, and the mantissa. The check
+/// compares against widened arithmetic over every prefix near 2^63 zeros and
+/// every remainder at the top of the range.
+#[test]
+fn gamma_code_length_fits_exactly_near_the_u64_limit() {
+    let prefixes = OVERSIZED_PREFIX - PREFIX_WINDOW..=OVERSIZED_PREFIX + PREFIX_WINDOW;
+    for zeros in prefixes {
+        for remaining in (u64::MAX - PREFIX_WINDOW..=u64::MAX).chain([zeros, zeros + 1]) {
+            assert_eq!(
+                code_len_within(zeros, remaining),
+                widened_code_len(zeros, remaining),
+                "{zeros} zeros within {remaining} bits"
+            );
+        }
+    }
+    assert_eq!(
+        code_len_within(OVERSIZED_PREFIX - 1, u64::MAX),
+        Some(u64::MAX)
+    );
+    assert_eq!(code_len_within(OVERSIZED_PREFIX, u64::MAX), None);
+}
+
+proptest! {
+    /// Across all of `u64`, a gamma code's fit agrees with widened
+    /// arithmetic.
+    #[test]
+    fn gamma_code_length_fit_agrees_with_widened_arithmetic(
+        zeros in prop_oneof![any::<u64>(), OVERSIZED_PREFIX - PREFIX_WINDOW..=OVERSIZED_PREFIX],
+        remaining in any::<u64>(),
+    ) {
+        prop_assert_eq!(code_len_within(zeros, remaining), widened_code_len(zeros, remaining));
     }
 }

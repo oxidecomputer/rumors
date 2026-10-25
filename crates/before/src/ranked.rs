@@ -4,6 +4,7 @@ use core::cmp::Ordering;
 use std::borrow::Cow;
 use std::io::{self, Read, Write};
 
+use crate::bits::bits_in;
 use crate::error::Decode;
 use crate::{Rank, Version};
 
@@ -244,6 +245,8 @@ impl<'a> Ranked<'a> {
     ///   [`Decode::NotCanonical`] when either component has the corresponding
     ///   defect described by [`Rank::decode`] or [`Version::decode`];
     /// - [`Decode::NotCanonical`] when the rank and version disagree;
+    /// - [`Decode::TooLarge`] when the input holds 2^61 bytes or more, before
+    ///   any of it is decoded;
     /// - [`Decode::Io`] when the reader fails.
     ///
     /// # Complexity
@@ -282,6 +285,10 @@ impl<'a> Ranked<'a> {
     /// Validates an owned canonical key, giving its version storage of its
     /// own; the rank prefix is checked against the version and dropped.
     pub(crate) fn decode_bytes(mut buf: Vec<u8>) -> Result<Ranked<'static>, Decode> {
+        // The version's decoder checks its own length, but only after the
+        // rank prefix is read; checking the whole key first rejects an
+        // oversized input before any of it is decoded.
+        bits_in(buf.len() as u64).ok_or(Decode::TooLarge)?;
         // The rank stream is self-delimiting: consume exactly its bytes.
         let mut consumed = 0usize;
         Rank::decode_stream(|| {

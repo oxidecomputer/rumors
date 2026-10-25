@@ -497,8 +497,13 @@ fn add_product(total: &mut Accumulator, sign: Ordering, magnitude: &[u64], coeff
     } else {
         sign
     };
+    // Each leaf contributes +1 and each subtree close -1 to exactly one
+    // coefficient, and merges move whole coefficients, so a version with `I`
+    // internal nodes gives every coefficient a magnitude of at most `2I + 1`.
+    // The fold reads at least `3I + 2` bits and fewer than 2^64, as
+    // `Records::top_closes` derives, so `2I + 1 < 2^64`.
     let count = u64::try_from(coefficient.unsigned_abs())
-        .expect("a coefficient counts leaves and closes of a version held in memory");
+        .expect("a coefficient's magnitude is at most 2I + 1 < 2^64 for I internal nodes");
     let limbs = Scaled::new(magnitude, count);
     if sign == Ordering::Less {
         total.sub_shifted_limbs(0, limbs);

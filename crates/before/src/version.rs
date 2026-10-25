@@ -139,7 +139,8 @@ impl core::fmt::Display for Version {
 ///
 /// Returns [`ParseValue::InvalidSyntax`] for malformed hexadecimal and
 /// [`ParseValue::InvalidEncoding`] when the decoded bytes are not a canonical
-/// [`Version`].
+/// [`Version`]. That error wraps [`Decode::TooLarge`] when the decoded bytes
+/// number 2^61 or more.
 ///
 /// Takes `O(|text|)` time and space.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_parse.html")))]
@@ -1067,6 +1068,7 @@ impl Version {
     ///   more bytes;
     /// - [`Decode::NotCanonical`] if the tree is not in normal form or a
     ///   leaf's height is negative;
+    /// - [`Decode::TooLarge`] if the input holds 2^61 bytes or more;
     /// - [`Decode::Io`] if the reader fails.
     ///
     /// # Complexity

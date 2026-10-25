@@ -14,7 +14,7 @@
 //! bytes in memory on any platform.
 
 use super::storage::Bits;
-use super::BitsReader;
+use super::{bits_in, BitsReader};
 #[cfg(any(test, feature = "meter"))]
 use num_bigint::BigUint;
 
@@ -27,7 +27,11 @@ pub struct BitsWriter {
     bytes: Vec<u8>,
     /// The live bit length.
     ///
-    /// Every stored bit occupies memory, so this cannot approach `u64::MAX`.
+    /// No append checks it against `u64::MAX`. The `u64` itself does not rule
+    /// out overflow, but the buffer holds `live.div_ceil(8)` bytes, so the
+    /// length nears `u64::MAX` only once the buffer nears 2^61 bytes, an
+    /// allocation no machine can make. For the same reason a sealed stream
+    /// stays below 2^61 bytes, as its readers require.
     live: u64,
 }
 
@@ -225,8 +229,11 @@ impl BitsWriter {
     /// Domain writers use this to inspect a small header that they reserved
     /// earlier. The range must lie within the current output.
     pub(crate) fn read_word(&self, start: u64, len: u32) -> u64 {
+        // Comparing against the bits after `start` cannot overflow, as a sum
+        // with `start` could at the top of the range; within the bound, the
+        // loop's `start + len` is at most the live length.
         assert!(
-            len <= 63 && start + u64::from(len) <= self.len(),
+            len <= 63 && start <= self.len() && u64::from(len) <= self.len() - start,
             "word read lies within the writer"
         );
         let mut value = 0;
@@ -340,7 +347,7 @@ impl BitsWriter {
     /// Copy one range from raw storage.
     fn splice_storage(&mut self, bytes: &[u8], start: u64, end: u64) {
         assert!(
-            start <= end && end <= bytes.len() as u64 * 8,
+            start <= end && bits_in(bytes.len() as u64).is_none_or(|stored| end <= stored),
             "copied range lies within the source storage"
         );
         let mut position = start;

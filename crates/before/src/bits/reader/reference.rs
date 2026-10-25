@@ -3,6 +3,7 @@
 use num_bigint::BigUint;
 
 use super::{BitRead, BitsReader, Truncated};
+use crate::bits::bits_in;
 use crate::error::Decode;
 
 /// A deliberately bit-at-a-time bounded reader.
@@ -18,7 +19,7 @@ pub(crate) struct ReferenceBitsReader<'a> {
 impl<'a> ReferenceBitsReader<'a> {
     /// Open at `position` within the first `len` source bits.
     pub(crate) fn new(bytes: &'a [u8], len: u64, position: u64) -> Self {
-        assert!(position <= len && len <= bytes.len() as u64 * 8);
+        assert!(position <= len && bits_in(bytes.len() as u64).is_none_or(|stored| len <= stored));
         Self {
             bytes,
             len,

@@ -16,7 +16,7 @@ use num_bigint::BigUint;
 
 use crate::error::Decode;
 
-use super::Bits;
+use super::{bits_in, Bits};
 
 mod gamma;
 mod words;
@@ -115,8 +115,14 @@ impl<'a> BitsReader<'a> {
     ///
     /// Decoding may pass a whole padded input; the marker is checked after the
     /// value has been read.
-    pub(crate) fn from_bytes(bytes: &'a [u8]) -> Self {
-        Self::from_storage(bytes, bytes.len() as u64 * 8, 0)
+    ///
+    /// # Errors
+    ///
+    /// [`Decode::TooLarge`] if `bytes` holds 2^61 bytes or more, whose length
+    /// in bits no `u64` can hold. Nothing is read in that case.
+    pub(crate) fn from_bytes(bytes: &'a [u8]) -> Result<Self, Decode> {
+        let len = bits_in(bytes.len() as u64).ok_or(Decode::TooLarge)?;
+        Ok(Self::from_storage(bytes, len, 0))
     }
 
     /// Read the first `len` bits of a byte slice.
@@ -139,7 +145,10 @@ impl<'a> BitsReader<'a> {
     ///
     /// Panics if `position` lies past the readable range.
     pub(super) fn from_storage(bytes: &'a [u8], len: u64, position: u64) -> Self {
-        assert!(len <= bytes.len() as u64 * 8, "live bits within storage");
+        assert!(
+            bits_in(bytes.len() as u64).is_none_or(|stored| len <= stored),
+            "live bits within storage"
+        );
         assert!(position <= len, "reader opened past the stream's end");
         let (body, tail) = body_tail(bytes, len);
         let mut reader = BufBitReader::new(ByteWords::new(body, tail, (position / 8) as usize));
@@ -168,7 +177,9 @@ impl<'a> BitsReader<'a> {
     /// Read `len <= 64` bits at the current position as a right-aligned word.
     pub(crate) fn read_word(&mut self, len: u32) -> Result<u64, Truncated> {
         assert!(len <= 64, "one word contains at most 64 bits");
-        if self.position + u64::from(len) > self.len {
+        // `position <= len`, so comparing against the remainder cannot
+        // overflow, as a sum with `position` could at the top of the range.
+        if u64::from(len) > self.len - self.position {
             return Err(self.truncated());
         }
         let value = self
@@ -191,10 +202,13 @@ impl<'a> BitsReader<'a> {
         match self.reader.read_unary() {
             Err(_) => Err(self.truncated()),
             Ok(k) => {
-                // No overflow: position and len are at most 8 · a buffer's
-                // byte count and k is bounded by the word source's total
-                // bits, all far below 2^64.
-                if self.position + k + 1 > self.len {
+                // The run and its terminator need `k + 1` bits, and
+                // `position <= len` leaves `len - position` of them. The
+                // word source zero-fills past the stream, so `k` can exceed
+                // what remains; comparing against the remainder cannot
+                // overflow, as a sum with `position` could at the top of the
+                // `u64` range.
+                if k >= self.len - self.position {
                     return Err(self.truncated());
                 }
                 Ok(k)
@@ -220,10 +234,9 @@ impl<'a> BitsReader<'a> {
     /// unary read plus a bit discard.
     pub(crate) fn skip_gamma(&mut self) -> Result<(), Truncated> {
         let k = self.unary_raw()?;
-        let code_len = 2 * k + 1;
-        if self.position + code_len > self.len {
+        let Some(code_len) = gamma::code_len_within(k, self.len - self.position) else {
             return Err(self.truncated());
-        }
+        };
         let mut remaining = k;
         while remaining > 0 {
             let chunk = remaining.min(u64::from(u64::BITS));
@@ -239,7 +252,10 @@ impl<'a> BitsReader<'a> {
 
 /// Split `live` bits into whole bytes and an optional masked tail byte.
 fn body_tail(bytes: &[u8], live: u64) -> (&[u8], Option<u8>) {
-    assert!(live <= bytes.len() as u64 * 8, "live bits within storage");
+    assert!(
+        bits_in(bytes.len() as u64).is_none_or(|stored| live <= stored),
+        "live bits within storage"
+    );
     let whole = (live / 8) as usize;
     let rem = (live % 8) as u32;
     if rem == 0 {
@@ -255,7 +271,9 @@ fn live_len(bytes: &[u8]) -> u64 {
         None => 0,
         Some(&last) => {
             debug_assert!(last != 0, "stored stream missing its padding marker");
-            bytes.len() as u64 * 8 - 1 - u64::from(last.trailing_zeros())
+            let stored = bits_in(bytes.len() as u64)
+                .expect("sealed storage holds fewer than 2^61 bytes: decoders reject more, and no machine can allocate more for a writer");
+            stored - 1 - u64::from(last.trailing_zeros())
         }
     }
 }

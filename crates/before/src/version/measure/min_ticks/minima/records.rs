@@ -39,6 +39,13 @@ pub struct Records {
     /// Whether each record is the first at its reference.
     first: BitStack,
     /// The top record's close count.
+    ///
+    /// Every count is below 2^63. Each close charges one distinct internal
+    /// node of the version, and a stream with `I` internal nodes spends at
+    /// least `3I + 2` bits: one topology bit per internal node, and a
+    /// topology bit and a payload of at least one bit for each of its `I + 1`
+    /// leaves. The fold reads the stream through a reader whose bit positions
+    /// are `u64`, so `3I + 2 < 2^64`.
     top_closes: u64,
 }
 
@@ -70,11 +77,8 @@ impl Records {
             self.first.len() != 0,
             "an armed subtree has a current minimum"
         );
-        // Each close consumes one internal node of the version, which spends
-        // at least three encoded bits per internal node, so the count can
-        // reach u64::MAX only for a version of more than 2^62 bytes: within
-        // `isize::MAX` on a 64-bit target, but beyond any address space a
-        // 64-bit platform implements.
+        // The count stays below 2^63, as `top_closes` derives, so this
+        // addition cannot overflow.
         self.top_closes += 1;
     }
 
