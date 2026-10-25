@@ -183,15 +183,18 @@ impl Value {
 
     /// Multiply by `2^shift`, retaining the small representation whenever it fits.
     ///
-    /// A shift of `2^64` bits or more is accepted only for zero.
+    /// A shift of `2^64` bits or more is accepted only for zero. A value held
+    /// in digits moves into new digits through [`shifted`](Self::shifted),
+    /// the one definition of a digit-held shift that every spelling of `<<`
+    /// shares.
     pub(crate) fn shift_left(&mut self, shift: u128) {
         if shift == 0 || self.is_known_zero() {
             return;
         }
-        let Some(shift) = self.addressable_shift(shift) else {
-            return;
-        };
         if let Some(value) = self.small {
+            let Some(shift) = self.addressable_shift(shift) else {
+                return;
+            };
             touch(1);
             if shift <= SMALL_SHIFT_MAX {
                 let shifted = value << shift;
@@ -207,16 +210,54 @@ impl Value {
             }
             return;
         }
-        // A zero whose digits cancel shifts to itself. Returning here keeps it
-        // in the digit representation with its buffer, as the one-way rule
-        // requires, and never lands its cancelling digits at the shifted
-        // position.
-        if self.digits.cmp_zero() == Ordering::Equal {
-            return;
+        let shifted = self.shifted(shift);
+        // A zero whose digits cancel shifts to itself, and `shifted` returns
+        // a new small zero for it. Keeping `self` instead leaves it in the
+        // digit representation with its buffer, as the one-way rule
+        // requires. Otherwise the new digits replace the old, which drop.
+        if shifted.small.is_none() {
+            self.digits = shifted.digits;
         }
-        let previous = core::mem::replace(&mut self.digits, Digits::new());
-        self.digits.activate();
-        self.digits
-            .add_digits(previous.stored_digits(), shift, Update::Add);
+    }
+
+    /// Return the value times `2^shift` as a new value, normalizing this one
+    /// in place as any read does.
+    ///
+    /// A zero, including one whose digits cancel, returns a new zero. A small
+    /// value shifts a small copy of itself. A value held in digits is
+    /// normalized in place first, so every digit re-deposited into the new
+    /// value has the value's sign. The re-deposit is then an update of one
+    /// sign into zeroed storage, which leaves the new digits *sign-led*, as
+    /// the crate's cost argument for updates of one sign defines it: the top
+    /// digit has the value's sign, and no digit opposes that sign by more
+    /// than half the base. A signed digit re-deposited at a bit offset could
+    /// instead land a full base against the value's sign, below a top digit
+    /// of 1. Normalizing costs one pass over the positions the re-deposit
+    /// reads anyway.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value is nonzero and the count is `2^64` or more, as
+    /// [`addressable_shift`](Self::addressable_shift) explains.
+    pub(crate) fn shifted(&mut self, shift: u128) -> Value {
+        let mut result = Value::new();
+        if self.is_known_zero() {
+            return result;
+        }
+        if let Some(value) = self.small {
+            result.small = Some(value);
+            result.shift_left(shift);
+            return result;
+        }
+        let Some(shift) = self.addressable_shift(shift) else {
+            return result;
+        };
+        if self.digits.normalize() != Ordering::Equal {
+            result.start_digits();
+            result
+                .digits
+                .add_digits(self.digits.stored_digits(), shift, Update::Add);
+        }
+        result
     }
 }

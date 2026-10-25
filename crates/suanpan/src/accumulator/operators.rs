@@ -27,7 +27,7 @@ use super::Accumulator;
 /// Primitives through 64 bits share the bounded small-value path.
 macro_rules! word_assignments {
     ($($integer:ty),* $(,)?) => {$(
-        /// Add in amortized O(log(`W` + 1)) time and O(1) retained space.
+        /// Add in amortized O(1) time and amortized O(1) retained space.
         impl AddAssign<$integer> for Accumulator {
             #[inline]
             fn add_assign(&mut self, rhs: $integer) {
@@ -35,7 +35,7 @@ macro_rules! word_assignments {
             }
         }
 
-        /// Subtract in amortized O(log(`W` + 1)) time and O(1) retained space.
+        /// Subtract in amortized O(1) time and amortized O(1) retained space.
         impl SubAssign<$integer> for Accumulator {
             /// Widen before negating, so signed minima negate exactly.
             #[inline]
@@ -51,7 +51,7 @@ word_assignments!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize);
 /// Full-width primitives carry their sign beside a `u128` magnitude.
 macro_rules! wide_assignments {
     ($($integer:ty),* $(,)?) => {$(
-        /// Add in amortized O(log(`W` + 1)) time and O(1) retained space.
+        /// Add in amortized O(1) time and amortized O(1) retained space.
         impl AddAssign<$integer> for Accumulator {
             fn add_assign(&mut self, rhs: $integer) {
                 let (sign, magnitude) = rhs.sign_magnitude();
@@ -61,7 +61,7 @@ macro_rules! wide_assignments {
             }
         }
 
-        /// Subtract in amortized O(log(`W` + 1)) time and O(1) retained space.
+        /// Subtract in amortized O(1) time and amortized O(1) retained space.
         impl SubAssign<$integer> for Accumulator {
             fn sub_assign(&mut self, rhs: $integer) {
                 let (sign, magnitude) = rhs.sign_magnitude();
@@ -118,7 +118,7 @@ macro_rules! primitive_operators {
             }
         }
 
-        /// Sum `K` primitives in amortized O(`K` log(`W` + 1) + `G`) time.
+        /// Sum `K` primitives in amortized O(`K`) time.
         impl Sum<$operand> for Accumulator {
             fn sum<I: Iterator<Item = $operand>>(iter: I) -> Accumulator {
                 iter.fold(Accumulator::new(), Add::add)
@@ -231,7 +231,7 @@ macro_rules! forwarded_primitive_operators {
         }
 
         /// Subtract the owned right operand, as `-rhs + self`, reusing its
-        /// storage: the cost of `+=` plus O(`W`) for the negation.
+        /// storage: the cost of `+=` plus O(`V`) for the negation.
         impl Sub<Accumulator> for $operand {
             type Output = Accumulator;
 
@@ -280,8 +280,8 @@ macro_rules! forwarded_primitive_operators {
 
 forwarded_primitive_operators!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-/// Add a borrowed accumulator in amortized O(`A` log(`W` + 1) + `G`) time,
-/// adding O(`A` + `G`) retained space.
+/// Add a borrowed accumulator in amortized O(`A`) time, adding amortized
+/// O(`A`) retained space.
 ///
 /// The receiver is borrowed mutably, so the operand is a different accumulator:
 ///
@@ -298,8 +298,8 @@ impl AddAssign<&Accumulator> for Accumulator {
     }
 }
 
-/// Subtract a borrowed accumulator in amortized O(`A` log(`W` + 1) + `G`)
-/// time, adding O(`A` + `G`) retained space.
+/// Subtract a borrowed accumulator in amortized O(`A`) time, adding amortized
+/// O(`A`) retained space.
 ///
 /// As for `+=`, the operand is a different accumulator:
 ///
@@ -318,8 +318,8 @@ impl SubAssign<&Accumulator> for Accumulator {
 
 /// Add an owned accumulator, reusing the wider input's storage.
 ///
-/// Takes amortized O(`A` log(`W` + 1) + `G`) time, where `A` is the narrower
-/// input's working width.
+/// Takes amortized O(`A`) time, where `A` is the narrower input's working
+/// width.
 impl AddAssign for Accumulator {
     fn add_assign(&mut self, rhs: Accumulator) {
         *self = core::mem::take(self) + rhs;
@@ -335,8 +335,8 @@ impl SubAssign for Accumulator {
 
 /// Add owned accumulators, reading the narrower into the wider's storage.
 ///
-/// Takes amortized O(`A` log(`W` + 1) + `G`) time, where `A` is the narrower
-/// input's working width. On equal widths the left operand's storage is kept.
+/// Takes amortized O(`A`) time, where `A` is the narrower input's working
+/// width. On equal widths the left operand's storage is kept.
 impl Add for Accumulator {
     type Output = Accumulator;
 
@@ -404,7 +404,7 @@ impl Add<Accumulator> for &Accumulator {
 
 /// Subtract the owned right operand, as `-(rhs - self)`, reusing its storage.
 ///
-/// Takes the cost of `-=` with a borrowed operand plus O(`W`) for the negation.
+/// Takes the cost of `-=` with a borrowed operand plus O(`V`) for the negation.
 impl Sub<Accumulator> for &Accumulator {
     type Output = Accumulator;
 
@@ -439,8 +439,8 @@ impl Sub<&Accumulator> for &Accumulator {
 
 /// Sum owned accumulators, reusing the wider input at each addition.
 ///
-/// Takes amortized O(`T` log(`W` + 1) + `G`) time, where `T` is the sum of the
-/// input working widths.
+/// Takes amortized O(`T`) time, where `T` is the sum of the input working
+/// widths.
 impl Sum for Accumulator {
     fn sum<I: Iterator<Item = Accumulator>>(iter: I) -> Accumulator {
         iter.reduce(Add::add).unwrap_or_default()
@@ -449,15 +449,15 @@ impl Sum for Accumulator {
 
 /// Sum borrowed accumulators, reading each once.
 ///
-/// Takes amortized O(`T` log(`W` + 1) + `G`) time, where `T` is the sum of the
-/// input working widths. An accumulator may appear more than once.
+/// Takes amortized O(`T`) time, where `T` is the sum of the input working
+/// widths. An accumulator may appear more than once.
 impl<'a> Sum<&'a Accumulator> for Accumulator {
     fn sum<I: Iterator<Item = &'a Accumulator>>(iter: I) -> Accumulator {
         iter.fold(Accumulator::new(), Add::add)
     }
 }
 
-/// Negate in place in O(`W`) time and O(1) additional space.
+/// Negate in place in O(`V`) time and O(1) additional space.
 impl Neg for Accumulator {
     type Output = Accumulator;
 
@@ -484,9 +484,9 @@ macro_rules! shifts {
         ///
         /// # Complexity
         ///
-        /// Let `A` be the old working width and `S` the result's. A nonzero
-        /// value shifts in amortized O(`A` log(`S` + 1) + `S`) time and O(`S`)
-        /// temporary space, because the old and new allocations may coexist.
+        /// Let `S` be the result's working width. A nonzero value shifts in
+        /// amortized O(`S`) time and O(`S`) temporary space, because the old
+        /// and new allocations may coexist.
         /// A zero shifts in O(1) space and in the amortized time of
         /// [`sign`](Accumulator::sign).
         ///
@@ -517,8 +517,9 @@ macro_rules! shifts {
 
         /// Multiply a borrowed accumulator by `2^shift` into a new one.
         ///
-        /// Takes the cost of [`add_shifted`](Accumulator::add_shifted) into
-        /// zero.
+        /// Takes the time of `<<=`, and the result's O(`S`) space. The shift
+        /// is a read: it normalizes the borrowed accumulator in place, as a
+        /// magnitude read does, and builds the result in new storage.
         ///
         /// # Panics
         ///
@@ -527,11 +528,7 @@ macro_rules! shifts {
             type Output = Accumulator;
 
             fn shl(self, shift: $integer) -> Accumulator {
-                let mut shifted = Accumulator::new();
-                if let Some(shift) = self.read(|value| value.addressable_shift(shift_count(shift))) {
-                    shifted.add_shifted(shift, self);
-                }
-                shifted
+                Accumulator::from_value(self.read(|value| value.shifted(shift_count(shift))))
             }
         }
 

@@ -79,13 +79,28 @@ skip reading a much narrower operand.
 
 Cancellation can shorten the value while the accumulator still holds
 storage at higher positions. Costs therefore use the *working width*
-rather than the value's bit length. Let `W` be the greatest working width
-the receiver has reached, `A` an accumulator operand's working width, `L`
-the number of input limbs, `G` the growth of the receiver's working width,
-`R` the receiver's *written span*, from the lowest position written since
-creation or the last reset up to its working width (a shift moves the
-written span with the value), and `Q` the width of a read's result. A large
-shift can make `G` large even for one input limb.
+rather than the value's bit length, through these quantities:
+
+- A receiver's *history* is the time since its storage was created or
+  last received `clone_from`. The result of an owned
+  operator continues the history of the input whose storage it reuses.
+- `V` is the receiver's working width when the operation starts, and `W`
+  the greatest working width it has reached in its history.
+- `A` is an accumulator operand's working width, and `L` the number of
+  input limbs.
+- `G` is how far an update raises the receiver's working width beyond the
+  greatest it has reached in its *window*: the part of its history since
+  its last nonzero `<<=`, which can move the value into new storage. A
+  large shift can make `G` large even for one input limb, but raising the
+  width again to one reached in the window adds nothing to `G`; see
+  [Raising the top across gaps](#raising-the-top-across-gaps). At shift 0,
+  `G` exceeds the operand's own width by at most a constant, so it drops
+  out of the shift-0 bounds.
+- `R` is the receiver's *written span*, from the lowest position written
+  since creation or the last reset up to its working width. A shift moves
+  the written span with the value.
+- `Q` is the width of a read's result, and `S` the working width of a
+  shift's result.
 
 Amortized bounds hold over the whole sequence of operations: one call may
 finish carry or cancellation work that earlier calls prepared, but no work
@@ -93,19 +108,98 @@ is paid for twice. Additional space excludes inputs and returned output.
 
 | Operation | Time | Additional space |
 |---|---|---|
-| `+=` / `-=` a primitive | Amortized O(log(`W` + 1)) | O(1) retained |
-| Add or subtract `L` limbs | Amortized O(`L` log(`W` + 1) + `G`) | O(`L` + `G`) retained |
-| Add or subtract an accumulator | Amortized O(`A` log(`W` + 1) + `G`) | O(`A` + `G`) retained |
-| Sign queries, comparison with a primitive, primitive `TryFrom` | Amortized O(log(`W` + 1)) | O(1) |
-| `abs_diff` | Amortized O(`A` log(`W` + 1)), `A` the narrower; plus O(`W`) to negate the result when the wider operand is negative and the smaller | O(1) beyond the wider operand's storage |
-| Compare two accumulators | Amortized O(`A` log(`A` + 1)), `A` the narrower; O(log(`W` + 1)) when one is far wider | O(`A`) temporary |
-| Magnitude read or `Hash` | Amortized O(log(`W` + 1) + `Q`) | O(`Q`) temporary |
+| `+=` / `-=` a primitive | Amortized O(1) | Amortized O(1) retained |
+| Add or subtract `L` limbs | Amortized O(`L`) at shift 0; amortized O(`L` + `G` + log(`W` + 1)) at a nonzero shift | Amortized O(`L` + `G`) retained |
+| Add or subtract an accumulator | Amortized O(`A`) at shift 0; amortized O(`A` log(`W` + 1) + `G`) at a nonzero shift | Amortized O(`A` + `G`) retained |
+| Nonzero `<<` or `<<=`, any spelling | Amortized O(`S`) | O(`S`) temporary |
+| Sign queries, `cmp_zero_stable_under`, comparison with a primitive, and primitive `TryFrom` | Amortized O(1) | O(1) |
+| `abs_diff` | Amortized O(`A`), `A` the narrower; plus O(`V`), `V` the wider operand's working width, to negate the result when the wider operand is negative and the smaller | Amortized O(1) retained beyond the wider operand's storage |
+| Compare two accumulators | Amortized O(`A`), `A` the narrower; amortized O(1) when one is far wider and its top decides the order | O(`A`) temporary |
+| Magnitude read or `Hash` | Amortized O(1 + `Q`) | O(`Q`) temporary |
 | `clone` / `clone_from` | The magnitude read plus O(`Q`) | O(`Q`) for the copy; `clone_from` reuses the receiver's allocation |
 | `Display` | The magnitude read plus O(`Q`²) | O(`Q`) temporary |
 | Working-width and known-zero queries | O(1) | O(1) |
-| Unary `-` | O(`W`) | O(1) |
+| Unary `-` | O(`V`) | O(1) |
 | `reset` | Amortized O(`R`) | O(1) |
 
+The logarithmic terms appear only in the rows for updates at a nonzero
+shift. They pay for the bookkeeping that lets comparisons skip positions
+no update has written, grow as the base-64 logarithm of `W`, and cover
+crossing a range of such positions, which only an update at a nonzero
+shift, or the comparison that follows it, can need. Added at a shift that
+is not a multiple of 32 bits, an accumulator operand can pay the term once
+per 32 bits of its width, which is why that row multiplies `A` by it.
+
+### Raising the top across gaps
+
+Cancellation can empty a long range of bit positions below the top, and a
+large shift skips a range that no update has written; call either range
+a *gap*. Raising the top across a gap, and finding the value's new top
+below it after the value above it cancels, never visits the gap:
+
+- An update that raises the working width again, to a width reached in
+  its window, has a `G` of zero however far the top moves, so its row's
+  bounds apply as they would to an update that does not widen the value.
+- When the value above the gap cancels, the update or comparison that
+  finds the value's new highest nonzero bit crosses a gap of `d` bits in
+  amortized O(1 + log(`d` + 1)) time, a base-64 logarithm, so no cycle of
+  raising and cancelling pays the gap's width.
+
+The rows above already pay for these crossings. An update at a nonzero
+shift pays, within its log(`W` + 1) term, for the crossings it makes
+itself and for those of the next comparison, which may cross the gap
+below the top the update left. An update at shift 0 reaches the top only
+through positions it writes, which its own width pays for. So a value
+whose top is raised across a gap and cancelled again, cycle after cycle,
+costs each cycle only the bounds of the updates it makes, never the gap's
+width.
+
+### Updates of one sign
+
+Updates that only add, or only subtract, never cancel the value's top,
+and cost less than the rows above say. Call a sequence of operations on
+one accumulator a *stretch of one sign* when:
+
+- it begins where the receiver's window begins: at its creation
+  (including the result of a borrowed `<<`, a new accumulator), at its
+  last `clone_from`, or at its last nonzero `<<=` or
+  owned `<<`;
+- every update in it adds or subtracts a primitive or limbs, all their
+  contributions have one sign, and the value at its start is zero or has
+  that sign;
+- its only other operations are working-width and known-zero queries.
+
+Any other operation ends the stretch. Then:
+
+- each primitive update in the stretch costs amortized O(1), and each
+  update of `L` limbs amortized O(`L` + `G`), at any shift;
+- the first comparison with zero after the stretch, which every read,
+  sign query, comparison, and nonzero shift begins with, can cost
+  O(log(`V` + 1)) beyond its own row, once.
+
+That is, a stretch of one sign pays the logarithmic term of the limb row
+at most once, after it ends, instead of on every update at a nonzero
+shift. A nonzero shift in any spelling of `<<` costs amortized O(`S`)
+and starts a new stretch, so a sum of terms of one sign can shift its
+total to a finer scale between stretches and pay each shift only its
+width.
+
+A `reset` or a read does not begin a stretch of one
+sign: it leaves the window running, and it empties the bookkeeping that
+lets comparisons skip unwritten positions while keeping that
+bookkeeping's storage. Repeating a reset, an update at a large shift that
+reaches a width the window reached before, and a one-limb update below
+it costs a base-64 logarithm of that width per round, while each update's
+`L` + `G` and the reset's `R` stay constant. Updates after a reset or a
+read therefore get only the rows above.
+
+### Retained space
+
+Every retained bound is amortized, because storage grows geometrically, as
+`Vec` does: an operation that extends a full allocation by one position can
+retain as much spare capacity as the allocation it replaced, and later
+growth fills that capacity. The bookkeeping can also grow during an update
+that does not widen the value, to cover positions earlier updates wrote.
 Growing an allocation may briefly keep the old and new buffers alive. A
 read can extend the working width by at most a constant, and grows the
 buffer by exactly that much when it must. An accumulator may retain more

@@ -1,10 +1,16 @@
-//! Arithmetic preserves the stored-form invariants, and shifting zero takes
-//! constant space whatever its stored form.
+//! Arithmetic preserves the stored-form invariants, a shift leaves its digits
+//! sign-led, and shifting zero takes constant space whatever its stored form.
 //!
 //! At every step, compare the value with a big-integer oracle and inspect the
 //! representation itself. A nonzero digit missing from the written set would
 //! be skipped by a later query even while the current value still reads
 //! correctly.
+//!
+//! A shift normalizes the value before re-depositing it, so that its digits
+//! start the crate's cost argument for updates of one sign in the state that
+//! argument needs. The normalization and the shift each get a property of
+//! their own, and a third follows the operations of a sum that rescales its
+//! total: updates of one sign interleaved with shifts, from creation.
 //!
 //! Zero can be stored as nonzero digits that cancel. Shifting such a zero, or
 //! adding it at a shift, must take constant space, as a known zero does.
@@ -149,6 +155,177 @@ fn representation_invariants_hold_exhaustively() {
     );
 }
 
+/// Draw a run-forming stream: 1 to 149 steps, each an arm, one or two limbs,
+/// and a shift below 4,096 bits.
+///
+/// [`apply_stream_step`] gives the arms their meaning: limb updates of either
+/// sign, a whole-word subtraction, a primitive update, and a comparison with
+/// zero. Together they leave runs, gaps, cancelled tops, and digits of both
+/// signs, the varied stored forms that the normalization and shift
+/// properties below start from.
+fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u64)>> {
+    proptest::collection::vec(
+        (
+            0u8..5,
+            proptest::collection::vec(any::<u64>(), 1..=2),
+            0u64..4_096,
+        ),
+        1..150,
+    )
+}
+
+/// Apply one step of a [`run_forming_stream`] to the accumulator and the
+/// oracle in lockstep; the comparison arm checks the sign against the oracle.
+fn apply_stream_step(
+    acc: &mut Accumulator,
+    oracle: &mut IBig,
+    (arm, limbs, shift): &(u8, Vec<u64>, u64),
+    step: usize,
+) -> Result<(), TestCaseError> {
+    let value = from_limbs(limbs);
+    let scaled = IBig::from(value.clone()) << usize::try_from(*shift).unwrap();
+    match arm {
+        0 => {
+            acc.add_limb_value_shl(&value, *shift);
+            *oracle += scaled;
+        }
+        1 => {
+            acc.sub_limb_value_shl(&value, *shift);
+            *oracle -= scaled;
+        }
+        2 => {
+            acc.sub_value_shl(&value, *shift);
+            *oracle -= scaled;
+        }
+        3 => {
+            let delta = limbs[0] as i64;
+            *acc += delta;
+            *oracle += delta;
+        }
+        _ => {
+            prop_assert_eq!(acc.sign(), oracle_sign(oracle), "sign at step {}", step);
+        }
+    }
+    Ok(())
+}
+
+/// A spelling of a left shift by a count.
+#[derive(Clone, Copy, Debug)]
+enum ShiftSpelling {
+    /// `acc <<= count`.
+    Assign,
+    /// `acc <<= &count`.
+    AssignRef,
+    /// `acc << count`, consuming `acc`.
+    Owned,
+    /// `&acc << count`, leaving `acc` with its owner.
+    Borrowed,
+}
+
+/// Every spelling of a left shift, in the order [`shift_spelling`] draws them.
+const SHIFT_SPELLINGS: [ShiftSpelling; 4] = [
+    ShiftSpelling::Assign,
+    ShiftSpelling::AssignRef,
+    ShiftSpelling::Owned,
+    ShiftSpelling::Borrowed,
+];
+
+/// Draw any spelling of a left shift.
+fn shift_spelling() -> impl Strategy<Value = ShiftSpelling> {
+    proptest::sample::select(&SHIFT_SPELLINGS[..])
+}
+
+/// Shift `acc` by `count` in `spelling`, returning the result and, for the
+/// borrowed spelling, the accumulator it read, which still holds the
+/// unshifted value.
+fn shift_in(
+    acc: Accumulator,
+    count: u64,
+    spelling: ShiftSpelling,
+) -> (Accumulator, Option<Accumulator>) {
+    match spelling {
+        ShiftSpelling::Assign => {
+            let mut acc = acc;
+            acc <<= count;
+            (acc, None)
+        }
+        ShiftSpelling::AssignRef => {
+            let mut acc = acc;
+            acc <<= &count;
+            (acc, None)
+        }
+        ShiftSpelling::Owned => (acc << count, None),
+        ShiftSpelling::Borrowed => (&acc << count, Some(acc)),
+    }
+}
+
+/// Half the digit base, `B / 2`: the farthest a sign-led digit may lie on the
+/// side of zero opposite the value's sign.
+const HALF_BASE: i64 = 1 << 31;
+
+/// The digit base, `B = 2^32`, which bounds every normalized digit's magnitude.
+const BASE: i64 = 1 << 32;
+
+/// The factor that makes a digit of the value's sign nonnegative: -1 for a
+/// negative value, 1 otherwise.
+fn polarity(sign: Ordering) -> i64 {
+    if sign == Ordering::Less {
+        -1
+    } else {
+        1
+    }
+}
+
+/// Assert that a value held in digits is normalized: every stored digit has
+/// the sign `sign` or is zero, and has magnitude below the base.
+fn assert_normalized(acc: &Accumulator, sign: Ordering, context: &dyn core::fmt::Debug) {
+    let stored = acc.stored();
+    if stored.small.is_some() {
+        return;
+    }
+    let polarity = polarity(sign);
+    for (position, &digit) in stored.digits.stored_digits().iter().enumerate() {
+        assert!(
+            polarity * digit >= 0 && digit.abs() < BASE,
+            "normalized digit {position} = {digit} lacks the value's sign {sign:?} or \
+             reaches the base after {context:?}"
+        );
+    }
+}
+
+/// Assert that the stored digits are *sign-led* for a nonzero value of
+/// `sign`: the top digit has that sign, and no digit has the other sign with
+/// magnitude above `B / 2`.
+///
+/// The crate's cost argument for updates of one sign starts from this state
+/// and keeps it. In it, the partial a comparison with zero folds reaches at
+/// least `B / 2` by the position below the top, so the comparison's scan
+/// decides within two positions and never crosses a gap. When it stops one
+/// position below the top, its truncation can still cross one gap, once:
+/// the top digit was small and the position below it was never written.
+/// A value held in the small representation, or zero, has no digits to
+/// check.
+fn assert_sign_led(acc: &Accumulator, sign: Ordering, context: &dyn core::fmt::Debug) {
+    let stored = acc.stored();
+    if stored.small.is_some() || sign == Ordering::Equal {
+        return;
+    }
+    let polarity = polarity(sign);
+    let digits = stored.digits.stored_digits();
+    let top = *digits.last().expect("the stored prefix holds digit zero");
+    assert!(
+        polarity * top > 0,
+        "top digit {top} lacks the value's sign {sign:?} after {context:?}"
+    );
+    for (position, &digit) in digits.iter().enumerate() {
+        assert!(
+            polarity * digit >= -HALF_BASE,
+            "digit {position} = {digit} opposes the value's sign {sign:?} by more than \
+             half the base after {context:?}"
+        );
+    }
+}
+
 proptest! {
     /// Longer streams with wider shifts preserve the value, signed-digit bounds,
     /// stored width, and the written-set invariant after every step.
@@ -158,50 +335,147 @@ proptest! {
     /// interleaved throughout.
     #[test]
     fn representation_invariants_hold_on_run_forming_streams(
-        ops in proptest::collection::vec(
-            (0u8..5, proptest::collection::vec(any::<u64>(), 1..=2), 0u64..4_096),
-            1..150,
-        ),
+        ops in run_forming_stream(),
         digits_first: bool,
     ) {
         let mut acc = fresh(digits_first);
         let mut oracle = IBig::from(0);
         let mut schedule: Vec<u8> = Vec::new();
-        for (step, (arm, limbs, shift)) in ops.iter().enumerate() {
-            schedule.push(*arm);
-            let value = from_limbs(limbs);
-            let scaled = IBig::from(value.clone()) << usize::try_from(*shift).unwrap();
-            match arm {
-                0 => {
-                    acc.add_limb_value_shl(&value, *shift);
-                    oracle += scaled;
-                }
-                1 => {
-                    acc.sub_limb_value_shl(&value, *shift);
-                    oracle -= scaled;
-                }
-                2 => {
-                    acc.sub_value_shl(&value, *shift);
-                    oracle -= scaled;
-                }
-                3 => {
-                    let delta = limbs[0] as i64;
-                    acc += delta;
-                    oracle += delta;
-                }
-                _ => {
-                    prop_assert_eq!(
-                        acc.sign(),
-                        oracle_sign(&oracle),
-                        "sign at step {}",
-                        step
-                    );
-                }
-            }
+        for (step, op) in ops.iter().enumerate() {
+            schedule.push(op.0);
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
             acc.stored().assert_invariants(&schedule);
             if step % 32 == 0 {
                 assert_value(&acc, &oracle);
             }
+        }
+        assert_value(&acc, &oracle);
+    }
+
+    /// Normalizing digits in place keeps the value and gives every stored
+    /// digit the value's sign, with magnitude below the base, from any stored
+    /// form a stream reaches.
+    ///
+    /// A nonzero `<<=` of a value held in digits normalizes it this way
+    /// before re-depositing its digits, so that every re-deposit has the
+    /// value's sign. The normalization changes the representation only: the
+    /// value, the returned sign, and every digit invariant must hold after
+    /// it.
+    #[test]
+    fn normalizing_keeps_the_value_and_gives_every_digit_its_sign(
+        ops in run_forming_stream(),
+    ) {
+        let mut acc = fresh(true);
+        let mut oracle = IBig::from(0);
+        for (step, op) in ops.iter().enumerate() {
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
+        }
+        let sign = acc.value.get_mut().digits.normalize();
+        prop_assert_eq!(sign, oracle_sign(&oracle), "normalize returns the value's sign");
+        acc.stored().assert_invariants(&[]);
+        assert_normalized(&acc, sign, &"normalize");
+        assert_value(&acc, &oracle);
+    }
+
+    /// Every spelling of a nonzero left shift keeps the value and leaves the
+    /// shifted digits sign-led, from any stored form a stream reaches; a
+    /// borrowed `<<` also leaves its source's value unchanged, and its digits
+    /// normalized.
+    ///
+    /// Every spelling re-deposits the normalized value, one digit of the
+    /// value's sign at a time, into new digits, so recentering is the only
+    /// source of a digit of the other sign, and it leaves that digit within
+    /// `B / 2` of zero. A shift that is not a multiple of 32 bits is where
+    /// re-depositing the stored signed digits unnormalized would break this.
+    /// The borrowed spelling normalizes its source in place, as any read
+    /// does, which may change the source's representation but not its
+    /// value.
+    #[test]
+    fn shifting_leaves_the_digits_sign_led(
+        ops in run_forming_stream(),
+        shift in 1u64..=4_096,
+        spelling in shift_spelling(),
+    ) {
+        let mut acc = fresh(true);
+        let mut oracle = IBig::from(0);
+        for (step, op) in ops.iter().enumerate() {
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
+        }
+        let (shifted, source) = shift_in(acc, shift, spelling);
+        let sign = oracle_sign(&oracle);
+        if let Some(source) = source {
+            source.stored().assert_invariants(&[]);
+            assert_normalized(&source, sign, &("borrowed source", shift));
+            assert_value(&source, &oracle);
+        }
+        let shifted_oracle = oracle << usize::try_from(shift).unwrap();
+        shifted.stored().assert_invariants(&[]);
+        assert_sign_led(&shifted, sign, &(spelling, shift));
+        assert_value(&shifted, &shifted_oracle);
+    }
+
+    /// From creation, updates of one sign interleaved with left shifts in
+    /// every spelling keep the digits sign-led after every step, and no step
+    /// lowers the working width.
+    ///
+    /// A sum of nonnegative terms that shifts its total whenever a term needs
+    /// a finer scale, as `before`'s `Rank` sum does, makes exactly these
+    /// operations. The crate's cost argument for updates of one sign rests on
+    /// this property: an
+    /// update of a sign-led value's own sign never lowers its top, and each
+    /// shift starts the next stretch sign-led. Each step is a limb update, a
+    /// primitive update, or a shift in a spelling its first limb selects, and
+    /// every update has the one sign the case draws.
+    #[test]
+    fn one_sign_updates_through_shifts_stay_sign_led(
+        steps in proptest::collection::vec(
+            (0u8..3, proptest::collection::vec(any::<u64>(), 1..=3), 0u64..2_048),
+            1..60,
+        ),
+        negative: bool,
+    ) {
+        let mut acc = Accumulator::new();
+        let mut oracle = IBig::from(0);
+        let mut schedule: Vec<u8> = Vec::new();
+        for (arm, limbs, shift) in &steps {
+            schedule.push(*arm);
+            let width_before = acc.stored_digit_count();
+            match arm {
+                0 => {
+                    let scaled =
+                        IBig::from(from_limbs(limbs)) << usize::try_from(*shift).unwrap();
+                    if negative {
+                        acc.sub_shifted_limbs(*shift, limbs.iter().copied());
+                        oracle -= scaled;
+                    } else {
+                        acc.add_shifted_limbs(*shift, limbs.iter().copied());
+                        oracle += scaled;
+                    }
+                }
+                1 => {
+                    if negative {
+                        acc -= limbs[0];
+                        oracle -= limbs[0];
+                    } else {
+                        acc += limbs[0];
+                        oracle += limbs[0];
+                    }
+                }
+                _ => {
+                    let spelling = SHIFT_SPELLINGS[(limbs[0] % 4) as usize];
+                    acc = shift_in(acc, *shift, spelling).0;
+                    oracle <<= usize::try_from(*shift).unwrap();
+                }
+            }
+            acc.stored().assert_invariants(&schedule);
+            assert_sign_led(&acc, oracle_sign(&oracle), &schedule);
+            prop_assert!(
+                acc.stored_digit_count() >= width_before,
+                "the working width fell from {} to {} digits after {:?}",
+                width_before,
+                acc.stored_digit_count(),
+                schedule
+            );
         }
         assert_value(&acc, &oracle);
     }

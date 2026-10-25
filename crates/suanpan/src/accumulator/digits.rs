@@ -30,13 +30,16 @@
 //! The first bounds ordinary reads. The second lets a scaled read omit a known
 //! zero prefix. The third lets a descending scan cross a large shift in one
 //! step instead of visiting every intervening zero. These are properties of
-//! the stored form, not of the normalized magnitude.
+//! the stored form, not of the normalized magnitude. [`costs`] derives the
+//! crate's time and space bounds from them and from the written set's
+//! structure.
 //!
 //! Comparisons with zero scan downward and rewrite the part they inspect so the same
 //! cancellation is not paid for twice. A magnitude read likewise normalizes
 //! the digits it reads in place.
 
 mod add;
+mod costs;
 mod normalize;
 mod read;
 mod sign;

@@ -1,5 +1,6 @@
 //! Structural assertions shared by the exhaustive and randomized schedules.
 
+use super::written::ClimbCounts;
 use super::{Digits, DIGIT_LIMIT};
 
 /// Inspect signed digits and their written set without exposing mutable fields.
@@ -7,6 +8,11 @@ impl Digits {
     /// The words of bitset storage the written set retains.
     pub fn written_storage_words(&self) -> usize {
         self.written.storage_words()
+    }
+
+    /// Read the written set's bitset work counters.
+    pub fn written_climb_counts(&self) -> ClimbCounts {
+        self.written.climb_counts()
     }
 
     /// Check digit bounds, exact highest position, the unwritten prefix, and the written set.

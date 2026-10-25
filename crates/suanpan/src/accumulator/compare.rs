@@ -36,10 +36,9 @@ pub(super) const CLOSE_LEAD: usize = 2;
 /// # Complexity
 ///
 /// If one working width far exceeds the other, the comparison usually decides
-/// from the wider value's top in amortized O(log(`W` + 1)) time, without
-/// reading the narrower one. Otherwise it subtracts in amortized
-/// O(`A` log(`A` + 1)) time and O(`A`) temporary space, where `A` is the
-/// narrower working width.
+/// from the wider value's top in amortized O(1) time, without reading the
+/// narrower one. Otherwise it subtracts in amortized O(`A`) time and O(`A`)
+/// temporary space, where `A` is the narrower working width.
 impl Ord for Accumulator {
     fn cmp(&self, other: &Accumulator) -> Ordering {
         if core::ptr::eq(self, other) {
@@ -135,7 +134,7 @@ fn compare_primitive(value: &mut Value, sign: Ordering, magnitude: u128) -> Orde
 /// comparisons in every crate linking this one.
 macro_rules! primitive_comparisons {
     ($($integer:ty),* $(,)?) => {$(
-        /// Compare by value in amortized O(log(`W` + 1)) time and O(1) space.
+        /// Compare by value in amortized O(1) time and O(1) space.
         impl PartialOrd<$integer> for Accumulator {
             fn partial_cmp(&self, other: &$integer) -> Option<Ordering> {
                 let (sign, magnitude) = other.sign_magnitude();

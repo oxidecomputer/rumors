@@ -107,10 +107,10 @@ pub struct Accumulator {
 ///
 /// # Complexity
 ///
-/// The cost of a magnitude read, amortized O(log(`W` + 1) + `Q`) time, plus
-/// O(`Q`) for the copy, where `W` is the source's greatest working width and
-/// `Q` the value's width. [`clone_from`](Clone::clone_from) reuses the
-/// receiver's allocation when it suffices.
+/// The cost of a magnitude read, amortized O(1 + `Q`) time, plus O(`Q`) for
+/// the copy, where `Q` is the value's width.
+/// [`clone_from`](Clone::clone_from) reuses the receiver's allocation when it
+/// suffices.
 impl Clone for Accumulator {
     fn clone(&self) -> Self {
         let mut copy = Value::new();
@@ -168,10 +168,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`L` log(`W` + 1) + `G`) time and adds O(`L` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations.
+    /// model](crate#costs-and-storage), this takes amortized O(`L`) time at
+    /// shift 0 and amortized O(`L` + `G` + log(`W` + 1)) time at a nonzero
+    /// shift, and adds amortized O(`L` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations.
     ///
     /// # Panics
     ///
@@ -192,10 +193,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`L` log(`W` + 1) + `G`) time and adds O(`L` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations.
+    /// model](crate#costs-and-storage), this takes amortized O(`L`) time at
+    /// shift 0 and amortized O(`L` + `G` + log(`W` + 1)) time at a nonzero
+    /// shift, and adds amortized O(`L` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations.
     ///
     /// # Panics
     ///
@@ -222,11 +224,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations. A zero operand adds O(1) retained space at
-    /// any shift.
+    /// model](crate#costs-and-storage), this takes amortized O(`A`) time at
+    /// shift 0 and amortized O(`A` log(`W` + 1) + `G`) time at a nonzero
+    /// shift, and adds amortized O(`A` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations. A zero operand adds O(1) retained space at any shift.
     ///
     /// # Panics
     ///
@@ -252,11 +254,11 @@ impl Accumulator {
     /// # Complexity
     ///
     /// Using the quantities defined in the [crate-level cost
-    /// model](crate#costs-and-storage), this takes amortized
-    /// O(`A` log(`W` + 1) + `G`) time and adds O(`A` + `G`) retained space in
-    /// the worst case. Growing the receiver may temporarily retain both its old
-    /// and replacement allocations. A zero operand adds O(1) retained space at
-    /// any shift.
+    /// model](crate#costs-and-storage), this takes amortized O(`A`) time at
+    /// shift 0 and amortized O(`A` log(`W` + 1) + `G`) time at a nonzero
+    /// shift, and adds amortized O(`A` + `G`) retained space. Growing the
+    /// receiver may temporarily retain both its old and replacement
+    /// allocations. A zero operand adds O(1) retained space at any shift.
     ///
     /// # Panics
     ///
@@ -337,10 +339,9 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(log(`W` + 1)) time and O(1) additional space, where `W` is
-    /// the greatest working width reached. One call may finish cancellation left
-    /// by earlier updates; the bound holds over the sequence that produced that
-    /// work.
+    /// Amortized O(1) time and O(1) additional space. One call may finish
+    /// cancellation left by earlier updates; the bound holds over the sequence
+    /// that produced that work.
     #[inline]
     pub fn sign(&self) -> Ordering {
         self.read(Value::cmp_zero)
@@ -392,14 +393,14 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(`A` log(`W` + 1)) time, where `A` is the narrower operand's
-    /// working width and `W` the wider's, with O(1) additional space beyond
-    /// the wider operand's storage, which the result keeps. When the wider
-    /// operand is the smaller value, the result is negated in place, which
-    /// costs its working width after the sign read: O(`A`) when both operands
-    /// are nonnegative, since the result is then below the narrower operand's
-    /// magnitude, and up to O(`W`), the result's own width, when the wider
-    /// operand is negative.
+    /// Amortized O(`A`) time, where `A` is the narrower operand's working
+    /// width, with amortized O(1) additional retained space beyond the wider
+    /// operand's storage, which the result keeps. When the wider operand is the
+    /// smaller value, the result is negated in place, which costs its working
+    /// width after the sign read: O(`A`) when both operands are nonnegative,
+    /// since the result is then below the narrower operand's magnitude, and up
+    /// to O(`V`), the wider operand's working width, when the wider operand is
+    /// negative.
     pub fn abs_diff(self, other: Accumulator) -> (Ordering, Accumulator) {
         let (mut wide, narrow, swapped) = if other.stored_digit_count() > self.stored_digit_count()
         {
@@ -447,9 +448,8 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(log(`W` + 1)) time and O(1) additional space, where `W` is
-    /// the greatest working width reached. As with [`sign`](Self::sign), this
-    /// may finish work prepared by earlier updates.
+    /// Amortized O(1) time and O(1) additional space. As with
+    /// [`sign`](Self::sign), this may finish work prepared by earlier updates.
     pub fn cmp_zero_stable_under(&self, bits: u64) -> Option<Ordering> {
         self.read(|value| value.cmp_zero_stable_under(bits))
     }
@@ -510,11 +510,10 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
-    /// time, where `W` is the greatest working width reached, and returns
-    /// O(`Q`) space, allocated only when `Q` exceeds two. If the normalized
-    /// form outgrows the existing capacity, reallocation may temporarily
-    /// retain both buffers.
+    /// If the result has `Q` limbs, this takes amortized O(1 + `Q`) time and
+    /// returns O(`Q`) space, allocated only when `Q` exceeds two. If the
+    /// normalized form outgrows the existing capacity, reallocation may
+    /// temporarily retain both buffers.
     pub fn signed_magnitude(&self) -> (Ordering, Limbs) {
         self.read(Value::signed_magnitude)
     }
@@ -543,11 +542,10 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// If the result has `Q` limbs, this takes amortized O(log(`W` + 1) + `Q`)
-    /// time and returns O(`Q`) space, allocated only when `Q` exceeds two,
-    /// where `W` is the greatest working width reached. Omitting the factored
-    /// span keeps it out of `Q`. Reallocation may temporarily retain two
-    /// buffers, as for [`signed_magnitude`](Self::signed_magnitude).
+    /// If the result has `Q` limbs, this takes amortized O(1 + `Q`) time and
+    /// returns O(`Q`) space, allocated only when `Q` exceeds two. Omitting the
+    /// factored span keeps it out of `Q`. Reallocation may temporarily retain
+    /// two buffers, as for [`signed_magnitude`](Self::signed_magnitude).
     pub fn scaled_signed_magnitude(&self) -> (Ordering, Limbs, u64) {
         self.read(Value::scaled_signed_magnitude)
     }

@@ -83,6 +83,8 @@ mod tests;
 use core::ops::Range;
 
 use bitset::Bitset;
+#[cfg(test)]
+pub use bitset::ClimbCounts;
 
 /// A set of positions, ordered for predecessor queries.
 #[derive(Clone)]
@@ -367,6 +369,16 @@ impl WrittenPositions {
         match self.below {
             Below::Prefix(_) => "prefix",
             Below::Bitset(_) => "bitset",
+        }
+    }
+
+    /// Read the bitset's test-only work counters; all zero while the
+    /// positions below the run are a prefix.
+    #[cfg(test)]
+    pub fn climb_counts(&self) -> ClimbCounts {
+        match &self.below {
+            Below::Prefix(_) => ClimbCounts::default(),
+            Below::Bitset(bitset) => bitset.climb_counts(),
         }
     }
 
