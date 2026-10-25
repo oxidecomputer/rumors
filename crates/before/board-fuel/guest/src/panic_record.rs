@@ -97,3 +97,8 @@ pub extern "C" fn panic_message_ptr() -> u32 {
 pub extern "C" fn panic_message_len() -> u32 {
     u32::try_from(lock().len).expect("the record holds at most `CAPACITY` bytes")
 }
+
+// The interleaving-fuel guest (`crates/suanpan/fuel/guest`) includes this
+// file by path, so a change here changes that guest too. This note stands
+// after the last line of code so that it moves no panic location, and with
+// it nothing in this guest's compiled module.

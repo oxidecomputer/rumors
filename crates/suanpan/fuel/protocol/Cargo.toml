@@ -1,0 +1,20 @@
+[package]
+name = "suanpan-fuel-protocol"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# The program format the interleaving-fuel harness encodes and its wasm guest
+# decodes. Both halves link this one crate, so an encoder and a decoder cannot
+# disagree about the layout. The guest decodes before its measured window
+# opens, so the decoder's cost never reaches a reading.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# The derived form of the program types, and the encoding of that form.
+serde = { workspace = true, features = ["derive"] }
+postcard = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

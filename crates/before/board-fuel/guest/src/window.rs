@@ -453,3 +453,8 @@ pub fn exit() {
     };
     heaps.ordinary.retired.insert(base..memory_pages());
 }
+
+// The interleaving-fuel guest (`crates/suanpan/fuel/guest`) includes this
+// file by path, so a change here changes that guest too. This note stands
+// after the last line of code so that it moves no panic location, and with
+// it nothing in this guest's compiled module.

@@ -257,6 +257,23 @@
 //! while leaving heap, scan, and touch unchanged, on the adversarial families
 //! the fuzz-fit bands' generated programs do not reach.
 //!
+//! **The interleaving-fuel property** (the `suanpan/fuel` crates; `just
+//! suanpan-fuel`). Random programs over a pool of `suanpan` accumulators,
+//! each run in a wasm32 guest that reads fuel after every step, with every
+//! size at three scales 64-fold apart and over two repetition counts; each
+//! reading is judged against another reading of the same program. What it
+//! alone catches: **cost that depends on the order of operations**, which
+//! the touch tests and both boards, each fixing the operation sequence,
+//! cannot reach — work that grows with the length of the history (seen by
+//! its long repetition); growth paid again after a clear, and an update,
+//! sign query, comparison with a primitive, or conversion that refuses whose
+//! work grows with the width of a member it touches (seen by
+//! comparing repetitions, and repeated value-neutral blocks, that charge no
+//! size, at two scales); and work growing faster than the sizes (seen by
+//! comparing whole repetitions across scales, where no work is left
+//! deferred). It cannot tell work linear in a size the
+//! rules do not charge to a step from that step's own sized charge.
+//!
 //! **The focused resource checks** (`tests/meter.rs`). These vary an axis the
 //! board deliberately holds fixed: an operation argument at fixed operands, a
 //! paired control's marginal cost, the retained densification counter, or an
