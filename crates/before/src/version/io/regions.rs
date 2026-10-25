@@ -243,11 +243,11 @@ impl VersionSubtreeReader {
 }
 
 impl Extremum {
-    /// Track the maximum, resetting when the height rises past it.
+    /// Track the maximum, restarting from zero when the height rises past it.
     ///
-    /// Resets keep the register's allocation for later rises within the same
-    /// scan. This can avoid repeatedly allocating when several wide maxima are
-    /// established.
+    /// Restarting clears the register, which keeps its allocation for later
+    /// rises within the same scan. This can avoid repeatedly allocating when
+    /// several wide maxima are established.
     pub fn max(register: Accumulator) -> Self {
         Extremum {
             register,
@@ -256,10 +256,10 @@ impl Extremum {
         }
     }
 
-    /// Track the minimum, resetting when the height drops past it.
+    /// Track the minimum, restarting from zero when the height drops past it.
     ///
-    /// Resets replace the register in O(1), releasing any wide allocation that
-    /// described the old minimum instead of scanning it merely to write zeros.
+    /// Restarting replaces the register in O(1), releasing any wide
+    /// allocation that described the old minimum.
     pub fn min(register: Accumulator) -> Self {
         Extremum {
             register,
@@ -288,7 +288,7 @@ impl Extremum {
         };
         if self.register.sign() == overtaken {
             match self.direction {
-                Direction::Max => self.register.reset(),
+                Direction::Max => self.register.clear(),
                 Direction::Min => self.register = Accumulator::new(),
             }
         }

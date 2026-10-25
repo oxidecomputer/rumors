@@ -595,7 +595,7 @@ impl TickWalk<'_> {
                 let zero = Accumulator::new();
                 self.minima.follower_set(OUT_FOLLOWER, zero);
                 self.w_anchored = true;
-                self.gap.reset();
+                self.gap.clear();
             } else {
                 self.minima.emit_below_accum(relation);
                 self.emit_at_min(depth + 1);
@@ -652,7 +652,7 @@ impl TickWalk<'_> {
     fn emit_step(&mut self, depth: u64) {
         self.minima.emit_here();
         if self.output.note_match(self.pos()) {
-            self.gap.reset();
+            self.gap.clear();
             return;
         }
         let delta = if self.w_anchored {
@@ -667,7 +667,7 @@ impl TickWalk<'_> {
             BigInt::from(&self.gap)
         };
         // The new gap is h − value = 0 exactly.
-        self.gap.reset();
+        self.gap.clear();
         self.output.change(depth, &delta);
     }
 
@@ -681,7 +681,7 @@ impl TickWalk<'_> {
         if self.output.is_verbatim() && self.range_is_leaf && offset.sign() == Sign::NoSign {
             let matched = self.output.note_match(self.pos());
             debug_assert!(matched, "a verbatim walk records a value-reproducing raise");
-            self.gap.reset();
+            self.gap.clear();
             return;
         }
         // The first-leaf question is asked before the divergence erases it
@@ -713,7 +713,7 @@ impl TickWalk<'_> {
             self.output.change(depth, &delta);
         }
         // The new gap is h − (h + offset) = −offset exactly.
-        self.gap.reset();
+        self.gap.clear();
         self.gap -= &offset;
     }
 
@@ -747,7 +747,7 @@ impl TickWalk<'_> {
         let zero = Accumulator::new();
         self.minima.follower_set(OUT_FOLLOWER, zero);
         self.w_anchored = true;
-        self.gap.reset();
+        self.gap.clear();
         self.output.change(depth, &delta);
     }
 
@@ -779,7 +779,7 @@ impl TickWalk<'_> {
             self.fold_block(&skip.net);
             self.minima.emit_offset(&skip.min_from_exit);
             // The matched region ends at its last input leaf.
-            self.gap.reset();
+            self.gap.clear();
             let matched = self.output.note_match(self.pos());
             debug_assert!(matched, "a verbatim walk records the region as matched");
             return;
@@ -797,7 +797,7 @@ impl TickWalk<'_> {
             self.fold_block(&skip.net);
             self.minima.emit_offset(&skip.min_from_exit);
             // The region's last leaf is the last emission.
-            self.gap.reset();
+            self.gap.clear();
             self.output.copy_subtree_remainder(
                 self.version,
                 rest_start,

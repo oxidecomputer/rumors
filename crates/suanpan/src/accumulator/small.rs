@@ -6,10 +6,10 @@
 //! allocation is needed while the result stays within the small-value bound.
 //!
 //! A wider value, a larger shift, or a streamed operand moves the exact result
-//! into signed digits. The accumulator does not move back until reset. Without
-//! that rule, alternating around the boundary could repeatedly pay to convert
-//! the same wide value in both directions. Reset keeps any allocated digit
-//! buffer so a later wide value can reuse it.
+//! into signed digits. The accumulator does not move back until cleared.
+//! Without that rule, alternating around the boundary could repeatedly pay to
+//! convert the same wide value in both directions. A clear keeps any
+//! allocated digit buffer so a later wide value can reuse it.
 //!
 //! The sign-preservation query can inspect this exact value directly. Its
 //! threshold, `3 * 2^(32 * (floor + 1))`, exceeds the greatest adjustment the
@@ -68,7 +68,7 @@ impl Value {
     pub(crate) fn start_digits(&mut self) {
         debug_assert!(
             self.small.is_some(),
-            "the digit representation activates once per reset"
+            "the digit representation activates once per clear"
         );
         self.small = None;
         self.digits.activate();

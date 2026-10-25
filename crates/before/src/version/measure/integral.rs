@@ -108,11 +108,12 @@
 //! by those deltas too. [`Integrator::jump`] adds this correction.
 //!
 //! Each input delta therefore pays for the accumulator changes and width
-//! checks it causes, up to one logarithmic factor. `suanpan` charges an
-//! accumulator added at any nonzero shift a factor of log(`W` + 1) on its
-//! width, and `total`'s greatest width is `O(n)`, as the
-//! last paragraph of this section shows, so `interval`'s additions cost
-//! `O(n log n)` over a sweep. That fits within the `O(M(n))` bound below
+//! checks it causes, up to one logarithmic factor. `suanpan` charges each
+//! accumulator added at a nonzero shift its own width plus one logarithm of
+//! the receiver's width, and `total`'s greatest width is `O(n)`, as the last
+//! paragraph of this section shows. `interval` adds once per region, and
+//! each region is a leaf that takes input bits to encode, so its additions
+//! cost `O(n log n)` over a sweep. That fits within the `O(M(n))` bound below
 //! because `num-bigint`'s multiplication grows as a power of `n` above one,
 //! faster than `n log n`. No known lower bound gives `M(n) = Ω(n log n)` in
 //! general, so the fit rests on the backend.
@@ -121,12 +122,10 @@
 //! width; relative segment widths are bounded by the tree structure traversed
 //! inside them. A width's absolute position is not bounded that way, so the
 //! segment and deferred widths each keep one buffer for the whole sweep, and
-//! growing it to a high position happens once. Each reset of either width
-//! follows a scaled read of the same accumulator (`close_segment` and
-//! `DeferredIntegral::push`), with no write between, so it clears no more
-//! than the span that read already covered. The trade is
-//! space: each kept buffer holds up to the scale's digits for the rest of the
-//! sweep, `O(n)` and inside the space bound below. The deferred reduction
+//! growing it to a high position happens once; clearing either between
+//! segments keeps the buffer and costs amortized O(1). The trade is space:
+//! each kept buffer holds up to the scale's digits for the rest of the sweep,
+//! `O(n)` and inside the space bound below. The deferred reduction
 //! bounds repeated reads by its data-weighted depth. Its clustered integer
 //! products give the overall `O(M(n))` time and `O(n)` transient-space
 //! bounds in `n` input bits, where `M(n)` is the cost of multiplying `n`-bit
@@ -138,21 +137,21 @@
 //! wide heights, dense widths, and cancellation cases that require this
 //! machinery.
 //!
-//! The bound also rests on one property of `suanpan` that no row of its table
-//! shows on its own. [`Integrator::interval`] adds `live` into `total` at the
+//! The bound also rests on two of `suanpan`'s [cost rules](suanpan#costs).
+//! [`Integrator::interval`] adds `live` into `total` at the
 //! region's weight shift, `S - d` bits, so a region of a few input bits can
 //! raise `total`'s top about `(S - d) / 32` digits above where cancellation
 //! among earlier contributions left it, and a later contribution can cancel
 //! it again. If every such raise cost its distance, a sweep alternating deep
 //! and shallow regions, such as the board's `weight-comb` family, would take
-//! time quadratic in its input. It does not, by the clause "Raising the top
-//! across gaps" in `suanpan`'s [cost model](suanpan#raising-the-top-across-gaps):
-//! a raise to a width `total` has reached before costs no growth, and each
-//! crossing of the emptied stretch costs a base-64 logarithm of its length,
-//! within the accumulator row's own logarithmic term. `total` is created once
-//! per sweep and never cloned into or shifted, so the growth charged to it
-//! over the whole sweep totals at most the greatest width it reaches, which
-//! can far exceed its final width once distance and lag cancel. That width
+//! time quadratic in its input. It does not. Growing storage costs once, so a
+//! raise to a width `total` has reached before grows nothing; and a shifted
+//! update adds a logarithm, which pays for crossing the emptied range below
+//! the top, so each such addition costs its own width plus one logarithm.
+//! `total` is created once per sweep and never receives `clone_from` or a
+//! shift, so one storage serves the whole sweep, and its growth totals at
+//! most the greatest width it reaches, which can far exceed its final width
+//! once distance and lag cancel. That width
 //! is `O(n)`: every contribution's top lies within `S` plus the width of the
 //! height it contributes, apart from `O(log n)` bits of carries; a tree of
 //! depth `S` takes `Ω(S)` input bits to encode; and each height's width is
@@ -323,16 +322,16 @@ impl Integrator {
                 #[cfg(test)]
                 DEFERRAL_HITS.with(|hits| hits.set(hits.get() + 1));
                 self.deferred.push(parked);
-                self.parked.reset();
+                self.parked.clear();
             }
         }
         self.parked += &self.live;
-        self.live.reset();
+        self.live.clear();
 
         // Keep the buffer. A fresh accumulator would grow from digit 0 to the
         // next segment's weight shift at every freeze, and that shift can sit
-        // Θ(n) digits up. The reset clears only the span this segment wrote.
-        self.segment_width.reset();
+        // Θ(n) digits up. Clearing keeps the buffer, at amortized O(1).
+        self.segment_width.clear();
     }
 
     /// Settle the completed segment and return its parked height, or `None`

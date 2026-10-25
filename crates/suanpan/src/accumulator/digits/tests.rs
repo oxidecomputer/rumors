@@ -1,10 +1,33 @@
 //! Structural assertions shared by the exhaustive and randomized schedules.
 
+use core::cmp::Ordering;
+
+use super::normalize::MagnitudeCarry;
 use super::written::ClimbCounts;
 use super::{Digits, DIGIT_LIMIT};
 
 /// Inspect signed digits and their written set without exposing mutable fields.
 impl Digits {
+    /// Stream the stored digits through the Euclidean carry of a value of the
+    /// nonzero sign `sign`, as [`add_magnitude`](Digits::add_magnitude)
+    /// streams them, and return the digits it yields, from the lowest.
+    pub fn streamed_magnitude_digits(&self, sign: Ordering) -> Vec<u32> {
+        let mut magnitude = MagnitudeCarry::new(sign);
+        let mut streamed: Vec<u32> = self
+            .stored_digits()
+            .iter()
+            .map(|&digit| magnitude.fold(digit))
+            .collect();
+        streamed.extend(core::iter::from_fn(|| magnitude.next_above()));
+        streamed
+    }
+
+    /// The positions the written set holds, in ascending order.
+    #[cfg(feature = "touch-meter")]
+    pub fn written_positions(&self) -> Vec<usize> {
+        self.written.positions()
+    }
+
     /// The words of bitset storage the written set retains.
     pub fn written_storage_words(&self) -> usize {
         self.written.storage_words()
@@ -74,8 +97,8 @@ impl Digits {
             written[1..]
                 .iter()
                 .all(|&position| position >= self.lowest_written),
-            "a written position other than zero lies below watermark {}, so a reset \
-             would leave it written, after {schedule:?}",
+            "a written position other than zero lies below watermark {}, outside the span \
+             a normalizing read rewrites, after {schedule:?}",
             self.lowest_written
         );
         for (index, &digit) in self.digits[..=self.highest_nonzero].iter().enumerate() {

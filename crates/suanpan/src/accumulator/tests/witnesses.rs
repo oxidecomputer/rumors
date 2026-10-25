@@ -373,7 +373,7 @@ fn flush_right_carry_tie_converts_exactly() {
 
 /// Word updates use the scalar until a wide operand requires digits.
 ///
-/// Subsequent small updates retain the digit representation; reset returns to the scalar.
+/// Subsequent small updates retain the digit representation; clear returns to the scalar.
 #[test]
 fn small_value_engages_and_retires() {
     let mut acc = Accumulator::new();
@@ -391,12 +391,12 @@ fn small_value_engages_and_retires() {
     acc += 1_u64;
     assert!(
         acc.stored().small.is_none(),
-        "small updates retain digits until reset"
+        "small updates retain digits until a clear"
     );
-    acc.reset();
+    acc.clear();
     assert!(
         acc.stored().small.is_some(),
-        "reset restores the small representation"
+        "clear restores the small representation"
     );
 }
 

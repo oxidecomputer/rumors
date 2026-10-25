@@ -46,6 +46,15 @@ impl Update {
         }
     }
 
+    /// The opposite update: subtraction for addition, and addition for
+    /// subtraction.
+    pub fn reversed(self) -> Update {
+        match self {
+            Update::Add => Update::Sub,
+            Update::Sub => Update::Add,
+        }
+    }
+
     /// Apply this update to a bounded positive or signed contribution.
     pub fn apply(self, contribution: i128) -> i128 {
         debug_assert_ne!(
@@ -125,12 +134,13 @@ impl Value {
         // first means no later read of `other` pays for it again. Depositing a
         // zero's cancelling digits would instead grow the buffer toward the
         // shifted position, and panic if that position is unaddressable.
-        if other.digits.cmp_zero() == Ordering::Equal {
+        let sign = other.digits.cmp_zero();
+        if sign == Ordering::Equal {
             return;
         }
         self.ensure_digits();
         self.digits
-            .add_digits(other.digits.stored_digits(), shift, update);
+            .add_digits(other.digits.stored_digits(), sign, shift, update);
     }
 
     /// Add or subtract a shifted word, staying small when headroom permits.

@@ -40,15 +40,16 @@ impl Value {
         }
     }
 
-    /// Reset to zero, retaining allocated storage.
-    pub(crate) fn reset(&mut self) {
+    /// Set the value to zero, keeping its storage.
+    pub(crate) fn clear(&mut self) {
         if self.small.is_none() {
-            self.digits.reset();
+            self.digits.clear();
         }
         self.small = Some(0);
     }
 
-    /// Reserve storage for `bits` bits of working width, if it can be honored.
+    /// Reserve storage for values up to `bits` bits wide, if it can be
+    /// honored.
     pub(crate) fn reserve_bits(&mut self, bits: u64) {
         // A position count beyond `usize` can never be allocated, so
         // saturating sends it to the same refusal as any oversized request.
@@ -64,6 +65,19 @@ impl Value {
             return value.cmp(&0);
         }
         self.digits.cmp_zero()
+    }
+
+    /// Return the sign, compacting a cancelled top first if the value is held
+    /// in digits, so that its working width lies within two digits of its
+    /// value's width.
+    ///
+    /// A small value's working width is exact already, so its sign is read
+    /// without a scan, as [`is_known_zero`](Self::is_known_zero) reads it.
+    pub(crate) fn compact(&mut self) -> Ordering {
+        match self.small {
+            Some(value) => value.cmp(&0),
+            None => self.digits.cmp_zero(),
+        }
     }
 
     /// Return the sign if no adjustment below `2^bits` can change it.
@@ -94,7 +108,8 @@ impl Value {
         }
     }
 
-    /// Return the working width in 32-bit units, at least one.
+    /// Return the working width in 32-bit units: the positions through the
+    /// highest nonzero stored digit, at least one.
     #[inline]
     pub(crate) fn stored_digit_count(&self) -> usize {
         match self.small {
@@ -139,11 +154,11 @@ impl Value {
         match self.small {
             Some(value) => {
                 touch(1);
-                target.digits.clear();
+                target.digits.discard();
                 target.small = Some(value);
             }
             None if self.digits.normalize() == Ordering::Equal => {
-                target.digits.clear();
+                target.digits.discard();
                 target.small = Some(0);
             }
             None => {
@@ -220,20 +235,20 @@ impl Value {
         }
     }
 
-    /// Return the value times `2^shift` as a new value, normalizing this one
-    /// in place as any read does.
+    /// Return the value times `2^shift` as a new value, compacting this one's
+    /// cancelled top as any read does.
     ///
     /// A zero, including one whose digits cancel, returns a new zero. A small
-    /// value shifts a small copy of itself. A value held in digits is
-    /// normalized in place first, so every digit re-deposited into the new
-    /// value has the value's sign. The re-deposit is then an update of one
-    /// sign into zeroed storage, which leaves the new digits *sign-led*, as
-    /// the crate's cost argument for updates of one sign defines it: the top
-    /// digit has the value's sign, and no digit opposes that sign by more
-    /// than half the base. A signed digit re-deposited at a bit offset could
-    /// instead land a full base against the value's sign, below a top digit
-    /// of 1. Normalizing costs one pass over the positions the re-deposit
-    /// reads anyway.
+    /// value shifts a small copy of itself. A value held in digits is compared
+    /// with zero, which compacts its top, and its magnitude then streams into
+    /// the new value's zeroed digits, normalized as it goes and with the
+    /// value's sign, in one pass that leaves this value's stored digits as
+    /// they are. That deposit is an update of one sign into zeroed storage,
+    /// which leaves the new digits *sign-led*, as the crate's cost argument
+    /// for updates of one sign defines it: the top digit has the value's
+    /// sign, and no digit opposes that sign by more than half the base.
+    /// Depositing the stored digits as they stand would instead copy their
+    /// mixed signs into the new value.
     ///
     /// # Panics
     ///
@@ -252,11 +267,12 @@ impl Value {
         let Some(shift) = self.addressable_shift(shift) else {
             return result;
         };
-        if self.digits.normalize() != Ordering::Equal {
+        let sign = self.digits.cmp_zero();
+        if sign != Ordering::Equal {
             result.start_digits();
             result
                 .digits
-                .add_digits(self.digits.stored_digits(), shift, Update::Add);
+                .add_magnitude(self.digits.stored_digits(), sign, shift, Update::Add);
         }
         result
     }

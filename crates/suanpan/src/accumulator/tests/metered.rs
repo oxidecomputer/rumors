@@ -10,6 +10,9 @@ use core::cmp::Ordering;
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 
+use proptest::prelude::*;
+
+use super::representation::{apply_stream_step, run_forming_stream};
 use super::{
     assert_value, cancelled_top, fresh, from_limbs, read_value, Accumulator, TestBig as _,
 };
@@ -23,13 +26,13 @@ fn scaled_reading(acc: &Accumulator) -> (Ordering, UBig, u64) {
     (sign, from_limbs(limbs.as_ref()), shift)
 }
 
-/// A scaled read and a reset skip an untouched low prefix; an unscaled read
-/// visits it.
+/// A scaled read skips an untouched low prefix, and a clear touches only the
+/// written positions; an unscaled read visits the prefix.
 ///
 /// A two-limb value at bit 32,000 takes at most sixteen scaled-read touches
 /// but more than a thousand unscaled-read touches. Both reconstruct the same
-/// integer. The reset then also takes at most sixteen touches, and clears the
-/// value and its remembered scale.
+/// integer. The clear then also takes at most sixteen touches, and leaves
+/// zero at scale zero.
 #[test]
 fn scaled_read_costs_the_written_span() {
     let mut acc = Accumulator::new();
@@ -60,19 +63,19 @@ fn scaled_read_costs_the_written_span() {
         IBig::from(from_limbs(&[7, 9])) << 32_000usize
     );
     touch_meter::reset();
-    acc.reset();
-    let reset = touch_meter::touches();
+    acc.clear();
+    let cleared = touch_meter::touches();
     assert!(
-        reset <= 16,
-        "the reset cleared {reset} digits: the write watermark is not \
-         skipping the never-written prefix"
+        cleared <= 16,
+        "the clear touched {cleared} digits: it is not limited to the \
+         written positions"
     );
     assert!(acc.is_known_zero());
     let (sign, magnitude, shift) = scaled_reading(&acc);
     assert_eq!(
         (sign, magnitude, shift),
         (Ordering::Equal, UBig::ZERO, 0),
-        "a reset accumulator reads zero at scale zero"
+        "a cleared accumulator reads zero at scale zero"
     );
 }
 
@@ -203,29 +206,31 @@ fn sign_query_skips_unwritten_zeros() {
     assert!(acc.is_known_zero(), "the collapse canonicalized zero");
 }
 
-/// The accumulator-operand rows cost the operand's held digits, not
-/// the receiver's width or the shift.
+/// An accumulator operand costs its own digits, not the receiver's width or
+/// the shift.
 ///
 /// Every accumulator operand is first compared with zero. The two-digit
 /// operand's top digit, 1, does not decide, so the comparison reads and clears
 /// both digits and rewrites the value `2^32 + 1` as one digit at position 0:
 /// 5 touches. The deposit then reads that digit and writes it. Added to the
 /// receiver's digit `2^32 − 1`, it reaches the digit limit `2^33` and carries
-/// once: 8 touches for `+=` and owned addition. Subtracted, it leaves `−2`
-/// without a carry: 7, as for `add_shifted` and `sub_shifted`, whose deposits
-/// land past the receiver's digits. Each total holds at either receiver width
+/// once: 8 touches for `+=`. Subtracted, it leaves `−2` without a carry: 7,
+/// as for `add_shifted` and `sub_shifted`, whose deposits land past the
+/// receiver's digits. Owned addition first compares the receiver, whose
+/// working width is the greater, with zero in one touch, then adds the
+/// operand as `+=` does: 9 in all. Each total holds at either receiver width
 /// and either shift. Adding the compacted operand again costs 3: one deciding
 /// touch, a read, and a deposit onto the digit the carry cleared.
 ///
-/// These are the cost table's "amortized O(operand's held digits),
-/// whatever the held width / independent of the shift" rows, pinned
-/// exact at their canonical shape.
+/// This is the rule that an update costs what it adds, for an accumulator
+/// operand at any receiver width and shift, pinned exact at its canonical
+/// shape.
 #[test]
-fn accumulator_operand_rows_cost_the_operand() {
+fn an_accumulator_operand_costs_its_digits_at_any_receiver_width_and_shift() {
     // A two-digit operand: digits 0 and 1 hold 1 each.
     let narrow = || {
-        // Arm the digit representation explicitly: this row measures digit-to-digit
-        // accumulator folds, not the small-value operand path.
+        // Arm the digit representation explicitly: this test measures
+        // digit-to-digit accumulator folds, not the small-value operand path.
         let mut acc = fresh(true);
         acc.value
             .get_mut()
@@ -275,8 +280,9 @@ fn accumulator_operand_rows_cost_the_operand() {
         receiver += operand;
         assert_eq!(
             touch_meter::touches(),
-            8,
-            "owned addition reads the narrower operand only"
+            9,
+            "owned addition: 1 for the wider receiver's sign, then 8 for the narrower \
+             operand only, as `+=` costs"
         );
         let (sign, magnitude) = receiver.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
@@ -340,14 +346,15 @@ fn accumulator_operand_rows_cost_the_operand() {
 /// `self`'s buffer keeps the sum"), observable in the exact counts.
 ///
 /// Two tied-width operands with different interior-zero populations:
-/// the fold pays one touch for the operand's deciding top digit, one read
-/// per operand digit up to its top, and one deposit per *nonzero* operand
-/// digit, so which operand is read is visible whenever their nonzero counts
-/// differ. Here `other` is dense and `self` carries interior zeros — 7
-/// touches at the 3-digit tie (1 + 3 reads + 3 deposits) and 11 at the
-/// 5-digit tie (1 + 5 + 5); a swap on the tie would read the zero-bearing
-/// buffer and undercount. The sum and the destination's reset behavior are
-/// asserted alongside.
+/// owned addition first compares `self`, which it keeps on a tie, with zero
+/// in one touch, then the fold pays one touch for the operand's deciding top
+/// digit, one read per operand digit up to its top, and one deposit per
+/// *nonzero* operand digit, so which operand is read is visible whenever
+/// their nonzero counts differ. Here `other` is dense and `self` carries
+/// interior zeros — 8 touches at the 3-digit tie (1 + 1 + 3 reads + 3
+/// deposits) and 12 at the 5-digit tie (1 + 1 + 5 + 5); a swap on the tie
+/// would read the zero-bearing buffer and undercount. The sum and the
+/// destination's clear behavior are asserted alongside.
 #[test]
 fn merge_tie_reads_the_operand() {
     // (self limbs, other limbs, tied digit count, expected touches):
@@ -355,9 +362,9 @@ fn merge_tie_reads_the_operand() {
     // dense, and both settle the same top digit index.
     let ties: [(&[u64], &[u64], usize, u64); 2] = [
         // self digits [5, 0, 7]; other digits [1, 2, 3].
-        (&[5, 7], &[(2 << 32) | 1, 3], 3, 7),
+        (&[5, 7], &[(2 << 32) | 1, 3], 3, 8),
         // self digits [5, 0, 0, 0, 7]; other digits [1, 2, 3, 4, 5].
-        (&[5, 0, 7], &[(2 << 32) | 1, (4 << 32) | 3, 5], 5, 11),
+        (&[5, 0, 7], &[(2 << 32) | 1, (4 << 32) | 3, 5], 5, 12),
     ];
     for (self_limbs, other_limbs, tied_count, expected) in ties {
         let mut receiver = Accumulator::new();
@@ -371,36 +378,47 @@ fn merge_tie_reads_the_operand() {
         assert_eq!(
             touch_meter::touches(),
             expected,
-            "a {tied_count}-digit tie reads the dense `other`: one deciding \
-             touch, one read per operand digit, and one deposit per nonzero \
-             operand digit"
+            "a {tied_count}-digit tie reads the dense `other`: one sign touch, \
+             one deciding touch, one read per operand digit, and one deposit per \
+             nonzero operand digit"
         );
         let (sign, magnitude) = receiver.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
         assert_eq!(magnitude, from_limbs(self_limbs) + from_limbs(other_limbs));
-        receiver.reset();
-        assert!(receiver.is_known_zero(), "reset clears the destination");
+        receiver.clear();
+        assert!(
+            receiver.is_known_zero(),
+            "clear sets the destination to zero"
+        );
     }
 }
 
-/// The per-call O(held digits) rows read exact totals at 64 and 128
-/// held digits, and shift assignment's total is independent of the shift.
+/// Negation, a clear after a shift, shift assignment, and magnitude reads
+/// take exact totals at 64 and 128 held digits, and shift assignment's total
+/// is independent of the shift.
+///
+/// Each costs the width it produces or clears.
 ///
 /// With `d` held digits:
-/// - unary `-` touches each digit once: `d`;
-/// - `reset` after `<<= 32` touches each written digit once: `d`, because
-///   the shift moved the span up one position and left digit zero unwritten;
-/// - `<<=` reads the top digit to rule out zero, normalizes the held digits
-///   in one pass, then reads and re-deposits each digit: `3d + 1`. The top
-///   digit, `2^32 - 1`, settles the zero check alone, and the total is the
-///   same at a thousandfold larger shift;
+/// - unary `-` reads the top digit to compare with zero, which settles on
+///   that digit, then touches each digit once: `d + 1`;
+/// - `clear` after `<<= 32` touches each written position once: the `d`
+///   positions the shift wrote, and position zero, which every written set
+///   holds: `d + 1`;
+/// - `<<=` reads the top digit to rule out zero, then streams the held
+///   digits into new storage, reading each and depositing its magnitude
+///   digit, which equals it here: `2d + 1`. The top digit, `2^32 - 1`,
+///   settles the zero check alone, and the total is the same at a
+///   thousandfold larger shift, and at a shift of 33 bits, where each
+///   magnitude digit lands shifted by one bit as `2^33 − 2`, below the digit
+///   limit, so nothing carries;
 /// - a magnitude read decides the sign on that same top digit, then
 ///   normalizes the span in one pass: `d + 1`.
 ///
 /// Exact equality across the width doubling is the linearity claim, with no
 /// slack for a pass the list above does not name.
 #[test]
-fn held_width_rows_cost_the_held_digits() {
+fn width_producing_operations_cost_the_held_digits() {
     for bits in [2_048u32, 4_096] {
         let held_digits = u64::from(bits / 32);
         let wide_value = (UBig::from(1u8) << bits as usize) - 1u8;
@@ -411,8 +429,8 @@ fn held_width_rows_cost_the_held_digits() {
         acc = -acc;
         assert_eq!(
             touch_meter::touches(),
-            held_digits,
-            "negation at {held_digits} held digits: one touch per digit"
+            held_digits + 1,
+            "negation at {held_digits} held digits: one deciding touch and one per digit"
         );
         acc = -acc;
 
@@ -441,22 +459,21 @@ fn held_width_rows_cost_the_held_digits() {
         acc <<= 32;
         assert_eq!(
             touch_meter::touches(),
-            3 * held_digits + 1,
+            2 * held_digits + 1,
             "shift assignment at {held_digits} held digits: one read of the top digit \
-             to rule out zero, one normalizing touch per digit, then one read and one \
-             re-deposit per digit"
+             to rule out zero, then one read and one deposit per digit"
         );
         let (sign, magnitude) = acc.sign_biguint();
         assert_eq!(sign, Ordering::Greater);
         assert_eq!(magnitude, wide_value.clone() << 32usize);
 
         touch_meter::reset();
-        acc.reset();
+        acc.clear();
         assert_eq!(
             touch_meter::touches(),
-            held_digits,
-            "reset at {held_digits} held digits: one touch per written digit \
-             (the shift left digit zero unwritten)"
+            held_digits + 1,
+            "clear at {held_digits} held digits: one touch per written position, \
+             position zero included"
         );
         assert!(acc.is_known_zero());
     }
@@ -470,20 +487,34 @@ fn held_width_rows_cost_the_held_digits() {
     acc <<= 32_000;
     assert_eq!(
         touch_meter::touches(),
-        193,
-        "<<= 32_000 at 64 held digits: the same top-digit read and 3 touches \
+        129,
+        "<<= 32_000 at 64 held digits: the same top-digit read and 2 touches \
          per held digit as <<= 32"
     );
     let (sign, magnitude) = acc.sign_biguint();
     assert_eq!(sign, Ordering::Greater);
-    assert_eq!(magnitude, wide_value << 32_000usize);
+    assert_eq!(magnitude, wide_value.clone() << 32_000usize);
+
+    let mut acc = Accumulator::new();
+    acc.add_limb_value(&wide_value);
+    touch_meter::reset();
+    acc <<= 33;
+    assert_eq!(
+        touch_meter::touches(),
+        129,
+        "<<= 33 at 64 held digits: the same top-digit read and 2 touches per \
+         held digit as <<= 32, with each magnitude digit deposited one bit up"
+    );
+    let (sign, magnitude) = acc.sign_biguint();
+    assert_eq!(sign, Ordering::Greater);
+    assert_eq!(magnitude, wide_value << 33usize);
 }
 
-/// The unsigned machine-word rows are amortized O(1) at the top of the
+/// Updates by an unsigned machine word are amortized O(1) at the top of the
 /// `u64` range: exact totals, flat across a doubling of both the cliff
 /// height and the stream length.
 ///
-/// A `u64::MAX` delta is the widest input the word rows accept and the
+/// A `u64::MAX` delta is the widest input the word updates accept and the
 /// deepest per-call carry they can start (its deposit recenters digit 0
 /// and carries into digit 1 every time). Parked on the `2^k − 1` cliff
 /// with a sign read after every delta, the stream costs exactly
@@ -868,6 +899,77 @@ fn accumulator_operands_cost_their_value_width() {
     }
 }
 
+/// A value of 5 whose stored top cancels `k` digits up costs the same at
+/// every `k` to compare, round after round, to add or `abs_diff` as an owned
+/// operand, and to negate.
+///
+/// Each of these compares with zero, which compacts the cancelled top, before
+/// it chooses what to read.
+///
+/// The comparison runs three rounds on one accumulator, each rebuilding the
+/// cancelled top with the two writes of `cancelled_top` and then asking
+/// `five < 2^(32k)`; the rounds' writes cost O(1) once the storage reaches
+/// `k`. Owned addition and `abs_diff` meet `2^(32·(k/2))`, which is wider in
+/// value but narrower in working width than the uncompacted 5, so reading the
+/// operand of narrower working width would read `k/2` digits. Negating the
+/// uncompacted 5 would otherwise negate `k` digits. Each count must be equal
+/// at `k` of 1,000 and 2,000, and far below either.
+#[test]
+fn a_cancelled_top_never_widens_what_a_choice_of_operand_reads() {
+    let counts_at = |position: u64| -> Vec<u64> {
+        let five_under_top = || {
+            let mut acc = cancelled_top(position);
+            acc += 5_u8;
+            acc
+        };
+        let half_shift = 32 * (position / 2);
+        let mut wide = Accumulator::new();
+        wide.add_shifted_limbs(32 * position, [1]);
+        let mut half = Accumulator::new();
+        half.add_shifted_limbs(half_shift, [1]);
+        let half_value = IBig::from(1) << usize::try_from(half_shift).unwrap();
+        let mut counts = Vec::new();
+
+        let mut five = Accumulator::from(5);
+        for _ in 0..3 {
+            five.add_shifted_limbs(32 * position, [1]);
+            five.sub_shifted_limbs(32 * (position - 1), [1 << 32]);
+            touch_meter::reset();
+            assert!(five < wide);
+            counts.push(touch_meter::touches());
+        }
+
+        let (operand, other) = (five_under_top(), half.stored_copy());
+        touch_meter::reset();
+        let sum = operand + other;
+        counts.push(touch_meter::touches());
+        assert_value(&sum, &(&half_value + 5));
+
+        let (operand, other) = (five_under_top(), half.stored_copy());
+        touch_meter::reset();
+        let (order, gap) = operand.abs_diff(other);
+        counts.push(touch_meter::touches());
+        assert_eq!(order, Ordering::Less);
+        assert_value(&gap, &(&half_value - 5));
+
+        let operand = five_under_top();
+        touch_meter::reset();
+        let negated = -operand;
+        counts.push(touch_meter::touches());
+        assert_value(&negated, &IBig::from(-5));
+        counts
+    };
+    let (at_1_000, at_2_000) = (counts_at(1_000), counts_at(2_000));
+    assert_eq!(
+        at_1_000, at_2_000,
+        "comparisons, owned addition, abs_diff, and negation cost the same at both widths"
+    );
+    assert!(
+        at_1_000.iter().all(|&count| count <= 32),
+        "no operation reads a cancelled width: {at_1_000:?}"
+    );
+}
+
 /// Comparing with a far narrower accumulator decides in the wider one's
 /// stability query, without reading the narrower one.
 ///
@@ -899,17 +1001,21 @@ fn far_wider_comparisons_read_only_the_wider_top() {
 /// digits, and subtracts below it or when the query refuses at that lead.
 ///
 /// The narrow operand is `n` digits of `2^32 − 1`; the wide one is a single
-/// top digit `t` at the lead above it. Leading by three digits, or by two with
-/// `t = 5`, the query decides on the top digit: 1 touch. Leading by one digit,
-/// the comparison subtracts into a temporary: the wide sign decides (1), its
-/// `n + 1` stored digits are read and the nonzero one deposited (`n + 2`), the
-/// narrow sign decides (1), its digits are read and deposited (`2n`), and the
-/// difference's top decides (1): `3n + 5`. Leading by two with `t = 2`, the
+/// top digit `t` at the lead above it. Leading by three digits, or by two
+/// with `t = 5`, the query decides on the top digit: 1 touch. Otherwise the
+/// comparison compares both sides with zero before it subtracts. Leading by
+/// one digit, both signs decide on their top digits (2), and the comparison
+/// subtracts into a temporary: the wide sign decides (1), its `n + 1` stored
+/// digits are read and the nonzero one deposited (`n + 2`), the narrow sign
+/// decides (1), its digits are read and deposited (`2n`), and the
+/// difference's top decides (1): `3n + 7`. Leading by two with `t = 2`, the
 /// top does not decide: compacting it into the digit below writes `2·2^32`
-/// back, which carries the same 2 up again, 6 touches each time. The query
-/// pays that and refuses, so the comparison subtracts, and the wide sign and
-/// the difference's sign each pay it again: `6 + 6 + (n + 3) + (2n + 1) + 6`,
-/// which is `3n + 22`. Every total holds in either operand order at two widths.
+/// back, which carries the same 2 up again, 6 touches each time, and leaves
+/// the lead at two. The query pays that and refuses (6); the wide sign pays
+/// it again and the narrow sign 1 (7), and since no width changed, the
+/// comparison subtracts, where the wide sign and the difference's sign each
+/// pay it again: `6 + 7 + 6 + (n + 3) + (2n + 1) + 6`, which is `3n + 29`.
+/// Every total holds in either operand order at two widths.
 #[test]
 fn comparison_queries_from_a_two_digit_lead() {
     for digits in [4u64, 40] {
@@ -921,8 +1027,8 @@ fn comparison_queries_from_a_two_digit_lead() {
         for (lead, top, expected) in [
             (3, 5, 1),
             (2, 5, 1),
-            (2, 2, 3 * digits + 22),
-            (1, 5, 3 * digits + 5),
+            (2, 2, 3 * digits + 29),
+            (1, 5, 3 * digits + 7),
         ] {
             for reversed in [false, true] {
                 let mut wide = Accumulator::new();
@@ -954,11 +1060,12 @@ fn comparison_queries_from_a_two_digit_lead() {
 /// value's top and the narrower operand, at any distance between them.
 ///
 /// The wide value is `5·2^(32k)`; the narrow one is `n` digits of `2^32 − 1`.
-/// The wider operand's storage receives the subtraction: the narrow sign
-/// decides on its top digit (1), and its `n` digits are read and deposited
-/// below the wide value's untouched gap (`2n`). The result's sign then decides
-/// on the wide top digit (1): `2n + 2` at two distances `k`, with either
-/// operand as the receiver.
+/// `abs_diff` first compares the operand of greater working width with zero,
+/// deciding on its top digit (1). The wider operand's storage receives the
+/// subtraction: the narrow sign decides on its top digit (1), and its `n`
+/// digits are read and deposited below the wide value's untouched gap
+/// (`2n`). The result's sign then decides on the wide top digit (1):
+/// `2n + 3` at two distances `k`, with either operand as the receiver.
 #[test]
 fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
     for k in [1_000u64, 2_000] {
@@ -981,7 +1088,7 @@ fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
                 assert_eq!(order, Ordering::Greater);
                 assert_eq!(
                     touch_meter::touches(),
-                    2 * narrow_digits + 2,
+                    2 * narrow_digits + 3,
                     "abs_diff of 5·2^(32·{k}) and {narrow_digits} digits, reversed {reversed}"
                 );
                 let narrow_value =
@@ -995,19 +1102,22 @@ fn far_abs_diff_reads_the_wider_top_and_the_narrower_operand() {
     }
 }
 
-/// `abs_diff` negates its result within the result's own width: O(`n`) for
-/// nonnegative operands whatever the receiver's former width, and the whole
-/// width when the wider operand is negative.
+/// `abs_diff` negates its result only when the wider value is the smaller,
+/// and then within the result's own width: the whole width when the wider
+/// operand is negative, and nothing for a cancelled top.
 ///
-/// The narrow operand is `n` digits of `2^32 − 1`. A receiver holding 5 under
-/// a top cancelled at position `p` is wider but smaller: the subtraction
-/// decides the narrow sign and reads and deposits its digits (`1 + 2n`), the
-/// sign read clears the cancelling pair, skips the gap, and rewrites the
-/// deciding digit `n − 1` (7), and negating the `n`-digit result costs `n`:
-/// `3n + 8` at both `p`. A receiver of `−2^(32p)` is wider and smaller too, but
-/// its difference keeps its width: the subtraction costs `1 + 2n`, the sign
-/// read folds the top digit into the one below (5), and negation walks the
-/// `p` remaining digits: `p + 2n + 6`.
+/// The narrow operand is `n` digits of `2^32 − 1`. A value of 5 under a top
+/// cancelled at position `p` has the greater working width, so `abs_diff`
+/// compares it with zero first, compacting it to one digit (7). The
+/// `n`-digit operand then has the greater working width, and is compared in
+/// turn (1). It receives the 5: the 5's sign decides again (1), and its one
+/// digit is read and deposited (2). The result's sign decides (1), and the
+/// result is positive, so nothing is negated: 12 at both `p` and both `n`. A
+/// value of `−2^(32p)` is wider and smaller: comparing it with zero folds the
+/// top digit into the one below (5), after which it is still the wider, the
+/// subtraction costs `1 + 2n`, the result's sign decides on the folded digit
+/// (1), and negation decides once more (1) and walks the `p` remaining
+/// digits: `p + 2n + 8`.
 #[test]
 fn abs_diff_negates_within_the_result_width() {
     for position in [1_000u64, 2_000] {
@@ -1026,7 +1136,7 @@ fn abs_diff_negates_within_the_result_width() {
             assert_eq!(order, Ordering::Less);
             assert_eq!(
                 touch_meter::touches(),
-                3 * narrow_digits + 8,
+                12,
                 "5 under a top cancelled at {position} against {narrow_digits} digits"
             );
             assert_value(&gap, &(&narrow_value - 5));
@@ -1038,7 +1148,7 @@ fn abs_diff_negates_within_the_result_width() {
             assert_eq!(order, Ordering::Less);
             assert_eq!(
                 touch_meter::touches(),
-                position + 2 * narrow_digits + 6,
+                position + 2 * narrow_digits + 8,
                 "-2^(32·{position}) against {narrow_digits} digits"
             );
             assert_value(
@@ -1046,5 +1156,29 @@ fn abs_diff_negates_within_the_result_width() {
                 &((IBig::from(1) << usize::try_from(32 * position).unwrap()) + &narrow_value),
             );
         }
+    }
+}
+
+proptest! {
+    /// A clear touches each position the written set holds once, and no
+    /// other digit, whatever span those positions cover and however a stream
+    /// of updates and comparisons left them.
+    #[test]
+    fn clear_touches_each_written_position_once(ops in run_forming_stream()) {
+        let mut acc = fresh(true);
+        let mut oracle = IBig::from(0);
+        for (step, op) in ops.iter().enumerate() {
+            apply_stream_step(&mut acc, &mut oracle, op, step)?;
+        }
+        let held = acc.stored().digits.written_positions().len();
+        touch_meter::reset();
+        acc.clear();
+        prop_assert_eq!(
+            touch_meter::touches(),
+            u64::try_from(held).unwrap(),
+            "a clear of {} written positions",
+            held
+        );
+        prop_assert!(acc.is_known_zero());
     }
 }

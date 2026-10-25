@@ -215,7 +215,7 @@ fn primitive_shift_counts_are_checked() {
 fn owned_arithmetic_reuses_storage_and_preserves_order() {
     let mut scalar = Accumulator::new();
     scalar.add_shifted_limbs(256, [1]);
-    scalar.reset();
+    scalar.clear();
     scalar += 7;
     let retained = scalar.stored().digits.stored_digits().as_ptr();
     let scalar = -scalar;

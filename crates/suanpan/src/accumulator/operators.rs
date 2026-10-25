@@ -14,8 +14,9 @@
 //! Primitive integers keep sign and magnitude separate, so signed minima never
 //! pass through an overflowing cast. Shift counts are checked, never wrapped.
 //!
-//! Costs use the quantities of the [crate-level cost
-//! model](crate#costs-and-storage).
+//! Costs follow the crate's [cost rules](crate#costs): an operator costs what
+//! the method it names costs, and ownership decides only what the result can
+//! reuse.
 
 use core::iter::Sum;
 use core::ops::{Add, AddAssign, Neg, Shl, ShlAssign, Sub, SubAssign};
@@ -231,7 +232,7 @@ macro_rules! forwarded_primitive_operators {
         }
 
         /// Subtract the owned right operand, as `-rhs + self`, reusing its
-        /// storage: the cost of `+=` plus O(`V`) for the negation.
+        /// storage: the cost of `+=` plus negating `rhs`, its value's width.
         impl Sub<Accumulator> for $operand {
             type Output = Accumulator;
 
@@ -280,8 +281,8 @@ macro_rules! forwarded_primitive_operators {
 
 forwarded_primitive_operators!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
 
-/// Add a borrowed accumulator in amortized O(`A`) time, adding amortized
-/// O(`A`) retained space.
+/// Add a borrowed accumulator in amortized O(1 + `n`) time for an operand `n`
+/// limbs wide, as [`add_shifted`](Accumulator::add_shifted) at shift 0 does.
 ///
 /// The receiver is borrowed mutably, so the operand is a different accumulator:
 ///
@@ -298,8 +299,9 @@ impl AddAssign<&Accumulator> for Accumulator {
     }
 }
 
-/// Subtract a borrowed accumulator in amortized O(`A`) time, adding amortized
-/// O(`A`) retained space.
+/// Subtract a borrowed accumulator in amortized O(1 + `n`) time for an
+/// operand `n` limbs wide, as [`sub_shifted`](Accumulator::sub_shifted) at
+/// shift 0 does.
 ///
 /// As for `+=`, the operand is a different accumulator:
 ///
@@ -318,8 +320,8 @@ impl SubAssign<&Accumulator> for Accumulator {
 
 /// Add an owned accumulator, reusing the wider input's storage.
 ///
-/// Takes amortized O(`A`) time, where `A` is the narrower input's working
-/// width.
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
+/// in limbs.
 impl AddAssign for Accumulator {
     fn add_assign(&mut self, rhs: Accumulator) {
         *self = core::mem::take(self) + rhs;
@@ -335,8 +337,8 @@ impl SubAssign for Accumulator {
 
 /// Add owned accumulators, reading the narrower into the wider's storage.
 ///
-/// Takes amortized O(`A`) time, where `A` is the narrower input's working
-/// width. On equal widths the left operand's storage is kept.
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
+/// in limbs. On equal widths the left operand's storage is kept.
 impl Add for Accumulator {
     type Output = Accumulator;
 
@@ -347,7 +349,7 @@ impl Add for Accumulator {
         if rhs.is_known_zero() {
             return self;
         }
-        if rhs.stored_digit_count() > self.stored_digit_count() {
+        if !self.reads_other(&rhs) {
             core::mem::swap(&mut self, &mut rhs);
         }
         self += &rhs;
@@ -355,7 +357,8 @@ impl Add for Accumulator {
     }
 }
 
-/// Subtract owned accumulators, at the cost of `-=` with a borrowed one.
+/// Subtract owned accumulators, at the cost of `-=` with a borrowed one,
+/// which reads all of `rhs`.
 impl Sub for Accumulator {
     type Output = Accumulator;
 
@@ -404,7 +407,8 @@ impl Add<Accumulator> for &Accumulator {
 
 /// Subtract the owned right operand, as `-(rhs - self)`, reusing its storage.
 ///
-/// Takes the cost of `-=` with a borrowed operand plus O(`V`) for the negation.
+/// Takes the cost of `-=` with a borrowed operand plus negating the
+/// difference, its value's width.
 impl Sub<Accumulator> for &Accumulator {
     type Output = Accumulator;
 
@@ -439,8 +443,9 @@ impl Sub<&Accumulator> for &Accumulator {
 
 /// Sum owned accumulators, reusing the wider input at each addition.
 ///
-/// Takes amortized O(`T`) time, where `T` is the sum of the input working
-/// widths.
+/// Takes amortized O(`k` + `T`) time for `k` inputs whose widths total `T`
+/// limbs: each addition reads only the narrower of the running total and
+/// the next input.
 impl Sum for Accumulator {
     fn sum<I: Iterator<Item = Accumulator>>(iter: I) -> Accumulator {
         iter.reduce(Add::add).unwrap_or_default()
@@ -449,15 +454,16 @@ impl Sum for Accumulator {
 
 /// Sum borrowed accumulators, reading each once.
 ///
-/// Takes amortized O(`T`) time, where `T` is the sum of the input working
-/// widths. An accumulator may appear more than once.
+/// Takes amortized O(`k` + `T`) time for `k` inputs whose widths total `T`
+/// limbs. An accumulator may appear more than once.
 impl<'a> Sum<&'a Accumulator> for Accumulator {
     fn sum<I: Iterator<Item = &'a Accumulator>>(iter: I) -> Accumulator {
         iter.fold(Accumulator::new(), Add::add)
     }
 }
 
-/// Negate in place in O(`V`) time and O(1) additional space.
+/// Negate in place, in amortized O(1 + `Q`) time for a value `Q` limbs
+/// wide, and O(1) additional space.
 impl Neg for Accumulator {
     type Output = Accumulator;
 
@@ -484,7 +490,7 @@ macro_rules! shifts {
         ///
         /// # Complexity
         ///
-        /// Let `S` be the result's working width. A nonzero value shifts in
+        /// Let `S` be the result's width in limbs. A nonzero value shifts in
         /// amortized O(`S`) time and O(`S`) temporary space, because the old
         /// and new allocations may coexist.
         /// A zero shifts in O(1) space and in the amortized time of
@@ -518,8 +524,8 @@ macro_rules! shifts {
         /// Multiply a borrowed accumulator by `2^shift` into a new one.
         ///
         /// Takes the time of `<<=`, and the result's O(`S`) space. The shift
-        /// is a read: it normalizes the borrowed accumulator in place, as a
-        /// magnitude read does, and builds the result in new storage.
+        /// is a read: it compacts the borrowed accumulator's cancelled top, as
+        /// any read does, and builds the normalized result in new storage.
         ///
         /// # Panics
         ///

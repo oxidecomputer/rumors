@@ -52,8 +52,8 @@ impl fmt::Display for Accumulator {
 ///
 /// # Complexity
 ///
-/// Time and space linear in the retained allocation, which can exceed the
-/// current working width after cancellation.
+/// Time and space linear in the storage width, which can far exceed the
+/// value's width.
 impl fmt::Debug for Accumulator {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         // We copy the stored form while the cell is borrowed and format the

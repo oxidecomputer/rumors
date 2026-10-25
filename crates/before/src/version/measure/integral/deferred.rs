@@ -59,9 +59,9 @@ impl DeferredIntegral {
 
         // Keep the buffer, as `Integrator::freeze` keeps the segment width's:
         // a fresh accumulator would grow from digit 0 to the next interval's
-        // scale at every deferral. The reset clears only the span this interval
-        // wrote.
-        self.width.reset();
+        // scale at every deferral. Clearing keeps the buffer, at amortized
+        // O(1).
+        self.width.clear();
     }
 
     /// Add every deferred contribution after the final segment width has arrived.
