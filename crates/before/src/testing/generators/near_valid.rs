@@ -59,6 +59,10 @@ use trees::{arb_party_plant, arb_party_tree, arb_version_plant, arb_version_tree
 pub(crate) const DEEP_LEVELS: u64 = u64::BITS as u64;
 
 /// What construction settles about how a correct decoder treats an input.
+///
+/// The decoder properties judge every input by the specification's verdict
+/// ([`verdict`](crate::testing::oracles::codec::verdict)), and hold the
+/// specification to this expectation where construction settles one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Expect {
     /// The bytes are a canonical encoding, which every decoder accepts.
@@ -79,7 +83,7 @@ pub(crate) enum Expect {
         in_stream: bool,
     },
     /// Construction does not settle the verdict: the damage may or may not
-    /// leave a canonical encoding.
+    /// leave a canonical encoding, and only the specification decides.
     Open,
 }
 
@@ -134,13 +138,6 @@ pub(crate) struct NearValid {
     pub(crate) expect: Expect,
     /// The census regimes this input reaches.
     pub(crate) regimes: Vec<Regime>,
-    /// For a span whose lower endpoint is exactly a canonical encoding, the
-    /// byte offset where its upper endpoint starts.
-    ///
-    /// Splitting there gives the endpoints of the span's human-readable
-    /// record, which decodes through `Span::new` rather than the binary
-    /// decoder's single pass.
-    pub(crate) split: Option<usize>,
 }
 
 impl NearValid {
@@ -150,7 +147,6 @@ impl NearValid {
             bytes,
             expect: Expect::Open,
             regimes: Vec::new(),
-            split: None,
         }
     }
 }
@@ -199,7 +195,6 @@ fn damaged<T: Plantable>(tree: &T, damage: &Damage<T::Plant>) -> NearValid {
         bytes: damage.spell(spelled.live_bits()),
         expect,
         regimes,
-        split: None,
     }
 }
 

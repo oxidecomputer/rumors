@@ -56,7 +56,6 @@ pub(crate) fn arb_clock_encoding() -> impl Strategy<Value = NearValid> {
                     .then_some(Regime::ClockVersionDefect)
                     .into_iter()
                     .collect(),
-                split: None,
             }
         })
 }
@@ -98,9 +97,6 @@ fn arb_endpoint_damage() -> impl Strategy<Value = Option<Damage<VersionPlant>>> 
 
 /// A span's encoding from its endpoint trees, each possibly damaged, and a
 /// possible byte edit.
-///
-/// The endpoint split is known when the lower endpoint is undamaged and no
-/// byte edit follows: its bytes are then exactly its canonical encoding.
 fn span_encoding(
     (lo, hi): (codec::Version, codec::Version),
     lo_damage: Option<Damage<VersionPlant>>,
@@ -110,7 +106,6 @@ fn span_encoding(
     let lo_input = damaged(&lo, &lo_damage.unwrap_or_else(Damage::none));
     let hi_input = damaged(&hi, &hi_damage.unwrap_or_else(Damage::none));
     let lo_canonical = lo_input.expect == Expect::Canonical;
-    let split = (lo_canonical && edit.is_none()).then_some(lo_input.bytes.len());
     let bytes = [lo_input.bytes, hi_input.bytes].concat();
     let (bytes, expect) = match edit {
         Some(edit) => (edit.apply(bytes), Expect::Open),
@@ -131,7 +126,6 @@ fn span_encoding(
         bytes,
         expect,
         regimes,
-        split,
     }
 }
 
@@ -163,8 +157,7 @@ fn arb_tail_defect() -> impl Strategy<Value = TailDefect> {
 /// or after the upper endpoint's padding.
 ///
 /// The endpoints are `a` and `b` when `a` is not below `b`, and otherwise
-/// `a` raised by one everywhere and then `a` itself, a reversed pair. The
-/// lower endpoint is intact, so the endpoint split is known.
+/// `a` raised by one everywhere and then `a` itself, a reversed pair.
 fn structural_over_ordering(a: codec::Version, b: codec::Version, defect: TailDefect) -> NearValid {
     let (lo, hi) = if a.le(&b) {
         (a.zip(&a, |x: &BigInt, _: &BigInt| x + 1), a)
@@ -193,10 +186,8 @@ fn structural_over_ordering(a: codec::Version, b: codec::Version, defect: TailDe
             false
         }
     };
-    let lo_bytes = lo.encode();
     NearValid {
-        split: Some(lo_bytes.len()),
-        bytes: [lo_bytes, hi_bytes].concat(),
+        bytes: [lo.encode(), hi_bytes].concat(),
         expect: Expect::StructuralOverOrdering { in_stream },
         regimes: vec![Regime::StructuralOverOrdering],
     }
@@ -207,8 +198,7 @@ fn structural_over_ordering(a: codec::Version, b: codec::Version, defect: TailDe
 /// a structural defect in its upper endpoint.
 ///
 /// Regimes: [`Regime::UnorderedSpan`], [`Regime::DeepLowerEndpoint`], and
-/// [`Regime::StructuralOverOrdering`]. Inputs whose lower endpoint is intact
-/// also carry their endpoint split ([`NearValid::split`]).
+/// [`Regime::StructuralOverOrdering`].
 pub(crate) fn arb_span_encoding() -> impl Strategy<Value = NearValid> {
     let endpoints = prop_oneof![
         Just(Endpoints::Ordered),
@@ -292,7 +282,6 @@ pub(crate) fn arb_ranked_encoding() -> impl Strategy<Value = NearValid> {
                     .then_some(Regime::MismatchedRank)
                     .into_iter()
                     .collect(),
-                split: None,
             }
         })
 }

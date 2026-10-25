@@ -84,17 +84,34 @@
 //! defect, an edited byte, or a composite's endpoints or rank out of
 //! agreement. Every entry point of every type decodes them: the reader decode
 //! on whole and chunked, interrupting readers, hexadecimal text, postcard,
-//! CBOR, borsh, and a span's human-readable record. An accepted encoding must
+//! CBOR, borsh, and a span's human-readable record. A specification of the
+//! formats that shares no code with production
+//! ([`super::oracles::codec::verdict`]) reads every input leniently and gives
+//! its verdict: the canonical value the input encodes, or every defect class
+//! it carries, narrowed only by a span's documented precedence. Every entry
+//! point must follow that verdict, borsh on the input followed by junk, and
+//! must name a permitted class when it rejects; postcard, whose error drops
+//! the decoder's message, need only show that the decoder rejected. The
+//! span's human-readable record decodes through `Span::new`, so it is judged
+//! by agreement with the slice decode instead. An accepted encoding must also
 //! be the independent encoder's spelling of the decoded value, and the entry
-//! points must agree with the slice decode. What it alone catches:
-//! **non-canonical acceptance and entry-point divergence past small trees**.
-//! Examples are a validator that accepts a collapsible pair or a negative
-//! height only once its path state spills past one word, a borsh or serde
-//! path that accepts bytes the reader decode rejects, a span that reports its
-//! endpoint order before a structural error, and a panic on a damaged deep
-//! encoding. The codec suites' rejection tests damage arbitrary values no
-//! deeper than the generators' `ARB_DEPTH` and a few small fixed shapes, and
-//! judge an accepted mutation against production's own writer.
+//! points must agree with the slice decode. The slice decode, borsh, and the
+//! record meet the same checks on every input of up to two bytes, and on
+//! inputs of three to eight bytes that a property draws afresh on every run.
+//! The specification is held to what construction settles about an input,
+//! and a disagreement between the specification and production fails,
+//! whichever is wrong. What it alone
+//! catches: **a wrong verdict, a wrong error class, or entry-point divergence
+//! past small trees**. Examples are a validator that accepts a collapsible
+//! pair or a negative height, or rejects a canonical encoding, only once its
+//! path state spills past one word; a decoder that reports a defect the input
+//! does not carry; a borsh or serde path that accepts bytes the reader decode
+//! rejects, or consumes a byte count other than the value's length; a span
+//! that reports its endpoint order before a structural error; and a panic on
+//! a damaged deep encoding.
+//! The codec suites' rejection tests damage arbitrary values no deeper than
+//! the generators' `ARB_DEPTH` and a few small fixed shapes, and judge an
+//! accepted mutation against production's own writer.
 //!
 //! **The algebraic laws** (`crate::testing::laws`, driven by [`super::algebraic_laws`]
 //! and shared with the fuzz targets). Law predicates over production alone:

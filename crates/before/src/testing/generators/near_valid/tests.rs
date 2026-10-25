@@ -11,6 +11,8 @@ use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, TestRunner};
 
 use crate::testing::generators::co_generated::DEFAULT_CASES;
+#[cfg(all(feature = "serde", feature = "borsh"))]
+use crate::testing::oracles::codec::verdict;
 use crate::testing::rng::strategy_rng;
 
 use super::{
@@ -57,13 +59,21 @@ fn regime(regime: Regime) -> Class {
     }
 }
 
-/// The spans whose endpoint split construction knows, which the
+/// The spans whose lower endpoint the specification frames, which the
 /// human-readable record leg of the span property needs.
-fn known_split() -> Class {
-    Class {
-        name: "known endpoint split".into(),
-        holds: Box::new(|input| input.split.is_some()),
-    }
+#[cfg(all(feature = "serde", feature = "borsh"))]
+fn framed_lower_endpoint() -> Option<Class> {
+    Some(Class {
+        name: "framed lower endpoint".into(),
+        holds: Box::new(|input| verdict::span_lower_len(&input.bytes).is_some()),
+    })
+}
+
+/// No class: without both codec features, the decoder properties and their
+/// record leg do not exist.
+#[cfg(not(all(feature = "serde", feature = "borsh")))]
+fn framed_lower_endpoint() -> Option<Class> {
+    None
 }
 
 /// Samples `strategy` [`CENSUS_CASES`] times under the census seed, and
@@ -93,7 +103,8 @@ fn census(strategy: impl Strategy<Value = NearValid>, classes: Vec<Class>) -> Ve
 ///
 /// Each strategy's doc lists the [`Regime`]s it claims, and the census
 /// counts exactly those, sampling every strategy that a decoder property
-/// draws from, together with the spans whose endpoint split is known.
+/// draws from, together with, under both codec features, the spans whose
+/// lower endpoint the specification frames.
 ///
 /// Each floor follows from that premise and the properties' default case
 /// count, so a regime whose mass falls below what a run needs reads as a
@@ -160,12 +171,14 @@ fn near_valid_strategies_keep_mass_on_their_regimes() {
             "span",
             census(
                 arb_span_encoding(),
-                vec![
+                [
                     regime(UnorderedSpan),
                     regime(DeepLowerEndpoint),
                     regime(StructuralOverOrdering),
-                    known_split(),
-                ],
+                ]
+                .into_iter()
+                .chain(framed_lower_endpoint())
+                .collect(),
             ),
         ),
         (

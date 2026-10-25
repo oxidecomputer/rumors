@@ -1,5 +1,6 @@
 //! The wire formats of versions, parties, and ranks, written out as an
-//! encoder that spells any tree, canonical or not.
+//! encoder that spells any tree, canonical or not, and as a specification
+//! of what a strict decoder owes any byte string ([`verdict`]).
 //!
 //! Production's writers emit only canonical encodings, so they cannot build
 //! the inputs a strict decoder exists to reject: a sibling pair that should
@@ -68,6 +69,11 @@ use num_bigint::{BigInt, BigUint, Sign};
 use crate::testing::oracles::tree;
 
 mod tests;
+// The decoder properties read the specification, and the near-valid census
+// reads its framing of a span's lower endpoint for their record leg; the
+// properties need both codec features, so the census's reading does too.
+#[cfg(all(feature = "serde", feature = "borsh"))]
+pub(crate) mod verdict;
 
 // ───────────────────────────── bits and bytes ─────────────────────────────
 
