@@ -17,6 +17,6 @@ crate-type = ["cdylib"]
 # the slice decoder's.
 before = { workspace = true, features = ["meter", "borsh"] }
 # Names `BorshDeserialize`, which `before` implements but does not re-export.
-borsh = { workspace = true }
-suanpan = { workspace = true }
-wasm32-pins-protocol = { workspace = true }
+borsh.workspace = true
+suanpan.workspace = true
+wasm32-pins-protocol.workspace = true

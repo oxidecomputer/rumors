@@ -6,4 +6,4 @@ edition = "2021"
 
 [dependencies]
 # Derives the probe numbering's checked conversion from `u32`.
-strum_macros = { workspace = true }
+strum_macros.workspace = true

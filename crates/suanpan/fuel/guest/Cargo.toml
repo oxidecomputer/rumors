@@ -14,10 +14,10 @@ test = false
 doctest = false
 
 [dependencies]
-suanpan = { workspace = true }
-suanpan-fuel-protocol = { workspace = true }
+suanpan.workspace = true
+suanpan-fuel-protocol.workspace = true
 # The heaps behind the guest's global allocator, the fuel board's window
 # allocator (see `src/lib.rs`).
-dlmalloc = { workspace = true }
+dlmalloc.workspace = true
 # The lock around those heaps.
-spin = { workspace = true }
+spin.workspace = true

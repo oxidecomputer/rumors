@@ -5,18 +5,18 @@ publish = false
 edition = "2021"
 
 [dependencies]
-suanpan-fuel-protocol = { workspace = true }
+suanpan-fuel-protocol.workspace = true
 # The fuel board's operator price list, so every fuel instrument in the
 # workspace charges each wasm operator alike, `memory.copy` and
 # `memory.fill` per byte included.
-board-fuel-harness = { workspace = true }
+board-fuel-harness.workspace = true
 # Runs the guest under fuel metering. Tool-side only: this crate is outside
 # the workspace's default members, so the gate's ordinary legs never compile
 # wasmtime.
 wasmtime = { workspace = true, features = ["cranelift", "runtime"] }
 # The exact model of the pool's values, from which the harness computes each
 # step's charge under the cost rules, its answer, and the census of regimes.
-num-bigint = { workspace = true }
+num-bigint.workspace = true
 # Generates program skeletons; a regular dependency because the skeleton
 # strategy lives in the library beside the model it is normalized against.
-proptest = { workspace = true }
+proptest.workspace = true

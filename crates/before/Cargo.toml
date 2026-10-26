@@ -20,16 +20,16 @@ features = ["serde", "borsh"]
 # sections include from $OUT_DIR. serde_json only reads the committed
 # JSON; nothing is measured or computed at build time.
 [build-dependencies]
-serde_json = { workspace = true }
+serde_json.workspace = true
 
 [dependencies]
-bytes = { workspace = true }
-hex = { workspace = true }
-num-bigint = { workspace = true }
+bytes.workspace = true
+hex.workspace = true
+num-bigint.workspace = true
 suanpan = { workspace = true, features = ["num-bigint"] }
-dsi-bitstream = { workspace = true }
-static_assertions = { workspace = true }
-thiserror = { workspace = true }
+dsi-bitstream.workspace = true
+static_assertions.workspace = true
+thiserror.workspace = true
 serde = { workspace = true, optional = true, features = ["alloc", "derive"] }
 serde_bytes = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
@@ -38,24 +38,24 @@ borsh = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
-borsh = { workspace = true }
-proptest = { workspace = true }
-serde_json = { workspace = true }
-serde_test = { workspace = true }
-criterion = { workspace = true }
-rand = { workspace = true }
-rand_chacha = { workspace = true }
-postcard = { workspace = true }
-ciborium = { workspace = true }
+borsh.workspace = true
+proptest.workspace = true
+serde_json.workspace = true
+serde_test.workspace = true
+criterion.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+postcard.workspace = true
+ciborium.workspace = true
 # The amplification board's shard processes read process-wide heap from
 # `peak_alloc`; the heap-measuring test binaries read per-thread heap from
 # `alloc-meter`, since libtest allocates on its own threads while a test runs.
-peak_alloc = { workspace = true }
-alloc-meter = { workspace = true }
-insta = { workspace = true }
-rayon = { workspace = true }
-indicatif = { workspace = true }
-tempfile = { workspace = true }
+peak_alloc.workspace = true
+alloc-meter.workspace = true
+insta.workspace = true
+rayon.workspace = true
+indicatif.workspace = true
+tempfile.workspace = true
 before = { workspace = true, features = ["oracle", "meter"] }
 
 [features]

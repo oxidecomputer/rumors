@@ -47,13 +47,6 @@ default-members = [
     "crates/suanpan",
 ]
 
-# The version of record for every dependency in the workspace: member
-# manifests inherit an entry with `workspace = true`, adding only their own
-# feature selections — `features`, and `default-features = true` to widen a
-# table default of false (cargo itself rejects the narrowing direction) —
-# and the `optional` flags cargo requires at the member. No member declares
-# a version, path, or other source of its own; the gate's manifestlint leg
-# holds every member manifest to this.
 [workspace.dependencies]
 alloc-meter = { path = "crates/alloc-meter" }
 async-stream = "0.3"
@@ -66,32 +59,14 @@ bytes = "1"
 # Oxide's fork of cbor-diag: nesting depth is bounded by default in every
 # input-driven parse and print (upstream recurses on input-controlled
 # depth), so wire-derived bytes can be rendered without a guard in front.
-# Pinned by revision, not branch: the wire snapshots under `tests/snapshots`
-# are rendered through this crate, so a change on the fork's branch must
-# not reflow them without a commit here that names the new revision.
-# Its `url` dependency reaches idna, whose unicode backend is selected by
-# `idna_adapter`: the lock pins idna_adapter to 1.1 (the unicode-rs
-# backend), because the icu backend behind later versions carries derive
-# macros on a second `syn` major, which the bans check rejects. If a
-# `cargo update` resurfaces a duplicate `syn`, re-pin with
-# `cargo update -p idna_adapter --precise 1.1.0`.
 cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", rev = "a6a713671f92526b921bc926173266257379d609" }
-# Pinned exactly: depth admission and wire ingress run the same compiled
-# deserializer, so decode-recursion accounting is symmetric within a binary,
-# and across a mixed-version fleet it holds only if every build shares one
-# accounting — which this exact pin provides, since ciborium documents no
-# accounting contract. Bumping is a deliberate, fleet-coordinated event: run
-# a two-build accept/reject verdict differential over a seeded corpus at the
-# old and candidate versions; identical verdicts make a pure bump; differing
-# verdicts ship with a greeting accounting stamp so mixed fleets fail fast at
-# the handshake; and a verdict-strictening bump additionally requires
-# re-validating stored payloads before gossiping.
+# Depth admission and wire ingress run the same compiled deserializer, so
+# decode-recursion accounting is symmetric within a binary, and across a
+# mixed-version fleet it holds only if every build shares one accounting.
 ciborium = "=0.2.2"
 clap = "4"
 console_error_panic_hook = "0.1"
 criterion = "0.5"
-# The fuel guests' allocator instances: an ordinary heap, and a fresh heap
-# for each measured window (the board guest's `window` module says why).
 dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
@@ -112,10 +87,6 @@ pollster = { version = "0.4", features = ["macro"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 proptest = "1"
 rand = "0.9"
-# The fuzz-fit harness and the fuelscape draw their committed corpora from
-# rand 0.8's samplers (num-bigint 0.4's `rand` feature speaks 0.8's traits),
-# and moving them to 0.9 would change every corpus they derive. They name the
-# 0.8 releases under these keys.
 rand08 = { package = "rand", version = "0.8" }
 rand_chacha = "0.9"
 rand_chacha03 = { package = "rand_chacha", version = "0.3" }
@@ -126,10 +97,7 @@ rustc_version = "0.4"
 # The official rustdoc JSON schema crate. Pinned exact because the crate
 # version is the format pin: rustdoc-types 0.59.0 speaks format_version 59,
 # and surfacecheck refuses any document whose format_version differs from
-# `rustdoc_types::FORMAT_VERSION`, naming both numbers. Bumping the nightly
-# toolchain therefore means bumping this pin to the release whose
-# FORMAT_VERSION matches what the new nightly emits (the justfile's
-# surface-totality comment walks through it).
+# `rustdoc_types::FORMAT_VERSION`.
 rustdoc-types = "=0.59.0"
 schnellru = { version = "0.2.4", default-features = false }
 seq-macro = "0.3"
@@ -138,8 +106,6 @@ serde_bytes = "0.11"
 serde_json = "1"
 serde_test = "1"
 smallvec = { version = "1.15", features = ["union"] }
-# The lock around the fuel guests' heaps: a flag with no shadow-stack spill
-# on each allocator call (the board guest's `window` module says why).
 spin = { version = "0.12", default-features = false, features = ["spin_mutex"] }
 static_assertions = "1.1"
 strum_macros = "0.28.0"
@@ -173,14 +139,6 @@ missing_debug_implementations = "warn"
 missing_docs = "warn"
 
 [lib]
-# Keep `cargo bench` from compiling the library itself as a libtest bench
-# harness. That auto-target rebuilds the whole crate -- every `#[cfg(test)]`
-# module included -- at opt-level 3 in a single rustc invocation, a heavy
-# compile. The harness would run nothing: stable Rust has no bench items,
-# and every real benchmark is a `harness = false` criterion target below.
-# The test modules keep their coverage through the dev-profile test runs;
-# `cargo bench` still builds this library once, as the ordinary rlib the
-# criterion targets link against.
 bench = false
 
 [features]
@@ -196,21 +154,21 @@ fs = ["dep:tempfile"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }
-bytes = { workspace = true }
-sha3 = { workspace = true }
-itertools = { workspace = true }
+bytes.workspace = true
+sha3.workspace = true
+itertools.workspace = true
 serde = { workspace = true, default-features = true, features = ["derive"] }
-ciborium = { workspace = true }
-seq-macro = { workspace = true }
-smallvec = { workspace = true }
-tinyvec = { workspace = true }
-thiserror = { workspace = true }
-hex = { workspace = true }
+ciborium.workspace = true
+seq-macro.workspace = true
+smallvec.workspace = true
+tinyvec.workspace = true
+thiserror.workspace = true
+hex.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "sync"] }
-futures = { workspace = true }
-async-stream = { workspace = true }
-rand = { workspace = true }
-schnellru = { workspace = true }
+futures.workspace = true
+async-stream.workspace = true
+rand.workspace = true
+schnellru.workspace = true
 tempfile = { workspace = true, optional = true }
 # The wire-capture renderer behind `test-internals` renders every captured
 # item in diagnostic notation through this crate.
@@ -218,14 +176,14 @@ cbor-diag = { workspace = true, optional = true }
 
 [dev-dependencies]
 rumors = { workspace = true, features = ["test-internals", "conformance"] }
-rumors-testkit = { workspace = true }
+rumors-testkit.workspace = true
 # The meter feature lights before's instrument surface for this crate's
 # own tests: the conservation suite reads the exact-bit-length observation
 # (`encoded_bits`) it denominates identity conservation in.
 before = { workspace = true, features = ["serde", "meter"] }
-proptest = { workspace = true }
+proptest.workspace = true
 criterion = { workspace = true, features = ["html_reports"] }
-insta = { workspace = true }
+insta.workspace = true
 # The suites use `Bytes` as a payload type, which must serialize.
 bytes = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = [
@@ -239,13 +197,13 @@ tokio = { workspace = true, features = [
     # delay to virtual time so sweeps cost wall-clock compute only.
     "test-util",
 ] }
-rand = { workspace = true }
+rand.workspace = true
 # Deterministic tests and benchmarks use ChaCha: its output is fixed across
 # platforms and Rand versions, so a committed seed continues to name one corpus.
-rand_chacha = { workspace = true }
-pollster = { workspace = true }
+rand_chacha.workspace = true
+pollster.workspace = true
 # The allocation-pricing suites read per-thread allocator traffic from it.
-alloc-meter = { workspace = true }
+alloc-meter.workspace = true
 
 [profile.dev]
 debug = "line-tables-only"
@@ -268,10 +226,6 @@ opt-level = 2
 # dependencies included. A per-package override cannot confine that to the
 # guest, since it applies to the crates it names in every release build; a
 # profile of its own leaves `release` unchanged for every other build.
-# `panic = "abort"` restates wasm32-unknown-unknown's default strategy,
-# which keeps unwinding tables, and their instructions, out of the measured
-# code. Debug assertions stay off, as in `release`, so fuel prices the
-# production work alone.
 [profile.fuel]
 inherits = "release"
 codegen-units = 1
@@ -281,9 +235,7 @@ panic = "abort"
 # stated off rather than inherited, so the guest runs the arithmetic users
 # get in an ordinary release build. Explicit boundary checks in the code
 # under test must prevent a 32-bit wrap; a compiler-added overflow trap
-# would conceal the wrong-value failures the pins exist to catch. Stating
-# the setting here keeps a change to `release` from changing what the pins
-# test.
+# would conceal the wrong-value failures the pins exist to catch.
 [profile.wasm32-pins]
 inherits = "release"
 overflow-checks = false

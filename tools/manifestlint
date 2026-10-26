@@ -276,7 +276,7 @@ def self_test():
         (
             """
             [dependencies]
-            a = { workspace = true }
+            a.workspace = true
             b = { workspace = true, features = ["derive"], optional = true }
             c = { workspace = true, default-features = true }
             """,

@@ -14,5 +14,5 @@ publish = false
 # with rustdoc's compiler-derived surface.
 before = { workspace = true, features = ["meter"] }
 # The rustdoc JSON schema; the root manifest's entry explains its exact pin.
-rustdoc-types = { workspace = true }
-serde_json = { workspace = true }
+rustdoc-types.workspace = true
+serde_json.workspace = true

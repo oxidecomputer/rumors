@@ -15,4 +15,4 @@ wasmtime = { workspace = true, features = [
     "cranelift",
     "runtime",
 ] }
-wasm32-pins-protocol = { workspace = true }
+wasm32-pins-protocol.workspace = true

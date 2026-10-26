@@ -17,11 +17,11 @@ doctest = false
 # `meter` exposes the committed adversarial generators the probes build their
 # operands from, and the entry points that bypass public shortcuts.
 before = { workspace = true, features = ["meter"] }
-focused-fuel-protocol = { workspace = true }
+focused-fuel-protocol.workspace = true
 # Exact closed forms the probes check family answers against.
-num-bigint = { workspace = true }
+num-bigint.workspace = true
 # The heaps behind the guest's global allocator, the fuel board's window
 # allocator (see `src/lib.rs`).
-dlmalloc = { workspace = true }
+dlmalloc.workspace = true
 # The lock around those heaps.
-spin = { workspace = true }
+spin.workspace = true

@@ -14,7 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 # The derived form of the program types, and the encoding of that form.
 serde = { workspace = true, features = ["derive"] }
-postcard = { workspace = true }
+postcard.workspace = true
 
 [dev-dependencies]
-proptest = { workspace = true }
+proptest.workspace = true

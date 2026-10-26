@@ -10,8 +10,8 @@ readme = "README.md"
 num-bigint = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
-num-bigint = { workspace = true }
+proptest.workspace = true
+num-bigint.workspace = true
 
 [features]
 # Converts to and from num-bigint's integers and accepts them as operands.

@@ -7,11 +7,11 @@ license = "MPL-2.0"
 readme = "README.md"
 
 [dependencies]
-cbor-diag = { workspace = true }
-hex = { workspace = true }
-rumors = { workspace = true }
-tracing = { workspace = true }
+cbor-diag.workspace = true
+hex.workspace = true
+rumors.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
-ciborium = { workspace = true }
+ciborium.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }

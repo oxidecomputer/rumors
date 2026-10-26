@@ -11,4 +11,4 @@ path = "src/lib.rs"
 # Derives each protocol enum's decoder from its declared numbers, so a decoder
 # cannot disagree with the numbering it inverts. Tool-side only: this crate is
 # outside the workspace's default members.
-strum_macros = { workspace = true }
+strum_macros.workspace = true

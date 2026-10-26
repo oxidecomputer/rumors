@@ -18,6 +18,6 @@ doctest = false
 # table, and so the cell grid, identical to the native board's.
 before = { workspace = true, features = ["meter", "serde", "borsh"] }
 # The heaps behind the guest's global allocator (the `window` module).
-dlmalloc = { workspace = true }
+dlmalloc.workspace = true
 # The lock around those heaps.
-spin = { workspace = true }
+spin.workspace = true

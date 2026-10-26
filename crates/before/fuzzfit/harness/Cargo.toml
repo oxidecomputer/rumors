@@ -25,15 +25,15 @@ wasmtime = { workspace = true, features = [
 ] }
 # The enforcement leg's engine; a regular dependency (not dev) because the
 # calibration binary draws from the same strategies the tests do.
-proptest = { workspace = true }
+proptest.workspace = true
 # Deterministic seed streams for the calibration sweep, the same
 # documented-portable generator the parent crate's corpus sweeps use, at the
 # 0.8 releases the committed bands were calibrated with.
-rand08 = { workspace = true }
-rand_chacha03 = { workspace = true }
+rand08.workspace = true
+rand_chacha03.workspace = true
 
 [build-dependencies]
 # Identifies the building toolchain (`build.rs` embeds it): fuel constants
 # are a function of the guest codegen, so the suite refuses to judge
 # against bands pinned under a different rustc.
-rustc_version = { workspace = true }
+rustc_version.workspace = true
