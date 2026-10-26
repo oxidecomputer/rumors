@@ -29,9 +29,10 @@ fn arb_divergent_payloads() -> impl Strategy<Value = (Vec<u64>, Vec<u64>)> {
 }
 
 /// A divergent pair whose sides select different run targets before any
-/// session runs, then originate their own payloads: each greeting advertises
-/// its side's setting, and every session between them runs at the exchanged
-/// minimum.
+/// session runs, then originate their own payloads.
+///
+/// Each greeting advertises its side's setting, and every session between
+/// them runs at the exchanged minimum.
 fn diverged_pair(
     left_target: usize,
     right_target: usize,
