@@ -1,8 +1,7 @@
 //! Test support, independent oracles, and cross-cutting semantic checks.
 //!
 //! These tests compare the binary implementation with independent models and
-//! exercise families of semantic and resource-sensitive inputs. The test-only
-//! validation index explains the purpose and limits of each instrument.
+//! exercise families of semantic and resource-sensitive inputs.
 
 mod auto_traits;
 
@@ -51,5 +50,3 @@ pub(crate) mod exhaustive;
 mod fuelscape_islands;
 #[cfg(test)]
 mod snapshots;
-#[cfg(test)]
-pub mod validation_index;
