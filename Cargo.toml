@@ -24,18 +24,28 @@ members = [
 ]
 # Every member shares this manifest's Cargo.lock, so the production crates
 # and the tool-side instruments always resolve one version of each shared
-# dependency. The tool-side members are the ones the justfile lists in
-# `tool_members`: instruments that pull in tooling the production crates
-# never need, Wasmtime above all. The justfile's `--workspace` invocations
-# exclude them, and each is reached through its own recipes. The cargo-fuzz
-# workspace (`crates/before/fuzz`) stays detached, because it builds only
-# with nightly and libFuzzer.
+# dependency. The cargo-fuzz workspace (`crates/before/fuzz`) stays
+# detached, because it builds only with nightly and libFuzzer.
 #
-# A cargo command at the root with no package selection acts on the
-# `rumors` package alone. A bare `--workspace` reaches every member, the
-# tool-side ones and Wasmtime included; the justfile's recipes are the way
-# to run a workspace-wide command without them.
-default-members = ["."]
+# The default members are the production crates and their test support,
+# and the one list of them; every other member is a tool-side instrument
+# that pulls in tooling the production crates never need, Wasmtime above
+# all, and is reached through its own justfile recipes. A cargo command at
+# the root with no package selection acts on the default members, so
+# neither plain cargo nor the justfile's workspace-wide recipes compile
+# Wasmtime. A bare `--workspace` reaches every member and compiles the
+# tools, but `.config/nextest.toml`'s default filter keeps their tests out
+# of a nextest run. `manifestlint` holds this list and that filter to the
+# rules its header states.
+default-members = [
+    ".",
+    "crates/alloc-meter",
+    "crates/before",
+    "crates/before-viz",
+    "crates/rumors-tracing",
+    "crates/rumors-testkit",
+    "crates/suanpan",
+]
 
 # The version of record for every dependency in the workspace: member
 # manifests inherit an entry with `workspace = true`, adding only their own

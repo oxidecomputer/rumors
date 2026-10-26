@@ -10,5 +10,5 @@ path = "src/lib.rs"
 [dependencies]
 # Derives each protocol enum's decoder from its declared numbers, so a decoder
 # cannot disagree with the numbering it inverts. Tool-side only: this crate is
-# listed in the justfile's `tool_members`.
+# outside the workspace's default members.
 strum_macros = { workspace = true }

@@ -1,7 +1,7 @@
 # Configuration for the duplicate-dependency sweep (`just supply-chain`,
 # which runs `cargo deny check bans`). Scope: the full feature-and-target
-# closure of every root-workspace member except the tool-side ones, which
-# the justfile lists in `tool_members` and excludes from the sweep.
+# closure of the root workspace's default members; the tool-side members,
+# every member that is not a default one, are excluded from the sweep.
 # Cargo.lock also records the tool-side members' graphs, and the detached
 # fuzz workspace has a lockfile of its own; the advisory leg covers both,
 # and the duplicate policy covers neither, because a dependency duplicated

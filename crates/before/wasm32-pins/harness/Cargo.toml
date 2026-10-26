@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 # Executes the guest on a genuinely 32-bit `usize`. Tool-side only: this crate
-# is listed in the justfile's `tool_members`, so the gate's ordinary legs
+# is outside the workspace's default members, so the gate's ordinary legs
 # never compile wasmtime. No fuel and no pooling (unlike the fuzz-fit
 # harness): the pins assert outcomes, not instruction counts, and each
 # needs a full 4 GiB 32-bit address space rather than a pooled slot's

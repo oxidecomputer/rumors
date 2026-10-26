@@ -106,20 +106,24 @@ fn recorded_panic(instance: &Instance, store: &mut Store<()>) -> Option<String> 
     Some(String::from_utf8(message).expect("the guest records UTF-8 cut at a character boundary"))
 }
 
-/// Returns the compiled guest's path: `WASM32_PINS_GUEST_WASM`, else the
-/// guest under `CARGO_TARGET_DIR`, else the repo root's `target/wasm32-pins`,
-/// where `just wasm32-pins-build` writes it in the `wasm32-pins` profile.
+/// The environment variable naming the compiled guest module; the
+/// `wasm32-pins` recipe sets it after building the guest.
+const GUEST_ENV: &str = "WASM32_PINS_GUEST_WASM";
+
+/// Returns the path of the compiled guest module, which [`GUEST_ENV`] names.
+///
+/// No default location stands in for the variable: a guest found there
+/// could predate the tree under test, and the pins would judge it instead.
+///
+/// # Panics
+///
+/// Panics if [`GUEST_ENV`] is unset.
 fn guest_wasm_path() -> PathBuf {
-    if let Ok(path) = std::env::var("WASM32_PINS_GUEST_WASM") {
-        return PathBuf::from(path);
-    }
-    if let Ok(target) = std::env::var("CARGO_TARGET_DIR") {
-        return PathBuf::from(target)
-            .join("wasm32-unknown-unknown/wasm32-pins/wasm32_pins_guest.wasm");
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../../target/wasm32-pins/wasm32-unknown-unknown/wasm32-pins/wasm32_pins_guest.wasm",
-    )
+    std::env::var_os(GUEST_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            panic!("{GUEST_ENV} must name the compiled guest; run `just wasm32-pins`")
+        })
 }
 
 /// Shares the expensive compilation while keeping stores and memories local.
