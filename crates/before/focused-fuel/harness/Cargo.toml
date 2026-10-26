@@ -10,7 +10,7 @@ focused-fuel-protocol = { workspace = true }
 # workspace charges each wasm operator alike, `memory.copy` and
 # `memory.fill` per byte included.
 board-fuel-harness = { workspace = true }
-# Runs the guest under fuel metering. Tool-side only: this crate is listed in
-# the justfile's `tool_members`, so the gate's ordinary legs never compile
+# Runs the guest under fuel metering. Tool-side only: this crate is outside
+# the workspace's default members, so the gate's ordinary legs never compile
 # wasmtime.
 wasmtime = { workspace = true, features = ["cranelift", "runtime"] }

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # manifestlint — hold the workspace's member manifests to the workspace table,
-# and the justfile's list of tool-side members to the workspace.
+# and its tool-side members to the default members and nextest's default
+# filter.
 #
 # The root Cargo.toml's [workspace.dependencies] is the version of record for
 # every dependency in the workspace: member manifests inherit an entry with
@@ -21,33 +22,44 @@
 # own Cargo.lock) are separate workspaces with their own tables, outside
 # this tool's scope.
 #
-# The justfile's `tool_members` is the one list of the workspace's tool-side
-# members, as the `--exclude NAME` pairs its workspace-wide cargo commands
-# pass. Cargo accepts an exclusion naming no member with only a warning,
-# still compiles an excluded member that an included one depends on, and
-# cannot tell a tool from any other member, so a stale name, an unlisted
-# dependent, or a tool dropped from the list would each bring the tools back
-# into the ordinary legs without failing anything. The tool evaluates the
-# variable with `just` and holds it to the same `cargo metadata` view: every
-# name a member, none a default member (which a plain cargo command at the
-# root builds), none listed twice, no unlisted member depending on a listed
-# one, and no unlisted member declaring a tool-only dependency.
+# The root Cargo.toml's `default-members` divides the production crates from
+# the tool-side members, every member it leaves out, which reach tooling the
+# production crates never need (Wasmtime above all) and run only through
+# their own justfile recipes. Plain cargo at the root, and so every
+# workspace-wide justfile recipe, selects the default members alone, but
+# cargo still compiles any member a selected one depends on, and cannot tell
+# a tool from any other member. So no default member may depend on a
+# tool-side member or declare a tool-only dependency: either would bring the
+# tooling back into the ordinary legs without failing anything.
+#
+# A bare `cargo nextest run --workspace` selects every member, so
+# `.config/nextest.toml`'s default filter keeps the tools' tests out of it,
+# naming each tool-side member as a `package(NAME)` term and each resource
+# instrument among the default members' test binaries as a
+# `binary_id(PACKAGE::TEST)` term. That filter is a second list of the tools,
+# so the tool holds it to the first: its package terms name exactly the
+# tool-side members, each once, and each binary term names an integration
+# test of a default member. Only that spelling (`not (` and `)` around terms
+# joined by `|`) is understood; anything else is reported rather than
+# guessed at.
 #
 # Usage:
-#   manifestlint --self-test   # pin the declarations and exclusions the
-#                              # rules accept and reject
+#   manifestlint --self-test   # pin the declarations, default members, and
+#                              # filters the rules accept and reject
 #   manifestlint               # check the workspace containing the current
 #                              # directory
 #
-# Exits non-zero if any violation is found, printing `manifest: [table] name`
-# or `justfile: tool_members` plus what offends, the way the rest of the gate
-# names its failures.
+# Exits non-zero if any violation is found, printing `manifest: [table] name`,
+# `Cargo.toml: default-members`, or `.config/nextest.toml: default-filter`
+# plus what offends, the way the rest of the gate names its failures.
 
 import json
+import re
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from typing import NamedTuple
 
 # What a member entry may say beside `workspace = true`. `features` and
 # `default-features` widen the table's feature base (cargo rejects a member
@@ -60,10 +72,29 @@ ALLOWED_KEYS = {"workspace", "features", "optional", "default-features"}
 DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 
 # Dependencies only tool-side members may declare: the reason they are kept
-# out of the ordinary legs. Membership in `tool_members` is otherwise a
-# judgment no manifest records, so this is what catches a Wasmtime-bearing
-# tool dropped from the list.
+# out of the ordinary legs. Being a tool is otherwise a judgment no manifest
+# records, so this is what catches a Wasmtime-bearing crate added to the
+# default members.
 TOOL_ONLY_DEPENDENCIES = {"wasmtime"}
+
+# One term of nextest's default filter, in the spelling the tool understands.
+FILTER_TERM = re.compile(
+    r"package\((?P<package>[A-Za-z0-9_-]+)\)"
+    r"|binary_id\((?P<binary_package>[A-Za-z0-9_-]+)::(?P<test>[A-Za-z0-9_-]+)\)"
+)
+
+
+class Member(NamedTuple):
+    """What the tool-side rules need to know of one workspace member."""
+
+    # Whether the member is a default member, which plain cargo selects.
+    default: bool
+    # The names of the members it declares dependencies on.
+    member_deps: set
+    # The names of the other crates it declares dependencies on.
+    crate_deps: set
+    # The names of its integration test targets.
+    tests: set
 
 
 def violations(manifest):
@@ -94,42 +125,70 @@ def violations(manifest):
                     )
 
 
-def exclusion_violations(tokens, members):
-    """Yield `(name, reason)` for every way the tool-member exclusions
-    disagree with the workspace, `name` being the member at fault (`None`
-    when the list itself is malformed).
+def default_member_violations(members):
+    """Yield `(name, reason)` for every default member that would bring a
+    tool-side member's tooling into plain cargo's selection. `members` maps
+    each member's package name to its `Member`."""
+    tools = {name for name, member in members.items() if not member.default}
+    for name, member in sorted(members.items()):
+        if member.default:
+            for dep in sorted(member.member_deps & tools):
+                yield name, (
+                    f"includes {name}, which depends on the tool-side {dep}, "
+                    f"so plain cargo compiles {dep}"
+                )
+            for dep in sorted(member.crate_deps & TOOL_ONLY_DEPENDENCIES):
+                yield name, (
+                    f"includes {name}, which depends on the tool-only {dep}, "
+                    f"so plain cargo compiles {dep}"
+                )
 
-    `tokens` is the exclusion list as cargo receives it, split on
-    whitespace. `members` maps each member's package name to a triple:
-    whether it is a default member, the names of the members it depends on,
-    and the names of the other crates it depends on (normal, build, or dev
-    dependencies alike). Only cargo's own spelling, `--exclude NAME` pairs,
-    is understood; anything else is reported rather than guessed at."""
-    flags, names = tokens[0::2], tokens[1::2]
-    if len(tokens) % 2 or any(flag != "--exclude" for flag in flags):
-        yield None, f"is not a sequence of `--exclude NAME` pairs: {' '.join(tokens)!r}"
-        return
-    listed = set()
-    for name in names:
-        if name in listed:
-            yield name, f"lists {name} more than once"
-        listed.add(name)
-        if name not in members:
-            yield name, f"lists {name}, which is no workspace member, so cargo ignores its exclusion"
-        elif members[name][0]:
-            yield name, f"lists {name}, a default member, which a plain cargo command at the root builds"
-    for name, (_, member_deps, crate_deps) in sorted(members.items()):
-        if name not in listed:
-            for dep in sorted(member_deps & listed):
+
+def filter_violations(expression, members):
+    """Yield `(name, reason)` for every way nextest's default filter
+    disagrees with the default members, `name` being the member at fault
+    (`None` when the filter itself is malformed).
+
+    `expression` is the filter as nextest reads it, or `None` when the
+    profile sets none, which excludes nothing."""
+    terms = []
+    if expression is not None:
+        body = re.fullmatch(r"not\((.*)\)", "".join(expression.split()))
+        if body is None:
+            yield None, f"is not `not (TERM | ...)`: {expression.strip()!r}"
+            return
+        for text in body.group(1).split("|"):
+            term = FILTER_TERM.fullmatch(text)
+            if term is None:
+                yield None, f"has a term that is not `package(NAME)` or `binary_id(PACKAGE::TEST)`: {text!r}"
+                return
+            terms.append(term)
+    named = set()
+    for term in terms:
+        if term["package"] is not None:
+            name = term["package"]
+            if name in named:
+                yield name, f"names package({name}) more than once"
+            named.add(name)
+            if name not in members:
+                yield name, f"names package({name}), which is no workspace member"
+            elif members[name].default:
                 yield name, (
-                    f"leaves out {name}, which depends on the listed {dep}, "
-                    f"so the workspace-wide legs still compile {dep}"
+                    f"names package({name}), a default member, whose tests a plain "
+                    f"nextest run must reach"
                 )
-            for dep in sorted(crate_deps & TOOL_ONLY_DEPENDENCIES):
-                yield name, (
-                    f"leaves out {name}, which depends on the tool-only {dep}, "
-                    f"so the workspace-wide legs compile {dep}"
-                )
+        else:
+            name, test = term["binary_package"], term["test"]
+            if name not in members or not members[name].default:
+                yield name, f"names binary_id({name}::{test}), which is no default member's binary"
+            elif test not in members[name].tests:
+                yield name, f"names binary_id({name}::{test}), which is no integration test of {name}"
+    for name, member in sorted(members.items()):
+        if not member.default and name not in named:
+            yield name, (
+                f"leaves out the tool-side {name}, so a bare "
+                f"`cargo nextest run --workspace` runs its tests"
+            )
 
 
 def cargo_metadata():
@@ -151,44 +210,35 @@ def member_manifests(metadata):
 
 
 def workspace_members(metadata):
-    """Map each member's package name to whether it is a default member, the
-    names of the members it declares dependencies on, and the names of the
-    other crates it declares dependencies on: the shape
-    `exclusion_violations` reads. A dependency is on a member when it
-    carries a `path`, since every path dependency in this workspace is a
-    member."""
+    """Map each member's package name to its `Member`. A dependency is on a
+    member when it carries a `path`, since every path dependency in this
+    workspace is a member."""
     packages = {package["id"]: package for package in metadata["packages"]}
     defaults = set(metadata["workspace_default_members"])
     members = {}
     for id in metadata["workspace_members"]:
         deps = packages[id]["dependencies"]
-        members[packages[id]["name"]] = (
-            id in defaults,
-            {dep["name"] for dep in deps if "path" in dep},
-            {dep["name"] for dep in deps if "path" not in dep},
+        members[packages[id]["name"]] = Member(
+            default=id in defaults,
+            member_deps={dep["name"] for dep in deps if "path" in dep},
+            crate_deps={dep["name"] for dep in deps if "path" not in dep},
+            tests={
+                target["name"]
+                for target in packages[id]["targets"]
+                if "test" in target["kind"]
+            },
         )
     return members
 
 
-def tool_member_tokens(metadata):
-    """The justfile's `tool_members`, evaluated by `just` itself, split on
-    whitespace. A renamed or deleted variable fails here, by `just`'s own
-    diagnostic, rather than leaving nothing to check."""
-    root = Path(metadata["workspace_root"])
-    return subprocess.run(
-        [
-            "just",
-            "--justfile",
-            str(root / "justfile"),
-            "--working-directory",
-            str(root),
-            "--evaluate",
-            "tool_members",
-        ],
-        check=True,
-        stdout=subprocess.PIPE,
-        text=True,
-    ).stdout.split()
+def default_filter(metadata):
+    """The default profile's `default-filter` from the workspace's
+    `.config/nextest.toml`, or `None` when it sets none. A missing file
+    fails here rather than leaving nothing to check."""
+    path = Path(metadata["workspace_root"]) / ".config" / "nextest.toml"
+    with open(path, "rb") as f:
+        config = tomllib.load(f)
+    return config.get("profile", {}).get("default", {}).get("default-filter")
 
 
 def check(paths):
@@ -203,19 +253,23 @@ def check(paths):
     return found
 
 
-def check_exclusions(tokens, members):
-    """Print every violation of the tool-member list, returning how many
-    were found."""
+def check_tools(expression, members):
+    """Print every violation of the tool-side rules, returning how many were
+    found."""
     found = 0
-    for _, reason in exclusion_violations(tokens, members):
-        print(f"justfile: tool_members {reason}")
+    for _, reason in default_member_violations(members):
+        print(f"Cargo.toml: default-members {reason}")
+        found += 1
+    for _, reason in filter_violations(expression, members):
+        print(f".config/nextest.toml: default-filter {reason}")
         found += 1
     return found
 
 
 def self_test():
-    """Pin the declarations and exclusions the rules accept and reject: each
-    fixture must fail (or pass) for exactly the entry it encodes."""
+    """Pin the declarations, default members, and filters the rules accept
+    and reject: each fixture must fail (or pass) for exactly the entry it
+    encodes."""
     cases = [
         # The convention's shape: inherit, adding only feature selections
         # and optional flags.
@@ -263,37 +317,61 @@ def self_test():
         if actual != expected:
             raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
 
-    # A workspace like this one: a default root package, a production crate
-    # it depends on, a Wasmtime harness, and a tool built on the harness.
+    # A workspace like this one: a default root package and the production
+    # crate it depends on, one carrying a resource-instrument test, beside a
+    # Wasmtime harness and a tool built on the harness.
+    def member(default, member_deps=(), crate_deps=(), tests=()):
+        return Member(default, set(member_deps), set(crate_deps), set(tests))
+
     members = {
-        "root": (True, {"core"}, set()),
-        "core": (False, set(), {"serde"}),
-        "tool": (False, {"core"}, {"wasmtime"}),
-        "tool-user": (False, {"tool"}, set()),
+        "root": member(True, {"core"}),
+        "core": member(True, (), {"serde"}, {"board_smoke", "laws"}),
+        "tool": member(False, {"core"}, {"wasmtime"}),
+        "tool-user": member(False, {"tool"}),
     }
-    exclusion_cases = [
-        # Both tools listed, nothing else: the exclusions are sound.
-        ("--exclude tool --exclude tool-user", []),
-        # A name cargo would only warn about.
-        ("--exclude tool --exclude tool-user --exclude gone", ["gone"]),
-        # A repeated name.
-        ("--exclude tool --exclude tool --exclude tool-user", ["tool"]),
-        # A default member: plain cargo at the root still builds it.
-        ("--exclude root --exclude tool --exclude tool-user", ["root"]),
-        # A listed member an unlisted one depends on is still compiled.
-        ("--exclude tool-user --exclude tool --exclude core", ["root"]),
-        # A Wasmtime-bearing tool dropped from the list is compiled by the
-        # ordinary legs, and so is everything built on it.
-        ("--exclude tool-user", ["tool"]),
-        ("", ["tool"]),
-        # Only `--exclude NAME` pairs are understood, never guessed at.
-        ("--exclude tool tool-user", [None]),
-        ("-p tool", [None]),
+    # The default members are sound: no default member reaches a tool.
+    actual = [name for name, _ in default_member_violations(members)]
+    if actual != []:
+        raise AssertionError(f"expected no default-member violations, got {actual}")
+    default_cases = [
+        # A default member depending on a tool brings the tool into plain cargo.
+        ({"root": member(True, {"core", "tool"})}, ["root"]),
+        # So does a Wasmtime-bearing crate made a default member.
+        # A tool may depend on a default member, so `tool-user` is fine.
+        ({"tool": member(True, {"core"}, {"wasmtime"})}, ["tool"]),
     ]
-    for source, expected in exclusion_cases:
-        actual = [name for name, _ in exclusion_violations(source.split(), members)]
+    for change, expected in default_cases:
+        actual = [name for name, _ in default_member_violations({**members, **change})]
         if actual != expected:
-            raise AssertionError(f"expected {expected}, got {actual} for {source!r}")
+            raise AssertionError(f"expected {expected}, got {actual} for {change}")
+
+    filter_cases = [
+        # Both tools named and one instrument binary: the filter is sound,
+        # whatever its whitespace.
+        ("not (package(tool) | package(tool-user) | binary_id(core::board_smoke))", []),
+        ("\nnot (\n    package(tool)\n    | package(tool-user)\n)\n", []),
+        # A name that is no member.
+        ("not (package(tool) | package(tool-user) | package(gone))", ["gone"]),
+        # A repeated name.
+        ("not (package(tool) | package(tool) | package(tool-user))", ["tool"]),
+        # A default member's tests must run in a plain nextest run.
+        ("not (package(root) | package(tool) | package(tool-user))", ["root"]),
+        # A tool left out runs in a bare --workspace run, and so does every
+        # tool when the profile sets no filter.
+        ("not (package(tool-user))", ["tool"]),
+        (None, ["tool", "tool-user"]),
+        # A binary term must name an integration test of a default member.
+        ("not (package(tool) | package(tool-user) | binary_id(core::gone))", ["core"]),
+        ("not (package(tool) | package(tool-user) | binary_id(tool::board_smoke))", ["tool"]),
+        # Only the documented spelling is understood, never guessed at.
+        ("package(tool) | package(tool-user)", [None]),
+        ("not (package(tool) | package(tool-user) | test(slow))", [None]),
+        ("not (package(tool) & package(tool-user))", [None]),
+    ]
+    for expression, expected in filter_cases:
+        actual = [name for name, _ in filter_violations(expression, members)]
+        if actual != expected:
+            raise AssertionError(f"expected {expected}, got {actual} for {expression!r}")
     print("manifestlint: self-test ok")
 
 
@@ -306,7 +384,7 @@ def main():
         return 2
     metadata = cargo_metadata()
     found = check(member_manifests(metadata))
-    found += check_exclusions(tool_member_tokens(metadata), workspace_members(metadata))
+    found += check_tools(default_filter(metadata), workspace_members(metadata))
     return 1 if found else 0
 
 

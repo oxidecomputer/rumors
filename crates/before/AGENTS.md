@@ -14,9 +14,10 @@ The workspace's root `justfile` and `AGENTS.md` govern verification: get
 - Lint: `cargo clippy -p before --all-targets --all-features -- -D warnings`
 - Format: `cargo fmt -p before`
 
-That loop never reaches the tool-side workspace members (the justfile's
-`tool_members`) or the detached `fuzz` workspace; their justfile recipes and
-the gate do.
+That loop never reaches the tool-side workspace members (every member outside
+the root manifest's `default-members`), the amplification board's smoke suite
+(nextest's default filter skips it), or the detached `fuzz` workspace; their
+justfile recipes and the gate do.
 
 ## Hard rules
 

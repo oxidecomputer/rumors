@@ -13,7 +13,7 @@ edition = "2021"
 before = { workspace = true, features = ["meter"] }
 # Executes the guest under fuel metering: fuel decrements per executed wasm
 # instruction, deterministic and host-independent. Tool-side only: this crate
-# is listed in the justfile's `tool_members`, so the gate's ordinary legs
+# is outside the workspace's default members, so the gate's ordinary legs
 # never compile wasmtime.
 wasmtime = { workspace = true, features = [
     "cranelift",

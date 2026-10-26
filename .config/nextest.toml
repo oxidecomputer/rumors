@@ -37,6 +37,41 @@
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
 
+# The resource instruments run only through their justfile recipes, never in
+# a plain nextest run: every tool-side member (a member that is not a
+# default member, as the root Cargo.toml defines them) and the amplification
+# board's smoke suite. They are the comparatively expensive tests, and the
+# Wasmtime harnesses measure a guest that only their recipes build and name,
+# so a bare `cargo nextest run --workspace` would fail them for want of the
+# guest. Each recipe that runs one passes `--ignore-default-filter` and
+# selects instruments alone. A recipe that forgot the flag would select no
+# tests, which nextest reports as a failure; one that also selected ordinary
+# tests would skip the instruments without failing, which is why no recipe
+# mixes the two.
+# `manifestlint` holds the `package(...)` terms to exactly the tool-side
+# members, and so accepts only this spelling: `not (` and `)` around terms
+# joined by `|`, each `package(NAME)` or `binary_id(PACKAGE::TEST)`.
+default-filter = '''
+not (
+    package(before-fuelscape)
+    | package(board-fuel-guest)
+    | package(board-fuel-harness)
+    | package(focused-fuel-guest)
+    | package(focused-fuel-harness)
+    | package(focused-fuel-protocol)
+    | package(fuzzfit-guest)
+    | package(fuzzfit-harness)
+    | package(suanpan-fuel-guest)
+    | package(suanpan-fuel-harness)
+    | package(suanpan-fuel-protocol)
+    | package(surfacecheck)
+    | package(wasm32-pins-guest)
+    | package(wasm32-pins-harness)
+    | package(wasm32-pins-protocol)
+    | binary_id(before::amp_board_smoke)
+)
+'''
+
 # The 32-bit boundary pins walk inputs of hundreds of megabytes synthesized
 # inside the guest. This limit is the only bound on a pin: the harness
 # meters neither Wasmtime fuel nor epochs, so a guest loop that never exits

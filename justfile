@@ -64,15 +64,6 @@ host_triple := `rustc -vV | sed -n 's/^host: //p'`
 
 fuzz_smoke_secs := "20"
 
-# The workspace's tool-side members, and the one list of them: instruments
-# that measure or check the production crates and pull in tooling those
-# crates never need, Wasmtime above all. Every `--workspace` invocation
-# below excludes them, so the ordinary legs never compile Wasmtime; each
-# member is built, linted, and tested by its own recipes. `manifestlint`
-# holds this list to the workspace; its header states the rules.
-
-tool_members := "--exclude before-fuelscape --exclude board-fuel-guest --exclude board-fuel-harness --exclude focused-fuel-guest --exclude focused-fuel-harness --exclude focused-fuel-protocol --exclude fuzzfit-guest --exclude fuzzfit-harness --exclude suanpan-fuel-guest --exclude suanpan-fuel-harness --exclude suanpan-fuel-protocol --exclude surfacecheck --exclude wasm32-pins-guest --exclude wasm32-pins-harness --exclude wasm32-pins-protocol"
-
 # The fuzz-fit guest's wasm: one artifact produced by one recipe and read
 # by two others (the fuzz-fit harness and the fuelscape pipeline).
 #
@@ -144,17 +135,17 @@ default:
 # with `required-features` (the amplification board example) is skipped here
 # and type-checked by the gate's all-features legs instead.
 check:
-    cargo check --workspace {{ tool_members }} --all-targets
+    cargo check --all-targets
 
 # Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
-    cargo nextest run --workspace {{ tool_members }} {{ args }}
+    cargo nextest run {{ args }}
 
 # Every feature is lit here and nowhere else in the gate.
 
 # Run the test suites under every feature (the gate's test run).
 test-all *args:
-    cargo nextest run --workspace {{ tool_members }} --all-features --no-fail-fast {{ args }}
+    cargo nextest run --all-features --no-fail-fast {{ args }}
 
 # Run Rumors at a larger property-test count under the faster release profile.
 # This stays package-scoped: before's operation meters intentionally pin the
@@ -169,11 +160,11 @@ test-release *args:
 
 # Run the doctests (nightly), which nextest does not run.
 doctest:
-    RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" cargo +{{ nightly_toolchain }} test --workspace {{ tool_members }} --doc --all-features --target-dir target/doctest-nightly
+    RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" cargo +{{ nightly_toolchain }} test --doc --all-features --target-dir target/doctest-nightly
 
 # Lint every target, warnings denied (the commit-gate setting).
 clippy:
-    cargo clippy --workspace {{ tool_members }} --all-targets --all-features -- -D warnings
+    cargo clippy --all-targets --all-features -- -D warnings
 
 # `clippy` above lints under --all-features, and the dev-dependency cycle
 # forces the meter/oracle features onto the lib for every test build — so a
@@ -255,12 +246,13 @@ workflowlint:
 # of record and no member-local restatement can drift when it moves. Cargo
 # has no native check (`cargo metadata` resolves inheritance away before
 # reporting), so the tool reads the member manifests cargo names. It also
-# holds `tool_members` to the workspace, because cargo cannot: cargo only
-# warns about an exclusion naming no member, and cannot tell a tool from any
-# other member. The tool's header lists what the rule checks.
+# holds the default members, which divide production crates from tools, and
+# nextest's default filter, which keeps the tools' tests out of a plain
+# nextest run, to each other and to the dependency graph: cargo cannot tell
+# a tool from any other member. The tool's header lists what the rules check.
 # Build-free, so it rides the lint tier.
 
-# Hold member manifests to the workspace table, and `tool_members` to the workspace.
+# Hold member manifests to the workspace table, and the tool-side members to the default members and nextest's default filter.
 manifestlint:
     ./tools/manifestlint --self-test
     ./tools/manifestlint
@@ -316,7 +308,7 @@ readme-check:
 
 # Build the rustdoc with warnings denied; hold the widget assets to their pages.
 docs:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace {{ tool_members }} --all-features --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
     ./tools/fuelscape-assets --self-test
     ./tools/fuelscape-assets target/doc
 
@@ -330,7 +322,7 @@ docs:
 
 # Build the rustdoc including private items, warnings denied; hold the widget assets to their pages.
 docs-internal:
-    RUSTDOCFLAGS="-D warnings" cargo doc --workspace {{ tool_members }} --all-features --no-deps --document-private-items --target-dir target/doc-internal
+    RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps --document-private-items --target-dir target/doc-internal
     ./tools/fuelscape-assets --self-test
     ./tools/fuelscape-assets target/doc-internal/doc
 
@@ -364,7 +356,17 @@ docs-docsrs:
 
 # Fail unless the future-size pins were collected and pass (liveness for tests/future_size.rs).
 future-size:
-    cargo nextest run --workspace {{ tool_members }} --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
+    cargo nextest run --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
+
+# The amplification board's smoke suite (crates/before/tests/amp_board_smoke.rs)
+# drives every board cell at a small scale. It is a resource instrument, so
+# nextest's default filter keeps it out of a plain run, and this recipe is
+# how the gate reaches it. It shares test-all's selection and features, so
+# it reuses test-all's build.
+
+# Run the amplification board's smoke suite, which a plain nextest run skips.
+amp-board-smoke:
+    cargo nextest run --all-features --ignore-default-filter -E 'binary_id(before::amp_board_smoke)' --no-tests=fail
 
 # The supply-chain leg, two build-free checks over the committed lockfiles.
 # cargo-audit sweeps every lockfile tracked by Git — the root workspace's,
@@ -373,15 +375,13 @@ future-size:
 # the network, so this is the one gate leg that needs connectivity): a
 # vulnerability anywhere fails the gate; unmaintained/unsound/yanked
 # advisories print as warnings for triage without failing. cargo-deny holds
-# the resolved graph of every root-workspace member but the tool-side ones
-# (all features, all targets) to one version per crate; deny.toml is the
-# roster of record, every tolerated duplicate carrying the holdout that
-# keeps it alive. The duplicate policy leaves the tool-side members out: a
+# the resolved graph of the root workspace's default members (all features,
+# all targets) to one version per crate; deny.toml is the roster of record,
+# every tolerated duplicate carrying the holdout that keeps it alive. The duplicate policy leaves the tool-side members out: a
 # duplicate only they pull in costs one extra tool compile, never a
-# shipped byte. The invocation names `--workspace` explicitly — the root
-# manifest is a package AND a workspace, and cargo-deny's default member
-# selection would otherwise check the root package's graph alone, missing
-# any duplicate only another member pulls in.
+# shipped byte. The root manifest is a package AND a workspace, and
+# cargo-deny without `--workspace` would check the root package's graph
+# alone, missing any duplicate only another member pulls in.
 # Needs cargo-audit and cargo-deny: `cargo install cargo-audit cargo-deny`.
 
 # Audit advisories on every lockfile and hold the workspace to single crate versions.
@@ -397,7 +397,19 @@ supply-chain:
             cargo audit --no-fetch --file "$lock"
         fi
     done < <(git ls-files -z -- '*Cargo.lock')
-    cargo deny --workspace {{ tool_members }} check bans
+    # cargo-deny takes the root package alone, or every member with
+    # `--workspace`, and never reads default-members, so the tool-side
+    # members (every non-default member) are excluded by name.
+    tools=$(cargo metadata --no-deps --format-version 1 | python3 -c '
+    import json, sys
+    m = json.load(sys.stdin)
+    names = {p["id"]: p["name"] for p in m["packages"]}
+    defaults = set(m["workspace_default_members"])
+    print(" ".join(f"--exclude {names[i]}" for i in m["workspace_members"] if i not in defaults))
+    ')
+    # Word splitting is wanted: `tools` is a list of `--exclude NAME` pairs.
+    # shellcheck disable=SC2086
+    cargo deny --workspace $tools check bans
 
 # The fuzz targets live in a detached workspace (crates/before/fuzz), so no
 # root-workspace command formats, lints, tests, or compiles them. This gate leg
@@ -554,7 +566,7 @@ gate-streams:
 # The stream recipes are the gate's build roster. Keeping each stream's legs
 # here lets the gate runner choose scheduling without becoming a second list of
 # checks; CI reuses the same coherent groups where its cadence overlaps.
-_gate-workspace: clippy clippy-default docs test-all future-size
+_gate-workspace: clippy clippy-default docs test-all future-size amp-board-smoke
 _gate-doctest: doctest
 
 # One sweep judges each cell and which family reads worst; the
@@ -614,7 +626,7 @@ viz:
 
 # Compile (don't run) the criterion benches.
 bench-build:
-    cargo bench --workspace {{ tool_members }} --no-run
+    cargo bench --no-run
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) and the `before::testing::laws` law collection are asserted inline in
@@ -638,11 +650,12 @@ fuzz secs=fuzz_smoke_secs:
     done < <(cargo +{{ nightly_toolchain }} fuzz list)
 
 # The fuzz-fit asymptotics harness (crates/before/fuzzfit) is a pair of
-# tool-side workspace members. A plain cargo command at the root never
-# builds them, since they are not default members, and the justfile's
-# workspace-wide recipes exclude them (`tool_members`), so the ordinary legs
-# never compile them or wasmtime. A bare `cargo <cmd> --workspace` does
-# compile both. The gate reaches them only through these recipes by name.
+# tool-side workspace members. Neither a plain cargo command at the root nor
+# the justfile's workspace-wide recipes build them, since they are not
+# default members, so the ordinary legs never compile them or wasmtime. A
+# bare `cargo <cmd> --workspace` does compile both, and nextest's default
+# filter keeps their tests out of such a run. The gate reaches them only
+# through these recipes by name.
 # The guest compiles selected public operations to wasm32-unknown-unknown in
 # the `fuel` profile, built alone so its features are exactly its own and
 # under `fuel_guest_env`, so every host builds the same module; the
@@ -664,14 +677,14 @@ fuzzfit-build:
 # plus the whole 256-program deterministic prefix judged step by step).
 # A failure shrinks to a minimal out-of-band shape and writes a proptest
 # seed file -- commit any seed that appears. The clippy line is the
-# members' own lint leg, since the workspace-wide clippy excludes them (the
+# members' own lint leg, since the workspace-wide clippy leaves them out (the
 # root `cargo fmt --all` reaches them); every tool recipe that runs tests
 # carries the same lint leg.
 
 # Run the fuzz-fit asymptotics suites against the pinned fuel bands.
 fuzzfit: fuzzfit-build
     cargo clippy -p fuzzfit-guest -p fuzzfit-harness --all-targets --target-dir {{ fuzzfit_target }} -- -D warnings
-    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run -p fuzzfit-guest -p fuzzfit-harness --cargo-profile release --target-dir {{ fuzzfit_target }}
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run --ignore-default-filter -p fuzzfit-guest -p fuzzfit-harness --cargo-profile release --target-dir {{ fuzzfit_target }}
 
 # Re-fit the pinned bands from the committed deterministic corpus (4096
 # programs; byte-reproducible, so any diff is a real change). Rewrites
@@ -701,12 +714,12 @@ wasm32-pins-build:
 # The deep pins walk hundreds of megabytes inside a 32-bit guest, so the
 # run costs minutes of wall time and peaks at a few GiB of host memory
 # across nextest's parallel workers. The clippy line is the members' own
-# lint leg, since the workspace-wide clippy excludes them.
+# lint leg, since the workspace-wide clippy leaves them out.
 
 # Run the 32-bit boundary pins under wasmtime (minutes; a few GiB of host memory).
 wasm32-pins: wasm32-pins-build
     cargo clippy -p wasm32-pins-guest -p wasm32-pins-harness -p wasm32-pins-protocol --all-targets --target-dir {{ wasm32pins_target }} -- -D warnings
-    WASM32_PINS_GUEST_WASM={{ wasm32pins_guest_wasm }} cargo nextest run -p wasm32-pins-guest -p wasm32-pins-harness -p wasm32-pins-protocol --cargo-profile release --target-dir {{ wasm32pins_target }}
+    WASM32_PINS_GUEST_WASM={{ wasm32pins_guest_wasm }} cargo nextest run --ignore-default-filter -p wasm32-pins-guest -p wasm32-pins-harness -p wasm32-pins-protocol --cargo-profile release --target-dir {{ wasm32pins_target }}
 
 # The interleaving-fuel property (crates/suanpan/fuel, tool-side workspace
 # members) generates programs over a pool of suanpan accumulators, runs each
@@ -721,7 +734,7 @@ wasm32-pins: wasm32-pins-build
 # operator prices. A failure shrinks to a minimal skeleton and writes a
 # proptest seed file: commit any seed that appears. The clippy and rustdoc
 # lines are the members' own lint and docs legs, since the workspace-wide
-# ones exclude them; the guest's run for wasm32, the only target it builds
+# ones leave them out; the guest's run for wasm32, the only target it builds
 # for. The rustdoc lines build the public and the private-items docs, each
 # with warnings denied, because each catches broken links the other cannot.
 
@@ -739,12 +752,12 @@ suanpan-fuel: suanpan-fuel-build
     RUSTDOCFLAGS="-D warnings" cargo doc -p suanpan-fuel-harness -p suanpan-fuel-protocol --no-deps --document-private-items --target-dir {{ suanpan_fuel_target }}/doc-internal
     RUSTDOCFLAGS="-D warnings" cargo doc -p suanpan-fuel-guest --target wasm32-unknown-unknown --no-deps --target-dir {{ suanpan_fuel_target }}/doc-public
     RUSTDOCFLAGS="-D warnings" cargo doc -p suanpan-fuel-guest --target wasm32-unknown-unknown --no-deps --document-private-items --target-dir {{ suanpan_fuel_target }}/doc-internal
-    SUANPAN_FUEL_GUEST_WASM={{ suanpan_fuel_guest_wasm }} cargo nextest run -p suanpan-fuel-harness -p suanpan-fuel-protocol --cargo-profile release --target-dir {{ suanpan_fuel_target }}
+    SUANPAN_FUEL_GUEST_WASM={{ suanpan_fuel_guest_wasm }} cargo nextest run --ignore-default-filter -p suanpan-fuel-harness -p suanpan-fuel-protocol --cargo-profile release --target-dir {{ suanpan_fuel_target }}
 
 # The population atlas (crates/before-fuelscape) is a tool-side workspace
-# member like the fuzz-fit crates: plain cargo at the root never builds it,
-# and the justfile's workspace-wide recipes exclude it, so the ordinary legs
-# never compile it or its wasmtime and plotters tooling. The gate reaches it
+# member like the fuzz-fit crates: neither plain cargo at the root nor the
+# justfile's workspace-wide recipes build it, so the ordinary legs never
+# compile it or its wasmtime and plotters tooling. The gate reaches it
 # only through these recipes by name. Its committed tests are the sampler
 # adequacy pins — counting tables against exhaustive grammar enumeration and
 # the real decoders' accept sets, chi-square uniformity, codec round-trips —
@@ -756,7 +769,7 @@ suanpan-fuel: suanpan-fuel-build
 # Lint and test the fuelscape: sampler adequacy pins plus the pipeline smoke.
 fuelscape-test: fuzzfit-build
     cargo clippy -p before-fuelscape --all-targets --target-dir {{ fuelscape_target }} -- -D warnings
-    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run -p before-fuelscape --target-dir {{ fuelscape_target }}
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run --ignore-default-filter -p before-fuelscape --target-dir {{ fuelscape_target }}
 
 # Renders one log-log heatmap per public operation into target/fuelscape
 # (SVG per op plus a gallery index.html): p(fuel | size) from uniform
@@ -877,11 +890,11 @@ window-tradeoff:
 # `just bench version version/hole --profile-time 10` records a focused
 # profiler workload without a second profiling harness.
 bench target *filter:
-    cargo bench --workspace {{ tool_members }} --bench {{ target }} -- {{ filter }}
+    cargo bench --bench {{ target }} -- {{ filter }}
 
 # The reduced-sampling inner loop: `bench` at 10 samples x 1 s. Never quoted.
 bench-quick target *filter:
-    cargo bench --workspace {{ tool_members }} --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
+    cargo bench --bench {{ target }} -- --sample-size 10 --measurement-time 1 {{ filter }}
 
 # Each board cell judges a deterministic counter, peak heap, against its
 # declared bounds: green means the samples fit, red is a resource regression
@@ -1005,7 +1018,7 @@ amp-board-acceptance *args:
 # the run refuses to judge a guest built under any other, or one that embeds
 # a path under the home directory; after a toolchain or Wasmtime bump,
 # re-derive them with `just amp-board-calibrate-fuel`. The members' clippy
-# runs here, since the workspace-wide clippy excludes them; the guest's runs
+# runs here, since the workspace-wide clippy leaves them out; the guest's runs
 # for wasm32, the only target it builds for.
 #
 # `--capture <file>` also writes the sweep's exact fuel readings, which
@@ -1027,7 +1040,7 @@ amp-board-fuel *args: amp-board-fuel-build
     set -euo pipefail
     cargo clippy -p board-fuel-guest --target wasm32-unknown-unknown --target-dir {{ board_fuel_target }} -- -D warnings
     cargo clippy -p board-fuel-harness --all-targets --target-dir {{ board_fuel_target }} -- -D warnings
-    BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo nextest run --release -p board-fuel-harness --target-dir {{ board_fuel_target }}
+    BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo nextest run --ignore-default-filter --release -p board-fuel-harness --target-dir {{ board_fuel_target }}
     if [[ ${1-} == --capture ]]; then
         tree="$({{ source_tree }})"
         export AMP_BOARD_SOURCE_TREE="$tree"
@@ -1093,7 +1106,7 @@ amp-board-calibrate-fuel *capture: amp-board-fuel-build
 # no fuel number is committed and the suites need no recalibration after a
 # toolchain or Wasmtime bump. The harness's crate docs name the forms.
 # The guest builds under `fuel_guest_env`, as the board's does. The members'
-# clippy runs here, since the workspace-wide clippy excludes them.
+# clippy runs here, since the workspace-wide clippy leaves them out.
 
 # Build the focused-fuel wasm guest and its harness's tests.
 focused-fuel-build:
@@ -1104,7 +1117,7 @@ focused-fuel-build:
 focused-fuel *args: focused-fuel-build
     cargo clippy -p focused-fuel-guest --target wasm32-unknown-unknown --target-dir {{ focused_fuel_target }} -- -D warnings
     cargo clippy -p focused-fuel-harness -p focused-fuel-protocol --all-targets --target-dir {{ focused_fuel_target }} -- -D warnings
-    FOCUSED_FUEL_GUEST_WASM={{ focused_fuel_guest_wasm }} cargo nextest run -p focused-fuel-harness -p focused-fuel-protocol --cargo-profile release --target-dir {{ focused_fuel_target }} {{ args }}
+    FOCUSED_FUEL_GUEST_WASM={{ focused_fuel_guest_wasm }} cargo nextest run --ignore-default-filter -p focused-fuel-harness -p focused-fuel-protocol --cargo-profile release --target-dir {{ focused_fuel_target }} {{ args }}
 
 # The surface-totality leg holds the resource board's operation inventory
 # against nightly rustdoc JSON — the compiler's own account of the public
@@ -1115,8 +1128,8 @@ focused-fuel *args: focused-fuel-build
 # crates/before/surfacecheck/src/census.rs, reconciled both ways, so a new impl
 # or item reads red until reviewed. Trait resource decisions remain grouped in
 # the board's family entries. The checker is a tool-side workspace member,
-# which the workspace-wide gate legs exclude, so this recipe also runs its
-# lints and unit tests.
+# which the workspace-wide gate legs never select, so this recipe also runs
+# its lints and unit tests.
 #
 # Toolchain coupling: rustdoc JSON is an unstable format, versioned by
 # its `format_version` field, and the checker's `rustdoc-types`
@@ -1137,7 +1150,7 @@ surface-json:
 # Hold before's public surface total against resource coverage.
 surface-totality: surface-json
     cargo clippy -p surfacecheck --all-targets --target-dir {{ surfacecheck_target }} -- -D warnings
-    cargo nextest run -p surfacecheck --target-dir {{ surfacecheck_target }}
+    cargo nextest run --ignore-default-filter -p surfacecheck --target-dir {{ surfacecheck_target }}
     cargo run -q -p surfacecheck --target-dir {{ surfacecheck_target }} -- {{ justfile_directory() }}/target/surface-json/doc/before.json
 
 # The worst-case map answers "which committed shape is worst for operation

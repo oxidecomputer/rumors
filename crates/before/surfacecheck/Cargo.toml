@@ -1,6 +1,5 @@
 # The surface-totality checker: a tool-side member of the root workspace,
-# listed in the justfile's `tool_members`, so the gate's ordinary legs never
-# compile it (the rustdoc-JSON schema tooling stays out of the production
+# outside its default members, so the gate's ordinary legs never compile it (the rustdoc-JSON schema tooling stays out of the production
 # crates' builds); the gate reaches it through the `just surface-totality`
 # recipe alone, which documents the check and the toolchain-bump procedure.
 
