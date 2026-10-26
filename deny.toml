@@ -1,25 +1,6 @@
-# Configuration for the duplicate-dependency sweep (`just supply-chain`,
-# which runs `cargo deny check bans`). Scope: the full feature-and-target
-# closure of the root workspace's default members; the tool-side members,
-# every member that is not a default one, are excluded from the sweep.
-# Cargo.lock also records the tool-side members' graphs, and the detached
-# fuzz workspace has a lockfile of its own; the advisory leg covers both,
-# and the duplicate policy covers neither, because a dependency duplicated
-# only there costs one extra compile of a tool, never a shipped byte.
-
 [graph]
 all-features = true
 
-# A crate resolved at two versions compiles twice, doubles its audit
-# surface, and can smuggle two incompatible copies of one type through
-# the public API. New duplicates are refused; each tolerated duplicate
-# below carries the reason it cannot currently converge, and the sweep
-# shrinks as upstreams converge (deny warns on any skip entry that no
-# longer matches).
 [bans]
 multiple-versions = "deny"
-# Every entry names the holdout that keeps the old line alive; a skip whose
-# old line disappears from the lock turns into an unmatched-skip warning,
-# so stale entries name themselves. Requirements match the tolerated minor
-# line only: a third version of any of these still fails the check.
 skip = []
