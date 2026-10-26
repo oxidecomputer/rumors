@@ -79,6 +79,16 @@
 //! a fresh fuel sweep, printing each cell whose ceiling moved. Fuel readings do
 //! not depend on the host, so `just amp-board-calibrate-fuel` rewrites the fuel
 //! table alone, from one host, after a change that moves fuel and not heap.
+//!
+//! A capture records, beside each reading, the units its ceiling divides it
+//! by, so the rule applies to a capture alone ([`recalibrate_from_captures`]).
+//! After `just amp-board-fuel --capture <file>`, `just amp-board-calibrate-fuel
+//! <file>` derives the fuel table from that capture without sweeping again,
+//! refusing a capture of another source tree or build. A toolchain, Wasmtime,
+//! or cost-table change still needs the sweep: the fuel board refuses to
+//! measure a guest built under anything but the table's provenance, so it
+//! writes no capture until the table is recalibrated.
+//!
 //! Review the diff like a snapshot (one line per cell), and commit it with the
 //! movement explained.
 
@@ -89,9 +99,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
 
-use super::compare::{measured, readings, Readings};
+use super::compare::{ladder_readings, measured, readings, Readings};
 use super::files::write_atomically;
-use super::judge::{constant_units, currency_intercept, trend_units};
+use super::judge::currency_intercept;
 use super::ladder::Ladder;
 use super::{ByCurrency, Currency};
 
@@ -304,57 +314,142 @@ pub fn recalibrate(
         !ladder.debug_assertions(),
         "amp-board: per-cell ceilings are calibrated from a release build's readings"
     );
-    let others: Vec<(&str, Readings)> = captures
-        .iter()
-        .map(|&(name, text)| Ok((name, readings(name, text)?)))
-        .collect::<io::Result<_>>()?;
-    for (name, other) in &others {
-        if other.measured_on.debug_assertions {
-            return Err(invalid(name, "comes from a build with debug assertions"));
-        }
-        if other.source_tree != source_tree {
-            return Err(invalid(
-                name,
-                &format!(
-                    "measured source tree {}, not {source_tree}",
-                    other.source_tree
-                ),
-            ));
-        }
-    }
+    let swept = ladder_readings(ladder, source_tree);
+    let others = release_captures(source_tree, captures)?;
     TABLES
         .into_iter()
         .filter(|table| measured(ladder, table.currency))
-        .map(|table| {
-            let archs: BTreeSet<&str> = std::iter::once(ladder.arch())
-                .chain(
-                    others
-                        .iter()
-                        .map(|(_, other)| other.measured_on.arch.as_str()),
-                )
-                .collect();
-            let of_record: BTreeSet<&str> =
-                archs_of_record(table.currency).iter().copied().collect();
-            if archs != of_record {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "amp-board calibrate: the {} table needs readings from {:?}, but the \
-                         run and its captures measured {:?}",
-                        table.currency.label(),
-                        of_record,
-                        archs
+        .map(|table| recalibrate_table(table, &swept, &others, provenance))
+        .collect()
+}
+
+/// Recalibrates `currency`'s table from captures alone, from the larger of
+/// their readings at every sample, recording `provenance`.
+///
+/// The result is the table [`recalibrate`] writes from a sweep that read
+/// what the first capture holds, merged with the other captures.
+///
+/// A capture records each sample's reading and the units its ceiling divides
+/// by, which is all the rule needs, so a calibration can reuse the readings
+/// of an acceptance run instead of sweeping again. The first capture
+/// supplies the cells, which every other capture must hold at the same
+/// sizes. Every capture must come from a release build of `source_tree`,
+/// and together they must cover exactly the currency's architectures of
+/// record.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::InvalidInput`] if there is no capture or
+/// `currency` has no per-cell table, and [`io::ErrorKind::InvalidData`] if
+/// the first capture holds no reading in `currency`, or for anything
+/// [`recalibrate`] refuses in a capture.
+pub fn recalibrate_from_captures(
+    currency: Currency,
+    source_tree: &str,
+    captures: &[(&str, &str)],
+    provenance: Option<&str>,
+) -> io::Result<Recalibration> {
+    let table = TABLES
+        .into_iter()
+        .find(|table| table.currency == currency)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "amp-board calibrate: {} has no per-cell table",
+                    currency.label()
+                ),
+            )
+        })?;
+    let mut captures = release_captures(source_tree, captures)?.into_iter();
+    let (name, first) = captures.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "amp-board calibrate: a calibration from captures needs at least one capture",
+        )
+    })?;
+    if !first.rows.keys().any(|&(_, _, read)| read == currency) {
+        return Err(invalid(
+            name,
+            &format!("holds no {} readings", currency.label()),
+        ));
+    }
+    let others: Vec<(&str, Readings)> = captures.collect();
+    recalibrate_table(table, &first, &others, provenance)
+}
+
+/// Parses each capture, refusing one that came from a debug build or from a
+/// source tree other than `source_tree`.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::InvalidData`] naming the first capture that is
+/// malformed or refused.
+fn release_captures<'a>(
+    source_tree: &str,
+    captures: &[(&'a str, &str)],
+) -> io::Result<Vec<(&'a str, Readings)>> {
+    captures
+        .iter()
+        .map(|&(name, text)| {
+            let capture = readings(name, text)?;
+            if capture.measured_on.debug_assertions {
+                return Err(invalid(name, "comes from a build with debug assertions"));
+            }
+            if capture.source_tree != source_tree {
+                return Err(invalid(
+                    name,
+                    &format!(
+                        "measured source tree {}, not {source_tree}",
+                        capture.source_tree
                     ),
                 ));
             }
-            let entries = derive_ceilings(ladder, &others, table.currency)?;
-            Ok(Recalibration {
-                path: format!("{TABLE_DIR}/{}", table.file()),
-                source: render_table(table, &archs, provenance, &entries),
-                movement: movement(table, &entries),
-            })
+            Ok((name, capture))
         })
         .collect()
+}
+
+/// Regenerates `table` by the module doc's rule from the larger of
+/// `reference`'s and the other captures' readings at every sample, checking
+/// that together they cover exactly its architectures of record.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::InvalidData`] if the architectures differ from
+/// the table's architectures of record, or as [`derive_ceilings`] does.
+fn recalibrate_table(
+    table: &CellCeilings,
+    reference: &Readings,
+    others: &[(&str, Readings)],
+    provenance: Option<&str>,
+) -> io::Result<Recalibration> {
+    let archs: BTreeSet<&str> = std::iter::once(reference.measured_on.arch.as_str())
+        .chain(
+            others
+                .iter()
+                .map(|(_, other)| other.measured_on.arch.as_str()),
+        )
+        .collect();
+    let of_record: BTreeSet<&str> = archs_of_record(table.currency).iter().copied().collect();
+    if archs != of_record {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "amp-board calibrate: the {} table needs readings from {:?}, but the \
+                 readings came from {:?}",
+                table.currency.label(),
+                of_record,
+                archs
+            ),
+        ));
+    }
+    let entries = derive_ceilings(reference, others, table.currency)?;
+    Ok(Recalibration {
+        path: format!("{TABLE_DIR}/{}", table.file()),
+        source: render_table(table, &archs, provenance, &entries),
+        movement: movement(table, &entries),
+    })
 }
 
 /// An invalid capture's error, naming the capture.
@@ -365,56 +460,54 @@ fn invalid(name: &str, detail: &str) -> io::Error {
     )
 }
 
-/// Derives every cell's `currency` ceiling by the module doc's rule from the
-/// larger of the ladder's and the other captures' reading at every sample,
-/// sorted by operation and then family, in thousandths.
+/// Derives the `currency` ceiling of every cell `reference` holds, in
+/// thousandths, sorted by operation and then family.
+///
+/// Each follows the module doc's rule, from the larger of `reference`'s and
+/// the other captures' reading at every sample.
 ///
 /// # Errors
 ///
 /// Returns [`io::ErrorKind::InvalidData`] if a capture lacks a cell's row or
-/// measured one of its samples at a different size than the ladder did.
+/// measured one of its samples at a different size than `reference` did.
 fn derive_ceilings<'a>(
-    ladder: &'a Ladder,
+    reference: &'a Readings,
     others: &[(&str, Readings)],
     currency: Currency,
 ) -> io::Result<Vec<(&'a str, &'a str, u64)>> {
     let intercept = currency_intercept(currency);
-    let mut entries = Vec::with_capacity(ladder.base.len());
-    for cell in 0..ladder.base.len() {
-        let (op, family, ..) = ladder.base[cell];
-        let samples = ladder.by_sampling().into_iter().flat_map(|(_, cells)| {
-            let (_, _, s1, s2) = &cells[cell];
-            [s1, s2]
-        });
+    let mut entries = Vec::new();
+    // The rows are keyed by operation, family, and currency, so those of
+    // one currency come out sorted by operation and then family.
+    for ((op, family, read), points) in &reference.rows {
+        if *read != currency {
+            continue;
+        }
         let mut worst = f64::NEG_INFINITY;
-        for (index, sample) in samples.enumerate() {
-            let mut reading = sample
-                .readings
-                .get(currency)
-                .expect("a measured currency reads in every sample");
+        for (index, point) in points.iter().enumerate() {
+            let mut reading = point.reading;
             for (name, other) in others {
-                let key = (op.to_owned(), family.to_owned(), currency);
-                let points = other.rows.get(&key).ok_or_else(|| {
+                let key = (op.clone(), family.clone(), currency);
+                let other_points = other.rows.get(&key).ok_or_else(|| {
                     invalid(
                         name,
                         &format!("holds no {} row for {op} x {family}", currency.label()),
                     )
                 })?;
-                let (axis, other_reading) = points[index];
-                if axis != trend_units(sample, currency) {
+                let other_point = other_points[index];
+                if (other_point.axis, other_point.units) != (point.axis, point.units) {
                     return Err(invalid(
                         name,
                         &format!("measured {op} x {family} at a different size"),
                     ));
                 }
-                reading = reading.max(other_reading);
+                reading = reading.max(other_point.reading);
             }
-            let per_unit = (reading as f64 - intercept) / constant_units(sample, currency) as f64;
+            let per_unit = (reading as f64 - intercept) / point.units as f64;
             worst = worst.max(per_unit);
         }
-        entries.push((op, family, ceiling_thousandths(worst)));
+        entries.push((op.as_str(), family.as_str(), ceiling_thousandths(worst)));
     }
-    entries.sort_unstable();
     Ok(entries)
 }
 

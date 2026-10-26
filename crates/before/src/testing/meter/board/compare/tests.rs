@@ -28,6 +28,10 @@ fn outcomes(before: &Capture, after: &Capture) -> Vec<Outcome> {
 
 /// A capture of `rows`, each a distinct cell and currency with the given axes
 /// and readings, under this build's stamp and a fixed source tree.
+///
+/// Each point's units are three times its axis, as under a model of three
+/// constant units per trend unit, so that a round trip that confused the two
+/// would not pass.
 fn capture_of(rows: &[([u64; LADDER_SIZES], [u64; LADDER_SIZES])]) -> Capture {
     let currencies = currencies();
     Capture {
@@ -42,6 +46,7 @@ fn capture_of(rows: &[([u64; LADDER_SIZES], [u64; LADDER_SIZES])]) -> Capture {
                 currency: currencies[index % currencies.len()],
                 points: std::array::from_fn(|size| Point {
                     axis: axes[size],
+                    units: 3 * axes[size],
                     reading: readings[size],
                 }),
             })

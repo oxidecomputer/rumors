@@ -12,9 +12,14 @@
 //!   table other than the fuel ceilings' calibration, or embeds a path under
 //!   the home directory. With `--capture`, it also writes the sweep's exact
 //!   readings, which `just amp-board compare` compares like any board capture.
-//! - `calibrate` sweeps the same ladder, judges nothing, and rewrites the fuel
-//!   ceiling table from the readings, recording the guest's provenance and
-//!   printing every cell whose ceiling moved.
+//! - `calibrate [<capture>]` judges nothing and rewrites the fuel ceiling
+//!   table, recording the guest's provenance and printing every cell whose
+//!   ceiling moved. Without a capture it sweeps the same ladder for the
+//!   readings. With the capture an `acceptance --capture` run of this source
+//!   tree wrote, it derives the table from that capture's readings instead,
+//!   refusing a capture of another tree or build, and requires the guest to
+//!   match the table's recorded provenance, as acceptance required of the
+//!   guest that took the capture.
 //!
 //! `AMP_BOARD_FUEL_THREADS` sets the number of worker threads (default: the
 //! available parallelism). It moves no reading: every cell runs in its own
@@ -38,8 +43,11 @@ fn main() {
     match args.as_slice() {
         ["acceptance"] => acceptance(None),
         ["acceptance", "--capture", path] => acceptance(Some(Path::new(path))),
-        ["calibrate"] => calibrate(),
-        _ => fail("usage: board-fuel-harness (acceptance [--capture <file>] | calibrate)"),
+        ["calibrate"] => calibrate(None),
+        ["calibrate", path] => calibrate(Some(Path::new(path))),
+        _ => fail(
+            "usage: board-fuel-harness (acceptance [--capture <file>] | calibrate [<capture>])",
+        ),
     }
 }
 
@@ -119,23 +127,48 @@ fn acceptance(capture: Option<&Path>) {
     }
 }
 
-/// The calibrate mode: rewrite the fuel ceiling table from a fresh sweep.
+/// The calibrate mode: rewrite the fuel ceiling table from a fresh sweep, or
+/// from `capture`, a capture of this tree's fuel board.
 ///
-/// The guest's paths are checked as for acceptance; its provenance is
-/// recorded, not compared.
-fn calibrate() {
+/// The guest's paths are checked as for acceptance. After a sweep, its
+/// provenance is recorded, not compared. A capture does not name the guest
+/// that took it, but acceptance writes one only under the table's
+/// provenance, so a calibration from a capture requires this guest to match
+/// that provenance as well, and the table keeps it.
+fn calibrate(capture: Option<&Path>) {
     let source_tree = exit_on_error(board::source_tree(), "naming the tree");
     let wasm = guest();
     let provenance = provenance(&wasm).unwrap_or_else(|message| fail(&message));
-    if let Err(message) = check_paths(&wasm, &home()) {
+    let checked = match capture {
+        None => check_paths(&wasm, &home()),
+        Some(_) => check_guest(&wasm, &home()),
+    };
+    if let Err(message) = checked {
         fail(&message);
     }
-    let ladder = sweep(&wasm);
-    // Fuel readings do not depend on the host, so no other capture is merged.
-    let recalibrations = exit_on_error(
-        board::recalibrate(&ladder, &source_tree, &[], Some(&provenance)),
-        "recalibrating",
-    );
+    let recalibrations = match capture {
+        None => {
+            let ladder = sweep(&wasm);
+            // Fuel readings do not depend on the host, so no other capture
+            // is merged.
+            board::recalibrate(&ladder, &source_tree, &[], Some(&provenance))
+        }
+        Some(path) => {
+            let text = exit_on_error(
+                std::fs::read_to_string(path),
+                &format!("reading capture {path:?}"),
+            );
+            let name = path.display().to_string();
+            board::recalibrate_from_captures(
+                Currency::Fuel,
+                &source_tree,
+                &[(&name, &text)],
+                Some(&provenance),
+            )
+            .map(|recalibration| vec![recalibration])
+        }
+    };
+    let recalibrations = exit_on_error(recalibrations, "recalibrating");
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     exit_on_error(
         board::write_recalibrations(&recalibrations, &crate_root, &mut io::stdout().lock()),

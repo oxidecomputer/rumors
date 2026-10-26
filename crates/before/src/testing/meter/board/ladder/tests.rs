@@ -297,7 +297,7 @@ fn capture_writes_each_sweep_under_its_own_sampling() {
         .lines()
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\t').collect();
-            let [op, family, "heap", scale, sample, _axis, reading] = fields[..] else {
+            let [op, family, "heap", scale, sample, _axis, _units, reading] = fields[..] else {
                 return None;
             };
             (op == OP && family == "alpha")

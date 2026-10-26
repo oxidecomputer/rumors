@@ -999,7 +999,8 @@ amp-board-acceptance *args:
 # for wasm32, the only target it builds for.
 #
 # `--capture <file>` also writes the sweep's exact fuel readings, which
-# `just amp-board compare` compares like any board capture.
+# `just amp-board compare` compares like any board capture and
+# `just amp-board-calibrate-fuel <file>` recalibrates the fuel table from.
 
 # The guest builds under `fuel_guest_env`, which fixes the source paths it
 # embeds, so every host builds the same module.
@@ -1042,9 +1043,18 @@ amp-board-fuel *args: amp-board-fuel-build
 #    `amp-board-calibrate-fuel`. Every cell whose ceiling moved prints.
 #
 # Fuel readings do not depend on the host, so a change that moves fuel alone
-# (a toolchain or Wasmtime bump, or a cost-table change) needs only
-# `just amp-board-calibrate-fuel`, which sweeps the fuel board on one host
-# and rewrites the fuel table.
+# needs only the fuel table rewritten, on one host, by
+# `just amp-board-calibrate-fuel`:
+#
+# - After `just amp-board-fuel --capture <file>` has shown the movement,
+#   `just amp-board-calibrate-fuel <file>`, with an absolute path, derives
+#   the table from that capture by the same rule, without sweeping again. It
+#   refuses a capture of another source tree or build, and a guest built
+#   under any provenance but the table's.
+# - After a toolchain or Wasmtime bump, or a cost-table change, the fuel
+#   board refuses the guest and writes no capture, so run
+#   `just amp-board-calibrate-fuel` with no capture: it sweeps the fuel board
+#   and records the new provenance.
 #
 # Review the rewritten tables like snapshots, quoting the movement in the
 # commit message.
@@ -1057,12 +1067,13 @@ amp-board-calibrate *captures: && amp-board-calibrate-fuel
     tree="$({{ source_tree }})"
     AMP_BOARD_SOURCE_TREE="$tree" {{ amp_board_command }} -- calibrate "$@"
 
-# Re-derive the per-cell fuel ceilings alone, from a fresh fuel sweep.
-amp-board-calibrate-fuel: amp-board-fuel-build
+# Re-derive the per-cell fuel ceilings alone, from a capture of this tree's fuel board or a fresh fuel sweep.
+[positional-arguments]
+amp-board-calibrate-fuel *capture: amp-board-fuel-build
     #!/usr/bin/env bash
     set -euo pipefail
     tree="$({{ source_tree }})"
-    AMP_BOARD_SOURCE_TREE="$tree" BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo run --release -p board-fuel-harness --target-dir {{ board_fuel_target }} -- calibrate
+    AMP_BOARD_SOURCE_TREE="$tree" BOARD_FUEL_GUEST_WASM={{ board_fuel_guest_wasm }} cargo run --release -p board-fuel-harness --target-dir {{ board_fuel_target }} -- calibrate "$@"
 
 # The focused-fuel suites state the cost claims the board cannot: that an
 # operation's cost does not depend on a parameter, that one entry point

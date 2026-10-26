@@ -3,15 +3,16 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 
 use super::super::ceilings::{HEAP_INTERCEPT_BYTES, MAX_HEAP_BYTES_PER_INPUT_BYTE};
-use super::super::compare::{capture, readings, BuildStamp};
+use super::super::compare::{capture, ladder_readings, readings, BuildStamp};
 use super::super::currency::{ByCurrency, Currency, Liveness};
 use super::super::judge::evaluate_acceptance;
 use super::super::ladder::Ladder;
 use super::super::measure::{Model, Sample};
 use super::super::render::ceiling_text;
 use super::{
-    archs_of_record, calibration, ceiling_thousandths, derive_ceilings, recalibrate, Calibration,
-    CellCeilings, CEILING_RESOLUTION, CELL_CEILING_HEADROOM, TABLES,
+    archs_of_record, calibration, ceiling_thousandths, derive_ceilings, recalibrate,
+    recalibrate_from_captures, Calibration, CellCeilings, Recalibration, CEILING_RESOLUTION,
+    CELL_CEILING_HEADROOM, TABLES,
 };
 
 /// The operation and family of the synthetic cell these tests calibrate.
@@ -107,8 +108,9 @@ fn derived(ladder: &Ladder, captures: &[(&str, String)]) -> f64 {
         .iter()
         .map(|(name, text)| (*name, readings(name, text).expect("the capture parses")))
         .collect();
+    let reference = ladder_readings(ladder, "tree-a");
     let entries =
-        derive_ceilings(ladder, &others, Currency::Heap).expect("the derivation succeeds");
+        derive_ceilings(&reference, &others, Currency::Heap).expect("the derivation succeeds");
     assert_eq!(entries.len(), 1, "the synthetic ladder has one cell");
     entries[0].2 as f64 / CEILING_RESOLUTION as f64
 }
@@ -242,9 +244,10 @@ fn recalibration_refuses_unmergeable_captures() {
     debug.measured_on.debug_assertions = true;
     let debug = capture_text(&debug, "tree-a");
     assert_eq!(refused(&[("x86", &debug)]), std::io::ErrorKind::InvalidData);
+    let reference = ladder_readings(&here, "tree-a");
     let derived = |text: &str| {
         let others = [("x86", readings("x86", text).expect("the capture parses"))];
-        derive_ceilings(&here, &others, Currency::Heap).map(|_| ())
+        derive_ceilings(&reference, &others, Currency::Heap).map(|_| ())
     };
     derived(&good).expect("a capture of the same cells and sizes merges");
     let resized = good.replace("\t8000\t", "\t8001\t");
@@ -276,6 +279,89 @@ fn recalibration_refuses_architectures_off_the_record() {
         let refused =
             recalibrate(&here, "tree-a", &captures, None).expect_err("the calibration must refuse");
         assert_eq!(refused.kind(), std::io::ErrorKind::InvalidData);
+    }
+}
+
+/// Whether two regenerated tables are the same file with the same reported
+/// movement.
+fn same_table(a: &Recalibration, b: &Recalibration) -> bool {
+    (&a.path, &a.source, &a.movement) == (&b.path, &b.source, &b.movement)
+}
+
+/// A calibration from captures alone refuses what it cannot derive a table
+/// from.
+///
+/// It refuses no capture at all, a first capture holding no reading in the
+/// currency, a capture of another tree, and a set of captures off the
+/// currency's architectures of record.
+#[test]
+fn calibration_from_captures_refuses_what_it_cannot_derive_from() {
+    let flat = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
+    let arm = capture_text(&ladder("aarch64", flat), "tree-a");
+    let x86 = capture_text(&ladder("x86_64", flat), "tree-a");
+    let kind = |currency: Currency, captures: &[(&str, &str)]| {
+        recalibrate_from_captures(currency, "tree-a", captures, None)
+            .expect_err("the calibration must refuse")
+            .kind()
+    };
+    recalibrate_from_captures(
+        Currency::Heap,
+        "tree-a",
+        &[("arm", &arm), ("x86", &x86)],
+        None,
+    )
+    .expect("captures of both heap architectures calibrate the heap table");
+    assert_eq!(kind(Currency::Heap, &[]), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        kind(Currency::Fuel, &[("arm", &arm)]),
+        std::io::ErrorKind::InvalidData,
+        "a heap capture holds no fuel readings"
+    );
+    let other_tree = capture_text(&ladder("x86_64", flat), "tree-b");
+    assert_eq!(
+        kind(Currency::Heap, &[("arm", &arm), ("x86", &other_tree)]),
+        std::io::ErrorKind::InvalidData
+    );
+    assert_eq!(
+        kind(Currency::Heap, &[("arm", &arm)]),
+        std::io::ErrorKind::InvalidData,
+        "one heap architecture alone is off the record"
+    );
+}
+
+proptest! {
+    /// Calibrating from captures alone writes the table, and reports the
+    /// movement, that calibrating from a sweep writes when the first capture
+    /// holds the sweep's readings.
+    ///
+    /// The samples carry a heap model whose constant units differ from their
+    /// trend axis, so the two agree only if the capture carries the units
+    /// the rule divides by, not the axis it fits against; the other
+    /// architecture's readings differ, so the merge's larger reading counts
+    /// on both paths.
+    #[test]
+    fn calibration_from_captures_matches_calibration_from_the_sweep(
+        here in proptest::array::uniform8(0.0f64..10.0),
+        there in proptest::array::uniform8(0.0f64..10.0),
+    ) {
+        let units: [usize; 8] = DENOMS.map(|denom| MODEL_UNITS_PER_BYTE * denom);
+        let readings_at = |per_unit: [f64; 8]| -> [u64; 8] {
+            std::array::from_fn(|i| reading(units[i], per_unit[i]))
+        };
+        let arm = modeled(ladder("aarch64", readings_at(here)));
+        let x86 = capture_text(&modeled(ladder("x86_64", readings_at(there))), "tree-a");
+        let swept = recalibrate(&arm, "tree-a", &[("x86", &x86)], Some("provenance"))
+            .expect("the sweep calibrates");
+        prop_assert_eq!(swept.len(), 1, "the ladder measures heap alone");
+        let arm = capture_text(&arm, "tree-a");
+        let captured = recalibrate_from_captures(
+            Currency::Heap,
+            "tree-a",
+            &[("arm", &arm), ("x86", &x86)],
+            Some("provenance"),
+        )
+        .expect("the captures calibrate");
+        prop_assert!(same_table(&swept[0], &captured), "{:?} != {:?}", swept[0], captured);
     }
 }
 
@@ -406,7 +492,8 @@ proptest! {
         let units: [usize; 8] = DENOMS.map(|denom| MODEL_UNITS_PER_BYTE * denom);
         let heap: [u64; 8] = std::array::from_fn(|i| reading(units[i], per_unit[i]));
         let ladder = modeled(ladder("aarch64", heap));
-        let entries = derive_ceilings(&ladder, &[], Currency::Heap).expect("no captures to refuse");
+        let reference = ladder_readings(&ladder, "tree-a");
+        let entries = derive_ceilings(&reference, &[], Currency::Heap).expect("no captures to refuse");
         let ceiling = entries[0].2;
         let table: &'static CellCeilings = Box::leak(Box::new(CellCeilings {
             currency: Currency::Heap,
