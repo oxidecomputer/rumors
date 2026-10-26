@@ -163,12 +163,21 @@ fn version_compare_crosses_the_usize_position_boundary() {
     }
 }
 
-/// Join constructs the closest representable output lengths below and above
-/// `2^32` bits while each input remains within wasm32's address space.
+/// Join emits the exact bytes and reports the exact live length of outputs
+/// `2^32 - 1` and `2^32 + 1` bits long, from inputs each shorter than `2^32`
+/// bits.
 ///
-/// The joined stream has `2k + 2j + 5` bits, hence the two asserted constants.
-/// A `usize` output length would wrap while appending or finalizing the second
-/// result.
+/// The joined stream has `2k + 2j + 5` bits, always odd, so these are the
+/// lengths on either side of `2^32` that this family reaches, as the two
+/// asserted constants show. The guest compares the output's bytes with an
+/// independent synthesis and its `encoded_bits` with `2k + 2j + 5`, so a
+/// result whose bytes or reported length depend on the width of `usize`
+/// fails here.
+///
+/// The pin cannot see a writer's running bit count wrap. The writer reads
+/// that count only modulo 8 while appending, and the sealed result stores
+/// only its bytes, deriving its length from the canonical marker, so a count
+/// that wraps at `2^32` leaves this output unchanged.
 #[test]
 fn version_join_output_crosses_the_usize_position_boundary() {
     assert_eq!(
@@ -194,12 +203,19 @@ fn rank_decode_accepts_the_first_exponent_past_usize() {
     assert_passes(Check::RankDecode, 1u64 << 32, 0);
 }
 
-/// Rank addition and checked subtraction are exact when alignment shifts a
-/// numerator by `usize::MAX` bits and by `usize::MAX + 1` bits.
+/// Rank addition and checked subtraction invert each other when alignment
+/// shifts a numerator by `usize::MAX` bits and by `usize::MAX + 1` bits.
 ///
-/// The alignment gap is a `u64` bit count. Narrowing it to `usize` would keep
-/// the first shift and wrap the second to zero, which either breaks the guest's
-/// exact inverse identities or traps on a negative difference.
+/// The guest aligns a rank of exponent `2^32`, about `2^-65`, with one half
+/// (exponent 1) and with one (exponent 0), and checks
+/// `(deep + small) - small == deep` and `(small - deep) + deep == small`. The
+/// alignment gap is a `u64` bit count; narrowing it through a 32-bit `usize`
+/// would keep the first shift and wrap the second to zero. The identities
+/// compare the two operations with each other, never with an independently
+/// computed sum, so they detect a wrong shift only where its error does not
+/// cancel between them. Subtracting the deep rank from one is such a case:
+/// with the shift wrapped, the subtraction would take the deep rank's wide
+/// numerator from a numerator of one, which panics and traps the guest.
 #[test]
 fn rank_arithmetic_crosses_the_usize_gap_boundary() {
     for case in 1..=4 {
