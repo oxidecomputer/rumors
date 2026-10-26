@@ -103,8 +103,8 @@ fn census(strategy: impl Strategy<Value = TickCase>, in_regime: impl Fn(&Sites) 
         .count()
 }
 
-/// Every co-generated strategy keeps enough generator mass on its pre-scan
-/// regime that each default run of every property over it expects
+/// Every co-generated strategy keeps enough mass on its pre-scan regime
+/// that each default run of every property over it expects
 /// [`REGIME_CASES_PER_RUN`](super::super::census::seeded::REGIME_CASES_PER_RUN) cases there.
 ///
 /// The regimes: sites nested three deep and a range holding two sites side by

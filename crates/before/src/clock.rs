@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 
 use crate::{
     error::{Decode, Overlap},
-    Count, OwnVersion, Party, Version,
+    fold, Count, OwnVersion, Party, Version,
 };
 
 mod forks;
@@ -290,56 +290,15 @@ impl Clock {
         &mut self,
         iter: I,
     ) -> Result<&Version, Vec<Clock>> {
-        let groups = Clock::fold_groups(iter)?;
-        self.absorb_groups(groups)
-    }
-
-    /// Folds `iter` into at most `O(log k)` groups, `k` the input count, as
-    /// the first step of [`join_all`](Clock::join_all).
-    ///
-    /// Each group is the union of pairwise-disjoint inputs. The groups
-    /// themselves may overlap: the fold combines only groups that represent
-    /// equally many inputs, and the groups it returns each represent a
-    /// different count, so it never compares them with one another.
-    /// [`absorb_groups`](Clock::absorb_groups) detects that overlap when it
-    /// joins the later group into its receiver.
-    ///
-    /// The fold reads no receiver. A caller that must merge into a copy of
-    /// its receiver, as [`sync_all`](Clock::sync_all) does, can therefore
-    /// make that copy after the fold returns, so the fold's peak heap never
-    /// includes it.
-    ///
-    /// # Errors
-    ///
-    /// On the first combine whose operands overlap, returns every group built
-    /// so far and every input not yet folded, so each input belongs to exactly
-    /// one returned clock.
-    // The combine closure's error carries both operands, two whole clocks.
-    #[allow(clippy::result_large_err)]
-    fn fold_groups(iter: impl IntoIterator<Item = Clock>) -> Result<Vec<Clock>, Vec<Clock>> {
-        crate::fold::balanced_try_fold(iter, |mut top, incoming| match top.join(incoming) {
-            Ok(_) => Ok(top),
-            Err(back) => Err((top, back)),
-        })
-    }
-
-    /// Joins `groups` into `self` in order, the second step of
-    /// [`join_all`](Clock::join_all), returning the merged [`Version`].
-    ///
-    /// # Errors
-    ///
-    /// On the first group that overlaps `self`, returns that group and every
-    /// later one. The groups before it stay joined into `self`.
-    fn absorb_groups(&mut self, groups: Vec<Clock>) -> Result<&Version, Vec<Clock>> {
-        let mut groups = groups.into_iter();
-        while let Some(group) = groups.next() {
-            if let Err(back) = self.join(group) {
-                let mut uncombined = vec![back];
-                uncombined.extend(groups);
-                return Err(uncombined);
-            }
-        }
+        fold::join_all(self, iter, Clock::join_discarding_version)?;
         Ok(self.version())
+    }
+
+    /// Joins `other` into `self` as [`join`](Clock::join) does, without
+    /// returning the merged version: the join that [`fold::join_all`] and its
+    /// steps take.
+    fn join_discarding_version(&mut self, other: Clock) -> Result<(), Clock> {
+        self.join(other).map(|_| ())
     }
 
     /// Reconciles two *disjoint* [`Clock`]s, keeping both alive.
@@ -433,19 +392,21 @@ impl Clock {
     {
         let others: Vec<&'a mut Clock> = iter.into_iter().collect();
 
-        // Merge aliases through `join_all`'s two steps, so an error leaves the
-        // original clocks unchanged. The fold rejects an overlap inside a
-        // group, and the absorb rejects one between groups or with the
-        // receiver, so together the steps fail exactly when two participants
-        // overlap, which is this method's documented error condition. The
-        // receiver's alias is made only after the fold succeeds, so the fold's
-        // peak heap never includes it.
-        let Ok(groups) = Clock::fold_groups(others.iter().map(|other| other.dangerously_alias()))
-        else {
+        // Merge aliases through the two steps of `fold::join_all`, so an error
+        // leaves the original clocks unchanged. The fold rejects an overlap
+        // inside a group, and the absorb rejects one between groups or with
+        // the receiver, so together the steps fail exactly when two
+        // participants overlap, which is this method's documented error
+        // condition. The receiver's alias is made only after the fold
+        // succeeds, so the fold's peak heap never includes it.
+        let Ok(groups) = fold::fold_groups(
+            others.iter().map(|other| other.dangerously_alias()),
+            Clock::join_discarding_version,
+        ) else {
             return Err(Overlap);
         };
         let mut whole = self.dangerously_alias();
-        if whole.absorb_groups(groups).is_err() {
+        if fold::absorb_groups(&mut whole, groups, Clock::join_discarding_version).is_err() {
             return Err(Overlap);
         }
 
@@ -557,9 +518,13 @@ impl Clock {
     /// Merges any number of received [`Version`]s into this [`Clock`]'s
     /// version, then [`tick`](Clock::tick)s the [`Clock`] (once).
     ///
-    /// Prefer this to iteratively [`recv`](Clock::recv)-ing [`Version`]s
-    /// one-at-a-time, which is less efficient than this method in the worst
-    /// case.
+    /// The whole batch records one event. Calling [`recv`](Clock::recv) once
+    /// per version is not equivalent: each call records its own event, so `k`
+    /// calls tick `k` times. When the batch is one receipt, use this method.
+    /// It also costs less in the worst case: each `recv` costs
+    /// `O(|self| + |version|)` while `self` grows across the calls, so `k`
+    /// calls can cost `k` times the batch's size, where this method's cost,
+    /// stated below, carries only a `log k` factor.
     ///
     /// Equivalent to [`absorb_all`](Clock::absorb_all) and then
     /// [`tick`](Clock::tick)ing once. The n-ary half of the vector-clock

@@ -413,8 +413,21 @@ pub(crate) fn arb_oracle_version() -> impl Strategy<Value = tree::Version> {
 /// merged values, both the carry and final-drain paths, and the boundaries at
 /// eight and sixteen inputs.
 pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
-    0usize..=17
+    0usize..=MAX_FOLD_ARITY
 }
+
+/// The longest list [`arb_fold_arity`] draws: one past the carry boundary at
+/// sixteen inputs.
+const MAX_FOLD_ARITY: usize = 17;
+
+/// The fork shares in [`arb_clock_family`]'s party pool: one for the receiver
+/// and one for each item of the longest list, so a dealt family can give
+/// every participant a different share.
+const CLOCK_FAMILY_SHARES: usize = MAX_FOLD_ARITY + 1;
+
+/// The probability that a dealt clock family places one overlap (see
+/// [`arb_clock_family`]).
+const DEALT_ALIAS_PROBABILITY: f64 = 0.75;
 
 /// A small version pool containing arbitrary values and the identity.
 ///
@@ -463,8 +476,25 @@ pub(crate) fn arb_party_family() -> impl Strategy<Value = (tree::Party, Vec<tree
 
 /// A receiver and list for variadic clock laws.
 ///
-/// Independent party and version pools cover arbitrary valid pairings. Reused
-/// parties exercise overlap, and the empty version exercises fresh clocks.
+/// The party pool holds one to three unrelated arbitrary parties and the
+/// [`CLOCK_FAMILY_SHARES`] balanced shares of one more, which are pairwise
+/// disjoint. Versions come from [`arb_version_pool`], independently of
+/// parties, so arbitrary pairings occur, and the empty version gives fresh
+/// clocks. Each family takes one of two forms, equally often:
+///
+/// - *Picked*: the receiver and every item come from the pool independently.
+///   Repeated parties overlap anywhere in the list, and unrelated parties
+///   overlap the shares or not as they fall.
+/// - *Dealt*: the receiver and the items hold distinct shares, so they are
+///   pairwise disjoint. With probability [`DEALT_ALIAS_PROBABILITY`], one
+///   item, uniform over the list, then takes the party of a participant
+///   before it, uniform over the receiver and the earlier items, and that
+///   pair is the family's only overlap.
+///
+/// Picked families rarely hold many disjoint participants, so dealt families
+/// carry two cases: a family that `join_all` and `sync_all` accept, and one
+/// whose only overlap lies after a disjoint prefix, which `join_all` rejects
+/// after joining part of the list into the receiver.
 pub(crate) fn arb_clock_family() -> impl Strategy<
     Value = (
         (tree::Party, tree::Version),
@@ -472,15 +502,68 @@ pub(crate) fn arb_clock_family() -> impl Strategy<
     ),
 > {
     (
+        arb_oracle_party_nonempty(),
         proptest::collection::vec(arb_oracle_party_nonempty(), 1..=3),
         arb_version_pool(),
     )
-        .prop_flat_map(|(parties, versions)| {
-            let pool: Vec<(tree::Party, tree::Version)> = parties
+        .prop_flat_map(|(whole, unrelated, versions)| {
+            let shares = whole.shares(CLOCK_FAMILY_SHARES);
+            let pool: Vec<(tree::Party, tree::Version)> = shares
                 .iter()
+                .chain(&unrelated)
                 .flat_map(|p| versions.iter().map(move |v| (p.clone(), v.clone())))
                 .collect();
-            family_picks(pool)
+            prop_oneof![family_picks(pool), dealt_clock_family(shares, versions)]
+        })
+}
+
+/// A dealt clock family (see [`arb_clock_family`]): the receiver holds
+/// `shares[0]` and item `i` holds `shares[i + 1]`, each beside a version
+/// picked from `versions`, before the optional alias.
+///
+/// # Panics
+///
+/// Panics unless `shares` holds a share for the receiver and for each item
+/// of the longest list [`arb_fold_arity`] draws.
+fn dealt_clock_family(
+    shares: Vec<tree::Party>,
+    versions: Vec<tree::Version>,
+) -> impl Strategy<
+    Value = (
+        (tree::Party, tree::Version),
+        Vec<(tree::Party, tree::Version)>,
+    ),
+> {
+    assert!(
+        shares.len() > MAX_FOLD_ARITY,
+        "a dealt family needs a share for every participant"
+    );
+    arb_fold_arity()
+        .prop_flat_map(|arity| {
+            (
+                proptest::collection::vec(any::<prop::sample::Index>(), arity + 1),
+                prop::option::weighted(
+                    DEALT_ALIAS_PROBABILITY,
+                    (any::<prop::sample::Index>(), any::<prop::sample::Index>()),
+                ),
+            )
+        })
+        .prop_map(move |(version_picks, alias)| {
+            // The receiver first, then the items, so a participant's position
+            // is its share's index.
+            let mut participants: Vec<(tree::Party, tree::Version)> = shares
+                .iter()
+                .zip(version_picks)
+                .map(|(share, pick)| (share.clone(), versions[pick.index(versions.len())].clone()))
+                .collect();
+            let items = participants.len() - 1;
+            if let Some((item, source)) = alias.filter(|_| items > 0) {
+                let aliased = 1 + item.index(items);
+                let source = source.index(aliased);
+                participants[aliased].0 = participants[source].0.clone();
+            }
+            let receiver = participants.remove(0);
+            (receiver, participants)
         })
 }
 

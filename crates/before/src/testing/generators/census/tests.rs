@@ -6,9 +6,11 @@ use super::{floor, Mass, FALSE_FAILURE_BITS};
 
 proptest! {
     /// The exact-integer floor never exceeds the real Chernoff bound
-    /// `μ − sqrt(2 μ ln 2^30)`, and falls short of it by less than three:
-    /// under one for each of its two roundings, and under one for its bound
-    /// on `ln 2`, which inflates the deviation by a factor below `1 + 10⁻⁶`.
+    /// `μ − sqrt(2 μ ln 2^30)`, and falls short of it by less than three.
+    ///
+    /// The shortfall is under one for each of its two roundings, and under
+    /// one for its bound on `ln 2`, which inflates the deviation by a factor
+    /// below `1 + 10⁻⁶`.
     ///
     /// The real bound is computed here in floating point, independently of
     /// the integer search [`floor`] runs, over sample counts and masses far

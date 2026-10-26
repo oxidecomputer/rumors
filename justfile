@@ -136,7 +136,7 @@ suanpan_fuel_guest_wasm := suanpan_fuel_target + "/wasm32-unknown-unknown/fuel/s
 
 # List recipes.
 default:
-    @just --list --unsorted
+    @"{{ just_executable() }}" --justfile "{{ justfile() }}" --list --unsorted
 
 # ── inner loop ───────────────────────────────────────────────────────────────
 
@@ -426,14 +426,13 @@ fuzz-build:
 # protocol suites' virtual-time assertions are unaffected by machine load.
 #
 # The stream grouping is not arbitrary. Two cargo invocations sharing a
-# target directory serialize on its build lock, so every leg reaching the
-# root `target/` sits in one stream and runs in order there, cheap-first,
-# preserving the fail-fast ordering within it. Every other leg already
-# writes a directory nothing else touches — the nightly doctest target,
-# the private-items doc target, the docs.rs doc target, the rustdoc-JSON
-# target, the tool recipes' targets, and the detached fuzz workspace --
-# and that is exactly what lets them overlap. `fuzzfit` and
-# `fuelscape-test` share one stream because both build the same wasm guest.
+# target directory serialize on its build lock, so every leg that builds in
+# the root `target/` sits in one stream and runs in order there,
+# cheap-first, preserving the fail-fast ordering within it. Every other leg
+# builds nothing or builds in a target directory of its own, passed with
+# `--target-dir` or belonging to the detached fuzz workspace, and that is
+# what lets them overlap. `fuzzfit` and `fuelscape-test` share one stream
+# because both build the same wasm guest.
 #
 # That holds where each target directory is also its own build directory,
 # cargo's default. A `build.build-dir` set in a cargo config gives every
@@ -481,7 +480,11 @@ gate-streams:
         echo "===== just $recipe ====="
         # The marker is the record and the echo is narration, so the marker
         # is written first: a stream that reported ok has already banked it.
-        if nice -n "$niceness" just "$recipe"; then
+        # The stream re-invokes the running just on this justfile, so it
+        # runs the same binary and file however the gate was started, with
+        # `-f`, `-d`, or another `just` first on PATH. Variable overrides
+        # given on the gate's command line do not reach the streams.
+        if nice -n "$niceness" "{{ just_executable() }}" --justfile "{{ justfile() }}" "$recipe"; then
             : > "$logs/$name.ok"
             echo "gate: ok      $name ($((SECONDS - began))s)" >&3
         else
@@ -906,9 +909,16 @@ bench-quick target *filter:
 # `just amp-board compare <before> <after>`, which compares two captures'
 # exact readings (the amp_board example's doc describes it).
 
-# One command serves every board recipe, keeping the production profile part
-# of the instrument rather than a convention each entry point must repeat.
-amp_board_command := "cargo run --release -p before --example amp_board --features serde,borsh"
+# The board's target directory. The board builds in the release profile,
+# which no leg in the gate's workspace stream builds, so a directory of its
+# own costs the gate no extra compilation, and the board stream and the
+# workspace stream never wait on each other's build lock.
+amp_board_target := justfile_directory() + "/target/amp-board"
+
+# One command serves every board recipe, keeping the production profile and
+# the target directory part of the instrument rather than conventions each
+# entry point must repeat.
+amp_board_command := "cargo run --release -p before --example amp_board --features serde,borsh --target-dir " + amp_board_target
 
 # A board capture names the source tree it measured, so a calibration can
 # refuse to merge readings of another tree. This command prints that name:

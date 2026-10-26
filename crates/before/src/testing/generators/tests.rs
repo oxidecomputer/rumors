@@ -15,10 +15,12 @@
 
 use proptest::prelude::*;
 
+use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::oracles::flat::{self, Collapses};
 use crate::testing::oracles::function::{ev_depth, id_depth};
 use crate::testing::oracles::tree;
 use crate::testing::shape_rows::{oracle_plateaus, version_from_rows, Leaf};
+use crate::Clock;
 use num_bigint::BigUint;
 
 use super::census::{assert_floors, runner, sample, seeded, Mass, Tally};
@@ -28,7 +30,8 @@ use super::leaf_list::{
 };
 use super::regions::{arb_deep_party, arb_deep_party_family};
 use super::{
-    arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic, divided_config, ARB_DEPTH,
+    arb_clock_family, arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic,
+    divided_config, ARB_DEPTH,
 };
 
 /// Trees sampled from each arbitrary strategy: enough that the thinnest
@@ -238,6 +241,74 @@ fn dyadic_generators_reach_their_claimed_regimes() {
         Tally::new("one value in two spellings", respelled, Mass::new(69, 490)),
     ];
     assert_floors(&tallies, CENSUS_DYADICS, "an arm has gone dead");
+}
+
+/// Clock families sampled for the census: enough that the thinner regime, a
+/// rejection after a partial join, gets a positive floor from its designed
+/// mass of `36/1000`.
+const CENSUS_CLOCK_FAMILIES: usize = 3000;
+
+/// [`arb_clock_family`] keeps both cases its dealt families carry under
+/// mass, enough for every run of a property drawing it at the configured
+/// case count, such as the clock law driver, to expect cases of each.
+///
+/// The census lowers each family to clocks and calls `Clock::join_all`. The
+/// family is *accepted* when the call returns `Ok`. It is *rejected after a
+/// partial join* when the call returns `Err` and the receiver's party has
+/// grown. That happens exactly when the items fold cleanly into groups, the
+/// receiver joins the first group, and a later group overlaps the receiver
+/// as it then stands: the path where `join_all` returns a group and every
+/// later one after joining the earlier ones, and where `sync_all` must
+/// still leave every clock unchanged.
+///
+/// # Designed masses
+///
+/// A family is dealt with probability `1/2`, and a dealt family places its
+/// overlap with probability `3/4`.
+///
+/// - *Accepted*, `12/100`: a dealt family without an overlap holds distinct
+///   shares, which are pairwise disjoint: `1/2 · 1/4 = 1/8`.
+/// - *Rejected after a partial join*, `36/1000`: take a dealt family with `k`
+///   items whose item `j` takes another participant's party, and let `2^m`
+///   be the largest power of two at most `k`. `join_all` folds the items into
+///   groups of the sizes of `k`'s binary digits, largest first, so the first
+///   group is the first `2^m` items. Item `j` lies outside it with
+///   probability `(k − 2^m)/k`. Its party then comes from the receiver or the
+///   first group with probability `(2^m + 1)/(j + 1)`, more than `1/2`
+///   because `j < k < 2^(m+1)`. In that case every group folds, since only
+///   item `j` repeats a party and its source lies outside its group; the
+///   receiver joins the groups before item `j`'s; and item `j`'s group
+///   overlaps the receiver, which now holds the source. Over the eighteen
+///   equally likely arities, `Σ (k − 2^m)/k` is at least `3.551`, so the
+///   mass is at least `1/2 · 3/4 · 1/18 · 1/2 · 3.551 ≥ 0.0369`.
+#[test]
+fn clock_family_reaches_acceptance_and_rejection_after_a_partial_join() {
+    let lower = |(p, v): &(tree::Party, tree::Version)| {
+        Clock::from_parts(from_oracle_party(p), from_oracle_version(v))
+    };
+    let (mut accepted, mut rejected_late) = (0usize, 0);
+    for (r, items) in sample(&arb_clock_family(), &mut runner(), CENSUS_CLOCK_FAMILIES) {
+        let original = lower(&r);
+        let mut receiver = original.dangerously_alias();
+        match receiver.join_all(items.iter().map(lower)) {
+            Ok(_) => accepted += 1,
+            Err(_) => rejected_late += usize::from(receiver.party() != original.party()),
+        }
+    }
+    let tallies = [
+        Tally::new("an accepted family", accepted, Mass::new(12, 100)).serving(1),
+        Tally::new(
+            "a rejection after a partial join",
+            rejected_late,
+            Mass::new(36, 1000),
+        )
+        .serving(1),
+    ];
+    assert_floors(
+        &tallies,
+        CENSUS_CLOCK_FAMILIES,
+        "the dealt arm has gone dead or no longer places its overlap",
+    );
 }
 
 /// The deep census seed: names the sampled corpus (see

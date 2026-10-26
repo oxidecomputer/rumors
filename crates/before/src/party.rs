@@ -18,7 +18,7 @@
 use crate::bits::Bits;
 use crate::error::{Decode, ParseValue};
 use crate::party::io::PartyReader;
-use crate::{text, Count, Version};
+use crate::{fold, text, Count, Version};
 
 mod compare;
 mod fork;
@@ -414,20 +414,7 @@ impl Party {
     /// assert!(p.is_seed());
     /// ```
     pub fn join_all<I: IntoIterator<Item = Party>>(&mut self, iter: I) -> Result<(), Vec<Party>> {
-        let groups =
-            crate::fold::balanced_try_fold(iter, |mut top, incoming| match top.join(incoming) {
-                Ok(()) => Ok(top),
-                Err(back) => Err((top, back)),
-            })?;
-        let mut groups = groups.into_iter();
-        while let Some(group) = groups.next() {
-            if let Err(back) = self.join(group) {
-                let mut uncombined = vec![back];
-                uncombined.extend(groups);
-                return Err(uncombined);
-            }
-        }
-        Ok(())
+        fold::join_all(self, iter, Party::join)
     }
 
     /// Tests whether `self` and `other` are *disjoint*.
