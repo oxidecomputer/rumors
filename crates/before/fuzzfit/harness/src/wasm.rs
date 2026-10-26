@@ -89,21 +89,24 @@ const POOL_KEEP_RESIDENT: usize = 16 * 1024 * 1024;
 /// keeps a stack trap from ever masquerading as a kernel divergence.
 const MAX_WASM_STACK: usize = 48 * 1024 * 1024;
 
-/// Locate the compiled guest module.
+/// The environment variable naming the compiled guest module; the recipes
+/// that run the harness or the fuelscape pipeline set it after building the
+/// guest with `just fuzzfit-build`.
+pub const GUEST_ENV: &str = "FUZZFIT_GUEST_WASM";
+
+/// Returns the path of the compiled guest module, which [`GUEST_ENV`] names.
 ///
-/// Precedence: the `FUZZFIT_GUEST_WASM` environment variable (explicit
-/// provenance), then `CARGO_TARGET_DIR`, then the repo root's
-/// `target/fuzzfit`, where the `just fuzzfit-*` recipes build the guest, in
-/// the `fuel` profile, before anything queries this.
+/// No default location stands in for the variable: a guest found there
+/// could predate the tree under test, and its fuel would be judged as the
+/// tree's.
+///
+/// # Panics
+///
+/// Panics if [`GUEST_ENV`] is unset.
 pub fn guest_wasm_path() -> PathBuf {
-    if let Ok(path) = std::env::var("FUZZFIT_GUEST_WASM") {
-        return PathBuf::from(path);
-    }
-    if let Ok(target) = std::env::var("CARGO_TARGET_DIR") {
-        return PathBuf::from(target).join("wasm32-unknown-unknown/fuel/fuzzfit_guest.wasm");
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../target/fuzzfit/wasm32-unknown-unknown/fuel/fuzzfit_guest.wasm")
+    std::env::var_os(GUEST_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| panic!("{GUEST_ENV} must name the compiled guest; run `just fuzzfit`"))
 }
 
 /// The process-wide engine and compiled module.
