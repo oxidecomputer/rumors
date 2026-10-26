@@ -518,9 +518,13 @@ impl Clock {
     /// Merges any number of received [`Version`]s into this [`Clock`]'s
     /// version, then [`tick`](Clock::tick)s the [`Clock`] (once).
     ///
-    /// Prefer this to iteratively [`recv`](Clock::recv)-ing [`Version`]s
-    /// one-at-a-time, which is less efficient than this method in the worst
-    /// case.
+    /// The whole batch records one event. Calling [`recv`](Clock::recv) once
+    /// per version is not equivalent: each call records its own event, so `k`
+    /// calls tick `k` times. When the batch is one receipt, use this method.
+    /// It also costs less in the worst case: each `recv` costs
+    /// `O(|self| + |version|)` while `self` grows across the calls, so `k`
+    /// calls can cost `k` times the batch's size, where this method's cost,
+    /// stated below, carries only a `log k` factor.
     ///
     /// Equivalent to [`absorb_all`](Clock::absorb_all) and then
     /// [`tick`](Clock::tick)ing once. The n-ary half of the vector-clock
