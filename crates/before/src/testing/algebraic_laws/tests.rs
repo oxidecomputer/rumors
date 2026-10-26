@@ -289,9 +289,14 @@ macro_rules! group_drivers {
     };
     (@one $group:ident, $driver:ident, (clock, clocks)) => {
         proptest! {
-            /// Every law in the group holds on pool-indexed clock
-            /// families: arbitrary canonical party/version pairings,
-            /// aliased parties under mass, at every boundary-band arity.
+            /// Every law in the group holds on clock families picked
+            /// from a pool or dealt disjoint shares, at every
+            /// boundary-band arity.
+            ///
+            /// Picked families pair arbitrary canonical parties and
+            /// versions and alias parties anywhere; dealt families are
+            /// disjoint lists, whole or with one overlap after a disjoint
+            /// prefix.
             #[test]
             fn $driver((r, items) in arb_clock_family()) {
                 let clock = |(p, v): &(tree::Party, tree::Version)| {
