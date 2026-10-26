@@ -6,6 +6,7 @@
 //! with a recomputation from the list of live block sizes.
 
 use std::alloc::{self, Layout};
+use std::hint::black_box;
 use std::panic;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -20,6 +21,14 @@ use super::{Stats, measure, reading, reset};
 
 /// A heap block requested from the global allocator with an exact size and
 /// an alignment of one.
+///
+/// Every pointer the allocator returns passes through [`black_box`] before the
+/// block keeps it. The optimizer may delete an allocation whose block nothing
+/// observes, as `GlobalAlloc` permits, and a block that is allocated and freed
+/// without use is exactly that; release builds delete it, and the model would
+/// then count a request the allocator never saw. `black_box` is best-effort by
+/// its own contract, but it is the standard library's tool for hiding a value
+/// from the optimizer.
 struct Block {
     /// The block's start, as the allocator returned it.
     ptr: NonNull<u8>,
@@ -38,13 +47,13 @@ impl Block {
         let layout =
             Layout::from_size_align(size, 1).expect("a byte-aligned size is a valid layout");
         // SAFETY: `layout` has a nonzero size, as checked above.
-        let ptr = unsafe {
+        let ptr = black_box(unsafe {
             if zeroed {
                 alloc::alloc_zeroed(layout)
             } else {
                 alloc::alloc(layout)
             }
-        };
+        });
         let ptr = NonNull::new(ptr).unwrap_or_else(|| alloc::handle_alloc_error(layout));
         Self { ptr, layout }
     }
@@ -61,7 +70,7 @@ impl Block {
         // SAFETY: `self.ptr` is live and was allocated with `self.layout`;
         // `size` is nonzero and, rounded up to an alignment of one, cannot
         // overflow `isize`, since `layout` was constructed from it.
-        let ptr = unsafe { alloc::realloc(self.ptr.as_ptr(), self.layout, size) };
+        let ptr = black_box(unsafe { alloc::realloc(self.ptr.as_ptr(), self.layout, size) });
         self.ptr = NonNull::new(ptr).unwrap_or_else(|| alloc::handle_alloc_error(layout));
         self.layout = layout;
     }
@@ -360,7 +369,9 @@ fn reset_inside_a_measurement_restarts_it() {
 /// A request for `isize::MAX` bytes, the largest size a byte-aligned layout
 /// admits, exceeds the address space of every 64-bit target, so the system
 /// allocator refuses both requests. A 32-bit target could grant it, so the
-/// test runs only on 64-bit targets.
+/// test runs only on 64-bit targets. Each result passes through [`black_box`]
+/// before the null check, since the optimizer may otherwise assume an
+/// unobserved request succeeded and fold the check away.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn refused_requests_change_nothing() {
@@ -370,7 +381,7 @@ fn refused_requests_change_nothing() {
         .expect("isize::MAX bytes at alignment one is a valid layout");
     let (stats, ()) = measure(|| {
         // SAFETY: `layout` has a nonzero size.
-        let refused = unsafe { alloc::alloc(layout) };
+        let refused = black_box(unsafe { alloc::alloc(layout) });
         assert!(
             refused.is_null(),
             "no 64-bit system allocator grants isize::MAX bytes"
@@ -378,7 +389,7 @@ fn refused_requests_change_nothing() {
         // SAFETY: `block.ptr` is live and was allocated with `block.layout`;
         // `huge` is nonzero and, at an alignment of one, does not overflow
         // `isize`.
-        let refused = unsafe { alloc::realloc(block.ptr.as_ptr(), block.layout, huge) };
+        let refused = black_box(unsafe { alloc::realloc(block.ptr.as_ptr(), block.layout, huge) });
         assert!(
             refused.is_null(),
             "no 64-bit system allocator grants isize::MAX bytes"
