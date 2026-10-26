@@ -1,74 +1,28 @@
-<!-- CAVEAT LECTOR: written by Claude (Opus 5.5) from a run on ox-east-1 on 2026-10-06; the stream logs are in the coordinator's session scratchpad under coordinator/baseline-455e97de-gate-logs. -->
+<!-- CAVEAT LECTOR: written by Claude (Opus 5.5) from the final gate on the Mac at `main` 3aa015900, 2026-10-25. The gate's log is in the coordinator's session scratchpad under final-gate/. -->
 
-# Baseline on ox-east-1 at `455e97de`
+# Baseline at `main` `3aa015900`
 
-The baseline below was recorded at `455e97de`. It still holds at `main`: the
-fixes landed on `main` since then change no leg's verdict and no test count.
-Each landed fix ran the full gate on reserved cores, and each matched this
-record.
+Every later "this fails" claim is judged against this record. A failure that
+also occurs here is pre-existing, and a branch must reproduce it exactly,
+with nothing new beside it.
 
-Every later "this fails" claim in the audit is judged against this record. A
-failure that also occurs here is pre-existing, and a branch must reproduce it
-exactly, with nothing new beside it.
+The toolchains are the channel pinned in `rust-toolchain.toml` (1.97.1) and
+the justfile's pinned nightly (`nightly-2026-06-30`).
 
-The run used the toolchain channel pinned in `rust-toolchain.toml` (1.97.1) and
-the justfile's pinned nightly (`nightly-2026-06-30`), both installed on the box.
-It ran on a working tree identical to `455e97de`'s; the commit was made from
-that tree after the run.
+## `just gate` on the Mac (aarch64)
 
-## How the gate is invoked on the box
+`just gate` in a worktree detached at `3aa015900`: clean in 417 s, every
+stream ok.
 
-```
-on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; just gate'
-```
+| Stream | Detail |
+|---|---|
+| workspace | `test-all`: 2057 run, 2057 passed, 2 skipped |
+| doctest | every crate's doctests passing |
+| board, board-fuel | 6612 green, 0 red, heap and fuel |
+| suanpan-fuel | 34 passed |
+| focused-fuel | 50 passed |
+| surface | 230 public function-like items = 134 board-covered + 96 excepted |
+| wasm, fuzz, internal-docs, docsrs, audit | ok |
 
-The remote wrapper exports `CARGO_TARGET_DIR=~/build/<worktree>`, but the
-justfile's `docs` recipe reads `target/doc`. Under the wrapper's default, the
-workspace leg fails at `docs` (`fuelscape-assets: no such file or directory:
-target/doc`) for a reason unrelated to the tree. Unsetting the variable builds
-in the synced tree's own `target/`, which the wrapper's rsync excludes and so
-never deletes. illumos's `env` has no `-u` flag, so `unset` is the portable
-spelling.
-
-## `just gate`
-
-| Leg | Verdict | Detail |
-|---|---|---|
-| audit | ok | |
-| internal-docs | ok | |
-| docsrs | ok | |
-| doctest | ok | |
-| surface | ok | |
-| workspace | ok | `test-all`: 1863 tests run, 1863 passed, 2 skipped |
-| wasm | ok | fuzzfit 25/25, fuelscape 43/43, wasm32-pins 8/8 |
-| fuzz | failed | `libfuzzer-sys` 0.4.13 does not compile on illumos (`FuzzerPlatform.h:72: #error "Support for your platform has not been implemented"`). The crate depends on it unconditionally, so the leg stops at its clippy step. The fuzz workspace is out of the audit's scope. |
-| board | failed | `amp-board-acceptance` passes: 5311 green, 0 red. `worst-cases-pin` reports drift for `count_display × heap`: pinned worst `hugeleaf`; live worst `pure-comb` at the default scale and `memo-comb` at the acceptance scale. |
-
-## Landing check
-
-Branches land on the landing check (`~/bin/audit-check`, described in the
-README) rather than the full gate. Its baseline is recorded at `main`
-`86d101a71` (2026-10-23), after the fuel board (#136) landed. The invocation:
-
-```
-on-illumos.sh <worktree> 'unset CARGO_TARGET_DIR; export NEXTEST_TEST_THREADS=24; ~/bin/audit-reserved ~/bin/audit-check'
-```
-
-| Leg | Verdict | Detail |
-|---|---|---|
-| tests | ok | `before` and `suanpan`: 866 run, 866 passed, 1 skipped; `rumors` snapshot filter: 142 run, 142 passed |
-| lints | ok | `just gate-lints` and both clippy runs clean |
-| docs | ok | private-items and docs.rs builds clean; doctests: 193 passed (`before`), 15 passed (`suanpan`) |
-| surface | ok | 14 tests passed; 224 public function-like items = 134 board-covered + 90 excepted |
-| board | ok | 5729 green, 0 red, each cell within its own heap ceiling; `worst-case pin: clean (272 pinned rows verified at 2 sampling scales)` |
-| fuel | ok | `just amp-board-fuel`: 5729 green, 0 red, each cell within its own fuel ceiling. A tree from before the fuel board reports this leg as skipped. |
-| wasm | ok | wasm32-pins 12/12, fuzzfit 25/25, fuelscape 43/43 |
-
-A branch's landing check must match this table, with counts moved only by
-the tests and board families the branch adds or removes.
-
-## Open items
-
-- The justfile's `docs` recipe assumes the build directory is `target/`, which
-  any exported `CARGO_TARGET_DIR` breaks. The owner ruled to record this as a
-  finding and change nothing during the audit.
+The fuzz stream builds against its committed lockfile (`--locked`). Board
+captures are format v4; earlier captures do not load.
