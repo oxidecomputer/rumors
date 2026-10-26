@@ -206,13 +206,17 @@ fn families_agree_with_the_encodings() {
 /// Shapes whose sweeps park, defer, or settle wide drift, at hand-checkable
 /// sizes.
 ///
-/// The other pools stay under the freeze allowance almost everywhere: a
-/// unit-funded fold freezes only when its live drift is wider than
+/// The other pools freeze but almost never defer. A unit-funded fold freezes
+/// when its live drift is wider than
 /// [`HEIGHT_FREEZE_ALLOWANCE_BITS`](super::integral::HEIGHT_FREEZE_ALLOWANCE_BITS)
-/// plus one bit, and `arb_magnitude` tops out near 2^128, under half of
-/// that, so arbitrary trees do not reach the deferred-height reduction. These
-/// shapes do, and the arming trains create multiple entries with both
-/// uniform and alternating signs.
+/// plus one bit, and `arb_magnitude` reaches 514 bits, so arbitrary trees do
+/// freeze. A deferral needs more: at a later freeze, a parked height wider
+/// than that freeze's drift by more than the allowance, so a parked height
+/// wider than twice the allowance plus one bit beside a drift wider than the
+/// allowance plus one bit. Arbitrary trees reach that conjunction too rarely
+/// for their sweeps to cover the deferred-height reduction. These shapes
+/// reach it, and the arming trains create multiple entries with both uniform
+/// and alternating signs.
 fn deferral_pool() -> Vec<Version> {
     vec![
         version_of(&Shape::PromotionRearm.build1(1)),
@@ -953,9 +957,11 @@ proptest! {
 /// alternate)`.
 ///
 /// The box spans entry counts across several reduction shapes (a lone entry,
-/// a full level, an odd drain), arming widths past `arb_magnitude`'s 128-bit
-/// ceiling, which keeps the arbitrary-tree sweep from ever arming, window
-/// densities from trivial to multi-digit, and both sign schedules.
+/// a full level, an odd drain), arming widths of 19 to 22 digits (608 to 704
+/// bits), wider than any height an arbitrary tree reaches, window densities
+/// from trivial to multi-digit, and both sign schedules. An arbitrary leaf's
+/// height sums at most five `arb_magnitude` draws along its path, each below
+/// `2^514`, so it stays below `2^517`.
 fn arming_train_box() -> impl Iterator<Item = (usize, usize, usize, bool)> {
     (1usize..6).flat_map(|n| {
         (19usize..23).flat_map(move |w| {
