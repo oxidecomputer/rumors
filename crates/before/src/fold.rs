@@ -13,6 +13,10 @@
 //! An idempotent combiner can also skip inputs it would absorb unchanged:
 //! [`dedup_runs`] drops adjacent inputs that share storage before the counter
 //! reads them.
+//!
+//! [`join_all`] reunites disjoint values, such as parties or clocks, through
+//! the fallible counter, in two steps a caller may also run apart:
+//! [`fold_groups`] and then [`absorb_groups`].
 
 #[cfg(test)]
 mod tests;
@@ -51,6 +55,94 @@ pub(crate) fn balanced_try_fold<T>(
         stack.push((merged, weight));
     }
     Ok(stack.into_iter().map(|(group, _)| group).collect())
+}
+
+/// Joins every item of `iter` into `receiver`: [`fold_groups`], then
+/// [`absorb_groups`].
+///
+/// `join(target, other)` must either join `other` into `target` and return
+/// `Ok(())`, or, when the two overlap, leave `target` unchanged and return
+/// `Err(other)`. [`Party::join`](crate::Party::join) has this contract, and
+/// [`Clock::join`](crate::Clock::join) has it once its returned version is
+/// discarded.
+///
+/// Success means `receiver` and the inputs were pairwise disjoint: the fold
+/// tests every pair of inputs within one group, and the absorb tests each
+/// group against `receiver`, which by then holds every earlier group.
+///
+/// # Errors
+///
+/// When some pair overlaps, returns what was not joined into `receiver`, as
+/// each step's `# Errors` describes. Every input then belongs to exactly one
+/// value: `receiver` or one returned element. A returned element may be the
+/// join of several inputs.
+pub(crate) fn join_all<T>(
+    receiver: &mut T,
+    iter: impl IntoIterator<Item = T>,
+    mut join: impl FnMut(&mut T, T) -> Result<(), T>,
+) -> Result<(), Vec<T>> {
+    let groups = fold_groups(iter, &mut join)?;
+    absorb_groups(receiver, groups, join)
+}
+
+/// Folds `iter` into at most `O(log k)` groups, `k` the input count, by
+/// joining pairs of groups with `join`, the first step of [`join_all`].
+///
+/// `join` has [`join_all`]'s contract. The fold runs on
+/// [`balanced_try_fold`], so a group forms only when `join` finds two smaller
+/// groups disjoint, and each group is therefore the union of
+/// pairwise-disjoint inputs. The groups may overlap one another: the counter
+/// joins only groups that represent equally many inputs, and the groups it
+/// returns each represent a different count, so it never tests any two of
+/// them against each other. [`absorb_groups`] tests that.
+///
+/// The fold reads no receiver. A caller that must join into a copy of its
+/// receiver can therefore make the copy after the fold returns, keeping it
+/// out of the fold's peak heap.
+///
+/// # Errors
+///
+/// On the first join whose operands overlap, returns every group built so far
+/// and every input not yet folded, so each input belongs to exactly one
+/// returned element.
+pub(crate) fn fold_groups<T>(
+    iter: impl IntoIterator<Item = T>,
+    mut join: impl FnMut(&mut T, T) -> Result<(), T>,
+) -> Result<Vec<T>, Vec<T>> {
+    balanced_try_fold(iter, |mut group, incoming| {
+        match join(&mut group, incoming) {
+            Ok(()) => Ok(group),
+            Err(incoming) => Err((group, incoming)),
+        }
+    })
+}
+
+/// Joins `groups` into `receiver` in order with `join`, the second step of
+/// [`join_all`].
+///
+/// `join` has [`join_all`]'s contract. Each group meets a `receiver` that
+/// already holds every earlier group, so this step rejects a group that
+/// overlaps the original receiver or any earlier group.
+///
+/// # Errors
+///
+/// On the first group that overlaps `receiver`, returns that group and every
+/// later one, untested. The groups before it stay joined into `receiver`, so
+/// each input belongs to exactly one of `receiver` and the returned elements.
+pub(crate) fn absorb_groups<T>(
+    receiver: &mut T,
+    groups: Vec<T>,
+    mut join: impl FnMut(&mut T, T) -> Result<(), T>,
+) -> Result<(), Vec<T>> {
+    let mut groups = groups.into_iter();
+    while let Some(group) = groups.next() {
+        if let Err(group) = join(receiver, group) {
+            let mut uncombined = vec![group];
+            uncombined.extend(groups);
+            return Err(uncombined);
+        }
+    }
+    Ok(())
 }
 
 /// Reduce `iter` through the balanced binary counter with an infallible
