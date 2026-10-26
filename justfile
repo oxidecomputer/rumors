@@ -136,7 +136,7 @@ suanpan_fuel_guest_wasm := suanpan_fuel_target + "/wasm32-unknown-unknown/fuel/s
 
 # List recipes.
 default:
-    @just --list --unsorted
+    @"{{ just_executable() }}" --justfile "{{ justfile() }}" --list --unsorted
 
 # ── inner loop ───────────────────────────────────────────────────────────────
 
@@ -480,7 +480,11 @@ gate-streams:
         echo "===== just $recipe ====="
         # The marker is the record and the echo is narration, so the marker
         # is written first: a stream that reported ok has already banked it.
-        if nice -n "$niceness" just "$recipe"; then
+        # The stream re-invokes the running just on this justfile, so it
+        # runs the same binary and file however the gate was started, with
+        # `-f`, `-d`, or another `just` first on PATH. Variable overrides
+        # given on the gate's command line do not reach the streams.
+        if nice -n "$niceness" "{{ just_executable() }}" --justfile "{{ justfile() }}" "$recipe"; then
             : > "$logs/$name.ok"
             echo "gate: ok      $name ($((SECONDS - began))s)" >&3
         else
