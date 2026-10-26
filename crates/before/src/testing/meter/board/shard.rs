@@ -108,6 +108,15 @@ pub(super) type Measured = (&'static str, &'static str, Sample, Sample);
 /// the merge, which validates each child's stamps.
 pub type ShardSpawner<'a> = &'a dyn Fn(Sampling) -> io::Result<Vec<Vec<u8>>>;
 
+/// Runs every shard child at each of the given samplings and returns, for
+/// each sampling in the order given, the children's raw stdout captures in
+/// shard-index order.
+///
+/// The counterpart of [`ShardSpawner`] for a runner that measures several
+/// samplings' shards from one work queue, so that no sampling's shards wait
+/// for the previous sampling's slowest one; the fuel board supplies one.
+pub type LadderSpawner<'a> = &'a dyn Fn(&[Sampling]) -> io::Result<Vec<Vec<Vec<u8>>>>;
+
 /// Whether shard `index` of `count` owns the grid cell at (`op_position`,
 /// `family_position`): the family-outer linearization of the operation × family
 /// grid, dealt round-robin.

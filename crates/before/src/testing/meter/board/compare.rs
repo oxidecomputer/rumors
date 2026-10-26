@@ -20,14 +20,14 @@
 //! (`tree=<id>`, the runner's `AMP_BOARD_SOURCE_TREE`). [`compare`] compares
 //! readings only between captures whose builds match, because debug
 //! assertions add metered work and some operations allocate differently by
-//! target; comparing two trees is what it is for. A calibration merges
-//! readings only from captures of the tree it measures itself.
+//! target; comparing two trees is what it is for. A calibration reads
+//! readings only from captures of the tree it calibrates.
 //!
-//! Each line after the header, but for the last, holds one reading in seven
+//! Each line after the header, but for the last, holds one reading in eight
 //! tab-separated fields:
 //!
 //! ```text
-//! operation  family  currency  scale  sample  axis  reading
+//! operation  family  currency  scale  sample  axis  units  reading
 //! ```
 //!
 //! - `currency` is `heap` or `fuel`. A capture holds rows for the currencies
@@ -43,6 +43,11 @@
 //!   in the cell's growth units (input bytes, unless the rendered board's row
 //!   names another unit),
 //!   so two captures' readings compare at equal size.
+//! - `units` is the size the cell's proportional ceilings divide that
+//!   currency's reading by, in the cell's constant units (input bytes, or
+//!   input and output bytes for an I/O-denominated row, unless the row
+//!   declares a model), so a per-cell ceiling can be derived from a capture
+//!   alone ([`recalibrate_from_captures`](super::recalibrate_from_captures)).
 //! - `reading` is the exact counter value.
 //!
 //! Rows follow board order. The last line, `end` and the number of rows
@@ -57,7 +62,7 @@ use std::path::Path;
 
 use super::currency::{ByCurrency, Currency};
 use super::files::write_atomically;
-use super::judge::trend_units;
+use super::judge::{constant_units, trend_units};
 use super::ladder::{Ladder, LADDER_SAMPLINGS};
 use super::measure::Sample;
 
@@ -65,7 +70,7 @@ use super::measure::Sample;
 mod tests;
 
 /// The format name and version that open every capture's header.
-const FORMAT: &str = "amp-board readings v3";
+const FORMAT: &str = "amp-board readings v4";
 
 /// The readings each cell and currency carries: two samples at every
 /// sampling, in [`LADDER_SAMPLINGS`] order.
@@ -79,13 +84,16 @@ const PAST_POWER_START: usize = 2;
 /// past-power pairs precede it.
 const GROWTH_START: usize = 4;
 
-/// One reading and the size it was measured at.
+/// One reading and the sizes it was measured at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Point {
+pub(super) struct Point {
     /// The units the board fits this currency's growth trend against.
-    axis: u64,
+    pub(super) axis: u64,
+    /// The units this currency's proportional ceilings divide the reading
+    /// by.
+    pub(super) units: u64,
     /// The exact counter value.
-    reading: u64,
+    pub(super) reading: u64,
 }
 
 /// One cell's readings in one currency, at every ladder size.
@@ -213,6 +221,15 @@ fn currencies() -> [Currency; 2] {
 /// Panics if a currency is measured in some samples but not others (its rows
 /// would be incomplete), or if `source_tree` contains a tab or newline.
 pub fn capture(ladder: &Ladder, source_tree: &str, out: &mut dyn Write) -> io::Result<()> {
+    write_capture(&capture_of(ladder, source_tree), out)
+}
+
+/// The capture of `ladder` under `source_tree`, as [`capture`] writes it.
+///
+/// # Panics
+///
+/// As [`capture`].
+fn capture_of(ladder: &Ladder, source_tree: &str) -> Capture {
     assert!(
         !source_tree.contains(['\t', '\n']),
         "amp-board capture: a source tree's name may not contain a tab or newline"
@@ -240,6 +257,7 @@ pub fn capture(ladder: &Ladder, source_tree: &str, out: &mut dyn Write) -> io::R
                 let sample = samples[index];
                 Point {
                     axis: trend_units(sample, currency),
+                    units: constant_units(sample, currency),
                     reading: sample
                         .readings
                         .get(currency)
@@ -254,14 +272,11 @@ pub fn capture(ladder: &Ladder, source_tree: &str, out: &mut dyn Write) -> io::R
             });
         }
     }
-    write_capture(
-        &Capture {
-            measured_on: ladder.measured_on.clone(),
-            source_tree: source_tree.to_owned(),
-            rows,
-        },
-        out,
-    )
+    Capture {
+        measured_on: ladder.measured_on.clone(),
+        source_tree: source_tree.to_owned(),
+        rows,
+    }
 }
 
 /// Writes [`capture`]'s text for `ladder` under `source_tree` to the file at
@@ -304,19 +319,32 @@ pub(super) fn measured(ladder: &Ladder, currency: Currency) -> bool {
 }
 
 /// One capture's build stamp, source tree, and every reading it holds, keyed
-/// by operation, family, and currency, each with the readings' axes in ladder
-/// order.
+/// by operation, family, and currency, each with the readings' sizes in
+/// ladder order.
 pub(super) struct Readings {
     /// The build that measured the readings.
     pub(super) measured_on: BuildStamp,
     /// The source tree the build was compiled from, as the runner named it.
     pub(super) source_tree: String,
-    /// Each row's `(axis, reading)` pairs in ladder order.
-    pub(super) rows: BTreeMap<(String, String, Currency), [(u64, u64); LADDER_SIZES]>,
+    /// Each row's points in ladder order.
+    pub(super) rows: BTreeMap<(String, String, Currency), [Point; LADDER_SIZES]>,
 }
 
-/// Reads a capture's stamp and readings, for a calibration that merges
-/// another build's readings with its own.
+/// Keys `capture`'s rows by operation, family, and currency.
+fn keyed(capture: Capture) -> Readings {
+    let rows = capture
+        .rows
+        .into_iter()
+        .map(|row| ((row.op, row.family, row.currency), row.points))
+        .collect();
+    Readings {
+        measured_on: capture.measured_on,
+        source_tree: capture.source_tree,
+        rows,
+    }
+}
+
+/// Reads a capture's stamp and readings, for a calibration.
 ///
 /// `name` labels the capture in errors.
 ///
@@ -325,20 +353,17 @@ pub(super) struct Readings {
 /// Returns [`io::ErrorKind::InvalidData`] if `text` is not a well-formed
 /// capture.
 pub(super) fn readings(name: &str, text: &str) -> io::Result<Readings> {
-    let capture = parse(name, text)?;
-    let rows = capture
-        .rows
-        .into_iter()
-        .map(|row| {
-            let points = row.points.map(|point| (point.axis, point.reading));
-            ((row.op, row.family, row.currency), points)
-        })
-        .collect();
-    Ok(Readings {
-        measured_on: capture.measured_on,
-        source_tree: capture.source_tree,
-        rows,
-    })
+    parse(name, text).map(keyed)
+}
+
+/// Returns the readings a capture of `ladder` under `source_tree` holds, as
+/// [`readings`] would read them back from its text.
+///
+/// # Panics
+///
+/// As [`capture`].
+pub(super) fn ladder_readings(ladder: &Ladder, source_tree: &str) -> Readings {
+    keyed(capture_of(ladder, source_tree))
 }
 
 /// Write `capture` in the capture format.
@@ -353,13 +378,14 @@ fn write_capture(capture: &Capture, out: &mut dyn Write) -> io::Result<()> {
         for (index, point) in row.points.iter().enumerate() {
             writeln!(
                 out,
-                "{op}\t{family}\t{currency}\t{scale}\t{sample}\t{axis}\t{reading}",
+                "{op}\t{family}\t{currency}\t{scale}\t{sample}\t{axis}\t{units}\t{reading}",
                 op = row.op,
                 family = row.family,
                 currency = row.currency.label(),
                 scale = LADDER_SAMPLINGS[index / 2],
                 sample = index % 2 + 1,
                 axis = point.axis,
+                units = point.units,
                 reading = point.reading,
             )?;
         }
@@ -461,11 +487,11 @@ fn parse_line<'a>(
 ) -> io::Result<(&'a str, &'a str, Currency, Point)> {
     let (text, number) = line;
     let fields: Vec<&str> = text.split('\t').collect();
-    let [op, family, currency, scale, sample, axis, reading] = fields[..] else {
+    let [op, family, currency, scale, sample, axis, units, reading] = fields[..] else {
         return Err(malformed(
             name,
             number,
-            "expected seven tab-separated fields",
+            "expected eight tab-separated fields",
         ));
     };
     let currency = currencies()
@@ -483,10 +509,11 @@ fn parse_line<'a>(
     let count = |field: &str| {
         field
             .parse::<u64>()
-            .map_err(|_| malformed(name, number, "malformed axis or reading"))
+            .map_err(|_| malformed(name, number, "malformed axis, units, or reading"))
     };
     let point = Point {
         axis: count(axis)?,
+        units: count(units)?,
         reading: count(reading)?,
     };
     Ok((op, family, currency, point))

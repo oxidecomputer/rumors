@@ -75,8 +75,9 @@
 //! for each consumer would only repeat the same measurements.
 //!
 //! A [`Ladder`] can only be swept, never read from a file, so every verdict
-//! judges the tree that ran it. A capture is an input to [`compare()`] alone,
-//! which reports differences and judges nothing.
+//! judges the tree that ran it. A capture feeds only [`compare()`], which
+//! reports differences and judges nothing, and the recalibration of the
+//! per-cell ceilings ([`recalibrate`], [`recalibrate_from_captures`]).
 //!
 //! # Counter liveness
 //!
@@ -167,8 +168,8 @@ pub use ceilings::{
     SMALL_INPUT_SCALE, TICKS_BOARD_COUNT,
 };
 pub use cell_ceilings::{
-    cell_ceilings, recalibrate, write_recalibrations, CellCeilings, Recalibration,
-    CEILING_RESOLUTION, CELL_CEILING_HEADROOM, FUEL_ARCHS, HEAP_ARCHS,
+    cell_ceilings, recalibrate, recalibrate_from_captures, write_recalibrations, CellCeilings,
+    Recalibration, CEILING_RESOLUTION, CELL_CEILING_HEADROOM, FUEL_ARCHS, HEAP_ARCHS,
 };
 pub use compare::{capture, capture_file, compare, source_tree, SOURCE_TREE_ENV};
 pub use coverage::{BOARD_NOT_APPLICABLE, BOARD_PRICED};
@@ -179,5 +180,7 @@ pub use ladder::{Ladder, Verdict};
 pub use measure::{FuelMeter, HeapMeter, Meters};
 pub use render::Summary;
 pub use sampling::{Sampling, PAST_POWER_OFFSET};
-pub use shard::{cell_shard, emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
+pub use shard::{
+    cell_shard, emit_shard, max_useful_shards, run, worst_map, LadderSpawner, ShardSpawner,
+};
 pub use worst::{NEAR_TIE_RATIO, WORST_MAP_SCALES};
