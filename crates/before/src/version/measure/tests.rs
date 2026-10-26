@@ -22,7 +22,6 @@ use crate::testing::generators::arb_oracle_version;
 use crate::testing::generators::census::seeded::{
     assert_default_case_count, regime_floor, sample, CENSUS_CASES,
 };
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{
     arb_deep_or_correlated_pair, arb_multiscale_pair, TWO_VERSION_DIVISOR,
 };
@@ -31,6 +30,7 @@ use crate::testing::meter::{Encoding, FREEZE_DRIFT_BITS, MIN_DEFERRED_ARMING_DIG
 use crate::testing::optrace;
 use crate::testing::oracles::flat::{self, check_rank};
 use crate::testing::oracles::function;
+use crate::testing::property::divided_proptest;
 use crate::{Clock, Party, Rank, Version};
 
 /// Decode a meter-generated encoded shape as a [`Version`].
@@ -1063,8 +1063,8 @@ fn check_measures_exact(a: &flat::Version, b: &flat::Version) -> Result<(), Test
     Ok(())
 }
 
-proptest! {
-    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(TWO_VERSION_DIVISOR)]
 
     /// Every rank, distance, lag, and rank order of a deep pair equals the
     /// flat model's exact value, in both operand orders.

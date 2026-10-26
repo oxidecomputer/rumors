@@ -5,12 +5,12 @@ use proptest::prelude::*;
 
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
 use crate::testing::generators;
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{
     arb_deep_or_correlated_pair, arb_deep_version, THREE_VERSION_DIVISOR,
 };
 use crate::testing::generators::regions::arb_deep_party;
 use crate::testing::oracles::flat;
+use crate::testing::property::divided_proptest;
 use crate::testing::shape_rows::{fold_cells, fold_heights, fold_overlay, fold_regions};
 use crate::{Clock, Version};
 
@@ -152,8 +152,8 @@ fn trivial_values_walk_whole() {
     );
 }
 
-proptest! {
-    #![proptest_config(divided_config(THREE_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(THREE_VERSION_DIVISOR)]
 
     /// Every shape walk over deep operands folds into exactly the flat
     /// model's rows.

@@ -18,6 +18,7 @@ laws! {
     /// four, so no combine arm sits beyond the suite's reach under any future
     /// reshaping of the fold.
     pub static VERSION_LIST: (xs: &[Version]);
+    roster version_list_laws;
 
     /// `sum`/`collect` are the sequential pair fold: at every arity, every
     /// seedless iterator entry point equals `|` folded left-to-right from the
@@ -66,6 +67,7 @@ laws! {
     /// count is swept across the same fold boundaries as the [`VERSION_LIST`]
     /// laws', the reach no fixed-arity group has.
     pub static VERSION_AND_LIST: (receiver: &Version, items: &[Version]);
+    roster version_and_list_laws;
 
     /// `join_all` is the sequential pair fold: at every arity, the operation
     /// equals `|` folded left-to-right from the receiver.

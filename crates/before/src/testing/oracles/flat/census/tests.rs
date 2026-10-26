@@ -10,9 +10,9 @@
 use proptest::prelude::*;
 
 use super::Grid;
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_deep_version_triple, THREE_VERSION_DIVISOR};
 use crate::testing::oracles::flat::Version;
+use crate::testing::property::divided_proptest;
 use crate::testing::shape_rows::Leaf;
 
 /// A deep triple as flat versions, with every pairwise join and meet the
@@ -40,8 +40,8 @@ fn arb_flat_triple() -> impl Strategy<Value = (Version, Version, Version)> {
     })
 }
 
-proptest! {
-    #![proptest_config(divided_config(THREE_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(THREE_VERSION_DIVISOR)]
 
     /// Each pool version's height vector on the common refinement, read as
     /// rows, canonicalizes back to that version.

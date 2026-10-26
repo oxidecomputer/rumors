@@ -82,20 +82,25 @@ pub(super) fn decode(reader: &mut BitsReader<'_>) -> Result<BigUint, Decode> {
         return Ok(BigUint::from(mantissa - 1));
     }
 
+    // The value's one allocation, at its full width, comes from setting the
+    // implicit leading one. The mantissa's `zeros` bits then follow the prefix
+    // most significant first, and we set only the ones among them, each
+    // 64-bit chunk visiting its set bits alone. Assembling whole limbs instead
+    // would need a second buffer as wide as the value, since `BigUint` builds
+    // only from 32-bit limbs or bytes and copies them into its own digits.
     let mut mantissa = BigUint::ZERO;
     mantissa.set_bit(zeros, true);
     let mut remaining = zeros;
     while remaining > 0 {
         let chunk_bits = remaining.min(u64::from(u64::BITS));
-        let chunk = reader
+        let mut chunk = reader
             .reader
             .read_bits(chunk_bits as usize)
             .expect("the mantissa was proven to fit the live length");
         remaining -= chunk_bits;
-        for bit in 0..chunk_bits {
-            if (chunk >> bit) & 1 == 1 {
-                mantissa.set_bit(remaining + bit, true);
-            }
+        while chunk != 0 {
+            mantissa.set_bit(remaining + u64::from(chunk.trailing_zeros()), true);
+            chunk &= chunk - 1;
         }
     }
     reader.position += code_len;

@@ -25,8 +25,9 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 nightly_toolchain := "nightly-2026-06-30"
 
-# Cases per property in CI's release-profile run, sized to the high-count
-# profile's timeout in .config/nextest.toml. Re-measure before raising it.
+# Cases per property in CI's release-profile run. A divided property runs its
+# share of this count (`before`'s `testing::property` module explains the
+# division).
 proptest_ci_cases := "4000"
 
 # cargo-fuzz defaults `--target` to the triple it was built for, which for

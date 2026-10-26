@@ -18,6 +18,7 @@ laws! {
     /// anonymous join without recording an event, `sync` reconciles a fork,
     /// `own_version` is the projection, and the parts/codec/text round-trips.
     pub static CLOCK_SOLO: (c: &Clock);
+    roster clock_solo_laws;
 
     /// `fork` preserves the version on both halves (§3: fork clones the causal
     /// past).
@@ -192,6 +193,7 @@ laws! {
     /// and equal clocks hash equally, which container keys on stamps rest
     /// on.
     pub static CLOCK_PAIR: (a: &Clock, b: &Clock);
+    roster clock_pair_laws;
 
     /// `Eq` is canonical-byte equality on whole stamps: `a == b ⟺
     /// encode(a) == encode(b)`, and clock `Eq` is exactly componentwise
@@ -230,6 +232,7 @@ laws! {
     /// compositions of the public operations they fuse, value for value),
     /// and the anonymous-join operators.
     pub static CLOCK_VERSION: (c: &Clock, msg: &Version);
+    roster clock_version_laws;
 
     /// `recv` (join then event) learns the message and advances past it: the
     /// result dominates `old | msg` strictly, and the returned reference is the
@@ -349,6 +352,7 @@ laws! {
     /// They require every collection operation to agree with its definition in
     /// terms of pairwise operations, including success and error behavior.
     pub static CLOCK_AND_LIST: (c: &Clock, items: &[Clock]);
+    roster clock_and_list_laws;
 
     /// `join_all` succeeds exactly when all parties, including the receiver's,
     /// are pairwise disjoint.

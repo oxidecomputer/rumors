@@ -20,6 +20,7 @@ laws! {
     /// endpoint comparisons, its coarsening to `dominance`, and the span
     /// operators' associativity in both of the span algebra's lattices.
     pub static VERSION_TRIPLE: (a: &Version, b: &Version, c: &Version);
+    roster version_triple_laws;
 
     /// Associativity: `(a | b) | c == a | (b | c)`; with commutativity and
     /// idempotence, `|` is a join-semilattice operation.
@@ -139,14 +140,19 @@ laws! {
         let (meet, join) = (b & c, b | c);
         let probes = [a, b, c, &meet, &join];
         /// One polarity-homogeneous double loop of the pointwise check.
+        ///
+        /// An operand's verdicts at the probes are the same in every pairing
+        /// it enters, so each list's verdicts are computed once, up front.
         macro_rules! check {
             ($xs:expr, $ys:expr) => {
-                for x in &$xs {
-                    for y in &$ys {
+                let (xs, ys) = ($xs, $ys);
+                let (xs_admit, ys_admit) = (verdicts(&xs, &probes), verdicts(&ys, &probes));
+                for (x, x_admits) in xs.iter().zip(&xs_admit) {
+                    for (y, y_admits) in ys.iter().zip(&ys_admit) {
                         let xy = x.clone() & y.clone();
                         let yx = y.clone() & x.clone();
-                        for p in probes {
-                            let want = x.contains(p) && y.contains(p);
+                        for (i, p) in probes.into_iter().enumerate() {
+                            let want = x_admits[i] && y_admits[i];
                             if xy.contains(p) != want || yx.contains(p) != want {
                                 return false;
                             }
@@ -890,6 +896,17 @@ fn up_queries<'a>(b: &'a Version, c: &'a Version) -> Vec<Query<'a, causally::Up>
         causally::before(b) & (!causally::after(c)),
         causally::after(b) & (!causally::after(c)),
     ]
+}
+
+/// Each query's membership verdict at every probe, in probe order.
+fn verdicts<P: causally::Polarity>(
+    queries: &[Query<'_, P>],
+    probes: &[&Version],
+) -> Vec<Vec<bool>> {
+    queries
+        .iter()
+        .map(|query| probes.iter().map(|probe| query.contains(probe)).collect())
+        .collect()
 }
 
 /// Whether `Query::from(&q)` is a copy of `q` for every query in `queries`:

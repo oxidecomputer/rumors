@@ -17,6 +17,7 @@ laws! {
     /// `n` raises it by at most one or `n`), and the projection (`/`) point
     /// laws.
     pub static VERSION_PARTY: (a: &Version, p: &Party);
+    roster version_party_laws;
 
     /// `tick` strictly advances the causal order: `a < a.tick(p)`.
     fn tick_strictly_advances {
@@ -213,6 +214,7 @@ laws! {
     /// projection, and `ticks` as a monoid action at the wide counts the
     /// operands' tick floors supply.
     pub static VERSION_PAIR_PARTY: (a: &Version, b: &Version, p: &Party);
+    roster version_pair_party_laws;
 
     /// Projection is a homomorphism of the join: `(a | b) / p == (a/p) | (b/p)`
     /// (the pointwise gate commutes with pointwise max).
@@ -378,6 +380,7 @@ laws! {
     /// Laws over a version and two live parties: projection's interaction with
     /// the region geometry.
     pub static VERSION_PARTY_PAIR: (v: &Version, p: &Party, q: &Party);
+    roster version_party_pair_laws;
 
     /// Successive projections commute: `(v / p) / q == (v / q) / p` (both keep
     /// exactly the history on the regions' intersection).
@@ -465,6 +468,7 @@ laws! {
     /// Laws over two versions and two live parties: the homogeneous view
     /// comparison against its materialized oracle.
     pub static VERSION_PAIR_PARTY_PAIR: (a: &Version, b: &Version, p: &Party, q: &Party);
+    roster version_pair_party_pair_laws;
 
     /// The view's homogeneous comparisons are the materialized projections',
     /// exactly: `(a/p) ⋚ (b/q) ≡ (a/p).to_version() ⋚ (b/q).to_version()`.

@@ -87,14 +87,13 @@ slow-timeout = { period = "60s", terminate-after = 20 }
 filter = 'package(before-fuelscape)'
 slow-timeout = { period = "60s", terminate-after = 9 }
 
-# Four thousand property cases make the slowest Rumors tests take several
-# minutes in release. Ten minutes still turns a lost wakeup into a failure
-# while leaving headroom over the measured five-to-six-minute maximum.
+# Release runs at a raised PROPTEST_CASES: CI's property job, and
+# investigative runs at counts like 100k. A property's time grows with the
+# case count, so no one limit fits every count: this profile reports a slow
+# test every period but never terminates one. A hang therefore runs until an
+# interrupt or, in CI, the job's own time limit, which is GitHub's default
+# while the job sets none.
 [profile.high-count]
-slow-timeout = { period = "60s", terminate-after = 10 }
-
-# Investigative runs at very high PROPTEST_CASES (e.g. 100k).
-[profile.extreme-count]
 slow-timeout = { period = "60s" }
 
 # The window measurement suites (window_knee, window_operator,

@@ -5,11 +5,11 @@ use proptest::prelude::*;
 use super::*;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::generators::arb_oracle_version;
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{
     arb_deep_or_correlated_pair, arb_deep_version, THREE_VERSION_DIVISOR,
 };
 use crate::testing::oracles::flat::{self, check_version};
+use crate::testing::property::divided_proptest;
 use crate::Clock;
 
 /// Build a five-version chain and one version concurrent with the whole chain.
@@ -1055,8 +1055,8 @@ struct JudgedSpan {
     hi: flat::Version,
 }
 
-proptest! {
-    #![proptest_config(divided_config(THREE_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(THREE_VERSION_DIVISOR)]
 
     /// Every span over a pool of deep versions has the flat model's
     /// endpoints and the verdicts the model's order implies.

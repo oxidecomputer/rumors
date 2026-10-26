@@ -28,6 +28,8 @@ pub(crate) mod grow_brute_force;
 #[cfg(test)]
 pub(crate) mod optrace;
 #[cfg(test)]
+pub(crate) mod property;
+#[cfg(test)]
 pub(crate) mod rng;
 #[cfg(test)]
 pub(crate) mod scripted_io;

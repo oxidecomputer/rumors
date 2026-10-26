@@ -166,6 +166,12 @@ crate::for_each_law_group!(emit_registration);
 /// module's tests closes it by comparing the roster against the `pub static`
 /// declarations across the focused law modules. The header keeps that literal
 /// spelling so the scan stays exact and simple.
+///
+/// The header's `roster` line names a test-only macro, by the group's driver
+/// name in `for_each_law_group!`, that passes the block's law names to a
+/// callback: `version_pair_laws!(callback(args))` expands to
+/// `callback! { args; law, law, ... }`. The law drivers expand it into one test
+/// per law, so the list a test suite runs is the list this block registers.
 macro_rules! laws {
     // In both the matcher and the transcriber, attributes and the declaration
     // share a line: the totality pin's source scan reads any line starting `pub
@@ -173,12 +179,14 @@ macro_rules! laws {
     // only, never this definition.
     (
         $(#[$group_meta:meta])* pub static $group:ident: ($($param:ident: $ty:ty),+ $(,)?);
+        roster $roster:ident;
         $(
             $(#[$law_meta:meta])*
             fn $law:ident $(($($rename:ident),+ $(,)?))? $body:block
         )+
     ) => {
         $(#[$group_meta])* pub static $group: &[Law<fn($($ty),+) -> bool>] = &[$((stringify!($law), $law)),+];
+        laws! { @roster ($) $roster; $($law),+ }
         laws! {
             @laws ($($param: $ty),+);
             $(
@@ -186,6 +194,20 @@ macro_rules! laws {
                 fn $law $(($($rename),+))? $body
             )+
         }
+    };
+    // The roster macro's own metavariables need a `$` that this macro does not
+    // read as one of its own, so the caller passes the token in as `$d`.
+    (@roster ($d:tt) $roster:ident; $($law:ident),+) => {
+        /// Passes this group's law names, in registration order, to a callback
+        /// macro after the callback's own arguments.
+        #[cfg(test)]
+        macro_rules! $roster {
+            ($d callback:ident($d($d args:tt)*)) => {
+                $d callback! { $d($d args)*; $($law),+ }
+            };
+        }
+        #[cfg(test)]
+        pub(crate) use $roster;
     };
     // Peel one law at a time: the header parameters are re-carried to every law
     // as a plain token list, which sidesteps the transcriber depth rule (a
@@ -369,6 +391,27 @@ pub use version_party::{
 };
 pub use version_solo::VERSION_SOLO;
 pub use version_triple::VERSION_TRIPLE;
+
+// The groups' law-name rosters, for the per-law test drivers.
+#[cfg(test)]
+pub(crate) use clock::{clock_and_list_laws, clock_pair_laws, clock_solo_laws, clock_version_laws};
+#[cfg(test)]
+pub(crate) use party::{party_and_list_laws, party_pair_laws, party_solo_laws, party_triple_laws};
+#[cfg(test)]
+pub(crate) use rank::rank_triple_laws;
+#[cfg(test)]
+pub(crate) use version_list::{version_and_list_laws, version_list_laws};
+#[cfg(test)]
+pub(crate) use version_pair::version_pair_laws;
+#[cfg(test)]
+pub(crate) use version_party::{
+    version_pair_party_laws, version_pair_party_pair_laws, version_party_laws,
+    version_party_pair_laws,
+};
+#[cfg(test)]
+pub(crate) use version_solo::version_solo_laws;
+#[cfg(test)]
+pub(crate) use version_triple::version_triple_laws;
 
 #[cfg(test)]
 mod tests;

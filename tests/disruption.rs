@@ -34,10 +34,21 @@ use crate::common::sim::{
 use crate::common::window::{WindowAssignment, WindowChoice};
 use crate::common::wire::bootstrap_fork;
 
-/// A fresh multi-thread runtime per simulation, so tasks interleave with
-/// real parallelism rather than cooperative scheduling alone.
+/// Worker threads in each simulation's runtime.
+///
+/// Several workers let peers' tasks run truly in parallel. The count is
+/// fixed rather than Tokio's default of one per host core, so a simulation
+/// interleaves the same way on every host, and a property case does not
+/// spawn and join a thread per core: on a many-core host that thread churn,
+/// repeated in every case, costs far more than the simulation itself.
+const SIM_WORKERS: usize = 4;
+
+/// A fresh multi-thread runtime of [`SIM_WORKERS`] workers per simulation,
+/// so tasks interleave with real parallelism rather than cooperative
+/// scheduling alone.
 fn mt_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(SIM_WORKERS)
         .enable_all()
         .build()
         .expect("build multi-thread runtime")

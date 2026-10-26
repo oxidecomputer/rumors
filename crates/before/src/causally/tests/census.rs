@@ -39,10 +39,10 @@ use crate::testing::exhaustive::cell_heights;
 use crate::testing::generators::census::seeded::{
     assert_default_case_count, assert_floors, regime_floor, sample, Tally, CENSUS_CASES,
 };
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_deep_version, arb_deep_version_triple};
 use crate::testing::oracles::flat::census::{census, classify, Grid, Heights};
 use crate::testing::oracles::flat::Version as FlatVersion;
+use crate::testing::property::divided_proptest;
 use crate::testing::shape_rows::Leaf;
 use crate::{Span, Version};
 
@@ -601,8 +601,8 @@ fn has_interior_witness(finer: &FinerPool, clauses: &Clauses, which: Which) -> b
 /// hold a segment that can expose a census missing its witness.
 const VALIDATOR_DIVISOR: u32 = 1;
 
-proptest! {
-    #![proptest_config(divided_config(VALIDATOR_DIVISOR))]
+divided_proptest! {
+    #![divisor(VALIDATOR_DIVISOR)]
 
     /// The census holds a witness for every coverage verdict: on small
     /// grids it agrees with the count over a [`FinerPool`], which realizes
@@ -665,8 +665,8 @@ const ANTICHAIN_DIVISOR: u32 = 4;
 /// them.
 const QUERY_DIVISOR: u32 = 6;
 
-proptest! {
-    #![proptest_config(divided_config(ANTICHAIN_DIVISOR))]
+divided_proptest! {
+    #![divisor(ANTICHAIN_DIVISOR)]
 
     /// Queries whose holes form antichains of three to eight on deep cells
     /// admit exactly what their clauses admit, and cover every segment
@@ -689,8 +689,8 @@ proptest! {
     }
 }
 
-proptest! {
-    #![proptest_config(divided_config(QUERY_DIVISOR))]
+divided_proptest! {
+    #![divisor(QUERY_DIVISOR)]
 
     /// Neutral, downward, and upward conjunctions of every public form over
     /// deep versions admit exactly what their clauses admit, and cover every

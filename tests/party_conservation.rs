@@ -53,6 +53,19 @@ use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire
 /// keep `retire.rs`'s headroom.
 const LINK_BUF: usize = 64 * 1024;
 
+/// The largest fleet [`fleet_scale_retirement_preserves_content_and_party`]
+/// builds and retires.
+///
+/// Up to fifteen messages put two in the same first radix byte of the content
+/// trie in about a third of the largest cases, so retirements also reconcile a
+/// second trie level. A case runs two sessions per departing peer, so its cost
+/// grows with the fleet, and this cap keeps the test's time at high case counts
+/// in line with the suite's other end-to-end properties. Larger sets, deeper
+/// parties, and window pressure have suites of their own:
+/// the multi-peer gossip suites, `before`'s deep party laws, and the window
+/// suites.
+const MAX_FLEET: usize = 16;
+
 /// Alias a live handle's party for accounting.
 ///
 /// The alias is compared, folded, and dropped — never ticked, and never
@@ -379,10 +392,11 @@ proptest! {
     /// Retiring a fleet into one survivor preserves every message and the whole party.
     ///
     /// Provider choices, retirement order, and absorbers vary across populations
-    /// of up to a hundred peers; the final set must contain every original version.
+    /// of up to [`MAX_FLEET`] peers; the final set must contain every original
+    /// version.
     #[test]
     fn fleet_scale_retirement_preserves_content_and_party(
-        (providers, retirements) in (2usize..=100).prop_flat_map(|n| (
+        (providers, retirements) in (2..=MAX_FLEET).prop_flat_map(|n| (
             proptest::collection::vec(any::<usize>(), n - 1),
             proptest::collection::vec((any::<usize>(), any::<usize>()), n - 1),
         )),

@@ -19,6 +19,7 @@ laws! {
     /// `Display`'s, as documented, and `Display`'s formatting flags apply to
     /// the whole rendered text.
     pub static RANK_TRIPLE: (a: &Rank, b: &Rank, c: &Rank);
+    roster rank_triple_laws;
 
     /// Addition is commutative: `a + b == b + a`.
     fn rank_add_commutative(a, b, _c) {

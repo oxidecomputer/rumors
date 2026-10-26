@@ -31,8 +31,9 @@ use super::leaf_list::{
 use super::regions::{arb_deep_party, arb_deep_party_family};
 use super::{
     arb_clock_family, arb_dyadic, arb_oracle_party, arb_oracle_version, arb_related_dyadic,
-    divided_config, ARB_DEPTH,
+    ARB_DEPTH,
 };
+use crate::testing::property::divided_proptest;
 
 /// Trees sampled from each arbitrary strategy: enough that the thinnest
 /// class, a leaf aligned at `2^64`, gets a positive floor from its designed
@@ -510,8 +511,8 @@ fn assert_leaves_lie_in_plateaus(leaves: &[Leaf], plateaus: &[Leaf]) -> Result<(
     Ok(())
 }
 
-proptest! {
-    #![proptest_config(divided_config(ONE_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(ONE_VERSION_DIVISOR)]
 
     /// A deep leaf list's rows and its closed tree's plateau rows close to
     /// one normal-form tree, and normalization only merges rows: every leaf

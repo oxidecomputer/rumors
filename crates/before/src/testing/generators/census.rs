@@ -53,7 +53,7 @@
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, RngSeed, TestRunner};
 
-use super::divided_config;
+use crate::testing::property::divided_cases;
 
 pub(crate) mod seeded;
 mod tests;
@@ -184,7 +184,7 @@ impl Tally {
     }
 
     /// Requires the regime's mass to give each run of a property at the
-    /// configured case count divided by `divisor` (see [`divided_config`])
+    /// configured case count divided by `divisor` (see [`divided_cases`])
     /// [`REGIME_CASES_PER_RUN`] regime cases in expectation.
     pub(crate) fn serving(self, divisor: u32) -> Tally {
         Tally {
@@ -219,7 +219,7 @@ pub(crate) fn assert_floors(tallies: &[Tally], samples: usize, cause: &str) {
             tally.regime
         );
         if let Some(divisor) = tally.serves {
-            let cases = u64::from(divided_config(divisor).cases);
+            let cases = u64::from(divided_cases(Config::default().cases, divisor));
             assert!(
                 tally.mass.numerator * cases >= REGIME_CASES_PER_RUN * tally.mass.denominator,
                 "`{}`'s designed mass, {}/{}, gives a run of {cases} cases fewer than \

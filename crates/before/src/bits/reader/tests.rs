@@ -211,55 +211,100 @@ fn mid_stream_opens_read_the_same_suffix() {
     }
 }
 
+/// One step of a differential stream: a unary run of `0` bits closed by a
+/// `1`, or one gamma code.
+#[derive(Clone, Debug)]
+enum StreamOp {
+    /// A run of this many zeros, then its terminator.
+    Unary(u64),
+    /// The gamma code of this value.
+    Gamma(BigUint),
+}
+
+/// Gamma values from every decoding tier: the table, one machine word, and
+/// arbitrary width.
+///
+/// The edge arm sets the mantissa (the value plus one) to a power of two
+/// `2^zeros` up to [`WIDE_GAMMA_BITS`], with its low bits nearly all clear or
+/// nearly all set, so the codes' widths cover every limb alignment and their
+/// mantissas cover both carry extremes of the final decrement. The random arm
+/// draws whole magnitudes of every limb count below that width.
+fn arb_gamma_value() -> impl Strategy<Value = BigUint> {
+    prop_oneof![
+        (0u64..1000).prop_map(BigUint::from),
+        (u64::MAX - 2..=u64::MAX).prop_map(BigUint::from),
+        (0..WIDE_GAMMA_BITS, 0u8..4, any::<bool>()).prop_map(|(zeros, offset, set)| {
+            let floor = BigUint::ONE << zeros;
+            let offset = BigUint::from(offset) % &floor;
+            let mantissa = if set {
+                (&floor << 1u8) - 1u8 - offset
+            } else {
+                floor + offset
+            };
+            mantissa - 1u8
+        }),
+        prop::collection::vec(any::<u32>(), 0..(WIDE_GAMMA_BITS / 32) as usize)
+            .prop_map(BigUint::new),
+    ]
+}
+
+/// The widest mantissa [`arb_gamma_value`] draws, in bits past its leading
+/// one: several 64-bit words, so a wide code spans many limbs and buffer
+/// refills.
+const WIDE_GAMMA_BITS: u64 = 600;
+
 proptest! {
     /// Differential: the word-parallel cursor matches the per-bit
     /// slice cursor on arbitrary interleavings of unary runs and
-    /// gamma codes.
+    /// gamma codes of every width.
     ///
-    /// Identical bits consumed, identical values decoded, and
-    /// `skip_gamma` lands exactly where `read_gamma` does.
+    /// Identical bits consumed, identical values decoded (and equal to the
+    /// values written), and `skip_gamma` lands exactly where `read_gamma`
+    /// does. The unary runs shift each code to an arbitrary bit offset.
     #[test]
     fn arbitrary_streams_match_the_slice_cursor(
         ops in prop::collection::vec(
             prop_oneof![
-                (0usize..70).prop_map(|run| (true, run as u64)),
-                prop_oneof![
-                    (0u64..1000).boxed(),
-                    (u64::MAX - 2..=u64::MAX).boxed(),
-                ].prop_map(|v| (false, v)),
+                (0u64..70).prop_map(StreamOp::Unary),
+                arb_gamma_value().prop_map(StreamOp::Gamma),
             ],
             1..40,
         ),
     ) {
         let mut bits = BitsWriter::new();
-        for (unary, v) in &ops {
-            if *unary {
-                for _ in 0..*v {
-                    bits.push(false);
+        for op in &ops {
+            match op {
+                StreamOp::Unary(run) => {
+                    for _ in 0..*run {
+                        bits.push(false);
+                    }
+                    bits.push(true);
                 }
-                bits.push(true);
-            } else {
-                bits.write_gamma(&BigUint::from(*v));
+                StreamOp::Gamma(value) => bits.write_gamma(value),
             }
         }
         let mut reader = bits.reader();
         let mut reference = ReferenceBitsReader::new(bits.as_raw_slice(), bits.len(), 0);
-        for (unary, _) in &ops {
-            if *unary {
-                let want = reference.read_unary().expect("the stream holds the run");
-                let got = reader.read_unary().expect("the stream holds the run");
-                prop_assert_eq!(got, want);
-            } else {
-                let want = reference.read_gamma().expect("the stream holds the code");
-                let mut skipper = BitsReader::from_storage(
-                    bits.as_raw_slice(),
-                    bits.len(),
-                    reader.position(),
-                );
-                let got = reader.read_gamma().expect("the stream holds the code");
-                prop_assert_eq!(&got, &want);
-                skipper.skip_gamma().expect("the skip accepts the code");
-                prop_assert_eq!(skipper.position(), reader.position());
+        for op in &ops {
+            match op {
+                StreamOp::Unary(_) => {
+                    let want = reference.read_unary().expect("the stream holds the run");
+                    let got = reader.read_unary().expect("the stream holds the run");
+                    prop_assert_eq!(got, want);
+                }
+                StreamOp::Gamma(value) => {
+                    let want = reference.read_gamma().expect("the stream holds the code");
+                    let mut skipper = BitsReader::from_storage(
+                        bits.as_raw_slice(),
+                        bits.len(),
+                        reader.position(),
+                    );
+                    let got = reader.read_gamma().expect("the stream holds the code");
+                    prop_assert_eq!(&got, &want);
+                    prop_assert_eq!(&got, value);
+                    skipper.skip_gamma().expect("the skip accepts the code");
+                    prop_assert_eq!(skipper.position(), reader.position());
+                }
             }
             prop_assert_eq!(reader.position(), reference.position());
         }

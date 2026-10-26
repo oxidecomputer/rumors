@@ -17,6 +17,7 @@ laws! {
     /// (codec, text, byte views), the byte hash, the `Debug` renderings of
     /// [`Ranked`] and the atomic bounds, and the shape iterator's size hints.
     pub static VERSION_SOLO: (a: &Version);
+    roster version_solo_laws;
 
     /// Idempotence: `a | a == a` (the LUB of a value and itself is that value).
     fn merge_idempotent {

@@ -16,6 +16,7 @@ laws! {
     /// [`PARTY_AND_LIST`]'s: the width-quantified family covers reunion,
     /// acceptance, and error conservation.
     pub static PARTY_SOLO: (p: &Party);
+    roster party_solo_laws;
 
     /// `fork` then `join` round-trips: the two halves reconstruct the original
     /// region exactly.
@@ -181,6 +182,7 @@ laws! {
     /// coherence with `is_disjoint`, `without`'s two characterizations, and
     /// `Eq`/`Hash` coherence.
     pub static PARTY_PAIR: (a: &Party, b: &Party);
+    roster party_pair_laws;
 
     /// Covering is antisymmetric: two regions cover each other exactly when
     /// they are equal.
@@ -268,6 +270,7 @@ laws! {
     /// The covering order's incidental transitivity and the partial monoid's
     /// associativity, outcome-quantified.
     pub static PARTY_TRIPLE: (a: &Party, b: &Party, c: &Party);
+    roster party_triple_laws;
 
     /// Covering is transitive: whenever three arbitrary parties happen to chain
     /// (`a ⊇ b ⊇ c`), the endpoints must too.
@@ -317,6 +320,7 @@ laws! {
     /// forked parties, and conservation of every point's multiplicity after an
     /// error.
     pub static PARTY_AND_LIST: (p: &Party, items: &[Party]);
+    roster party_and_list_laws;
 
     /// `join_all` succeeds exactly when all parties, including the receiver,
     /// are pairwise disjoint.

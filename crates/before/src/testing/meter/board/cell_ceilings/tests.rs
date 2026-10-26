@@ -11,8 +11,8 @@ use super::super::measure::{Model, Sample};
 use super::super::render::ceiling_text;
 use super::{
     archs_of_record, calibration, ceiling_thousandths, derive_ceilings, recalibrate,
-    recalibrate_from_captures, Calibration, CellCeilings, Recalibration, CEILING_RESOLUTION,
-    CELL_CEILING_HEADROOM, TABLES,
+    recalibrate_from_captures, recalibrate_tables, recalibrate_tables_from_captures, Calibration,
+    CellCeilings, Recalibration, CEILING_RESOLUTION, CELL_CEILING_HEADROOM, TABLES,
 };
 
 /// The operation and family of the synthetic cell these tests calibrate.
@@ -329,6 +329,26 @@ fn calibration_from_captures_refuses_what_it_cannot_derive_from() {
     );
 }
 
+/// The heap table the two calibration paths regenerate in
+/// [`calibration_from_captures_matches_calibration_from_the_sweep`].
+///
+/// It holds [`CELL`], at a ceiling no probe reading derives, so regeneration
+/// always moves it, and a cell the probe never measures, which regeneration
+/// drops.
+///
+/// A two-cell table reaches both kinds of movement while keeping each case's
+/// rendering small; the committed tables would render thousands of rows per
+/// case, every one of them dropped.
+static PROBE_TABLE: CellCeilings = CellCeilings {
+    currency: Currency::Heap,
+    archs: &["aarch64", "x86_64"],
+    provenance: None,
+    entries: &[
+        (CELL.0, CELL.1, u64::MAX),
+        (CELL.0, "unmeasured_family", 1_000),
+    ],
+};
+
 proptest! {
     /// Calibrating from captures alone writes the table, and reports the
     /// movement, that calibrating from a sweep writes when the first capture
@@ -338,7 +358,7 @@ proptest! {
     /// trend axis, so the two agree only if the capture carries the units
     /// the rule divides by, not the axis it fits against; the other
     /// architecture's readings differ, so the merge's larger reading counts
-    /// on both paths.
+    /// on both paths. Both paths regenerate [`PROBE_TABLE`].
     #[test]
     fn calibration_from_captures_matches_calibration_from_the_sweep(
         here in proptest::array::uniform8(0.0f64..10.0),
@@ -350,17 +370,29 @@ proptest! {
         };
         let arm = modeled(ladder("aarch64", readings_at(here)));
         let x86 = capture_text(&modeled(ladder("x86_64", readings_at(there))), "tree-a");
-        let swept = recalibrate(&arm, "tree-a", &[("x86", &x86)], Some("provenance"))
-            .expect("the sweep calibrates");
+        let swept = recalibrate_tables(
+            &[&PROBE_TABLE],
+            &arm,
+            "tree-a",
+            &[("x86", &x86)],
+            Some("provenance"),
+        )
+        .expect("the sweep calibrates");
         prop_assert_eq!(swept.len(), 1, "the ladder measures heap alone");
         let arm = capture_text(&arm, "tree-a");
-        let captured = recalibrate_from_captures(
+        let captured = recalibrate_tables_from_captures(
+            &[&PROBE_TABLE],
             Currency::Heap,
             "tree-a",
             &[("arm", &arm), ("x86", &x86)],
             Some("provenance"),
         )
         .expect("the captures calibrate");
+        prop_assert_eq!(
+            swept[0].movement.len(),
+            2,
+            "the probe moves its own cell and drops the unmeasured one"
+        );
         prop_assert!(same_table(&swept[0], &captured), "{:?} != {:?}", swept[0], captured);
     }
 }

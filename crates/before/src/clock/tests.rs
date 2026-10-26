@@ -6,7 +6,6 @@ use crate::testing::bridge::{
     from_oracle_clock, from_oracle_party, from_oracle_version, to_oracle_clock, to_oracle_party,
     to_oracle_version,
 };
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_deep_version_pair, TWO_VERSION_DIVISOR};
 use crate::testing::generators::regions::{arb_deep_clock_family, arb_disjoint_parties};
 use crate::testing::generators::{
@@ -18,6 +17,7 @@ use crate::testing::optrace::{
 };
 use crate::testing::oracles::flat::{self, check_party, check_version};
 use crate::testing::oracles::{function, tree};
+use crate::testing::property::divided_proptest;
 use crate::{Clock, Party, Version};
 
 /// `join_all` matches sequential oracle joins for disjoint and overlapping
@@ -1693,8 +1693,8 @@ fn static_orbit_ids_freeze_and_versions_grow_log() {
     }
 }
 
-proptest! {
-    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(TWO_VERSION_DIVISOR)]
 
     /// `Clock::sync` of two deep clocks agrees with the flat model, whether
     /// their parties are disjoint or overlap in part.

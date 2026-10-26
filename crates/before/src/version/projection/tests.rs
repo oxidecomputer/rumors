@@ -13,10 +13,10 @@ use proptest::prelude::*;
 
 use crate::bits::BitsWriter;
 use crate::error::Decode;
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_deep_or_correlated_pair, TWO_VERSION_DIVISOR};
 use crate::testing::generators::regions::arb_deep_party;
 use crate::testing::oracles::flat::{self, check_version};
+use crate::testing::property::divided_proptest;
 use crate::version::io::validate::whole;
 use crate::{OwnVersion, Version};
 
@@ -110,8 +110,8 @@ fn check_view_against_version(
     Ok(())
 }
 
-proptest! {
-    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(TWO_VERSION_DIVISOR)]
 
     /// A deep version's view through a deep party agrees with the flat
     /// model's restriction, as a version and in every comparison.

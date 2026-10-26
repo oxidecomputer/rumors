@@ -20,6 +20,8 @@
 //! additionally held to the oracle's inflation, the brute-force search, and an
 //! independent reference route probe below.
 
+use std::collections::BTreeMap;
+
 use num_bigint::BigUint;
 use proptest::prelude::*;
 use rayon::prelude::*;
@@ -35,6 +37,7 @@ use crate::testing::generators::{self, co_generated};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::Encoding;
 use crate::testing::optrace;
+use crate::testing::property::divided_proptest;
 use crate::version::instrument::validate;
 use crate::{Clock, Count, Party, Version};
 
@@ -1667,16 +1670,24 @@ fn assert_co_generated(case: &co_generated::TickCase) {
             );
         }
 
+        // Every pair starting with `a` shares the first leg `ticks(a)`, and
+        // both orders of a pair share the joint `ticks(a + b)`, so we compute
+        // each once.
+        let ticked = |n: &BigUint| {
+            let mut ticked = v.clone();
+            ticked.ticks(&p, Count(n.clone()));
+            ticked
+        };
         let counts = composition_counts();
+        let mut joints = BTreeMap::new();
         for a in &counts {
+            let first_leg = ticked(a);
             for b in &counts {
-                let mut stepwise = v.clone();
-                stepwise.ticks(&p, Count(a.clone()));
+                let mut stepwise = first_leg.clone();
                 stepwise.ticks(&p, Count(b.clone()));
-                let mut joint = v.clone();
-                joint.ticks(&p, Count(a + b));
+                let joint = joints.entry(a + b).or_insert_with_key(|sum| ticked(sum));
                 assert_eq!(
-                    stepwise, joint,
+                    &stepwise, joint,
                     "ticks({a}) then ticks({b}) must equal ticks({a} + {b}): {v:?} with {p:?}"
                 );
             }
@@ -1700,8 +1711,8 @@ proptest! {
     }
 }
 
-proptest! {
-    #![proptest_config(generators::divided_config(co_generated::WIDE_CASE_DIVISOR))]
+divided_proptest! {
+    #![divisor(co_generated::WIDE_CASE_DIVISOR)]
 
     /// A pre-scan reserving more memo slots than one block holds ticks
     /// byte-identically to the recursive oracle through `tick` and `ticks`,
@@ -1717,8 +1728,8 @@ proptest! {
     }
 }
 
-proptest! {
-    #![proptest_config(generators::divided_config(co_generated::MULTI_SCAN_CASE_DIVISOR))]
+divided_proptest! {
+    #![divisor(co_generated::MULTI_SCAN_CASE_DIVISOR)]
 
     /// Walks running several pre-scans, often two or more past one memo
     /// block, tick byte-identically to the recursive oracle through `tick`
@@ -1734,8 +1745,8 @@ proptest! {
     }
 }
 
-proptest! {
-    #![proptest_config(generators::divided_config(co_generated::DEEP_SPINE_CASE_DIVISOR))]
+divided_proptest! {
+    #![divisor(co_generated::DEEP_SPINE_CASE_DIVISOR)]
 
     /// Co-generated spines a few hundred levels deep, their fill-fixed
     /// successors, and late perturbations tick byte-identically to the

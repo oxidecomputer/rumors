@@ -1,9 +1,14 @@
-//! The law drivers: one generic proptest per signature group, iterating
-//! [`crate::testing::laws`]' slices so every assertion names the law it checks.
+//! The law drivers: one proptest per law in [`crate::testing::laws`], for each
+//! input regime, named for the law it checks.
+//!
+//! A driver per signature group expands each group's law roster into a module
+//! named for the group, holding one test per law. Each test draws its own
+//! cases, so every law runs the full configured case count, and nextest runs
+//! the laws of one group in parallel.
 //!
 //! Every driver expands from the law-group roster
-//! (`crate::for_each_law_group!`): the per-group proptests over arbitrary
-//! normal forms, the organic-populations drive list, the per-group proptests
+//! (`crate::for_each_law_group!`): the per-law proptests over arbitrary
+//! normal forms, the organic-populations drive list, the per-law proptests
 //! over deep inputs in [`deep`], those over multi-scale pairs in
 //! [`multiscale`], which take the groups over one version, over two, and over
 //! ranks, and those over co-generated tick cases in [`co_generated`], which
@@ -20,7 +25,7 @@ use crate::testing::generators::{
     arb_clock_family, arb_fold_arity, arb_oracle_party_nonempty, arb_oracle_version,
     arb_party_family, arb_version_family,
 };
-use crate::testing::laws;
+use crate::testing::laws::{self, Law};
 use crate::testing::optrace::{run, step, world_strategy, Production};
 use crate::testing::oracles::tree;
 use crate::{Clock, Party, Rank, Version};
@@ -47,11 +52,87 @@ macro_rules! assert_laws {
     };
 }
 
+/// Whether the law registered as `name` in `group` holds, given the inputs
+/// `check` feeds it.
+///
+/// Taking the group first fixes the law's type before `check` is inferred, so
+/// a driver's check closure needs no annotation.
+fn holds<F: Copy>(group: &[Law<F>], name: &str, check: impl FnOnce(F) -> bool) -> bool {
+    let (_, law) = group
+        .iter()
+        .find(|(registered, _)| *registered == name)
+        .expect("each law test is named for a law its group's roster lists");
+    check(*law)
+}
+
+/// Expands one property test per law in a group, inside a module of its own.
+///
+/// `mod $module = $roster($group)` names the module and the group, whose
+/// roster macro supplies the law names; each test is named for its law.
+/// `divisor` divides the configured case count, as
+/// [`crate::testing::property::run`] does, `params` binds the strategies every
+/// test draws from, and `check` is a closure that feeds one law its inputs.
+/// Each test draws its own cases, so every law runs the full divided count,
+/// and nextest runs the laws of one group in parallel.
+macro_rules! law_proptests {
+    (
+        $(#[$doc:meta])*
+        mod $module:ident = $roster:ident($group:ident);
+        divisor $divisor:expr;
+        params ($($parm:pat in $strategy:expr),+ $(,)?);
+        check |$law_param:ident| $check:expr;
+    ) => {
+        $(#[$doc])*
+        mod $module {
+            use super::*;
+
+            /// Runs the property of the law registered as `name` over this
+            /// module's inputs.
+            ///
+            /// Every law test in the module calls this one function, so the
+            /// strategy and the runner compile once per module rather than
+            /// once per law.
+            fn check_law(name: &'static str, test_name: &'static str) {
+                crate::testing::property::run(
+                    $divisor,
+                    test_name,
+                    file!(),
+                    ($($strategy,)+),
+                    |($($parm,)+)| {
+                        prop_assert!(
+                            crate::testing::algebraic_laws::tests::holds(
+                                crate::testing::laws::$group,
+                                name,
+                                |$law_param| $check,
+                            ),
+                            "law violated: {}",
+                            name
+                        );
+                        Ok(())
+                    },
+                );
+            }
+
+            crate::testing::laws::$roster!(law_proptests(@tests));
+        }
+    };
+    (@tests; $($law:ident),+) => {
+        $(
+            /// The law this test is named for holds on the inputs its module
+            /// describes.
+            #[test]
+            fn $law() {
+                check_law(stringify!($law), concat!(module_path!(), "::", stringify!($law)));
+            }
+        )+
+    };
+}
+
 // ───────────────────── arbitrary normal-form inputs ─────────────────────
 
-/// Expands the law-group roster into the per-group drivers: one proptest
-/// per group, named by the roster's driver column, keyed on the group's
-/// input signature, feeding it the arbitrary normal-form generators.
+/// Expands the law-group roster into one module per group, named by the
+/// roster's driver column, holding one proptest per law over the arbitrary
+/// normal-form generators for the group's input signature.
 ///
 /// The arms carry each signature's input regime (and its doc comment);
 /// the *list* of groups lives only in `crate::for_each_law_group!`, so a
@@ -63,130 +144,109 @@ macro_rules! group_drivers {
         $( group_drivers!(@one $group, $driver, $shape); )*
     };
     (@one $group:ident, $driver:ident, (version)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary normal-form
             /// versions, including large-base events.
-            #[test]
-            fn $driver(a in arb_oracle_version()) {
-                assert_laws!(laws::$group, &ver(&a));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version());
+            check |law| law(&ver(&a));
         }
     };
     (@one $group:ident, $driver:ident, (version, version)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary normal-form
             /// version pairs.
-            #[test]
-            fn $driver(a in arb_oracle_version(), b in arb_oracle_version()) {
-                assert_laws!(laws::$group, &ver(&a), &ver(&b));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version(), b in arb_oracle_version());
+            check |law| law(&ver(&a), &ver(&b));
         }
     };
     (@one $group:ident, $driver:ident, (version, version, version)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary normal-form
             /// version triples.
-            #[test]
-            fn $driver(
-                a in arb_oracle_version(),
-                b in arb_oracle_version(),
-                c in arb_oracle_version(),
-            ) {
-                assert_laws!(laws::$group, &ver(&a), &ver(&b), &ver(&c));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version(), b in arb_oracle_version(), c in arb_oracle_version(),);
+            check |law| law(&ver(&a), &ver(&b), &ver(&c));
         }
     };
     (@one $group:ident, $driver:ident, (party)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary non-empty
             /// normal-form ids.
-            #[test]
-            fn $driver(p in arb_oracle_party_nonempty()) {
-                assert_laws!(laws::$group, &party(&p));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (p in arb_oracle_party_nonempty());
+            check |law| law(&party(&p));
         }
     };
     (@one $group:ident, $driver:ident, (party, party)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary non-empty id
             /// pairs, typically unrelated and frequently overlapping,
             /// shapes the op pipeline never produces.
-            #[test]
-            fn $driver(p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty()) {
-                assert_laws!(laws::$group, &party(&p), &party(&q));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty());
+            check |law| law(&party(&p), &party(&q));
         }
     };
     (@one $group:ident, $driver:ident, (party, party, party)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary non-empty id
             /// triples.
-            #[test]
-            fn $driver(
-                p in arb_oracle_party_nonempty(),
-                q in arb_oracle_party_nonempty(),
-                r in arb_oracle_party_nonempty(),
-            ) {
-                assert_laws!(laws::$group, &party(&p), &party(&q), &party(&r));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty(), r in arb_oracle_party_nonempty(),);
+            check |law| law(&party(&p), &party(&q), &party(&r));
         }
     };
     (@one $group:ident, $driver:ident, (version, party)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary version/id
             /// pairings: the tick and projection laws on regions
             /// unrelated to the history they act on.
-            #[test]
-            fn $driver(a in arb_oracle_version(), p in arb_oracle_party_nonempty()) {
-                assert_laws!(laws::$group, &ver(&a), &party(&p));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version(), p in arb_oracle_party_nonempty());
+            check |law| law(&ver(&a), &party(&p));
         }
     };
     (@one $group:ident, $driver:ident, (version, version, party)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary version-pair/id
             /// combinations.
-            #[test]
-            fn $driver(
-                a in arb_oracle_version(),
-                b in arb_oracle_version(),
-                p in arb_oracle_party_nonempty(),
-            ) {
-                assert_laws!(laws::$group, &ver(&a), &ver(&b), &party(&p));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version(), b in arb_oracle_version(), p in arb_oracle_party_nonempty(),);
+            check |law| law(&ver(&a), &ver(&b), &party(&p));
         }
     };
     (@one $group:ident, $driver:ident, (version, party, party)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary version/id-pair
             /// combinations.
-            #[test]
-            fn $driver(
-                a in arb_oracle_version(),
-                p in arb_oracle_party_nonempty(),
-                q in arb_oracle_party_nonempty(),
-            ) {
-                assert_laws!(laws::$group, &ver(&a), &party(&p), &party(&q));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version(), p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty(),);
+            check |law| law(&ver(&a), &party(&p), &party(&q));
         }
     };
     (@one $group:ident, $driver:ident, (version, version, party, party)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary
             /// version-pair/id-pair combinations.
-            #[test]
-            fn $driver(
-                a in arb_oracle_version(),
-                b in arb_oracle_version(),
-                p in arb_oracle_party_nonempty(),
-                q in arb_oracle_party_nonempty(),
-            ) {
-                assert_laws!(laws::$group, &ver(&a), &ver(&b), &party(&p), &party(&q));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version(), b in arb_oracle_version(), p in arb_oracle_party_nonempty(), q in arb_oracle_party_nonempty(),);
+            check |law| law(&ver(&a), &ver(&b), &party(&p), &party(&q));
         }
     };
     (@one $group:ident, $driver:ident, (rank, rank, rank)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on ranks derived from
             /// arbitrary normal-form versions (their own ranks and a
             /// genuine distance), organically related magnitudes.
@@ -194,101 +254,96 @@ macro_rules! group_drivers {
             /// The adversarial spilled-magnitude regime is driven where
             /// the rank machinery lives, in the version suite's rank
             /// driver.
-            #[test]
-            fn $driver(a in arb_oracle_version(), b in arb_oracle_version()) {
+            mod $driver = $driver($group);
+            divisor 1;
+            params (a in arb_oracle_version(), b in arb_oracle_version());
+            check |law| {
                 let (va, vb) = (ver(&a), ver(&b));
                 let (ra, rb, rc) = (va.rank(), vb.rank(), va.distance(&vb));
-                assert_laws!(laws::$group, &ra, &rb, &rc);
-            }
+                law(&ra, &rb, &rc)
+            };
         }
     };
     (@one $group:ident, $driver:ident, (clock)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary canonical
             /// party/version pairings; every such pairing is a valid
             /// clock, including ones no op sequence reaches.
-            #[test]
-            fn $driver(p in arb_oracle_party_nonempty(), a in arb_oracle_version()) {
-                assert_laws!(laws::$group, &Clock::from_parts(party(&p), ver(&a)));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (p in arb_oracle_party_nonempty(), a in arb_oracle_version());
+            check |law| law(&Clock::from_parts(party(&p), ver(&a)));
         }
     };
     (@one $group:ident, $driver:ident, (clock, clock)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on pairs of arbitrary canonical
             /// party/version pairings, typically unrelated stamps sharing
             /// neither region nor history, the regime where a non-injective
             /// encoding boundary would hide.
-            #[test]
-            fn $driver(
-                p in arb_oracle_party_nonempty(),
-                a in arb_oracle_version(),
-                q in arb_oracle_party_nonempty(),
-                b in arb_oracle_version(),
-            ) {
-                assert_laws!(
-                    laws::$group,
-                    &Clock::from_parts(party(&p), ver(&a)),
-                    &Clock::from_parts(party(&q), ver(&b))
-                );
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (p in arb_oracle_party_nonempty(), a in arb_oracle_version(), q in arb_oracle_party_nonempty(), b in arb_oracle_version(),);
+            check |law| law(&Clock::from_parts(party(&p), ver(&a)), &Clock::from_parts(party(&q), ver(&b)));
         }
     };
     (@one $group:ident, $driver:ident, (clock, version)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on arbitrary clocks paired
             /// with arbitrary (typically concurrent, unrelated) messages.
-            #[test]
-            fn $driver(
-                p in arb_oracle_party_nonempty(),
-                a in arb_oracle_version(),
-                m in arb_oracle_version(),
-            ) {
-                assert_laws!(laws::$group, &Clock::from_parts(party(&p), ver(&a)), &ver(&m));
-            }
+            mod $driver = $driver($group);
+            divisor 1;
+            params (p in arb_oracle_party_nonempty(), a in arb_oracle_version(), m in arb_oracle_version(),);
+            check |law| law(&Clock::from_parts(party(&p), ver(&a)), &ver(&m));
         }
     };
     (@one $group:ident, $driver:ident, (versions)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on pool-indexed version
             /// lists whose arities sweep the balanced fold's boundary
             /// band (`arb_fold_arity` documents the derivation).
-            #[test]
-            fn $driver((_, xs) in arb_version_family()) {
+            mod $driver = $driver($group);
+            divisor 1;
+            params ((_, xs) in arb_version_family());
+            check |law| {
                 let xs: Vec<Version> = xs.iter().map(ver).collect();
-                assert_laws!(laws::$group, &xs);
-            }
+                law(&xs)
+            };
         }
     };
     (@one $group:ident, $driver:ident, (version, versions)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on pool-indexed version
             /// families: a receiver plus boundary-swept items, repeats
             /// and the empty version under mass at every arity.
-            #[test]
-            fn $driver((r, xs) in arb_version_family()) {
+            mod $driver = $driver($group);
+            divisor 1;
+            params ((r, xs) in arb_version_family());
+            check |law| {
                 let receiver = ver(&r);
                 let xs: Vec<Version> = xs.iter().map(ver).collect();
-                assert_laws!(laws::$group, &receiver, &xs);
-            }
+                law(&receiver, &xs)
+            };
         }
     };
     (@one $group:ident, $driver:ident, (party, parties)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on pool-indexed party
             /// families: aliased repeats keep the refusal arm under
             /// mass, the constructed laws' fork trees the accepted arm,
             /// at every boundary-band arity.
-            #[test]
-            fn $driver((r, items) in arb_party_family()) {
+            mod $driver = $driver($group);
+            divisor 1;
+            params ((r, items) in arb_party_family());
+            check |law| {
                 let receiver = party(&r);
                 let items: Vec<Party> = items.iter().map(party).collect();
-                assert_laws!(laws::$group, &receiver, &items);
-            }
+                law(&receiver, &items)
+            };
         }
     };
     (@one $group:ident, $driver:ident, (clock, clocks)) => {
-        proptest! {
+        law_proptests! {
             /// Every law in the group holds on clock families picked
             /// from a pool or dealt disjoint shares, at every
             /// boundary-band arity.
@@ -297,15 +352,17 @@ macro_rules! group_drivers {
             /// versions and alias parties anywhere; dealt families are
             /// disjoint lists, whole or with one overlap after a disjoint
             /// prefix.
-            #[test]
-            fn $driver((r, items) in arb_clock_family()) {
+            mod $driver = $driver($group);
+            divisor 1;
+            params ((r, items) in arb_clock_family());
+            check |law| {
                 let clock = |(p, v): &(tree::Party, tree::Version)| {
                     Clock::from_parts(party(p), ver(v))
                 };
                 let receiver = clock(&r);
                 let items: Vec<Clock> = items.iter().map(clock).collect();
-                assert_laws!(laws::$group, &receiver, &items);
-            }
+                law(&receiver, &items)
+            };
         }
     };
 }

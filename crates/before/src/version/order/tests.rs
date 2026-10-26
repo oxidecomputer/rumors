@@ -18,12 +18,12 @@ use rayon::prelude::*;
 
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_deep_or_correlated_pair, TWO_VERSION_DIVISOR};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::Encoding;
 use crate::testing::oracles::flat;
 use crate::testing::oracles::tree;
+use crate::testing::property::divided_proptest;
 use crate::testing::{generators, optrace};
 use crate::{Clock, Version};
 
@@ -339,8 +339,8 @@ fn check_order_spellings(
     Ok(())
 }
 
-proptest! {
-    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(TWO_VERSION_DIVISOR)]
 
     /// Every comparison spelling, in both directions, agrees with the flat
     /// model's pointwise order, and equal versions hash equally.

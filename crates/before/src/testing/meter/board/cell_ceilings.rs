@@ -310,14 +310,25 @@ pub fn recalibrate(
     captures: &[(&str, &str)],
     provenance: Option<&str>,
 ) -> io::Result<Vec<Recalibration>> {
+    recalibrate_tables(&TABLES, ladder, source_tree, captures, provenance)
+}
+
+/// [`recalibrate`], against `tables` in place of the committed tables.
+fn recalibrate_tables(
+    tables: &[&CellCeilings],
+    ladder: &Ladder,
+    source_tree: &str,
+    captures: &[(&str, &str)],
+    provenance: Option<&str>,
+) -> io::Result<Vec<Recalibration>> {
     assert!(
         !ladder.debug_assertions(),
         "amp-board: per-cell ceilings are calibrated from a release build's readings"
     );
     let swept = ladder_readings(ladder, source_tree);
     let others = release_captures(source_tree, captures)?;
-    TABLES
-        .into_iter()
+    tables
+        .iter()
         .filter(|table| measured(ladder, table.currency))
         .map(|table| recalibrate_table(table, &swept, &others, provenance))
         .collect()
@@ -349,8 +360,20 @@ pub fn recalibrate_from_captures(
     captures: &[(&str, &str)],
     provenance: Option<&str>,
 ) -> io::Result<Recalibration> {
-    let table = TABLES
-        .into_iter()
+    recalibrate_tables_from_captures(&TABLES, currency, source_tree, captures, provenance)
+}
+
+/// [`recalibrate_from_captures`], against `tables` in place of the committed
+/// tables.
+fn recalibrate_tables_from_captures(
+    tables: &[&CellCeilings],
+    currency: Currency,
+    source_tree: &str,
+    captures: &[(&str, &str)],
+    provenance: Option<&str>,
+) -> io::Result<Recalibration> {
+    let table = tables
+        .iter()
         .find(|table| table.currency == currency)
         .ok_or_else(|| {
             io::Error::new(

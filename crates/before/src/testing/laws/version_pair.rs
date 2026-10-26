@@ -17,6 +17,7 @@ laws! {
     /// the span wire form's round-trip, the version encoding's
     /// prefix-freedom, and the combined shape iterator's size hints.
     pub static VERSION_PAIR: (a: &Version, b: &Version);
+    roster version_pair_laws;
 
     /// Commutativity: `a | b == b | a` (the LUB does not depend on operand
     /// order).

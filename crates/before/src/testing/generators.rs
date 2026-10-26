@@ -297,23 +297,6 @@ pub(crate) fn deep_zigzag_party(depth: usize) -> Party {
 /// weakens it.
 pub(crate) const STACK_SAFETY_DEPTH: usize = 1 << 18;
 
-// ───────────────────────── case counts ─────────────────────────
-
-/// The proptest configuration for a property whose cases each cost about
-/// `divisor` ordinary cases: the configured case count divided by `divisor`,
-/// rounded up.
-///
-/// The property then finishes inside nextest's time limit in a debug build at
-/// the default count, and still scales with `PROPTEST_CASES` for longer
-/// investigative runs.
-pub(crate) fn divided_config(divisor: u32) -> ProptestConfig {
-    let configured = ProptestConfig::default();
-    ProptestConfig {
-        cases: configured.cases.div_ceil(divisor),
-        ..configured
-    }
-}
-
 // ───────────────────────── arbitrary normal-form ─────────────────────────
 //
 // BigUint magnitudes deliberately span small values AND values near/beyond

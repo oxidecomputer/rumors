@@ -10,8 +10,8 @@
 //!
 //! The laws themselves live in [`crate::testing::laws`] as named predicates, grouped
 //! by signature; this suite is one of their consumers. [`tests`] holds one
-//! generic driver per signature group, each iterating its whole slice so a
-//! failure names the violated law, over these input regimes:
+//! driver per signature group, which expands into one proptest per law in the
+//! group, named for the law, over these input regimes:
 //!
 //! - **Arbitrary normal forms**: the [`crate::testing::generators`]
 //!   generators (`arb_oracle_version` / `arb_oracle_party_nonempty`) cover

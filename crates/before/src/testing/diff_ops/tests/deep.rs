@@ -16,12 +16,12 @@
 use proptest::prelude::*;
 
 use super::Legs;
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{
     arb_deep_version, arb_deep_version_pair, ONE_VERSION_DIVISOR, TWO_VERSION_DIVISOR,
 };
 use crate::testing::generators::regions::{arb_deep_party, arb_disjoint_parties};
 use crate::testing::oracles::tree;
+use crate::testing::property::divided_proptest;
 
 /// Expands the descriptor-group roster into one deep-input proptest per group,
 /// named by the roster's driver column inside this module.
@@ -33,8 +33,8 @@ macro_rules! deep_group_drivers {
         $( deep_group_drivers!(@one $group, $driver, $shape); )*
     };
     (@one $group:ident, $driver:ident, (version)) => {
-        proptest! {
-            #![proptest_config(divided_config(ONE_VERSION_DIVISOR))]
+        divided_proptest! {
+            #![divisor(ONE_VERSION_DIVISOR)]
             /// Every descriptor in the group agrees with the recursive oracle
             /// on deep versions.
             #[test]
@@ -44,8 +44,8 @@ macro_rules! deep_group_drivers {
         }
     };
     (@one $group:ident, $driver:ident, (version, version)) => {
-        proptest! {
-            #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+        divided_proptest! {
+            #![divisor(TWO_VERSION_DIVISOR)]
             /// Every descriptor in the group agrees with the recursive oracle
             /// on deep version pairs, the second independent of the first or
             /// derived from it.
@@ -56,8 +56,8 @@ macro_rules! deep_group_drivers {
         }
     };
     (@one $group:ident, $driver:ident, (version, party)) => {
-        proptest! {
-            #![proptest_config(divided_config(ONE_VERSION_DIVISOR))]
+        divided_proptest! {
+            #![divisor(ONE_VERSION_DIVISOR)]
             /// Every descriptor in the group agrees with the recursive oracle
             /// on a deep version viewed through an unrelated deep party.
             #[test]
@@ -103,8 +103,8 @@ macro_rules! deep_group_drivers {
         }
     };
     (@one $group:ident, $driver:ident, (clock)) => {
-        proptest! {
-            #![proptest_config(divided_config(ONE_VERSION_DIVISOR))]
+        divided_proptest! {
+            #![divisor(ONE_VERSION_DIVISOR)]
             /// Every descriptor in the group agrees with the recursive oracle
             /// on a deep party paired with an unrelated deep version.
             #[test]
@@ -115,8 +115,8 @@ macro_rules! deep_group_drivers {
         }
     };
     (@one $group:ident, $driver:ident, (version, party, version)) => {
-        proptest! {
-            #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+        divided_proptest! {
+            #![divisor(TWO_VERSION_DIVISOR)]
             /// Every descriptor in the group agrees with the recursive oracle
             /// on a deep version viewed through an unrelated deep party and
             /// compared with a second deep version.
@@ -133,8 +133,8 @@ macro_rules! deep_group_drivers {
         }
     };
     (@one $group:ident, $driver:ident, (version, party, version, party)) => {
-        proptest! {
-            #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+        divided_proptest! {
+            #![divisor(TWO_VERSION_DIVISOR)]
             /// Every descriptor in the group agrees with the recursive oracle
             /// on two deep versions, each viewed through its own unrelated
             /// deep party.

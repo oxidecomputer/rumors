@@ -17,11 +17,11 @@ use suanpan::Accumulator;
 
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
 use crate::testing::exhaustive::{all_normal_events, EV_SMALL_DEPTH};
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_deep_or_correlated_pair, TWO_VERSION_DIVISOR};
 use crate::testing::meter::registry::Shape;
 use crate::testing::meter::Encoding;
 use crate::testing::oracles::flat::{self, check_version};
+use crate::testing::property::divided_proptest;
 use crate::testing::{generators, optrace};
 use crate::version::instrument::validate;
 use crate::version::io::regions::{HeightChange, RegionReader, VersionRegionReader};
@@ -519,8 +519,8 @@ enum Take {
     Repeat,
 }
 
-proptest! {
-    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(TWO_VERSION_DIVISOR)]
 
     /// Every join and meet spelling, and both endpoints of both hull
     /// spellings, equal the flat model's join and meet byte for byte, and the

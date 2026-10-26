@@ -13,8 +13,9 @@ use proptest::prelude::*;
 use super::{Party, Version};
 use crate::testing::generators::leaf_list::{arb_deep_version_pair, TWO_VERSION_DIVISOR};
 use crate::testing::generators::regions::arb_deep_party;
-use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version, divided_config};
+use crate::testing::generators::{arb_oracle_party_nonempty, arb_oracle_version};
 use crate::testing::oracles::tree;
+use crate::testing::property::divided_proptest;
 use crate::testing::shape_rows::{oracle_plateaus, oracle_regions, Leaf};
 use crate::Rank;
 
@@ -170,8 +171,8 @@ proptest! {
     }
 }
 
-proptest! {
-    #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+divided_proptest! {
+    #![divisor(TWO_VERSION_DIVISOR)]
 
     /// On deep version pairs and a deep party, the model's version answers
     /// equal the recursive oracle's.

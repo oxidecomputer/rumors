@@ -21,53 +21,50 @@
 use proptest::prelude::*;
 
 use super::ver;
-use crate::testing::generators::divided_config;
 use crate::testing::generators::leaf_list::{arb_multiscale_pair, TWO_VERSION_DIVISOR};
-use crate::testing::laws;
 
-/// Expands the law-group roster into one multi-scale proptest per group over
-/// versions or ranks alone, named by the roster's driver column inside this
-/// module.
+/// Expands the law-group roster into one module of multi-scale proptests per
+/// group over versions or ranks alone, one per law, named by the roster's
+/// driver column inside this module.
 macro_rules! multiscale_group_drivers {
     (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         $( multiscale_group_drivers!(@one $group, $driver, $shape); )*
     };
     (@one $group:ident, $driver:ident, (version)) => {
-        proptest! {
-            #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+        law_proptests! {
             /// Every law in the group holds on both versions of a multi-scale
             /// pair.
-            #[test]
-            fn $driver((a, b) in arb_multiscale_pair()) {
-                assert_laws!(laws::$group, &ver(&a.tree()));
-                assert_laws!(laws::$group, &ver(&b.tree()));
-            }
+            mod $driver = $driver($group);
+            divisor TWO_VERSION_DIVISOR;
+            params ((a, b) in arb_multiscale_pair());
+            check |law| law(&ver(&a.tree())) && law(&ver(&b.tree()));
         }
     };
     (@one $group:ident, $driver:ident, (version, version)) => {
-        proptest! {
-            #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+        law_proptests! {
             /// Every law in the group holds on multi-scale pairs, in both
             /// operand orders.
-            #[test]
-            fn $driver((a, b) in arb_multiscale_pair()) {
+            mod $driver = $driver($group);
+            divisor TWO_VERSION_DIVISOR;
+            params ((a, b) in arb_multiscale_pair());
+            check |law| {
                 let (a, b) = (ver(&a.tree()), ver(&b.tree()));
-                assert_laws!(laws::$group, &a, &b);
-                assert_laws!(laws::$group, &b, &a);
-            }
+                law(&a, &b) && law(&b, &a)
+            };
         }
     };
     (@one $group:ident, $driver:ident, (rank, rank, rank)) => {
-        proptest! {
-            #![proptest_config(divided_config(TWO_VERSION_DIVISOR))]
+        law_proptests! {
             /// Every law in the group holds on the ranks of a multi-scale pair
             /// and the distance between them: exact fractions at freezing
             /// scale, and equal ranks of distinct versions.
-            #[test]
-            fn $driver((a, b) in arb_multiscale_pair()) {
+            mod $driver = $driver($group);
+            divisor TWO_VERSION_DIVISOR;
+            params ((a, b) in arb_multiscale_pair());
+            check |law| {
                 let (a, b) = (ver(&a.tree()), ver(&b.tree()));
-                assert_laws!(laws::$group, &a.rank(), &b.rank(), &a.distance(&b));
-            }
+                law(&a.rank(), &b.rank(), &a.distance(&b))
+            };
         }
     };
     (@one $group:ident, $driver:ident, $other:tt) => {};

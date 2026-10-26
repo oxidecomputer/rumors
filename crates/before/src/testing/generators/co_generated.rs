@@ -35,7 +35,7 @@
 //!
 //! A wide, multi-scan, or deep spine case costs many spine cases, so their
 //! properties run a fraction of the configured case count, set by
-//! [`divided_config`](super::divided_config).
+//! [`divided_cases`](crate::testing::property::divided_cases).
 
 mod tests;
 
