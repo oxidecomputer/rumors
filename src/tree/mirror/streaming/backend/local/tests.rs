@@ -5,6 +5,7 @@
 //! multiple same-height runs, each override must produce the same stream as
 //! the level-by-level [`Convert`] default.
 
+use std::collections::BTreeSet;
 use std::convert::Infallible;
 
 use futures::{TryStreamExt, stream};
@@ -129,10 +130,8 @@ proptest! {
     /// count, and `version_bytes` aggregate per node.
     #[test]
     fn multi_run_grouping_matches_default(
-        suffixes in proptest::collection::btree_set(
-            (0u8..4, any::<u8>(), any::<u8>()),
-            0..=40,
-        ),
+        suffixes in proptest::collection::vec((0u8..4, any::<u8>(), any::<u8>()), 0..=40)
+            .prop_map(BTreeSet::from_iter),
     ) {
         let run = leaves_at(suffixes.into_iter().map(|(run_byte, mid, low)| {
             let mut bytes = [0u8; 32];
@@ -164,7 +163,7 @@ proptest! {
     /// leaves unchanged, one node per leaf.
     #[test]
     fn leaf_height_assembly_is_identity(
-        suffixes in proptest::collection::btree_set(any::<u8>(), 0..=8),
+        suffixes in proptest::collection::vec(any::<u8>(), 0..=8).prop_map(BTreeSet::from_iter),
     ) {
         let run = leaves_at(suffixes.into_iter().map(|low| {
             let mut bytes = [0u8; 32];

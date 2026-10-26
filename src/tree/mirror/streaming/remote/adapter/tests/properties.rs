@@ -3,7 +3,7 @@
 use std::{collections::BTreeSet, convert::Infallible};
 
 use futures::{StreamExt, TryStreamExt, stream};
-use proptest::{collection::btree_set, prelude::*, test_runner::TestCaseResult};
+use proptest::{collection::vec, prelude::*, test_runner::TestCaseResult};
 
 use crate::tree::{
     mirror::streaming::{
@@ -605,9 +605,12 @@ proptest! {
     fn positional_reactions_are_lossless_at_every_height(
         value in any::<u64>(),
         ticks in any::<u8>(),
-        radixes in prop_oneof![Just(BTreeSet::new()), btree_set(any::<u8>(), 0..=8)],
+        radixes in prop_oneof![
+            Just(BTreeSet::new()),
+            vec(any::<u8>(), 0..=8).prop_map(BTreeSet::from_iter),
+        ],
         queries in prop_oneof![Just(0), any::<u64>()],
-        nested in btree_set(any::<u8>(), 0..=8),
+        nested in vec(any::<u8>(), 0..=8).prop_map(BTreeSet::from_iter),
         salt in any::<u8>(),
     ) {
         let leaf = LeafCase::new(value, ticks);
@@ -635,9 +638,12 @@ proptest! {
     fn mixed_reactions_are_lossless_at_every_height(
         value in any::<u64>(),
         ticks in any::<u8>(),
-        radixes in prop_oneof![Just(BTreeSet::new()), btree_set(any::<u8>(), 0..=8)],
+        radixes in prop_oneof![
+            Just(BTreeSet::new()),
+            vec(any::<u8>(), 0..=8).prop_map(BTreeSet::from_iter),
+        ],
         queries in prop_oneof![Just(0), any::<u64>()],
-        nested in btree_set(any::<u8>(), 0..=8),
+        nested in vec(any::<u8>(), 0..=8).prop_map(BTreeSet::from_iter),
         salt in any::<u8>(),
     ) {
         let leaf = LeafCase::new(value, ticks);

@@ -88,8 +88,9 @@ fn split_by_parity(by_depth: &[usize]) -> (u64, u64) {
 /// fixture's slot alphabet, so the closure oracle's occupancy reasoning
 /// holds exactly.
 fn arb_cells() -> impl Strategy<Value = Vec<Vec<u8>>> {
-    proptest::collection::btree_set(proptest::collection::vec(0x66u8..0x7f, 0..=3), 0..=5).prop_map(
-        |cells| {
+    proptest::collection::vec(proptest::collection::vec(0x66u8..0x7f, 0..=3), 0..=5)
+        .prop_map(BTreeSet::from_iter)
+        .prop_map(|cells| {
             let all: Vec<Vec<u8>> = cells.into_iter().collect();
             all.iter()
                 .filter(|cell| {
@@ -98,8 +99,7 @@ fn arb_cells() -> impl Strategy<Value = Vec<Vec<u8>>> {
                 })
                 .cloned()
                 .collect()
-        },
-    )
+        })
 }
 
 /// A converged pair reports zero in every field: equal greeting versions

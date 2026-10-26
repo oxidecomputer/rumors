@@ -125,8 +125,11 @@ fn malformed_record_heads_are_typed() {
 /// order are one rule.
 #[test]
 fn listings_round_trip_and_hold_canonical_order() {
+    use std::collections::BTreeSet;
+
     use proptest::prelude::*;
-    proptest!(|(radixes in proptest::collection::btree_set(any::<u8>(), 0..=64))| {
+    let radixes = proptest::collection::vec(any::<u8>(), 0..=64).prop_map(BTreeSet::from_iter);
+    proptest!(|(radixes in radixes)| {
         let children: Vec<(u8, Hash)> = radixes
             .iter()
             .map(|&radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))

@@ -1353,13 +1353,13 @@ proptest! {
         // paths.
         let mut party_body = p.encode();
         party_body.push(0x00);
-        prop_assume!(Party::decode(&party_body[..]).is_err());
+        prop_assert!(Party::decode(&party_body[..]).is_err());
         let mut version_body = v.encode();
         version_body.push(0x00);
-        prop_assume!(Version::decode(&version_body[..]).is_err());
+        prop_assert!(Version::decode(&version_body[..]).is_err());
         let mut clock_body = c.encode();
         clock_body.push(0x00);
-        prop_assume!(Clock::decode(&clock_body[..]).is_err());
+        prop_assert!(Clock::decode(&clock_body[..]).is_err());
 
         let postcard_frame =
             |body: &Vec<u8>| postcard::to_allocvec(body).expect("byte vectors serialize");
@@ -1431,7 +1431,7 @@ proptest! {
         // `decode` rejects this, and borsh must surface that rejection.
         let mut body = v.encode();
         body.push(0x00);
-        prop_assume!(Version::decode(&body[..]).is_err());
+        prop_assert!(Version::decode(&body[..]).is_err());
         prop_assert!(borsh::from_slice::<Version>(&body).is_err());
     }
 }

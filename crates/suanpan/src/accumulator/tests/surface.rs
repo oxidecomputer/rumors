@@ -1123,14 +1123,23 @@ fn arb_primitive() -> BoxedStrategy<Primitive> {
 
 /// Generate shifts at and between every representation boundary.
 fn arb_shift_value(maximum: u64) -> BoxedStrategy<u64> {
+    arb_shift_value_in(0, maximum)
+}
+
+/// Generate shifts in `minimum..=maximum`, at and between every
+/// representation boundary in that range.
+///
+/// Bounding the range here, rather than filtering [`arb_shift_value`],
+/// rejects no draws, so no case count exhausts proptest's reject limit.
+fn arb_shift_value_in(minimum: u64, maximum: u64) -> BoxedStrategy<u64> {
     let boundaries: Vec<u64> = [
         0, 1, 29, 30, 31, 32, 33, 63, 64, 65, 95, 96, 97, 127, 128, 129, 191, 192, 193, 255, 256,
         257, 511, 512, 513, 1024,
     ]
     .into_iter()
-    .filter(|&value| value <= maximum)
+    .filter(|value| (minimum..=maximum).contains(value))
     .collect();
-    prop_oneof![3 => proptest::sample::select(boundaries), 1 => 0..=maximum].boxed()
+    prop_oneof![3 => proptest::sample::select(boundaries), 1 => minimum..=maximum].boxed()
 }
 
 /// Generate every primitive shift-count type with valid nonnegative values.
@@ -1202,7 +1211,7 @@ fn arb_unnegated_operand() -> BoxedStrategy<Operand> {
                 negative,
             }
         }),
-        2 => (arb_shift_value(1024).prop_filter("high cancellation", |&shift| shift >= 96), arb_primitive())
+        2 => (arb_shift_value_in(96, 1024), arb_primitive())
             .prop_map(|(shift, tail)| Operand::CancelledHigh { shift, tail }),
         2 => (1u64..=40, arb_primitive())
             .prop_map(|(position, tail)| Operand::CancelledTop { position, tail }),

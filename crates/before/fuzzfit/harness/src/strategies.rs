@@ -1697,11 +1697,16 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
 /// draws from. Sizes are biased upward (the fits are about slopes, and
 /// small programs mostly sample the intercept).
 pub fn any_program() -> impl Strategy<Value = Vec<Op>> {
-    any_family()
-        .prop_flat_map(|family| {
-            (Just(family), any::<u64>()).prop_map(|(family, seed)| build(&family, seed))
+    any_family().prop_flat_map(|family| {
+        (Just(family), any::<u64>()).prop_map(|(family, seed)| {
+            let program = build(&family, seed);
+            assert!(
+                !program.is_empty(),
+                "every family's construction opens with a seed, which a fresh budget has room for",
+            );
+            program
         })
-        .prop_filter("non-empty program", |p| !p.is_empty())
+    })
 }
 
 /// A strategy over [`Family`] draws (dimensions included).

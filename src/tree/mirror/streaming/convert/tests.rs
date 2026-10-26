@@ -1,6 +1,7 @@
 //! [`fold_parents`] must group an ascending child stream into exactly the
 //! parents of its radix groups, flushing on prefix change and at input end.
 
+use std::collections::BTreeSet;
 use std::convert::Infallible;
 
 use futures::stream::{self, TryStreamExt};
@@ -78,7 +79,8 @@ proptest! {
     /// must flush at input end.
     #[test]
     fn folds_to_exactly_the_group_parents(
-        keys in proptest::collection::btree_set((0u8..6, any::<u8>()), 0..=40),
+        keys in proptest::collection::vec((0u8..6, any::<u8>()), 0..=40)
+            .prop_map(BTreeSet::from_iter),
     ) {
         let mut version = Version::new();
         let mut input = Vec::new();

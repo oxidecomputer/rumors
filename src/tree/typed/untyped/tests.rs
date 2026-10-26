@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use proptest::collection::{btree_set, vec};
+use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
@@ -591,7 +591,7 @@ proptest! {
     fn owned_walk_finishes_levels_at_the_largest_radix(
         common in any::<[u8; 32]>(),
         depth in 0usize..32,
-        mut radixes in btree_set(any::<u8>(), 0..=16),
+        mut radixes in vec(any::<u8>(), 0..=16).prop_map(BTreeSet::from_iter),
     ) {
         radixes.extend([0, u8::MAX]);
         let mut paths = BTreeSet::new();

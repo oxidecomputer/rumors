@@ -1465,7 +1465,8 @@ fn arb_fault_bits(faults: bool) -> BoxedStrategy<Vec<bool>> {
     if !faults {
         return Just(Vec::new()).boxed();
     }
-    prop::collection::btree_set(0usize..128, 0..8)
+    prop::collection::vec(0usize..128, 0..8)
+        .prop_map(BTreeSet::from_iter)
         .prop_map(|failures| {
             let mut schedule = vec![false; failures.last().map_or(0, |last| last + 1)];
             for call in failures {

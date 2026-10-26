@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -100,7 +100,7 @@ proptest! {
     /// `n`-entry fan, both report exactly `n - j - k` remaining.
     #[test]
     fn size_hint_is_exact_from_both_ends(
-        radixes in proptest::collection::btree_set(any::<u8>(), 0..16),
+        radixes in vec(any::<u8>(), 0..16).prop_map(BTreeSet::from_iter),
         splits in (0usize..=16, 0usize..=16),
     ) {
         let fan: Fan = radixes.iter().map(|radix| (*radix, child())).collect();
@@ -149,7 +149,9 @@ proptest! {
     /// entry identities included: the consuming walk hands out the very
     /// handles the fan held, in order.
     #[test]
-    fn into_iter_collect_round_trips(radixes in proptest::collection::btree_set(any::<u8>(), 0..16)) {
+    fn into_iter_collect_round_trips(
+        radixes in vec(any::<u8>(), 0..16).prop_map(BTreeSet::from_iter),
+    ) {
         let fan: Fan = radixes.iter().map(|radix| (*radix, child())).collect();
         let round_tripped: Fan = fan.clone().into_iter().collect();
 
@@ -166,7 +168,7 @@ proptest! {
     /// the same pairs: the O(1) append path and the general constructor
     /// agree wherever both apply.
     #[test]
-    fn push_agrees_with_collect(radixes in proptest::collection::btree_set(any::<u8>(), 0..16)) {
+    fn push_agrees_with_collect(radixes in vec(any::<u8>(), 0..16).prop_map(BTreeSet::from_iter)) {
         let pairs: Vec<(u8, Node)> =
             radixes.iter().map(|radix| (*radix, child())).collect();
 

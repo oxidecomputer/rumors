@@ -3,6 +3,7 @@
 
 use before::Clock;
 use proptest::prelude::*;
+use proptest::sample::Index;
 
 use super::*;
 
@@ -218,7 +219,18 @@ proptest! {
         ),
         learned in proptest::collection::vec(any::<bool>(), 6),
         rotation in any::<usize>(),
+        anchor in any::<Index>(),
     ) {
+        // At least one shape must pick a piece, or nothing is recorded. A
+        // draw whose shapes pick none has its first shape pick the piece
+        // `anchor` addresses instead: repairing the draw rather than
+        // rejecting it keeps any case count within proptest's reject limit,
+        // and every draw that already picks a piece is unchanged.
+        let mut shapes = shapes;
+        if shapes.iter().all(|(mask, _)| !mask[..piece_count].contains(&true)) {
+            shapes[0].0[anchor.index(piece_count)] = true;
+        }
+
         let mut restart = Party::seed();
         let mut owner = restart.fork();
         let mut pieces: Vec<Party> = owner.forks((piece_count - 1) as u64).collect();
@@ -241,7 +253,6 @@ proptest! {
             record.record(&identity, &frontier);
             recorded.push((identity, mask.to_vec()));
         }
-        prop_assume!(!recorded.is_empty());
         let rotation = rotation % recorded.len();
         record.identities.rotate_left(rotation);
         recorded.rotate_left(rotation);

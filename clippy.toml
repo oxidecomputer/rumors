@@ -1,0 +1,27 @@
+# Property tests run at whatever case count `PROPTEST_CASES` asks for, and
+# proptest counts rejected inputs across the whole run, failing it at a fixed
+# limit. Any strategy or test that can reject therefore fails at some case
+# count. Construct inputs that satisfy the precondition (map, repair, or
+# generate the constrained domain directly) instead of discarding the rest.
+#
+# `proptest::collection`'s set and map strategies also reject, whenever
+# deduplication leaves fewer elements than the requested minimum size. Collect
+# a `vec` strategy instead (`vec(element, size).prop_map(BTreeSet::from_iter)`),
+# which generates and shrinks as they do, minus the filter.
+
+disallowed-macros = [
+    { path = "proptest::prop_assume", reason = "rejected cases count toward a run-wide limit, so some case count fails; construct inputs that satisfy the precondition" },
+]
+
+disallowed-methods = [
+    { path = "proptest::strategy::Strategy::prop_filter", reason = "rejected draws count toward a run-wide limit, so some case count fails; construct values that satisfy the predicate" },
+    { path = "proptest::strategy::Strategy::prop_filter_map", reason = "rejected draws count toward a run-wide limit, so some case count fails; construct values that satisfy the predicate" },
+    { path = "proptest::strategy::statics::Filter::new", reason = "rejected draws count toward a run-wide limit, so some case count fails; construct values that satisfy the predicate" },
+    { path = "proptest::collection::btree_map", reason = "deduplication below the minimum size rejects, and rejected draws count toward a run-wide limit; collect a `vec` strategy instead" },
+    { path = "proptest::collection::btree_set", reason = "deduplication below the minimum size rejects, and rejected draws count toward a run-wide limit; collect a `vec` strategy instead" },
+    { path = "proptest::collection::hash_map", reason = "deduplication below the minimum size rejects, and rejected draws count toward a run-wide limit; collect a `vec` strategy instead" },
+    { path = "proptest::collection::hash_set", reason = "deduplication below the minimum size rejects, and rejected draws count toward a run-wide limit; collect a `vec` strategy instead" },
+    { path = "proptest::test_runner::TestCaseError::reject", reason = "rejected cases count toward a run-wide limit, so some case count fails; construct inputs that satisfy the precondition" },
+    { path = "proptest::test_runner::TestCaseError::Reject", reason = "rejected cases count toward a run-wide limit, so some case count fails; construct inputs that satisfy the precondition" },
+    { path = "proptest::test_runner::TestRunner::reject_local", reason = "rejected draws count toward a run-wide limit, so some case count fails; construct values that satisfy the predicate" },
+]

@@ -78,8 +78,8 @@ proptest! {
     /// rejects exactly when a supplied radix has no matching request.
     #[test]
     fn opening_supplies_pair_by_radix(
-        requested in prop::collection::btree_set(any::<u8>(), 0..=32),
-        supplied in prop::collection::btree_set(any::<u8>(), 0..=32),
+        requested in prop::collection::vec(any::<u8>(), 0..=32).prop_map(BTreeSet::from_iter),
+        supplied in prop::collection::vec(any::<u8>(), 0..=32).prop_map(BTreeSet::from_iter),
     ) {
         let mut cursor = cursor(&supplied);
         let (answers, result) = pollster::block_on(async {

@@ -375,21 +375,79 @@ pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = tree::Party> 
 }
 
 /// An arbitrary version whose live bits end at a byte boundary.
+///
+/// An arbitrary version is extended at its right end until it aligns, rather
+/// than filtered, so no draw is rejected and any case count stays within
+/// proptest's reject limits. An aligned draw is returned unchanged, so every
+/// aligned version remains reachable.
+///
+/// Appending a region that rises by `d > 0` above the last one lengthens the
+/// stream by exactly `2·bits(d) + 3` bits: the new root's branch tag, the
+/// leaf tag, and the change's zigzag-gamma code. Rises of 4, 8, 1, and 2 add
+/// 9, 11, 5, and 7 bits, one for each odd residue mod 8. So an odd shortfall
+/// closes in one append, and an even one becomes odd after a rise of 8.
 pub(crate) fn arb_flush_version() -> impl Strategy<Value = Version> {
-    arb_oracle_version()
-        .prop_map(|version| from_oracle_version(&version))
-        .prop_filter("live bits end at a byte boundary", |version| {
-            version.encoded_bits().is_multiple_of(8)
-        })
+    arb_oracle_version().prop_map(|mut version| {
+        for _ in 0..3 {
+            let candidate = from_oracle_version(&version);
+            let rise: u8 = match (8 - candidate.encoded_bits() % 8) % 8 {
+                0 => return candidate,
+                1 => 4,
+                3 => 8,
+                5 => 1,
+                7 => 2,
+                _ => 8,
+            };
+            version = with_rising_region(version, rise);
+        }
+        unreachable!("two appends align any version: an even shortfall turns odd, then closes")
+    })
+}
+
+/// `version` with one more region at its right end, `rise` above the last.
+///
+/// The new region becomes the right child of a new root, so `version`'s own
+/// regions and their encoding are unchanged. A positive rise keeps the new
+/// region distinct from a leaf `version`, so the root cannot collapse.
+fn with_rising_region(version: tree::Version, rise: u8) -> tree::Version {
+    debug_assert!(rise > 0, "an equal-height leaf sibling collapses");
+    // The last region's absolute height is the sum of the bases along the
+    // right spine. The traversal is iterative over the arbitrary tree.
+    let mut last = BigUint::ZERO;
+    let mut at = &version;
+    while let tree::Version::Node(base, _, right) = at {
+        last += base;
+        at = right;
+    }
+    let tree::Version::Leaf(base) = at else {
+        unreachable!("the right spine ends at a leaf")
+    };
+    last += base;
+    tree::Version::node(0u8, version, tree::Version::Leaf(last + rise))
 }
 
 /// An arbitrary party whose live bits end at a byte boundary.
+///
+/// An arbitrary party is wrapped until it aligns, rather than filtered, so no
+/// draw is rejected and any case count stays within proptest's reject
+/// limits. An aligned draw is returned unchanged, so every aligned party
+/// remains reachable.
+///
+/// Every node of a party's stream is a two-bit tag, and wrapping a nonempty
+/// party as the left child of a node whose right child is unowned adds
+/// exactly one node. So three wraps at most bring the node count to a multiple
+/// of four.
 pub(crate) fn arb_flush_party() -> impl Strategy<Value = Party> {
-    arb_oracle_party_nonempty()
-        .prop_map(|party| from_oracle_party(&party))
-        .prop_filter("live bits end at a byte boundary", |party| {
-            party.encoded_bits().is_multiple_of(8)
-        })
+    arb_oracle_party_nonempty().prop_map(|mut party| {
+        for _ in 0..4 {
+            let candidate = from_oracle_party(&party);
+            if candidate.encoded_bits().is_multiple_of(8) {
+                return candidate;
+            }
+            party = tree::Party::node(party, tree::Party::Leaf(false));
+        }
+        unreachable!("each wrap adds two bits to an even length, so three align any party")
+    })
 }
 
 /// An arbitrary normal-form event tree.

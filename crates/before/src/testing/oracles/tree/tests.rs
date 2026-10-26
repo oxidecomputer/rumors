@@ -595,7 +595,7 @@ proptest! {
         e in arb_oracle_version(),
     ) {
         let cands = all_inflations(&id, &e);
-        prop_assume!(!cands.is_empty());
+        prop_assert!(!cands.is_empty(), "a nonempty party always has an inflation");
         let min = cands.iter().map(|(_, c)| *c).min().unwrap();
         let (best_tree, best_cost) = best_inflation(&id, &e).unwrap();
         prop_assert_eq!(best_cost, min, "best_inflation cost is not the minimum");

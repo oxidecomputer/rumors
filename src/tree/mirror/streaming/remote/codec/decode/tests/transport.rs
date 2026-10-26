@@ -1,5 +1,7 @@
 //! Frame boundaries and error context under partial delivery.
 
+use std::collections::BTreeMap;
+
 use super::*;
 use crate::testing::run_to_quiescence;
 
@@ -77,14 +79,14 @@ fn arb_frame_case() -> impl Strategy<Value = FrameCase> {
     ];
     let reaction = prop_oneof![
         Just(Reaction::Match),
-        prop::collection::btree_map(any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>(), 0..=256).prop_map(
-            |children| Reaction::Query(
+        prop::collection::vec((any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>()), 0..=256)
+            .prop_map(BTreeMap::from_iter)
+            .prop_map(|children| Reaction::Query(
                 children
                     .into_iter()
                     .map(|(r, h)| (r, Hash::from(h)))
                     .collect()
-            )
-        ),
+            )),
         prop::collection::vec(contents, 1..=3).prop_map(|records| {
             let bytes = records.iter().flat_map(|r| raw_record(r)).collect();
             // These records have valid framing. Version and payload decoding

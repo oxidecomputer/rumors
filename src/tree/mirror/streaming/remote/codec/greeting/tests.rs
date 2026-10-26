@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::*;
 
 use proptest::prelude::*;
@@ -52,7 +54,8 @@ proptest::proptest! {
     #[test]
     fn greetings_round_trip(
         version in crate::tree::arb::arb_version(),
-        listing in proptest::collection::btree_map(any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>(), 0..=256),
+        listing in proptest::collection::vec((any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>()), 0..=256)
+            .prop_map(BTreeMap::from_iter),
         set_len in arb_uint(),
         max_version_bytes in arb_uint(),
         payload_depth_limit in arb_uint(),

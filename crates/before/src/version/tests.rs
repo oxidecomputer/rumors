@@ -32,6 +32,7 @@ use crate::testing::optrace::{
 };
 use crate::testing::oracles::dyadic::Dyadic;
 use crate::testing::oracles::function;
+use crate::testing::oracles::tree;
 use crate::testing::scripted_io::{arb_io_schedule, IoSchedule, ScriptedReader, ScriptedWriter};
 use crate::{Clock, Count, Party, Rank};
 
@@ -623,10 +624,29 @@ proptest! {
 // inflation. The oracle's `grow` is pinned to a brute-force search over the
 // entire feasible inflation space in `tree::tests`; these hold the encoded
 // impl to the same standard. `tick = fill else grow`, so when `fill` already
-// simplifies the tree the grow path is not taken; `grow_matches_brute_force`
-// filters to the grow case (fill a no-op) and asserts the impl's inflation
-// equals the brute-force right-favoring minimum; `grow_minimal` checks the
-// paper's metamorphic condition on every `tick`.
+// simplifies the tree the grow path is not taken; both tests draw their inputs
+// from `arb_grow_case`, which constructs only grow-branch inputs.
+// `grow_matches_brute_force` asserts the impl's inflation equals the
+// brute-force right-favoring minimum; `grow_minimal` checks the paper's
+// metamorphic condition.
+
+/// Generates a party and a version on which `tick` takes the `grow` branch,
+/// that is, a version `fill` leaves unchanged.
+///
+/// The version is an arbitrary one filled once by the party. `fill` is
+/// idempotent, so its image is exactly its fixed points: every grow-branch
+/// input is reachable (as its own image), and every generated input reaches
+/// `grow`. Constructing the domain this way, rather than discarding
+/// non-fixed points with `prop_assume!`, keeps the tests within proptest's
+/// global reject limit at every case count. The tests assert the fixed-point
+/// property, so a non-idempotent `fill` fails them rather than silently
+/// testing the `fill` branch.
+fn arb_grow_case() -> impl Strategy<Value = (tree::Party, tree::Version)> {
+    (arb_oracle_party_nonempty(), arb_oracle_version()).prop_map(|(op, ov)| {
+        let filled = ov.fill_for_test(&op);
+        (op, filled)
+    })
+}
 
 proptest! {
     /// `tick` and fused `ticks` choose exactly the recursive oracle's
@@ -670,16 +690,10 @@ proptest! {
     /// realizes the same DP). Large bases are threaded losslessly, so the cost
     /// comparison is exact regardless of magnitude.
     #[test]
-    fn grow_matches_brute_force(
-        op in arb_oracle_party_nonempty(),
-        ov in arb_oracle_version(),
-    ) {
-        // Only the grow path is under test: skip inputs where `fill` already
-        // simplifies (those are covered by the tick/fill differentials). `fill`
-        // is a no-op iff it returns the input unchanged. About a quarter of
-        // arbitrary inputs reach grow, comfortably within proptest's reject
-        // budget.
-        prop_assume!(ov.fill_for_test(&op) == ov);
+    fn grow_matches_brute_force((op, ov) in arb_grow_case()) {
+        // Only the grow path is under test (the `fill` path is covered by the
+        // tick/fill differentials); `tick` takes it iff `fill` is a no-op.
+        prop_assert_eq!(ov.fill_for_test(&op), ov.clone(), "input must reach grow");
 
         let (best_tree, _cost) = best_inflation(&op, &ov).expect("non-empty id inflates");
         let expected = best_tree.normalized_for_test();
@@ -703,11 +717,8 @@ proptest! {
     /// order, with the candidate set enumerated by the brute-force oracle.
     /// Cross-checked against the oracle order on the same values.
     #[test]
-    fn grow_minimal(
-        op in arb_oracle_party_nonempty(),
-        ov in arb_oracle_version(),
-    ) {
-        prop_assume!(ov.fill_for_test(&op) == ov);
+    fn grow_minimal((op, ov) in arb_grow_case()) {
+        prop_assert_eq!(ov.fill_for_test(&op), ov.clone(), "input must reach grow");
 
         let e = from_oracle_version(&ov);
         let mut eprime = e.clone();

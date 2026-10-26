@@ -20,28 +20,38 @@ use super::{
 };
 
 proptest! {
-    /// A trace operand can select and mutate any clock appended beyond the
-    /// generator's initially small population.
+    /// A trace operand selects across the live population, so it can select
+    /// and mutate a clock appended beyond the generator's initially small
+    /// population.
+    ///
+    /// Each case sweeps one selector over every population from 9 members
+    /// up: a tick mutates exactly the member the selector addresses in that
+    /// population, and no other. An [`Index`] addresses position
+    /// `⌊n · f⌋` of `n` members for a fixed fraction `f`, so most selectors
+    /// address an appended member (position 8 or beyond) in the larger
+    /// populations. `Index` cannot be constructed at a chosen position, so
+    /// the sweep replaces filtering selectors, whose rejections would exhaust
+    /// proptest's limit at high case counts.
     #[test]
-    fn population_selectors_reach_appended_members(
-        (population, selector) in (9usize..MAX_TRACE_OPS, any::<Index>())
-            .prop_filter("selector addresses an appended member", |(n, i)| i.index(*n) >= 8)
-    ) {
-        let mut clocks = vec![Clock::seed()];
-        while clocks.len() < population {
-            let child = clocks[0].fork();
-            clocks.push(child);
-        }
+    fn population_selectors_reach_appended_members(selector in any::<Index>()) {
+        for population in 9..MAX_TRACE_OPS {
+            let mut clocks = vec![Clock::seed()];
+            while clocks.len() < population {
+                let child = clocks[0].fork();
+                clocks.push(child);
+            }
 
-        let selected = selector.index(population);
-        let before: Vec<Version> = clocks.iter().map(|clock| clock.version().clone()).collect();
-        step::<Production>(&mut clocks, &Op::Tick(selector), &mut ());
+            let selected = selector.index(population);
+            let before: Vec<Version> =
+                clocks.iter().map(|clock| clock.version().clone()).collect();
+            step::<Production>(&mut clocks, &Op::Tick(selector), &mut ());
 
-        for (index, (old, clock)) in before.iter().zip(&clocks).enumerate() {
-            if index == selected {
-                prop_assert_ne!(old, clock.version());
-            } else {
-                prop_assert_eq!(old, clock.version());
+            for (index, (old, clock)) in before.iter().zip(&clocks).enumerate() {
+                if index == selected {
+                    prop_assert_ne!(old, clock.version());
+                } else {
+                    prop_assert_eq!(old, clock.version());
+                }
             }
         }
     }

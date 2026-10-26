@@ -93,6 +93,10 @@ slow-timeout = { period = "60s", terminate-after = 9 }
 [profile.high-count]
 slow-timeout = { period = "60s", terminate-after = 10 }
 
+# Investigative runs at very high PROPTEST_CASES (e.g. 100k).
+[profile.extreme-count]
+slow-timeout = { period = "60s" }
+
 # The window measurement suites (window_knee, window_operator,
 # window_corners, gossip_pipelining) need no scheduling isolation: their
 # pins assert on exact virtual wire time (`benches/support/latency.rs`),

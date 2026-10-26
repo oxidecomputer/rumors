@@ -1,7 +1,7 @@
 mod act;
 mod join;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use bytes::Bytes;
 use proptest::prelude::*;
@@ -42,7 +42,8 @@ fn insert_action(b: Bytes) -> Action {
 
 /// Generate distinct payloads so tests can compare live values unambiguously.
 fn distinct_bytes(max: usize) -> impl Strategy<Value = Vec<Bytes>> {
-    proptest::collection::hash_set(any::<Vec<u8>>(), 0..=max)
+    proptest::collection::vec(any::<Vec<u8>>(), 0..=max)
+        .prop_map(HashSet::<Vec<u8>>::from_iter)
         .prop_map(|s| s.into_iter().map(Bytes::from).collect())
 }
 
