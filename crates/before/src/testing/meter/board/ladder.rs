@@ -16,7 +16,7 @@ use super::currency::Currency;
 use super::judge::{evaluate, evaluate_acceptance, evaluate_without_fit, CellResult};
 use super::render::{render_results, Summary};
 use super::sampling::{Sampling, PAST_POWER_OFFSET};
-use super::shard::{merge_samples, Measured, ShardSpawner};
+use super::shard::{merge_samples, LadderSpawner, Measured, ShardSpawner};
 use super::worst::{check_with, WORST_RANKINGS};
 
 #[cfg(test)]
@@ -91,10 +91,52 @@ impl Ladder {
             Ok(merge_samples(sampling, shards, &spawn(sampling)?))
         };
         let [small, past_power, base, top] = LADDER_SAMPLINGS;
-        let (small_stamp, small) = sweep(small)?;
-        let (past_power_stamp, past_power) = sweep(past_power)?;
-        let (base_stamp, base) = sweep(base)?;
-        let (top_stamp, top) = sweep(top)?;
+        Ok(Ladder::assemble([
+            sweep(small)?,
+            sweep(past_power)?,
+            sweep(base)?,
+            sweep(top)?,
+        ]))
+    }
+
+    /// Sweeps the whole board at every sampling of the ladder at once, across
+    /// `shards` shards at each.
+    ///
+    /// `spawn` is invoked once, with the ladder's samplings in sweep order;
+    /// it may measure their shards in any order, and must return each
+    /// sampling's captures in shard order. The ladder is the one
+    /// [`Ladder::sweep`] would build from the same captures.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error `spawn` returns.
+    ///
+    /// # Panics
+    ///
+    /// As [`Ladder::sweep`], and if `spawn` returns captures for a different
+    /// number of samplings than it was given.
+    pub fn sweep_jointly(shards: usize, spawn: LadderSpawner<'_>) -> io::Result<Ladder> {
+        let captures = spawn(&LADDER_SAMPLINGS)?;
+        assert_eq!(
+            captures.len(),
+            LADDER_SAMPLINGS.len(),
+            "amp-board: a ladder spawner returns one set of captures per sampling"
+        );
+        Ok(Ladder::assemble(std::array::from_fn(|index| {
+            merge_samples(LADDER_SAMPLINGS[index], shards, &captures[index])
+        })))
+    }
+
+    /// Builds the ladder from each sampling's merged sweep, in
+    /// [`LADDER_SAMPLINGS`] order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sweeps came from differently built children or measured
+    /// different cell grids.
+    fn assemble(sweeps: [(BuildStamp, Vec<Measured>); 4]) -> Ladder {
+        let [(small_stamp, small), (past_power_stamp, past_power), (base_stamp, base), (top_stamp, top)] =
+            sweeps;
         assert!(
             [&small_stamp, &past_power_stamp, &top_stamp]
                 .iter()
@@ -121,7 +163,7 @@ impl Ladder {
                 .all(|cells| grid(cells) == base_grid),
             "amp-board: the ladder's sweeps measured different cell grids"
         );
-        Ok(ladder)
+        ladder
     }
 
     /// Returns the architecture the measuring build targeted.

@@ -1,9 +1,9 @@
 //! Runs the amplification board in wasm guests under Wasmtime fuel and judges
 //! the readings with the board's own code.
 //!
-//! [`FuelBoard`] measures one sampling of the board by instantiating
-//! the guest afresh for every cell of the operation × family grid, on a work
-//! queue across threads. The guest gives each measured body a fresh heap, so
+//! [`FuelBoard`] measures the board at every sampling of the ladder by
+//! instantiating the guest afresh for every cell of the operation × family
+//! grid, on one work queue across threads. The guest gives each measured body a fresh heap, so
 //! a reading does not depend on what the cell's preparation left in the
 //! heap; fresh instances keep any other state an earlier cell left, such as a
 //! lazily initialized static, out of it too. Every reading is therefore a
@@ -19,6 +19,9 @@
 //! them back.
 
 pub mod costs;
+
+#[cfg(test)]
+mod tests;
 
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -181,54 +184,38 @@ impl FuelBoard {
         })
     }
 
-    /// Measures every cell of the board at `sampling`, each in a fresh guest
-    /// instance, and returns the shard captures in shard order: the
-    /// [`board::ShardSpawner`] a fuel ladder sweeps with.
+    /// Measures every cell of the board at each of `samplings`, each in a
+    /// fresh guest instance, and returns each sampling's shard captures in
+    /// shard order: the [`board::LadderSpawner`] a fuel ladder sweeps with.
     ///
     /// The deal is one grid position per shard ([`board::max_useful_shards`]
-    /// shards); a position no cell occupies yields an empty capture.
+    /// shards); a position no cell occupies yields an empty capture. Every
+    /// sampling's shards share one work queue, the costliest expected first,
+    /// so no worker idles while another sampling still has shards to run.
+    /// Every cell runs in its own instance, so the order moves no reading.
     ///
     /// # Errors
     ///
-    /// Returns the first guest failure: a trap, with the panic message the
-    /// guest recorded if it recorded one.
-    pub fn spawn(&self, sampling: Sampling) -> io::Result<Vec<Vec<u8>>> {
+    /// Returns a guest failure, the first in queue order: a trap, with the
+    /// panic message the guest recorded if it recorded one.
+    pub fn spawn(&self, samplings: &[Sampling]) -> io::Result<Vec<Vec<Vec<u8>>>> {
         let count = board::max_useful_shards();
-        let next = AtomicUsize::new(0);
-        let failed = AtomicBool::new(false);
-        let captures: Mutex<Vec<Option<io::Result<Vec<u8>>>>> =
-            Mutex::new((0..count).map(|_| None).collect());
-        std::thread::scope(|scope| {
-            for _ in 0..self.threads {
-                std::thread::Builder::new()
-                    .stack_size(HOST_STACK)
-                    .spawn_scoped(scope, || {
-                        let linker = self.linker();
-                        while !failed.load(Ordering::Relaxed) {
-                            let index = next.fetch_add(1, Ordering::Relaxed);
-                            if index >= count {
-                                return;
-                            }
-                            let capture = self.run_shard(&linker, sampling, index, count, 0);
-                            failed.fetch_or(capture.is_err(), Ordering::Relaxed);
-                            captures
-                                .lock()
-                                .expect("no worker panics while holding the captures lock")
-                                [index] = Some(capture);
-                        }
-                    })
-                    .expect("a worker thread spawns");
-            }
-        });
-        // The queue hands out shards in increasing order and stops only after
-        // a failure, so every unrun shard follows a failed one, and an
-        // in-order scan meets the failure first.
-        captures
-            .into_inner()
-            .expect("no worker panics while holding the captures lock")
-            .into_iter()
-            .map(|capture| capture.expect("an unrun shard follows a failed one"))
-            .collect()
+        let queue = queue(samplings, count);
+        let results = run_queue(
+            &queue,
+            self.threads,
+            || self.linker(),
+            |linker, &(sampling, index)| {
+                self.run_shard(linker, samplings[sampling], index, count, 0)
+            },
+        )?;
+        let mut captures = vec![vec![Vec::new(); count]; samplings.len()];
+        // The queue holds each pair of sampling and shard exactly once, so
+        // this fills every slot exactly once.
+        for (&(sampling, index), capture) in queue.iter().zip(results) {
+            captures[sampling][index] = capture;
+        }
+        Ok(captures)
     }
 
     /// Measures the cell that shard `index` of the one-cell deal owns (see
@@ -320,6 +307,102 @@ impl FuelBoard {
             }
         }
     }
+}
+
+/// Returns the work queue that measures `shards` shards at each of
+/// `samplings`: every pair of a position in `samplings` and a shard index,
+/// exactly once, the costliest expected first.
+///
+/// Starting the costliest work first (longest-processing-time scheduling)
+/// keeps a long cell from starting late and running on alone after every
+/// other worker has finished. The key only needs to rank roughly, and
+/// [`knob_factor`] supplies it: a cell's operands grow with its family's
+/// size knobs, and its work grows with its operands, so a cell costs more
+/// at a sampling with larger knobs. Within one sampling the queue keeps
+/// shard order. The knobs cannot rank cells there, because each family's
+/// knobs count a different thing (tree depth, magnitude bits, teeth,
+/// clocks), so they do not compare across families.
+fn queue(samplings: &[Sampling], shards: usize) -> Vec<(usize, usize)> {
+    let mut queue: Vec<(usize, usize)> = (0..samplings.len())
+        .flat_map(|sampling| (0..shards).map(move |index| (sampling, index)))
+        .collect();
+    // The sort is stable, so samplings with equal factors keep their given
+    // order, and each sampling's shards keep theirs.
+    queue.sort_by(|&(a, _), &(b, _)| {
+        knob_factor(samplings[b]).total_cmp(&knob_factor(samplings[a]))
+    });
+    queue
+}
+
+/// Returns how far `sampling` sets every family's size knobs above their
+/// base sizes, as a factor: the work queue's cost key.
+fn knob_factor(sampling: Sampling) -> f64 {
+    match sampling {
+        Sampling::Scaled(scale) => scale,
+        // Each knob sits two past the power of two at or above its base
+        // size: from one to about two times the base. Any factor strictly
+        // between the ladder's base and top scales ranks the sampling
+        // between them.
+        Sampling::PastPowerOfTwo => 2.0,
+    }
+}
+
+/// Runs `run` on every task of `queue` across `threads` worker threads,
+/// each with its own state from `init`, and returns the results in queue
+/// order.
+///
+/// Workers take tasks in queue order, and once a task fails, none takes
+/// another. The tasks that ran are therefore a prefix of the queue, and it
+/// holds the first failing task in queue order, whose error is returned.
+///
+/// # Errors
+///
+/// Returns the error of the first task in queue order that failed.
+///
+/// # Panics
+///
+/// Panics if `threads` is zero.
+fn run_queue<T: Sync, W, R: Send>(
+    queue: &[T],
+    threads: usize,
+    init: impl Fn() -> W + Sync,
+    run: impl Fn(&W, &T) -> io::Result<R> + Sync,
+) -> io::Result<Vec<R>> {
+    assert!(threads > 0, "board-fuel: at least one worker thread");
+    let next = AtomicUsize::new(0);
+    let failed = AtomicBool::new(false);
+    let results: Mutex<Vec<Option<io::Result<R>>>> =
+        Mutex::new((0..queue.len()).map(|_| None).collect());
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            std::thread::Builder::new()
+                .stack_size(HOST_STACK)
+                .spawn_scoped(scope, || {
+                    let state = init();
+                    while !failed.load(Ordering::Relaxed) {
+                        let position = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(task) = queue.get(position) else {
+                            return;
+                        };
+                        let result = run(&state, task);
+                        failed.fetch_or(result.is_err(), Ordering::Relaxed);
+                        results
+                            .lock()
+                            .expect("no worker panics while holding the results lock")[position] =
+                            Some(result);
+                    }
+                })
+                .expect("a worker thread spawns");
+        }
+    });
+    // Collecting stops at the first error, which precedes every task that
+    // never ran.
+    results
+        .into_inner()
+        .expect("no worker panics while holding the results lock")
+        .into_iter()
+        .map(|result| result.expect("a task that never ran follows a failed one"))
+        .collect()
 }
 
 /// Calls the guest's nullary export `name`.

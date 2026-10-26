@@ -179,5 +179,7 @@ pub use ladder::{Ladder, Verdict};
 pub use measure::{FuelMeter, HeapMeter, Meters};
 pub use render::Summary;
 pub use sampling::{Sampling, PAST_POWER_OFFSET};
-pub use shard::{cell_shard, emit_shard, max_useful_shards, run, worst_map, ShardSpawner};
+pub use shard::{
+    cell_shard, emit_shard, max_useful_shards, run, worst_map, LadderSpawner, ShardSpawner,
+};
 pub use worst::{NEAR_TIE_RATIO, WORST_MAP_SCALES};

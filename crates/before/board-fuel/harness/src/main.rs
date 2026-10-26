@@ -79,8 +79,8 @@ fn sweep(wasm: &[u8]) -> Ladder {
     };
     let fuel_board = exit_on_error(FuelBoard::new(wasm, threads), "compiling the guest");
     exit_on_error(
-        Ladder::sweep(board::max_useful_shards(), &|sampling| {
-            fuel_board.spawn(sampling)
+        Ladder::sweep_jointly(board::max_useful_shards(), &|samplings| {
+            fuel_board.spawn(samplings)
         }),
         "sweeping the board",
     )
