@@ -126,12 +126,14 @@ version = "0.1.0"
 edition = "2024"
 readme = "README.md"
 
-# docs.rs renders every feature-gated module the crate docs advertise
-# (`conformance`), matching the gate's all-features rustdoc passes. The
-# `docsrs` cfg turns on lib.rs's `doc_cfg` feature, so gated items label
-# their gate; the justfile's `docs-docsrs` leg builds this configuration.
+# docs.rs renders the feature-gated surface the crate advertises
+# (`conformance`, `fs`) and nothing of `test-internals`, whose introspection
+# and scheduling hooks exist for this crate's own tests and which no
+# application enables. The `docsrs` cfg turns on lib.rs's `doc_cfg` feature,
+# so gated items label their gate; the justfile's `docs-docsrs` leg builds
+# this configuration.
 [package.metadata.docs.rs]
-all-features = true
+features = ["conformance", "fs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lints.rust]

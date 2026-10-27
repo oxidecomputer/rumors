@@ -202,15 +202,17 @@ docs-internal:
     ./tools/fuelscape-assets target/doc-internal/doc
 
 # The only leg that builds rumors' `doc_cfg` path and each crate's
-# `[package.metadata.docs.rs]`. It cannot check the published tarball:
-# `cargo package` on before refuses until its `suanpan` dependency carries
-# a version. Needs `cargo install cargo-docs-rs`.
+# `[package.metadata.docs.rs]`. cargo-docs-rs takes the features and rustdoc
+# arguments from that metadata and appends RUSTDOCFLAGS to them, so the
+# warnings are denied under exactly the configuration docs.rs renders. It
+# cannot check the published tarball: `cargo package` on before refuses
+# until its `suanpan` dependency carries a version. Needs
+# `cargo install cargo-docs-rs`.
 
-# Build the rustdoc as docs.rs does (pinned nightly, `--cfg docsrs`, each crate's docs.rs metadata).
+# Build the rustdoc as docs.rs does (pinned nightly, `--cfg docsrs`, each crate's docs.rs metadata), warnings denied.
 docs-docsrs:
-    RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo +{{ nightly_toolchain }} doc -p rumors --all-features --no-deps --target-dir target/doc-docsrs
-    cargo +{{ nightly_toolchain }} docs-rs -p rumors --target-dir target/doc-docsrs
-    cargo +{{ nightly_toolchain }} docs-rs -p before --target-dir target/doc-docsrs
+    RUSTDOCFLAGS="-D warnings" cargo +{{ nightly_toolchain }} docs-rs -p rumors --target-dir target/doc-docsrs
+    RUSTDOCFLAGS="-D warnings" cargo +{{ nightly_toolchain }} docs-rs -p before --target-dir target/doc-docsrs
     ./tools/fuelscape-assets target/doc-docsrs/{{ host_triple }}/doc
 
 # A `cfg` that compiled tests/future_size.rs empty would read as a pass.
