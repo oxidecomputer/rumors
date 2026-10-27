@@ -40,9 +40,10 @@
 //! # What a reading counts
 //!
 //! A [`Stats`] reports the requests one thread made since its reading began:
-//! event counts of allocations and reallocations, the bytes they requested,
-//! and the net change in live bytes along with its peak. The counting rules
-//! are those of a process-wide peak counter, restricted to one thread:
+//! event counts of allocations and reallocations, how many of those requests
+//! were over-aligned, the bytes they requested, and the net change in live
+//! bytes along with its peak. The counting rules are those of a process-wide
+//! peak counter, restricted to one thread:
 //!
 //! - Only successful requests count; a failed request changes nothing.
 //! - A reallocation counts as allocating the new block and then freeing the
@@ -53,6 +54,12 @@
 //!   whichever thread allocated it. A closure that drops an input built before
 //!   its reading began reads a negative net, as does one that frees a block
 //!   another thread allocated.
+//! - A request is *over-aligned* when its alignment exceeds
+//!   [`OVER_ALIGNED_ABOVE`], two machine words. [`System`] serves every
+//!   over-aligned request through the platform's aligned-allocation entry
+//!   point (`posix_memalign` or its equivalent) rather than `malloc`. Some
+//!   platforms serve that entry point far more slowly than `malloc`, so the
+//!   count prices a cost that byte totals do not show.
 //!
 //! # Installation
 //!
@@ -81,9 +88,22 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
+use std::mem::size_of;
 
 #[cfg(test)]
 mod tests;
+
+/// The largest alignment that is not *over-aligned*: two machine words, which
+/// is 16 bytes on 64-bit targets.
+///
+/// [`System`] trusts `malloc` to align blocks to at most two machine words on
+/// every target, and serves any request aligned beyond what it trusts through
+/// the platform's aligned-allocation entry point. Every request
+/// [`Stats::over_aligned`] counts therefore takes that path. The converse
+/// does not hold: a target whose `malloc` the standard library trusts for
+/// less, or a layout whose alignment exceeds its size, also reaches the
+/// aligned path below this threshold, uncounted.
+pub const OVER_ALIGNED_ABOVE: usize = 2 * size_of::<usize>();
 
 /// Allocator traffic and heap use recorded on one thread over one reading.
 ///
@@ -95,6 +115,14 @@ pub struct Stats {
     pub allocations: usize,
     /// Successful reallocation requests.
     pub reallocations: usize,
+    /// Successful allocation and reallocation requests whose alignment
+    /// exceeds [`OVER_ALIGNED_ABOVE`].
+    ///
+    /// A reallocation keeps its block's alignment, and the system allocator
+    /// serves an over-aligned one as a fresh aligned allocation and a copy,
+    /// so each request counted here reaches the aligned-allocation entry
+    /// point once.
+    pub over_aligned: usize,
     /// Bytes requested by fresh allocations and by reallocation growth.
     ///
     /// A reallocation contributes only its growth, so reserving the final
@@ -114,29 +142,42 @@ impl Stats {
     const EMPTY: Self = Self {
         allocations: 0,
         reallocations: 0,
+        over_aligned: 0,
         bytes_allocated: 0,
         peak_bytes: 0,
         net_bytes: 0,
     };
 
-    /// Records a successful fresh allocation of `size` bytes.
-    fn record_allocation(&mut self, size: usize) {
+    /// Records a successful fresh allocation of `layout`.
+    fn record_allocation(&mut self, layout: Layout) {
         self.allocations = self.allocations.saturating_add(1);
-        self.bytes_allocated = self.bytes_allocated.saturating_add(size);
-        self.grow(size);
+        self.count_alignment(layout);
+        self.bytes_allocated = self.bytes_allocated.saturating_add(layout.size());
+        self.grow(layout.size());
     }
 
-    /// Records a successful reallocation from `old_size` to `new_size` bytes.
+    /// Records a successful reallocation of a block with `layout` to
+    /// `new_size` bytes.
     ///
     /// The new block is counted live before the old one is released, so the
     /// peak covers the moment a moving reallocation holds both.
-    fn record_reallocation(&mut self, old_size: usize, new_size: usize) {
+    fn record_reallocation(&mut self, layout: Layout, new_size: usize) {
+        let old_size = layout.size();
         self.reallocations = self.reallocations.saturating_add(1);
+        self.count_alignment(layout);
         self.bytes_allocated = self
             .bytes_allocated
             .saturating_add(new_size.saturating_sub(old_size));
         self.grow(new_size);
         self.shrink(old_size);
+    }
+
+    /// Counts a successful request for a block aligned as `layout` is, when
+    /// that alignment is over-aligned.
+    fn count_alignment(&mut self, layout: Layout) {
+        if layout.align() > OVER_ALIGNED_ABOVE {
+            self.over_aligned = self.over_aligned.saturating_add(1);
+        }
     }
 
     /// Records freeing a block of `size` bytes.
@@ -168,6 +209,7 @@ impl Stats {
         Self {
             allocations: self.allocations.saturating_add(later.allocations),
             reallocations: self.reallocations.saturating_add(later.reallocations),
+            over_aligned: self.over_aligned.saturating_add(later.over_aligned),
             bytes_allocated: self.bytes_allocated.saturating_add(later.bytes_allocated),
             peak_bytes: self
                 .peak_bytes
@@ -228,7 +270,7 @@ unsafe impl GlobalAlloc for MeteredSystem {
         // this forwards unchanged.
         let block = unsafe { System.alloc(layout) };
         if !block.is_null() {
-            record(|stats| stats.record_allocation(layout.size()));
+            record(|stats| stats.record_allocation(layout));
         }
         block
     }
@@ -238,7 +280,7 @@ unsafe impl GlobalAlloc for MeteredSystem {
         // which this forwards unchanged.
         let block = unsafe { System.alloc_zeroed(layout) };
         if !block.is_null() {
-            record(|stats| stats.record_allocation(layout.size()));
+            record(|stats| stats.record_allocation(layout));
         }
         block
     }
@@ -257,7 +299,7 @@ unsafe impl GlobalAlloc for MeteredSystem {
         let block = unsafe { System.realloc(ptr, layout, new_size) };
         // A failed reallocation leaves the old block live and unchanged.
         if !block.is_null() {
-            record(|stats| stats.record_reallocation(layout.size(), new_size));
+            record(|stats| stats.record_reallocation(layout, new_size));
         }
         block
     }

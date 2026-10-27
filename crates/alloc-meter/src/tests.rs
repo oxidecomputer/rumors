@@ -1,9 +1,9 @@
 //! Tests of the per-thread ledger against the counting rules in the crate docs.
 //!
 //! The lib test binary links this crate, so the metered allocator is installed
-//! here. The property tests issue raw allocator requests of exact sizes, so the
-//! model knows every request the allocator sees, and they compare each reading
-//! with a recomputation from the list of live block sizes.
+//! here. The property tests issue raw allocator requests of exact sizes and
+//! alignments, so the model knows every request the allocator sees, and they
+//! compare each reading with a recomputation from the list of live blocks.
 
 use std::alloc::{self, Layout};
 use std::hint::black_box;
@@ -17,10 +17,10 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::sample::Index;
 
-use super::{Stats, measure, reading, reset};
+use super::{OVER_ALIGNED_ABOVE, Stats, measure, reading, reset};
 
 /// A heap block requested from the global allocator with an exact size and
-/// an alignment of one.
+/// alignment.
 ///
 /// Every pointer the allocator returns passes through [`black_box`] before the
 /// block keeps it. The optimizer may delete an allocation whose block nothing
@@ -37,15 +37,17 @@ struct Block {
 }
 
 impl Block {
-    /// Allocates `size` bytes, zeroed when `zeroed` is set.
+    /// Allocates `size` bytes aligned to `align`, zeroed when `zeroed` is
+    /// set.
     ///
     /// # Panics
     ///
-    /// Panics if `size` is zero, which the allocator's contract forbids.
-    fn new(size: usize, zeroed: bool) -> Self {
+    /// Panics if `size` is zero, which the allocator's contract forbids, or
+    /// if `align` is not a power of two.
+    fn new(size: usize, align: usize, zeroed: bool) -> Self {
         assert!(size > 0, "a block has at least one byte");
-        let layout =
-            Layout::from_size_align(size, 1).expect("a byte-aligned size is a valid layout");
+        let layout = Layout::from_size_align(size, align)
+            .expect("a small size at a power-of-two alignment is a valid layout");
         // SAFETY: `layout` has a nonzero size, as checked above.
         let ptr = black_box(unsafe {
             if zeroed {
@@ -58,17 +60,17 @@ impl Block {
         Self { ptr, layout }
     }
 
-    /// Reallocates the block to `size` bytes.
+    /// Reallocates the block to `size` bytes, keeping its alignment.
     ///
     /// # Panics
     ///
     /// Panics if `size` is zero, which the allocator's contract forbids.
     fn resize(&mut self, size: usize) {
         assert!(size > 0, "a block has at least one byte");
-        let layout =
-            Layout::from_size_align(size, 1).expect("a byte-aligned size is a valid layout");
+        let layout = Layout::from_size_align(size, self.layout.align())
+            .expect("a small size at the block's alignment is a valid layout");
         // SAFETY: `self.ptr` is live and was allocated with `self.layout`;
-        // `size` is nonzero and, rounded up to an alignment of one, cannot
+        // `size` is nonzero and, rounded up to the block's alignment, cannot
         // overflow `isize`, since `layout` was constructed from it.
         let ptr = black_box(unsafe { alloc::realloc(self.ptr.as_ptr(), self.layout, size) });
         self.ptr = NonNull::new(ptr).unwrap_or_else(|| alloc::handle_alloc_error(layout));
@@ -89,9 +91,13 @@ impl Drop for Block {
 /// one.
 #[derive(Clone, Copy, Debug)]
 enum Op {
-    /// Allocate a fresh block of `size` bytes, through `alloc_zeroed` when
-    /// `zeroed` is set.
-    Allocate { size: usize, zeroed: bool },
+    /// Allocate a fresh block of `size` bytes aligned to `align`, through
+    /// `alloc_zeroed` when `zeroed` is set.
+    Allocate {
+        size: usize,
+        align: usize,
+        zeroed: bool,
+    },
     /// Reallocate a live block to `size` bytes; skipped when nothing is live.
     Resize { block: Index, size: usize },
     /// Free a live block; skipped when nothing is live.
@@ -99,11 +105,17 @@ enum Op {
 }
 
 /// Generates requests of a few kilobytes at most, so a history crosses both
-/// growing and shrinking reallocations.
+/// growing and shrinking reallocations, at power-of-two alignments from one
+/// byte to a page, so it crosses [`OVER_ALIGNED_ABOVE`] in both directions.
 fn arb_op() -> impl Strategy<Value = Op> {
     let size = 1..=4_096usize;
+    let align = (0..=12u32).prop_map(|exponent| 1usize << exponent);
     prop_oneof![
-        (size.clone(), any::<bool>()).prop_map(|(size, zeroed)| Op::Allocate { size, zeroed }),
+        (size.clone(), align, any::<bool>()).prop_map(|(size, align, zeroed)| Op::Allocate {
+            size,
+            align,
+            zeroed
+        }),
         (any::<Index>(), size).prop_map(|(block, size)| Op::Resize { block, size }),
         any::<Index>().prop_map(|block| Op::Free { block }),
     ]
@@ -116,9 +128,13 @@ fn arb_op() -> impl Strategy<Value = Op> {
 fn apply(blocks: &mut Vec<Block>, ops: &[Op]) {
     for op in ops {
         match *op {
-            Op::Allocate { size, zeroed } => {
+            Op::Allocate {
+                size,
+                align,
+                zeroed,
+            } => {
                 assert!(blocks.len() < blocks.capacity(), "blocks never reallocates");
-                blocks.push(Block::new(size, zeroed));
+                blocks.push(Block::new(size, align, zeroed));
             }
             Op::Resize { block, size } => {
                 if !blocks.is_empty() {
@@ -136,28 +152,44 @@ fn apply(blocks: &mut Vec<Block>, ops: &[Op]) {
     }
 }
 
+/// A live block as the model sees it: its size and its alignment.
+#[derive(Clone, Copy, Debug)]
+struct Live {
+    /// The block's current size in bytes.
+    size: usize,
+    /// The alignment the block was allocated with, kept by every resize.
+    align: usize,
+}
+
 /// Returns the reading the counting rules predict for `ops`, starting from
-/// live blocks of the sizes in `live`, and updates `live` to match.
+/// the blocks in `live`, and updates `live` to match.
 ///
 /// The model recomputes every level from the whole live list instead of
 /// tracking a running total, and measures each level against the total live
 /// when the reading began. A reallocation's level is taken with the new block
-/// added and the old one still present.
-fn model(live: &mut Vec<usize>, ops: &[Op]) -> Stats {
+/// added and the old one still present. Every allocation and reallocation of
+/// a block aligned beyond [`OVER_ALIGNED_ABOVE`] counts as over-aligned.
+fn model(live: &mut Vec<Live>, ops: &[Op]) -> Stats {
     /// Returns the live total of `live` relative to `start`.
-    fn level(live: &[usize], start: usize) -> isize {
-        live.iter().sum::<usize>() as isize - start as isize
+    fn level(live: &[Live], start: usize) -> isize {
+        total(live) as isize - start as isize
     }
 
-    let start = live.iter().sum::<usize>();
+    /// Returns the total size of the blocks in `live`.
+    fn total(live: &[Live]) -> usize {
+        live.iter().map(|block| block.size).sum()
+    }
+
+    let start = total(live);
     let mut expected = Stats::default();
     let mut peak = 0isize;
     for op in ops {
         match *op {
-            Op::Allocate { size, .. } => {
+            Op::Allocate { size, align, .. } => {
                 expected.allocations += 1;
+                expected.over_aligned += usize::from(align > OVER_ALIGNED_ABOVE);
                 expected.bytes_allocated += size;
-                live.push(size);
+                live.push(Live { size, align });
                 peak = peak.max(level(live, start));
             }
             Op::Resize { block, size } => {
@@ -167,9 +199,10 @@ fn model(live: &mut Vec<usize>, ops: &[Op]) -> Stats {
                 let index = block.index(live.len());
                 let old = live[index];
                 expected.reallocations += 1;
-                expected.bytes_allocated += size.saturating_sub(old);
+                expected.over_aligned += usize::from(old.align > OVER_ALIGNED_ABOVE);
+                expected.bytes_allocated += size.saturating_sub(old.size);
                 peak = peak.max(level(live, start) + size as isize);
-                live[index] = size;
+                live[index].size = size;
             }
             Op::Free { block } => {
                 if !live.is_empty() {
@@ -193,10 +226,12 @@ proptest! {
     /// Every reading equals the counting rules' prediction, read both
     /// mid-measurement through `reading` and at the measurement's end.
     ///
-    /// The history mixes plain and zeroed allocations, growing and shrinking
-    /// reallocations, and frees, so each allocator entry point and each rule
-    /// (growth-only byte totals, the reallocation's two-block peak, frees
-    /// lowering the net) decides some reading.
+    /// The history mixes plain and zeroed allocations at alignments on both
+    /// sides of [`OVER_ALIGNED_ABOVE`], growing and shrinking reallocations,
+    /// and frees, so each allocator entry point and each rule (growth-only
+    /// byte totals, the reallocation's two-block peak, frees lowering the net,
+    /// over-aligned counts for allocations and reallocations alike) decides
+    /// some reading.
     #[test]
     fn readings_follow_the_counting_rules(ops in vec(arb_op(), 0..48), at in any::<Index>()) {
         let (first, second) = split(&ops, at);
@@ -298,6 +333,7 @@ fn foreign_thread_requests_are_excluded() {
         Stats {
             allocations: 1,
             reallocations: 0,
+            over_aligned: 0,
             bytes_allocated: LOCAL_BYTES,
             peak_bytes: LOCAL_BYTES,
             net_bytes: LOCAL_BYTES as isize,
@@ -309,9 +345,9 @@ fn foreign_thread_requests_are_excluded() {
 /// freed after the reset lowers its net even though it was allocated before.
 #[test]
 fn reset_begins_a_fresh_reading() {
-    let earlier = Block::new(16, false);
+    let earlier = Block::new(16, 1, false);
     reset();
-    let later = Block::new(64, false);
+    let later = Block::new(64, 1, false);
     drop(earlier);
     let stats = reading();
     drop(later);
@@ -321,6 +357,7 @@ fn reset_begins_a_fresh_reading() {
         Stats {
             allocations: 1,
             reallocations: 0,
+            over_aligned: 0,
             bytes_allocated: 64,
             peak_bytes: 64,
             net_bytes: 48,
@@ -333,11 +370,11 @@ fn reset_begins_a_fresh_reading() {
 #[test]
 fn reset_inside_a_measurement_restarts_it() {
     let (outer, (inner, blocks)) = measure(|| {
-        let enclosing = Block::new(8, false);
+        let enclosing = Block::new(8, 1, false);
         let (inner, nested) = measure(|| {
-            let lost = Block::new(32, false);
+            let lost = Block::new(32, 1, false);
             reset();
-            (lost, Block::new(64, false))
+            (lost, Block::new(64, 1, false))
         });
         (inner, (enclosing, nested))
     });
@@ -346,6 +383,7 @@ fn reset_inside_a_measurement_restarts_it() {
     let after_reset = Stats {
         allocations: 1,
         reallocations: 0,
+        over_aligned: 0,
         bytes_allocated: 64,
         peak_bytes: 64,
         net_bytes: 64,
@@ -356,6 +394,7 @@ fn reset_inside_a_measurement_restarts_it() {
         Stats {
             allocations: 2,
             reallocations: 0,
+            over_aligned: 0,
             bytes_allocated: 72,
             peak_bytes: 72,
             net_bytes: 72,
@@ -375,7 +414,7 @@ fn reset_inside_a_measurement_restarts_it() {
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn refused_requests_change_nothing() {
-    let block = Block::new(16, false);
+    let block = Block::new(16, 1, false);
     let huge = isize::MAX.unsigned_abs();
     let layout = Layout::from_size_align(huge, 1)
         .expect("isize::MAX bytes at alignment one is a valid layout");
@@ -410,10 +449,10 @@ fn refused_requests_change_nothing() {
 #[test]
 fn a_panicking_measurement_restores_the_enclosing_reading() {
     let (outer, (enclosing, unwound)) = measure(|| {
-        let enclosing = Block::new(8, false);
+        let enclosing = Block::new(8, 1, false);
         let unwound = panic::catch_unwind(|| {
             measure(|| {
-                let _scratch = Block::new(16, false);
+                let _scratch = Block::new(16, 1, false);
                 panic::resume_unwind(Box::new(()));
             })
         });

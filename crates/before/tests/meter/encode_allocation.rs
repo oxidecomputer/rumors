@@ -84,6 +84,7 @@ fn one_allocation_of(len: usize) -> Stats {
     Stats {
         allocations: 1,
         reallocations: 0,
+        over_aligned: 0,
         bytes_allocated: len,
         peak_bytes: len,
         net_bytes: isize::try_from(len).expect("an encoding in memory fits isize"),
