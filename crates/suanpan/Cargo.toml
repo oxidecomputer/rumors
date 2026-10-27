@@ -6,6 +6,12 @@ description = "Exact signed accumulation with bounded carry and cancellation wor
 license = "MPL-2.0"
 readme = "README.md"
 
+# docs.rs renders the `num-bigint` conversions the crate docs advertise,
+# which no default-feature build compiles; the justfile's `docs-docsrs` leg
+# builds this configuration.
+[package.metadata.docs.rs]
+features = ["num-bigint"]
+
 [dependencies]
 num-bigint = { workspace = true, optional = true }
 

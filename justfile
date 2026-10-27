@@ -213,6 +213,7 @@ docs-internal:
 docs-docsrs:
     RUSTDOCFLAGS="-D warnings" cargo +{{ nightly_toolchain }} docs-rs -p rumors --target-dir target/doc-docsrs
     RUSTDOCFLAGS="-D warnings" cargo +{{ nightly_toolchain }} docs-rs -p before --target-dir target/doc-docsrs
+    RUSTDOCFLAGS="-D warnings" cargo +{{ nightly_toolchain }} docs-rs -p suanpan --target-dir target/doc-docsrs
     ./tools/fuelscape-assets target/doc-docsrs/{{ host_triple }}/doc
 
 # A `cfg` that compiled tests/future_size.rs empty would read as a pass.
