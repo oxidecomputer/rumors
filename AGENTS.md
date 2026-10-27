@@ -23,8 +23,7 @@ tour, and the comment above each recipe says what it checks and why.
 - After editing crate-level rustdoc, run `just readme`: the READMEs are
   derived, never hand-edited.
 - Before every commit that touches anything the gate checks, get `just gate`
-  fully clean. No gate leg reads `.agent-notes/`, so a commit confined there
-  needs no run.
+  fully clean.
 - Bisect `main` with `git bisect start --first-parent` (or its jj equivalent,
   `jj bisect run` over a range within `first_ancestors(main)`). A merged
   branch can carry a commit whose new test fails until a later commit on it
@@ -114,10 +113,3 @@ No gate leg checks these; review does.
     change; say so in the commit.
   - To re-accept: `just test-all`, then `cargo insta review` (from
     `cargo install cargo-insta`), then commit the updated `.snap` files.
-
-## Your own notes
-
-You may leave durable notes and other artifacts of exploration in
-`.agent-notes/`; `.agent-notes/AGENTS.md` sets the conventions. Notes are
-dated and unaudited, never documentation of record: verify a note against the
-tree before relying on it.

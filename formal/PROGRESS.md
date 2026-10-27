@@ -1025,16 +1025,12 @@ Finding #7's post-script: the Rust-side proptest fork found the real
 encoder's publication order VIOLATING the `d5` check as minted, and the
 adjudication fork classified the divergence as model-over-constraint —
 `d5` is the *weave's* placement; the encoder deliberately emits the
-parent in the scope epilogue (`materialized/levels.rs`: "Launch every
-`Pending` slot's work before publishing its enclosing parent
-resolution"), and MODEL.md §5 had documented that order all along
-("orderings the Rust scheduler can never produce" includes the `d5`
-placement). Full analysis and the design-space record:
-`.agent-notes/2026-07-18-parent-placement/parent-placement.md`
-(parent-first branch). The user's
-adjudications: re-target the implementation-facing theorem at the
-encoder's real order; capacity hypothesis at margin 0
-(`capLevel ≥` max per-scope `dCount` — the robust bound provable
+parent in the scope epilogue (`materialized/levels.rs`: "Launch every `Pending`
+slot's work before publishing its enclosing parent resolution"), and MODEL.md §5
+had documented that order all along ("orderings the Rust scheduler can never
+produce" includes the `d5` placement). The user's adjudications: re-target the
+implementation-facing theorem at the encoder's real order; capacity hypothesis
+at margin 0 (`capLevel ≥` max per-scope `dCount` — the robust bound provable
 against the channel interface, chosen over the tight −2 floor); walk
 channels stay cap 1; capacity monotonicity for wider production
 configs assumed informally (Kahn: per-walk order fixed ⇒ deterministic
@@ -1096,13 +1092,11 @@ floor stays characterized executably, not carried through the kernel.
 
 **5b confirmed in the model.** At `pdelay`'s `.impl` stuck state:
 level-channel occupancy 2 (the capLevel-1 buffers full), 1 assembler
-mid-collection (`got > 0` — the consumer's hand), 3 walks parked on
-committed sends (the producers' hands: last-chunk query, trailing
-wire, undrainable parent). The commit/fire split IS the producer-hand
-slot; `asmLocalOk`'s phase-1 collection IS the consumer-hand slot —
-the borrowed-slots mechanism of §2 in
-.agent-notes/2026-07-18-parent-placement/parent-placement.md, now
-[checked] in the model as well as in Rust.
+mid-collection (`got > 0` — the consumer's hand), 3 walks parked on committed
+sends (the producers' hands: last-chunk query, trailing wire, undrainable
+parent). The commit/fire split IS the producer-hand slot; `asmLocalOk`'s phase-1
+collection IS the consumer-hand slot, now [checked] in the model as well as in
+Rust.
 
 Task #16 consumes: `AxMode.impl`, the pillar under
 `hmode = Or.inl rfl` (`.impl.d5 = false` is rfl), the margin-0

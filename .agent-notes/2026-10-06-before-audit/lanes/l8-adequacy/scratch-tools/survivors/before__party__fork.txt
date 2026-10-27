@@ -1,3 +1,0 @@
-# survivors of crates/before/src/party/fork.rs (party); MISSED = no test failed, TIMEOUT = hung
-MISSED   crates/before/src/party/fork.rs:101:60: replace + with * in Party::fork_tree
-MISSED   crates/before/src/party/fork.rs:119:60: replace + with * in Party::fork_tree

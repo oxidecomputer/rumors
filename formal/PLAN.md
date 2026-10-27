@@ -36,13 +36,20 @@ Last updated: 2026-07-18.
 
 1. **Finding #7 resolution**: the d5 (parent-early) ledger is a weave
    property, not an encoder property; the encoder's epilogue placement
-   is deliberate and safe under the capacity discipline. Full analysis:
-   `.agent-notes/2026-07-18-parent-placement/parent-placement.md`
-   (parent-first branch).
+   is deliberate and safe under the capacity discipline.
 2. **Theorem re-target**: the implementation-facing theorem is
-   deadlock freedom under the encoder's per-walk order (epilogue
-   placement, minted as a ledger) with arbitrary cross-process
-   interleaving; walk channels at capacity 1; assembler capacity ≥ max
+   deadlock freedom under the encoder's per-walk order (epilogue placement,
+   minted as a ledger) with arbitrary cross-process interleaving; walk channels
+   at capacity 1; assembler capacity ≥ max scouting saved effort); the
+   proptest⇒theorem chain to the Rust. SECONDARY (one section, not the spine):
+   the collaboration process (coordinator+forks, checkpoints, adjudication
+   points, operational failure modes). Sources: PROGRESS.md + its git history
+   (each checkpoint commit a dated belief snapshot), PLAN.md, both branches' git
+   logs — and, EXPLICITLY AUTHORIZED by Finch (2026-07-18), the Claude session
+   transcripts on this machine
+   (~/.claude/projects/-Users-oxide-src-rumors/*.jsonl and sibling project dirs)
+   for process details predating this session or lost to its compactions; mine
+   them with targeted subagent sweeps, not
    per-scope dispute count (**margin 0**, the shipping FAN ≥ kids
    discipline — deliberately not the tight −2 floor, so the
    borrowed-slots invariant never enters the proof).
@@ -155,17 +162,7 @@ Last updated: 2026-07-18.
   verification story; the d6 mint and margin-0/borrowed-slots
   analysis; the E-side re-derivation's systematic refunds;
   proof-engineering texture (trap lists, hard vs mechanical, where
-  scouting saved effort); the proptest⇒theorem chain to the Rust.
-  SECONDARY (one section, not the spine): the collaboration process
-  (coordinator+forks, checkpoints, adjudication points, operational
-  failure modes). Sources: PROGRESS.md + its git history (each
-  checkpoint commit a dated belief snapshot), PLAN.md, the design docs
-  in design/ and .agent-notes/, both branches' git logs — and,
-  EXPLICITLY AUTHORIZED by Finch (2026-07-18), the Claude session
-  transcripts on this machine
-  (~/.claude/projects/-Users-oxide-src-rumors/*.jsonl and sibling
-  project dirs) for process details predating this session or lost to
-  its compactions; mine them with targeted subagent sweeps, not
+
   wholesale reads. Distinguish lived from reconstructed narrative.
 
 Serial order #18 → #19 → #20 is deliberate: the exposition's

@@ -1,2 +1,0 @@
-# survivors of crates/before/src/party/compare.rs (party); MISSED = no test failed, TIMEOUT = hung
-MISSED   crates/before/src/party/compare.rs:149:30: replace || with && in Comparison<'a, 'b>::descend

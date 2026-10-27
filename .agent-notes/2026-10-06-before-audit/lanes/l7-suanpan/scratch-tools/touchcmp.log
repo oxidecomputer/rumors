@@ -1,4 +1,0 @@
-touch-meter exit=0
-touch-meter,l7-proto exit=0
-touch-meter,l7-proto-w exit=0
-touch-meter,l7-o1 exit=0
