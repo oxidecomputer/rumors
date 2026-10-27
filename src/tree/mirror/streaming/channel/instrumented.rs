@@ -1,11 +1,10 @@
 //! Test channels with scheduled polling and per-edge occupancy statistics.
 //!
-//! These wrappers retain Tokio's bounded-channel behavior while allowing
+//! These wrappers retain the production channel's behavior while allowing
 //! protocol tests to delay polls, cap selected edges, and inspect queue use.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::future::Future;
 use std::pin::Pin;
 use std::sync::{
     Arc,
@@ -14,9 +13,8 @@ use std::sync::{
 use std::task::{Context, Poll};
 
 use futures::{Stream, future::poll_fn};
-use tokio::sync::mpsc;
 
-use super::{QueueKind, QueueRole};
+use super::{QueueKind, QueueRole, SendError, bounded};
 use crate::testing::schedule::{CHANNEL_SCHEDULE, Countdown};
 
 /// Aggregated observations for every channel created with one role.
@@ -136,47 +134,47 @@ impl Stats {
 
 /// The sending half of a bounded channel.
 pub struct Sender<T> {
-    /// Underlying Tokio sender.
-    inner: mpsc::Sender<T>,
+    /// Underlying production sender.
+    inner: bounded::Sender<T>,
     /// Observations shared with the receiver.
     stats: Arc<Stats>,
 }
 
-/// Preserve the sender and its shared observation state when cloning.
-impl<T> Clone for Sender<T> {
-    /// Clone the underlying sender and observation handle.
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            stats: self.stats.clone(),
-        }
-    }
-}
-
 /// Send through an instrumented bounded channel.
 impl<T> Sender<T> {
-    /// Return the channel's currently available capacity.
-    pub fn capacity(&self) -> usize {
-        self.inner.capacity()
+    /// Send one item, applying a scheduled suspension before every poll.
+    pub async fn send(&mut self, item: T) -> Result<(), SendError<T>> {
+        self.send_with(item, || ()).await
     }
 
-    /// Send one item, applying a scheduled suspension before every poll.
-    pub async fn send(&self, item: T) -> Result<(), mpsc::error::SendError<T>> {
-        let mut sending = Box::pin(self.inner.send(item));
+    /// Send one item as [`send`](Self::send) does, calling `on_full` first if
+    /// the channel is full when the send arrives, before any scheduled delay.
+    pub async fn send_with(&mut self, item: T, on_full: impl FnOnce()) -> Result<(), SendError<T>> {
+        let mut on_full = Some(on_full);
         let mut delay = Countdown::default();
-        let result = poll_fn(|cx| {
+        let ready = poll_fn(|cx| {
+            if let Some(on_full) = on_full.take()
+                && self.inner.poll_ready(cx).is_pending()
+            {
+                on_full();
+            }
             if delay.suspend(|| CHANNEL_SCHEDULE.next(), cx) {
                 return Poll::Pending;
             }
             delay.clear();
-            if self.inner.capacity() == 0 {
+            let ready = self.inner.poll_ready(cx);
+            if ready.is_pending() {
                 self.stats
                     .blocked_send_polls
                     .fetch_add(1, Ordering::Relaxed);
             }
-            sending.as_mut().poll(cx)
+            ready
         })
         .await;
+        let result = match ready {
+            Ok(()) => self.inner.start_send(item),
+            Err(SendError(())) => Err(SendError(item)),
+        };
         if result.is_ok() {
             self.stats.sent();
         }
@@ -186,8 +184,8 @@ impl<T> Sender<T> {
 
 /// The receiving half of a bounded channel.
 pub struct Receiver<T> {
-    /// Underlying Tokio receiver.
-    inner: mpsc::Receiver<T>,
+    /// Underlying production receiver.
+    inner: bounded::Receiver<T>,
     /// Observations shared with the sender.
     stats: Arc<Stats>,
     /// Scheduled delay before the next receiver poll.
@@ -207,7 +205,7 @@ impl<T> Receiver<T> {
             return Poll::Pending;
         }
         self.delay.clear();
-        let polled = Pin::new(&mut self.inner).poll_recv(cx);
+        let polled = self.inner.poll_recv(cx);
         if matches!(polled, Poll::Ready(Some(_))) {
             self.stats.received();
         }
@@ -225,7 +223,7 @@ impl<T> Stream for Receiver<T> {
     }
 }
 
-/// Create a Tokio channel with test-only capacity and observation hooks.
+/// Create a production channel with test-only capacity and observation hooks.
 pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
     let effective_capacity = limit_capacity(role, capacity);
     let stats = Arc::new(Stats::new(role, effective_capacity));
@@ -234,7 +232,7 @@ pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) 
             observations.push(stats.clone());
         }
     });
-    let (sender, receiver) = mpsc::channel(effective_capacity);
+    let (sender, receiver) = bounded::channel(effective_capacity);
     (
         Sender {
             inner: sender,

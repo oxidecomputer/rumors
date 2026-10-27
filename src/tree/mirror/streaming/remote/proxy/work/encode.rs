@@ -42,7 +42,7 @@ pub async fn terminal<B, C>(
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
-    questions: Option<Sender<Scope>>,
+    mut questions: Option<Sender<Scope>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
@@ -57,7 +57,7 @@ where
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let mut encoded = adapter::encode_leaf_reply(backend.clone(), budget, scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
-        if let Some(questions) = &questions {
+        if let Some(questions) = &mut questions {
             // Only replies which can ask questions participate in this trace.
             // The initiator's final answers have no publication dependency.
             progress.wire_reply(Z::HEIGHT, batch.len());
@@ -82,7 +82,7 @@ pub async fn replies<B, C>(
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
-    questions: Sender<Scope>,
+    mut questions: Sender<Scope>,
     progress: Progress,
     question_height: usize,
 ) -> Result<(), Error<B::Error>>
@@ -95,7 +95,7 @@ where
         let mut encoded = encode_reply(backend.clone(), budget, scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
         progress.wire_reply(question_height, batch.len());
-        publish(&questions, batch, progress, question_height).await;
+        publish(&mut questions, batch, progress, question_height).await;
     }
     finish(requests, outgoing).await
 }
@@ -124,7 +124,7 @@ pub async fn opening<B, C>(
     backend: B,
     budget: RunBudget,
     mut requests: BoxRequests<B::Erased>,
-    questions: Sender<Scope>,
+    mut questions: Sender<Scope>,
     mut outgoing: StreamSender<C>,
     remote_listing: Vec<(u8, Hash)>,
     progress: Progress,
@@ -138,7 +138,7 @@ where
     let question = Scope::opening(&listing);
     progress.wire_reply(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
-    send_or_cancel(&questions, question).await;
+    send_or_cancel(&mut questions, question).await;
 
     let early = {
         let mut peers = remote_listing.iter().map(|(radix, _)| *radix).peekable();
@@ -189,7 +189,12 @@ where
 }
 
 /// Publish one complete reply's questions in their wire order.
-async fn publish(questions: &Sender<Scope>, batch: Vec<Scope>, progress: Progress, height: usize) {
+async fn publish(
+    questions: &mut Sender<Scope>,
+    batch: Vec<Scope>,
+    progress: Progress,
+    height: usize,
+) {
     for question in batch {
         progress.local_question(height);
         send_or_cancel(questions, question).await;

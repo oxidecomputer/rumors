@@ -116,7 +116,7 @@ where
         oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>,
         BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
     ) {
-        let (queries, queries_rx) = initiator_root_query::<B>();
+        let (mut queries, queries_rx) = initiator_root_query::<B>();
         let (returns, mut returns_rx) = initiator_root_return::<B>();
         let (early_tx, early_rx) = oneshot::channel();
         let backend = self.backend();
@@ -217,9 +217,9 @@ where
         let requests = requests.erase();
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (asked, asked_rx) =
+        let (mut asked, asked_rx) =
             responder_child_queries::<B>(self.window.capacity(UnderUnderRoot::HEIGHT), &stats);
-        let (resolution, resolution_rx) = responder_root_resolution::<B>();
+        let (mut resolution, resolution_rx) = responder_root_resolution::<B>();
         let (early_tx, early_rx) = oneshot::channel();
         let assembling = backend.clone();
         let progress = self.progress;
@@ -398,14 +398,14 @@ where
     ) {
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (asked, asked_rx) =
+        let (mut asked, asked_rx) =
             internal_child_queries::<B>(asked_height, self.window.capacity(asked_height), &stats);
-        let (upper, upper_rx) = internal_parent_resolutions::<B>(
+        let (mut upper, upper_rx) = internal_parent_resolutions::<B>(
             asked_height + 2,
             self.window.capacity(asked_height + 2),
             &stats,
         );
-        let (lower, lower_rx) = internal_child_resolutions::<B>(
+        let (mut lower, lower_rx) = internal_child_resolutions::<B>(
             asked_height + 1,
             self.window.capacity(asked_height + 1),
             &stats,
@@ -583,10 +583,10 @@ where
     ) {
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT), &stats);
-        let (upper, upper_rx) =
+        let (mut asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT), &stats);
+        let (mut upper, upper_rx) =
             leaf_parent_resolutions::<B>(self.window.capacity(<S<Z>>::HEIGHT), &stats);
-        let (lower, lower_rx) =
+        let (mut lower, lower_rx) =
             leaf_child_resolutions::<B>(self.window.capacity(Z::HEIGHT), &stats);
         let progress = self.progress;
 
@@ -684,7 +684,7 @@ where
         impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     ) {
-        let (upper, upper_rx) = terminal_leaf_resolutions::<B>();
+        let (mut upper, upper_rx) = terminal_leaf_resolutions::<B>();
         let stats = self.stats.clone();
         let progress = self.progress;
 

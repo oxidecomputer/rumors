@@ -1,18 +1,13 @@
 //! Named bounded channels shared by streaming protocol implementations.
 //!
-//! The receiver is also a stream, keeping that conversion at the channel
-//! boundary. Unit tests substitute wrappers which preserve Tokio's capacity
-//! and wakeup behavior while exposing named queue statistics, per-kind capacity
-//! limits, and shrinkable delays at every send and receive poll.
+//! Every edge is a [`bounded`] channel: one sender, one receiver, and a
+//! capacity that bounds the items in flight. The receiver is also a stream,
+//! keeping that conversion at the channel boundary. Unit tests substitute
+//! wrappers around the same channel which expose named queue statistics,
+//! per-kind capacity limits, and shrinkable delays at every send and receive
+//! poll.
 
-#[cfg(not(test))]
-use std::{
-    pin::Pin,
-    task::{Context, Poll},
-};
-
-#[cfg(not(test))]
-use futures::Stream;
+pub use bounded::SendError;
 
 /// One semantic edge in the streaming protocol's channel graph.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -101,41 +96,20 @@ impl QueueRole {
 }
 
 #[cfg(not(test))]
-pub use tokio::sync::mpsc::Sender;
+pub use bounded::{Receiver, Sender};
 
-/// The receiving half of a production protocol channel.
-#[cfg(not(test))]
-pub struct Receiver<T>(tokio::sync::mpsc::Receiver<T>);
-
-#[cfg(not(test))]
-impl<T> Receiver<T> {
-    /// Receive the next item, or `None` after every sender is dropped.
-    pub async fn recv(&mut self) -> Option<T> {
-        self.0.recv().await
-    }
-}
-
-#[cfg(not(test))]
-impl<T> Stream for Receiver<T> {
-    type Item = T;
-
-    /// Poll the underlying bounded channel for its next item.
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.0.poll_recv(cx)
-    }
-}
-
-/// Create the production Tokio channel for a named protocol edge.
+/// Create the production channel for a named protocol edge.
 #[cfg(not(test))]
 pub fn channel<T>(_: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
-    let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
-    (sender, Receiver(receiver))
+    bounded::channel(capacity)
 }
 
 #[cfg(test)]
 pub use instrumented::{
     ChannelReport, Receiver, Sender, channel, with_kind_capacity, with_observation, with_schedule,
 };
+
+mod bounded;
 
 #[cfg(test)]
 mod instrumented;

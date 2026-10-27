@@ -96,7 +96,7 @@ where
     /// Forward a stream of nodes into an upward return channel.
     fn return_into(
         &mut self,
-        returns: Sender<Option<B::Erased>>,
+        mut returns: Sender<Option<B::Erased>>,
         stream: impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
         self.tasks.push(Box::pin(async move {
@@ -128,7 +128,7 @@ where
 /// queue would require a consumer that may already have stopped reading.
 async fn pump<E: Send, Err: Send + 'static>(
     mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
-    send: Sender<Result<erased::Reply<E>, Error<Err>>>,
+    mut send: Sender<Result<erased::Reply<E>, Error<Err>>>,
     progress: Progress,
     height: usize,
 ) -> Result<(), Error<Err>> {

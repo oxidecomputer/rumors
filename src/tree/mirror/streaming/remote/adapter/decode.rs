@@ -152,7 +152,7 @@ async fn read_early<B, F>(
     ledger: &SupplyLedger,
     parent: ErasedPrefix,
     mut frames: F,
-    leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    mut leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
     codec: PayloadCodec,
 ) -> Result<(), DecodeError<B::Error>>
 where
@@ -401,7 +401,7 @@ impl ReadReply {
         mut scope: Scope,
         frames: &mut F,
         level: ReplyLevel,
-        leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+        mut leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
         codec: PayloadCodec,
     ) -> Result<Option<Self>, DecodeError<B::Error>>
     where

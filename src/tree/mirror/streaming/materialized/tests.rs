@@ -68,7 +68,7 @@ fn absorb_scripted(
     let mut bytes = [0u8; 32];
     bytes[31] = REQUESTED;
     let path = Path::from(bytes);
-    let (queries, queries_rx) =
+    let (mut queries, queries_rx) =
         channel::<Prefix<Z>>(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1);
     pollster::block_on(queries.send(Prefix::containing(&path))).expect("the loop is live");
     drop(queries);

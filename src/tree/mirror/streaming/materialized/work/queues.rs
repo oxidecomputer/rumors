@@ -26,7 +26,7 @@ use futures::{StreamExt as _, stream};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::{QueueKind, QueueRole, Receiver, Sender, channel},
+        channel::{QueueKind, QueueRole, Receiver, SendError, Sender, channel},
         erased::{self, Reply, ReplyResultStream},
         materialized::{Error, Query, Resolution},
         stats::Recorder,
@@ -55,16 +55,6 @@ pub(super) struct WindowSender<T> {
     stats: Recorder,
 }
 
-impl<T> Clone for WindowSender<T> {
-    /// Share the channel and its session recorder.
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            stats: self.stats.clone(),
-        }
-    }
-}
-
 impl<T> WindowSender<T> {
     /// Wrap a sender whose capacity was derived from the session window.
     fn new(inner: Sender<T>, stats: &Recorder) -> Self {
@@ -75,11 +65,9 @@ impl<T> WindowSender<T> {
     }
 
     /// Send one item and record whether the window was full on arrival.
-    pub(super) async fn send(&self, item: T) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
-        if self.inner.capacity() == 0 {
-            self.stats.window_stall();
-        }
-        self.inner.send(item).await
+    pub(super) async fn send(&mut self, item: T) -> Result<(), SendError<T>> {
+        let stats = &self.stats;
+        self.inner.send_with(item, || stats.window_stall()).await
     }
 }
 

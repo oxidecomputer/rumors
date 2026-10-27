@@ -758,7 +758,7 @@ async fn absorb<B>(
     ledger: SupplyLedger,
     requests: impl Stream<Item = Reply<B::Erased>> + Send,
     mut queries: Receiver<Prefix<Z>>,
-    returns: Sender<Option<B::Erased>>,
+    mut returns: Sender<Option<B::Erased>>,
     stats: Recorder,
 ) -> Result<(), Error<B::Error>>
 where

@@ -108,7 +108,7 @@ where
     /// decodes it against the root-level requests it answers, so the root
     /// merge-join below never waits on the supply bulk.
     pub fn initiator(&mut self) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
-        let (next_scopes, scopes) =
+        let (mut next_scopes, scopes) =
             queues::next_scopes(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
         let progress = self.progress;
         let listing = std::mem::take(&mut self.remote_listing);
@@ -213,7 +213,7 @@ where
         &mut self,
         mut questions: Receiver<Scope>,
         mut incoming: StreamReceiver,
-        next_scopes: Sender<Scope>,
+        mut next_scopes: Sender<Scope>,
         opening_supplies: Option<StreamReceiver>,
         height: usize,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
@@ -302,7 +302,7 @@ where
         &mut self,
         mut questions: Receiver<Scope>,
         mut incoming: StreamReceiver,
-        next_scopes: Option<Sender<Scope>>,
+        mut next_scopes: Option<Sender<Scope>>,
         progress: super::progress::Progress,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
@@ -310,11 +310,11 @@ where
         try_stream! {
             while let Some(scope) = questions.recv().await {
                 let Decoded { reply, questions } = ingress.decode_leaf(scope, &mut incoming).await?;
-                if let Some(next_scopes) = &next_scopes {
+                if let Some(next_scopes) = &mut next_scopes {
                     yield_reply_scopes!(
                         progress, Z::HEIGHT, questions.len();
                         yield reply;
-                        next_scopes => questions;
+                        *next_scopes => questions;
                     );
                 } else {
                     progress.decoded_reply(Z::HEIGHT, 0);

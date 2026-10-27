@@ -289,10 +289,10 @@ where
 /// Return decode errors to the executor without waiting for the reply consumer.
 async fn relay<E: Send, Err: Send + 'static>(
     mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
-    send: Sender<Result<erased::Reply<E>, Error<Err>>>,
+    mut send: Sender<Result<erased::Reply<E>, Error<Err>>>,
 ) -> Result<(), Error<Err>> {
     while let Some(message) = messages.next().await {
-        send_or_cancel(&send, Ok(message?)).await;
+        send_or_cancel(&mut send, Ok(message?)).await;
     }
     Ok(())
 }

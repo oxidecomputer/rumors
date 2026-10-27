@@ -14,7 +14,7 @@ use crate::tree::mirror::streaming::{channel::Sender, tasks::cancelled};
 /// A task may still own a transport stream when its consumer stops. Parking it
 /// keeps that stream alive until the session executor cancels all work, rather
 /// than presenting the peer with a torn stream during error propagation.
-async fn send_or_cancel<T>(sender: &Sender<T>, value: T) {
+async fn send_or_cancel<T>(sender: &mut Sender<T>, value: T) {
     if sender.send(value).await.is_err() {
         cancelled().await;
     }
@@ -38,7 +38,8 @@ macro_rules! yield_reply_scopes {
         $yielded;
         for scope in $next_scopes {
             $progress.next_scope($question_height);
-            $crate::tree::mirror::streaming::remote::proxy::send_or_cancel(&$scopes, scope).await;
+            $crate::tree::mirror::streaming::remote::proxy::send_or_cancel(&mut $scopes, scope)
+                .await;
         }
     }};
 }
