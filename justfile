@@ -1,7 +1,7 @@
 # rumors workspace verification. `just --list` is the tour.
 #
 #   inner loop   just check / just test <filter>
-#   commit gate  just gate    fully clean before every commit
+#   commit gate  just gate    fully clean before every commit that changes code
 #   CI           just ci      with ci-instruments and ci-properties, one per CI job
 #   full sweep   just all     CI plus the local-only fuzz and Lean checks
 #
@@ -281,7 +281,14 @@ fuzz-build:
 # but changes no verdict. Nothing caps peak memory, which concurrency
 # multiplies.
 
-# Run the pre-commit gate; it must come up fully clean before every commit.
+# A commit needs the checks that can read what it changes. A change confined
+# to plain comments and test doc comments cannot alter what builds or runs,
+# so the build-free tier `gate-lints` judges it completely; a rewrite of a
+# commit message alone needs no check. Everything else, rustdoc included
+# (it builds as doctests and as docs with warnings denied), needs the whole
+# gate.
+
+# Run the pre-commit gate; it must come up fully clean before every commit that changes code.
 gate: gate-lints gate-streams
 
 # Run the build-free gate tier, sequentially.

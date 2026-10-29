@@ -22,8 +22,11 @@ tour, and the comment above each recipe says what it checks and why.
   `just fmt`.
 - After editing crate-level rustdoc, run `just readme`: the READMEs are
   derived, never hand-edited.
-- Before every commit that touches anything the gate checks, get `just gate`
-  fully clean.
+- Before committing, get the checks that can read the change fully clean:
+  `just gate` for anything that can alter what builds or runs, its
+  build-free tier `just gate-lints` for a change confined to plain comments
+  and test doc comments, and nothing for a commit-message rewrite. The
+  comment above the `gate` recipe gives the reasoning.
 - Bisect `main` with `git bisect start --first-parent` (or its jj equivalent,
   `jj bisect run` over a range within `first_ancestors(main)`). A merged
   branch can carry a commit whose new test fails until a later commit on it
