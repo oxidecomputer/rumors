@@ -7,7 +7,7 @@ use proptest::test_runner::TestCaseError;
 use crate::{Version, message::Message};
 
 use super::super::Node;
-use super::Fan;
+use super::{Fan, heap_slots};
 
 /// A fresh child handle with its own backing allocation.
 ///
@@ -186,6 +186,73 @@ proptest! {
             prop_assert!(child.ptr_eq(expected));
         }
     }
+
+    /// [`Fan::fit`] reallocates exactly the fans holding more than
+    /// [`heap_slots`] of their length, and keeps every child handle at its
+    /// radix.
+    ///
+    /// A fan within the bound keeps its buffer and capacity; one beyond it
+    /// ends within the bound.
+    ///
+    /// The fan reserves `reserve` slots, pushes every radix in `kept` and
+    /// `removed` in ascending order, then removes the radixes only in
+    /// `removed`, so its slack ranges from none to most of a reservation or
+    /// of an allocation grown by pushes.
+    #[test]
+    fn fit_reallocates_only_fans_beyond_the_bound(
+        kept in vec(any::<u8>(), 0..=256).prop_map(BTreeSet::from_iter),
+        removed in vec(any::<u8>(), 0..=256).prop_map(BTreeSet::from_iter),
+        reserve in 0usize..=256,
+    ) {
+        let mut fan = Fan::with_capacity(reserve);
+        let mut oracle = BTreeMap::new();
+        for &radix in kept.union(&removed) {
+            let node = child();
+            fan.push(radix, node.clone());
+            oracle.insert(radix, node);
+        }
+        for &radix in removed.difference(&kept) {
+            fan.remove(radix);
+            oracle.remove(&radix);
+        }
+
+        let (buffer, capacity) = (fan.entries.as_ptr(), fan.heap_capacity());
+        let within_bound = capacity <= heap_slots(fan.len());
+        fan.fit();
+        if within_bound {
+            prop_assert_eq!((fan.entries.as_ptr(), fan.heap_capacity()), (buffer, capacity));
+        } else {
+            prop_assert!(fan.heap_capacity() <= heap_slots(fan.len()));
+        }
+        equivalent(&fan, &oracle)?;
+    }
+}
+
+/// A fan built by pushes alone holds at most [`heap_slots`] of its length
+/// at every length from empty to the full alphabet, so [`Fan::fit`] leaves
+/// it in place: the same buffer with the same capacity.
+#[test]
+fn fit_leaves_a_push_grown_fan_alone() {
+    let mut fan = Fan::new();
+    let mut radixes = 0..=u8::MAX;
+    loop {
+        let (buffer, capacity) = (fan.entries.as_ptr(), fan.heap_capacity());
+        assert!(
+            capacity <= heap_slots(fan.len()),
+            "pushes grew a fan of {} children to {capacity} heap slots",
+            fan.len(),
+        );
+        fan.fit();
+        assert_eq!(
+            (fan.entries.as_ptr(), fan.heap_capacity()),
+            (buffer, capacity),
+            "fit reallocated a push-grown fan of {} children",
+            fan.len(),
+        );
+        let Some(radix) = radixes.next() else { break };
+        fan.push(radix, child());
+    }
+    assert_eq!(fan.len(), 256, "the pushes reach the full alphabet");
 }
 
 /// `unit` builds the one-entry fan: the entry is retrievable at its radix,

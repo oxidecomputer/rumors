@@ -25,6 +25,25 @@ mod tests;
 /// avoid allocations only for wider branches.
 const FAN_INLINE: usize = 2;
 
+/// The most heap slots a stored fan of `len` children holds: none while its
+/// entries fit inline, otherwise the next power of two of its length.
+///
+/// Growth by [`Fan::push`] doubles the allocation, so a fan built by pushes
+/// already meets this bound. Cloning collects the entries into a fresh
+/// allocation sized the same way, so the copy-on-write copy of a stored node
+/// meets it too. A fan reserved larger than it filled, deduplicated by
+/// collection, or shortened by [`Fan::remove`] can hold more; [`Fan::fit`]
+/// restores the bound, and every branch constructor fits its fan before
+/// storing it. A stored node's heap memory is therefore bounded by its child
+/// count, however its fan was assembled.
+pub const fn heap_slots(len: usize) -> usize {
+    if len <= FAN_INLINE {
+        0
+    } else {
+        len.next_power_of_two()
+    }
+}
+
 /// Child handles keyed by unique radixes in ascending order.
 ///
 /// Constructors and mutations preserve this order. Hashing, wire encoding,
@@ -66,6 +85,26 @@ impl Fan {
         let mut entries = SmallVec::new();
         entries.push((radix, child));
         Self { entries }
+    }
+
+    /// Release heap slots beyond [`heap_slots`] of the current length.
+    ///
+    /// A fan beyond the bound shrinks to exactly its length, moving back
+    /// inline when its entries fit there. A fan within the bound, such as one
+    /// grown by pushes, keeps its allocation untouched.
+    pub fn fit(&mut self) {
+        if self.heap_capacity() > heap_slots(self.len()) {
+            self.entries.shrink_to_fit();
+        }
+    }
+
+    /// The entry slots this fan's heap allocation holds; zero while inline.
+    pub(crate) fn heap_capacity(&self) -> usize {
+        if self.entries.spilled() {
+            self.entries.capacity()
+        } else {
+            0
+        }
     }
 
     /// The number of children present (0..=256).

@@ -7,7 +7,10 @@ use proptest::test_runner::TestCaseError;
 use crate::tree::arb::{arb_leaf_paths, arb_radixes, arb_version};
 use crate::{Version, message::Message};
 
-use super::{Node, PATH_LEN, fan::Fan};
+use super::{
+    Node, PATH_LEN,
+    fan::{Fan, heap_slots},
+};
 
 /// Upper bound on the depth of trees generated in property tests.
 ///
@@ -257,6 +260,60 @@ proptest! {
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
     ) {
         prop_assert!(tree.is_max_compressed());
+    }
+
+    /// Every fan a tree stores holds at most [`heap_slots`] of its length,
+    /// whichever path stored it.
+    ///
+    /// The paths are arbitrary trees assembled through [`Node::branch`],
+    /// canonical trees bulk-built from sorted leaves, and the copy-on-write
+    /// copy of a shared root that raising it a level makes.
+    #[test]
+    fn stored_fans_meet_their_slot_bound(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
+        paths in arb_leaf_paths(256),
+    ) {
+        fans_fit(&tree)?;
+        // `tree` keeps its root shared, so raising another handle copies the
+        // root's state, its fan included, rather than mutating it in place.
+        let raised = tree.clone().beneath(0);
+        prop_assert!(!raised.ptr_eq(&tree), "raising a shared root copies it");
+        fans_fit(&raised)?;
+        let paths: Vec<[u8; 32]> = paths.into_iter().collect();
+        fans_fit(&canonical_at(0, &paths))?;
+    }
+
+    /// [`Node::branch`] stores its fan within [`heap_slots`] of its length,
+    /// with the same children in the same order, whatever slack the fan
+    /// carried in.
+    ///
+    /// The slack is room collection reserved for repeated radixes and room
+    /// left behind by children removed after the fan grew. The fan collects
+    /// every radix in `kept` and `removed` in ascending order followed by the
+    /// `repeats`, so any repeat sends collection through its deduplicating
+    /// path; the radixes only in `removed` then come out again.
+    #[test]
+    fn branch_fits_the_fan_it_stores(
+        kept in arb_radixes(2..=256),
+        removed in arb_radixes(0..=256),
+        repeats in vec(any::<prop::sample::Index>(), 0..=256),
+    ) {
+        let pushed: Vec<u8> = kept.union(&removed).copied().collect();
+        let repeated = repeats.iter().map(|index| *index.get(&pushed));
+        let mut fan: Fan = pushed
+            .iter()
+            .copied()
+            .chain(repeated)
+            .map(|radix| (radix, Node::leaf(Version::new(), Message::new(()))))
+            .collect();
+        for &radix in removed.difference(&kept) {
+            fan.remove(radix);
+        }
+
+        let node = Node::branch(fan).expect("two or more kept children make a branch");
+        let stored = node.stored_fan().expect("a branch stores its fan");
+        prop_assert!(stored.iter().map(|(radix, _)| radix).eq(kept.iter().copied()));
+        prop_assert!(stored.heap_capacity() <= heap_slots(kept.len()));
     }
 
     /// Decomposing and rebuilding a tree preserves its root hash and ceiling,
@@ -681,6 +738,54 @@ fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node {
         .map(|path| (*path, Some(Node::leaf(Version::new(), Message::new(())))))
         .collect();
     Node::from_sorted_leaves(depth, &mut entries)
+}
+
+/// Check that every fan stored in `node`'s subtree meets [`heap_slots`] of
+/// its length. The recursion is bounded by the key depth.
+fn fans_fit(node: &Node) -> Result<(), TestCaseError> {
+    if let Some(fan) = node.stored_fan() {
+        prop_assert!(
+            fan.heap_capacity() <= heap_slots(fan.len()),
+            "a fan of {} children holds {} heap slots",
+            fan.len(),
+            fan.heap_capacity(),
+        );
+        for child in fan.values() {
+            fans_fit(child)?;
+        }
+    }
+    Ok(())
+}
+
+/// Children the shortened fan grows to by pushes.
+const GROWN: u8 = 200;
+
+/// Children the shortened fan keeps after its removals.
+const KEPT: u8 = 3;
+
+/// A fan grown to [`GROWN`] children and cut back to [`KEPT`] still holds
+/// the allocation it grew, and [`Node::branch`] releases that excess.
+///
+/// Before the branch stores it, the fan holds far more than [`heap_slots`]
+/// of its length; the stored fan holds at most that.
+#[test]
+fn branch_releases_the_allocation_a_shortened_fan_kept() {
+    let mut fan = Fan::new();
+    for radix in 0..GROWN {
+        fan.push(radix, Node::leaf(Version::new(), Message::new(())));
+    }
+    for radix in KEPT..GROWN {
+        fan.remove(radix);
+    }
+    assert!(
+        fan.heap_capacity() > heap_slots(fan.len()),
+        "removal keeps the {} slots the fan grew",
+        fan.heap_capacity(),
+    );
+    let node = Node::branch(fan).expect("a fan of several children makes a branch");
+    let stored = node.stored_fan().expect("a branch stores its fan");
+    assert_eq!(stored.len(), usize::from(KEPT));
+    assert!(stored.heap_capacity() <= heap_slots(stored.len()));
 }
 
 /// Recursively explode `node` (observed from `depth`, holding exactly the

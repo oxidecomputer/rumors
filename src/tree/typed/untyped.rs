@@ -200,7 +200,10 @@ impl Node {
     /// Empty input returns `None`. A single child absorbs its radix into its
     /// prefix; only two or more children require a branch node. This reverses
     /// [`into_children`](Self::into_children).
-    pub fn branch(children: Fan) -> Option<Self> {
+    ///
+    /// A branch node stores its fan [fitted](Fan::fit), releasing any heap
+    /// slots beyond [`heap_slots`](fan::heap_slots) of its length.
+    pub fn branch(mut children: Fan) -> Option<Self> {
         match children.len() {
             0 => None,
             1 => {
@@ -209,16 +212,19 @@ impl Node {
                 };
                 Some(node.beneath(index))
             }
-            _ => Some(Node::from_inner(Arc::new(NodeInner {
-                prefix: ArrayVec::new(),
-                hash: OnceLock::new(),
-                body: Body::Branch {
-                    bounds: OnceLock::new(),
-                    leaves: children.values().map(Node::len).sum(),
-                    version_bytes: OnceLock::new(),
-                    children,
-                },
-            }))),
+            _ => {
+                children.fit();
+                Some(Node::from_inner(Arc::new(NodeInner {
+                    prefix: ArrayVec::new(),
+                    hash: OnceLock::new(),
+                    body: Body::Branch {
+                        bounds: OnceLock::new(),
+                        leaves: children.values().map(Node::len).sum(),
+                        version_bytes: OnceLock::new(),
+                        children,
+                    },
+                })))
+            }
         }
     }
 
@@ -355,6 +361,10 @@ impl Node {
             rest = tail;
         }
         debug_assert!(children.len() >= 2, "a branch point separates >= 2 runs");
+        // Pushes alone keep the fan within its slot bound, so this never
+        // reallocates; fitting anyway keeps the bound local to every branch
+        // constructor rather than resting on the fan's growth policy.
+        children.fit();
 
         Node::from_inner(Arc::new(NodeInner {
             prefix: first[depth..branch_at].iter().rev().copied().collect(),
@@ -610,6 +620,15 @@ impl Node {
                         .max()
                         .unwrap_or_default(),
                 ),
+        }
+    }
+
+    /// The fan a branch stores, or `None` for a leaf.
+    #[cfg(test)]
+    pub(crate) fn stored_fan(&self) -> Option<&Fan> {
+        match &self.inner.body {
+            Body::Leaf { .. } => None,
+            Body::Branch { children, .. } => Some(children),
         }
     }
 
