@@ -27,6 +27,9 @@ tour, and the comment above each recipe says what it checks and why.
   build-free tier `just gate-lints` for a change confined to plain comments
   and test doc comments, and nothing for a commit-message rewrite. The
   comment above the `gate` recipe gives the reasoning.
+- After a gate leg fails, fix it and rerun that leg and any leg the fix can
+  reach, not the whole gate: the legs that passed still hold for what they
+  read.
 - Bisect `main` with `git bisect start --first-parent` (or its jj equivalent,
   `jj bisect run` over a range within `first_ancestors(main)`). A merged
   branch can carry a commit whose new test fails until a later commit on it
