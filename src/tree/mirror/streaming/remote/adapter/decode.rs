@@ -273,8 +273,8 @@ where
 /// Decode one non-leaf reply through a one-slot leaf channel.
 ///
 /// Test-only because production fixes the capacity at [`FAN`] for bounded
-/// read-ahead. The smallest capacity Tokio permits establishes whether progress
-/// depends on that performance choice.
+/// read-ahead. One slot, the smallest capacity a protocol edge accepts,
+/// establishes whether progress depends on that performance choice.
 #[cfg(test)]
 pub(super) async fn decode_reply_one_slot<B, F>(
     backend: B,

@@ -25,10 +25,12 @@ const VALUES_PER_SIDE: u64 = 64;
 /// Every over-aligned allocation in a session is the shared state of a Tokio
 /// `mpsc` channel, which embeds cache-padded fields aligned to 128 bytes on
 /// 64-bit targets. The protocol's own edges, created per tree height and per
-/// decoded wire reply, use a channel with ordinary alignment, so the count is
-/// the session's fixed handful of Tokio channels: the in-memory link's and
-/// the error routes'. It does not grow with the divergence.
-const OVER_ALIGNED_ALLOCATIONS: usize = 6;
+/// decoded wire reply, and each reconciliation driver's first-error route use
+/// channels with ordinary alignment, so the count is the session's fixed
+/// Tokio channels: the in-memory link's two stream-announcement channels and
+/// each endpoint's incoming-stream error route. It does not grow with the
+/// divergence.
+const OVER_ALIGNED_ALLOCATIONS: usize = 4;
 
 /// Two forks of one deterministically seeded network, each holding
 /// [`VALUES_PER_SIDE`] values the other lacks.

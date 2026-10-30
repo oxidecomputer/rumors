@@ -98,9 +98,10 @@ fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usiz
 
 /// A one-slot leaf channel completes an eager reply much larger than one fan.
 ///
-/// This is the smallest capacity Tokio permits. Completing four fans of
-/// records refutes the premise that this channel must buffer a whole fan for
-/// progress; the joined assembler drains each blocked send.
+/// One slot is the smallest capacity a protocol edge accepts: the streaming
+/// channel rejects a zero capacity. Completing four fans of records refutes
+/// the premise that this channel must buffer a whole fan for progress; the
+/// joined assembler drains each blocked send.
 #[test]
 fn one_slot_decode_channel_makes_progress() {
     let leaves = leaves(4 * FAN as u64);

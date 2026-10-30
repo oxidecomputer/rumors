@@ -12,12 +12,15 @@
 //! [`divert`] records the source error and parks instead. [`race_session`] then
 //! returns that error and cancels the rest of the schedule.
 
-use std::{future::Future, pin::pin};
+use std::{
+    future::Future,
+    pin::pin,
+    sync::{Arc, Mutex},
+};
 
 use async_stream::stream;
-use futures::{StreamExt, future};
+use futures::{StreamExt, channel::oneshot, future};
 use seq_macro::seq;
-use tokio::sync::mpsc;
 
 use crate::tree::mirror::streaming::protocol::*;
 use crate::tree::{
@@ -29,16 +32,21 @@ use crate::tree::{
 };
 
 /// One participant's route into the session's shared error type.
+///
+/// Every route of a session shares one take-once slot holding the sending
+/// half of a oneshot channel. The first report takes the sender and delivers
+/// its error, so the first error wins, and every later report finds the slot
+/// empty and drops its error.
 pub(super) struct ErrorRoute<E, S> {
-    /// The one-slot channel that retains the first response-stream error.
-    sender: mpsc::Sender<S>,
+    /// The session's take-once slot for the first-error sender.
+    sender: Arc<Mutex<Option<oneshot::Sender<S>>>>,
     /// Converts this participant's error into the session error.
     wrap: fn(E) -> S,
 }
 
 /// Clone an error route without imposing clone bounds on either error type.
 impl<E, S> Clone for ErrorRoute<E, S> {
-    /// Share the same first-error channel and conversion function.
+    /// Share the same first-error slot and conversion function.
     fn clone(&self) -> Self {
         Self {
             sender: self.sender.clone(),
@@ -51,9 +59,17 @@ impl<E, S> Clone for ErrorRoute<E, S> {
 impl<E, S> ErrorRoute<E, S> {
     /// Report the first response-stream error without blocking its producer.
     pub(super) fn report(&self, error: E) {
-        // A full channel already holds the first error. A closed channel means
-        // the session race has ended. Neither case needs another report.
-        let _ = self.sender.try_send((self.wrap)(error));
+        let sender = self
+            .sender
+            .lock()
+            .expect("taking the sender cannot panic while holding this lock")
+            .take();
+        // An empty slot means an earlier report already sent the first error.
+        // A failed send means the session race has ended. Neither case needs
+        // another report.
+        if let Some(sender) = sender {
+            let _ = sender.send((self.wrap)(error));
+        }
     }
 
     /// Map one terminal future into the session's common error type.
@@ -70,7 +86,8 @@ fn error_routes<L, R, E>(
     wrap_left: fn(L) -> E,
     wrap_right: fn(R) -> E,
 ) -> (ErrorRoute<L, E>, ErrorRoute<R, E>, FirstError<E>) {
-    let (sender, receiver) = mpsc::channel(1);
+    let (sender, receiver) = oneshot::channel();
+    let sender = Arc::new(Mutex::new(Some(sender)));
     (
         ErrorRoute {
             sender: sender.clone(),
@@ -87,7 +104,7 @@ fn error_routes<L, R, E>(
 /// The receiving side of a session's first-error route.
 struct FirstError<E> {
     /// Receives at most the first response-stream error.
-    receiver: mpsc::Receiver<E>,
+    receiver: oneshot::Receiver<E>,
 }
 
 /// Race a session against response errors, preserving their causal priority.
@@ -97,7 +114,9 @@ async fn race_session<O, E>(
 ) -> Result<O, E> {
     let result = tokio::select! {
         biased;
-        Some(error) = first_error.receiver.recv() => return Err(error),
+        // A cancelled receiver means every route is gone unreported; the
+        // branch is then disabled and the session's own result decides.
+        Ok(error) = &mut first_error.receiver => return Err(error),
         result = session => result,
     };
     match result {
@@ -106,7 +125,12 @@ async fn race_session<O, E>(
         Ok(output) => Ok(output),
         // Polling the session may report a source error and then surface a
         // secondary cancellation error in the same poll. Recover the source.
-        Err(secondary) => Err(first_error.receiver.try_recv().unwrap_or(secondary)),
+        Err(secondary) => Err(first_error
+            .receiver
+            .try_recv()
+            .ok()
+            .flatten()
+            .unwrap_or(secondary)),
     }
 }
 
@@ -242,38 +266,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use std::convert::identity;
-    use std::task::Poll;
-
-    use futures::future;
-
-    use super::{error_routes, race_session};
-
-    /// A response error published while polling wins over its terminal symptom.
-    #[test]
-    fn routed_error_precedes_same_poll_session_error() {
-        let (route, _other, first_error) = error_routes(identity::<&str>, identity::<&str>);
-        let session = future::poll_fn(move |_| {
-            route.report("primary");
-            Poll::Ready(Err::<(), _>("secondary"))
-        });
-
-        assert_eq!(
-            pollster::block_on(race_session(session, first_error)),
-            Err("primary")
-        );
-    }
-
-    /// A terminal error remains authoritative when no response error preceded it.
-    #[test]
-    fn standalone_session_error_is_preserved() {
-        let (_left, _right, first_error) = error_routes(identity::<&str>, identity::<&str>);
-        let session = future::ready(Err::<(), _>("terminal"));
-
-        assert_eq!(
-            pollster::block_on(race_session(session, first_error)),
-            Err("terminal")
-        );
-    }
-}
+mod tests;
