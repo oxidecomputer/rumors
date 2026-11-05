@@ -1,14 +1,15 @@
 //! The budget sweep dimension: a generated per-peer memory budget, so
 //! behavioral suites exercise the production default and explicit budgets
-//! alongside a ledger budget of zero.
+//! alongside the serial configuration.
 //!
-//! A ledger budget of zero stays in the population deliberately: each walk
-//! then asks one question at a time, every unit taking its depth's floor
-//! slot, the configuration the liveness argument rests on, and suites must
-//! keep it exercised. A session raises every public budget to
+//! The serial configuration stays in the population deliberately: each
+//! walk then admits every unit through its kind and depth's floor slot, one
+//! unit of each kind and depth at a time, the configuration the liveness
+//! argument rests on, and suites must keep it exercised.
+//! A session raises every public budget to
 //! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so this
-//! choice sets the ledger budget through the test path
-//! ([`ledger_budget`](rumors::testing::ledger_budget)). The sweep adds
+//! choice is set through the test path
+//! ([`serial_budget`](rumors::testing::serial_budget)). The sweep adds
 //! explicit byte budgets and the production default on top. Every budget
 //! sets aside the floor allowance
 //! ([`FLOOR_ALLOWANCE`](rumors::testing::FLOOR_ALLOWANCE)) for the floor
@@ -26,10 +27,13 @@ use proptest::prelude::*;
 /// One peer's memory budget in the sweep population.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BudgetChoice {
-    /// A ledger budget of zero, set through the test path: each walk asks
-    /// one question at a time. First variant, so failures shrink toward
-    /// the zero-everywhere baseline.
-    Zero,
+    /// The serial configuration, set through the test path
+    /// ([`serial_budget`](rumors::testing::serial_budget)): each walk
+    /// admits one unit of each kind and depth at a time.
+    ///
+    /// First variant, so failures shrink toward the serial-everywhere
+    /// baseline.
+    Serial,
     /// An explicit memory budget in bytes, through the public setter: the
     /// allowances and the bytes the ledgers admit work against beside
     /// them, raised to
@@ -47,7 +51,7 @@ impl BudgetChoice {
     /// Apply this choice to a peer under construction.
     pub fn apply<T: Send + Sync + 'static>(self, peer: rumors::Peer<T>) -> rumors::Peer<T> {
         match self {
-            Self::Zero => rumors::testing::ledger_budget(peer, 0),
+            Self::Serial => rumors::testing::serial_budget(peer),
             Self::Bytes(bytes) => peer.sync_memory_budget(bytes),
             Self::Ledger(bytes) => rumors::testing::ledger_budget(peer, bytes),
             Self::Default => peer,
@@ -79,14 +83,14 @@ impl BudgetAssignment {
         Self(choices)
     }
 
-    /// The all-zero assignment: every peer at a ledger budget of zero.
+    /// The all-serial assignment: every peer in the serial configuration.
     ///
     /// The constructor for the suites' deterministic baseline legs: each
-    /// swept engine keeps one leg pinned here so the one-question-at-a-time
-    /// orderings the liveness argument rests on are exercised on every
-    /// iteration, not merely with generated probability.
-    pub fn zero() -> Self {
-        Self(vec![BudgetChoice::Zero])
+    /// swept engine keeps one leg pinned here so the orderings the liveness
+    /// argument rests on, one unit of each kind and depth at a time, are
+    /// exercised on every iteration, not merely with generated probability.
+    pub fn serial() -> Self {
+        Self(vec![BudgetChoice::Serial])
     }
 
     /// The budget choice for peer `i`.
@@ -113,11 +117,11 @@ pub const MAX_BUDGET_EXPONENT: u32 = 24;
 /// through the public setter: the draws below
 /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) exercise its
 /// raise, and the rest reach budgets that suite-scale sessions do not
-/// fill. Shrinking heads toward [`BudgetChoice::Zero`], the baseline the
+/// fill. Shrinking heads toward [`BudgetChoice::Serial`], the baseline the
 /// liveness argument rests on.
 pub fn arb_budget_choice() -> impl Strategy<Value = BudgetChoice> {
     prop_oneof![
-        2 => Just(BudgetChoice::Zero),
+        2 => Just(BudgetChoice::Serial),
         3 => (MIN_BUDGET_EXPONENT..=MAX_BUDGET_EXPONENT, 0usize..4096)
             .prop_map(|(pow, jitter)| BudgetChoice::Bytes(admitting((1usize << pow) + jitter))),
         2 => Just(BudgetChoice::Default),

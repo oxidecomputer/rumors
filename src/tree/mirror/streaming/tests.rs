@@ -27,6 +27,7 @@ use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_
 use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Start};
 use crate::tree::mirror::streaming::message::RoleKey;
 use crate::tree::mirror::streaming::stats::{Recorder, SessionStats};
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror as drive_streaming};
 #[cfg(doc)]
 use crate::tree::mirror::streaming::{
@@ -141,12 +142,13 @@ type Verdict = Result<Result<(Root, Root), LocalSessionError>, Quiescence>;
 /// One session between two `Local` endpoints under closed-world polling,
 /// with the instruments a test asks for attached.
 ///
-/// A budget of zero is the default; every budget, schedule, capacity, and
-/// instrument setting is optional and independent of the others.
+/// The serial configuration is the default ledger; every ledger, schedule,
+/// capacity, and instrument setting is optional and independent of the
+/// others.
 struct LocalSession {
     client: Root,
     server: Root,
-    budget: usize,
+    budget: SessionLedger,
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
     kind_capacity: Option<(QueueKind, usize)>,
@@ -156,13 +158,13 @@ struct LocalSession {
 }
 
 impl LocalSession {
-    /// A session in which `client` connects to `server`, both at a budget
-    /// of zero, with no instrument attached.
+    /// A session in which `client` connects to `server`, both in the serial
+    /// configuration, with no instrument attached.
     fn new(client: Root, server: Root) -> Self {
         Self {
             client,
             server,
-            budget: 0,
+            budget: SessionLedger::Serial,
             channel_schedule: Vec::new(),
             backend_schedule: Vec::new(),
             kind_capacity: None,
@@ -172,8 +174,9 @@ impl LocalSession {
         }
     }
 
-    /// Run both endpoints at `budget` instead of zero.
-    fn budget(mut self, budget: usize) -> Self {
+    /// Run both endpoints on the ledger `budget` gives instead of the serial
+    /// configuration.
+    fn budget(mut self, budget: SessionLedger) -> Self {
         self.budget = budget;
         self
     }
@@ -229,20 +232,18 @@ impl LocalSession {
             transcript,
         } = self;
         let recorders = stats.then(|| (Recorder::default(), Recorder::default()));
-        let mut client = Handshaking::start(
+        let mut client = budget.apply(Handshaking::start(
             Local,
             client.into(),
             Some(crate::network::NetworkKeys::fixture()),
             default::TARGET_MESSAGE_SIZE as u64,
-        )
-        .budget(budget);
-        let mut server = Handshaking::start(
+        ));
+        let mut server = budget.apply(Handshaking::start(
             Local,
             server.into(),
             Some(crate::network::NetworkKeys::fixture()),
             default::TARGET_MESSAGE_SIZE as u64,
-        )
-        .budget(budget);
+        ));
         if let Some((client_recorder, server_recorder)) = &recorders {
             client = client.stats(client_recorder.clone());
             server = server.stats(server_recorder.clone());
@@ -329,17 +330,20 @@ impl Outcome {
     }
 }
 
-/// A `Local` endpoint at a budget of zero, for the sites that hold the
-/// undriven session: the ones that wrap it in a fault or failure decorator,
-/// and the ones that poll it themselves.
-fn floor_start(root: Root) -> Handshaking<Local, Start> {
+/// A `Local` endpoint in the serial configuration, admitting one unit of
+/// each kind and depth at a time.
+///
+/// It serves the sites that hold the undriven session: the ones that wrap
+/// it in a fault or failure decorator, and the ones that poll it
+/// themselves.
+fn serial_start(root: Root) -> Handshaking<Local, Start> {
     Handshaking::start(
         Local,
         root.into(),
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
     )
-    .budget(0)
+    .serial()
 }
 
 /// Reconcile `a` and `b` through the streaming local backend, returning both
@@ -470,8 +474,8 @@ fn session_length(a: Root, b: Root) -> usize {
     /// Bound a broken session's test run, including one that keeps waking.
     const MAX_POLLS: usize = 1_000_000;
     let mut session = pin!(tokio::task::coop::unconstrained(drive_streaming(
-        floor_start(a),
-        floor_start(b),
+        serial_start(a),
+        serial_start(b),
     )));
     let mut cx = Context::from_waker(Waker::noop());
     for polls in 1..=MAX_POLLS {
@@ -515,7 +519,7 @@ fn cancelled_session_leaves_no_residue() {
     let cases = runner.run(&arb_cancellation(), |((a, b), length, polls)| {
         let expected = join_oracle(a.clone(), b.clone());
         let baseline = node_census().live;
-        let session = drive_streaming(floor_start(a.clone()), floor_start(b.clone()));
+        let session = drive_streaming(serial_start(a.clone()), serial_start(b.clone()));
         node_census_reset();
         let before_polling = node_census().live;
         let completed = cancel_after(session, polls);
@@ -610,7 +614,7 @@ fn honors_redaction_under_leaf_parent_dispute() {
 
 proptest! {
     /// Streaming and the in-memory join oracle agree in both orientations,
-    /// at a budget of zero and at an unlimited one.
+    /// in the serial configuration and at an unlimited budget.
     ///
     /// Across every generated causal relationship, both wire endpoints
     /// converge to exactly `Tree::join` of the two inputs. This ties the
@@ -618,12 +622,17 @@ proptest! {
     /// are stated over: join prunes through `traverse::unknown` and the
     /// session through `materialized::unknown`, two implementations of one
     /// deletion-honoring contract, so a divergence here is a bug in one of
-    /// them. At a budget of zero the walk asks one question at a time; at
-    /// an unlimited one no unit waits for admission.
+    /// them. In the serial configuration each walk admits one unit of each
+    /// kind and depth at a time; at an unlimited budget no unit waits for
+    /// admission.
     #[test]
     fn streaming_matches_join_oracle((a, b) in arb_oracle_pair(), unlimited in any::<bool>()) {
         let expected = join_oracle(a.clone(), b.clone());
-        let budget = if unlimited { usize::MAX } else { 0 };
+        let budget = if unlimited {
+            SessionLedger::Budget(usize::MAX)
+        } else {
+            SessionLedger::Serial
+        };
         for (left, right) in [(a.clone(), b.clone()), (b, a)] {
             let outcome = LocalSession::new(left, right).budget(budget).trace().run();
             outcome.trace().assert_valid();

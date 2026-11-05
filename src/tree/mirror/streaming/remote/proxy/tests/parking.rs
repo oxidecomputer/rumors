@@ -12,7 +12,7 @@ use crate::tree::{
     mirror::streaming::{
         FAN,
         channel::{QueueKind, QueueRole, with_kind_capacity, with_observation, with_role_hold},
-        testing::session::{AMPLE, completed, over_pipe},
+        testing::session::{AMPLE, SessionLedger, completed, over_pipe},
     },
     typed::height::{Height, UnderUnderRoot},
 };
@@ -29,7 +29,7 @@ const HOLD_POLLS: usize = 20_000;
 fn session(
     left: TreeRoot,
     right: TreeRoot,
-    budgets: [usize; 2],
+    budgets: [SessionLedger; 2],
 ) -> Result<(TreeRoot, TreeRoot), Quiescence> {
     over_pipe::<()>((left, right), budgets, AMPLE).map(completed)
 }
@@ -53,7 +53,11 @@ fn every_invited_reply_parks_while_its_stage_is_held() {
     let level_3 = QueueRole::new(QueueKind::ProxyResponses, LEVEL_3);
     let (result, report) = with_observation(|| {
         with_role_hold(level_3, HOLD_POLLS, || {
-            session(initiator.clone(), responder.clone(), [usize::MAX; 2])
+            session(
+                initiator.clone(),
+                responder.clone(),
+                [SessionLedger::Budget(usize::MAX); 2],
+            )
         })
     });
     let (left, right) = result.expect("the held session resumes and completes");
@@ -85,7 +89,13 @@ fn scope_queue_capacity_law() {
         left_initiates(&initiator, &responder),
         "the fixture's initiator must win the election"
     );
-    let run = || session(initiator.clone(), responder.clone(), [0; 2]);
+    let run = || {
+        session(
+            initiator.clone(),
+            responder.clone(),
+            [SessionLedger::Serial; 2],
+        )
+    };
 
     let (left, right) = with_kind_capacity(QueueKind::ProxyNextScopes, FAN - 1, run)
         .expect("FAN - 1 scope slots complete");
@@ -102,15 +112,16 @@ fn scope_queue_capacity_law() {
 /// Reconcile `left` and `right` on two different budgets, in both orders,
 /// and require both sessions to complete and converge on the join.
 ///
-/// One side runs a budget of zero and the other an unlimited one, so one
-/// side asks one question at a time while the other never waits for
-/// admission, and each bounds its own side.
+/// One side runs in the serial configuration and the other at an unlimited
+/// budget, so one side admits one unit of each kind and depth at a time
+/// while the other never waits for admission, and each bounds its own side.
 fn check_mismatched_budgets_converge(
     left: &TreeRoot,
     right: &TreeRoot,
 ) -> Result<(), TestCaseError> {
     let expected = join_oracle(left, right);
-    for budgets in [[0, usize::MAX], [usize::MAX, 0]] {
+    let (serial, unlimited) = (SessionLedger::Serial, SessionLedger::Budget(usize::MAX));
+    for budgets in [[serial, unlimited], [unlimited, serial]] {
         let (a, b) =
             session(left.clone(), right.clone(), budgets).expect("mismatched budgets stay live");
         prop_assert_eq!(&a, &b);

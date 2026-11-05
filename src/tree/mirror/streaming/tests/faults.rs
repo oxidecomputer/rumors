@@ -6,7 +6,7 @@ use proptest::prelude::*;
 
 use super::{
     fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair},
-    floor_start, streaming_mirror_sides,
+    serial_start, streaming_mirror_sides,
 };
 use crate::default;
 use crate::testing::run_to_quiescence;
@@ -38,7 +38,7 @@ fn live_hash(root: &Root) -> Option<Hash> {
         .map(|node| node.hash(&HashKey::fixture()))
 }
 
-/// A `Failing<Local>` endpoint at a budget of zero over `root`, its nodes
+/// A `Failing<Local>` endpoint in the serial configuration over `root`, its nodes
 /// wrapped for the failing backend, which misreports the root's count if
 /// it misreports at the root's height.
 fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
@@ -52,7 +52,7 @@ fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Loc
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
     )
-    .budget(0)
+    .serial()
 }
 
 /// The last ordinary walk reply in the full-depth fixture.
@@ -70,18 +70,18 @@ fn connected_violation(
     let (client_root, server_root) = full_depth_comb_pair(2, LeafOrder::Interleaved);
     if fault_client {
         let client = Faulting::new(
-            floor_start(client_root),
+            serial_start(client_root),
             steps,
             Some(Fault::Reply(corruption)),
         );
-        let server = floor_start(server_root);
+        let server = serial_start(server_root);
         run_to_quiescence(drive_streaming(client, server))
             .expect("the reversed connected driver must surface the fault, not stall")
             .map(|_| ())
     } else {
-        let client = floor_start(client_root);
+        let client = serial_start(client_root);
         let server = Faulting::new(
-            floor_start(server_root),
+            serial_start(server_root),
             steps,
             Some(Fault::Reply(corruption)),
         );
@@ -335,8 +335,8 @@ fn greeting_lies_are_classified_exhaustively() {
                 GreetingLie::InflatedSetLen | GreetingLie::InflatedVersion => None,
             };
 
-            let client = floor_start(client_root.clone());
-            let server = floor_start(server_root.clone());
+            let client = serial_start(client_root.clone());
+            let server = serial_start(server_root.clone());
             let result = if fault_client {
                 let faulting = Faulting::new(client, 0, Some(Fault::Greeting(lie)));
                 run_to_quiescence(drive_streaming(faulting, server))
@@ -385,9 +385,9 @@ fn terminal_reply_violation_is_detected_on_both_sides() {
     let (client_root, server_root, _) = leaf_parent_dispute_pair();
     let corruption = ReplyCorruption::UnexpectedQuery;
 
-    let client = floor_start(client_root.clone());
+    let client = serial_start(client_root.clone());
     let server = Faulting::new(
-        floor_start(server_root.clone()),
+        serial_start(server_root.clone()),
         16,
         Some(Fault::Reply(corruption)),
     );
@@ -399,8 +399,12 @@ fn terminal_reply_violation_is_detected_on_both_sides() {
         MirrorError::Client(MaterializedError::Violation(Violation::UnexpectedQuery))
     ));
 
-    let client = Faulting::new(floor_start(client_root), 16, Some(Fault::Reply(corruption)));
-    let server = floor_start(server_root);
+    let client = Faulting::new(
+        serial_start(client_root),
+        16,
+        Some(Fault::Reply(corruption)),
+    );
+    let server = serial_start(server_root);
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the reversed terminal violation must not stall")
         .expect_err("the reversed terminal violation must abort the session");

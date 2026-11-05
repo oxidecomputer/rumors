@@ -7,6 +7,7 @@ use proptest::prelude::*;
 use super::LocalSession;
 use crate::message::Message;
 use crate::tree::arb::{arb_wide_divergent_pair, roots_at_depth};
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::{Action, Root, Tree};
 
 /// Replicas where one, `ahead`, has seen everything the other, `behind`,
@@ -52,8 +53,8 @@ fn arb_contained_pair() -> impl Strategy<Value = (Root, Root)> {
 
 proptest! {
     /// A session leaves a side that learns nothing holding the very root it
-    /// started with, whichever side initiates, at a budget of zero and at an
-    /// unlimited one.
+    /// started with, whichever side initiates, in the serial configuration
+    /// and at an unlimited budget.
     ///
     /// The side whose version covers everything the other holds gains no
     /// leaf and loses none, so every scope it reassembles gets back the
@@ -67,7 +68,11 @@ proptest! {
         (ahead, behind) in arb_contained_pair(),
         unlimited in any::<bool>(),
     ) {
-        let budget = if unlimited { usize::MAX } else { 0 };
+        let budget = if unlimited {
+            SessionLedger::Budget(usize::MAX)
+        } else {
+            SessionLedger::Serial
+        };
         for ahead_connects in [true, false] {
             let (client, server) = if ahead_connects {
                 (ahead.clone(), behind.clone())
@@ -103,8 +108,8 @@ fn warmed(root: Root) -> Root {
 
 proptest! {
     /// Every node of both reconciled trees holds the bounds and encoded
-    /// version size a direct walk computes, whichever side initiates, at a
-    /// budget of zero and at an unlimited one.
+    /// version size a direct walk computes, whichever side initiates, in the
+    /// serial configuration and at an unlimited budget.
     ///
     /// Reassembly seeds a rebuilt node's bounds from the node it replaces,
     /// and the join oracle, which compares hashes, cannot see a wrong bound.
@@ -116,7 +121,11 @@ proptest! {
         (a, b) in prop_oneof![arb_wide_divergent_pair(), arb_contained_pair()],
         unlimited in any::<bool>(),
     ) {
-        let budget = if unlimited { usize::MAX } else { 0 };
+        let budget = if unlimited {
+            SessionLedger::Budget(usize::MAX)
+        } else {
+            SessionLedger::Serial
+        };
         let (a, b) = (warmed(a), warmed(b));
         for (client, server) in [(a.clone(), b.clone()), (b, a)] {
             let (client, server) = LocalSession::new(client, server).budget(budget).run().sides();

@@ -18,7 +18,7 @@ use crate::tree::typed::Prefix;
 /// The in-memory backend's erased node representation.
 type Erased = <Local as Backend>::Erased;
 
-/// A side of a session over `root`, at a budget of zero.
+/// A side of a session over `root`, in the serial configuration.
 fn start(root: Root) -> Handshaking<Local, Start> {
     Handshaking::start(
         Local,
@@ -26,7 +26,7 @@ fn start(root: Root) -> Handshaking<Local, Start> {
         Some(NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
     )
-    .budget(0)
+    .serial()
 }
 
 proptest! {

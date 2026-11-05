@@ -65,7 +65,7 @@ use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, Reaction as WireReaction, RunBudget, Speaker, Stream, decode_exact,
 };
 use crate::tree::mirror::streaming::testing::session::{
-    AMPLE, completed, observed_over_pipe, over_pipe,
+    AMPLE, SessionLedger, completed, observed_over_pipe, over_pipe,
 };
 use crate::tree::typed::Node as TreeNode;
 use crate::tree::{Action, Tree};
@@ -385,7 +385,7 @@ fn assert_matches(left: &Root, right: &Root, transcript: &Transcript) -> Result<
 
 /// The in-process session's transcript between `left` and `right`, both
 /// endpoints at `budget`.
-fn local_transcript(left: Root, right: Root, budget: usize) -> Transcript {
+fn local_transcript(left: Root, right: Root, budget: SessionLedger) -> Transcript {
     let mut outcome = LocalSession::new(left, right)
         .budget(budget)
         .transcript()
@@ -401,7 +401,7 @@ fn local_transcript(left: Root, right: Root, budget: usize) -> Transcript {
 /// The wire session's transcript between `left` and `right`, both
 /// endpoints at `budget`, with leaf-path derivation following the pair's
 /// placement when `placed`.
-fn wire_transcript(left: Root, right: Root, budget: usize, placed: bool) -> Transcript {
+fn wire_transcript(left: Root, right: Root, budget: SessionLedger, placed: bool) -> Transcript {
     piped_transcript(left, right, budget, placed, AMPLE)
 }
 
@@ -410,7 +410,7 @@ fn wire_transcript(left: Root, right: Root, budget: usize, placed: bool) -> Tran
 fn piped_transcript(
     left: Root,
     right: Root,
-    budget: usize,
+    budget: SessionLedger,
     placed: bool,
     pipe: usize,
 ) -> Transcript {
@@ -425,11 +425,14 @@ fn piped_transcript(
     transcript
 }
 
-/// The budgets the suite runs every pair at: zero, at which each walk asks
-/// one question at a time, and unlimited, at which no unit waits for
-/// admission.
-fn arb_budget() -> impl Strategy<Value = usize> {
-    prop_oneof![Just(0), Just(usize::MAX)]
+/// The ledgers the suite runs every pair at: the serial configuration, at
+/// which each walk admits one unit of each kind and depth at a time, and an
+/// unlimited budget, at which no unit waits for admission.
+fn arb_budget() -> impl Strategy<Value = SessionLedger> {
+    prop_oneof![
+        Just(SessionLedger::Serial),
+        Just(SessionLedger::Budget(usize::MAX)),
+    ]
 }
 
 proptest! {
@@ -537,7 +540,7 @@ fn forked_replicas() -> (Root, Root) {
 #[test]
 fn model_predicts_forked_replicas() {
     let (left, right) = forked_replicas();
-    let budget = usize::MAX;
+    let budget = SessionLedger::Budget(usize::MAX);
     let local = local_transcript(left.clone(), right.clone(), budget);
     assert_matches(&left, &right, &local).expect("the model predicts the local session");
     let wire = wire_transcript(left.clone(), right.clone(), budget, false);
@@ -558,7 +561,7 @@ proptest! {
     ) {
         let local = LocalSession::new(left.clone(), right.clone()).run().sides();
         let wire = completed(
-            over_pipe::<()>((left, right), [0; 2], AMPLE)
+            over_pipe::<()>((left, right), [SessionLedger::Serial; 2], AMPLE)
                 .expect("the session completes under the closed-world poller"),
         );
         for root in [local.0, local.1, wire.0, wire.1] {
@@ -631,8 +634,13 @@ fn sent_frames(left: Root, right: Root) -> SentFrames {
     let mut observers = Attachment::default();
     observers.attach(Arc::new(recorder.clone()));
     completed(
-        observed_over_pipe::<()>((left, right), [usize::MAX; 2], AMPLE, &observers)
-            .expect("the session completes under the closed-world poller"),
+        observed_over_pipe::<()>(
+            (left, right),
+            [SessionLedger::Budget(usize::MAX); 2],
+            AMPLE,
+            &observers,
+        )
+        .expect("the session completes under the closed-world poller"),
     );
     std::mem::take(&mut *recorder.0.lock().expect("the session is over"))
 }

@@ -17,7 +17,9 @@ use proptest::prelude::*;
 use super::grid::forks;
 use super::join_oracle;
 use crate::testing::property::SESSION_DIVISOR;
-use crate::tree::mirror::streaming::testing::session::{AMPLE, over_pipe_keeping_ledgers};
+use crate::tree::mirror::streaming::testing::session::{
+    AMPLE, SessionLedger, over_pipe_keeping_ledgers,
+};
 use crate::tree::typed::hash::PATH_LEN;
 
 /// An unlimited budget.
@@ -69,7 +71,8 @@ crate::divided_proptest! {
     ) {
         let pair = forks(shared, own);
         let expected = join_oracle(pair.0.clone(), pair.1.clone());
-        let (outcome, ledgers) = over_pipe_keeping_ledgers::<()>(pair, budgets, pipe);
+        let (outcome, ledgers) =
+            over_pipe_keeping_ledgers::<()>(pair, budgets.map(SessionLedger::Budget), pipe);
         let (a, b) = outcome.unwrap_or_else(|stopped| {
             panic!("the session at budgets {budgets:?} over a {pipe}-byte pipe stopped: {stopped:?}")
         });

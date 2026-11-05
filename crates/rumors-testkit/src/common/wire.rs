@@ -179,8 +179,8 @@ pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
 
 /// Join the parent's network with an independent peer holding its messages.
 ///
-/// The new peer runs a ledger budget of zero ([`BudgetChoice::Zero`]) to
-/// exercise backpressure. The shared driver checks that bootstrap completes
+/// The new peer runs in the serial configuration ([`BudgetChoice::Serial`])
+/// to exercise backpressure. The shared driver checks that bootstrap completes
 /// and drains the connection.
 #[track_caller]
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
@@ -195,7 +195,7 @@ pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, Peer::bootstrap(), BudgetChoice::Zero).await
+    bootstrap_fork_configured(parent, Peer::bootstrap(), BudgetChoice::Serial).await
 }
 
 /// Join the parent's network, then configure the new peer's budget.

@@ -29,6 +29,7 @@ use crate::tree::mirror::streaming::remote::codec::{
 };
 use crate::tree::mirror::streaming::remote::pipe::{WIRE_POOL_RUNS, receive_waits};
 use crate::tree::mirror::streaming::remote::proxy::work::progress::with_trace;
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation, Root,
     materialized::{Error as MaterializedError, Handshaking},
@@ -186,7 +187,7 @@ proptest! {
         fail_left in any::<bool>(),
         fail_proxy in any::<bool>(),
         choice in any::<usize>(),
-        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
+        budget in arb_ledger(),
         capacity in prop_oneof![Just(1usize), Just(37)],
         schedule in proptest::collection::vec(0u8..=2, 0..64),
     ) {
@@ -257,7 +258,7 @@ proptest! {
     fn cancelled_deep_sessions_release_nodes_and_retry(
         depth in 2usize..32,
         choice in any::<usize>(),
-        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
+        budget in arb_ledger(),
         schedule in proptest::collection::vec(0u8..=2, 0..64),
     ) {
         let pair = Divergence::new([vec![0; depth]], [2, 3]);
@@ -307,7 +308,7 @@ proptest! {
         depth in 1usize..32,
         receiver_left in any::<bool>(),
         capacity in 1usize..80,
-        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
+        budget in arb_ledger(),
     ) {
         use super::harness::{self, Backends, EndpointError, GreetingRewrite, Topology};
         use crate::tree::mirror::streaming::remote::{Error, adapter::DecodeError};
@@ -456,12 +457,22 @@ fn speaker(role: Role) -> Speaker {
     }
 }
 
+/// The ledgers the suites run both endpoints on: the serial configuration,
+/// one unit of each kind and depth at a time, and an unlimited budget, at
+/// which no unit waits for admission.
+const LEDGERS: [SessionLedger; 2] = [SessionLedger::Serial, SessionLedger::Budget(usize::MAX)];
+
+/// Either of [`LEDGERS`], for generators.
+fn arb_ledger() -> impl Strategy<Value = SessionLedger> {
+    prop::sample::select(LEDGERS.to_vec())
+}
+
 /// Transport and queue capacities used by one closed-world session.
 struct Session {
     /// Bytes buffered by each direction of the pipe.
     capacity: usize,
-    /// The budget both endpoints admit their work against.
-    budget: usize,
+    /// The ledger both endpoints admit their work against.
+    budget: SessionLedger,
     /// Both endpoints' message-size target.
     target: usize,
     /// Runs' worth at that target each endpoint's wire pools hold.
@@ -469,9 +480,9 @@ struct Session {
 }
 
 impl Session {
-    /// A session over pipes of `capacity` bytes at `budget`, at the default
-    /// target and wire pools.
-    fn new(capacity: usize, budget: usize) -> Self {
+    /// A session over pipes of `capacity` bytes on the ledger `budget`, at
+    /// the default target and wire pools.
+    fn new(capacity: usize, budget: SessionLedger) -> Self {
         Self {
             capacity,
             budget,
@@ -513,20 +524,18 @@ impl Session {
         let [left, right] = roots;
         let (roots, queues) = with_observation(|| {
             run_to_quiescence(async {
-                let left = Handshaking::start(
+                let left = self.budget.apply(Handshaking::start(
                     Local,
                     Root::from(left),
                     Some(crate::network::NetworkKeys::fixture()),
                     self.target as u64,
-                )
-                .budget(self.budget);
-                let right = Handshaking::start(
+                ));
+                let right = self.budget.apply(Handshaking::start(
                     Local,
                     Root::from(right),
                     Some(crate::network::NetworkKeys::fixture()),
                     self.target as u64,
-                )
-                .budget(self.budget);
+                ));
                 let left_proxy = RemoteHandshaking::start(
                     Local,
                     left_read,
@@ -626,7 +635,7 @@ fn sessions_complete_when_held_decoders_drain_the_receive_pool() {
         [120, 120],
     );
     for target in [256, 512, 1024] {
-        for budget in [0, usize::MAX] {
+        for budget in LEDGERS {
             let session = Session {
                 capacity: 37,
                 budget,
@@ -640,14 +649,14 @@ fn sessions_complete_when_held_decoders_drain_the_receive_pool() {
             observed.assert_reach(31);
             assert!(
                 receive_waits() > before,
-                "the receive pools never ran dry at a target of {target} and a budget of {budget}"
+                "the receive pools never ran dry at a target of {target} and a ledger of {budget:?}"
             );
         }
     }
 }
 
 /// Full root fans with mixed depths converge and send terminal leaf reactions
-/// at a budget of zero and at an unlimited one.
+/// in the serial configuration and at an unlimited budget.
 #[test]
 fn full_root_with_leaf_dispute_reaches_final_stream() {
     let pair = Divergence::new(
@@ -663,7 +672,7 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
         }),
         [1, 1],
     );
-    for budget in [0, usize::MAX] {
+    for budget in LEDGERS {
         let session = Session::new(1, budget);
         let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
         observed.assert_reach(31);
@@ -684,7 +693,8 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
 }
 
 /// Every branching position and a chain branching at all positions converge
-/// in both orientations and at a budget of zero and an unlimited one, with
+/// in both orientations, in the serial configuration and at an unlimited
+/// budget, with
 /// writes visible only on flush.
 #[test]
 fn every_branching_depth_matches_join() {
@@ -699,7 +709,7 @@ fn every_branching_depth_matches_join() {
         let depth = prefixes.last().unwrap().len();
         for novel in [[1, 3], [3, 1]] {
             let pair = Divergence::new(prefixes.clone(), novel);
-            for budget in [0, usize::MAX] {
+            for budget in LEDGERS {
                 let session = Session::new(1, budget);
                 let observed = pair.check(
                     &session,
@@ -724,7 +734,7 @@ proptest! {
         prefixes in proptest::collection::vec(1u8..=31, 1..=8),
         novel in prop::array::uniform2(1usize..=4),
         redact in any::<bool>(),
-        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
+        budget in arb_ledger(),
         capacity in prop_oneof![Just(1usize), Just(37), Just(4096)],
         delays in prop::array::uniform2(proptest::collection::vec(0u8..=2, 0..=32)),
     ) {
@@ -747,7 +757,8 @@ proptest! {
 
     /// Sessions whose wire pools each hold exactly one run's worth at their
     /// target complete, and converge, across disputes at mixed depths with
-    /// supplies on both sides, at a budget of zero and an unlimited one.
+    /// supplies on both sides, in the serial configuration and at an
+    /// unlimited budget.
     ///
     /// The targets reach down to zero, where every record outgrows a run and
     /// takes its direction's whole pool, so runs cross the pipe one at a
@@ -759,7 +770,7 @@ proptest! {
         prefixes in proptest::collection::vec(1u8..=31, 1..=8),
         novel in prop::array::uniform2(1usize..=4),
         redact in any::<bool>(),
-        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
+        budget in arb_ledger(),
         capacity in prop_oneof![Just(1usize), Just(4096)],
         target in prop_oneof![Just(0usize), Just(64), Just(512), Just(default::TARGET_MESSAGE_SIZE)],
     ) {
@@ -786,7 +797,7 @@ proptest! {
         (outer, inner) in (1usize..31).prop_flat_map(|outer| (Just(outer), outer + 1..32)),
         novel in prop::array::uniform2(1usize..=4),
         redact_left in any::<bool>(),
-        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
+        budget in arb_ledger(),
         capacity in prop_oneof![Just(1usize), Just(37), Just(4096)],
         delay in prop::array::uniform2(1u8..=2),
     ) {

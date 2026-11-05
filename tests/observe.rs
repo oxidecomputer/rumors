@@ -398,7 +398,7 @@ fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors
     block_on(bootstrap_fork_configured(
         parent,
         bootstrap,
-        BudgetChoice::Zero,
+        BudgetChoice::Serial,
     ))
 }
 

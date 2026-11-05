@@ -104,17 +104,17 @@ divided_proptest! {
         mt_runtime().block_on(check_plan(plan));
     }
 
-    /// The floor-everywhere baseline leg: the same invariants as
+    /// The serial-everywhere baseline leg: the same invariants as
     /// `disrupted_concurrent_gossip_upholds_party_invariants`, with
-    /// every peer at a budget of zero on every iteration.
+    /// every peer in the serial configuration on every iteration.
     ///
     /// The one-question-at-a-time orderings the liveness argument rests
     /// on are deterministically exercised in this engine, not merely
     /// with the probability the swept leg happens to draw.
     #[test]
-    fn disrupted_concurrent_gossip_upholds_party_invariants_at_floor(
+    fn disrupted_concurrent_gossip_upholds_party_invariants_serially(
         plan in arb_plan().prop_map(|mut plan| {
-            plan.budgets = BudgetAssignment::zero();
+            plan.budgets = BudgetAssignment::serial();
             plan
         }),
     ) {
@@ -305,7 +305,7 @@ divided_proptest! {
                         ..FaultPlan::NONE
                     },
                 }],
-                budgets: BudgetAssignment::zero(),
+                budgets: BudgetAssignment::serial(),
                 network,
             };
             let outcome = run_plan(plan).await;
@@ -356,10 +356,10 @@ fn tripwire_plan(network: NetworkSeed) -> Plan {
             fault_b: FaultPlan::NONE,
         }],
         retires: vec![],
-        // One zero-budget and one default endpoint: the corruption checks
+        // One serial and one default endpoint: the corruption checks
         // run against a session between different budgets, the sweep's
         // general case.
-        budgets: BudgetAssignment::new(vec![BudgetChoice::Zero, BudgetChoice::Default]),
+        budgets: BudgetAssignment::new(vec![BudgetChoice::Serial, BudgetChoice::Default]),
         network,
     }
 }
@@ -520,9 +520,9 @@ divided_proptest! {
                     },
                 ],
                 budgets: BudgetAssignment::new(vec![
-                    BudgetChoice::Zero,
+                    BudgetChoice::Serial,
                     BudgetChoice::Default,
-                    BudgetChoice::Zero,
+                    BudgetChoice::Serial,
                 ]),
                 network,
             };

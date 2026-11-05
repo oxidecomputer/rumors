@@ -112,7 +112,7 @@ divided_proptest! {
             ],
             network,
         };
-        let result = execute_partition_and_heal(&schedule, 1, 0, &BudgetAssignment::zero());
+        let result = execute_partition_and_heal(&schedule, 1, 0, &BudgetAssignment::serial());
         let expected = BTreeMap::from([(0, 2)]);
 
         assert_eq!(result.oracle.expected_live(), expected);

@@ -94,6 +94,15 @@ pub(crate) enum MemoryBudget {
     /// whatever target, below the minimum included.
     #[cfg(any(test, feature = "test-internals"))]
     Ledger(usize),
+    /// The serial configuration the test path sets
+    /// ([`serial_budget`](crate::testing::serial_budget)): one unit of each
+    /// kind and depth at a time.
+    ///
+    /// Sessions run their ledgers at a budget of zero, every unit through
+    /// its kind and depth's floor slot, on the memory budget a ledger budget
+    /// of zero gives.
+    #[cfg(any(test, feature = "test-internals"))]
+    Serial,
 }
 
 impl MemoryBudget {
@@ -136,7 +145,33 @@ impl MemoryBudget {
                     budget: allowances.ledger(bytes),
                 }
             }
+            #[cfg(any(test, feature = "test-internals"))]
+            Self::Serial => {
+                let allowances = materialized::Allowances::of::<Local>(target.bytes());
+                SessionLimits {
+                    target,
+                    budget: allowances.ledger(0),
+                }
+            }
         }
+    }
+
+    /// Give `walk`, a session's local participant, the ledger this setting
+    /// gives it when its peer's own message-size target is `target`.
+    ///
+    /// That is the session's ledger budget ([`session`](Self::session))
+    /// beside the walk's floor slots, or the serial configuration for
+    /// [`Serial`](Self::Serial).
+    pub(crate) fn apply(
+        self,
+        target: RunBudget,
+        walk: materialized::Handshaking<Local, materialized::Start>,
+    ) -> materialized::Handshaking<Local, materialized::Start> {
+        #[cfg(any(test, feature = "test-internals"))]
+        if self == Self::Serial {
+            return walk.serial();
+        }
+        walk.budget(self.session(target).budget.ledger)
     }
 }
 

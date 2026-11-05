@@ -19,6 +19,7 @@ use crate::tree::mirror::streaming::channel::{
 };
 use crate::tree::mirror::streaming::materialized::OUTGOING_REPLY_CHUNKS;
 use crate::tree::mirror::streaming::remote::LANE_CAPACITY;
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},
@@ -83,7 +84,7 @@ async fn reconcile_symmetric_accepts(
         (a_end.read, a_end.write),
         (b_end.read, b_end.write),
         codec::<()>(),
-        0,
+        SessionLedger::Serial,
     )
     .await;
     (
@@ -134,7 +135,7 @@ where
         (a_end.read, a_end.write),
         (b_end.read, b_end.write),
         codec::<T>(),
-        0,
+        SessionLedger::Serial,
     )
     .await;
     (
@@ -151,14 +152,14 @@ async fn reconcile_locally(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
     )
-    .budget(0);
+    .serial();
     let b = Handshaking::start(
         Local,
         Root::<Local>::from(b),
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
     )
-    .budget(0);
+    .serial();
     let (a, b) = Box::pin(mirror(a, b))
         .await
         .expect("two conforming local participants should reconcile");
@@ -230,7 +231,7 @@ async fn reconcile_with_stacked_failures(
         (a_read, a_write),
         (b_read, b_write),
         codec::<()>(),
-        0,
+        SessionLedger::Serial,
     )
     .await;
     (results, if fail_left { a_io } else { b_io })
@@ -264,14 +265,14 @@ async fn reconcile_with_failing_walk(
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
     )
-    .budget(0);
+    .serial();
     let b = Handshaking::start(
         right_backend,
         failing_root(b),
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
     )
-    .budget(0);
+    .serial();
 
     let (a_end, b_end) = memory_connection(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(
@@ -599,8 +600,8 @@ fn early_first_child_dispute_is_live() {
     assert_eq!((left, right), expected);
 }
 
-/// Every proxy queue kind is exercised and has its documented capacity at
-/// a budget of zero.
+/// Every proxy queue kind is exercised and has its documented capacity in
+/// the serial configuration.
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
     let (a, b) = disjoint_pair(1, 1);

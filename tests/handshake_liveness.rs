@@ -187,7 +187,7 @@ async fn seasoned_pair(
 
 /// Converged: equal wide versions, so the session ends at the greeting.
 async fn converged_session(network: NetworkSeed) {
-    let (a, b) = seasoned_pair(network, BudgetChoice::Zero, BudgetChoice::Zero).await;
+    let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
     gossip_over(&a, &b, MIN_CAPACITY).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
@@ -219,7 +219,7 @@ async fn divergent_session(network: NetworkSeed, a_budget: BudgetChoice, b_budge
 /// set, so the size election routes it into the initiator role
 /// deterministically, and every supply frame dwarfs the one-byte window.
 async fn bulk_initiator_session(network: NetworkSeed) {
-    let (a, b) = seasoned_pair(network, BudgetChoice::Zero, BudgetChoice::Zero).await;
+    let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -260,7 +260,7 @@ async fn empty_meets_populated_session(network: NetworkSeed) {
 /// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and
 /// the trailing party donation cross the minimal connection.
 async fn bootstrap_session(network: NetworkSeed) {
-    let provider = seasoned(network, BudgetChoice::Zero).await;
+    let provider = seasoned(network, BudgetChoice::Serial).await;
     let (mut p_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
         provider.gossip_once(&mut p_end.read, &mut p_end.write),
@@ -279,7 +279,7 @@ async fn bootstrap_session(network: NetworkSeed) {
 /// Retire: a seasoned, divergent retiree hands its content and then its
 /// whole party to the absorber, all through the minimal connection.
 async fn retire_session(network: NetworkSeed) {
-    let (a, b) = seasoned_pair(network, BudgetChoice::Zero, BudgetChoice::Zero).await;
+    let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
     let converged_len = b.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -336,7 +336,7 @@ async fn mutual_bootstrap_session() {
 /// asymmetric greetings of bootstrap plus the trailing donation of retire,
 /// all through the minimal connection.
 async fn retire_into_bootstrapper_session(network: NetworkSeed) {
-    let retiree = seasoned(network, BudgetChoice::Zero).await;
+    let retiree = seasoned(network, BudgetChoice::Serial).await;
     let before = retiree.snapshot();
     let retiree = retiree
         .try_into_peer()
@@ -369,7 +369,7 @@ async fn retire_into_bootstrapper_session(network: NetworkSeed) {
 /// Mutual retire: both sides declare `Retire`, so the session early-outs
 /// right after the preamble and both replicas survive intact.
 async fn mutual_retire_session(network: NetworkSeed) {
-    let (a, b) = seasoned_pair(network, BudgetChoice::Zero, BudgetChoice::Zero).await;
+    let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
     let a = a.try_into_peer().await.expect("a is the sole handle");
     let b = b.try_into_peer().await.expect("b is the sole handle");
     let (mut a_end, mut b_end) = rumors::testing::memory_connection(MIN_CAPACITY);
@@ -408,7 +408,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn divergent(network in network_seed()) {
-        block_on(divergent_session(network, BudgetChoice::Zero, BudgetChoice::Zero));
+        block_on(divergent_session(network, BudgetChoice::Serial, BudgetChoice::Serial));
     }
 
     /// Default budgets remain live when the transport admits only one byte at a
@@ -424,13 +424,13 @@ divided_proptest! {
         ));
     }
 
-    /// A zero budget and a default one remain live together over a one-byte
+    /// A serial peer and a default one remain live together over a one-byte
     /// transport and converge completely.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn divergent_asymmetric_budgets(network in network_seed()) {
-        block_on(divergent_session(network, BudgetChoice::Zero, BudgetChoice::Default));
+        block_on(divergent_session(network, BudgetChoice::Serial, BudgetChoice::Default));
     }
 
     /// A V2 session whose initiator supplies bulk root children stays live

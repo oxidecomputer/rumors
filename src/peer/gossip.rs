@@ -1021,14 +1021,17 @@ impl<'a> Reconciliation<'a> {
         // pipe sizes its wire pools at what the greeting advertises, so the
         // ledger's budget must be the one at that same target.
         let limits = sync_memory_budget.session(run_budget);
-        let local: LocalParticipant = materialized::Handshaking::start(
-            Local,
-            root.into(),
-            keys.clone(),
-            widen(limits.target.bytes()),
-        )
-        .budget(limits.budget.ledger)
-        .stats(stats.clone());
+        let local: LocalParticipant = sync_memory_budget
+            .apply(
+                run_budget,
+                materialized::Handshaking::start(
+                    Local,
+                    root.into(),
+                    keys.clone(),
+                    widen(limits.target.bytes()),
+                ),
+            )
+            .stats(stats.clone());
         let proxy: RemoteParticipant<'a> =
             streaming_remote::Handshaking::start(Local, read, write, codec, keys)
                 .stats(stats)

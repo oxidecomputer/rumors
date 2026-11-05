@@ -33,8 +33,8 @@ const DELAY: Duration = Duration::from_millis(10);
 /// with every level's questions in flight together. The ceiling leaves room
 /// for modest changes in fixed protocol cost. A session that asked these
 /// hundreds of disputes one question at a time would take a round trip for
-/// each; the test prints that count for the same fixture at a budget of
-/// zero.
+/// each; the test prints that count for the same fixture in the serial
+/// configuration, one unit of each kind and depth at a time.
 const HOP_CEILING: u32 = 24;
 
 /// Per-direction in-flight window: far above this session's transfers, so
@@ -53,8 +53,8 @@ divided_proptest! {
         let pipelined =
             latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(network, BudgetChoice::Default));
         let one_at_a_time =
-            latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(network, BudgetChoice::Zero));
-        eprintln!("default budget: {pipelined} hops; budget zero: {one_at_a_time} hops");
+            latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(network, BudgetChoice::Serial));
+        eprintln!("default budget: {pipelined} hops; serial: {one_at_a_time} hops");
         assert!(
             (2..HOP_CEILING).contains(&pipelined),
             "the default budget took {pipelined} hops, expected a completed exchange below \

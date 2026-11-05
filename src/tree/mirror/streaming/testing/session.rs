@@ -17,17 +17,53 @@ use crate::observe::{Attachment, SessionKind};
 use crate::testing::{Quiescence, memory_connection, run_to_quiescence};
 use crate::tree::Root;
 use crate::tree::mirror::Error as MirrorError;
+use crate::tree::mirror::streaming::Backend;
+use crate::tree::mirror::streaming::Leaf;
 use crate::tree::mirror::streaming::ledger::Ledger;
-use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Handshaking};
+use crate::tree::mirror::streaming::materialized::{
+    Error as MaterializedError, Handshaking, Start,
+};
 use crate::tree::mirror::streaming::remote::{
     Error as RemoteError, Handshaking as RemoteHandshaking,
 };
 use crate::tree::mirror::streaming::{Local, mirror};
+use crate::tree::typed::height::Z;
 
 /// Bytes each direction of an ample pipe buffers: enough that the pipe never
 /// holds back a frame in these suites' sessions, so only the walk's and the
 /// proxy's own queues can hold a stage.
 pub const AMPLE: usize = 1 << 20;
+
+/// What one endpoint's ledger admits its work against in a test session.
+///
+/// Suites name the configuration at every session they drive, so that a
+/// session relying on one unit of each kind and depth at a time says so
+/// rather than passing a budget of zero.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionLedger {
+    /// This budget, beside the walk's floor slots
+    /// ([`Handshaking::budget`]).
+    Budget(usize),
+    /// The serial configuration ([`Handshaking::serial`]): a budget of zero,
+    /// admitting one unit of each kind and depth at a time.
+    ///
+    /// Every unit takes its kind and depth's floor slot: the configuration
+    /// the liveness argument rests on.
+    Serial,
+}
+
+impl SessionLedger {
+    /// Give `walk` this ledger.
+    pub fn apply<B: Backend<Node<Z>: Leaf>>(
+        self,
+        walk: Handshaking<B, Start>,
+    ) -> Handshaking<B, Start> {
+        match self {
+            Self::Budget(bytes) => walk.budget(bytes),
+            Self::Serial => walk.serial(),
+        }
+    }
+}
 
 /// One endpoint's reconciled tree, or the failure of whichever of its walk
 /// and proxy raised one.
@@ -38,11 +74,12 @@ pub type Endpoint =
 /// buffer `buffer` bytes; the poller's verdict when the session stopped
 /// first.
 ///
-/// Each endpoint's walk admits its work against that endpoint's entry in
-/// `budgets`; both endpoints decode payloads as `T`.
+/// Each endpoint's walk admits its work against the ledger its entry in
+/// `budgets` gives ([`SessionLedger`]); both endpoints decode payloads as
+/// `T`.
 pub fn over_pipe<T>(
     pair: (Root, Root),
-    budgets: [usize; 2],
+    budgets: [SessionLedger; 2],
     buffer: usize,
 ) -> Result<(Endpoint, Endpoint), Quiescence>
 where
@@ -54,7 +91,7 @@ where
 /// [`over_pipe`], with both endpoints' sessions observed by `observers`.
 pub fn observed_over_pipe<T>(
     pair: (Root, Root),
-    budgets: [usize; 2],
+    budgets: [SessionLedger; 2],
     buffer: usize,
     observers: &Attachment,
 ) -> Result<(Endpoint, Endpoint), Quiescence>
@@ -68,7 +105,7 @@ where
 /// order, which outlive the session for a test to read.
 pub fn over_pipe_keeping_ledgers<T>(
     pair: (Root, Root),
-    budgets: [usize; 2],
+    budgets: [SessionLedger; 2],
     buffer: usize,
 ) -> (Result<(Endpoint, Endpoint), Quiescence>, [Ledger; 2])
 where
@@ -81,7 +118,7 @@ where
 /// run, with both endpoints' ledgers beside its outcome.
 fn session<T>(
     pair: (Root, Root),
-    budgets: [usize; 2],
+    budgets: [SessionLedger; 2],
     buffer: usize,
     observers: &Attachment,
 ) -> (Result<(Endpoint, Endpoint), Quiescence>, [Ledger; 2])
@@ -97,20 +134,18 @@ where
     let [a_budget, b_budget] = budgets;
     let codec = PayloadCodec::new::<T>(PayloadDepthLimit::default());
     let size = default::TARGET_MESSAGE_SIZE as u64;
-    let a_walk = Handshaking::start(
+    let a_walk = a_budget.apply(Handshaking::start(
         Local,
         a.into(),
         Some(crate::network::NetworkKeys::fixture()),
         size,
-    )
-    .budget(a_budget);
-    let b_walk = Handshaking::start(
+    ));
+    let b_walk = b_budget.apply(Handshaking::start(
         Local,
         b.into(),
         Some(crate::network::NetworkKeys::fixture()),
         size,
-    )
-    .budget(b_budget);
+    ));
     let ledgers = [a_walk.ledger(), b_walk.ledger()];
     let outcome = run_to_quiescence(async move {
         let a_proxy = RemoteHandshaking::start(

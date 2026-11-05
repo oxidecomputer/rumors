@@ -9,7 +9,7 @@ use super::fixtures::{
 };
 use super::{
     GENERATED_SCHEDULE_MAX_LEN, LocalSession, ONE_SLOT_KINDS, Verdict, at_one_slot,
-    constant_schedule, floor_start, fully_scheduled_streaming_mirror, join_oracle,
+    constant_schedule, fully_scheduled_streaming_mirror, join_oracle, serial_start,
     standard_schedules,
 };
 use crate::testing::{Quiescence, run_to_quiescence, schedule::MAX_SCHEDULED_DELAY};
@@ -308,9 +308,9 @@ fn internal_fan(n: u8) -> (Root, Root) {
 fn probe_classifier_rejects_a_violation() {
     let (a, b) = internal_fan(3);
     let expected = join_oracle(a.clone(), b.clone());
-    let client = floor_start(a);
+    let client = serial_start(a);
     let server = Faulting::new(
-        floor_start(b),
+        serial_start(b),
         0,
         Some(Fault::Reply(ReplyCorruption::UnexpectedQuery)),
     );
@@ -327,8 +327,8 @@ fn probe_classifier_rejects_a_violation() {
 /// return capacity plus one, and completes at that fan.
 ///
 /// The walk publishes a parent resolution only after the reply's last
-/// chunk. At the floor's zero budget each answer takes its depth's floor
-/// slot, which frees only once the answered child is assembled, so before
+/// chunk. In the serial configuration each answer holds its kind and depth
+/// until the answered child is assembled, so before
 /// the parent resolution departs the walk has assembled every child but
 /// the last, and their returns wait in the queue. At return capacity one, a
 /// fan of two (capacity + 1) completes under every probed poll order and a

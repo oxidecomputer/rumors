@@ -168,33 +168,33 @@ proptest! {
         prop_assert_eq!(result.peers[b].observations.len(), obs_b_before);
     }
 
-    /// The floor-everywhere baseline leg of the oracle check: every
-    /// peer at a budget of zero on every iteration.
+    /// The serial-everywhere baseline leg of the oracle check: every
+    /// peer in the serial configuration on every iteration.
     ///
     /// The one-question-at-a-time orderings the liveness argument rests
     /// on stay deterministically exercised in this engine
     /// regardless of what the swept legs draw.
     #[test]
-    fn readout_matches_oracle_after_quiesce_at_floor(
+    fn readout_matches_oracle_after_quiesce_serially(
         schedule in schedule_u64(),
     ) {
-        let result = execute_and_quiesce(&schedule, &BudgetAssignment::zero());
+        let result = execute_and_quiesce(&schedule, &BudgetAssignment::serial());
         let expected = canonical_readout(&result);
         let expected_values = result.oracle.expected_live();
         prop_assert!(
             resolved_versions_are_unique(&result),
-            "distinct inserts received the same Version at a budget of zero",
+            "distinct inserts received the same Version in the serial configuration",
         );
         for (i, peer) in result.peers.iter().enumerate() {
             let actual = readout(&peer.local.snapshot());
             prop_assert_eq!(
                 &actual, &expected,
-                "peer {} exact readout does not match the oracle at the floor", i,
+                "peer {} exact readout does not match the oracle serially", i,
             );
             prop_assert_eq!(
                 readout_multiset(&peer.local.snapshot()),
                 expected_values.clone(),
-                "peer {} live-value multiset does not match the oracle at the floor", i,
+                "peer {} live-value multiset does not match the oracle serially", i,
             );
         }
     }

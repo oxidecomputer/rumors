@@ -3,6 +3,7 @@
 //! inspection.
 
 use crate::tree::mirror::streaming::message::Grandchildren;
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use std::{
     convert::Infallible,
     fmt, io,
@@ -745,7 +746,7 @@ pub async fn reconcile(
         (left_read, left_write),
         (right_read, right_write),
         codec::<()>(),
-        0,
+        SessionLedger::Serial,
     )
     .await;
 
@@ -777,7 +778,7 @@ pub async fn reconcile_rewritten_greetings(
         rewritten(left_end, left_hears),
         rewritten(right_end, right_hears),
         codec::<()>(),
-        default::SYNC_MEMORY_BUDGET,
+        SessionLedger::Budget(default::SYNC_MEMORY_BUDGET),
     )
     .await
 }
@@ -852,7 +853,7 @@ pub async fn reconcile_scripted(
             ScriptedWrite::new(right_end.write, right_script),
         ),
         codec::<()>(),
-        0,
+        SessionLedger::Serial,
     )
     .await
 }
@@ -874,7 +875,7 @@ pub async fn drive<B, LR, LW, RR, RW>(
     left_end: (LR, LW),
     right_end: (RR, RW),
     codec: PayloadCodec,
-    budget: usize,
+    budget: SessionLedger,
 ) -> (
     Result<TreeRoot, EndpointError<B::Error>>,
     Result<TreeRoot, EndpointError<B::Error>>,
@@ -892,20 +893,18 @@ where
         right: right_backend,
         right_proxy,
     } = backends;
-    let left = Handshaking::start(
+    let left = budget.apply(Handshaking::start(
         left_backend,
         B::lift(left),
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
-    )
-    .budget(budget);
-    let right = Handshaking::start(
+    ));
+    let right = budget.apply(Handshaking::start(
         right_backend,
         B::lift(right),
         Some(crate::network::NetworkKeys::fixture()),
         default::TARGET_MESSAGE_SIZE as u64,
-    )
-    .budget(budget);
+    ));
     let (left_read, left_write) = left_end;
     let (right_read, right_write) = right_end;
     let remote_right = RemoteHandshaking::start(

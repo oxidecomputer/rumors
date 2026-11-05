@@ -117,7 +117,7 @@ where
         CALIBRATION_NETWORK_SEED,
         COMMON,
         DIVERGENT,
-        BudgetChoice::Zero,
+        BudgetChoice::Serial,
         make,
     );
     let total = session_wire_bytes(&left, &right);
@@ -234,7 +234,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn counting_connection_sees_a_converged_sessions_greeting(network in network_seed()) {
-        let (left, right) = diverged(network, COMMON, DIVERGENT, BudgetChoice::Zero, |rng| {
+        let (left, right) = diverged(network, COMMON, DIVERGENT, BudgetChoice::Serial, |rng| {
             rng.next_u64()
         });
         // Converge first over an uncounted connection, then count a session that

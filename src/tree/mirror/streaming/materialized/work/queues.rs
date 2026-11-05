@@ -105,9 +105,10 @@ where
 /// has processed every reaction in the reply.
 ///
 /// Capacity `FAN` therefore lets every child completion enqueue while the walk
-/// finishes the reaction loop. At a zero budget the walk admits each answer
-/// only once the previous answered child is assembled, so every child but
-/// the last does complete first; the capacity tests' witness
+/// finishes the reaction loop. When admission takes one answer of a depth at
+/// a time, as it does in the serial configuration, the walk admits each
+/// answer only once the previous answered child is assembled, so every
+/// child but the last does complete first; the capacity tests' witness
 /// (`capacity_stress_witness_requires_inter_level_fan`) stalls one slot
 /// short of that. Once the parent resolution arrives, assembly drains the
 /// completions in order, so the bound does not multiply with tree width or

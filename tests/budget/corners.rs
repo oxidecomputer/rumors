@@ -2,19 +2,20 @@
 //!
 //! `sync_memory_budget` promises that a smaller budget costs a session
 //! time, never completion. The liveness argument behind that promise rests
-//! on the floor slots alone: at a ledger budget of zero a session asks one
-//! question at a time, by declaration, and still finishes and converges.
-//! The public setter keeps every session above that, at
+//! on the floor slots alone: in the serial configuration, a ledger budget
+//! of zero, a session admits one unit of each kind and depth at a time, by
+//! declaration, and still finishes and converges. The public setter keeps
+//! every session far above that, at
 //! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so these
-//! tests set a ledger budget of zero through the test path
-//! ([`BudgetChoice::Zero`]) and probe the corners where the argument is
-//! easiest to break: asymmetric catch-up and wide mutual divergence at
-//! budget zero, compounded backpressure (one-byte pipe buffers at budget
-//! zero), sets that grow while a session runs, and sessions timed on a
-//! real clock rather than the paused one.
+//! tests set the serial configuration through the test path
+//! ([`BudgetChoice::Serial`]) and probe the corners where the argument is
+//! easiest to break: asymmetric catch-up and wide mutual divergence,
+//! compounded backpressure (one-byte pipe buffers), sets that grow while a
+//! session runs, and sessions timed on a real clock rather than the paused
+//! one.
 //!
-//! A test at budget zero asserts that its session completes and converges,
-//! and prints its hop count; it asserts nothing about speed.
+//! A serial test asserts that its session completes and converges, and
+//! prints its hop count; it asserts nothing about speed.
 
 use std::time::Duration;
 
@@ -111,15 +112,16 @@ fn assert_converges(label: &str, pair: (Rumors<u64>, Rumors<u64>)) {
 divided_proptest! {
     #![divisor(CORNER_DIVISOR)]
 
-    /// A nearly empty replica catches up on twenty thousand messages at budget
-    /// zero: the session completes and both sides then hold the same messages.
+    /// A nearly empty replica catches up on twenty thousand messages in the
+    /// serial configuration: the session completes and both sides then hold
+    /// the same messages.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn asymmetric_catch_up_converges_at_budget_zero(network in network_seed()) {
+    fn asymmetric_catch_up_converges_serially(network in network_seed()) {
         assert_converges(
-            "asymmetric catch-up at budget 0",
-            pair(network, BudgetChoice::Zero, 1, 20_000, 0),
+            "serial asymmetric catch-up",
+            pair(network, BudgetChoice::Serial, 1, 20_000, 0),
         );
     }
 
@@ -127,22 +129,22 @@ divided_proptest! {
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn reverse_asymmetric_catch_up_converges_at_budget_zero(network in network_seed()) {
+    fn reverse_asymmetric_catch_up_converges_serially(network in network_seed()) {
         assert_converges(
-            "reverse asymmetric catch-up at budget 0",
-            pair(network, BudgetChoice::Zero, 1, 0, 20_000),
+            "serial reverse asymmetric catch-up",
+            pair(network, BudgetChoice::Serial, 1, 0, 20_000),
         );
     }
 
     /// Two replicas sharing 2,048 messages, each holding 2,000 the other lacks,
-    /// converge in one session at budget zero.
+    /// converge in one serial session.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn wide_divergence_converges_at_budget_zero(network in network_seed()) {
+    fn wide_divergence_converges_serially(network in network_seed()) {
         assert_converges(
-            "2,000 messages a side of divergence at budget 0",
-            pair(network, BudgetChoice::Zero, 2_048, 2_000, 2_000),
+            "2,000 messages a side of divergence, serially",
+            pair(network, BudgetChoice::Serial, 2_048, 2_000, 2_000),
         );
     }
 }
@@ -151,7 +153,7 @@ divided_proptest! {
     #![divisor(FLEET_DIVISOR)]
 
     /// Compounded backpressure cannot deadlock: one-byte pipe buffers with
-    /// both budgets at zero, every buffer in the system at its minimum, still
+    /// both sides serial, every buffer in the system at its minimum, still
     /// complete.
     ///
     /// Witnessed deterministically: a `Pending`
@@ -159,8 +161,8 @@ divided_proptest! {
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn one_byte_pipes_at_budget_zero_stay_live(network in network_seed()) {
-        let (left, right) = pair(network, BudgetChoice::Zero, 64, 64, 64);
+    fn one_byte_pipes_stay_live_serially(network in network_seed()) {
+        let (left, right) = pair(network, BudgetChoice::Serial, 64, 64, 64);
         run_to_quiescence(async {
             let (mut a, mut b) = rumors::testing::memory_connection(1);
             let (left_result, right_result) = tokio::join!(
@@ -237,7 +239,7 @@ divided_proptest! {
     ///
     /// A catch-up depends on a reply to a delivered message, so at least two
     /// causally chained one-way hops of real delay elapse before it completes.
-    /// A wide divergence at budget zero, with every pipe delay burning wall
+    /// A wide serial divergence, with every pipe delay burning wall
     /// time, completes and converges as on the paused clock. Only floors are
     /// asserted on elapsed time, because machine load inflates real elapsed
     /// time and can never compress it, so the assertions read the same under
@@ -248,7 +250,7 @@ divided_proptest! {
     fn real_clock_sessions_pay_real_delay_and_stay_live(network in network_seed()) {
         let delay = Duration::from_millis(2);
 
-        let (left, right) = pair(network, BudgetChoice::Zero, 1, 10_000, 0);
+        let (left, right) = pair(network, BudgetChoice::Serial, 1, 10_000, 0);
         let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
         let start = std::time::Instant::now();
         let _ = wire.round_trip(left, right);
@@ -260,14 +262,14 @@ divided_proptest! {
         );
 
         let divergence = 512;
-        let (left, right) = pair(network, BudgetChoice::Zero, 2_048, divergence, divergence);
+        let (left, right) = pair(network, BudgetChoice::Serial, 2_048, divergence, divergence);
         let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
         let ((left, right), elapsed) = wire.round_trip(left, right);
-        eprintln!("real-clock session at budget 0 over {divergence} messages a side: {elapsed:?}");
+        eprintln!("serial real-clock session over {divergence} messages a side: {elapsed:?}");
         assert_eq!(
             left.snapshot(),
             right.snapshot(),
-            "a session at budget 0 on a real clock converges",
+            "a serial session on a real clock converges",
         );
     }
 }

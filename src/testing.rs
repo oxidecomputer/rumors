@@ -143,12 +143,29 @@ pub const fn ledger_budget_within(budget: usize) -> usize {
 /// target as given. So it reaches ledger budgets below the largest grant,
 /// zero included: the floor-only
 /// configuration the liveness argument rests on, and the starved regime
-/// the budget analyses probe.
+/// the budget analyses probe. Suites that rely on the floor-only
+/// configuration name it with [`serial_budget`].
 pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
     bytes: usize,
 ) -> crate::Peer<T, B> {
     peer.sync_memory_budget = MemoryBudget::Ledger(bytes);
+    peer
+}
+
+/// Run `peer`'s sessions' ledgers in the serial configuration: a budget of
+/// zero, at which every unit takes its kind and depth's floor slot.
+///
+/// Admission then grants a unit only while its kind and depth's floor slot
+/// is free, so each walk has at most one unit of each kind and depth
+/// admitted at a time: the floor-only configuration the liveness argument
+/// rests on. It admits as a ledger budget of zero ([`ledger_budget`])
+/// does; suites name it apart, so that each states the configuration it
+/// relies on.
+pub fn serial_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
+    mut peer: crate::Peer<T, B>,
+) -> crate::Peer<T, B> {
+    peer.sync_memory_budget = MemoryBudget::Serial;
     peer
 }
 

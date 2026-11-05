@@ -15,26 +15,34 @@ use super::pipe::placed_over_pipe;
 use crate::message::Message;
 use crate::testing::LARGEST_GRANT;
 use crate::tree::arb::{nth_party, roots_at_depth};
-use crate::tree::mirror::streaming::testing::session::{completed, over_pipe};
+use crate::tree::mirror::streaming::testing::session::{SessionLedger, completed, over_pipe};
 use crate::tree::{Action, Root, Tree};
 
 /// An unlimited budget.
-const UNLIMITED: usize = usize::MAX;
+const UNLIMITED: SessionLedger = SessionLedger::Budget(usize::MAX);
 
-/// The budget pairs every grid cell runs.
+/// The serial configuration: one unit of each kind and depth at a time.
+const SERIAL: SessionLedger = SessionLedger::Serial;
+
+/// A budget of `bytes` beside the walk's floor slots.
+const fn budget(bytes: usize) -> SessionLedger {
+    SessionLedger::Budget(bytes)
+}
+
+/// The ledger pairs every grid cell runs.
 ///
-/// Both sides at zero, where every unit takes a floor slot; one side at
-/// zero against an unlimited peer, in both orders; tiny and mismatched
-/// budgets, which admit a few units beside the floor; both at the largest
-/// grant, the least ledger budget the public API leaves a session, which
-/// disjoint forks of 30,000 messages a side outgrow; and both unlimited.
-const BUDGETS: [[usize; 2]; 7] = [
-    [0, 0],
-    [0, UNLIMITED],
-    [UNLIMITED, 0],
-    [1 << 10, 1 << 10],
-    [256 << 10, 64 << 10],
-    [LARGEST_GRANT, LARGEST_GRANT],
+/// Both sides serial, where every unit takes a floor slot; one side serial
+/// against an unlimited peer, in both orders; tiny and mismatched budgets,
+/// which admit a few units beside the floor; both at the largest grant, the
+/// least ledger budget the public API leaves a session, which disjoint
+/// forks of 30,000 messages a side outgrow; and both unlimited.
+const BUDGETS: [[SessionLedger; 2]; 7] = [
+    [SERIAL, SERIAL],
+    [SERIAL, UNLIMITED],
+    [UNLIMITED, SERIAL],
+    [budget(1 << 10), budget(1 << 10)],
+    [budget(256 << 10), budget(64 << 10)],
+    [budget(LARGEST_GRANT), budget(LARGEST_GRANT)],
     [UNLIMITED, UNLIMITED],
 ];
 
@@ -93,7 +101,13 @@ fn redacting_forks(shared: usize, own: usize) -> (Root, Root) {
 
 /// Run one cell, `pair` at `budgets` over a pipe buffering `pipe` bytes,
 /// and require both sides to complete holding the join.
-fn assert_cell(pair: (Root, Root), budgets: [usize; 2], pipe: usize, placed: bool, cell: &str) {
+fn assert_cell(
+    pair: (Root, Root),
+    budgets: [SessionLedger; 2],
+    pipe: usize,
+    placed: bool,
+    cell: &str,
+) {
     let expected = join_oracle(pair.0.clone(), pair.1.clone());
     let outcome = if placed {
         placed_over_pipe(pair, budgets, pipe)
@@ -165,7 +179,8 @@ fn large_forks_complete_at_every_budget() {
 
 /// Forks placed below a shared prefix of every depth complete at every
 /// budget pair over a one-byte pipe: their disputes reach the depth they
-/// are placed at, so the floor slots of many depths are in use at once.
+/// are placed at, so units at many depths hold their kinds and depths at
+/// once.
 #[test]
 fn placed_forks_complete_at_every_depth_and_budget() {
     let (a, b) = forks(40, 40);

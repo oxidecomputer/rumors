@@ -4,6 +4,7 @@ use std::convert::Infallible;
 
 use super::harness::{self, EndpointFailure, FrameMutation, FrameSelector, Script};
 use crate::testing::{IoSide, run_to_quiescence};
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::{
     Root as TreeRoot,
     arb::{early_first_child_dispute_pair, leaf_parent_dispute_pair},
@@ -238,7 +239,7 @@ fn a_repeated_stream_end_is_rejected_as_unasked() {
             (left_read, harness::ScriptedWrite::new(left_write, left_script)),
             (right_read, harness::ScriptedWrite::new(right_write, right_script)),
             harness::codec::<()>(),
-            0,
+            SessionLedger::Serial,
         )).expect("a repeated stream end must not park either session");
         prop_assert!(script.fired());
         let writer = if append_left { IoSide::Left } else { IoSide::Right };

@@ -74,22 +74,22 @@ proptest! {
         assert_party_invariants(&survivors, 0);
     }
 
-    /// The floor-everywhere baseline leg of the membership engine:
-    /// every peer at a budget of zero on every iteration.
+    /// The serial-everywhere baseline leg of the membership engine:
+    /// every peer in the serial configuration on every iteration.
     ///
     /// Mid-schedule bootstraps and retirements keep exercising the
     /// one-question-at-a-time orderings the liveness argument rests on
     /// regardless of what the swept leg draws.
     #[test]
-    fn membership_churn_converges_to_oracle_at_floor(
+    fn membership_churn_converges_to_oracle_serially(
         schedule in arb_membership_schedule(any::<u64>(), N_PEERS, MAX_EVENTS),
     ) {
-        let result = execute_membership_and_quiesce(&schedule, &BudgetAssignment::zero());
+        let result = execute_membership_and_quiesce(&schedule, &BudgetAssignment::serial());
         let expected = result.oracle.expected_live();
         for (i, peer) in result.live() {
             prop_assert_eq!(
                 readout_multiset(&peer.local.snapshot()), expected.clone(),
-                "live peer {} diverged from the oracle multiset at the floor", i,
+                "live peer {} diverged from the oracle multiset serially", i,
             );
         }
     }

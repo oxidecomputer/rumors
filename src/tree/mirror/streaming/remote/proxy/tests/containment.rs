@@ -7,6 +7,7 @@ use crate::message::Message;
 use crate::network::NetworkKeys;
 use crate::testing::{memory_connection, run_to_quiescence};
 use crate::tree::arb::{nth_party, uncontained_supply_pair};
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::typed::Path;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
@@ -37,7 +38,7 @@ async fn reconcile_results(
         (a_end.read, a_end.write),
         (b_end.read, b_end.write),
         codec::<()>(),
-        0,
+        SessionLedger::Serial,
     )
     .await
 }

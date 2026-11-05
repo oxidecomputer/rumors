@@ -626,6 +626,20 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
         self
     }
 
+    /// Run this session's ledger in the serial configuration: a budget of
+    /// zero ([`ledger`](super::ledger)).
+    ///
+    /// Every unit then takes its kind and depth's floor slot, one unit of
+    /// each kind and depth at a time: the configuration the liveness
+    /// argument rests on, for tests. It admits as [`budget`](Self::budget)
+    /// at zero does; tests name it apart, so that each states the
+    /// configuration it relies on.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn serial(mut self) -> Self {
+        self.ledger = Ledger::new(0);
+        self
+    }
+
     /// Share the session's stats recorder, so a driver holding its clone
     /// can read the walk's counts after the session completes.
     ///
