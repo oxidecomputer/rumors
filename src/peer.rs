@@ -818,7 +818,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// over, two queued, and one waiting for or undergoing its write) and at
     /// most three per level it receives at (two queued and one being
     /// decoded), plus one run per direction that the reader holds while a
-    /// level's queue is full. The receiver decodes each run's encoded bytes
+    /// level's queue is full. A run whose frame (the run and a few bytes of
+    /// framing) is smaller than the sending side's write buffer, about
+    /// 64 KiB, is copied into it as it is written. The receiver decodes each run's encoded bytes
     /// as it goes, handing each leaf to the storage backend as it is read
     /// and holding a fixed number of constructed leaves per level on their
     /// way to assembly, whatever this setting. Each session therefore runs at

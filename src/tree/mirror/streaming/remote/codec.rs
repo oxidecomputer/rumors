@@ -62,7 +62,6 @@ mod frame;
 pub(crate) mod greeting;
 mod signal;
 
-#[cfg(any(test, feature = "test-internals"))]
 pub(crate) use budget::FULL_FAN_QUERY_FRAME_LEN;
 #[cfg(test)]
 pub use budget::SUPPLY_FRAME_OVERHEAD;

@@ -3,7 +3,10 @@
 use std::{
     future::{Future, poll_fn},
     pin::pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::Poll,
 };
 
@@ -333,9 +336,19 @@ fn leaf_path(prefix: &[u8], slot: usize) -> Path {
     bytes.into()
 }
 
-/// Stream identities of sent reactions, shared with a session observer.
+/// One endpoint's sent data frames, shared with a session observer: the
+/// stream identities of its reactions, and how many frames it sent in all.
 #[derive(Clone, Default)]
-struct SentFrames(Arc<Mutex<Vec<StreamId>>>);
+struct SentFrames {
+    /// The stream identity of each sent reaction, in order.
+    reactions: Arc<Mutex<Vec<StreamId>>>,
+    /// Every data frame sent, reactions and stream endings alike.
+    frames: Arc<AtomicUsize>,
+}
+
+/// The greetings a wire endpoint writes, each written and flushed on its own
+/// before any data frame: one.
+const GREETINGS: usize = 1;
 
 /// Attach observers and verify the tree depths reached on the wire.
 impl SentFrames {
@@ -348,7 +361,7 @@ impl SentFrames {
 
     /// Check every interior stream down to the fixture's deepest branch.
     fn assert_reach(&self, width: u8) {
-        let frames = self.0.lock().unwrap();
+        let frames = self.reactions.lock().unwrap();
         let StreamId::Data { speaker: role, .. } =
             *frames.first().expect("no data frames were sent")
         else {
@@ -407,7 +420,8 @@ struct SentStream {
 
 /// Decode sent frames to distinguish reactions from stream endings.
 impl StreamObserver for SentStream {
-    /// Record only reactions; stream endings alone prove no descent.
+    /// Count every frame, and record only reactions: stream endings alone
+    /// prove no descent.
     fn message(&mut self, bytes: &[u8]) {
         let StreamId::Data {
             speaker: role,
@@ -418,8 +432,9 @@ impl StreamObserver for SentStream {
         };
         let (stream, frame) = decode_exact(speaker(role), RunBudget::default(), bytes).unwrap();
         assert_eq!(stream.index(), index);
+        self.frames.frames.fetch_add(1, Ordering::Relaxed);
         if matches!(frame, Frame::Reaction(..)) {
-            self.frames.0.lock().unwrap().push(self.id);
+            self.frames.reactions.lock().unwrap().push(self.id);
         }
     }
 }
@@ -543,7 +558,7 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
         let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
         observed.assert_reach(31);
         for sent in &observed.sent {
-            let frames = sent.0.lock().unwrap();
+            let frames = sent.reactions.lock().unwrap();
             assert!(
                 frames.iter().any(|frame| matches!(
                     frame,
@@ -648,11 +663,16 @@ proptest! {
         let plans = std::array::from_fn(|_| IoPlan { hold_until_flush: true, ..IoPlan::default() });
         let baseline = pair.check(&session, plans.clone());
         // A finite delay schedule must cover the whole run, rather than
-        // silently expire before the deep frames. How often a side flushes
-        // depends on scheduling, which the delays change, but every flush
-        // follows at least one write since the one before, and the writes
-        // are this fixture's items, whatever the schedule.
-        let schedules = std::array::from_fn::<_, 2, _>(|side| baseline.io[side].writes);
+        // silently expire before the deep frames. How often a side flushes,
+        // and how many writes carry its items, depend on scheduling, which
+        // the delays change: the multiplexer buffers the frames it writes
+        // between flushes. But every flush follows at least one item
+        // written since the one before, and the items a side writes here,
+        // its greeting and its data frames, are this fixture's whatever
+        // the schedule.
+        let schedules = std::array::from_fn::<_, 2, _>(|side| {
+            GREETINGS + baseline.sent[side].frames.load(Ordering::Relaxed)
+        });
         let mut delayed = plans;
         for (side, plan) in delayed.iter_mut().enumerate() {
             plan.flush_delays = vec![delay[side]; schedules[side]];
@@ -664,7 +684,7 @@ proptest! {
             prop_assert_eq!(observed.io[side].delayed_polls,
                 observed.io[side].flushes * usize::from(delay));
         }
-        prop_assert!(!observed.sent.iter().any(|sent| sent.0.lock().unwrap().iter().any(|frame|
+        prop_assert!(!observed.sent.iter().any(|sent| sent.reactions.lock().unwrap().iter().any(|frame|
             matches!(frame, StreamId::Data { speaker: Role::Initiator, index: 0 })
         )), "the initiator wrote its unused opening stream");
     }

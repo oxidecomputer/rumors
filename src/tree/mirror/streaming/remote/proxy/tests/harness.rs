@@ -193,6 +193,7 @@ pub fn io_plan(
         write_delays: delays.clone(),
         flush_delays: delays,
         hold_until_flush,
+        vectored: false,
         fault,
     }
 }

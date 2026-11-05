@@ -200,10 +200,16 @@
 //! an in-process peer. The crate opens no connections itself. Reads take
 //! exactly the bytes each protocol item needs; on an unbuffered transport,
 //! wrap the read half in `tokio::io::BufReader`, which may outlive a
-//! session. The write half needs no wrapper, though a buffering one is
-//! safe: a session flushes whenever it would otherwise wait, so a
-//! `BufWriter` or a TLS stream batches the messages written between
-//! flushes.
+//! session. The write half needs no wrapper: a session copies the
+//! messages it writes into a buffer of its own, about 64 KiB, and writes
+//! the buffer out whenever it would otherwise wait, so the messages written
+//! between flushes usually reach the write half as one write: one system
+//! call on a TCP socket, and one batch of records on a TLS stream. A
+//! session writes more often when more is ready at once than the buffer
+//! holds, writes a message at least the buffer's size directly, and
+//! continues any write the transport takes only part of. A `BufWriter`
+//! around the write half is safe, but only copies again what the session
+//! has already gathered.
 //!
 //! Over TCP, disable Nagle's algorithm on both ends with
 //! `TcpStream::set_nodelay(true)` before splitting the stream. A session

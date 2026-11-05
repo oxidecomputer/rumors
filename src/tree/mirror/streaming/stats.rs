@@ -176,7 +176,8 @@ impl Recorder {
 /// Wraps the pipe's write half between the frame codec and the transport,
 /// and only while the multiplexer writes frames, so the count is exactly
 /// the codec's frame bytes. Vectored writes pass through to the transport,
-/// so a frame stays one write operation where the transport supports it.
+/// so a frame too large for the multiplexer's buffer stays one write
+/// operation where the transport supports it.
 pub struct CountedWrite<W> {
     inner: W,
     recorder: Recorder,

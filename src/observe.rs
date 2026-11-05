@@ -48,10 +48,10 @@
 //!   frames form one [`Data`](StreamId::Data) stream. Only complete
 //!   items are observed: a session that dies mid-frame does not deliver
 //!   the fragment, and an aborted session may have observed fewer items
-//!   than crossed the wire. A sent frame is observed once it is written
-//!   whole to the write half, which may still be buffering it, so an
-//!   aborted session may also have observed a sent frame that never
-//!   reached the peer.
+//!   than crossed the wire. A sent frame is observed once the session has
+//!   written it whole, into its own write buffer or to the write half,
+//!   which may buffer it in turn, so an aborted session may also have
+//!   observed a sent frame that never reached the peer.
 //! - **Cost**: unattached (or a level declined), one branch per frame;
 //!   attached, one extra contiguous copy of each observed frame. The
 //!   wire bytes themselves are unchanged either way.

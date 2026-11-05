@@ -261,29 +261,33 @@ const SIDES: u64 = 2;
 /// The calls follow from how a session writes, whatever the baseline.
 ///
 /// A session writes each control item with a plain write of its own,
-/// followed by a flush, and writes its frames through the frame writer,
-/// which never splits an item across writes the transport takes whole,
-/// and flushes only after writing. So, on a write half that takes vectored
-/// writes whole and never makes a write wait, every write carries at least
-/// one whole item, every flush follows at least one write, and the plain
-/// writes number at least the control items. A write half that takes only
-/// first slices receives no vectored write at all, and both kinds carry
-/// the same bytes and frames. A session that sends frames flushes them, so
-/// the counters are counting.
+/// followed by a flush. It copies its frames into its write buffer, of
+/// about 64 KiB, and writes the buffer out as one plain write at each
+/// flush, and before any frame that does not fit beside the buffered ones;
+/// a frame at least the buffer's size goes to the write half directly, as
+/// one vectored write where the half takes them whole. It flushes only
+/// after writing an item. No fixture here sends a frame near the buffer's
+/// size or readies that much between flushes, so on both kinds of write
+/// half every write is one plain write followed by its own flush: the
+/// plain writes equal the flushes, no vectored write reaches either half,
+/// and the two kinds see the same calls. Those equalities rest on the
+/// fixtures as well as on how the session writes, and fail once a fixture
+/// outgrows the buffer. Every flush follows at least one item, so the
+/// writes number at most the items, and at least the control items. A
+/// session that sends frames flushes them, so the counters are counting.
 #[test]
 fn calls_follow_from_how_a_session_writes() {
     let controls = CONTROL_ITEMS * SIDES;
     for (name, shape) in fixtures() {
         let whole = session(shape, true);
-        let operations = whole.writes + whole.vectored_writes;
-        assert!(operations <= whole.frames + controls, "{name}: {whole:?}");
-        assert!(whole.flushes <= operations, "{name}: {whole:?}");
-        assert!(whole.writes >= controls, "{name}: {whole:?}");
         let sliced = session(shape, false);
-        assert_eq!(sliced.vectored_writes, 0, "{name}: {sliced:?}");
-        assert!(sliced.writes >= controls, "{name}: {sliced:?}");
-        assert_eq!(sliced.written_bytes, whole.written_bytes, "{name}");
-        assert_eq!(sliced.frames, whole.frames, "{name}");
+        for calls in [whole, sliced] {
+            assert_eq!(calls.writes, calls.flushes, "{name}: {calls:?}");
+            assert_eq!(calls.vectored_writes, 0, "{name}: {calls:?}");
+            assert!(calls.writes <= calls.frames + controls, "{name}: {calls:?}");
+            assert!(calls.writes >= controls, "{name}: {calls:?}");
+        }
+        assert_eq!(sliced, whole, "{name}");
         if whole.frames > 0 {
             assert!(whole.flushes > controls, "{name}: {whole:?}");
         }
@@ -292,14 +296,12 @@ fn calls_follow_from_how_a_session_writes() {
 
 /// The fixed sessions' calls equal the committed baseline.
 ///
-/// Each frame is one vectored write on a write half that takes vectored
-/// writes whole, and one plain write per piece on one that takes first
-/// slices: the frame's opener, then a query's listing, or a supply run's
-/// head and records. The multiplexer flushes whenever it finds no frame
-/// ready, so frames ready together share a flush, about two per flush in
-/// these sessions. Reads are exact: the session reads each item's parts
-/// with calls of their own, a few per frame received. Identical replicas
-/// exchange only the control items.
+/// The multiplexer flushes whenever it finds no frame ready, so frames
+/// ready together share a flush, about two per flush in these sessions,
+/// and its buffer reaches the transport as one plain write per flush,
+/// whichever kind of write half it is. Reads are exact: the session reads
+/// each item's parts with calls of their own, a few per frame received.
+/// Identical replicas exchange only the control items.
 ///
 /// The counts are deterministic: the fixtures' networks are seeded, the
 /// runtime polls its tasks in a fixed order, no write waits, and nothing in
@@ -319,16 +321,16 @@ fn calls_match_the_baseline() {
     let baseline = [
         (calls(14, 6, 0, 6, 16_138, 0), calls(14, 6, 0, 6, 16_138, 0)),
         (
-            calls(4_266, 6, 3_383, 1_715, 128_718, 3_383),
-            calls(4_266, 3_685, 0, 1_715, 128_718, 3_383),
+            calls(4_266, 1_715, 0, 1_715, 128_718, 3_383),
+            calls(4_266, 1_715, 0, 1_715, 128_718, 3_383),
         ),
         (
-            calls(1_551, 6, 257, 135, 1_131_540, 257),
-            calls(1_551, 775, 0, 135, 1_131_540, 257),
+            calls(1_551, 135, 0, 135, 1_131_540, 257),
+            calls(1_551, 135, 0, 135, 1_131_540, 257),
         ),
         (
-            calls(66_241, 6, 15_252, 8_045, 1_392_526, 15_252),
-            calls(66_241, 35_526, 0, 8_045, 1_392_526, 15_252),
+            calls(66_241, 8_045, 0, 8_045, 1_392_526, 15_252),
+            calls(66_241, 8_045, 0, 8_045, 1_392_526, 15_252),
         ),
     ];
     for ((name, shape), (whole, sliced)) in fixtures().into_iter().zip(baseline) {

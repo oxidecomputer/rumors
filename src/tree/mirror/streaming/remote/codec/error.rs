@@ -101,7 +101,7 @@ pub struct QueryOrderError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EncodeErrorKind {
-    /// Writing one frame component failed.
+    /// A write failed while this frame component was being offered.
     #[error("could not write the frame's {part}")]
     Write {
         /// The component being written.

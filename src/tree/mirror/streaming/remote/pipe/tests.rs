@@ -3,8 +3,8 @@
 
 use std::collections::VecDeque;
 use std::pin::pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::task::{Wake, Waker};
 
 use futures::{StreamExt, future::Either};
@@ -14,8 +14,8 @@ use tokio::io::AsyncReadExt;
 use super::*;
 use crate::Version;
 use crate::message::Message;
-use crate::testing::run_to_quiescence;
-use crate::tree::mirror::streaming::remote::codec::{Flow, LeafRun};
+use crate::testing::{IoPlan, IoSide, run_to_quiescence, wrap_io};
+use crate::tree::mirror::streaming::remote::codec::{Flow, LeafRun, encode};
 
 /// The speaker whose direction these tests write and read.
 const SPEAKER: Speaker = Speaker::Initiator;
@@ -137,6 +137,215 @@ proptest! {
             }
             prop_assert_eq!(carried, expected);
         }
+    }
+}
+
+/// How a frame's length stands against the multiplexer's write buffer.
+#[derive(Clone, Copy, Debug)]
+enum Size {
+    /// A thin frame of a few bytes, copied into the buffer.
+    Thin,
+    /// A supply frame just over half the buffer: copied, but two of them
+    /// overflow it.
+    Half,
+    /// A supply frame one byte short of the buffer: the largest copied.
+    Below,
+    /// A supply frame exactly the buffer's size: the smallest written
+    /// directly.
+    At,
+    /// A supply frame one byte over the buffer: written directly.
+    Above,
+}
+
+impl Size {
+    /// The encoded length of a supply frame of this size, or `None` for a
+    /// thin frame.
+    fn supply_len(self) -> Option<usize> {
+        match self {
+            Self::Thin => None,
+            Self::Half => Some(WRITE_BUFFER_BYTES / 2 + 1),
+            Self::Below => Some(WRITE_BUFFER_BYTES - 1),
+            Self::At => Some(WRITE_BUFFER_BYTES),
+            Self::Above => Some(WRITE_BUFFER_BYTES + 1),
+        }
+    }
+}
+
+/// The length of `frame`'s encoding on `stream`.
+fn encoded_len(stream: Stream, frame: &ReplyFrame) -> usize {
+    let mut bytes = Vec::new();
+    encode(SPEAKER, &(stream, Frame::from(frame.clone())), &mut bytes)
+        .expect("a test frame encodes");
+    bytes.len()
+}
+
+/// A supply frame whose encoding on `stream` is exactly `len` bytes: one
+/// record whose payload is a string of the length that makes it so.
+///
+/// Near the buffer's size every head in the frame has a fixed width, so the
+/// encoding grows byte for byte with the string, and one correction from a
+/// first guess lands exactly.
+fn supply_of_len(stream: Stream, len: usize) -> ReplyFrame {
+    let build = |text: usize| {
+        let mut run = LeafRun::new();
+        run.push(&Version::new(), &Message::new("x".repeat(text)))
+            .expect("a record within the run cap fits a fresh run");
+        ReplyFrame::reaction(Reaction::Supply(run), Flow::End)
+    };
+    let guess = len / 2;
+    let text = guess + len - encoded_len(stream, &build(guess));
+    let frame = build(text);
+    assert_eq!(
+        encoded_len(stream, &frame),
+        len,
+        "the corrected guess lands exactly"
+    );
+    frame
+}
+
+/// A write half's destination the test can watch: the bytes written to it,
+/// and the waker of a task waiting for them.
+#[derive(Clone, Default)]
+struct Sink(Arc<Mutex<(Vec<u8>, Option<Waker>)>>);
+
+impl Sink {
+    /// Wait until at least `len` bytes have reached the sink.
+    async fn wait_for(&self, len: usize) {
+        poll_fn(|cx| {
+            let mut sink = self.0.lock().expect("sink lock");
+            if sink.0.len() >= len {
+                Poll::Ready(())
+            } else {
+                sink.1 = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+
+    /// The bytes that have reached the sink.
+    fn bytes(&self) -> Vec<u8> {
+        self.0.lock().expect("sink lock").0.clone()
+    }
+}
+
+/// Take every write whole, waking the waiting task.
+impl AsyncWrite for Sink {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let mut sink = self.0.lock().expect("sink lock");
+        sink.0.extend_from_slice(bytes);
+        if let Some(waker) = sink.1.take() {
+            waker.wake();
+        }
+        Poll::Ready(Ok(bytes.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+proptest! {
+    /// Every frame the multiplexer writes reaches the write half whole, in
+    /// order, and flushed before the multiplexer waits for the next one,
+    /// whatever its length against the write buffer and however the write
+    /// half takes writes.
+    ///
+    /// Each batch mixes thin frames with supply frames just below, at, and
+    /// just above [`WRITE_BUFFER_BYTES`], so some frames are copied and some
+    /// pass the buffer, and frames over half of it, two of which overflow it
+    /// when the multiplexer writes them between the same two flushes; how
+    /// often that happens depends on scheduling, which this test does not
+    /// control or count. The write half takes
+    /// at most `write_chunk` bytes per write, vectored or first slice only,
+    /// delays some writes and flushes, and holds what it takes until a
+    /// flush. The producer hands over each batch only once the previous
+    /// batches have reached the sink, so if the multiplexer waited while a
+    /// frame it wrote sat in its buffer or unflushed, the run would stall
+    /// with nothing left to wake it.
+    #[test]
+    fn written_frames_are_flushed_before_the_multiplexer_waits(
+        batches in prop::collection::vec(
+            prop::collection::vec(
+                prop::sample::select(vec![Size::Thin, Size::Half, Size::Below, Size::At, Size::Above]),
+                1..5,
+            ),
+            1..4,
+        ),
+        write_chunk in prop_oneof![Just(usize::MAX), 1_000usize..=70_000],
+        delays in prop::collection::vec(0u8..=2, 0..16),
+        vectored in any::<bool>(),
+    ) {
+        let stream = interior(1);
+        let mut supplies = std::collections::HashMap::new();
+        let batches: Vec<Vec<ReplyFrame>> = batches
+            .iter()
+            .map(|sizes| {
+                sizes
+                    .iter()
+                    .map(|size| match size.supply_len() {
+                        None => frame(Kind::Match, 0),
+                        Some(len) => supplies
+                            .entry(len)
+                            .or_insert_with(|| supply_of_len(stream, len))
+                            .clone(),
+                    })
+                    .collect()
+            })
+            .collect();
+        let flushed_after: Vec<usize> = batches
+            .iter()
+            .scan(0, |sent, batch| {
+                *sent += batch.iter().map(|frame| encoded_len(stream, frame)).sum::<usize>();
+                Some(*sent)
+            })
+            .collect();
+        let sink = Sink::default();
+        let plan = IoPlan {
+            write_chunk,
+            write_delays: delays.clone(),
+            flush_delays: delays,
+            hold_until_flush: true,
+            vectored,
+            ..IoPlan::default()
+        };
+        let (_, mut write, _) = wrap_io(IoSide::Left, plan, tokio::io::empty(), sink.clone());
+        let mut multiplexer = Multiplexer::default();
+        let mut lane = multiplexer.lane(stream, 0);
+        let (handed, sink_ref) = (&batches, &sink);
+        let producer = async move {
+            for (batch, &sent) in handed.iter().zip(&flushed_after) {
+                for frame in batch {
+                    lane.frame(frame.clone()).await;
+                }
+                sink_ref.wait_for(sent).await;
+            }
+            lane.finish().await;
+        };
+        let written = run_to_quiescence(async {
+            let observe = SessionHandle::default();
+            let run = multiplexer.run(&mut write, SPEAKER, Recorder::default(), &observe);
+            futures::join!(run, producer).0
+        })
+        .map_err(|stopped| TestCaseError::fail(format!(
+            "the multiplexer waited with a written frame unflushed: {stopped:?}",
+        )))?;
+        prop_assert!(written.is_ok(), "{written:?}");
+        let mut expected: Vec<(Stream, Frame)> = batches
+            .into_iter()
+            .flatten()
+            .map(|frame| (stream, Frame::from(frame)))
+            .collect();
+        expected.push((stream, Frame::End(End::Stream)));
+        prop_assert_eq!(decode_all(&sink.bytes()), expected);
     }
 }
 

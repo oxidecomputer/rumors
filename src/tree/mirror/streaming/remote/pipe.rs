@@ -101,7 +101,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Wake, Waker};
 
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, BufWriter, ReadBuf};
 
 use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
@@ -112,18 +112,21 @@ use crate::tree::mirror::streaming::{
 };
 
 use super::codec::{
-    DecodeError, DecodeErrorKind, EncodeError, End, FRAME_OPENER_LEN, Frame, FrameRead, FrameWrite,
-    Origin, Reaction, ReplyFrame, RunBudget, Speaker, Stream,
+    DEFAULT_TARGET_MESSAGE_SIZE, DecodeError, DecodeErrorKind, EncodeError, End, FRAME_OPENER_LEN,
+    FULL_FAN_QUERY_FRAME_LEN, Frame, FrameRead, FrameWrite, Origin, Reaction, ReplyFrame,
+    RunBudget, Speaker, Stream,
 };
 
 /// Frames each logical stream's channel holds between the pipe and a stage's
 /// encoder or decoder: [`UNPARKED_CAPACITY`].
 ///
-/// Nothing in this module's argument needs more than one slot. The second keeps
-/// a frame handed into an empty lane, by an encoder or by the demultiplexer,
-/// from parking its sender. Beyond the lane, the multiplexer holds at most one
-/// frame per stream, staged or being written, and the demultiplexer at most one
-/// frame for the whole direction, while it waits for a full channel.
+/// Nothing in this module's argument needs more than one slot. The second
+/// keeps a frame handed into an empty lane, by an encoder or by the
+/// demultiplexer, from parking its sender. Beyond the lane, the
+/// multiplexer holds at most one frame per stream, staged or being
+/// written, and copies the frames smaller than [`WRITE_BUFFER_BYTES`] into a
+/// buffer of that size; the demultiplexer holds at most one frame for the
+/// whole direction, while it waits for a full channel.
 pub(crate) const LANE_CAPACITY: usize = UNPARKED_CAPACITY;
 
 /// The bits of a CBOR initial byte that hold its major type.
@@ -573,11 +576,18 @@ impl Multiplexer {
 
     /// Write frames until every lane's channel has closed.
     ///
-    /// Each frame is written whole before the next is chosen. Writing does
-    /// not flush: the write half is flushed whenever no frame is ready,
-    /// before waiting for one, and before returning. Frames ready together
-    /// therefore share a flush, and the multiplexer never waits while a
-    /// frame it wrote sits unflushed. A frame handed to a lane wakes the
+    /// Each frame is written whole before the next is chosen, through a
+    /// Tokio `BufWriter` of [`WRITE_BUFFER_BYTES`]: a frame smaller than the
+    /// buffer is copied into it, after the buffered frames are written out
+    /// if it does not fit beside them, and one at least its size passes it.
+    /// Writing does not flush: the buffer is written out and the write half
+    /// flushed whenever no frame is ready, before waiting for one, and
+    /// before returning. The buffer usually reaches the write half as one
+    /// plain write, continued wherever the write half takes only part of
+    /// one. Frames ready together therefore share a flush, and usually one
+    /// write, and the multiplexer never waits for a frame while a frame it
+    /// wrote sits in its buffer or unflushed; while it writes and flushes,
+    /// it waits only on the write half. A frame handed to a lane wakes the
     /// waiting multiplexer through that lane's waker, so every frame handed
     /// to it reaches the peer without waiting on anything but the pipe.
     /// The write half is borrowed, and rests flushed at a frame boundary on
@@ -589,8 +599,10 @@ impl Multiplexer {
         stats: Recorder,
         observe: &SessionHandle,
     ) -> Result<(), EncodeError> {
-        let mut out = FrameWrite::new(speaker, CountedWrite::new(write, stats.clone()))
-            .observed(observe.data(speaker.role(), Direction::Sent));
+        let write =
+            BufWriter::with_capacity(WRITE_BUFFER_BYTES, CountedWrite::new(write, stats.clone()));
+        let mut out =
+            FrameWrite::new(speaker, write).observed(observe.data(speaker.role(), Direction::Sent));
         let mut cursors = [0; Class::ORDER.len()];
         loop {
             let ready = poll_fn(|cx| Poll::Ready(self.poll_next(cx, &mut cursors))).await;
@@ -697,6 +709,61 @@ impl Multiplexer {
         None
     }
 }
+
+/// The capacity of the buffer the multiplexer writes frames into: eight
+/// full-fan query frames, about 64 KiB.
+///
+/// Every transport pays per write: a TCP socket a system call, an
+/// unbuffered TLS stream a record and a system call. A session's frames
+/// are mostly a few bytes, so the multiplexer copies those it writes
+/// between flushes into one buffer and writes the buffer out at once;
+/// copying a few bytes costs less than a write, or than an entry in a
+/// vectored write. A frame that does not fit beside the buffered ones
+/// writes them out first. A frame at least this large
+/// passes the buffer: Tokio's `BufWriter` hands it whole, uncopied, to a
+/// write half that takes vectored writes, and to one that does not, it
+/// copies the frame's leading pieces that fit and writes the large piece
+/// directly.
+///
+/// The size meets three bounds, which the assertion below checks:
+///
+/// - It exceeds [`FULL_FAN_QUERY_FRAME_LEN`], the largest frame that
+///   carries one comparison, so every comparison frame is copied.
+/// - It is at most [`TLS_SEND_LIMIT`], so tokio-rustls, at rustls's default
+///   limit, takes a whole buffer in one write when no earlier records wait
+///   to be sent, and sends its records together. A larger buffer would take
+///   two rounds of encryption and socket writes on that path.
+/// - It is at most [`DEFAULT_TARGET_MESSAGE_SIZE`], so a supply run that
+///   reaches the default target bypasses the buffer instead of being
+///   copied.
+///
+/// Eight is the largest whole number of full-fan query frames within the
+/// TLS bound. Nothing else depends on the buffer holding a whole number of
+/// them: any size between the first two bounds meets all three.
+pub(crate) const WRITE_BUFFER_BYTES: usize = 8 * FULL_FAN_QUERY_FRAME_LEN;
+
+/// The most plaintext rustls takes from one write while it has no encrypted
+/// records waiting to be sent: its default limit on queued outgoing records,
+/// `DEFAULT_BUFFER_LIMIT` in rustls 0.23, 64 KiB.
+///
+/// rustls compares the plaintext a write offers against that limit less the
+/// records already queued, and takes no more than fits; tokio-rustls then
+/// writes the queued records to the socket in one vectored write, and
+/// returns a short write if the socket takes only part of them.
+///
+/// This mirrors a private rustls default that no check here can see, so a
+/// rustls release that changed it would leave this value stale without any
+/// failure. Only performance depends on it: a larger buffer, or a smaller
+/// limit, takes more rounds of encryption and socket writes, never a wrong
+/// byte.
+const TLS_SEND_LIMIT: usize = 64 * 1024;
+
+const _: () = assert!(
+    FULL_FAN_QUERY_FRAME_LEN < WRITE_BUFFER_BYTES
+        && WRITE_BUFFER_BYTES <= TLS_SEND_LIMIT
+        && WRITE_BUFFER_BYTES <= DEFAULT_TARGET_MESSAGE_SIZE,
+    "the write buffer copies every comparison frame, fits one TLS write, and passes a default-target run through"
+);
 
 /// What one poll of a multiplexer did, as the process's multiplexer hook
 /// sees it.

@@ -1,7 +1,7 @@
 //! Stackable, deterministic adversity for test transports across the crate.
 
 use std::{
-    io,
+    io::{self, IoSlice},
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
@@ -87,6 +87,13 @@ pub struct IoPlan {
     pub flush_delays: Vec<u8>,
     /// Whether writes remain private until the next flush.
     pub hold_until_flush: bool,
+    /// Whether the writer takes vectored writes across their slices.
+    ///
+    /// A vectored writer takes up to `write_chunk` bytes across a write's
+    /// slices as one operation, as a TCP socket does. Otherwise it takes
+    /// only a vectored write's first nonempty slice, as the trait's default
+    /// does.
+    pub vectored: bool,
     /// Optional failure after a successful operation or byte prefix.
     pub fault: Option<IoFault>,
 }
@@ -100,6 +107,7 @@ impl Default for IoPlan {
             write_delays: Vec::new(),
             flush_delays: Vec::new(),
             hold_until_flush: false,
+            vectored: false,
             fault: None,
         }
     }
@@ -336,6 +344,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
 /// A writer with deterministic fragmentation, delays, and flush buffering.
 pub struct AdversarialWrite<W> {
     inner: W,
+    /// Whether vectored writes are taken across slices ([`IoPlan::vectored`]).
+    vectored: bool,
     state: Arc<Mutex<State>>,
     write_delay: Countdown,
     flush_delay: Countdown,
@@ -356,22 +366,28 @@ impl<W> std::fmt::Debug for AdversarialWrite<W> {
     }
 }
 
-/// Apply configured fragmentation, buffering, delays, and faults to writes.
-impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
-    /// Admit one write through the shared adversity state.
-    fn poll_write(
-        self: Pin<&mut Self>,
+impl<W: AsyncWrite + Unpin> AdversarialWrite<W> {
+    /// Admit one write offering `offered` bytes through the shared adversity
+    /// state.
+    ///
+    /// The state suspends the write, fails it, or takes at most
+    /// `write_chunk` of the bytes, which `hold` copies into the flush buffer
+    /// when writes are held until a flush, and `forward` writes to the inner
+    /// writer otherwise.
+    fn poll_admit(
+        &mut self,
         cx: &mut Context<'_>,
-        bytes: &[u8],
+        offered: usize,
+        hold: impl FnOnce(&mut Vec<u8>, usize),
+        forward: impl FnOnce(Pin<&mut W>, &mut Context<'_>, usize) -> Poll<io::Result<usize>>,
     ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        if suspend(&this.state, &mut this.write_delay, Operation::Write, cx) {
+        if suspend(&self.state, &mut self.write_delay, Operation::Write, cx) {
             return Poll::Pending;
         }
         let (limit, buffered) = {
-            let mut state = this.state.lock().expect("transport state lock");
+            let mut state = self.state.lock().expect("transport state lock");
             if let Some(error) = state.failure(Operation::Write) {
-                this.write_delay.clear();
+                self.write_delay.clear();
                 return Poll::Ready(Err(error));
             }
             (
@@ -380,21 +396,21 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
                     .write_chunk
                     .max(1)
                     .min(state.remaining_bytes(Operation::Write))
-                    .min(bytes.len()),
+                    .min(offered),
                 state.plan.hold_until_flush,
             )
         };
         let result = if buffered {
-            this.buffered.extend_from_slice(&bytes[..limit]);
+            hold(&mut self.buffered, limit);
             Poll::Ready(Ok(limit))
         } else {
-            Pin::new(&mut this.inner).poll_write(cx, &bytes[..limit])
+            forward(Pin::new(&mut self.inner), cx, limit)
         };
         match result {
             Poll::Ready(Ok(written)) => {
-                this.write_delay.clear();
+                self.write_delay.clear();
                 if written > 0 {
-                    let mut state = this.state.lock().expect("transport state lock");
+                    let mut state = self.state.lock().expect("transport state lock");
                     state.report.writes += 1;
                     state.report.write_bytes += written;
                     state.report.largest_write = state.report.largest_write.max(written);
@@ -402,11 +418,75 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
                 Poll::Ready(Ok(written))
             }
             Poll::Ready(Err(error)) => {
-                this.write_delay.clear();
+                self.write_delay.clear();
                 Poll::Ready(Err(error))
             }
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+/// The first `limit` bytes of `slices`, as slices of their own.
+fn leading<'s>(slices: &'s [IoSlice<'_>], limit: usize) -> Vec<IoSlice<'s>> {
+    let mut room = limit;
+    let mut taken = Vec::new();
+    for slice in slices {
+        if room == 0 {
+            break;
+        }
+        let take = room.min(slice.len());
+        taken.push(IoSlice::new(&slice[..take]));
+        room -= take;
+    }
+    taken
+}
+
+/// Apply configured fragmentation, buffering, delays, and faults to writes.
+impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
+    /// Admit one write through the shared adversity state.
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.get_mut().poll_admit(
+            cx,
+            bytes.len(),
+            |held, limit| held.extend_from_slice(&bytes[..limit]),
+            |inner, cx, limit| inner.poll_write(cx, &bytes[..limit]),
+        )
+    }
+
+    /// Admit one vectored write: across slices when vectored, and as its
+    /// first nonempty slice otherwise.
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        slices: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        if !self.vectored {
+            let first = slices
+                .iter()
+                .find(|slice| !slice.is_empty())
+                .map_or(&[][..], |slice| &**slice);
+            return self.poll_write(cx, first);
+        }
+        let offered = slices.iter().map(|slice| slice.len()).sum();
+        self.get_mut().poll_admit(
+            cx,
+            offered,
+            |held, limit| {
+                for slice in leading(slices, limit) {
+                    held.extend_from_slice(&slice);
+                }
+            },
+            |inner, cx, limit| inner.poll_write_vectored(cx, &leading(slices, limit)),
+        )
+    }
+
+    /// Whether vectored writes are taken across slices.
+    fn is_write_vectored(&self) -> bool {
+        self.vectored
     }
 
     /// Deliver buffered bytes and apply the configured flush behavior.
@@ -489,8 +569,10 @@ pub fn wrap_io<R, W>(
 
 /// Build a writer wrapper sharing already-created adversity state.
 fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
+    let vectored = state.lock().expect("transport state lock").plan.vectored;
     AdversarialWrite {
         inner: write,
+        vectored,
         state,
         write_delay: Countdown::default(),
         flush_delay: Countdown::default(),

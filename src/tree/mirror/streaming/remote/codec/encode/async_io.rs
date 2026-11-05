@@ -22,6 +22,16 @@ use super::{FrameEncoding, MAX_PIECES};
 /// begins. Writing does not flush: [`flush`](Self::flush) delivers every
 /// frame written since the last flush, so frames written together can share
 /// one flush on a buffered or encrypting writer.
+///
+/// # Failure attribution
+///
+/// A transport failure is reported where it was detected: during a frame's
+/// write, as a write failure naming that frame and the part being offered,
+/// or at a flush, as a flush failure naming the last frame written. Over a
+/// transport that buffers, such as the multiplexer's `BufWriter`, that is
+/// not always where the failed bytes belong: most failures surface at a
+/// flush, and a write that first writes out buffered bytes can fail on an
+/// earlier frame's bytes yet name a later frame.
 pub struct FrameWrite<W> {
     /// The local protocol role attributed to encoding failures.
     speaker: Speaker,
@@ -69,6 +79,12 @@ impl<W> FrameWrite<W> {
 impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     /// Validate and write one canonical frame, without flushing it.
     ///
+    /// # Errors
+    ///
+    /// A frame that does not encode fails before anything is written. A
+    /// write the transport fails names this frame and the part being
+    /// offered, as the type's docs describe.
+    ///
     /// # Cancel safety
     ///
     /// Not cancel safe. A dropped `frame` future may already have written
@@ -82,9 +98,10 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
             let encoding = FrameEncoding::new(*stream, frame)?;
             write_encoding(&mut self.write, &encoding).await?;
             self.unflushed = Some(*stream);
-            // The transport has the frame: deliver its one-item view. The
-            // pieces are the bytes just written, so the materialized
-            // buffer equals the wire by construction.
+            // The write half has taken the whole frame, into its buffer if
+            // it has one: deliver its one-item view. The pieces are the
+            // bytes just written, so the materialized buffer equals the
+            // wire by construction.
             if let Some(observe) = &mut self.observe {
                 observe.message(stream.index(), &encoding.to_vec());
             }
@@ -120,8 +137,9 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
 /// Write an encoding's pieces in wire order as one vectored write,
 /// continuing with the remainder whenever the transport accepts only part.
 ///
-/// A failure names the piece holding the first byte the transport did not
-/// accept.
+/// A failure names the piece holding the first byte `out` had not taken
+/// when its write failed, which a buffering `out` may report for bytes
+/// buffered ahead of the frame ([`FrameWrite`]'s docs).
 async fn write_encoding(
     out: &mut (impl AsyncWrite + Unpin),
     encoding: &FrameEncoding<'_>,
