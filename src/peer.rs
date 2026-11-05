@@ -13,9 +13,9 @@ use rand::CryptoRng;
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
 use tokio::io::{AsyncBufRead, AsyncWrite};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::watch;
 
-use crate::bookmark::{Bookmarked, NoBookmark, Reservation, Reservations};
+use crate::bookmark::{BookmarkHandle, NoBookmark, Reservation, Reservations};
 use crate::default;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
 use crate::network::{NetworkKeys, NetworkSecret};
@@ -260,11 +260,13 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Shared replica state and change notifications for handles and drivers.
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
-    /// behind an async mutex and shared with every [`Rumors`] clone.
+    /// behind an async mutex and shared with every [`Rumors`] clone, beside
+    /// the size limit selected by
+    /// [`bookmark_size_limit`](Self::bookmark_size_limit).
     ///
     /// Separate from `inner` because persisting is `async` and the record is
-    /// `!Clone`; see [`Bookmarked`].
-    pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
+    /// `!Clone`; see [`BookmarkHandle`].
+    pub(crate) bookmark: BookmarkHandle<B>,
     /// The payload codec built at construction: the typed ingress every
     /// gossip session's supplied leaf records decode through.
     ///
@@ -570,7 +572,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
             write_batch: WriteBatch::default(),
             gossip_policy: policy::Policy::default(),
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(keys))),
-            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            bookmark: BookmarkHandle::new(NoBookmark),
             codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
             observe: Attachment::default(),
         }
@@ -602,7 +604,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             write_batch: self.write_batch,
             gossip_policy: self.gossip_policy.clone(),
             inner: self.inner.clone(),
-            bookmark: Arc::clone(&self.bookmark),
+            bookmark: self.bookmark.share(),
             codec: self.codec,
             observe: self.observe.clone(),
         }
@@ -796,11 +798,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// This bounds stored bytes, not peak working memory: loading and encoding
     /// use temporary allocations, and an existing record may exceed a newly
     /// lowered limit until the next successful store.
-    pub fn bookmark_size_limit(self, bytes: usize) -> Self {
-        self.bookmark
-            .try_lock()
-            .expect("a Peer has no running sessions")
-            .set_size_limit(bytes);
+    pub fn bookmark_size_limit(mut self, bytes: usize) -> Self {
+        self.bookmark.set_size_limit(bytes);
         self
     }
 

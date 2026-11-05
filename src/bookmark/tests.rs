@@ -75,6 +75,10 @@ impl Bookmark for Memory {
     }
 }
 
+/// The size limit the cache tests store under: large enough that encoding
+/// keeps every identity, since they test reloading rather than the bound.
+const LIMIT: usize = default::BOOKMARK_SIZE_LIMIT;
+
 /// Require the public future to remain usable on an executor that needs `Send`.
 fn sendable<F: Future + Send>(future: F) -> F {
     future
@@ -140,13 +144,13 @@ proptest! {
         let network = Network::from_bytes([0x63; 16]);
         let (mut party, mut version) = Clock::seed().into_parts();
         let mut bookmark = Bookmarked::new(Memory::default());
-        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load(LIMIT)).unwrap().unwrap();
         run_to_quiescence(update(loaded, false, network, &mut party, &version)).unwrap().unwrap();
         let prior = bookmark.persist.bytes.borrow().clone().unwrap();
 
         version.ticks(&party, ticks);
         bookmark.persist.outcome.set(if after { Outcome::PauseAfter } else { Outcome::PauseBefore });
-        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load(LIMIT)).unwrap().unwrap();
         let store = update(loaded, donation, network, &mut party, &version);
         prop_assert!(matches!(run_to_quiescence(store), Err(crate::testing::Quiescence::Stalled)));
 
@@ -155,7 +159,7 @@ proptest! {
         let stored = bookmark.persist.bytes.borrow().clone().unwrap();
         prop_assert_eq!(stored == prior, !after);
         let reads = bookmark.persist.loads.get();
-        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load(LIMIT)).unwrap().unwrap();
         prop_assert_eq!(format::encode(&loaded.cache().record), stored);
         prop_assert!(!loaded.checkpointed(&party, &version));
         run_to_quiescence(update(loaded, donation, network, &mut party, &version)).unwrap().unwrap();
@@ -164,7 +168,7 @@ proptest! {
         // The retry stored the reloaded record plus the update, and only a
         // checkpoint leaves the live state marked as stored.
         let stored = bookmark.persist.bytes.borrow().clone().unwrap();
-        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load(LIMIT)).unwrap().unwrap();
         prop_assert_eq!(format::encode(&loaded.cache().record), stored);
         prop_assert_eq!(loaded.checkpointed(&party, &version), !donation);
         prop_assert_eq!(loaded.cache().record.contains_network(network), !donation);
@@ -185,7 +189,7 @@ proptest! {
             for _ in 0..ticks { version.tick(&party); }
             let prior = bookmark.persist.bytes.borrow().clone();
             bookmark.persist.outcome.set(outcome);
-            let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+            let loaded = run_to_quiescence(bookmark.load(LIMIT)).unwrap().unwrap();
             prop_assert!(!loaded.checkpointed(&party, &version));
             let stored = run_to_quiescence(update(loaded, false, network, &mut party, &version)).unwrap();
             let fail = outcome != Outcome::Success;
@@ -199,12 +203,30 @@ proptest! {
             let bytes = bookmark.persist.bytes.borrow().clone();
             prop_assert_eq!(bytes == prior, outcome == Outcome::FailBefore);
             let reads = bookmark.persist.loads.get();
-            let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+            let loaded = run_to_quiescence(bookmark.load(LIMIT)).unwrap().unwrap();
             prop_assert_eq!(loaded.checkpointed(&party, &version), !fail);
             let expected = bytes.unwrap_or_else(|| format::encode(&Record::default()));
             prop_assert_eq!(format::encode(&loaded.cache().record), expected);
             prop_assert_eq!(bookmark.persist.loads.get(), reads + usize::from(fail));
         }
+    }
+}
+
+proptest! {
+    /// A checkpoint is current exactly when the next update stores under the
+    /// limit the checkpoint was stored under: an update under any other limit
+    /// stores again, and one under the same limit may skip its store.
+    #[test]
+    fn checkpoints_are_current_only_under_their_limit(stored in 0usize..300, next in 0usize..300) {
+        let floor = format::record_size(0, 0);
+        let (stored, next) = (stored.max(floor), next.max(floor));
+        let network = Network::from_bytes([0x3e; 16]);
+        let (mut party, version) = Clock::seed().into_parts();
+        let mut bookmark = Bookmarked::new(Memory::default());
+        let loaded = run_to_quiescence(bookmark.load(stored)).unwrap().unwrap();
+        run_to_quiescence(update(loaded, false, network, &mut party, &version)).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load(next)).unwrap().unwrap();
+        prop_assert_eq!(loaded.checkpointed(&party, &version), stored == next);
     }
 }
 
@@ -237,7 +259,7 @@ proptest! {
         drop((owner, reserved));
         let known = if caught_up { version.clone() } else { Version::new() };
         let mut restarted = provider.fork();
-        let loaded = run_to_quiescence(bookmark.load()).unwrap().unwrap();
+        let loaded = run_to_quiescence(bookmark.load(LIMIT)).unwrap().unwrap();
         let _store = loaded.checkpoint(network, &mut restarted, &known, &Reservations::default());
         prop_assert!(&version / &restarted <= known);
         if caught_up {
@@ -323,9 +345,10 @@ proptest! {
             served.unwrap();
             let Joined::Joined { peer, .. } = joined else { panic!("reliable bootstrap must join") };
             {
+                let applied = peer.bookmark.size_limit();
+                assert_eq!(applied, limit.max(format::record_size(0, 0)));
                 let bookmark = peer.bookmark.lock().await;
-                assert_eq!(bookmark.size_limit(), limit.max(format::record_size(0, 0)));
-                assert!(bookmark.persist.bytes.borrow().as_ref().unwrap().len() <= bookmark.size_limit());
+                assert!(bookmark.state.persist.bytes.borrow().as_ref().unwrap().len() <= applied);
             }
             let rumors = peer.into_rumors();
             drop(rumors.clone());
@@ -336,7 +359,7 @@ proptest! {
             a.unwrap(); b.unwrap();
             let peer = rumors.try_into_peer().await.unwrap();
             let bookmark = peer.bookmark.lock().await;
-            let bytes = bookmark.persist.bytes.borrow();
+            let bytes = bookmark.state.persist.bytes.borrow();
             let bytes = bytes.as_ref().unwrap();
             assert_eq!(bytes.len(), format::record_size(0, 0));
             assert!(format::decode(bytes).unwrap().networks.is_empty());
@@ -359,9 +382,10 @@ proptest! {
             storage.outcome.set(if after { Outcome::FailAfter } else { Outcome::FailBefore });
             let unbookmarked = peer.bookmark(storage).await.unwrap_err();
             let peer = unbookmarked.peer.bookmark(Memory::default()).await.unwrap();
+            let applied = peer.bookmark.size_limit();
+            assert_eq!(applied, limit.max(format::record_size(0, 0)));
             let bookmark = peer.bookmark.lock().await;
-            assert_eq!(bookmark.size_limit(), limit.max(format::record_size(0, 0)));
-            assert!(bookmark.persist.bytes.borrow().as_ref().unwrap().len() <= bookmark.size_limit());
+            assert!(bookmark.state.persist.bytes.borrow().as_ref().unwrap().len() <= applied);
         }).unwrap();
     }
 
@@ -379,9 +403,10 @@ proptest! {
             std::mem::forget(peer.bookmark.lock().await);
             let peer = peer.bookmark_size_limit(limit);
             let peer = peer.bookmark(Memory::default()).await.unwrap();
+            let applied = peer.bookmark.size_limit();
+            assert_eq!(applied, limit.max(format::record_size(0, 0)));
             let bookmark = peer.bookmark.lock().await;
-            assert_eq!(bookmark.size_limit(), limit.max(format::record_size(0, 0)));
-            assert!(bookmark.persist.bytes.borrow().as_ref().unwrap().len() <= bookmark.size_limit());
+            assert!(bookmark.state.persist.bytes.borrow().as_ref().unwrap().len() <= applied);
         }).expect("configuration must not wait on the held lock");
     }
 }

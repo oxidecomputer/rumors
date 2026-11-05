@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use before::Party;
 use tokio::io::{BufReader, DuplexStream};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::watch;
 
-use crate::bookmark::{Bookmarked, NoBookmark};
+use crate::bookmark::{BookmarkHandle, NoBookmark};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::network::NetworkSecret;
 use crate::observe::{
@@ -107,7 +107,7 @@ divided_proptest! {
                 party_of(&survivor),
                 Tree::from_root(survivor.keys.clone(), Root::default()),
             )),
-            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            bookmark: BookmarkHandle::new(NoBookmark),
             observe: Attachment::default(),
         };
 

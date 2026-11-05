@@ -13,7 +13,7 @@ use futures::{Stream, future::BoxFuture};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
     io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    sync::{Mutex, watch},
+    sync::watch,
 };
 
 use crate::counter::widen;
@@ -24,7 +24,7 @@ use crate::observe::{SessionCompletion, SessionHandle, SessionKind, SessionOutco
 use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
 use crate::{
-    bookmark::{Bookmark, BookmarkIo, Bookmarked, NoBookmark, Reservation},
+    bookmark::{Bookmark, BookmarkHandle, BookmarkIo, NoBookmark, Reservation},
     tree::mirror::{
         party,
         preamble::{self, Counterparty, Intent},
@@ -338,7 +338,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             write_batch: config.write_batch,
             gossip_policy: config.gossip_policy,
             inner: watch::Sender::new(Inner::new(party, Tree::from_root(keys, root))),
-            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            bookmark: BookmarkHandle::new(NoBookmark),
             codec,
             observe: config.observe,
         }

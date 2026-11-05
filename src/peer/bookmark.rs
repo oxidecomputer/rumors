@@ -1,10 +1,8 @@
 //! Attach bookmark storage to a peer and preserve the peer on failure.
 
-use std::{fmt, sync::Arc};
+use std::fmt;
 
-use tokio::sync::Mutex;
-
-use crate::bookmark::{Bookmark, BookmarkIo, Bookmarked, NoBookmark};
+use crate::bookmark::{Bookmark, BookmarkIo, NoBookmark};
 
 use super::Peer;
 
@@ -92,16 +90,10 @@ impl<T: Send + Sync + 'static> Peer<T> {
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Replace bookmark storage while carrying the configured size limit forward.
     ///
-    /// A `Peer` is unique and cannot have a session borrowing it while this
-    /// method consumes it, so its bookmark mutex is immediately available.
+    /// The new storage gets a fresh record and lock, and the size limit lives
+    /// outside the old lock, so this never waits on the old lock or reads
+    /// through it.
     fn with_bookmark<N: Bookmark>(self, persist: N) -> Peer<T, N> {
-        let size_limit = self
-            .bookmark
-            .try_lock()
-            .expect("a Peer has no running sessions")
-            .size_limit();
-        let mut bookmark = Bookmarked::new(persist);
-        bookmark.set_size_limit(size_limit);
         let Peer {
             keys,
             sync_memory_budget,
@@ -109,7 +101,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             write_batch,
             gossip_policy,
             inner,
-            bookmark: _,
+            bookmark,
             codec,
             observe,
         } = self;
@@ -120,7 +112,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             write_batch,
             gossip_policy,
             inner,
-            bookmark: Arc::new(Mutex::new(bookmark)),
+            bookmark: bookmark.replace(persist),
             codec,
             observe,
         }
