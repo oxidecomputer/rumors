@@ -76,8 +76,9 @@ where
     /// stayed with it: the resolution takes its slots' part, and the
     /// records' part returns when the resolver is done.
     reservation: Reserved,
-    /// What the reply has held so far: its reactions and the listing
-    /// entries its queries carried.
+    /// What the reply has held so far: its reaction slots, one per
+    /// reaction and one per child its match covers, as its bound counts
+    /// them, and the listing entries its queries carried.
     held: ReplyBound,
     /// The bytes the records the take derives from the reply's questions
     /// so far hold ([`charges::derived_record_bytes`]), which the
@@ -166,6 +167,9 @@ where
                 if held != covered.len() {
                     return violation(Violation::UnlistedCover);
                 }
+                // Each covered child takes a slot of the bound, and of the
+                // resolution, without a reaction of its own.
+                self.held.reactions += covered.len();
                 self.covered = covered;
             }
             Reaction::Supply(radix, node) => {

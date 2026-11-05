@@ -1149,9 +1149,11 @@ fn observe(
 #[cfg(any(test, feature = "test-internals"))]
 #[derive(Clone, Copy, Debug)]
 pub struct ReplyFit {
-    /// The reactions the reply held.
+    /// The reaction slots the reply took: one per reaction, and one per
+    /// child its match covers, which takes no reaction but a slot of the
+    /// bound.
     pub reactions: usize,
-    /// The reactions its reservation allowed.
+    /// The reaction slots its reservation allowed.
     pub reaction_bound: usize,
     /// The listing entries its queries carried.
     pub listing: usize,
