@@ -41,7 +41,8 @@ pub use crate::tree::mirror::streaming::holding::{
     Holding, Hook, ReportHook, attribute_allocations, report_allocations,
 };
 pub use crate::tree::mirror::streaming::ledger::{
-    FitHook, LedgerChange, LedgerHook, ReplyFit, observe_fits, observe_ledgers,
+    Admission, AdmissionHook, FitHook, LedgerChange, LedgerHook, ReplyFit, observe_admissions,
+    observe_fits, observe_ledgers,
 };
 pub use crate::tree::mirror::streaming::tasks::{Pacer, TaskRole, pace_tasks};
 

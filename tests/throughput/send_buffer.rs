@@ -52,7 +52,7 @@
 //! of it, where units wait for admission, once with an unsent limit of zero
 //! and once with one bandwidth-delay product. Each such budget is what the
 //! ledgers admit against, configured beside the floor allowance
-//! ([`fixture::admitting`](crate::fixture::admitting)).
+//! ([`admitting`](rumors_testkit::bench::session::admitting)).
 //!
 //! # Thresholds
 //!
@@ -68,7 +68,7 @@
 use rumors::DEFAULT_SYNC_MEMORY_BUDGET;
 use rumors_testkit::bench::link::{LinkConfig, Side};
 
-use crate::fixture::{self, Case, LAN_BDP, Session, Shape, resolution};
+use rumors_testkit::bench::session::{self as fixture, Case, LAN_BDP, Session, Shape, resolution};
 
 /// Messages each side holds that the other lacks.
 const MESSAGES: u64 = 10_000;
@@ -89,7 +89,7 @@ fn report(label: &str, session: &Session) {
         "{label}: unsent limit {} B, budget {} B, {duration} byte-times, {} units waited",
         session.case.link.unsent_limit(),
         session.case.budget,
-        session.admitted.waited,
+        session.admitted.waited(),
     );
     for side in Side::BOTH {
         let sent = session.report.sent_by(side);
@@ -141,7 +141,7 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
         link,
     };
     let [oracle] = fixture::run_all([case(ORACLE_BUDGET, bare)]);
-    let peak = oracle.admitted.budget_peak;
+    let peak = oracle.admitted.budget_peak();
     let [
         critical_path,
         full_bare,
@@ -172,11 +172,12 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
          of {allowance}, so the verdict does not rest on the allowance",
     );
     assert_eq!(
-        full_bare.admitted.waited, 0,
+        full_bare.admitted.waited(),
+        0,
         "no unit waits at a budget of Λ on the bare link",
     );
     assert!(
-        half_bare.admitted.waited > 0 && half_buffered.admitted.waited > 0,
+        half_bare.admitted.waited() > 0 && half_buffered.admitted.waited() > 0,
         "units must wait for admission at half of Λ, where queued requests would cost",
     );
     assert_unharmed(&full_bare, &full_buffered, allowance);

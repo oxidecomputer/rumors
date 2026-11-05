@@ -14,13 +14,8 @@
 //! population; each side of such a session admits its work against its own
 //! budget.
 
+use crate::bench::session::admitting;
 use proptest::prelude::*;
-
-/// The memory budget whose ledgers admit work against `bytes`: `bytes`
-/// beside the floor allowance every budget sets aside.
-fn admitting(bytes: usize) -> usize {
-    rumors::testing::floor_allowance().saturating_add(bytes)
-}
 
 /// One peer's memory budget in the sweep population.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,9 +92,8 @@ pub const MAX_BUDGET_EXPONENT: u32 = 24;
 
 /// Strategy for one peer's budget choice.
 ///
-/// The budget arm draws the floor allowance
-/// ([`floor_allowance`](rumors::testing::floor_allowance)) and
-/// `2^e + jitter` beside it, for `e` across
+/// The budget arm draws the floor allowance and `2^e + jitter` beside it
+/// ([`admitting`]), for `e` across
 /// [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`], from budgets that
 /// admit only a few units beside the floor slots to budgets that
 /// suite-scale sessions do not fill. Shrinking heads toward

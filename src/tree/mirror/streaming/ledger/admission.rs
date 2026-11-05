@@ -393,14 +393,17 @@ fn decide(
         slots.admitted(slot, bytes);
         #[cfg(any(test, feature = "test-internals"))]
         account.slot_peaks[unit.row()][depth].fetch_max(bytes, Ordering::Relaxed);
-        return Some(Charge::granted(
-            account,
-            slots,
-            unit.place(),
-            bytes,
-            Some(Arc::new(slot)),
-            Some((unit, depth)),
-        ));
+        return Some(
+            Charge::granted(
+                account,
+                slots,
+                unit.place(),
+                bytes,
+                Some(Arc::new(slot)),
+                Some((unit, depth)),
+            )
+            .marked_as_grant(),
+        );
     }
     // 2. Otherwise it is admitted against the budget if no deeper unit
     // waits and its grant fits beside what the ledger holds outside its
@@ -409,14 +412,17 @@ fn decide(
         return None;
     }
     slots.admitted(slot, bytes);
-    Some(Charge::granted(
-        account,
-        slots,
-        unit.place(),
-        bytes,
-        None,
-        Some((unit, depth)),
-    ))
+    Some(
+        Charge::granted(
+            account,
+            slots,
+            unit.place(),
+            bytes,
+            None,
+            Some((unit, depth)),
+        )
+        .marked_as_grant(),
+    )
 }
 
 /// Admit every waiting unit the ledger now has room for, deepest first
@@ -651,12 +657,95 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>, freed
     }
 }
 
+/// One admitted unit, as the process's admission hook sees it.
+#[cfg(any(test, feature = "test-internals"))]
+#[derive(Clone, Copy, Debug)]
+pub struct Admission {
+    /// The ledger that admitted the unit, identified as in
+    /// [`LedgerChange::ledger`](super::LedgerChange::ledger).
+    pub ledger: usize,
+    /// Whether the unit is a question; otherwise it is an answer's own
+    /// items.
+    pub question: bool,
+    /// The depth of the scope the unit concerns: the root's 0 through the
+    /// leaves' 32.
+    pub depth: usize,
+    /// The grant's bytes: the most the unit's items can hold.
+    pub bytes: usize,
+    /// Whether the unit took its depth's floor slot rather than budget.
+    pub floor: bool,
+    /// Whether the unit waited for admission rather than being admitted
+    /// as it was queued.
+    pub waited: bool,
+    /// Whether this reports the grant's unused bytes returning once its
+    /// unit was built, rather than the grant itself: `bytes` then counts
+    /// what returned, and `waited` is false.
+    pub leftover: bool,
+}
+
+/// The process's admission hook, called as each unit takes its grant and
+/// as each grant returns what its unit did not use.
+#[cfg(any(test, feature = "test-internals"))]
+pub type AdmissionHook = fn(Admission);
+
+/// The admission hook every ledger in the process reports through, once
+/// installed.
+#[cfg(any(test, feature = "test-internals"))]
+static ADMISSION_HOOK: std::sync::OnceLock<AdmissionHook> = std::sync::OnceLock::new();
+
+/// Install `hook` as the process's admission hook, returning whether it is
+/// now the installed one; the first installation wins.
+#[cfg(any(test, feature = "test-internals"))]
+pub fn observe_admissions(hook: AdmissionHook) -> bool {
+    std::ptr::fn_addr_eq(*ADMISSION_HOOK.get_or_init(|| hook), hook)
+}
+
+/// Report a unit taking `grant` to the installed hook.
+#[cfg(any(test, feature = "test-internals"))]
+fn admitted(account: &Account, waiter: &Waiter, grant: &Charge, waited: bool) {
+    if let Some(hook) = ADMISSION_HOOK.get() {
+        hook(Admission {
+            ledger: std::ptr::from_ref(account) as usize,
+            question: waiter.unit == Unit::Question,
+            depth: waiter.depth,
+            bytes: waiter.bytes,
+            floor: grant.is_floor(),
+            waited,
+            leftover: false,
+        });
+    }
+}
+
+/// Report a grant of `unit` kind at `depth` returning the `bytes` its unit
+/// did not use, through a floor slot if `floor`, to the installed hook.
+#[cfg(any(test, feature = "test-internals"))]
+pub(super) fn settled(account: &Account, unit: Unit, depth: usize, bytes: usize, floor: bool) {
+    if let Some(hook) = ADMISSION_HOOK.get() {
+        hook(Admission {
+            ledger: std::ptr::from_ref(account) as usize,
+            question: unit == Unit::Question,
+            depth,
+            bytes,
+            floor,
+            waited: false,
+            leftover: true,
+        });
+    }
+}
+
+/// Report a unit taking its grant: nothing outside test builds.
+#[cfg(not(any(test, feature = "test-internals")))]
+#[inline(always)]
+fn admitted(_: &Account, _: &Waiter, _: &Charge, _: bool) {}
+
 /// Wait for a unit's admission ([`Ledger::admit`](super::Ledger::admit)).
 pub(crate) struct Admit {
     /// The ledger admitting the unit.
     account: Arc<Account>,
     /// The unit, waiting until its grant is taken.
     waiter: Option<Arc<Waiter>>,
+    /// Whether the unit was not admitted as it was queued.
+    waited: bool,
 }
 
 impl Admit {
@@ -679,12 +768,14 @@ impl Admit {
             waiter
         };
         reconsider(&account);
-        if lock(&waiter.state).grant.is_none() {
+        let waited = lock(&waiter.state).grant.is_none();
+        if waited {
             account.waited.fetch_add(1, Ordering::Relaxed);
         }
         Self {
             account,
             waiter: Some(waiter),
+            waited,
         }
     }
 }
@@ -702,6 +793,7 @@ impl Future for Admit {
         match state.grant.take() {
             Some(grant) => {
                 drop(state);
+                admitted(&self.account, waiter, &grant, self.waited);
                 self.waiter = None;
                 Poll::Ready(grant)
             }

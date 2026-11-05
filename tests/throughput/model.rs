@@ -17,7 +17,7 @@ use rumors_testkit::bench::latency;
 use rumors_testkit::bench::link::{End, Link, LinkConfig, SEGMENT_BYTES, Side, drive};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::fixture::{self, Case, Shape};
+use rumors_testkit::bench::session::{self as fixture, Case, Shape};
 
 /// Writes `data` in chunks of at most `chunk` bytes, then shuts down.
 async fn write_in_chunks(mut write: impl AsyncWrite + Unpin, data: &[u8], chunk: usize) {

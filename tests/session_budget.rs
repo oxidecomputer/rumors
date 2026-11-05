@@ -214,10 +214,11 @@ use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
 use rumors::testing::{
     COMPARISON_FRAME_BYTES, Holding, LedgerChange, ReplyFit, SESSION_STREAMS, assembly_allowance,
-    attribute_allocations, floor_allowance, join_snapshots, ledger_scratch, observe_fits,
-    observe_ledgers, report_allocations, supply_decode_envelope_bytes,
+    attribute_allocations, join_snapshots, ledger_scratch, observe_fits, observe_ledgers,
+    report_allocations, supply_decode_envelope_bytes,
 };
 use rumors::{Peer, Rumors, SessionStats};
+use rumors_testkit::bench::session::admitting;
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
 
 /// Messages each side of the per-budget fixtures holds that the other
@@ -279,12 +280,6 @@ struct Fixture {
     /// Every allocation the fixture made, an upper bound on the blocks
     /// either replica holds before the session.
     allocations: usize,
-}
-
-/// The memory budget whose ledger admits work against `budget`: `budget`
-/// beside the floor allowance ([`floor_allowance`]).
-fn admitting(budget: usize) -> usize {
-    budget.saturating_add(floor_allowance())
 }
 
 /// Builds two forks of one fresh network, holding `messages` messages, in

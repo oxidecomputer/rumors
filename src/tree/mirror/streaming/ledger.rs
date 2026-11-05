@@ -57,6 +57,8 @@ use super::holding::Holding;
 use super::message::Grandchildren;
 use crate::counter;
 
+#[cfg(any(test, feature = "test-internals"))]
+pub use self::admission::{Admission, AdmissionHook, observe_admissions};
 pub(crate) use self::admission::{Admit, Unit};
 
 /// The default memory budget for each synchronization session: 512 MiB.
@@ -447,7 +449,40 @@ pub(crate) struct Charge {
     /// `place`, and a charge, which prices every item that carries it,
     /// takes no more for it.
     unit: Option<(Unit, u8)>,
+    /// Whether this charge is its unit's grant itself, rather than an item
+    /// built out of one: what it holds when it drops is what its unit did
+    /// not use, which the admission hook hears.
+    ///
+    /// Items are priced at their in-memory sizes, charges included, so this
+    /// field must not grow a charge: it fits in the padding beside `place`
+    /// and `unit`, which the assertion below the type keeps.
+    #[cfg(any(test, feature = "test-internals"))]
+    grant: bool,
 }
+
+/// A charge with the grant flag the test builds carry, and one without, are
+/// one size, so instrumenting grants changes no price the ledger charges.
+#[cfg(any(test, feature = "test-internals"))]
+const _: () = {
+    /// [`Charge`] as builds without `test-internals` lay it out.
+    #[expect(dead_code, reason = "a layout reference, measured and never built")]
+    struct Unflagged {
+        /// As [`Charge`]'s `account`.
+        account: Option<Arc<Account>>,
+        /// As [`Charge`]'s `place`.
+        place: Holding,
+        /// As [`Charge`]'s `bytes`.
+        bytes: usize,
+        /// As [`Charge`]'s `slot`.
+        slot: Option<Arc<admission::Slot>>,
+        /// As [`Charge`]'s `unit`.
+        unit: Option<(Unit, u8)>,
+    }
+    assert!(
+        size_of::<Charge>() == size_of::<Unflagged>(),
+        "the grant flag must not change a charge's size, which prices every item",
+    );
+};
 
 impl Charge {
     /// The bytes this charge holds.
@@ -457,7 +492,7 @@ impl Charge {
     }
 
     /// Whether this charge was built out of a floor grant.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn is_floor(&self) -> bool {
         self.slot.is_some()
     }
@@ -486,7 +521,24 @@ impl Charge {
                 let depth = u8::try_from(depth).expect("a scope sits at most 32 bytes deep");
                 (unit, depth)
             }),
+            #[cfg(any(test, feature = "test-internals"))]
+            grant: false,
         }
+    }
+
+    /// Mark this charge as its unit's grant, so the admission hook hears
+    /// what it returns unused.
+    #[cfg(any(test, feature = "test-internals"))]
+    fn marked_as_grant(mut self) -> Self {
+        self.grant = true;
+        self
+    }
+
+    /// Mark this charge as its unit's grant: nothing outside test builds.
+    #[cfg(not(any(test, feature = "test-internals")))]
+    #[inline(always)]
+    fn marked_as_grant(self) -> Self {
+        self
     }
 
     /// The kind and depth of the unit this charge was built out of, if
@@ -512,6 +564,8 @@ impl Charge {
             bytes,
             slot: self.slot.clone(),
             unit: self.unit,
+            #[cfg(any(test, feature = "test-internals"))]
+            grant: false,
         }
     }
 
@@ -585,6 +639,8 @@ impl Default for Charge {
             bytes: 0,
             slot: None,
             unit: None,
+            #[cfg(any(test, feature = "test-internals"))]
+            grant: false,
         }
     }
 }
@@ -608,6 +664,12 @@ impl Drop for Charge {
             return;
         };
         let unit = self.unit();
+        #[cfg(any(test, feature = "test-internals"))]
+        if self.grant
+            && let Some((kind, depth)) = unit
+        {
+            admission::settled(&account, kind, depth, self.bytes, self.slot.is_some());
+        }
         admission::release(&account, self.place, self.bytes, self.slot.take(), unit);
     }
 }

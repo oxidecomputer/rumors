@@ -14,10 +14,6 @@
 //! - [`send_buffer`] checks that bytes queued in the sending kernel do not
 //!   slow a session.
 
-/// Deterministic pairs and the session runner.
-#[path = "throughput/fixture.rs"]
-mod fixture;
-
 /// The link model's own timing and delivery.
 #[path = "throughput/model.rs"]
 mod model;

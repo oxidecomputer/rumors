@@ -38,7 +38,9 @@ use std::array;
 
 use rumors_testkit::bench::link::LinkConfig;
 
-use crate::fixture::{self, Case, LAN_BDP, LONG_HAUL_BDP, Session, Shape};
+use rumors_testkit::bench::session::{
+    self as fixture, Case, LAN_BDP, LONG_HAUL_BDP, Session, Shape,
+};
 
 /// The oracle's budget: unlimited.
 const ORACLE_BUDGET: usize = usize::MAX;
@@ -71,14 +73,14 @@ fn cases(budget: impl Fn(usize) -> usize) -> [Case; SIZES.len() * OVERLAPS.len()
 fn report(oracle: &Session, at_peak: &Session) {
     let Case { shape, link, .. } = oracle.case;
     let messages = shape.shared + shape.a;
-    let peak = oracle.admitted.budget_peak;
+    let peak = oracle.admitted.budget_peak();
     println!(
         "{messages} messages a side, {} shared, BDP {} B: Λ = {peak} B ({:.1} B per \
          message), {} units waited at Λ; {} byte-times unlimited, {} at Λ",
         shape.shared,
         link.bdp(),
         peak as f64 / messages as f64,
-        at_peak.admitted.waited,
+        at_peak.admitted.waited(),
         oracle.duration(),
         at_peak.duration(),
     );
@@ -94,15 +96,18 @@ fn report(oracle: &Session, at_peak: &Session) {
 #[test]
 fn a_budget_of_the_unlimited_peak_is_identical_to_no_budget() {
     let oracles = fixture::run_all(cases(|_| ORACLE_BUDGET));
-    let peaks = oracles.each_ref().map(|oracle| oracle.admitted.budget_peak);
+    let peaks = oracles
+        .each_ref()
+        .map(|oracle| oracle.admitted.budget_peak());
     let at_peaks = fixture::run_all(cases(|index| fixture::admitting(peaks[index])));
     for (oracle, at_peak) in oracles.iter().zip(&at_peaks) {
         report(oracle, at_peak);
     }
     for (oracle, at_peak) in oracles.iter().zip(&at_peaks) {
-        let peak = oracle.admitted.budget_peak;
+        let peak = oracle.admitted.budget_peak();
         assert_eq!(
-            oracle.admitted.waited, 0,
+            oracle.admitted.waited(),
+            0,
             "no unit waits under the oracle's budget, so it runs as an unlimited \
              session: {:?}",
             oracle.case,
