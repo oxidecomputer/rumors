@@ -512,6 +512,18 @@ impl AssembledSubtree {
     }
 }
 
+/// The floor allowance of a session over the in-memory replica: the most
+/// its floor slots can hold at once, which its memory budget sets aside
+/// for them, so its ledger admits work against the budget less this.
+///
+/// A budget at or below it admits work through the floor slots alone.
+pub fn floor_allowance() -> usize {
+    crate::tree::mirror::streaming::materialized::floor_allowance::<
+        <Local as Backend>::Erased,
+        <Local as Backend>::Error,
+    >()
+}
+
 /// Unit tests for this support module.
 #[cfg(test)]
 mod tests;
