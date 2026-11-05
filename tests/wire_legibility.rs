@@ -18,6 +18,7 @@ use rumors::{Peer, Rumors};
 use crate::common::gossip_snapshot::{capture_sides, corpora};
 use crate::common::wire::{block_on, bootstrap_fork_async};
 use rumors::testing::PipeCapture;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// Tag number for an embedded CBOR sequence in a byte string (RFC 9277).
 const TAG_CBOR_SEQUENCE: u64 = 63;
@@ -77,13 +78,18 @@ fn assert_legible(side: &str, capture: &PipeCapture) {
         .unwrap_or_else(|e| panic!("illegible connection: {e}"));
 }
 
-/// A peer loaded with `payloads`, forked from `parent` when one is given
-/// (same universe) or freshly seeded otherwise.
-fn loaded(parent: Option<&Rumors<Vec<u8>>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
-    let peer = match parent {
-        Some(parent) => block_on(bootstrap_fork_async(parent)),
-        None => Peer::seed().sync_memory_budget(0).into_rumors(),
-    };
+/// The first peer of the network `network` names, loaded with `payloads`.
+fn founded(network: NetworkSeed, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
+    loaded(network.peer().sync_memory_budget(0).into_rumors(), payloads)
+}
+
+/// A bootstrap fork of `parent`, in its universe, loaded with `payloads`.
+fn forked(parent: &Rumors<Vec<u8>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
+    loaded(block_on(bootstrap_fork_async(parent)), payloads)
+}
+
+/// `peer`, once it has sent each of `payloads`.
+fn loaded(peer: Rumors<Vec<u8>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
     for payload in payloads {
         peer.send(payload.clone()).unwrap();
     }
@@ -96,9 +102,10 @@ proptest! {
     #[test]
     fn arbitrary_gossip_sessions_are_cbor_sequences(
         (shared, only_a, only_b) in corpora(),
+        network in network_seed(),
     ) {
-        let a = loaded(None, &shared);
-        let b = loaded(Some(&a), &only_b);
+        let a = founded(network, &shared);
+        let b = forked(&a, &only_b);
         for payload in &only_a {
             a.send(payload.clone()).unwrap();
         }
@@ -126,8 +133,9 @@ proptest! {
     #[test]
     fn arbitrary_bootstrap_sessions_are_cbor_sequences(
         (shared, _, _) in corpora(),
+        network in network_seed(),
     ) {
-        let provider = loaded(None, &shared);
+        let provider = founded(network, &shared);
         let (provider_capture, newcomer_capture) = capture_sides(
             move |mut end| async move {
                 provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
@@ -150,9 +158,10 @@ proptest! {
     #[test]
     fn arbitrary_retire_sessions_are_cbor_sequences(
         (shared, only_absorber, only_retiree) in corpora(),
+        network in network_seed(),
     ) {
-        let absorber = loaded(None, &shared);
-        let retiree = loaded(Some(&absorber), &only_retiree);
+        let absorber = founded(network, &shared);
+        let retiree = forked(&absorber, &only_retiree);
         for payload in &only_absorber {
             absorber.send(payload.clone()).unwrap();
         }

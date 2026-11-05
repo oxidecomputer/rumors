@@ -11,9 +11,13 @@ use rumors_testkit::common;
 
 use std::time::Duration;
 
-use rumors::{Peer, Rumors};
+use rumors::Rumors;
 
 use crate::common::tcp;
+use crate::common::wire::tokio_block_on;
+use rumors_testkit::common::property::FLEET_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// Deadline for each session, including its loopback pair setup.
 const SESSION_TIMEOUT: Duration = Duration::from_secs(120);
@@ -36,8 +40,10 @@ const DIVERGENT_MESSAGES: u64 = 2_000;
 /// boundary, ready for reuse. Each session first reads its peer's preamble,
 /// which opens with a fixed prefix, so bytes the first session left unread
 /// fail the second unless they happen to begin with that prefix.
-async fn converge_over_tcp(buffers: Option<u32>) {
-    let seed = Peer::<u64>::seed().into_rumors();
+///
+/// The replicas are forks of the network `network` names.
+async fn converge_over_tcp(network: NetworkSeed, buffers: Option<u32>) {
+    let seed = network.peer::<u64>().into_rumors();
     let a: Rumors<u64> = common::wire::bootstrap_fork_async(&seed).await;
     let b: Rumors<u64> = common::wire::bootstrap_fork_async(&seed).await;
     common::wire::diverge(&a, &b, DIVERGENT_MESSAGES);
@@ -73,18 +79,30 @@ async fn converge_over_tcp(buffers: Option<u32>) {
     );
 }
 
-/// At the platform's default socket buffers, sessions over one TCP
-/// connection converge divergent replicas and leave the connection
-/// reusable.
-#[tokio::test]
-async fn sessions_converge_at_default_buffers() {
-    converge_over_tcp(None).await;
-}
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
 
-/// With socket buffers clamped to the OS floor, sessions still converge:
-/// shrinking capacity changes when backpressure engages, never whether the
-/// session progresses.
-#[tokio::test]
-async fn sessions_converge_at_minimal_buffers() {
-    converge_over_tcp(Some(MINIMAL_BUFFER_REQUEST)).await;
+    /// At the platform's default socket buffers, sessions over one TCP
+    /// connection converge divergent replicas and leave the connection
+    /// reusable.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn sessions_converge_at_default_buffers(network in network_seed()) {
+        tokio_block_on(async {
+            converge_over_tcp(network, None).await;
+        });
+    }
+
+    /// With socket buffers clamped to the OS floor, sessions still converge:
+    /// shrinking capacity changes when backpressure engages, never whether the
+    /// session progresses.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn sessions_converge_at_minimal_buffers(network in network_seed()) {
+        tokio_block_on(async {
+            converge_over_tcp(network, Some(MINIMAL_BUFFER_REQUEST)).await;
+        });
+    }
 }

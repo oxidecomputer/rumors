@@ -186,32 +186,46 @@ divided_proptest! {
     }
 }
 
-/// A configured timer is fresh on each session, measured from initiation rather
-/// than connection age; idle time can exceed the deadline by any amount.
-#[tokio::test(start_paused = true)]
-async fn real_timers_leave_idle_connections_untimed() {
-    use std::time::Duration;
-    use tokio::time::{advance, sleep};
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let a: Rumors<()> = Peer::seed()
-        .gossip_when(|_| stream::pending::<()>())
-        .session_deadline(|| sleep(Duration::from_secs(1)))
-        .into_rumors();
-    let (mut end, mut remote) =
-        rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let mut sessions = a.gossip(&mut end.read, &mut end.write);
-    assert!(sessions.next().now_or_never().is_none());
-    advance(Duration::from_secs(60)).await;
-    assert!(sessions.next().now_or_never().is_none());
-    remote.write.write_all(&[0xd9]).await.unwrap();
-    assert!(sessions.next().now_or_never().is_none());
-    advance(Duration::from_millis(999)).await;
-    assert!(sessions.next().now_or_never().is_none());
-    advance(Duration::from_millis(1)).await;
-    assert!(matches!(
-        sessions.next().await,
-        Some(Err(Error::DeadlineExceeded))
-    ));
+    /// A configured timer is fresh on each session, measured from initiation rather
+    /// than connection age; idle time can exceed the deadline by any amount.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn real_timers_leave_idle_connections_untimed(network in network_seed()) {
+        use std::time::Duration;
+        use tokio::time::{advance, sleep};
+
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .expect("build a paused current-thread runtime")
+            .block_on(async {
+                let a: Rumors<()> = network
+                    .peer()
+                    .gossip_when(|_| stream::pending::<()>())
+                    .session_deadline(|| sleep(Duration::from_secs(1)))
+                    .into_rumors();
+                let (mut end, mut remote) =
+                    rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+                let mut sessions = a.gossip(&mut end.read, &mut end.write);
+                assert!(sessions.next().now_or_never().is_none());
+                advance(Duration::from_secs(60)).await;
+                assert!(sessions.next().now_or_never().is_none());
+                remote.write.write_all(&[0xd9]).await.unwrap();
+                assert!(sessions.next().now_or_never().is_none());
+                advance(Duration::from_millis(999)).await;
+                assert!(sessions.next().now_or_never().is_none());
+                advance(Duration::from_millis(1)).await;
+                assert!(matches!(
+                    sessions.next().await,
+                    Some(Err(Error::DeadlineExceeded))
+                ));
+            });
+    }
 }
 
 proptest! {

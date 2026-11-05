@@ -25,6 +25,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use rumors::Peer;
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::common::wire::tokio_block_on;
+use rumors_testkit::divided_proptest;
 
 /// A struct payload in one field order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,15 +63,15 @@ enum EventV2 {
     Ping(u64),
 }
 
-/// Send `payload` from a fresh `Peer<A>` and receive it on a bootstrapped
-/// `Peer<B>` over an in-memory connection: the crate's whole encode/decode path,
-/// across two payload *types*.
-async fn exchanged<A, B>(payload: A) -> B
+/// Send `payload` from the first `Peer<A>` of the network `network` names
+/// and receive it on a bootstrapped `Peer<B>` over an in-memory connection:
+/// the crate's whole encode/decode path, across two payload *types*.
+async fn exchanged<A, B>(network: NetworkSeed, payload: A) -> B
 where
     A: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     B: Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
 {
-    let sender = Peer::<A>::seed().into_rumors();
+    let sender = network.peer::<A>().into_rumors();
     sender.send(payload).unwrap();
 
     let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -90,136 +94,160 @@ where
     (*message).clone()
 }
 
-/// Struct fields decode by name: a payload encoded with one field order
-/// decodes into the reordered type with every field intact, in both
-/// directions.
-#[tokio::test]
-async fn reordered_struct_fields_decode_by_name() {
-    let v1 = WideV1 {
-        id: 7,
-        tag: "meeting".to_string(),
-        data: vec![1, 2, 3],
-    };
-    let v2: WideV2 = exchanged(v1.clone()).await;
-    assert_eq!(v2.id, v1.id);
-    assert_eq!(v2.tag, v1.tag);
-    assert_eq!(v2.data, v1.data);
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let back: WideV1 = exchanged(v2).await;
-    assert_eq!(back, v1);
-}
+    /// Struct fields decode by name: a payload encoded with one field order
+    /// decodes into the reordered type with every field intact, in both
+    /// directions.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn reordered_struct_fields_decode_by_name(network in network_seed()) {
+        tokio_block_on(async {
+            let v1 = WideV1 {
+                id: 7,
+                tag: "meeting".to_string(),
+                data: vec![1, 2, 3],
+            };
+            let v2: WideV2 = exchanged(network, v1.clone()).await;
+            assert_eq!(v2.id, v1.id);
+            assert_eq!(v2.tag, v1.tag);
+            assert_eq!(v2.data, v1.data);
 
-/// Enum variants decode by name: a payload encoded against one variant
-/// order decodes into the reordered enum — struct-variant fields included —
-/// in both directions.
-#[tokio::test]
-async fn reordered_enum_variants_decode_by_name() {
-    let note = EventV1::Note {
-        text: "urgent".to_string(),
-        level: 3,
-    };
-    let got: EventV2 = exchanged(note).await;
-    assert_eq!(
-        got,
-        EventV2::Note {
-            level: 3,
-            text: "urgent".to_string()
-        }
-    );
-
-    let ping: EventV1 = exchanged(EventV2::Ping(99)).await;
-    assert_eq!(ping, EventV1::Ping(99));
-
-    let stop: EventV1 = exchanged(EventV2::Stop).await;
-    assert_eq!(stop, EventV1::Stop);
-}
-
-/// A field the decoder does not know is skipped: a sender speaking a wider
-/// struct interoperates with a receiver speaking a narrower one.
-#[tokio::test]
-async fn unknown_fields_are_skipped() {
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    struct Narrow {
-        id: u64,
+            let back: WideV1 = exchanged(network, v2).await;
+            assert_eq!(back, v1);
+        });
     }
-    let wide = WideV1 {
-        id: 42,
-        tag: "extra".to_string(),
-        data: vec![9],
-    };
-    let narrow: Narrow = exchanged(wide).await;
-    assert_eq!(narrow, Narrow { id: 42 });
-}
 
-/// A payload that does not decode as the receiving type fails the session
-/// cleanly: bootstrapping a `Peer<u64>` from a `String`-payload donor
-/// returns an error — never a panic, and never a misconstructed peer.
-#[tokio::test]
-async fn undecodable_payload_fails_bootstrap_cleanly() {
-    let sender = Peer::<String>::seed().into_rumors();
-    sender.send("not a number".to_string()).unwrap();
+    /// Enum variants decode by name: a payload encoded against one variant
+    /// order decodes into the reordered enum — struct-variant fields included —
+    /// in both directions.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn reordered_enum_variants_decode_by_name(network in network_seed()) {
+        tokio_block_on(async {
+            let note = EventV1::Note {
+                text: "urgent".to_string(),
+                level: 3,
+            };
+            let got: EventV2 = exchanged(network, note).await;
+            assert_eq!(
+                got,
+                EventV2::Note {
+                    level: 3,
+                    text: "urgent".to_string()
+                }
+            );
 
-    let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
+            let ping: EventV1 = exchanged(network, EventV2::Ping(99)).await;
+            assert_eq!(ping, EventV1::Ping(99));
 
-    let joined = Peer::<u64>::bootstrap()
-        .join(&mut near.read, &mut near.write)
-        .await;
-    assert!(
-        matches!(joined, rumors::Joined::Failed { .. }),
-        "a String payload must not decode as u64"
-    );
+            let stop: EventV1 = exchanged(network, EventV2::Stop).await;
+            assert_eq!(stop, EventV1::Stop);
+        });
+    }
 
-    // Drop the failed side's halves so the donor sees the transport close
-    // (a peer that errored out of a session hangs up); its session then
-    // fails too — but only ever as an error, never a panic.
-    drop(near);
-    let _ = server.await.expect("the serving task must not panic");
-}
+    /// A field the decoder does not know is skipped: a sender speaking a wider
+    /// struct interoperates with a receiver speaking a narrower one.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn unknown_fields_are_skipped(network in network_seed()) {
+        tokio_block_on(async {
+            #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+            struct Narrow {
+                id: u64,
+            }
+            let wide = WideV1 {
+                id: 42,
+                tag: "extra".to_string(),
+                data: vec![9],
+            };
+            let narrow: Narrow = exchanged(network, wide).await;
+            assert_eq!(narrow, Narrow { id: 42 });
+        });
+    }
 
-/// An established cross-typed pair degrades cleanly at the first
-/// undecodable value: the receiving session fails as an error, never a
-/// panic, moving nothing into the receiver's set.
-///
-/// `u64` payloads that fit `u32` interoperate (the bootstrap here rides
-/// one); the first value that does not fit is the one that must fail.
-#[tokio::test]
-async fn out_of_range_payload_fails_gossip_cleanly() {
-    let sender = Peer::<u64>::seed().into_rumors();
-    sender.send(7u64).unwrap();
+    /// A payload that does not decode as the receiving type fails the session
+    /// cleanly: bootstrapping a `Peer<u64>` from a `String`-payload donor
+    /// returns an error — never a panic, and never a misconstructed peer.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn undecodable_payload_fails_bootstrap_cleanly(network in network_seed()) {
+        tokio_block_on(async {
+            let sender = network.peer::<String>().into_rumors();
+            sender.send("not a number".to_string()).unwrap();
 
-    let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
-    let receiver = (match Peer::<u32>::bootstrap()
-        .join(&mut near.read, &mut near.write)
-        .await
-    {
-        rumors::Joined::Joined { peer, .. } => peer,
-        _ => panic!("the sender is established"),
-    })
-    .into_rumors();
-    server
-        .await
-        .expect("the serving task completes")
-        .expect("the in-range session succeeds");
+            let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let serve = sender.clone();
+            let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
 
-    // A value only `u64` can hold: the next session must fail at the
-    // receiver's ingress. The sender's half fails too (its counterparty
-    // aborted), but only ever as an error.
-    sender.send(u64::MAX).unwrap();
-    let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
-    let gossiped = receiver.gossip_once(&mut near.read, &mut near.write).await;
-    assert!(gossiped.is_err(), "u64::MAX must not decode as u32");
-    // Hang up the failed side so the sender's half sees the transport
-    // close rather than blocking on an unread stream.
-    drop(near);
-    let _ = server.await.expect("the serving task must not panic");
+            let joined = Peer::<u64>::bootstrap()
+                .join(&mut near.read, &mut near.write)
+                .await;
+            assert!(
+                matches!(joined, rumors::Joined::Failed { .. }),
+                "a String payload must not decode as u64"
+            );
 
-    let snapshot = receiver.snapshot();
-    let values: Vec<u32> = snapshot.iter().map(|(_, m)| *m).collect();
-    assert_eq!(values, vec![7u32], "a failed session moves nothing");
+            // Drop the failed side's halves so the donor sees the transport close
+            // (a peer that errored out of a session hangs up); its session then
+            // fails too — but only ever as an error, never a panic.
+            drop(near);
+            let _ = server.await.expect("the serving task must not panic");
+        });
+    }
+
+    /// An established cross-typed pair degrades cleanly at the first
+    /// undecodable value: the receiving session fails as an error, never a
+    /// panic, moving nothing into the receiver's set.
+    ///
+    /// `u64` payloads that fit `u32` interoperate (the bootstrap here rides
+    /// one); the first value that does not fit is the one that must fail.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn out_of_range_payload_fails_gossip_cleanly(network in network_seed()) {
+        tokio_block_on(async {
+            let sender = network.peer::<u64>().into_rumors();
+            sender.send(7u64).unwrap();
+
+            let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let serve = sender.clone();
+            let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
+            let receiver = (match Peer::<u32>::bootstrap()
+                .join(&mut near.read, &mut near.write)
+                .await
+            {
+                rumors::Joined::Joined { peer, .. } => peer,
+                _ => panic!("the sender is established"),
+            })
+            .into_rumors();
+            server
+                .await
+                .expect("the serving task completes")
+                .expect("the in-range session succeeds");
+
+            // A value only `u64` can hold: the next session must fail at the
+            // receiver's ingress. The sender's half fails too (its counterparty
+            // aborted), but only ever as an error.
+            sender.send(u64::MAX).unwrap();
+            let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let serve = sender.clone();
+            let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
+            let gossiped = receiver.gossip_once(&mut near.read, &mut near.write).await;
+            assert!(gossiped.is_err(), "u64::MAX must not decode as u32");
+            // Hang up the failed side so the sender's half sees the transport
+            // close rather than blocking on an unread stream.
+            drop(near);
+            let _ = server.await.expect("the serving task must not panic");
+
+            let snapshot = receiver.snapshot();
+            let values: Vec<u32> = snapshot.iter().map(|(_, m)| *m).collect();
+            assert_eq!(values, vec![7u32], "a failed session moves nothing");
+        });
+    }
 }
