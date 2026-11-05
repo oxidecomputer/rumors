@@ -99,8 +99,14 @@ No gate leg checks these; review does.
 - The model of record is uniform-hash and authenticated-honest-peer: the
   transport is pre-authenticated and authorized, and an authorized peer already
   holds write authority over the set. Hostile peers are off-model, so no
-  design or cost argument rests on adversary economics, and fail-fast checks
-  detect conformance bugs rather than enforce security. Add no machinery to
+  design or cost argument rests on a hostile peer's economics, and fail-fast
+  checks detect conformance bugs rather than enforce security. An adversary
+  outside the peers is in model: it observes the transport, steers gossip
+  timing and topology (cutting connections included), and triggers
+  insertions and redactions through the application, but cannot alter a
+  session or make a peer depart from the protocol. The protocol's integrity
+  must not depend on the transport's confidentiality, nor on that adversary
+  being unable to infer replica contents or versions. Add no machinery to
   guarantee termination against non-conforming peers or connections
   (applications own deadlines for those waits); preserve progress under
   conforming traffic and propagate detected failures promptly.
