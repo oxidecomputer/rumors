@@ -20,9 +20,8 @@
 //! - [`crate::common::wire`] and [`crate::common::tcp`] carry the same sessions over in-memory
 //!   connections and real sockets; [`crate::common::count`] measures each direction of an
 //!   in-memory session.
-//! - [`crate::common::budget`] is the budget sweep dimension: generated per-peer
-//!   memory budgets (zero, an explicit budget, the default) for the suites
-//!   that sweep it.
+//! - [`crate::common::budget`] is the budget sweep dimension: a generated
+//!   memory budget for each peer, for the suites that sweep it.
 //! - [`crate::common::gossip_snapshot`] captures a session's exact bytes for the `insta`
 //!   pins.
 //! - [`crate::common::seed`] creates every test network from a reproducible

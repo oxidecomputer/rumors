@@ -12,8 +12,13 @@ use rumors_testkit::common::seed::NetworkSeed;
 use rumors_testkit::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_async};
 
-/// The network of every pin: a capture's exact frames hold for one tree shape
-/// and so for one secret.
+/// The network every test here founds.
+///
+/// The staging searches for versions by where their keyed paths land, and
+/// the paths depend on the secret. A fixed seed makes the staging, and the
+/// capture it produces, the same on every run, under a secret for which
+/// the search is known to succeed. The assertions count frame labels, so
+/// they hold under any secret that stages the fixture.
 const NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// A peer founding [`NETWORK`], so the capture is deterministic.
