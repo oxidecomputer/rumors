@@ -60,7 +60,7 @@ fn plain_gossip_fingerprint(
     a_actions: &[LocalAction<u64>],
     b_actions: &[LocalAction<u64>],
 ) -> Fingerprint {
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let a = build_local(bootstrap_fork(&seed), a_actions);
     let b = build_local(seed, b_actions);
     wire_gossip(&a, &b);
@@ -155,7 +155,7 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Outcome<u64>, Rumors<u64>) {
             panic!("the retiree must serve the bootstrap");
         };
         assert_connection_drained(a_end, b_end);
-        (retire_out, peer.sync_window_floor().into_rumors())
+        (retire_out, peer.sync_memory_budget(0).into_rumors())
     })
 }
 
@@ -163,7 +163,7 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Outcome<u64>, Rumors<u64>) {
 /// gossip because their content and causal frontiers already agree.
 #[test]
 fn empty_equal_version_retire_succeeds() {
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let a = bootstrap_fork(&seed);
     let b = seed;
 
@@ -182,7 +182,7 @@ fn retiree_redaction_propagates_through_retire() {
     // Both peers hold 1 and 2 (inserted before the fork, so the messages
     // and their versions are shared); the retiree then redacts 1 while the
     // peer inserts 3.
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     seed.send_all([1, 2]).unwrap();
     let version_of_1 = seed
         .snapshot()
@@ -217,7 +217,7 @@ fn retiree_redaction_propagates_through_retire() {
 /// that makes the now-absent message stay absent.
 #[test]
 fn retiree_redaction_of_previously_shared_message_propagates() {
-    let seed = Peer::<String>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
     let retiree = bootstrap_fork(&seed);
     let absorber = seed;
     let version = retiree.send("presence".to_owned()).unwrap();
@@ -239,7 +239,7 @@ fn retiree_redaction_of_previously_shared_message_propagates() {
 /// that is itself leaving. Both are handed back intact.
 #[test]
 fn mutual_retire_declines() {
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
     let b = with_messages(seed, &[3, 4]);
 
@@ -277,7 +277,7 @@ fn mutual_retire_declines() {
 /// two parties reconstruct the network's complete identity space.
 #[test]
 fn retire_into_bootstrapper_hands_off_the_identity() {
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let retiree = with_messages(bootstrap_fork(&seed), &[1, 2]);
     let network = retiree.network();
     let content = readout(&retiree.snapshot());
@@ -314,7 +314,7 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
 /// party.
 #[test]
 fn gossip_learns_content_from_divergent_retiree() {
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
     let b = with_messages(seed, &[3]);
 
@@ -337,7 +337,7 @@ fn gossip_learns_content_from_divergent_retiree() {
 /// moves when it already dominates), and its tree and version are unchanged.
 #[test]
 fn gossip_absorbs_retiree_without_observations() {
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
     let b = with_messages(seed, &[3, 4]);
 
@@ -372,7 +372,7 @@ proptest! {
         survivor_sends in prop::collection::vec(any::<u64>(), 1..8),
         redactions in prop::collection::vec((any::<bool>(), any::<prop::sample::Index>()), 0..10),
     ) {
-        let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let survivor = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         survivor.send_all(shared).unwrap();
         let retiree = bootstrap_fork(&survivor);
         let shared_versions: Vec<_> = survivor.snapshot().versions().cloned().collect();
@@ -439,7 +439,7 @@ proptest! {
     ) {
         // Wire path: converge, then retire A into B.
         let actual = {
-            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
@@ -468,7 +468,7 @@ proptest! {
     ) {
         // Wire path: retire A into B directly, while they may still diverge.
         let actual = {
-            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             let outcome = retire_into_gossip(a, &b);

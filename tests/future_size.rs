@@ -22,7 +22,7 @@ fn gossip_future_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
+    let alice: Rumors<()> = Peer::seed().sync_memory_budget(0).into_rumors();
     let fut = alice.gossip_once(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
@@ -42,7 +42,7 @@ fn retire_future_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Peer<()> = Peer::seed().sync_window_floor();
+    let alice: Peer<()> = Peer::seed().sync_memory_budget(0);
     let fut = alice.retire(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
@@ -82,7 +82,7 @@ fn gossip_stream_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
+    let alice: Rumors<()> = Peer::seed().sync_memory_budget(0).into_rumors();
     let sessions = alice.gossip(&mut end.read, &mut end.write);
     let size = size_of_val(&sessions);
 

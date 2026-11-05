@@ -11,15 +11,7 @@ use crate::bookmark::Bookmark;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::RunBudget;
-use crate::tree::mirror::streaming::window::{DEFAULT_SYNC_MEMORY_BUDGET, WindowConfig};
-
-/// Read the byte budget chosen through the public builder.
-fn budget_bytes(window: WindowConfig) -> usize {
-    match window {
-        WindowConfig::Budget(bytes) => bytes,
-        WindowConfig::Fixed(_) => panic!("the builder selects byte budgets"),
-    }
-}
+use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 
 /// Record session starts without collecting individual protocol events.
 #[derive(Default)]
@@ -84,7 +76,7 @@ fn retry_then_join<B: Bookmark>(
     expected: (usize, RunBudget, crate::message::PayloadDepthLimit),
 ) {
     let (budget, target, depth) = expected;
-    assert_eq!(budget_bytes(bootstrap.window), budget);
+    assert_eq!(bootstrap.sync_memory_budget, budget);
     assert_eq!(bootstrap.run_budget, target);
     assert_eq!(bootstrap.payload_depth_limit, depth);
     run_to_quiescence(async {
@@ -112,7 +104,7 @@ fn retry_then_join<B: Bookmark>(
                 };
                 bootstrap
             };
-            assert_eq!(budget_bytes(bootstrap.window), budget);
+            assert_eq!(bootstrap.sync_memory_budget, budget);
             assert_eq!(bootstrap.run_budget, target);
             assert_eq!(bootstrap.payload_depth_limit, depth);
             assert_eq!(sessions.0.load(Ordering::Relaxed), attempt + 1);
@@ -136,7 +128,7 @@ fn retry_then_join<B: Bookmark>(
         let Joined::Joined { peer, .. } = joined else {
             panic!("the returned builder must remain usable with an established provider");
         };
-        assert_eq!(budget_bytes(peer.window), budget);
+        assert_eq!(peer.sync_memory_budget, budget);
         assert_eq!(peer.run_budget, target);
         assert_eq!(peer.codec.limit(), depth);
         assert_eq!(sessions.0.load(Ordering::Relaxed), fail.len() + 1);
@@ -213,7 +205,7 @@ proptest! {
 #[test]
 fn configuration_defaults_and_saturation() {
     let config = Peer::<u64>::bootstrap();
-    assert_eq!(budget_bytes(config.window), DEFAULT_SYNC_MEMORY_BUDGET);
+    assert_eq!(config.sync_memory_budget, DEFAULT_SYNC_MEMORY_BUDGET);
     assert_eq!(config.run_budget, RunBudget::default());
     assert_eq!(
         config.payload_depth_limit,

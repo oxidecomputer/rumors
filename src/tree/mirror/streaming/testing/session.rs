@@ -1,7 +1,8 @@
 //! A whole remote session between two replicas over one in-memory pipe.
 //!
-//! [`over_pipe`] runs both endpoints' walks and proxies, each endpoint's two
-//! halves sharing its window, under the closed-world poller, which reports a
+//! [`over_pipe`] runs both endpoints' walks and proxies, each endpoint's walk
+//! admitting its work against that endpoint's budget, under the closed-world
+//! poller, which reports a
 //! stall whenever every task waits with no wake arranged. Suites drive
 //! whole remote sessions through it rather than assembling their own.
 
@@ -19,7 +20,6 @@ use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, H
 use crate::tree::mirror::streaming::remote::{
     Error as RemoteError, Handshaking as RemoteHandshaking,
 };
-use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::streaming::{Local, mirror};
 
 /// Bytes each direction of an ample pipe buffers: enough that the pipe never
@@ -36,12 +36,11 @@ pub type Endpoint =
 /// buffer `buffer` bytes; the poller's verdict when the session stopped
 /// first.
 ///
-/// Each endpoint's walk resolves its window from that endpoint's entry in
-/// `windows`, and its proxy adopts that window; both endpoints decode
-/// payloads as `T`.
+/// Each endpoint's walk admits its work against that endpoint's entry in
+/// `budgets`; both endpoints decode payloads as `T`.
 pub fn over_pipe<T>(
     pair: (Root, Root),
-    windows: [WindowConfig; 2],
+    budgets: [usize; 2],
     buffer: usize,
 ) -> Result<(Endpoint, Endpoint), Quiescence>
 where
@@ -49,12 +48,12 @@ where
 {
     let (a, b) = pair;
     let (a_end, b_end) = memory_connection(buffer);
-    let [a_window, b_window] = windows;
+    let [a_budget, b_budget] = budgets;
     let codec = PayloadCodec::new::<T>(PayloadDepthLimit::default());
     run_to_quiescence(async move {
         let size = DEFAULT_TARGET_MESSAGE_SIZE as u64;
-        let a_walk = Handshaking::start(Local, a.into(), size).window(a_window);
-        let b_walk = Handshaking::start(Local, b.into(), size).window(b_window);
+        let a_walk = Handshaking::start(Local, a.into(), size).budget(a_budget);
+        let b_walk = Handshaking::start(Local, b.into(), size).budget(b_budget);
         let a_proxy = RemoteHandshaking::start(Local, a_end.read, a_end.write, codec);
         let b_proxy = RemoteHandshaking::start(Local, b_end.read, b_end.write, codec);
         let (a, b) = join!(

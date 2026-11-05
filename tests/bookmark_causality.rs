@@ -361,7 +361,7 @@ impl World {
     ) -> Peer<Msg, FlakyInMemoryBookmark> {
         let peer = block_on(
             Peer::<Msg>::seed_rng(&mut self.rng)
-                .sync_window_floor()
+                .sync_memory_budget(0)
                 .bookmark(bookmark),
         )
         .expect("a pristine seed attaches its bookmark without touching storage");
@@ -882,7 +882,7 @@ impl World {
                             unreachable!("no bookmark was selected")
                         }
                     };
-                    peer.sync_window_floor()
+                    peer.sync_memory_budget(0)
                         .bookmark(bookmark)
                         .await
                         .map_err(|unbookmarked| BootFailure::Attach(unbookmarked.error))
@@ -1614,7 +1614,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
         let a = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(SCENARIO_NETWORK_SEED))
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .bookmark(bm_a())
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
@@ -1681,7 +1681,7 @@ async fn boot_from_async(
                 rumors::Joined::Joined { peer, .. } => peer,
                 _ => panic!("got a peer"),
             })
-            .sync_window_floor();
+            .sync_memory_budget(0);
             // Clean wires, reliable store: the eager persist of the reclaimed
             // identity must succeed.
             match peer.bookmark(bm).await {
@@ -1739,7 +1739,7 @@ fn run_reliable_plan(plan: Plan) -> World {
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
     let network = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(SCENARIO_NETWORK_SEED))
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .network();
     let mut version = Version::new();
     version.tick(&Party::seed());

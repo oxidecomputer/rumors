@@ -111,7 +111,7 @@ fn public_value_traits_are_complete() {
 /// `Rumors::gossip_once`'s future is `Send`: a session can be `tokio::spawn`ed.
 #[test]
 fn gossip_once_future_is_send() {
-    let alice = Peer::<String>::seed().sync_window_floor();
+    let alice = Peer::<String>::seed().sync_memory_budget(0);
     let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let rumors = alice.into_rumors();
     let fut = rumors.gossip_once(&mut end.read, &mut end.write);
@@ -131,7 +131,7 @@ fn bootstrap_future_is_send() {
 /// `Peer::retire`'s future is `Send`: leaving can be `tokio::spawn`ed.
 #[test]
 fn retire_future_is_send() {
-    let alice = Peer::<String>::seed().sync_window_floor();
+    let alice = Peer::<String>::seed().sync_memory_budget(0);
     let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let fut = alice.retire(&mut end.read, &mut end.write);
     require_send(&fut);
@@ -142,7 +142,7 @@ fn retire_future_is_send() {
 /// a spawned task.
 #[test]
 fn try_into_peer_future_is_send() {
-    let alice = Peer::<String>::seed().sync_window_floor();
+    let alice = Peer::<String>::seed().sync_memory_budget(0);
     let rumors = alice.into_rumors();
     let fut = rumors.try_into_peer();
     require_send(&fut);
@@ -153,7 +153,7 @@ fn try_into_peer_future_is_send() {
 /// `select!`-driven consumers.
 #[test]
 fn observer_futures_are_send() {
-    let alice = Peer::<String>::seed().sync_window_floor().into_rumors();
+    let alice = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
     let mut messages = alice.unordered_messages();
     // The `Stream` face's item future must be `Send`, for
     // `tokio::spawn`d `select!` consumers.

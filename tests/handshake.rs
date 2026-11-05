@@ -60,7 +60,7 @@ fn preamble(opening: [u8; 11], version: u8, network: [u8; 16], intent: u8) -> [u
 /// so only that field is omitted. A rejected reply must leave the local set
 /// byte-for-byte unchanged.
 async fn gossip_against(reply: &[u8]) -> Result<Gossiped, Error> {
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_memory_budget(0).into_rumors();
     let before = alice.snapshot();
     let (a_end, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let mut b_read = b.read;
@@ -86,7 +86,7 @@ async fn gossip_against(reply: &[u8]) -> Result<Gossiped, Error> {
 async fn handshake_roundtrip_succeeds() {
     // Same universe: `bob` is a party-disjoint fork of `alice`, so their
     // networks match.
-    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
+    let alice: Rumors<String> = Peer::seed().sync_memory_budget(0).into_rumors();
     let bob = bootstrap_fork_async(&alice).await;
 
     let (mut a_end, mut b_end) =

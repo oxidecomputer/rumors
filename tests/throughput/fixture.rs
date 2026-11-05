@@ -21,8 +21,8 @@ use rumors::testing::{LedgerChange, floor_allowance, observe_ledgers};
 use rumors::{Peer, Rumors};
 use rumors_testkit::bench::link::{Link, LinkConfig, Report, SEGMENT_BYTES, Side, drive};
 use rumors_testkit::common::{
-    window::WindowChoice,
-    wire::{block_on, bootstrap_fork_with_window_async},
+    budget::BudgetChoice,
+    wire::{block_on, bootstrap_fork_with_budget_async},
 };
 
 /// The ChaCha seed of every fixture's network.
@@ -126,8 +126,8 @@ pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
         let root = Peer::<String>::seed_rng(&mut rng).into_rumors();
         root.send_all((0..shape.shared).map(|index| message('s', index)))
             .expect("fixture messages encode");
-        let a = bootstrap_fork_with_window_async(&root, WindowChoice::Budget(budget)).await;
-        let b = bootstrap_fork_with_window_async(&root, WindowChoice::Budget(budget)).await;
+        let a = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
+        let b = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
         a.send_all((0..shape.a).map(|index| message(letter(Side::A), index)))
             .expect("fixture messages encode");
         b.send_all((0..shape.b).map(|index| message(letter(Side::B), index)))

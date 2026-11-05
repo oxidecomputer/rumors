@@ -31,6 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::prelude::*;
 
+use crate::common::budget::arb_budget_assignment;
 use crate::common::oracle::{readout, version_key};
 use crate::common::overlap::{arb_overlap_schedule_with_shadow, execute_overlap};
 use crate::common::peer::{Peer, quiesce};
@@ -38,7 +39,6 @@ use crate::common::schedule::{
     EventIdx, arb_membership_schedule_with_shadow, arb_schedule_with_shadow, execute_membership,
     execute_with,
 };
-use crate::common::window::arb_window_assignment;
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
@@ -55,7 +55,7 @@ fn quiesce_handles_degenerate_fleets() {
     quiesce(&mut empty);
     assert!(empty.is_empty());
 
-    let mut peer = Peer::new(rumors::Peer::seed().sync_window_floor().into_rumors());
+    let mut peer = Peer::new(rumors::Peer::seed().sync_memory_budget(0).into_rumors());
     peer.insert_one(42);
     let snapshot = peer.local.snapshot();
     let observations = peer.observations();
@@ -75,9 +75,9 @@ proptest! {
     #[test]
     fn shadow_predicts_live_state(
         (schedule, shadow) in arb_schedule_with_shadow(any::<u64>(), N_PEERS, MAX_EVENTS),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
-        let result = execute_with(&schedule, &windows, |_, _, _| true);
+        let result = execute_with(&schedule, &budgets, |_, _, _| true);
         let version_to_event_idx: BTreeMap<Vec<u8>, EventIdx> = result
             .resolved_versions
             .iter()
@@ -121,9 +121,9 @@ proptest! {
     #[test]
     fn shadow_predicts_membership_state(
         (schedule, shadow) in arb_membership_schedule_with_shadow(any::<u64>(), N_PEERS, MAX_EVENTS),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
-        let result = execute_membership(&schedule, &windows);
+        let result = execute_membership(&schedule, &budgets);
         let version_to_event_idx: BTreeMap<Vec<u8>, EventIdx> = result
             .resolved_versions
             .iter()

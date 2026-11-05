@@ -28,7 +28,7 @@ use rumors_testkit::common::wire::{block_on, bootstrap_fork_async, wire_gossip_a
 #[test]
 fn message_sent_after_bootstrap_survives_gossip() {
     block_on(async {
-        let f = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let f = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         // F ticks well past genesis before serving anyone.
         {
             f.send_all(0..16u64).unwrap();

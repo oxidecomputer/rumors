@@ -9,8 +9,7 @@ use proptest::prelude::*;
 use super::{
     DEFAULT_SYNC_MEMORY_BUDGET, FAN, FAN_SLOT_BYTES, KEY_DEPTH, LEAF_REQUEST_BYTES,
     REFERENCE_SLOT_BYTES, ReplicaSize, SCOPE_FIXED_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES,
-    SUPPLY_RECORDS_PER_STREAM, Window, WindowConfig, children_quantile, disputed, occupied,
-    stage_population,
+    SUPPLY_RECORDS_PER_STREAM, Window, children_quantile, disputed, occupied, stage_population,
 };
 use crate::tree::mirror::streaming::remote::STREAM_COUNT;
 
@@ -72,26 +71,6 @@ fn charge(
     total
         + stage_population(n, pair, KEY_DEPTH).min(window.capacity(0) as u128)
             * LEAF_REQUEST_BYTES as u128
-}
-
-/// `Default` is the budget unconditionally: cargo features are additive,
-/// so no build shape may change what a default-configured session does.
-#[test]
-fn default_is_the_budget_unconditionally() {
-    let WindowConfig::Budget(bytes) = WindowConfig::default() else {
-        panic!("the default window choice must be the budget, not a fixed table");
-    };
-    assert_eq!(bytes, DEFAULT_SYNC_MEMORY_BUDGET);
-}
-
-/// The explicit test floor resolves to the one-slot liveness floor at any
-/// exchanged sizes: pinning it never depends on the greeting.
-#[test]
-fn explicit_floor_pins_every_capacity_at_one() {
-    assert_eq!(
-        WindowConfig::FLOOR.resolve(replicas([SYMMETRIC; 2], [0; 2]), local_node_bytes),
-        Window::FLOOR
-    );
 }
 
 /// An asymmetric session disputes almost nothing: with one side empty,

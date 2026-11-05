@@ -57,8 +57,8 @@ use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, w
 /// second trie level. A case runs two sessions per departing peer, so its cost
 /// grows with the fleet, and this cap keeps the test's time at high case counts
 /// in line with the suite's other end-to-end properties. Larger sets, deeper
-/// parties, and window pressure have suites of their own:
-/// the multi-peer gossip suites, `before`'s deep party laws, and the window
+/// parties, and budget pressure have suites of their own:
+/// the multi-peer gossip suites, `before`'s deep party laws, and the budget
 /// suites.
 const MAX_FLEET: usize = 16;
 
@@ -198,7 +198,7 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
 /// Run `ops` from a freshly seeded universe, invoking `check` on the live
 /// fleet at the baseline and after every step.
 fn run_schedule(ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
-    let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
+    let mut fleet = vec![Peer::<u64>::seed().sync_memory_budget(0).into_rumors()];
     check(&fleet);
     for &op in ops {
         apply(&mut fleet, op);
@@ -243,7 +243,7 @@ proptest! {
     /// No other identity moved, none was created, none was lost.
     #[test]
     fn bootstrap_donates_exactly_once(actions in arb_local_actions()) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         // A provider holding a proper sub-share (not the whole seed), with
         // arbitrary content: the general donation case.
         let provider = build_local(bootstrap_fork(&seed), &actions);
@@ -278,7 +278,7 @@ proptest! {
         retiree_actions in arb_local_actions(),
         absorber_actions in arb_local_actions(),
     ) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let absorber = build_local(bootstrap_fork(&seed), &absorber_actions);
         let retiree = build_local(bootstrap_fork(&seed), &retiree_actions);
 
@@ -312,7 +312,7 @@ proptest! {
     /// non-contiguous shards grows this measure permanently and fails here.
     #[test]
     fn party_returns_to_baseline_under_sequential_cycles(k in 1usize..=12) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         // The provider under test holds a proper sub-share, the general
         // case; the seed handle stays live holding the complement.
         let p = bootstrap_fork(&seed);
@@ -355,7 +355,7 @@ proptest! {
         order in (2usize..=4)
             .prop_flat_map(|m| Just((0..m).collect::<Vec<usize>>()).prop_shuffle()),
     ) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let p = bootstrap_fork(&seed);
         let baseline = alias(&p);
 
@@ -404,7 +404,7 @@ proptest! {
         // Each newcomer sends a distinct value. Remember its version so the
         // final check catches missing messages, duplicates, or rewritten versions.
         let mut expected = BTreeMap::new();
-        let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
+        let mut fleet = vec![Peer::<u64>::seed().sync_memory_budget(0).into_rumors()];
         for (i, &provider) in providers.iter().enumerate() {
             apply(&mut fleet, Op::Bootstrap { provider });
             let newest = fleet.len() - 1;

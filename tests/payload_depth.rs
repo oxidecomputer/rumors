@@ -37,7 +37,7 @@ fn nested(depth: u64) -> Arr {
 #[test]
 fn a_payload_at_the_default_depth_round_trips() {
     let at_limit = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT);
-    let a: Rumors<Arr> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<Arr> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     a.send(at_limit.clone())
@@ -57,7 +57,7 @@ fn a_payload_at_the_default_depth_round_trips() {
 /// stored, so no session can ever wedge on it.
 #[test]
 fn one_step_past_the_limit_is_rejected_at_send() {
-    let rumors: Rumors<Arr> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<Arr> = Peer::seed().sync_memory_budget(0).into_rumors();
     let error = rumors
         .send(nested(DEFAULT_PAYLOAD_DEPTH_LIMIT + 1))
         .expect_err("one step past the limit is rejected");
@@ -94,7 +94,7 @@ fn nested_enum(wrappers: u64) -> E {
 fn the_deepest_admissible_enum_round_trips() {
     // The innermost unit variant costs the step the wrappers don't.
     let at_limit = nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT - 1);
-    let a: Rumors<E> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<E> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     a.send(at_limit.clone())
@@ -115,7 +115,7 @@ fn the_deepest_admissible_enum_round_trips() {
 /// see the value.
 #[test]
 fn an_enum_needing_one_step_past_the_limit_is_rejected_at_send() {
-    let rumors: Rumors<E> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<E> = Peer::seed().sync_memory_budget(0).into_rumors();
     let error = rumors
         .send(nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT))
         .expect_err("a decode needing limit + 1 is rejected");
@@ -136,7 +136,7 @@ fn equal_raised_limits_gossip_deep_content_clean() {
 
     let a: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(raised)
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors();
     // The fork selects the same raised limit one session early, on the
     // bootstrap builder, exactly as a real fleet member would.
@@ -154,7 +154,7 @@ fn equal_raised_limits_gossip_deep_content_clean() {
             rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("the seed is established"),
         })
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors()
     });
 
@@ -182,7 +182,7 @@ fn a_lossy_value_is_rejected_at_send() {
     struct P {
         field: Option<Option<u32>>,
     }
-    let rumors: Rumors<P> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<P> = Peer::seed().sync_memory_budget(0).into_rumors();
     let error = rumors
         .send(P { field: Some(None) })
         .expect_err("a value whose encoding decodes differently is rejected");
@@ -260,7 +260,7 @@ impl rumors::observe::SessionObserver for ShapeSession {
 #[test]
 fn mismatched_limits_abort_both_sides_at_the_handshake() {
     use rumors::Error;
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     // Re-key one side's limit through the Peer knob: the fork was created
@@ -335,7 +335,7 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
 /// decode. The receiver's own exit is the typed decode error.
 #[test]
 fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = crate::common::wire::block_on(async {
         let (mut provider, mut newcomer) =
             rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -348,7 +348,7 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
             rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("the seed is established"),
         })
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors()
     });
 

@@ -28,7 +28,7 @@ proptest! {
     /// equal payloads sent twice remain distinct messages.
     #[test]
     fn send_returns_its_stamped_version(value in any::<u64>()) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let first = peer.send(value).unwrap();
         let second = peer.send(value).unwrap();
         let snapshot = peer.snapshot();
@@ -43,7 +43,7 @@ proptest! {
     /// no duplicates, no omissions.
     #[test]
     fn batch_commits_one_leaf_per_value(values in vec(any::<u64>(), 0..=32)) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let created = batch_send(&peer, &values);
         let snapshot = peer.snapshot();
         prop_assert_eq!(created.len(), values.len());
@@ -58,7 +58,7 @@ proptest! {
     fn snapshot_readers_describe_exact_live_membership(
         items in vec((any::<u64>(), any::<bool>()), 0..=32),
     ) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let values: Vec<_> = items.iter().map(|(value, _)| *value).collect();
         let created = batch_send(&peer, &values);
         peer.redact_all(
@@ -98,7 +98,7 @@ proptest! {
     /// when several values in the batch are equal.
     #[test]
     fn distinct_versions_per_batch(values in vec(any::<u64>(), 1..=32)) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let created = batch_send(&peer, &values);
         prop_assert_eq!(created.len(), values.len());
         let unique: BTreeSet<_> =
@@ -111,7 +111,7 @@ proptest! {
     /// equality does not collapse messages.
     #[test]
     fn duplicate_values_get_distinct_versions(n in 1usize..=16, value in any::<u64>()) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let values: Vec<u64> = std::iter::repeat_n(value, n).collect();
         let created = batch_send(&peer, &values);
         prop_assert_eq!(created.len(), n);
@@ -131,7 +131,7 @@ proptest! {
     fn local_versions_form_a_chain(
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
     ) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
 
         // Versions in commit order: per batch, the created versions sorted
         // into their (total) causal order; batches concatenated in commit
@@ -169,7 +169,7 @@ proptest! {
         // need not share a universe). Read the live multiset directly off
         // the snapshot.
         let multiset_of = |values: &[u64]| -> BTreeMap<u64, usize> {
-            let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let peer = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
             for (_, v) in peer.snapshot().iter() {
@@ -262,7 +262,7 @@ impl<'de> serde::Deserialize<'de> for Explosive {
 /// queued, the second detonates.
 #[test]
 fn a_panicked_batch_commits_nothing() {
-    let rumors: Rumors<Explosive> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<Explosive> = Peer::seed().sync_memory_budget(0).into_rumors();
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         rumors.batch(|batch| {
             batch.send(Explosive {
@@ -292,7 +292,7 @@ fn a_panicked_batch_commits_nothing() {
 /// all-or-nothing.
 #[test]
 fn a_batch_commits_iff_the_closure_returns_ok() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let doomed = rumors.send(7).unwrap();
 
     rumors
@@ -335,7 +335,7 @@ fn a_depth_error_cancels_the_whole_batch() {
     let limit = 4;
     let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors();
     let deep = Arr::nested(4);
 
@@ -361,7 +361,7 @@ fn a_depth_error_cancels_the_whole_batch() {
 /// affordance — and comes back verbatim.
 #[test]
 fn a_user_error_cancels_the_batch() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let error = rumors
         .batch(|batch| {
             batch.send(1).unwrap();
@@ -389,7 +389,7 @@ fn send_all_commits_nothing_when_a_message_is_rejected() {
     let limit = 4;
     let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors();
 
     let mut drawn = 0;
@@ -425,7 +425,7 @@ fn send_all_commits_nothing_when_a_message_is_rejected() {
 fn redact_all_removes_the_held_skips_the_unheld_and_commits_once() {
     use futures::{FutureExt, StreamExt};
 
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     batch_send(&rumors, &[1, 2, 3, 4]);
     // Versions come back through observation, by payload: a batch's
     // versions carry no input-order correspondence.
@@ -478,7 +478,7 @@ fn batch_send_all_handled_locally_keeps_the_admitted_prefix() {
     let limit = 4;
     let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors();
     rumors.send_all([Arr::nested(3)]).unwrap();
     let doomed: Vec<Version> = rumors.snapshot().versions().cloned().collect();
@@ -517,7 +517,7 @@ fn batch_send_all_handled_locally_keeps_the_admitted_prefix() {
 /// (inner-before-outer).
 #[test]
 fn nested_batches_commit_inner_before_outer() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     rumors
         .batch(|batch| {
             batch.send(1)?;

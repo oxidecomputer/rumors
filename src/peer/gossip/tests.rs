@@ -441,7 +441,7 @@ fn completion_deadline_preserves_the_local_commit() {
     use std::task::Poll;
 
     let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let (served, joined) = run_to_quiescence(async {
         futures::join!(
             a.gossip_once(&mut near.read, &mut near.write),

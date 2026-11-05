@@ -226,7 +226,7 @@ where
     let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            rumors::Peer::seed().sync_window_floor().into_rumors()
+            rumors::Peer::seed().sync_memory_budget(0).into_rumors()
         } else {
             bootstrap_fork(&peers[schedule.fork_parents[i]].local)
         };

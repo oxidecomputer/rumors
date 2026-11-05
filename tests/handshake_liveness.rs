@@ -27,9 +27,9 @@ use rumors_testkit::common::wire::ROOMY_CAPACITY;
 use rumors::{Peer, Retire, Rumors};
 
 use crate::common::{
-    window::WindowChoice,
+    budget::BudgetChoice,
     wire::{
-        assert_connection_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_window_async,
+        assert_connection_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_budget_async,
     },
 };
 
@@ -145,9 +145,9 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     );
 }
 
-/// A fresh universe with a wide version and the selected window policy.
-async fn seasoned(window: WindowChoice) -> Rumors<u64> {
-    let seed: Rumors<u64> = window.apply(Peer::seed()).into_rumors();
+/// A fresh universe with a wide version and the selected budget.
+async fn seasoned(budget: BudgetChoice) -> Rumors<u64> {
+    let seed: Rumors<u64> = budget.apply(Peer::seed()).into_rumors();
     season(&seed, 0).await;
     seed
 }
@@ -156,13 +156,13 @@ async fn seasoned(window: WindowChoice) -> Rumors<u64> {
 ///
 /// Converged means equal versions, so both sides' greetings carry the same
 /// wide frame; cells that need divergence commit on top of the pair. The
-/// arguments select the windows used by the session under test.
+/// arguments select the budgets used by the session under test.
 async fn seasoned_pair(
-    a_window: WindowChoice,
-    b_window: WindowChoice,
+    a_budget: BudgetChoice,
+    b_budget: BudgetChoice,
 ) -> (Rumors<u64>, Rumors<u64>) {
-    let a = seasoned(a_window).await;
-    let b = bootstrap_fork_with_window_async(&a, b_window).await;
+    let a = seasoned(a_budget).await;
+    let b = bootstrap_fork_with_budget_async(&a, b_budget).await;
     // The fork originates a little of its own before converging, so the
     // pair's shared version includes events from b's region too.
     for payload in 0..MESSAGES_PER_ORIGINATOR {
@@ -181,16 +181,16 @@ async fn seasoned_pair(
 
 /// Converged: equal wide versions, so the session ends at the greeting.
 async fn converged_session() {
-    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
+    let (a, b) = seasoned_pair(BudgetChoice::Zero, BudgetChoice::Zero).await;
     gossip_over(&a, &b, MIN_CAPACITY).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
 
 /// Divergent gossip: both sides hold unshared content, so the session runs
-/// the full descent under the selected window policies and moves messages in
+/// the full descent under the selected budgets and moves messages in
 /// both directions.
-async fn divergent_session(a_window: WindowChoice, b_window: WindowChoice) {
-    let (a, b) = seasoned_pair(a_window, b_window).await;
+async fn divergent_session(a_budget: BudgetChoice, b_budget: BudgetChoice) {
+    let (a, b) = seasoned_pair(a_budget, b_budget).await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(100_000 + v).unwrap();
@@ -213,7 +213,7 @@ async fn divergent_session(a_window: WindowChoice, b_window: WindowChoice) {
 /// set, so the size election routes it into the initiator role
 /// deterministically, and every supply frame dwarfs the one-byte window.
 async fn bulk_initiator_session() {
-    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
+    let (a, b) = seasoned_pair(BudgetChoice::Zero, BudgetChoice::Zero).await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -238,7 +238,7 @@ async fn bulk_initiator_session() {
 /// greeting), the other is seasoned (a wide one), so the two greeting
 /// frames are maximally asymmetric and the descent is one-sided.
 async fn empty_meets_populated_session() {
-    let seed: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let seed: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     // Fork the empty side out before any content exists, then season only
     // the seed.
     let empty = bootstrap_fork_async(&seed).await;
@@ -254,7 +254,7 @@ async fn empty_meets_populated_session() {
 /// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and
 /// the trailing party donation cross the minimal connection.
 async fn bootstrap_session() {
-    let provider = seasoned(WindowChoice::Floor).await;
+    let provider = seasoned(BudgetChoice::Zero).await;
     let (mut p_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
         provider.gossip_once(&mut p_end.read, &mut p_end.write),
@@ -273,7 +273,7 @@ async fn bootstrap_session() {
 /// Retire: a seasoned, divergent retiree hands its content and then its
 /// whole party to the absorber, all through the minimal connection.
 async fn retire_session() {
-    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
+    let (a, b) = seasoned_pair(BudgetChoice::Zero, BudgetChoice::Zero).await;
     let converged_len = b.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -330,7 +330,7 @@ async fn mutual_bootstrap_session() {
 /// asymmetric greetings of bootstrap plus the trailing donation of retire,
 /// all through the minimal connection.
 async fn retire_into_bootstrapper_session() {
-    let retiree = seasoned(WindowChoice::Floor).await;
+    let retiree = seasoned(BudgetChoice::Zero).await;
     let before = retiree.snapshot();
     let retiree = retiree
         .try_into_peer()
@@ -363,7 +363,7 @@ async fn retire_into_bootstrapper_session() {
 /// Mutual retire: both sides declare `Retire`, so the session early-outs
 /// right after the preamble and both replicas survive intact.
 async fn mutual_retire_session() {
-    let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
+    let (a, b) = seasoned_pair(BudgetChoice::Zero, BudgetChoice::Zero).await;
     let a = a.try_into_peer().await.expect("a is the sole handle");
     let b = b.try_into_peer().await.expect("b is the sole handle");
     let (mut a_end, mut b_end) = rumors::testing::memory_connection(MIN_CAPACITY);
@@ -395,27 +395,24 @@ fn converged() {
 /// converges both replicas.
 #[test]
 fn divergent() {
-    block_on(divergent_session(WindowChoice::Floor, WindowChoice::Floor));
+    block_on(divergent_session(BudgetChoice::Zero, BudgetChoice::Zero));
 }
 
-/// Default windows remain live when the transport admits only one byte at a
+/// Default budgets remain live when the transport admits only one byte at a
 /// time, and the divergent replicas converge completely.
 #[test]
-fn divergent_default_windows() {
+fn divergent_default_budgets() {
     block_on(divergent_session(
-        WindowChoice::Default,
-        WindowChoice::Default,
+        BudgetChoice::Default,
+        BudgetChoice::Default,
     ));
 }
 
-/// A floor window and a default window remain live together over a one-byte
+/// A zero budget and a default one remain live together over a one-byte
 /// transport and converge completely.
 #[test]
-fn divergent_asymmetric_windows() {
-    block_on(divergent_session(
-        WindowChoice::Floor,
-        WindowChoice::Default,
-    ));
+fn divergent_asymmetric_budgets() {
+    block_on(divergent_session(BudgetChoice::Zero, BudgetChoice::Default));
 }
 
 /// A V2 session whose initiator supplies bulk root children stays live

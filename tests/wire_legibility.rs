@@ -82,7 +82,7 @@ fn assert_legible(side: &str, capture: &PipeCapture) {
 fn loaded(parent: Option<&Rumors<Vec<u8>>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
     let peer = match parent {
         Some(parent) => block_on(bootstrap_fork_async(parent)),
-        None => Peer::seed().sync_window_floor().into_rumors(),
+        None => Peer::seed().sync_memory_budget(0).into_rumors(),
     };
     for payload in payloads {
         peer.send(payload.clone()).unwrap();

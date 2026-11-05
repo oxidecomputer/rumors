@@ -16,9 +16,9 @@ use crate::common::oracle::{readout, readout_multiset};
 use crate::common::overlap::{self, arb_overlap_schedule, execute_overlap_and_quiesce};
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
-/// Build three replicas at the minimum window, then redact `target` only at B.
+/// Build three replicas at a budget of zero, then redact `target` only at B.
 fn redacted_trio(n: u64, target: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
-    let a = Peer::seed().sync_window_floor().into_rumors();
+    let a = Peer::seed().sync_memory_budget(0).into_rumors();
     a.send_all(0..n).unwrap();
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);

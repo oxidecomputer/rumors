@@ -30,7 +30,7 @@
 //!   them, and each reply's questions in radix order.
 //!
 //! Because a reply's contents depend only on the two trees, the walk's
-//! schedule cannot change them. The suite therefore varies the window and
+//! schedule cannot change them. The suite therefore varies the budget and
 //! the transport and expects one prediction to hold for all of them; that
 //! independence is the property that later lets the model price, offline,
 //! every reply a session can invite.
@@ -53,7 +53,6 @@ use crate::tree::mirror::streaming::materialized::transcript::{
 };
 use crate::tree::mirror::streaming::protocol::split::with_split_replies;
 use crate::tree::mirror::streaming::testing::session::{AMPLE, completed, over_pipe};
-use crate::tree::mirror::streaming::window::{Window, WindowConfig};
 use crate::tree::typed::{Node as TreeNode, Path};
 use crate::tree::{Action, Tree};
 use crate::{causally, message::Message};
@@ -359,11 +358,11 @@ fn assert_matches(left: &Root, right: &Root, transcript: &Transcript) -> Result<
     Ok(())
 }
 
-/// The in-process session's transcript between `left` and `right` at
-/// `window`.
-fn local_transcript(left: Root, right: Root, window: WindowConfig) -> Transcript {
+/// The in-process session's transcript between `left` and `right`, both
+/// endpoints at `budget`.
+fn local_transcript(left: Root, right: Root, budget: usize) -> Transcript {
     let mut outcome = LocalSession::new(left, right)
-        .window(window)
+        .budget(budget)
         .transcript()
         .run();
     let transcript = outcome
@@ -375,10 +374,10 @@ fn local_transcript(left: Root, right: Root, window: WindowConfig) -> Transcript
 }
 
 /// The wire session's transcript between `left` and `right`, both
-/// endpoints at `window`, with leaf-path derivation following the pair's
+/// endpoints at `budget`, with leaf-path derivation following the pair's
 /// placement when `placed`.
-fn wire_transcript(left: Root, right: Root, window: WindowConfig, placed: bool) -> Transcript {
-    piped_transcript(left, right, window, placed, AMPLE)
+fn wire_transcript(left: Root, right: Root, budget: usize, placed: bool) -> Transcript {
+    piped_transcript(left, right, budget, placed, AMPLE)
 }
 
 /// The transcript of the session [`wire_transcript`] runs, over a pipe
@@ -386,44 +385,42 @@ fn wire_transcript(left: Root, right: Root, window: WindowConfig, placed: bool) 
 fn piped_transcript(
     left: Root,
     right: Root,
-    window: WindowConfig,
+    budget: usize,
     placed: bool,
     pipe: usize,
 ) -> Transcript {
     let (outcome, transcript) = with_transcript(|| {
         if placed {
-            placed_over_pipe((left, right), [window; 2], pipe)
+            placed_over_pipe((left, right), [budget; 2], pipe)
         } else {
-            over_pipe::<()>((left, right), [window; 2], pipe)
+            over_pipe::<()>((left, right), [budget; 2], pipe)
         }
     });
     completed(outcome.expect("the session completes under the closed-world poller"));
     transcript
 }
 
-/// The windows the suite runs every pair at: the one-slot floor and a
-/// uniform window wide enough to pipeline every fixture here.
-fn arb_window() -> impl Strategy<Value = WindowConfig> {
-    prop_oneof![
-        Just(WindowConfig::FLOOR),
-        Just(WindowConfig::Fixed(Window::uniform(64))),
-    ]
+/// The budgets the suite runs every pair at: zero, at which each walk asks
+/// one question at a time, and unlimited, at which no unit waits for
+/// admission.
+fn arb_budget() -> impl Strategy<Value = usize> {
+    prop_oneof![Just(0), Just(usize::MAX)]
 }
 
 proptest! {
     /// The model predicts every reply both walks build, reaction for
-    /// reaction, in process and over a pipe, at any window.
+    /// reaction, in process and over a pipe, at either budget.
     ///
     /// The pairs are version-addressed, with shared history and redaction,
     /// which the deletion filter prunes.
     #[test]
     fn model_predicts_every_reply(
         (left, right) in prop_oneof![arb_divergent_pair(), arb_wide_divergent_pair()],
-        window in arb_window(),
+        budget in arb_budget(),
     ) {
-        let local = local_transcript(left.clone(), right.clone(), window);
+        let local = local_transcript(left.clone(), right.clone(), budget);
         assert_matches(&left, &right, &local)?;
-        let wire = wire_transcript(left.clone(), right.clone(), window, false);
+        let wire = wire_transcript(left.clone(), right.clone(), budget, false);
         assert_matches(&left, &right, &wire)?;
     }
 
@@ -433,11 +430,11 @@ proptest! {
     #[test]
     fn model_predicts_every_deep_reply(
         (left, right) in arb_deep_divergent_pair(),
-        window in arb_window(),
+        budget in arb_budget(),
     ) {
-        let local = local_transcript(left.clone(), right.clone(), window);
+        let local = local_transcript(left.clone(), right.clone(), budget);
         assert_matches(&left, &right, &local)?;
-        let wire = wire_transcript(left.clone(), right.clone(), window, true);
+        let wire = wire_transcript(left.clone(), right.clone(), budget, true);
         assert_matches(&left, &right, &wire)?;
     }
 }
@@ -454,12 +451,12 @@ proptest! {
     #[test]
     fn model_predicts_every_split_reply(
         (left, right) in arb_divergent_pair(),
-        window in arb_window(),
+        budget in arb_budget(),
     ) {
         with_split_replies(|| {
-            let local = local_transcript(left.clone(), right.clone(), window);
+            let local = local_transcript(left.clone(), right.clone(), budget);
             assert_matches(&left, &right, &local)?;
-            let wire = piped_transcript(left.clone(), right.clone(), window, false, ONE_BYTE);
+            let wire = piped_transcript(left.clone(), right.clone(), budget, false, ONE_BYTE);
             assert_matches(&left, &right, &wire)
         })?;
     }
@@ -516,10 +513,10 @@ fn forked_replicas() -> (Root, Root) {
 #[test]
 fn model_predicts_forked_replicas() {
     let (left, right) = forked_replicas();
-    let window = WindowConfig::Fixed(Window::uniform(64));
-    let local = local_transcript(left.clone(), right.clone(), window);
+    let budget = usize::MAX;
+    let local = local_transcript(left.clone(), right.clone(), budget);
     assert_matches(&left, &right, &local).expect("the model predicts the local session");
-    let wire = wire_transcript(left.clone(), right.clone(), window, false);
+    let wire = wire_transcript(left.clone(), right.clone(), budget, false);
     assert_matches(&left, &right, &wire).expect("the model predicts the wire session");
 }
 
@@ -537,7 +534,7 @@ proptest! {
     ) {
         let local = LocalSession::new(left.clone(), right.clone()).run().sides();
         let wire = completed(
-            over_pipe::<()>((left, right), [WindowConfig::FLOOR; 2], AMPLE)
+            over_pipe::<()>((left, right), [0; 2], AMPLE)
                 .expect("the session completes under the closed-world poller"),
         );
         for root in [local.0, local.1, wire.0, wire.1] {

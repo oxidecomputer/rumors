@@ -72,7 +72,7 @@ fn without_elapsed(mut stats: SessionStats) -> SessionStats {
 #[test]
 fn catchup_gains_the_providers_count_without_disputes() {
     block_on(async {
-        let provider: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+        let provider: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
         // Join before any sends so the next session transfers the whole set.
         let empty = bootstrap_fork_async(&provider).await;
         provider.send_all([1, 2, 3]).unwrap();
@@ -102,7 +102,7 @@ fn catchup_gains_the_providers_count_without_disputes() {
 #[test]
 fn converged_replicas_report_zero_stats() {
     block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+        let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork_async(&a).await;
         a.send_all([7]).unwrap();
         let _ = gossip_pair_async(&a, &b).await;
@@ -117,7 +117,7 @@ fn converged_replicas_report_zero_stats() {
 #[test]
 fn honored_redaction_counts_as_shed() {
     block_on(async {
-        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         a.send_all([10, 20]).unwrap();
         let b = bootstrap_fork_async(&a).await;
         let version = a.snapshot().versions().next().unwrap().clone();
@@ -138,7 +138,7 @@ fn honored_redaction_counts_as_shed() {
 #[test]
 fn floor_window_reports_one_granted_scope() {
     block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+        let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork_async(&a).await;
         a.send_all([1]).unwrap();
         b.send_all([2]).unwrap();
@@ -154,7 +154,7 @@ fn floor_window_reports_one_granted_scope() {
 #[test]
 fn gossip_stream_reports_session_stats() {
     block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+        let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork_async(&a).await;
         a.send_all([42]).unwrap();
 
@@ -212,7 +212,7 @@ proptest! {
         a_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
         b_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
     ) {
-        let a = Peer::seed().sync_window_floor().into_rumors();
+        let a = Peer::seed().sync_memory_budget(0).into_rumors();
         let b = block_on(bootstrap_fork_async(&a));
         let (mut a_stats, mut b_stats) = (Vec::new(), Vec::new());
         let (a_capture, b_capture) = capture_sides(
@@ -250,7 +250,7 @@ proptest! {
         redactions in prop::collection::vec((any::<bool>(), any::<prop::sample::Index>()), 0..24),
     ) {
         block_on(async {
-            let a = Peer::seed().sync_window_floor().into_rumors();
+            let a = Peer::seed().sync_memory_budget(0).into_rumors();
             a.send_all(shared).unwrap();
             let b = bootstrap_fork_async(&a).await;
             let shared_versions: Vec<_> = a.snapshot().versions().cloned().collect();

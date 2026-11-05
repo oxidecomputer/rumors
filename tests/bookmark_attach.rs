@@ -35,7 +35,7 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
         rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("got a peer"),
     })
-    .sync_window_floor()
+    .sync_memory_budget(0)
 }
 
 /// A pristine seed defers attachment I/O, even when both operations would fail.
@@ -47,7 +47,7 @@ fn pristine_seed_attaches_without_touching_storage() {
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults, 0);
 
         let _peer = Peer::<String>::seed()
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .bookmark(bookmark)
             .await
             .expect("a pristine seed attaches without reading or writing");
@@ -63,7 +63,7 @@ fn pristine_seed_attaches_without_touching_storage() {
 #[test]
 fn failed_persist_returns_peer_for_retry() {
     block_on(async {
-        let rumors = Peer::<String>::seed().sync_window_floor().into_rumors();
+        let rumors = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
         rumors.send("the meeting is at noon".to_string()).unwrap();
         let peer = rumors.try_into_peer().await.expect("sole handle");
         let network = peer.network();
@@ -111,7 +111,7 @@ fn failed_persist_returns_peer_for_retry() {
 #[test]
 fn failed_load_returns_peer_for_retry() {
     block_on(async {
-        let rumors = Peer::<String>::seed().sync_window_floor().into_rumors();
+        let rumors = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
         rumors.send("keep this message".into()).unwrap();
         let hash = rumors.snapshot().hash();
         let peer = rumors.try_into_peer().await.unwrap();
@@ -146,7 +146,7 @@ proptest! {
     #[test]
     fn corrupt_record_preserves_storage_and_peer(suffix: Vec<u8>) {
         block_on(async {
-            let rumors = Peer::<String>::seed().sync_window_floor().into_rumors();
+            let rumors = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
             rumors.send("keep this message".into()).unwrap();
             let hash = rumors.snapshot().hash();
             let peer = rumors.try_into_peer().await.unwrap();
@@ -184,7 +184,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
         // A seeds network N over a reliable store and gossips it onward.
         let store_a = Arc::new(Mutex::new(None));
         let a = Peer::<String>::seed()
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .bookmark(FlakyInMemoryBookmark::new(store_a, reliable(), 0))
             .await
             .expect("the seed attaches")

@@ -32,7 +32,7 @@ proptest! {
             .prop_flat_map(|n_peers| (Just(n_peers), 0..n_peers)),
         value in any::<u64>(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = rumors::Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
             .map(|_| Peer::new(bootstrap_fork(&seed)))
             .collect();
@@ -67,7 +67,7 @@ proptest! {
         b_values in vec(any::<u64>(), 1..=4),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let seed = rumors::Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
             let mut a = Peer::new(bootstrap_fork(&seed));
             let mut b = Peer::new(bootstrap_fork(&seed));
             let mut a_versions: Vec<rumors::Version> = Vec::new();
@@ -100,7 +100,7 @@ proptest! {
     fn absent_redactions_are_noops(value in any::<u64>()) {
         for already_redacted in [false, true] {
             for retain_unrelated in [false, true] {
-                let seed = RumorsPeer::<u64>::seed().sync_window_floor().into_rumors();
+                let seed = RumorsPeer::<u64>::seed().sync_memory_budget(0).into_rumors();
                 let subject = bootstrap_fork(&seed);
                 let absent = if already_redacted {
                     let version = subject.send(value).unwrap();

@@ -192,7 +192,6 @@ fn duplicated_reply_is_rejected_as_unasked() {
 #[test]
 fn a_repeated_stream_end_is_rejected_as_unasked() {
     use crate::testing::{IoPlan, memory_connection, wrap_io};
-    use crate::tree::mirror::streaming::window::WindowConfig;
     use proptest::prelude::*;
 
     let (left, right) = deep_pair();
@@ -232,7 +231,7 @@ fn a_repeated_stream_end_is_rejected_as_unasked() {
             (left_read, harness::ScriptedWrite::new(left_write, left_script)),
             (right_read, harness::ScriptedWrite::new(right_write, right_script)),
             harness::codec::<()>(),
-            WindowConfig::FLOOR,
+            0,
         )).expect("a repeated stream end must not park either session");
         prop_assert!(script.fired());
         let writer = if append_left { IoSide::Left } else { IoSide::Right };

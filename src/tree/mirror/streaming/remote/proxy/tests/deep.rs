@@ -25,7 +25,6 @@ use crate::tree::mirror::streaming::remote::codec::{
     Frame, RunBudget, Speaker, Stream, decode_exact,
 };
 use crate::tree::mirror::streaming::remote::proxy::work::progress::with_trace;
-use crate::tree::mirror::streaming::window::{Window, WindowConfig};
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation, Root,
     materialized::{Error as MaterializedError, Handshaking},
@@ -175,7 +174,7 @@ proptest! {
         fail_left in any::<bool>(),
         fail_proxy in any::<bool>(),
         choice in any::<usize>(),
-        width in prop_oneof![Just(1usize), Just(8)],
+        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
         capacity in prop_oneof![Just(1usize), Just(37)],
         schedule in proptest::collection::vec(0u8..=2, 0..64),
     ) {
@@ -206,7 +205,7 @@ proptest! {
                 with_schedule(schedule.clone(), || run_to_quiescence(harness::drive(
                     Topology::Production, backends, left.root.clone(), right.root.clone(),
                     (left_end.read, left_end.write), (right_end.read, right_end.write),
-                    codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                    codec::<Vec<u8>>(), budget,
                 ))).expect("a backend failure must not leave either endpoint stalled")
             };
             let baseline = Failing::after(Local, usize::MAX);
@@ -246,7 +245,7 @@ proptest! {
     fn cancelled_deep_sessions_release_nodes_and_retry(
         depth in 2usize..32,
         choice in any::<usize>(),
-        width in prop_oneof![Just(1usize), Just(8)],
+        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
         schedule in proptest::collection::vec(0u8..=2, 0..64),
     ) {
         let pair = Divergence::new([vec![0; depth]], [2, 3]);
@@ -256,7 +255,7 @@ proptest! {
                 with_schedule(schedule.clone(), || cancel_after(harness::drive(
                     Topology::Production, Backends::local(), left.root.clone(), right.root.clone(),
                     (left_end.read, left_end.write), (right_end.read, right_end.write),
-                    codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                    codec::<Vec<u8>>(), budget,
                 ), limit))
             };
             let mut expected = left.clone();
@@ -296,7 +295,7 @@ proptest! {
         depth in 1usize..32,
         receiver_left in any::<bool>(),
         capacity in 1usize..80,
-        window in 1usize..9,
+        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
     ) {
         use super::harness::{self, Backends, EndpointError, GreetingRewrite, Topology};
         use crate::tree::mirror::streaming::remote::{Error, adapter::DecodeError};
@@ -313,7 +312,7 @@ proptest! {
                 harness::rewritten(left_end, receiver_left.then(|| rewrite.clone())),
                 harness::rewritten(right_end, (!receiver_left).then(|| rewrite.clone())),
                 codec::<Vec<u8>>(),
-                WindowConfig::Fixed(Window::uniform(window)),
+                budget,
             )).expect("a deep declaration error must terminate both endpoints");
             prop_assert!(rewrite.fired(), "the version size was not rewritten");
             let receiver = if receiver_left { left } else { right };
@@ -437,8 +436,8 @@ fn speaker(role: Role) -> Speaker {
 struct Session {
     /// Bytes buffered by each direction of the pipe.
     capacity: usize,
-    /// Per-height protocol queue capacities, shared by all participants.
-    window: Window,
+    /// The budget both endpoints admit their work against.
+    budget: usize,
 }
 
 /// Evidence retained after both endpoints and their trees have been dropped.
@@ -463,18 +462,17 @@ impl Session {
         let (right_read, right_write, right_io) =
             wrap_io(IoSide::Right, right_plan, right_end.read, right_end.write);
         let [left, right] = roots;
-        let window = WindowConfig::Fixed(self.window);
         let (roots, queues) = with_observation(|| {
             run_to_quiescence(async {
                 let left =
                     Handshaking::start(Local, Root::from(left), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                        .window(window);
+                        .budget(self.budget);
                 let right = Handshaking::start(
                     Local,
                     Root::from(right),
                     DEFAULT_TARGET_MESSAGE_SIZE as u64,
                 )
-                .window(window);
+                .budget(self.budget);
                 let left_proxy =
                     RemoteHandshaking::start(Local, left_read, left_write, codec::<Vec<u8>>())
                         .observe(sent[0].handle());
@@ -521,7 +519,7 @@ fn root_prefix(child: usize, depth: usize) -> Vec<u8> {
 }
 
 /// Full root fans with mixed depths converge and send terminal leaf reactions
-/// under both minimum and wider protocol windows.
+/// at a budget of zero and at an unlimited one.
 #[test]
 fn full_root_with_leaf_dispute_reaches_final_stream() {
     let pair = Divergence::new(
@@ -537,10 +535,10 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
         }),
         [1, 1],
     );
-    for width in [1, 8] {
+    for budget in [0, usize::MAX] {
         let session = Session {
             capacity: 1,
-            window: Window::uniform(width),
+            budget,
         };
         let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
         observed.assert_reach(31);
@@ -561,7 +559,8 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
 }
 
 /// Every branching position and a chain branching at all positions converge
-/// in both orientations and window sizes, with writes visible only on flush.
+/// in both orientations and at a budget of zero and an unlimited one, with
+/// writes visible only on flush.
 #[test]
 fn every_branching_depth_matches_join() {
     let shapes = (0..RootHeight::HEIGHT)
@@ -575,10 +574,10 @@ fn every_branching_depth_matches_join() {
         let depth = prefixes.last().unwrap().len();
         for novel in [[1, 3], [3, 1]] {
             let pair = Divergence::new(prefixes.clone(), novel);
-            for width in [1, 8] {
+            for budget in [0, usize::MAX] {
                 let session = Session {
                     capacity: 1,
-                    window: Window::uniform(width),
+                    budget,
                 };
                 let observed = pair.check(
                     &session,
@@ -596,14 +595,14 @@ fn every_branching_depth_matches_join() {
 }
 
 proptest! {
-    /// Disputes at mixed depths preserve messages and redactions under both
-    /// narrow and wide protocol windows, with arbitrary early I/O delays.
+    /// Disputes at mixed depths preserve messages and redactions at a budget
+    /// of zero and at an unlimited one, with arbitrary early I/O delays.
     #[test]
     fn deep_disputes_match_join(
         prefixes in proptest::collection::vec(1u8..=31, 1..=8),
         novel in prop::array::uniform2(1usize..=4),
         redact in any::<bool>(),
-        width in prop_oneof![Just(1usize), Just(2), Just(8)],
+        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
         capacity in prop_oneof![Just(1usize), Just(37), Just(4096)],
         delays in prop::array::uniform2(proptest::collection::vec(0u8..=2, 0..=32)),
     ) {
@@ -614,7 +613,7 @@ proptest! {
                 pair.redacted[index % 2].push(path);
             }
         }
-        let session = Session { capacity, window: Window::uniform(width), };
+        let session = Session { capacity, budget };
         let observed = pair.check(&session, delays.map(|delays| IoPlan {
             read_delays: delays.clone(),
             write_delays: delays.clone(),
@@ -635,7 +634,7 @@ proptest! {
         (outer, inner) in (1usize..31).prop_flat_map(|outer| (Just(outer), outer + 1..32)),
         novel in prop::array::uniform2(1usize..=4),
         redact_left in any::<bool>(),
-        width in prop_oneof![Just(1usize), Just(2), Just(8)],
+        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
         capacity in prop_oneof![Just(1usize), Just(37), Just(4096)],
         delay in prop::array::uniform2(1u8..=2),
     ) {
@@ -645,7 +644,7 @@ proptest! {
         let redacted = [leaf_path(&[254], 1), leaf_path(&[254], 2)];
         pair.shared.extend(redacted);
         pair.redacted[usize::from(!redact_left)].extend(redacted);
-        let session = Session { capacity, window: Window::uniform(width), };
+        let session = Session { capacity, budget };
         let plans = std::array::from_fn(|_| IoPlan { hold_until_flush: true, ..IoPlan::default() });
         let baseline = pair.check(&session, plans.clone());
         // A finite delay schedule must cover the whole run, rather than

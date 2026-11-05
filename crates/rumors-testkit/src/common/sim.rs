@@ -80,9 +80,9 @@ use before::Party;
 use proptest::prelude::*;
 use rumors::{Error, Gossiped, Peer, Retire, Rumors, Version};
 
+use crate::common::budget::{BudgetAssignment, BudgetChoice, arb_budget_choice};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::oracle::{readout, version_key};
-use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
 use crate::common::wire::wire_gossip_async;
 
 /// Upper bound on the byte offset at which a cut or a vanish can land.
@@ -91,7 +91,7 @@ use crate::common::wire::wire_gossip_async;
 /// a fully-divergent pair on the generator's maximal fork lattice, each
 /// endpoint holding more unique content than an entire plan can create,
 /// every party's ticks entangled into the version bounds, at the
-/// sweep's widest window — moves fewer bytes per endpoint than this
+/// default budget — moves fewer bytes per endpoint than this
 /// bound, and the bound stays within twice that measurement, so
 /// generated cuts and vanishes reach every byte of the envelope and keep
 /// landing inside real sessions. The envelope dominates plan sessions exactly
@@ -131,13 +131,13 @@ pub struct Plan {
     pub sessions: Vec<Session>,
     /// Retirements run after the chaos phase settles.
     pub retires: Vec<RetireOp>,
-    /// Window choices for the whole fleet: founder `i` runs at
-    /// `windows.choice(i)`, and a newcomer bootstrapped by
-    /// `faulty_boots[j]` takes `windows.choice(j)`.
+    /// Budget choices for the whole fleet: founder `i` runs at
+    /// `budgets.choice(i)`, and a newcomer bootstrapped by
+    /// `faulty_boots[j]` takes `budgets.choice(j)`.
     ///
     /// Founders draw independently, so the chaos includes sessions
     /// between differently-configured endpoints.
-    pub windows: WindowAssignment,
+    pub budgets: BudgetAssignment,
 }
 
 /// One local operation in a peer's concurrent activity script.
@@ -368,7 +368,7 @@ fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
 pub fn arb_plan() -> impl Strategy<Value = Plan> {
     // Draw order is part of the seed-compatibility surface: committed
     // regression seeds regenerate each field from a stable prefix of the
-    // RNG stream, so `windows` draws last.
+    // RNG stream, so `budgets` draws last.
     (any::<bool>(), 2usize..=MAX_PLAN_PEERS).prop_flat_map(|(faults, n)| {
         (
             prop::collection::vec(any::<u64>(), 0..=MAX_PLAN_SEED_MESSAGES),
@@ -379,17 +379,17 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
             ),
             prop::collection::vec(arb_session(n, faults), 1..16),
             prop::collection::vec(arb_retire(n, faults), 0..=2),
-            prop::collection::vec(arb_window_choice(), n),
+            prop::collection::vec(arb_budget_choice(), n),
         )
             .prop_map(
-                move |(seed_messages, faulty_boots, scripts, sessions, retires, windows)| Plan {
+                move |(seed_messages, faulty_boots, scripts, sessions, retires, budgets)| Plan {
                     n_peers: n,
                     seed_messages,
                     faulty_boots,
                     scripts,
                     sessions,
                     retires,
-                    windows: WindowAssignment::new(windows),
+                    budgets: BudgetAssignment::new(budgets),
                 },
             )
     })
@@ -501,7 +501,7 @@ async fn run_session(
 async fn run_boot(
     server: Rumors<u64>,
     fault: FaultPlan,
-    window: WindowChoice,
+    budget: BudgetChoice,
 ) -> (Option<Peer<u64>>, usize) {
     let (boot_side, serve_side) =
         rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -523,7 +523,7 @@ async fn run_boot(
     };
     assert_honest_gossip(&served);
     let newcomer = match joined {
-        rumors::Joined::Joined { peer, .. } => Some(window.apply(peer)),
+        rumors::Joined::Joined { peer, .. } => Some(budget.apply(peer)),
         rumors::Joined::Bailed { .. } => {
             unreachable!("the serving peer is never itself bootstrapping")
         }
@@ -702,10 +702,10 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         .collect();
 
     // Phase 1: fleet. The seed's content predates every fork. Each
-    // founder runs at its planned window choice, so the chaos phase mixes
-    // floor, budgeted, and default windows across concurrent sessions.
+    // founder runs at its planned budget choice, so the chaos phase mixes
+    // zero, explicit, and default budgets across concurrent sessions.
     let seed = plan
-        .windows
+        .budgets
         .choice(0)
         .apply(Peer::<u64>::seed())
         .into_rumors();
@@ -714,9 +714,9 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for i in 1..plan.n_peers {
-        let child = crate::common::wire::bootstrap_fork_with_window_async(
+        let child = crate::common::wire::bootstrap_fork_with_budget_async(
             &fleet[0],
-            plan.windows.choice(i),
+            plan.budgets.choice(i),
         )
         .await;
         fleet.push(child);
@@ -754,7 +754,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             tokio::spawn(run_boot(
                 casts[i % casts.len()].clone(),
                 *fault,
-                plan.windows.choice(i),
+                plan.budgets.choice(i),
             ))
         })
         .collect();

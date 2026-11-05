@@ -9,7 +9,6 @@ use crate::bookmark::{Bookmark, NoBookmark};
 use crate::message::PayloadDepthLimit;
 use crate::observe::{Attachment, Observer};
 use crate::tree::mirror::streaming::remote::RunBudget;
-use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{Error, Peer};
 
 use super::bookmark::Unbookmarked;
@@ -34,8 +33,8 @@ use super::bookmark::Unbookmarked;
 /// [`gossip`](crate::Rumors::gossip); no special invocation is required.
 #[must_use = "a Bootstrap does nothing until join runs it over a connection"]
 pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
-    /// Pipelining policy inherited by the joined peer.
-    pub(crate) window: WindowConfig,
+    /// Memory budget inherited by the joined peer.
+    pub(crate) sync_memory_budget: usize,
     /// Supply-run size target used during and after the join.
     pub(crate) run_budget: RunBudget,
     /// Initiation policy and session deadline, both inherited by the joined peer.
@@ -65,7 +64,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> 
     /// Describe the settings without reading the bookmark.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bootstrap")
-            .field("window", &self.window)
+            .field("sync_memory_budget", &self.sync_memory_budget)
             .field("run_budget", &self.run_budget)
             .field("payload_depth_limit", &self.payload_depth_limit)
             .field("observe", &self.observe)
@@ -80,7 +79,7 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// Use the default session settings without a bookmark.
     pub(crate) fn new() -> Self {
         Self {
-            window: WindowConfig::default(),
+            sync_memory_budget: crate::DEFAULT_SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
             gossip_policy: super::policy::Policy::default(),
             payload_depth_limit: PayloadDepthLimit::default(),
@@ -103,7 +102,7 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// bookmark and can retry.
     pub fn bookmark<B: Bookmark>(self, bookmark: B) -> Bootstrap<T, B> {
         Bootstrap {
-            window: self.window,
+            sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             gossip_policy: self.gossip_policy,
             payload_depth_limit: self.payload_depth_limit,
@@ -120,7 +119,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Copy only session settings; storage stays with the retryable builder.
     fn session_config(&self) -> Bootstrap<T> {
         Bootstrap {
-            window: self.window,
+            sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             gossip_policy: self.gossip_policy.clone(),
             payload_depth_limit: self.payload_depth_limit,
@@ -168,7 +167,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// supply runs. See [`Peer::sync_memory_budget`] for the contract and
     /// [the sizing guide](crate::sizing) for tuning guidance.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
-        self.window = WindowConfig::Budget(budget_bytes);
+        self.sync_memory_budget = budget_bytes;
         self
     }
 

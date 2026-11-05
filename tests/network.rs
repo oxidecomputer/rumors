@@ -20,7 +20,7 @@ use crate::common::wire::{assert_connection_drained, block_on};
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>(
     stream: u64,
 ) -> Peer<T> {
-    Peer::seed_rng(&mut ChaChaRng::seed_from_u64(stream)).sync_window_floor()
+    Peer::seed_rng(&mut ChaChaRng::seed_from_u64(stream)).sync_memory_budget(0)
 }
 
 /// Every handle on one rumor set belongs to the same universe.
@@ -30,7 +30,7 @@ fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync +
 /// `Peer` carries it back out.
 #[test]
 fn rumors_preserves_network() {
-    let parent = Peer::<u64>::seed().sync_window_floor();
+    let parent = Peer::<u64>::seed().sync_memory_budget(0);
     let network = parent.network();
 
     let rumors = parent.into_rumors();
@@ -152,7 +152,7 @@ fn retire_rejects_foreign_network_without_consuming_the_peer() {
 /// the universe it was served from and can subsequently combine with it.
 #[test]
 fn bootstrap_adopts_provider_network() {
-    let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let provider = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     provider.send_all([1, 2, 3]).unwrap();
     let provider_network = provider.network();
 

@@ -16,7 +16,7 @@ use crate::tree::mirror::preamble::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, UNBOUNDED, with_observation, with_schedule,
 };
-use crate::tree::mirror::streaming::window::{FAN, WindowConfig};
+use crate::tree::mirror::streaming::window::FAN;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},
@@ -81,7 +81,7 @@ async fn reconcile_symmetric_accepts(
         (a_end.read, a_end.write),
         (b_end.read, b_end.write),
         codec::<()>(),
-        WindowConfig::FLOOR,
+        0,
     )
     .await;
     (
@@ -130,7 +130,7 @@ where
         (a_end.read, a_end.write),
         (b_end.read, b_end.write),
         codec::<T>(),
-        WindowConfig::FLOOR,
+        0,
     )
     .await;
     (
@@ -146,13 +146,13 @@ async fn reconcile_locally(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
         Root::<Local>::from(a),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .budget(0);
     let b = Handshaking::start(
         Local,
         Root::<Local>::from(b),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .budget(0);
     let (a, b) = Box::pin(mirror(a, b))
         .await
         .expect("two conforming local participants should reconcile");
@@ -224,7 +224,7 @@ async fn reconcile_with_stacked_failures(
         (a_read, a_write),
         (b_read, b_write),
         codec::<()>(),
-        WindowConfig::FLOOR,
+        0,
     )
     .await;
     (results, if fail_left { a_io } else { b_io })
@@ -257,13 +257,13 @@ async fn reconcile_with_failing_walk(
         failing_root(a),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .budget(0);
     let b = Handshaking::start(
         right_backend,
         failing_root(b),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .budget(0);
 
     let (a_end, b_end) = memory_connection(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(
@@ -590,7 +590,7 @@ fn early_first_child_dispute_is_live() {
 }
 
 /// Every proxy queue kind is exercised and has its documented capacity at
-/// the floor window.
+/// a budget of zero.
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
     let (a, b) = disjoint_pair(1, 1);
@@ -627,8 +627,8 @@ fn instrumented_reconcile(
     (result, channels, trace)
 }
 
-/// Every observed proxy queue has its documented capacity at the floor
-/// window and drains, and no take waits to publish a scope.
+/// Every observed proxy queue has its documented capacity at a budget of
+/// zero and drains, and no take waits to publish a scope.
 ///
 /// That a queue never holds more than its capacity is the bounded channel's
 /// own contract, which `channel::bounded`'s tests check directly

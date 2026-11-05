@@ -101,7 +101,7 @@ pub fn interleave<S>(
 where
     S: Stream<Item = (Version, Arc<u64>)> + Unpin,
 {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let sibling = a.clone();
     let b = bootstrap_fork(&a);
     let mut obs = subscribe(&a);
@@ -189,7 +189,7 @@ pub fn redact_during_pass<S>(
 where
     S: Stream<Item = (Version, Arc<u64>)> + Unpin,
 {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
     b.send_all(values).unwrap();
     wire_gossip(&a, &b);

@@ -30,7 +30,7 @@ use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 /// completed pass its checkpoint dominates every observed version.
 #[test]
 fn genesis_replay_observes_the_live_set_once() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     {
         rumors.send_all(0..8u64).unwrap();
     }
@@ -65,7 +65,7 @@ fn genesis_replay_observes_the_live_set_once() {
 /// the messages `v_mid` does not causally contain.
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send_all([1, 2, 3]).unwrap();
     let v_mid = rumors.snapshot().latest().clone();
     rumors.send_all([4, 5, 6]).unwrap();
@@ -93,7 +93,7 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
 /// after subscription are observed, as are messages learned via gossip.
 #[test]
 fn live_sends_and_gossip_learned_messages_are_observed() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     let sibling = a.clone();
@@ -124,7 +124,7 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
 /// does not see pre-subscription content.
 #[test]
 fn redactions_are_honored_silently() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
 
     // Redacted before subscription: never fires.
     let version_1 = rumors.send(1).unwrap();
@@ -165,7 +165,7 @@ fn redactions_are_honored_silently() {
 /// yields the complete final state and then ends.
 #[test]
 fn observer_drains_the_final_state_then_ends() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send_all([1, 2]).unwrap();
     let expected = live_map(&rumors);
 
@@ -191,7 +191,7 @@ fn observer_drains_the_final_state_then_ends() {
 /// drained observer is quiet, not ended.
 #[test]
 fn observer_stays_quiet_while_actors_live() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send(1).unwrap();
 
     let mut obs = rumors.unordered_messages();
@@ -214,7 +214,7 @@ fn observer_stays_quiet_while_actors_live() {
 /// nor is ended by it, and it keeps observing across the round-trip.
 #[test]
 fn observer_does_not_block_reunite_and_survives_it() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
 
     let mut obs = rumors.unordered_messages();
     let (_, ended) = drain(&mut obs);
@@ -246,7 +246,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
 /// observer sees their effects on its next passes.
 #[test]
 fn lent_borrows_do_not_block_senders() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send_all([1, 2]).unwrap();
 
     let mut obs = rumors.unordered_messages();
@@ -273,7 +273,7 @@ fn lent_borrows_do_not_block_senders() {
 /// nothing and earns an equal checkpoint.
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send_all([1, 2, 3]).unwrap();
 
     let mut obs = rumors.unordered_messages();
@@ -296,7 +296,7 @@ fn checkpoint_round_trips_on_an_unchanged_set() {
 /// are skipped, messages B holds that A never saw fire.
 #[test]
 fn checkpoint_is_portable_across_replicas() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     a.send(1).unwrap();
@@ -324,7 +324,7 @@ fn checkpoint_is_portable_across_replicas() {
 fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
 
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send_all([1, 2]).unwrap();
 
     let mut obs = rumors.unordered_messages();
@@ -356,7 +356,7 @@ fn try_next_distinguishes_quiet_from_ended() {
 /// `None` once the set closes.
 #[test]
 fn stream_face_matches_and_terminates() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send_all([1, 2]).unwrap();
     let expected = live_map(&rumors);
 
@@ -393,7 +393,7 @@ fn folding_delivered_versions_can_lose_a_message() {
     // (a universe's identifier never enters a version), so their path order
     // is fixed; it puts the later version first.
     let later_value = 1u64;
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     rumors.send(0).unwrap();
     rumors.send(later_value).unwrap();
     let snapshot = rumors.snapshot();
@@ -464,7 +464,7 @@ proptest! {
         taken in any::<prop::sample::Index>(),
         complete_pass in any::<bool>(),
     ) {
-        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         rumors.send_all(phase_one.iter().copied()).unwrap();
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,

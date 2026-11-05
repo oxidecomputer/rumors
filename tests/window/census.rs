@@ -264,7 +264,7 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
             rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors()
     })
 }
@@ -287,7 +287,7 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     // Doubling generations: every fork halves a *different* interval, so
     // party intervals stay shallow and stamps stay small — the many
     // frontiers accumulate in the join, not in any one leaf.
-    let seed = Peer::seed().sync_window_floor().into_rumors();
+    let seed = Peer::seed().sync_memory_budget(0).into_rumors();
     // The payload values cannot matter: the bound measured here is over
     // versions, which payloads never reach.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_f207_713a);

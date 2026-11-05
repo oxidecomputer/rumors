@@ -12,7 +12,7 @@ use crate::tree::{
     mirror::streaming::{
         channel::{QueueKind, QueueRole, with_kind_capacity, with_observation, with_role_hold},
         testing::session::{AMPLE, completed, over_pipe},
-        window::{FAN, Window, WindowConfig},
+        window::FAN,
     },
     typed::height::{Height, UnderUnderRoot},
 };
@@ -24,15 +24,14 @@ const LEVEL_3: usize = UnderUnderRoot::HEIGHT - 1;
 /// invited reply to arrive and park.
 const HOLD_POLLS: usize = 20_000;
 
-/// Reconcile two replicas over an ample pipe, each endpoint's walk and
-/// proxy sharing that endpoint's window, and require both to succeed
-/// unless the session stalled.
+/// Reconcile two replicas over an ample pipe, each endpoint on its entry in
+/// `budgets`, and require both to succeed unless the session stalled.
 fn session(
     left: TreeRoot,
     right: TreeRoot,
-    windows: [WindowConfig; 2],
+    budgets: [usize; 2],
 ) -> Result<(TreeRoot, TreeRoot), Quiescence> {
-    over_pipe::<()>((left, right), windows, AMPLE).map(completed)
+    over_pipe::<()>((left, right), budgets, AMPLE).map(completed)
 }
 
 /// Decoding never waits on the walk: while the level-3 stage takes nothing,
@@ -54,11 +53,7 @@ fn every_invited_reply_parks_while_its_stage_is_held() {
     let level_3 = QueueRole::new(QueueKind::ProxyResponses, LEVEL_3);
     let (result, report) = with_observation(|| {
         with_role_hold(level_3, HOLD_POLLS, || {
-            session(
-                initiator.clone(),
-                responder.clone(),
-                [WindowConfig::Budget(usize::MAX); 2],
-            )
+            session(initiator.clone(), responder.clone(), [usize::MAX; 2])
         })
     });
     let (left, right) = result.expect("the held session resumes and completes");
@@ -88,13 +83,7 @@ fn scope_queue_capacity_law() {
         left_initiates(&initiator, &responder),
         "the fixture's initiator must win the election"
     );
-    let run = || {
-        session(
-            initiator.clone(),
-            responder.clone(),
-            [WindowConfig::FLOOR; 2],
-        )
-    };
+    let run = || session(initiator.clone(), responder.clone(), [0; 2]);
 
     let (left, right) = with_kind_capacity(QueueKind::ProxyNextScopes, FAN - 1, run)
         .expect("FAN - 1 scope slots complete");
@@ -108,26 +97,20 @@ fn scope_queue_capacity_law() {
     assert_eq!(scopes.blocked_send_polls, 0, "no scope publish waited");
 }
 
-/// Reconcile `left` and `right` on two different windows, in both orders,
+/// Reconcile `left` and `right` on two different budgets, in both orders,
 /// and require both sessions to complete and converge on the join.
 ///
-/// One side runs the floor window and the other a wider one, so the two
-/// sides' queues and question counts differ while each bounds its own
-/// session.
-fn check_mismatched_windows_converge(
+/// One side runs a budget of zero and the other an unlimited one, so one
+/// side asks one question at a time while the other never waits for
+/// admission, and each bounds its own side.
+fn check_mismatched_budgets_converge(
     left: &TreeRoot,
     right: &TreeRoot,
 ) -> Result<(), TestCaseError> {
-    let narrow = Window::FLOOR;
-    let wide = Window::uniform(8);
     let expected = join_oracle(left, right);
-    for windows in [[narrow, wide], [wide, narrow]] {
-        let (a, b) = session(
-            left.clone(),
-            right.clone(),
-            windows.map(WindowConfig::Fixed),
-        )
-        .expect("mismatched windows stay live");
+    for budgets in [[0, usize::MAX], [usize::MAX, 0]] {
+        let (a, b) =
+            session(left.clone(), right.clone(), budgets).expect("mismatched budgets stay live");
         prop_assert_eq!(&a, &b);
         prop_assert_eq!(&a, &expected);
     }
@@ -135,12 +118,12 @@ fn check_mismatched_windows_converge(
 }
 
 proptest! {
-    /// Peers on different windows complete and converge in either role
-    /// ([`check_mismatched_windows_converge`]).
+    /// Peers on different budgets complete and converge in either role
+    /// ([`check_mismatched_budgets_converge`]).
     #[test]
-    fn mismatched_windows_converge_in_either_role(
+    fn mismatched_budgets_converge_in_either_role(
         (left, right) in arb_divergent_pair(),
     ) {
-        check_mismatched_windows_converge(&left, &right)?;
+        check_mismatched_budgets_converge(&left, &right)?;
     }
 }

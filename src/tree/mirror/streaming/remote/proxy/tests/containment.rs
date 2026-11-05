@@ -2,7 +2,6 @@
 
 use crate::testing::{memory_connection, run_to_quiescence};
 use crate::tree::arb::uncontained_supply_pair;
-use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root as TreeRoot,
     mirror::streaming::materialized::{Error as MaterializedError, Violation},
@@ -31,7 +30,7 @@ async fn reconcile_results(
         (a_end.read, a_end.write),
         (b_end.read, b_end.write),
         codec::<()>(),
-        WindowConfig::FLOOR,
+        0,
     )
     .await
 }

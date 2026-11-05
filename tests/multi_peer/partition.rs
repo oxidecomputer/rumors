@@ -21,12 +21,12 @@ use std::collections::BTreeMap;
 
 use proptest::prelude::*;
 
+use rumors_testkit::common::budget::{BudgetAssignment, arb_budget_assignment};
 use rumors_testkit::common::oracle::readout_multiset;
 use rumors_testkit::common::peer::quiesce;
 use rumors_testkit::common::schedule::events::Event;
 use rumors_testkit::common::schedule::executor::ExecutionResult;
 use rumors_testkit::common::schedule::{Schedule, arb_schedule, execute_with};
-use rumors_testkit::common::window::{WindowAssignment, arb_window_assignment};
 
 /// Fleet sizes exercised by generated partition schedules.
 const N_PEERS: std::ops::RangeInclusive<usize> = 3..=8;
@@ -38,12 +38,12 @@ fn execute_partition_and_heal(
     schedule: &Schedule<u64>,
     split_at: usize,
     partition_event_count: usize,
-    windows: &WindowAssignment,
+    budgets: &BudgetAssignment,
 ) -> ExecutionResult<u64> {
     assert!((1..schedule.n_peers).contains(&split_at));
     assert!(partition_event_count <= schedule.events.len());
 
-    let mut result = execute_with(schedule, windows, |a, b, event_idx| {
+    let mut result = execute_with(schedule, budgets, |a, b, event_idx| {
         event_idx >= partition_event_count || (a < split_at) == (b < split_at)
     });
     quiesce(&mut result.peers);
@@ -72,13 +72,13 @@ proptest! {
                     let events = schedule.events.len();
                     (Just(schedule), 1..peers, 0..=events)
                 }),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
         let result = execute_partition_and_heal(
             &schedule,
             split_at,
             partition_event_count,
-            &windows,
+            &budgets,
         );
 
         let expected = result.oracle.expected_live();
@@ -103,7 +103,7 @@ fn partition_boundary_preserves_equal_valued_inserts() {
             Event::Insert { peer: 1, value: 0 },
         ],
     };
-    let result = execute_partition_and_heal(&schedule, 1, 0, &WindowAssignment::floor());
+    let result = execute_partition_and_heal(&schedule, 1, 0, &BudgetAssignment::zero());
     let expected = BTreeMap::from([(0, 2)]);
 
     assert_eq!(result.oracle.expected_live(), expected);

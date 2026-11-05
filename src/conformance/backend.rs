@@ -59,7 +59,7 @@ use crate::{
             message::Listed,
             ops,
             stats::{Recorder, SessionStats},
-            window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, WindowConfig},
+            window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES},
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -846,8 +846,8 @@ where
 {
     node_bytes_monotone::<B>();
 
-    let (floor_peak, floor_stats) = run(backend.clone(), WindowConfig::Budget(0), 0).await;
-    let (budget_peak, budget_stats) = run(backend, WindowConfig::Budget(budget_bytes), 0).await;
+    let (floor_peak, floor_stats) = run(backend.clone(), 0, 0).await;
+    let (budget_peak, budget_stats) = run(backend, budget_bytes, 0).await;
     eprintln!(
         "conformance census at budget {budget_bytes} B: floor run peaked at {floor_peak} B \
          (widest capacity {}), budgeted run at {budget_peak} B (widest capacity {})",
@@ -905,11 +905,7 @@ fn histories() -> [Vec<(Version, u64)>; 3] {
 /// agreement alone cannot satisfy the completeness check. Pass zero for
 /// a complete fixture. Corpus construction is excluded from the peak, but
 /// corpus handles still alive during reconciliation are included.
-pub(super) async fn run<B>(
-    backend: B,
-    window: WindowConfig,
-    omitted: usize,
-) -> (usize, SessionStats)
+pub(super) async fn run<B>(backend: B, budget: usize, omitted: usize) -> (usize, SessionStats)
 where
     B: Measure,
     B::Error: std::fmt::Debug,
@@ -953,11 +949,11 @@ where
     let stats = Recorder::default();
     let client =
         materialized::Handshaking::start(charged.clone(), left, DEFAULT_TARGET_MESSAGE_SIZE as u64)
-            .window(window)
+            .budget(budget)
             .stats(stats.clone());
     let server =
         materialized::Handshaking::start(charged, right, DEFAULT_TARGET_MESSAGE_SIZE as u64)
-            .window(window);
+            .budget(budget);
     let (ours, theirs) = streaming::mirror(client, server)
         .await
         .unwrap_or_else(|error| fail(&format!("the conformance session reconciles: {error:?}")));

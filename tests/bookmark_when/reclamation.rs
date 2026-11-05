@@ -10,7 +10,7 @@ use crate::common::flaky::persisted_record;
 #[test]
 fn concurrent_bootstrap_checkpoint_protects_writes_after_restart() {
     block_on(async {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let witness = bootstrap_fork_peer(&seed).await.into_rumors();
         let bookmark = Probe::default();
         let owner = bootstrap_fork_peer(&seed)
@@ -66,7 +66,7 @@ fn concurrent_bootstrap_checkpoint_protects_writes_after_restart() {
 #[test]
 fn restart_reclaims_identities_that_overlap_without_nesting() {
     block_on(async {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let witness = bootstrap_fork_peer(&seed).await.into_rumors();
         let bookmark = Probe::default();
         let owner = bootstrap_fork_peer(&seed)
@@ -135,7 +135,7 @@ proptest! {
         releases in proptest::collection::vec((any::<bool>(), any::<usize>()), 1..5),
     ) {
         block_on(async {
-            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
             let witness = bootstrap_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
             let departed = bootstrap_fork_peer(&seed).await
@@ -219,7 +219,7 @@ proptest! {
         block_on(async {
             // All peers descend from this seed. Only the witness learns the
             // departing peer's writes, so the seed can serve an incomplete restart.
-            let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
             let witness = bootstrap_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
             let departed = bootstrap_fork_peer(&seed).await

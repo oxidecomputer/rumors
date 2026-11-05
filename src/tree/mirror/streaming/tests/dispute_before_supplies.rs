@@ -1,8 +1,8 @@
 //! Real trees can produce one dispute ahead of six whole-subtree supplies.
 //!
 //! The shape has a root fan of seven, with the first child disputed down to
-//! a leaf request and six whole-subtree supplies behind it. At the one-slot
-//! window, the requesting side's stage cannot take the later supplies until
+//! a leaf request and six whole-subtree supplies behind it. At a budget of
+//! zero, the requesting side's stage cannot take the later supplies until
 //! the disputed chain resolves, every level down to the leaf, while the
 //! supplier writes the supplies as soon as it encodes them, long before the
 //! chain's deeper replies, each of which waits on a round trip. So the

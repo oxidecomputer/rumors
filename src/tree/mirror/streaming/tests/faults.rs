@@ -10,7 +10,6 @@ use super::{
 };
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::testing::run_to_quiescence;
-use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
@@ -26,15 +25,14 @@ use crate::tree::{
     arb::{arb_wide_divergent_pair, leaf_parent_dispute_pair},
 };
 
-/// A `Failing<Local>` endpoint at the floor window over `root`, its nodes
+/// A `Failing<Local>` endpoint at a budget of zero over `root`, its nodes
 /// wrapped for the failing backend.
 fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
     let root = StreamingRoot {
         ceiling: root.ceiling,
         root: root.node.map(FailingNode::new),
     };
-    Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64)
-        .window(WindowConfig::FLOOR)
+    Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64).budget(0)
 }
 
 /// The last ordinary walk reply in the full-depth fixture.

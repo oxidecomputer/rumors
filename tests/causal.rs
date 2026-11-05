@@ -73,7 +73,7 @@ fn assert_causal(items: &[(Version, u64)]) {
 /// delivery scrambles roughly half the time.
 #[test]
 fn single_party_backlog_replays_in_send_order() {
-    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     for v in 0..8u64 {
         known.send(v).unwrap(); // one commit per send: strictly increasing versions
     }
@@ -94,7 +94,7 @@ fn single_party_backlog_replays_in_send_order() {
 /// arriving in later passes need not follow it.
 #[test]
 fn converged_backlog_has_no_inversions() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     for v in 0..4u64 {
@@ -126,7 +126,7 @@ fn converged_backlog_has_no_inversions() {
 /// concurrent effects and gives those effects a deterministic order.
 #[test]
 fn snapshot_items_sort_by_ranked_version() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let cause = a.send(0).unwrap();
     let b = bootstrap_fork(&a);
     let left = a.send(1).unwrap();
@@ -153,7 +153,7 @@ fn snapshot_items_sort_by_ranked_version() {
 /// The public contract allows concurrent messages to arrive in either order.
 #[test]
 fn identical_backlogs_use_the_same_staging_order() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     a.send_all([1, 2]).unwrap();
@@ -180,7 +180,7 @@ fn identical_backlogs_use_the_same_staging_order() {
 /// contain a causal predecessor of an earlier pass's message.
 #[test]
 fn live_passes_preserve_causal_order_cumulatively() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     let mut obs = a.causal_messages();
@@ -213,7 +213,7 @@ fn live_passes_preserve_causal_order_cumulatively() {
 /// and a resume observes nothing.
 #[test]
 fn checkpoint_lags_until_the_backlog_drains() {
-    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let genesis = known.snapshot().latest().clone();
     known.send(1).unwrap();
     known.send(2).unwrap();
@@ -251,7 +251,7 @@ fn checkpoint_lags_until_the_backlog_drains() {
 /// ends, and ended is terminal.
 #[test]
 fn observer_drains_the_final_state_causally_then_ends() {
-    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     known.send_all([1, 2, 3]).unwrap();
     let expected = live_map(&known);
 
@@ -276,7 +276,7 @@ fn observer_drains_the_final_state_causally_then_ends() {
 /// once the set closes.
 #[test]
 fn stream_face_is_causal_and_terminates() {
-    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     for v in 0..6u64 {
         known.send(v).unwrap();
     }
@@ -304,7 +304,7 @@ proptest! {
     /// Later passes may deliver lower-ranked concurrent messages without a causal inversion.
     #[test]
     fn concurrent_later_arrivals_need_not_follow_rank_order(count in 2u64..10) {
-        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork(&a);
         a.send_all(0..count).unwrap();
         b.send(count).unwrap();
@@ -351,7 +351,7 @@ proptest! {
         taken in any::<prop::sample::Index>(),
         complete_drain in any::<bool>(),
     ) {
-        let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         for v in &phase_one {
             known.send(*v).unwrap(); // separate commits: a strict causal chain
         }
@@ -433,7 +433,7 @@ proptest! {
         for taken in [taken.index(total + 1), total] {
             // Two replicas of one network: `known` is the crashing process,
             // `partner` survives it to seed the rebuild.
-            let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
             let partner = bootstrap_fork(&known);
             for v in &local {
                 known.send(*v).unwrap();
@@ -541,7 +541,7 @@ proptest! {
 /// This test pins the boundary on both faces.
 #[test]
 fn final_pop_checkpoint_still_replays_the_last_message() {
-    let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     known.send(7).unwrap();
 
     // The unordered observer under the probe's protocol — deliver the only

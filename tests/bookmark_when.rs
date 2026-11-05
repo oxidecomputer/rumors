@@ -96,7 +96,7 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
         rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("subject served the bootstrap"),
     })
-    .sync_window_floor()
+    .sync_memory_budget(0)
     .into_rumors()
 }
 
@@ -112,7 +112,7 @@ async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
         rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("origin served the bootstrap"),
     })
-    .sync_window_floor()
+    .sync_memory_budget(0)
 }
 
 /// Retire a helper into the subject, transferring its identity.
@@ -289,9 +289,9 @@ impl World {
         let probe = Probe::default();
         let log = Arc::clone(&probe.log);
         let (peer, helpers, loaded) = match origin {
-            Origin::Seed => (Peer::<u64>::seed().sync_window_floor(), Vec::new(), false),
+            Origin::Seed => (Peer::<u64>::seed().sync_memory_budget(0), Vec::new(), false),
             Origin::Bootstrap => {
-                let origin = Peer::<u64>::seed().sync_window_floor().into_rumors();
+                let origin = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
                 (bootstrap_fork_peer(&origin).await, vec![origin], true)
             }
         };

@@ -48,7 +48,7 @@ use serde::de::DeserializeOwned;
 /// Create a peer from the snapshots' stable deterministic random stream.
 pub fn seeded<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static>() -> Rumors<T> {
     let mut rng = ChaChaRng::seed_from_u64(0);
-    Peer::seed_rng(&mut rng).sync_window_floor().into_rumors()
+    Peer::seed_rng(&mut rng).sync_memory_budget(0).into_rumors()
 }
 
 /// Short byte-payload collections, including empty sets, for wire tests.

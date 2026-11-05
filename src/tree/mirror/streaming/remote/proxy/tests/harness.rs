@@ -23,7 +23,7 @@ use crate::testing::{
     IoFault, IoPlan, IoReportHandle, IoSide, MemoryEnd, memory_connection, wrap_io,
 };
 use crate::tree::mirror::cbor;
-use crate::tree::mirror::streaming::window::WindowConfig;
+use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::typed::height::Z;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
@@ -720,7 +720,7 @@ pub async fn reconcile(
         (left_read, left_write),
         (right_read, right_write),
         codec::<()>(),
-        WindowConfig::FLOOR,
+        0,
     )
     .await;
 
@@ -754,7 +754,7 @@ pub async fn reconcile_rewritten_greetings(
         rewritten(left_end, left_hears),
         rewritten(right_end, right_hears),
         codec::<()>(),
-        WindowConfig::default(),
+        DEFAULT_SYNC_MEMORY_BUDGET,
     )
     .await
 }
@@ -826,7 +826,7 @@ pub async fn reconcile_scripted(
             ScriptedWrite::new(right_end.write, right_script),
         ),
         codec::<()>(),
-        WindowConfig::FLOOR,
+        0,
     )
     .await
 }
@@ -838,7 +838,7 @@ pub async fn reconcile_scripted(
 /// half. Every result is the endpoint's materialized tree or the failure of
 /// whichever of its two participants raised one.
 // One premise per argument: the topology, the four backends, the two
-// roots, the two ends, the codec, and the window.
+// roots, the two ends, the codec, and the budget.
 #[allow(clippy::too_many_arguments)]
 pub async fn drive<B, LR, LW, RR, RW>(
     topology: Topology,
@@ -848,7 +848,7 @@ pub async fn drive<B, LR, LW, RR, RW>(
     left_end: (LR, LW),
     right_end: (RR, RW),
     codec: PayloadCodec,
-    window: WindowConfig,
+    budget: usize,
 ) -> (
     Result<TreeRoot, EndpointError<B::Error>>,
     Result<TreeRoot, EndpointError<B::Error>>,
@@ -871,13 +871,13 @@ where
         B::lift(left),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
-    .window(window);
+    .budget(budget);
     let right = Handshaking::start(
         right_backend,
         B::lift(right),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
-    .window(window);
+    .budget(budget);
     let (left_read, left_write) = left_end;
     let (right_read, right_write) = right_end;
     let remote_right = RemoteHandshaking::start(left_proxy, left_read, left_write, codec);

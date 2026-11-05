@@ -11,16 +11,16 @@
 //!   pipe, and the poller reports it: here a decoder's assembler and its
 //!   reader each wait on the other, through one-slot edges between them. A
 //!   wait of the receive path on the walk would close a cycle of the same
-//!   kind. At the derived capacities, the
+//!   kind. At its queues' own capacities and a budget of zero, the
 //!   dispute-before-supplies fixture (one dispute ahead of six whole-subtree
 //!   supplies, which puts supplies on the pipe ahead of frames their stage
 //!   needs first) completes and matches the in-memory join.
-//! - **The pipe regime.** At the one-slot window and a one-byte pipe, every
+//! - **The pipe regime.** At a budget of zero and a one-byte pipe, every
 //!   wait anywhere in the session is a full handoff, so a new wait of the
 //!   receive path on the walk shows up as a stall. Scheduled divergent
 //!   sessions, the capacity stress fixtures, the wire suites' stress
-//!   fixtures, peers on mismatched windows, and peers on different budgets
-//!   must all complete.
+//!   fixtures, a peer at a budget of zero against an unlimited one, and
+//!   peers on different budgets must all complete.
 //!
 //! Several fixtures place leaves at chosen paths, and the
 //! wire decoder derives each received leaf's path from its version. Their
@@ -48,7 +48,7 @@ use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::channel::{QueueKind, with_kind_capacity, with_schedule};
 use crate::tree::mirror::streaming::protocol::split::with_split_replies;
 use crate::tree::mirror::streaming::testing::session::{AMPLE, Endpoint, over_pipe};
-use crate::tree::mirror::streaming::window::{FAN, Window, WindowConfig};
+use crate::tree::mirror::streaming::window::FAN;
 use crate::tree::typed::{Node as TreeNode, Path};
 use crate::{Version, causally};
 
@@ -74,14 +74,14 @@ fn leaf_paths(pair: &(Root, Root)) -> Vec<(Version, Path)> {
 /// derivation following that placement for the session.
 pub(super) fn placed_over_pipe(
     pair: (Root, Root),
-    windows: [WindowConfig; 2],
+    budgets: [usize; 2],
     buffer: usize,
 ) -> Result<(Endpoint, Endpoint), Quiescence> {
     let paths = leaf_paths(&pair);
-    Path::with_leaf_paths(paths, || over_pipe::<()>(pair, windows, buffer))
+    Path::with_leaf_paths(paths, || over_pipe::<()>(pair, budgets, buffer))
 }
 
-/// Reconcile a pair over a one-byte pipe at `windows` under the given
+/// Reconcile a pair over a one-byte pipe at `budgets` under the given
 /// channel and backend poll schedules, and require both endpoints to
 /// complete holding the join of their trees.
 ///
@@ -89,7 +89,7 @@ pub(super) fn placed_over_pipe(
 fn assert_completes_over_one_byte(
     pair: (Root, Root),
     placed: bool,
-    windows: [WindowConfig; 2],
+    budgets: [usize; 2],
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
 ) -> Result<(), TestCaseError> {
@@ -97,9 +97,9 @@ fn assert_completes_over_one_byte(
     let outcome = with_schedule(channel_schedule, || {
         with_local_schedule(backend_schedule, || {
             if placed {
-                placed_over_pipe(pair, windows, ONE_BYTE)
+                placed_over_pipe(pair, budgets, ONE_BYTE)
             } else {
-                over_pipe::<()>(pair, windows, ONE_BYTE)
+                over_pipe::<()>(pair, budgets, ONE_BYTE)
             }
         })
     });
@@ -162,7 +162,7 @@ fn harness_detects_a_stall_over_one_pipe() {
     );
     let outcome = with_kind_capacity(QueueKind::AssembledSupplies, 1, || {
         with_kind_capacity(QueueKind::DecodedLeaves, 1, || {
-            placed_over_pipe(pair, [WindowConfig::FLOOR; 2], AMPLE)
+            placed_over_pipe(pair, [0; 2], AMPLE)
         })
     });
     assert!(
@@ -179,24 +179,24 @@ fn grouped_supplies_complete_over_a_one_slot_leaf_edge() {
     let pair = grouped_supplies_pair();
     let expected = join_oracle(pair.0.clone(), pair.1.clone());
     let (initiator, responder) = with_kind_capacity(QueueKind::DecodedLeaves, 1, || {
-        placed_over_pipe(pair, [WindowConfig::FLOOR; 2], AMPLE)
+        placed_over_pipe(pair, [0; 2], AMPLE)
     })
     .expect("a fan of supply slots must not stall");
     assert_eq!(initiator.expect("the initiator completes"), expected);
     assert_eq!(responder.expect("the responder completes"), expected);
 }
 
-/// At the derived capacities, the dispute-before-supplies fixture completes
-/// over one pipe and both sides hold the in-memory join.
+/// At a budget of zero, the dispute-before-supplies fixture completes over
+/// one pipe and both sides hold the in-memory join.
 ///
-/// Every queue runs at the capacity the session derives, the walk's at the
-/// one-slot window, under which the requesting side's stage blocks on the
-/// dispute's chain while the supplies arrive and park.
+/// Every queue runs at its own capacity, and the walk asks one question at
+/// a time, so the requesting side's stage blocks on the dispute's chain
+/// while the supplies arrive and park.
 #[test]
 fn derived_capacities_complete_dispute_before_supplies_over_one_pipe() {
     let pair = dispute_before_supplies_trees();
     let expected = join_oracle(pair.0.clone(), pair.1.clone());
-    let (supplier_out, chain_out) = placed_over_pipe(pair, [WindowConfig::FLOOR; 2], AMPLE)
+    let (supplier_out, chain_out) = placed_over_pipe(pair, [0; 2], AMPLE)
         .expect("the dispute-before-supplies fixture must not stall over one pipe");
     assert_eq!(supplier_out.expect("the supplier completes"), expected);
     assert_eq!(chain_out.expect("the requesting side completes"), expected);
@@ -212,7 +212,7 @@ fn dispute_before_supplies_completes_over_a_one_byte_pipe() {
             assert_completes_over_one_byte(
                 pair.clone(),
                 true,
-                [WindowConfig::FLOOR; 2],
+                [0; 2],
                 channel_schedule,
                 backend_schedule,
             )
@@ -222,7 +222,7 @@ fn dispute_before_supplies_completes_over_a_one_byte_pipe() {
 }
 
 /// Every capacity stress fixture completes over a one-byte pipe at the
-/// one-slot window, in both orientations and under every standard poll
+/// budget of zero, in both orientations and under every standard poll
 /// schedule.
 ///
 /// The fixtures stress the walk's one-slot and fan-sized queues: a full fan
@@ -245,7 +245,7 @@ fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
                 assert_completes_over_one_byte(
                     pair.clone(),
                     true,
-                    [WindowConfig::FLOOR; 2],
+                    [0; 2],
                     channel_schedule,
                     backend_schedule,
                 )
@@ -256,7 +256,7 @@ fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
 }
 
 /// Every capacity and wire stress fixture completes over a one-byte pipe at
-/// the one-slot window with every reply split at every reaction boundary,
+/// a budget of zero with every reply split at every reaction boundary,
 /// in both orientations.
 ///
 /// Each stage then reads every reply one reaction at a time, each encoder
@@ -282,13 +282,7 @@ fn stress_fixtures_complete_with_split_replies_over_a_one_byte_pipe() {
     for ((a, b), placed) in cases {
         for pair in [(a.clone(), b.clone()), (b, a)] {
             with_split_replies(|| {
-                assert_completes_over_one_byte(
-                    pair,
-                    placed,
-                    [WindowConfig::FLOOR; 2],
-                    Vec::new(),
-                    Vec::new(),
-                )
+                assert_completes_over_one_byte(pair, placed, [0; 2], Vec::new(), Vec::new())
             })
             .unwrap();
         }
@@ -296,7 +290,7 @@ fn stress_fixtures_complete_with_split_replies_over_a_one_byte_pipe() {
 }
 
 /// The wire suites' own stress fixtures complete over a one-byte pipe at the
-/// one-slot window, in both orientations and under every standard poll
+/// budget of zero, in both orientations and under every standard poll
 /// schedule.
 ///
 /// A full-fan reply behind two disputes and a dispute ahead of
@@ -316,7 +310,7 @@ fn wire_stress_fixtures_complete_over_a_one_byte_pipe() {
                 assert_completes_over_one_byte(
                     pair.clone(),
                     placed,
-                    [WindowConfig::FLOOR; 2],
+                    [0; 2],
                     channel_schedule,
                     backend_schedule,
                 )
@@ -327,8 +321,8 @@ fn wire_stress_fixtures_complete_over_a_one_byte_pipe() {
 }
 
 proptest! {
-    /// Arbitrary divergent sessions complete over a one-byte pipe at the
-    /// one-slot window under arbitrary channel and backend poll schedules,
+    /// Arbitrary divergent sessions complete over a one-byte pipe at a
+    /// budget of zero under arbitrary channel and backend poll schedules,
     /// and both sides hold the join.
     #[test]
     fn scheduled_sessions_complete_over_a_one_byte_pipe(
@@ -339,24 +333,22 @@ proptest! {
         assert_completes_over_one_byte(
             pair,
             false,
-            [WindowConfig::FLOOR; 2],
+            [0; 2],
             channel_schedule,
             backend_schedule,
         )?;
     }
 
-    /// Peers on mismatched windows complete over a one-byte pipe in either
-    /// role.
+    /// A peer at a budget of zero and a peer at an unlimited one complete
+    /// over a one-byte pipe in either role.
     ///
     /// This test holds the mismatch to the one-byte regime; the proxy's
-    /// `mismatched_windows_converge_in_either_role` holds it over an ample
+    /// `mismatched_budgets_converge_in_either_role` holds it over an ample
     /// pipe.
     #[test]
-    fn mismatched_windows_complete_over_a_one_byte_pipe(pair in arb_divergent_pair()) {
-        let narrow = WindowConfig::FLOOR;
-        let wide = WindowConfig::Fixed(Window::uniform(8));
-        for windows in [[narrow, wide], [wide, narrow]] {
-            assert_completes_over_one_byte(pair.clone(), false, windows, Vec::new(), Vec::new())?;
+    fn zero_and_unlimited_budgets_complete_over_a_one_byte_pipe(pair in arb_divergent_pair()) {
+        for budgets in [[0, usize::MAX], [usize::MAX, 0]] {
+            assert_completes_over_one_byte(pair.clone(), false, budgets, Vec::new(), Vec::new())?;
         }
     }
 
@@ -370,9 +362,9 @@ proptest! {
         pair in arb_divergent_pair(),
         budgets in prop::sample::subsequence(vec![0_usize, 1 << 16, 1 << 20, 1 << 29], 2),
     ) {
-        let [small, large] = [budgets[0], budgets[1]].map(WindowConfig::Budget);
-        for windows in [[small, large], [large, small]] {
-            assert_completes_over_one_byte(pair.clone(), false, windows, Vec::new(), Vec::new())?;
+        let [small, large] = [budgets[0], budgets[1]];
+        for budgets in [[small, large], [large, small]] {
+            assert_completes_over_one_byte(pair.clone(), false, budgets, Vec::new(), Vec::new())?;
         }
     }
 }

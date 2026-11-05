@@ -27,8 +27,8 @@ use rumors::observe::{
 use rumors::testing::PipeCapture;
 use rumors::{Peer, Retire, Rumors, SessionStats, Version};
 
+use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{capture_sides, corpora, payloads};
-use crate::common::window::WindowChoice;
 use crate::common::wire::{block_on, bootstrap_fork_configured};
 
 /// Retain every observation callback for comparison with the transport.
@@ -364,7 +364,7 @@ fn cancelled_session_reports_cancellation_once() {
 fn seeded(observer: Option<&Arc<Recording>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
     // The wire-neutrality test runs two separate networks. A fixed network ID
     // makes their captures comparable; peers from those runs never interact.
-    let mut peer = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0)).sync_window_floor();
+    let mut peer = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0)).sync_memory_budget(0);
     if let Some(observer) = observer {
         peer = peer.observe(observer.clone());
     }
@@ -382,7 +382,7 @@ fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors
     block_on(bootstrap_fork_configured(
         parent,
         bootstrap,
-        WindowChoice::Floor,
+        BudgetChoice::Zero,
     ))
 }
 

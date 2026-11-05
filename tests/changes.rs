@@ -24,7 +24,7 @@ use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 /// new subscriber has seen nothing, so whatever the set holds is news.
 #[test]
 fn first_poll_yields_immediately() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     // And with nothing further committed, the stream is quiet.
@@ -35,7 +35,7 @@ fn first_poll_yields_immediately() {
 /// Sending and redacting before gossip leaves this history-only change.
 #[test]
 fn gossip_frontier_only_advance_ticks_the_observer() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
 
     // Register the wait before the update, as an idle gossip driver would.
@@ -71,7 +71,7 @@ fn gossip_frontier_only_advance_ticks_the_observer() {
 /// after the last poll) is delivered before the end.
 #[test]
 fn set_closure_ends_the_stream() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
@@ -87,7 +87,7 @@ fn set_closure_ends_the_stream() {
 /// [`Rumors::try_into_peer`] reclaim the `Peer`.
 #[test]
 fn observer_does_not_block_peer_reclaim() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let _changes = rumors.changes();
     assert!(block_on(rumors.try_into_peer()).is_some());
 }
@@ -155,7 +155,7 @@ proptest! {
     /// coalesces unread changes, and reports the final state before ending.
     #[test]
     fn changes_follow_history_under_interleaving(ops in arb_ops()) {
-        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork(&a);
         let mut changes = a.changes();
         let mut reported = None;
@@ -200,7 +200,7 @@ proptest! {
     /// Empty batches and absent or repeated redactions do not wake a parked task.
     #[test]
     fn noop_commits_do_not_wake_observers(ops in vec(0u8..3, 1..40)) {
-        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let removed = a.send(7).unwrap();
         a.redact(&removed);
         let latest = a.snapshot().latest().clone();

@@ -16,7 +16,7 @@ use rumors::{Bootstrap, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
-use crate::common::window::WindowChoice;
+use crate::common::budget::BudgetChoice;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -148,7 +148,6 @@ where
 /// [`wire_gossip_async`], returning both endpoints' session reports so
 /// callers can assert on [`SessionStats`](rumors::SessionStats).
 ///
-/// The window-sweep liveness pins read `window_granted` from here.
 /// Checks the connection drained, like every successful in-memory session.
 pub async fn gossip_pair_async<T>(
     a: &Rumors<T>,
@@ -179,28 +178,27 @@ pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
 }
 
 /// Two party-disjoint forks of one fresh universe, fully divergent by
-/// [`diverge`], each at its own window choice.
+/// [`diverge`], each at its own budget choice.
 ///
-/// The shared fixture for session-effect measurements: the window-sweep
-/// pins use it directly, and the fault engine's envelope calibration
-/// builds its richer variant on [`diverge`].
+/// The shared fixture for session-effect measurements: the fault engine's
+/// envelope calibration builds its richer variant on [`diverge`].
 pub async fn divergent_pair(
     values_per_side: u64,
-    window_a: WindowChoice,
-    window_b: WindowChoice,
+    budget_a: BudgetChoice,
+    budget_b: BudgetChoice,
 ) -> (Rumors<u64>, Rumors<u64>) {
-    let seed = WindowChoice::Default
+    let seed = BudgetChoice::Default
         .apply(Peer::<u64>::seed())
         .into_rumors();
-    let a = bootstrap_fork_with_window_async(&seed, window_a).await;
-    let b = bootstrap_fork_with_window_async(&seed, window_b).await;
+    let a = bootstrap_fork_with_budget_async(&seed, budget_a).await;
+    let b = bootstrap_fork_with_budget_async(&seed, budget_b).await;
     diverge(&a, &b, values_per_side);
     (a, b)
 }
 
 /// Join the parent's network with an independent peer holding its messages.
 ///
-/// The new peer uses the minimum sync window to exercise backpressure. The
+/// The new peer runs a budget of zero to exercise backpressure. The
 /// shared driver checks that bootstrap completes and drains the connection.
 #[track_caller]
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
@@ -215,38 +213,38 @@ pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, Peer::bootstrap(), WindowChoice::Floor).await
+    bootstrap_fork_configured(parent, Peer::bootstrap(), BudgetChoice::Zero).await
 }
 
-/// Join the parent's network, then configure the new peer's sync window.
+/// Join the parent's network, then configure the new peer's budget.
 #[track_caller]
-pub fn bootstrap_fork_with_window<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
+pub fn bootstrap_fork_with_budget<T>(parent: &Rumors<T>, budget: BudgetChoice) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    block_on(bootstrap_fork_with_window_async(parent, window))
+    block_on(bootstrap_fork_with_budget_async(parent, budget))
 }
 
-/// Awaitable [`bootstrap_fork_with_window`].
-pub async fn bootstrap_fork_with_window_async<T>(
+/// Awaitable [`bootstrap_fork_with_budget`].
+pub async fn bootstrap_fork_with_budget_async<T>(
     parent: &Rumors<T>,
-    window: WindowChoice,
+    budget: BudgetChoice,
 ) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, Peer::bootstrap(), window).await
+    bootstrap_fork_configured(parent, Peer::bootstrap(), budget).await
 }
 
 /// Join through a configured builder, check the connection drained, and set
-/// the window.
+/// the budget.
 ///
-/// Accepting a builder lets suites observe bootstrap itself. The window governs
+/// Accepting a builder lets suites observe bootstrap itself. The budget governs
 /// later sessions; bootstrap has no disputed subtrees to pipeline.
 pub async fn bootstrap_fork_configured<T>(
     parent: &Rumors<T>,
     bootstrap: Bootstrap<T>,
-    window: WindowChoice,
+    budget: BudgetChoice,
 ) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
@@ -258,7 +256,7 @@ where
         bootstrap.join(&mut boot_end.read, &mut boot_end.write),
     );
     server_out.expect("bootstrap server gossip");
-    let forked = window
+    let forked = budget
         .apply(match boot_out {
             rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("parent served the bootstrap"),

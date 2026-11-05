@@ -309,7 +309,7 @@ async fn transmit_during_persist() -> Scene {
     let store_a = DurableStore::default();
     let bm_a = GatedBookmark::new(store_a.clone());
     let a = Peer::<Msg>::seed()
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .bookmark(bm_a.clone())
         .await
         .expect("a pristine seed attaches its bookmark without touching storage")
@@ -413,7 +413,7 @@ fn cancelled_persist_never_suppresses_the_next_update() {
         let store_a = DurableStore::default();
         let bm_a = GatedBookmark::new(store_a.clone());
         let a = Peer::<Msg>::seed()
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .bookmark(bm_a.clone())
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
@@ -557,7 +557,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
             let store_a = DurableStore::default();
             let bm_a = GatedBookmark::new(store_a.clone());
             let a = Peer::<Msg>::seed()
-                .sync_window_floor()
+                .sync_memory_budget(0)
                 .bookmark(bm_a.clone())
                 .await
                 .expect("a pristine seed attaches its bookmark without touching storage")
@@ -638,7 +638,7 @@ fn repeated_donation_aborts_normalize() {
         let store_a = DurableStore::default();
         let bm_a = GatedBookmark::new(store_a.clone());
         let a = Peer::<Msg>::seed()
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .bookmark(bm_a.clone())
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")

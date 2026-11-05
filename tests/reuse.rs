@@ -33,7 +33,7 @@ const ROUNDS: u64 = 3;
 /// bootstrap fork of it. The two ends of one connection they will keep
 /// reusing are created per test.
 async fn pair() -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
     (a, b)
 }

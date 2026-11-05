@@ -393,7 +393,7 @@ fn report(name: &str, trace: &Trace) {
     );
 }
 
-/// Two production-window V2 peers with a shared prefix and divergence on
+/// Two default-budget V2 peers with a shared prefix and divergence on
 /// both sides, mirroring the pipelining test's shape at reduced scale.
 fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     const COMMON: usize = 2_048;
@@ -412,7 +412,7 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     (left, right)
 }
 
-/// Two production-window V2 peers diverged purely by disjoint redactions.
+/// Two default-budget V2 peers diverged purely by disjoint redactions.
 fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     const COMMON: usize = 2_048;
     const REDACT_PER_SIDE: usize = 256;

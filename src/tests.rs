@@ -87,7 +87,7 @@ fn overlapping_retiree_party_is_rejected() {
         codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         gossip_policy: Default::default(),
         network: survivor.network,
-        window: survivor.window,
+        sync_memory_budget: survivor.sync_memory_budget,
         run_budget: survivor.run_budget,
         inner: watch::Sender::new(Inner::new(
             party_of(&survivor),

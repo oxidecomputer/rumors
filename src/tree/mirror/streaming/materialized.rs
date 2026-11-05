@@ -114,7 +114,7 @@ use crate::tree::{
         message::{Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
-        window::{ReplicaSize, Window, WindowConfig},
+        window::{DEFAULT_SYNC_MEMORY_BUDGET, ReplicaSize, Window},
     },
     typed::{
         ErasedPrefix, Prefix,
@@ -143,14 +143,14 @@ fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
     Err(Error::Violation(violation))
 }
 
-/// The ledger a session over `B` keeps under `window`.
+/// The budget a session's ledger admits work against when the session may
+/// hold `budget` in all.
 ///
-/// It admits work against the window's budget less the floor allowance of
-/// a walk over `B`'s nodes ([`floor_allowance`]), so that what it holds
-/// outside its floor slots and what they hold come to at most the budget
-/// together ([`WindowConfig::admission_budget`]).
-fn session_ledger<B: Backend<Node<Z>: Leaf>>(window: WindowConfig) -> Ledger {
-    Ledger::new(window.admission_budget(floor_allowance::<B::Erased, B::Error>()))
+/// That is `budget` less the floor allowance of a walk over `B`'s nodes
+/// ([`floor_allowance`]), or nothing beyond the floor slots if `budget` is
+/// no more than that allowance.
+fn admission_budget<B: Backend<Node<Z>: Leaf>>(budget: usize) -> usize {
+    budget.saturating_sub(floor_allowance::<B::Erased, B::Error>())
 }
 
 /// Tracks supplied leaves against the peer's declared set length.
@@ -271,9 +271,12 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
     state: State,
     /// The tree consumed by this session.
     root: Root<B>,
-    /// The session's window choice, resolved against the exchanged set
-    /// sizes; see [`window`](super::window).
-    window: WindowConfig,
+    /// The budget that prices the window the session reports
+    /// ([`SessionStats::window_granted`](super::stats::SessionStats::window_granted)).
+    ///
+    /// That is the session's memory budget when one is set, else the budget
+    /// its ledger admits work against.
+    budget: usize,
     /// This side's supply-run byte target, carried by the greeting; the
     /// session runs at the minimum of the two ends' targets.
     target_message_size: u64,
@@ -427,18 +430,36 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             backend,
             state: Start,
             root,
-            window: WindowConfig::default(),
+            budget: DEFAULT_SYNC_MEMORY_BUDGET,
             target_message_size,
             stats: Recorder::default(),
-            ledger: session_ledger::<B>(WindowConfig::default()),
+            ledger: Ledger::new(admission_budget::<B>(DEFAULT_SYNC_MEMORY_BUDGET)),
         }
     }
 
-    /// Select this session's window choice, which sets the budget its
-    /// ledger admits its work against; see [`window`](super::window).
-    pub fn window(mut self, window: WindowConfig) -> Self {
-        self.window = window;
-        self.ledger = session_ledger::<B>(window);
+    /// Select the most this session may hold, `budget`, as
+    /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets
+    /// it.
+    ///
+    /// Its ledger admits work against `budget` less the floor allowance
+    /// ([`floor_allowance`]), so that what it holds outside its floor slots
+    /// and what they hold come to at most `budget` together.
+    ///
+    /// A budget at or below the floor allowance admits work through the
+    /// floor slots alone, as a budget of zero does ([`budget`](Self::budget)),
+    /// and holds at most the floor allowance.
+    pub fn sync_memory_budget(self, budget: usize) -> Self {
+        let mut session = self.budget(admission_budget::<B>(budget));
+        session.budget = budget;
+        session
+    }
+
+    /// Select the budget this session's ledger admits its work against
+    /// ([`ledger`](super::ledger)): the most it holds outside its floor
+    /// slots, which hold the floor allowance at most beside it.
+    pub fn budget(mut self, budget: usize) -> Self {
+        self.budget = budget;
+        self.ledger = Ledger::new(budget);
         self
     }
 
@@ -530,7 +551,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
             backend: self.backend,
             state: Connecting { fan, copies },
             root: self.root,
-            window: self.window,
+            budget: self.budget,
             target_message_size: self.target_message_size,
             stats: self.stats,
             ledger: self.ledger,
@@ -553,7 +574,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
                 resolved: None,
             },
             root: self.root,
-            window: self.window,
+            budget: self.budget,
             target_message_size: self.target_message_size,
             stats: self.stats,
             ledger: self.ledger,
@@ -586,14 +607,15 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
             backend: _,
             state,
             root,
-            window,
+            budget,
             target_message_size: _,
             stats,
             ledger: _,
         } = self;
         *state.resolved.get_or_insert_with(|| {
             let local_size = ReplicaSize::new(root.len(), root.max_version_bytes());
-            let resolved = window.resolve([local_size, state.peer.size], B::node_bytes);
+            let resolved =
+                Window::from_budget([local_size, state.peer.size], *budget, B::node_bytes);
             stats.window_granted(resolved.widest());
             resolved
         })

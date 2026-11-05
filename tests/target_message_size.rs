@@ -40,7 +40,7 @@ fn diverged_pair(
 ) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed()
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .target_message_size(left_target)
             .into_rumors();
         let right = bootstrap_fork_async(&left).await;
@@ -96,7 +96,7 @@ fn seeded_diverged_pair(
 ) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
         let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .target_message_size(left_target)
             .into_rumors();
         let right = bootstrap_fork_async(&left).await;
@@ -289,7 +289,7 @@ fn nonzero_minimum_binds_both_encoders() {
 /// every bootstrap capture, so their supply-frame counts are comparable.
 fn seeded_provider() -> Rumors<u64> {
     let provider = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors();
     let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
     for _ in 0..DIVERGENT_PER_SIDE {

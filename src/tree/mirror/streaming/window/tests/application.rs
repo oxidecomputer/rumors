@@ -10,9 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::prelude::*;
 
-use super::super::{
-    KEY_DEPTH, WindowConfig, children_quantile, disputed, occupied, stage_population,
-};
+use super::super::{KEY_DEPTH, children_quantile, disputed, occupied, stage_population};
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::message::Message;
 use crate::testing::run_to_quiescence;
@@ -109,16 +107,15 @@ fn check_tree_shape(trees: &[Tree<u64>; 2]) {
 fn check_session(trees: [Tree<u64>; 2], budget: usize) {
     check_tree_shape(&trees);
     let (a, b) = (trees[0].len() as u64, trees[1].len() as u64);
-    let config = WindowConfig::Budget(budget);
     let mut expected = trees[0].clone();
     expected.join(trees[1].clone());
     let [left, right] = trees;
     let (result, trace) = with_trace(|| {
         run_to_quiescence(mirror(
             Handshaking::start(Local, left.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                .window(config),
+                .budget(budget),
             Handshaking::start(Local, right.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                .window(config),
+                .budget(budget),
         ))
     });
     let (left, right) = result

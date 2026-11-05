@@ -15,12 +15,12 @@ use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 
+use crate::common::budget::{BudgetAssignment, arb_budget_assignment};
 use crate::common::oracle::{readout, readout_multiset, version_key};
 use crate::common::peer::gossip_step;
 use crate::common::schedule::events::Event;
 use crate::common::schedule::executor::ExecutionResult;
 use crate::common::schedule::{Schedule, arb_schedule, execute_and_quiesce};
-use crate::common::window::{WindowAssignment, arb_window_assignment};
 
 /// Fleet sizes exercised by generated schedules.
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
@@ -80,9 +80,9 @@ proptest! {
     #[test]
     fn versions_stable_across_peers(
         schedule in schedule_u64(),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule, &windows);
+        let result = execute_and_quiesce(&schedule, &budgets);
         let expected = canonical_readout(&result);
         let expected_values = result.oracle.expected_live();
         prop_assert!(
@@ -112,9 +112,9 @@ proptest! {
     #[test]
     fn each_message_observed_at_most_once_per_peer(
         schedule in schedule_u64(),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule, &windows);
+        let result = execute_and_quiesce(&schedule, &budgets);
         for (i, peer) in result.peers.iter().enumerate() {
             let mut counts: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
             for (v, _) in peer.observations.iter() {
@@ -145,10 +145,10 @@ proptest! {
             let b = if a == b { (b + 1) % s.n_peers } else { b };
             (s, a, b)
         }),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
         prop_assert_ne!(a, b);
-        let mut result = execute_and_quiesce(&schedule, &windows);
+        let mut result = execute_and_quiesce(&schedule, &budgets);
         let fingerprint = |peer: &crate::common::peer::Peer<u64>| {
             let snapshot = peer.local.snapshot();
             (snapshot.hash(), snapshot.latest().clone())
@@ -169,21 +169,21 @@ proptest! {
     }
 
     /// The floor-everywhere baseline leg of the oracle check: every
-    /// window pinned at the serialization floor on every iteration.
+    /// peer at a budget of zero on every iteration.
     ///
-    /// The capacity-one orderings the deadlock-freedom argument
-    /// certifies stay deterministically exercised in this engine
+    /// The one-question-at-a-time orderings the liveness argument rests
+    /// on stay deterministically exercised in this engine
     /// regardless of what the swept legs draw.
     #[test]
     fn readout_matches_oracle_after_quiesce_at_floor(
         schedule in schedule_u64(),
     ) {
-        let result = execute_and_quiesce(&schedule, &WindowAssignment::floor());
+        let result = execute_and_quiesce(&schedule, &BudgetAssignment::zero());
         let expected = canonical_readout(&result);
         let expected_values = result.oracle.expected_live();
         prop_assert!(
             resolved_versions_are_unique(&result),
-            "distinct inserts received the same Version at the window floor",
+            "distinct inserts received the same Version at a budget of zero",
         );
         for (i, peer) in result.peers.iter().enumerate() {
             let actual = readout(&peer.local.snapshot());
@@ -205,9 +205,9 @@ proptest! {
     #[test]
     fn readout_matches_oracle_after_quiesce_string(
         schedule in schedule_string(),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule, &windows);
+        let result = execute_and_quiesce(&schedule, &budgets);
         let expected = canonical_readout(&result);
         let expected_values = result.oracle.expected_live();
         prop_assert!(

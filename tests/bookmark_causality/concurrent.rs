@@ -63,7 +63,7 @@ impl Attempt {
                 let store = DurableStore::default();
                 let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
                 let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-                let peer = block_on(peer.sync_window_floor().bookmark(bookmark)).unwrap();
+                let peer = block_on(peer.sync_memory_budget(0).bookmark(bookmark)).unwrap();
                 world.nodes.push(Node {
                     network: peer.network(),
                     state: NodeState::Live(Box::new(peer.into_rumors())),

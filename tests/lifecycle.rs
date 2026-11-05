@@ -54,7 +54,7 @@ const MAX_MID_FLIGHT_POLLS: usize = 100_000;
 /// gossip sessions are byte-for-byte the same size. The epilogue-residue
 /// test's measure-then-replay rests on this.
 async fn divergent_pair() -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
     for v in 0..DIVERGENT_MESSAGES {
         a.send(v).unwrap();
@@ -141,7 +141,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for FlushLog<W> {
 /// flushed frames.
 fn handshake_flushes() -> usize {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+        let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork_async(&a).await;
         (a, b)
     });

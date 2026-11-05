@@ -52,8 +52,8 @@ fn rejects_parent_before_lower_resolution() {
 /// only when the assembler holds a resolution whose owed work is still
 /// unpublished and the queue is full behind it. The stage has then published
 /// that resolution and `capacity` more, and it blocks sending the next before
-/// it publishes the work the held resolution waits on. At the one-slot
-/// window, that takes three resolutions, the first owing work. This trace
+/// it publishes the work the held resolution waits on. On a queue of one
+/// slot, that takes three resolutions, the first owing work. This trace
 /// publishes two, so it would not block a stage; it isolates the rule.
 #[test]
 #[should_panic(expected = "still owes 1 dependent work items")]

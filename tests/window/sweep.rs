@@ -1,5 +1,5 @@
 //! Liveness pins for the window-budget sweep dimension
-//! (`common::window`): proof that the swept population cannot silently
+//! (`common::budget`): proof that the swept population cannot silently
 //! degenerate to floor-everywhere.
 //!
 //! The sweep's value rests on three facts, each pinned here: the
@@ -15,9 +15,10 @@
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
 use rumors::Gossiped;
+use rumors::testing::floor_allowance;
 
-use rumors_testkit::common::window::{
-    MAX_BUDGET_EXPONENT, MIN_BUDGET_EXPONENT, WindowChoice, arb_window_choice,
+use rumors_testkit::common::budget::{
+    BudgetChoice, MAX_BUDGET_EXPONENT, MIN_BUDGET_EXPONENT, arb_budget_choice,
 };
 use rumors_testkit::common::wire::{block_on, divergent_pair, gossip_pair_async};
 
@@ -28,7 +29,7 @@ const DIVERGENT_VALUES_PER_SIDE: u64 = 24;
 
 /// One fully-divergent session between endpoints at the two given window
 /// choices, returning each side's granted window width.
-fn granted_widths(window_a: WindowChoice, window_b: WindowChoice) -> (u64, u64) {
+fn granted_widths(window_a: BudgetChoice, window_b: BudgetChoice) -> (u64, u64) {
     block_on(async {
         let (a, b) = divergent_pair(DIVERGENT_VALUES_PER_SIDE, window_a, window_b).await;
         let (a_report, b_report): (Gossiped, Gossiped) = gossip_pair_async(&a, &b).await;
@@ -45,7 +46,7 @@ fn granted_widths(window_a: WindowChoice, window_b: WindowChoice) -> (u64, u64) 
 #[test]
 fn non_floor_choice_widens_the_granted_window() {
     let (floor_granted, default_granted) =
-        granted_widths(WindowChoice::Floor, WindowChoice::Default);
+        granted_widths(BudgetChoice::Zero, BudgetChoice::Default);
     assert_eq!(
         floor_granted, 1,
         "the floor endpoint of an asymmetric session must stay at the \
@@ -70,8 +71,8 @@ fn non_floor_choice_widens_the_granted_window() {
 #[test]
 fn budget_endpoints_straddle_the_width_threshold() {
     let (tight_granted, wide_granted) = granted_widths(
-        WindowChoice::Budget(1 << MIN_BUDGET_EXPONENT),
-        WindowChoice::Budget(1 << MAX_BUDGET_EXPONENT),
+        BudgetChoice::Bytes(1 << MIN_BUDGET_EXPONENT),
+        BudgetChoice::Bytes(1 << MAX_BUDGET_EXPONENT),
     );
     assert_eq!(
         tight_granted, 1,
@@ -87,14 +88,14 @@ fn budget_endpoints_straddle_the_width_threshold() {
 
 /// The sweep generator's population covers every arm.
 ///
-/// Sampled under proptest's deterministic runner, [`arb_window_choice`]
+/// Sampled under proptest's deterministic runner, [`arb_budget_choice`]
 /// emits the floor, the default, and budgets from both endpoint decades
-/// of its exponent range — the regimes whose session effects
+/// of its exponent range, each beside the floor allowance — the regimes whose session effects
 /// [`budget_endpoints_straddle_the_width_threshold`] pins.
 #[test]
 fn window_choice_population_covers_every_regime() {
     let mut runner = TestRunner::deterministic();
-    let strategy = arb_window_choice();
+    let strategy = arb_budget_choice();
     let mut floors = 0usize;
     let mut defaults = 0usize;
     let mut budgets: Vec<usize> = Vec::new();
@@ -104,20 +105,24 @@ fn window_choice_population_covers_every_regime() {
             .expect("window-choice strategy always generates")
             .current();
         match choice {
-            WindowChoice::Floor => floors += 1,
-            WindowChoice::Default => defaults += 1,
-            WindowChoice::Budget(bytes) => budgets.push(bytes),
+            BudgetChoice::Zero => floors += 1,
+            BudgetChoice::Default => defaults += 1,
+            BudgetChoice::Bytes(bytes) => budgets.push(bytes),
         }
     }
     assert!(floors > 0, "the population must keep the floor exercised");
     assert!(defaults > 0, "the population must include the default");
     assert!(
-        budgets.iter().any(|&b| b < 1 << (MIN_BUDGET_EXPONENT + 1)),
+        budgets
+            .iter()
+            .any(|&b| b - floor_allowance() < 1 << (MIN_BUDGET_EXPONENT + 1)),
         "the budget arm must reach its bottom decade (floor-equivalent \
          budgets, exercising the budget-resolution path at one slot)"
     );
     assert!(
-        budgets.iter().any(|&b| b >= 1 << MAX_BUDGET_EXPONENT),
+        budgets
+            .iter()
+            .any(|&b| b - floor_allowance() >= 1 << MAX_BUDGET_EXPONENT),
         "the budget arm must reach its top decade (width-granting budgets)"
     );
 }

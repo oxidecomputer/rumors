@@ -20,13 +20,14 @@
 //! - [`crate::common::wire`] and [`crate::common::tcp`] carry the same sessions over in-memory
 //!   connections and real sockets; [`crate::common::count`] measures each direction of an
 //!   in-memory session.
-//! - [`crate::common::window`] is the window-budget sweep dimension: generated per-peer
-//!   window configurations (floor, tight budget, default) for the suites
+//! - [`crate::common::budget`] is the budget sweep dimension: generated per-peer
+//!   memory budgets (zero, an explicit budget, the default) for the suites
 //!   that sweep it.
 //! - [`crate::common::gossip_snapshot`] captures a session's exact bytes for the `insta`
 //!   pins.
 
 pub mod action;
+pub mod budget;
 pub mod count;
 pub mod fault;
 pub mod flaky;
@@ -39,5 +40,4 @@ pub mod schedule;
 pub mod shape;
 pub mod sim;
 pub mod tcp;
-pub mod window;
 pub mod wire;

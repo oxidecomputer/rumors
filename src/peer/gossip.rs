@@ -30,7 +30,6 @@ use crate::{
             self, Local, materialized,
             remote::{self as streaming_remote, PipeRead, RunBudget},
             stats::{Recorder, SessionStats},
-            window::WindowConfig,
         },
     },
 };
@@ -301,7 +300,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 read,
                 write,
                 codec,
-                window: config.window,
+                sync_memory_budget: config.sync_memory_budget,
                 run_budget: config.run_budget,
                 remote_role: if both_bootstrapping {
                     RemoteRole::Bootstrapping
@@ -327,7 +326,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             };
             let peer = Self {
                 network: remote.network,
-                window: config.window,
+                sync_memory_budget: config.sync_memory_budget,
                 run_budget: config.run_budget,
                 gossip_policy: config.gossip_policy,
                 inner: watch::Sender::new(Inner::new(party, Tree::from_root(root))),
@@ -555,7 +554,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             read,
             write,
             codec,
-            window: self.window,
+            sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             stats: stats.clone(),
             observe: observe.clone(),
@@ -799,8 +798,8 @@ struct Reconciliation<'a> {
     /// earlier session's ingress). Its depth limit rides the greeting,
     /// where the counterparty's must match.
     codec: PayloadCodec,
-    /// The window policy the session negotiates under.
-    window: WindowConfig,
+    /// The memory budget the session's ledger admits its work against.
+    sync_memory_budget: usize,
     /// The supply-run sizing budget; its byte target rides the greeting.
     run_budget: RunBudget,
     /// The session's stats recorder, shared by both protocol participants.
@@ -867,7 +866,7 @@ impl<'a> Reconciliation<'a> {
                 read,
                 write,
                 codec,
-                window,
+                sync_memory_budget,
                 run_budget,
                 stats,
                 observe,
@@ -875,7 +874,7 @@ impl<'a> Reconciliation<'a> {
             } = self;
             let local =
                 materialized::Handshaking::start(Local, root.into(), run_budget.bytes() as u64)
-                    .window(window)
+                    .sync_memory_budget(sync_memory_budget)
                     .stats(stats.clone());
             let proxy = streaming_remote::Handshaking::start(Local, read, write, codec)
                 .stats(stats)

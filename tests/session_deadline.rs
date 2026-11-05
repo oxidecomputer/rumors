@@ -60,7 +60,7 @@ proptest! {
         block_on(async {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let a: Rumors<u64> = Peer::seed().sync_window_floor()
+            let a: Rumors<u64> = Peer::seed().sync_memory_budget(0)
                 .gossip_when(|_| stream::pending::<()>())
                 .session_deadline(move || factory.start()).into_rumors();
             a.send(7).unwrap();
@@ -99,7 +99,7 @@ proptest! {
         block_on(async {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+            let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
             let b = bootstrap_fork_async(&a).await;
             let c = bootstrap_fork_async(&a).await;
             let a = a.try_into_peer().await.unwrap()
@@ -208,7 +208,7 @@ proptest! {
         use rumors::Joined;
 
         block_on(async {
-            let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+            let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
             a.send(42).unwrap();
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
@@ -261,7 +261,7 @@ fn failed_bookmark_attachment_preserves_policy() {
         let deadlines = Deadlines::default();
         let factory = deadlines.clone();
         let a: Rumors<u64> = Peer::seed()
-            .sync_window_floor()
+            .sync_memory_budget(0)
             .gossip_when(|_| stream::pending::<()>())
             .session_deadline(move || factory.start())
             .into_rumors();

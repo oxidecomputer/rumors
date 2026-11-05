@@ -22,7 +22,7 @@ use rumors::{Peer, Rumors};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::common::window::WindowChoice;
+use crate::common::budget::BudgetChoice;
 
 /// Shared history in the smaller calibration fixtures.
 const COMMON: usize = 2_048;
@@ -62,13 +62,13 @@ const TABLE_CORPUS_TOLERANCE: f64 = 3.0;
 fn diverged<T>(
     common: usize,
     divergent: usize,
-    window: WindowChoice,
+    budget: BudgetChoice,
     mut make: impl FnMut(&mut ChaChaRng) -> T,
 ) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let left = window.apply(Peer::seed()).into_rumors();
+    let left = budget.apply(Peer::seed()).into_rumors();
     // Fixed, so the pinned byte counts are measured on the same corpus every
     // run.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_d15b_073e);
@@ -76,7 +76,7 @@ where
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();
     };
     send(&left, common, &mut rng);
-    let right = common::wire::bootstrap_fork_with_window(&left, window);
+    let right = common::wire::bootstrap_fork_with_budget(&left, budget);
     send(&left, divergent, &mut rng);
     send(&right, divergent, &mut rng);
     (left, right)
@@ -99,7 +99,7 @@ fn implied_bytes_per_message<T>(make: impl FnMut(&mut ChaChaRng) -> T) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (left, right) = diverged(COMMON, DIVERGENT, WindowChoice::Floor, make);
+    let (left, right) = diverged(COMMON, DIVERGENT, BudgetChoice::Zero, make);
     let total = session_wire_bytes(&left, &right);
     assert_eq!(
         left.snapshot().hash(),
@@ -180,7 +180,7 @@ fn mid_size_records_match_the_reference_estimate() {
 #[test]
 fn table_corpus_has_similar_protocol_overhead() {
     let messages = 75_000;
-    let (left, right) = diverged(0, messages, WindowChoice::Default, |rng| {
+    let (left, right) = diverged(0, messages, BudgetChoice::Default, |rng| {
         let mut payload = vec![0u8; REFERENCE_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)
@@ -201,7 +201,7 @@ fn table_corpus_has_similar_protocol_overhead() {
 /// This confirms that the counter includes more than transferred payloads.
 #[test]
 fn counting_connection_sees_a_converged_sessions_greeting() {
-    let (left, right) = diverged(COMMON, DIVERGENT, WindowChoice::Floor, |rng| rng.next_u64());
+    let (left, right) = diverged(COMMON, DIVERGENT, BudgetChoice::Zero, |rng| rng.next_u64());
     // Converge first over an uncounted connection, then count a session that
     // disputes nothing.
     common::wire::wire_gossip(&left, &right);

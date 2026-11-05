@@ -115,7 +115,7 @@ fn build(shape: Shape) -> (Rumors<Bytes>, Rumors<Bytes>) {
         "redaction sets must be disjoint subsets of the shared set",
     );
     let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(NETWORK_SEED))
-        .sync_window_floor()
+        .sync_memory_budget(0)
         .into_rumors();
     left.send_all((0..shape.shared).map(|_| Bytes::new()))
         .expect("send shared messages");

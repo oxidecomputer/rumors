@@ -11,8 +11,8 @@ use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors};
 use rumors_testkit::bench::latency;
-use rumors_testkit::common::window::WindowChoice;
-use rumors_testkit::common::wire::bootstrap_fork_with_window;
+use rumors_testkit::common::budget::BudgetChoice;
+use rumors_testkit::common::wire::bootstrap_fork_with_budget;
 
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
@@ -39,9 +39,8 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 #[test]
 fn window_pipelines_disputed_scopes() {
     let pipelined =
-        latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(WindowChoice::Default));
-    let serialized =
-        latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(WindowChoice::Floor));
+        latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(BudgetChoice::Default));
+    let serialized = latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(BudgetChoice::Zero));
     eprintln!("default window: {pipelined} hops; minimum window: {serialized} hops");
     assert!(
         (2..HOP_BUDGET).contains(&pipelined),
@@ -54,12 +53,12 @@ fn window_pipelines_disputed_scopes() {
 }
 
 /// Two peers with shared history and concurrent additions, using one window choice.
-fn diverged_pair(window: WindowChoice) -> (Rumors<u64>, Rumors<u64>) {
+fn diverged_pair(window: BudgetChoice) -> (Rumors<u64>, Rumors<u64>) {
     let left = window.apply(Peer::seed()).into_rumors();
     // Fixed, so the latency ceiling is judged on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork_with_window(&left, window);
+    let right = bootstrap_fork_with_budget(&left, window);
     send_random(&left, DIVERGENT_PER_SIDE, &mut rng);
     send_random(&right, DIVERGENT_PER_SIDE, &mut rng);
     (left, right)

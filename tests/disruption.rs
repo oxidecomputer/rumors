@@ -26,6 +26,7 @@ use rand_chacha::ChaChaRng;
 use rumors::testing::{COMPLETION_MARKER, PREAMBLE_LEN, run_to_quiescence};
 use rumors::{Peer, Rumors};
 
+use crate::common::budget::{BudgetAssignment, BudgetChoice};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::sim::{
     Activity, MAX_PLAN_PEERS, MAX_PLAN_SCRIPT_OPS, MAX_PLAN_SEED_MESSAGES, MAX_SHRINK_TIME, Plan,
@@ -33,7 +34,6 @@ use crate::common::sim::{
     assert_party_invariants, assert_survivor, assert_value_oracle, lost_custody, quiesce, run_plan,
     survivor_readouts,
 };
-use crate::common::window::{WindowAssignment, WindowChoice};
 use crate::common::wire::bootstrap_fork;
 
 /// Worker threads in each simulation's runtime.
@@ -104,16 +104,15 @@ proptest! {
 
     /// The floor-everywhere baseline leg: the same invariants as
     /// `disrupted_concurrent_gossip_upholds_party_invariants`, with
-    /// every window pinned at the serialization floor on every
-    /// iteration.
+    /// every peer at a budget of zero on every iteration.
     ///
-    /// The capacity-one orderings the deadlock-freedom argument
-    /// certifies are deterministically exercised in this engine, not
-    /// merely with the probability the swept leg happens to draw.
+    /// The one-question-at-a-time orderings the liveness argument rests
+    /// on are deterministically exercised in this engine, not merely
+    /// with the probability the swept leg happens to draw.
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants_at_floor(
         plan in arb_plan().prop_map(|mut plan| {
-            plan.windows = WindowAssignment::floor();
+            plan.budgets = BudgetAssignment::zero();
             plan
         }),
     ) {
@@ -172,7 +171,7 @@ fn vanishes_fire_in_the_generated_population() {
 /// a session between them writes the same bytes.
 fn vanish_pair() -> (Rumors<u64>, Rumors<u64>) {
     let mut rng = ChaChaRng::seed_from_u64(0x7a11_5eed);
-    let a: Rumors<u64> = Peer::seed_rng(&mut rng).sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed_rng(&mut rng).sync_memory_budget(0).into_rumors();
     a.send_all(0..8).unwrap();
     let b = bootstrap_fork(&a);
     a.send_all(8..16).unwrap();
@@ -290,7 +289,7 @@ fn vanished_retiree_is_a_recorded_loss() {
                     ..FaultPlan::NONE
                 },
             }],
-            windows: WindowAssignment::floor(),
+            budgets: BudgetAssignment::zero(),
         };
         let outcome = run_plan(plan).await;
         quiesce(&outcome.peers).await;
@@ -339,9 +338,10 @@ fn tripwire_plan() -> Plan {
             fault_b: FaultPlan::NONE,
         }],
         retires: vec![],
-        // One floor and one default endpoint: the corruption checks run
-        // against an asymmetric-window session, the sweep's general case.
-        windows: WindowAssignment::new(vec![WindowChoice::Floor, WindowChoice::Default]),
+        // One zero-budget and one default endpoint: the corruption checks
+        // run against a session between different budgets, the sweep's
+        // general case.
+        budgets: BudgetAssignment::new(vec![BudgetChoice::Zero, BudgetChoice::Default]),
     }
 }
 
@@ -489,10 +489,10 @@ fn value_oracle_survives_committed_retire_chain() {
                     fault: FaultPlan::NONE,
                 },
             ],
-            windows: WindowAssignment::new(vec![
-                WindowChoice::Floor,
-                WindowChoice::Default,
-                WindowChoice::Floor,
+            budgets: BudgetAssignment::new(vec![
+                BudgetChoice::Zero,
+                BudgetChoice::Default,
+                BudgetChoice::Zero,
             ]),
         };
         let outcome = run_plan(plan).await;
@@ -557,20 +557,20 @@ const ENVELOPE_VALUES_PER_SIDE: u64 =
 /// every party contributes a send tick and a redaction tick, and two
 /// star rounds entangle every party's ticks into both endpoints'
 /// version bounds before the measured, fully-divergent session runs at
-/// the sweep's widest window. Byte extent is not *proven* maximal over
+/// the default budget. Byte extent is not *proven* maximal over
 /// version shapes (plan versions vary in dimensions no single
 /// construction dominates); the two-sided band in
 /// [`max_cut_spans_the_envelope_session`] is what keeps the constant
 /// tracking reality. Metered with the same counters the fault cuts
 /// spend, so the result is directly comparable to cut offsets.
 async fn envelope_session_bytes() -> usize {
-    let seed = WindowChoice::Default
+    let seed = BudgetChoice::Default
         .apply(Peer::<u64>::seed())
         .into_rumors();
     let mut fleet = vec![seed];
     for _ in 1..MAX_PLAN_PEERS {
         fleet.push(
-            common::wire::bootstrap_fork_with_window_async(&fleet[0], WindowChoice::Default).await,
+            common::wire::bootstrap_fork_with_budget_async(&fleet[0], BudgetChoice::Default).await,
         );
     }
     // One send tick and one redaction tick per party: each peer marks

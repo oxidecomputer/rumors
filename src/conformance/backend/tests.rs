@@ -23,10 +23,7 @@ use crate::{
         mirror::streaming::{
             Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream,
             convert::Convert,
-            window::{
-                FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES,
-                WindowConfig,
-            },
+            window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES},
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -707,14 +704,9 @@ fn wider_queues_need_not_increase_the_peak() {
         });
     Path::with_leaf_paths(paths, || {
         let (floor, floor_stats) =
-            run_to_quiescence(run(Materializing, WindowConfig::Budget(0), 0))
-                .expect("the floor session must complete");
-        let (wider, wider_stats) = run_to_quiescence(run(
-            Materializing,
-            WindowConfig::Budget(MATERIALIZING_BUDGET),
-            0,
-        ))
-        .expect("the wider session must complete");
+            run_to_quiescence(run(Materializing, 0, 0)).expect("the floor session must complete");
+        let (wider, wider_stats) = run_to_quiescence(run(Materializing, MATERIALIZING_BUDGET, 0))
+            .expect("the wider session must complete");
         assert!(wider_stats.window_granted > floor_stats.window_granted);
         assert!(wider <= floor, "wider {wider}, floor {floor}");
         run_to_quiescence(check(Materializing, MATERIALIZING_BUDGET))
@@ -893,7 +885,7 @@ fn a_re_tagged_assembled_node_fails_the_run_check() {
 #[should_panic(expected = "converged short")]
 fn a_symmetric_loss_fails_the_completeness_check() {
     let _serial = serialized();
-    pollster::block_on(run(Materializing, WindowConfig::Budget(0), 1));
+    pollster::block_on(run(Materializing, 0, 1));
 }
 
 /// A deflated `version_bytes` answer is caught by the assembly seam's floor.

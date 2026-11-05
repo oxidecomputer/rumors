@@ -15,8 +15,6 @@ use super::pipe::placed_over_pipe;
 use crate::message::Message;
 use crate::tree::arb::{nth_party, roots_at_depth};
 use crate::tree::mirror::streaming::testing::session::{completed, over_pipe};
-use crate::tree::mirror::streaming::window::WindowConfig;
-use crate::tree::mirror::streaming::{Backend, Local, materialized::floor_allowance};
 use crate::tree::{Action, Root, Tree};
 
 /// An unlimited budget.
@@ -62,18 +60,12 @@ fn forks(shared: usize, own: usize) -> (Root, Root) {
 
 /// Run one cell, `pair` at `budgets` over a pipe buffering `pipe` bytes,
 /// and require both sides to complete holding the join.
-///
-/// Each budget is what that side's ledger admits against beside its floor
-/// slots: the session's memory budget is the budget and the floor
-/// allowance together, since a session sets the allowance aside first.
 fn assert_cell(pair: (Root, Root), budgets: [usize; 2], pipe: usize, placed: bool, cell: &str) {
     let expected = join_oracle(pair.0.clone(), pair.1.clone());
-    let allowance = floor_allowance::<<Local as Backend>::Erased, <Local as Backend>::Error>();
-    let windows = budgets.map(|budget| WindowConfig::Budget(budget.saturating_add(allowance)));
     let outcome = if placed {
-        placed_over_pipe(pair, windows, pipe)
+        placed_over_pipe(pair, budgets, pipe)
     } else {
-        over_pipe::<()>(pair, windows, pipe)
+        over_pipe::<()>(pair, budgets, pipe)
     };
     let (a, b) = completed(outcome.unwrap_or_else(|stopped| {
         panic!("{cell} at budgets {budgets:?} over a {pipe}-byte pipe stopped: {stopped:?}")

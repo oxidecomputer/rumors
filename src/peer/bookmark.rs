@@ -104,7 +104,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         bookmark.set_size_limit(size_limit);
         let Peer {
             network,
-            window,
+            sync_memory_budget,
             run_budget,
             gossip_policy,
             inner,
@@ -114,7 +114,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         } = self;
         Peer {
             network,
-            window,
+            sync_memory_budget,
             run_budget,
             gossip_policy,
             inner,

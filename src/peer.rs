@@ -22,7 +22,6 @@ pub use crate::tree::mirror::streaming::remote::{
     DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
 };
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
-use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{
     Batch, Bookmark, CausalMessages, Changes, Network, Rumors, Snapshot, UnorderedMessages, Version,
 };
@@ -146,10 +145,10 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The network this replica belongs to, established at seed or join.
     pub(crate) network: Network,
-    /// The reconciliation window choice selected by
-    /// [`sync_memory_budget`](Self::sync_memory_budget), resolved per
-    /// session against the greeting's exchanged set sizes.
-    pub(crate) window: WindowConfig,
+    /// The memory budget selected by
+    /// [`sync_memory_budget`](Self::sync_memory_budget), which each session's
+    /// ledger admits its work against.
+    pub(crate) sync_memory_budget: usize,
     /// The supply-run byte budget selected by
     /// [`target_message_size`](Self::target_message_size).
     pub(crate) run_budget: RunBudget,
@@ -446,7 +445,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     fn seed_from_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
         Self {
             network: Network::from_rng(rng),
-            window: WindowConfig::default(),
+            sync_memory_budget: DEFAULT_SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
             gossip_policy: policy::Policy::default(),
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new())),
@@ -477,7 +476,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     pub(crate) fn share(&self) -> Self {
         Self {
             network: self.network,
-            window: self.window,
+            sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             gossip_policy: self.gossip_policy.clone(),
             inner: self.inner.clone(),
@@ -527,7 +526,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [`MAX_RUN_BUDGET_BYTES`], matching the value advertised to peers.
     pub fn synchronization_settings(&self) -> SynchronizationSettings {
         SynchronizationSettings {
-            sync_memory_budget: self.window.budget(),
+            sync_memory_budget: self.sync_memory_budget,
             target_message_size: self.run_budget.bytes(),
             payload_depth_limit: self.codec.limit().get(),
         }
@@ -707,23 +706,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// guidance and example trade-offs.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
-        self.window = WindowConfig::Budget(budget_bytes);
-        self
-    }
-
-    /// Pin every future session's pipeline window at the one-slot floor.
-    ///
-    /// Test-only: capacity one is the configuration the deadlock-freedom
-    /// argument certifies, so test suites opt in explicitly to keep the
-    /// capacity-one orderings exercised; the default derives capacities
-    /// from [`sync_memory_budget`](Self::sync_memory_budget)'s default
-    /// regardless of how the crate is built. Follows the peer exactly as
-    /// `sync_memory_budget` does.
-    #[cfg(any(test, feature = "test-internals"))]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn sync_window_floor(mut self) -> Self {
-        self.window = WindowConfig::FLOOR;
+        self.sync_memory_budget = budget_bytes;
         self
     }
 

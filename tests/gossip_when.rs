@@ -36,7 +36,7 @@ const DEADLINE: Duration = Duration::from_secs(10);
 /// A connected, party-disjoint pair: a freshly seeded peer and a bootstrap
 /// fork of it.
 async fn pair() -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
     (a, b)
 }
@@ -315,7 +315,7 @@ async fn unconditional_requests_probe_a_converged_connection() {
 /// connection is exactly the news its C-side driver must push).
 #[tokio::test(flavor = "current_thread")]
 async fn changes_propagate_transitively_through_a_chain() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
     let c = bootstrap_fork_async(&b).await;
 
@@ -385,7 +385,7 @@ async fn changes_propagate_transitively_through_a_chain() {
 /// the chain quiesces.
 #[tokio::test(flavor = "current_thread")]
 async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
     let c = bootstrap_fork_async(&b).await;
 
@@ -649,7 +649,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
 /// remaining handle reclaims the `Peer`.
 #[pollster::test]
 async fn a_dropped_driver_does_not_block_peer_reclaim() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let (mut a_end, _b_end) = connection();
     let rumors = with_policy_stream(rumors, stream::pending::<()>());
     {
@@ -1064,7 +1064,7 @@ proptest! {
 /// yields one terminal `Err` and then ends.
 #[tokio::test(flavor = "current_thread")]
 async fn truncated_initiation_is_a_terminal_error() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let (mut a_end, b) = rumors::testing::memory_connection(ROOMY_CAPACITY);
     // Drive the counterparty by hand: keep its read half alive so A's own
     // writes succeed, while its write half toward A carries only a partial
@@ -1110,7 +1110,7 @@ async fn truncated_initiation_is_a_terminal_error() {
 /// harness with a zero-byte budget.)
 #[tokio::test(flavor = "current_thread")]
 async fn a_read_error_on_the_idle_boundary_is_terminal() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
     let (a_end, _b_end) = connection();
     let mut a_end = faulty(
         a_end,

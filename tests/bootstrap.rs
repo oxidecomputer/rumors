@@ -58,7 +58,7 @@ where
         let Joined::Joined { peer, .. } = bootstrap_out else {
             panic!("an established provider must serve the bootstrap");
         };
-        let joined = peer.sync_window_floor().into_rumors();
+        let joined = peer.sync_memory_budget(0).into_rumors();
         assert_connection_drained(a_end, b_end);
         joined
     })
@@ -70,7 +70,7 @@ proptest! {
     /// showing that its inherited floor covers the provider's history.
     #[test]
     fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
         let control = readout(&provider.snapshot());
 
@@ -98,7 +98,7 @@ proptest! {
     /// Bootstrap preserves the same content and floor invariants for strings.
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
-        let seed = Peer::<String>::seed().sync_window_floor().into_rumors();
+        let seed = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
         let control = readout(&provider.snapshot());
 
@@ -128,7 +128,7 @@ proptest! {
 /// A newcomer does not relearn content redacted before it joined.
 #[test]
 fn bootstrap_floor_rejects_stale_redacted_content() {
-    let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let provider = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     let version = provider.send(1).unwrap();
     let stale = bootstrap_fork(&provider);
     provider.redact(&version);
@@ -193,7 +193,7 @@ fn both_bootstrapping_return_their_builders() {
 /// into the first session where it can bind.
 #[test]
 fn zero_budget_bootstrap_converges() {
-    let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let provider = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     provider.send_all([1, 2, 3]).unwrap();
 
     let bootstrapped = block_on(async {
@@ -221,8 +221,8 @@ fn zero_budget_bootstrap_converges() {
         "the zero-budget join must still deliver the provider's whole set",
     );
 
-    // The joined peer gossips under its retained zero budget: every
-    // window edge at the liveness floor, and the session still converges.
+    // The joined peer gossips under its retained zero budget, asking one
+    // question at a time, and the session still converges.
     bootstrapped.send(u64::MAX).unwrap();
     wire_gossip(&provider, &bootstrapped);
     assert!(
@@ -265,7 +265,7 @@ fn wire_join(
 /// A provider holding three messages, the corpus the `Joined`-arm tests
 /// bootstrap from.
 fn populated_provider() -> Rumors<u64> {
-    let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let provider = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
     provider.send_all([1, 2, 3]).unwrap();
     provider
 }

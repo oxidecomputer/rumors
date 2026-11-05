@@ -230,10 +230,11 @@ pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 ///
 /// Constructed from the two replicas' exchanged set sizes, a memory
 /// budget, and the backend's per-node price by
-/// [`from_budget`](Self::from_budget) — usually through a
-/// [`WindowConfig`] once the greeting supplies the sizes — and consumed
-/// by the channel constructors of the materialized walk and the remote
-/// proxy, each at the typed height its items carry.
+/// [`from_budget`](Self::from_budget) once the greeting supplies the
+/// sizes. A session reports its widest capacity
+/// ([`SessionStats::window_granted`](super::stats::SessionStats::window_granted));
+/// no channel takes its capacity from it, since each endpoint's ledger
+/// admits the walk's work ([`ledger`](super::ledger)).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Window {
     /// Channel capacity per typed item height, `0..=KEY_DEPTH`.
@@ -242,26 +243,11 @@ pub(crate) struct Window {
 
 /// Derive and inspect capacities by typed item height.
 impl Window {
-    /// The liveness floor: one scope per edge, the deadlock-proof minimum.
-    /// Reached only through [`WindowConfig::FLOOR`], the test suites'
-    /// opt-in.
-    #[cfg(any(test, feature = "test-internals"))]
+    /// The liveness floor: one scope per edge, the narrowest window.
+    #[cfg(test)]
     pub(crate) const FLOOR: Self = Self {
         capacities: [1; KEY_DEPTH + 1],
     };
-
-    /// Give every non-root level the same capacity in protocol tests.
-    ///
-    /// The budget calculation assumes hash-distributed paths and keeps the
-    /// deepest queues at one slot. This lets fixtures exercise pipelining
-    /// there. The root keeps its structural one-slot channels.
-    #[cfg(test)]
-    pub(crate) const fn uniform(capacity: usize) -> Self {
-        assert!(capacity > 0, "a protocol queue needs at least one slot");
-        let mut capacities = [capacity; KEY_DEPTH + 1];
-        capacities[KEY_DEPTH] = 1;
-        Self { capacities }
-    }
 
     /// Choose fixed queue widths from the greeting and this session's byte budget.
     ///
@@ -400,93 +386,6 @@ impl Window {
             .copied()
             .max()
             .expect("a window always carries every height's capacity") as u64
-    }
-}
-
-/// How a session chooses its window: fixed capacities, or a byte budget
-/// resolved against the set sizes the greeting exchanges.
-// A fixed table is ~260 B against `Budget`'s word; the config lives one
-// per peer and per in-flight session, so indirection would spend an
-// allocation to save nothing that matters.
-#[allow(clippy::large_enum_variant)]
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum WindowConfig {
-    /// Predetermined capacities for tests, including [`Self::FLOOR`].
-    #[cfg(any(test, feature = "test-internals"))]
-    Fixed(Window),
-    /// Derive per-height capacities at session start, once both replicas'
-    /// sizes are known.
-    Budget(usize),
-}
-
-/// Resolve configured policy once the session's sizes are known.
-impl WindowConfig {
-    /// The one-slot serialization floor, pinned: every session edge at
-    /// the capacity where a bad ordering would deadlock.
-    ///
-    /// Tests opt in explicitly so the capacity-one orderings the
-    /// deadlock-freedom argument certifies stay exercised; the
-    /// [`Default`] is the budget and never depends on how the crate is
-    /// built (features are additive and must not change behavior).
-    #[cfg(any(test, feature = "test-internals"))]
-    pub(crate) const FLOOR: Self = Self::Fixed(Window::FLOOR);
-
-    /// Return the byte budget represented by a peer-facing configuration.
-    ///
-    /// The hidden one-slot test helper stores a fixed window; report zero for
-    /// it because a zero budget resolves to that same floor at every height.
-    pub(crate) fn budget(self) -> usize {
-        match self {
-            Self::Budget(bytes) => bytes,
-            #[cfg(any(test, feature = "test-internals"))]
-            Self::Fixed(window) => {
-                debug_assert_eq!(
-                    window,
-                    Window::FLOOR,
-                    "only the one-slot test helper installs a fixed peer window",
-                );
-                0
-            }
-        }
-    }
-
-    /// The budget this side's ledger admits its units against
-    /// ([`ledger`](super::ledger)), where its floor slots can hold at most
-    /// `floor_allowance` at once.
-    ///
-    /// A configured budget is the most the session may hold, so its ledger
-    /// admits against it less the floor allowance, and against nothing
-    /// beyond the floor slots when it is no more than the allowance. A
-    /// fixed test window admits against no budget at the floor, where every
-    /// unit takes a floor slot, and against an unlimited one otherwise.
-    pub(crate) fn admission_budget(self, floor_allowance: usize) -> usize {
-        match self {
-            Self::Budget(bytes) => bytes.saturating_sub(floor_allowance),
-            #[cfg(any(test, feature = "test-internals"))]
-            Self::Fixed(window) if window == Window::FLOOR => 0,
-            #[cfg(any(test, feature = "test-internals"))]
-            Self::Fixed(_) => usize::MAX,
-        }
-    }
-
-    /// Resolve the session's window against the exchanged set sizes and
-    /// version-size bounds.
-    pub(crate) fn resolve(
-        self,
-        replicas: [ReplicaSize; 2],
-        node_bytes: impl Fn(usize, usize) -> usize,
-    ) -> Window {
-        match self {
-            #[cfg(any(test, feature = "test-internals"))]
-            Self::Fixed(window) => window,
-            Self::Budget(bytes) => Window::from_budget(replicas, bytes, node_bytes),
-        }
-    }
-}
-
-impl Default for WindowConfig {
-    fn default() -> Self {
-        Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
     }
 }
 
