@@ -102,8 +102,8 @@ mod tests;
 pub mod trace;
 
 pub use trace::{
-    Event, EventKind, Incomplete, Label, LabelLifetimes, Lifetimes, Trace, labelled, trace,
-    untraced,
+    Event, EventKind, Incomplete, Label, LabelLifetimes, Lifetimes, SegmentPeaks, Trace, labelled,
+    position, trace, untraced,
 };
 
 /// The largest alignment that is not *over-aligned*: two machine words, which

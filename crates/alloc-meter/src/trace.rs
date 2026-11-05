@@ -71,7 +71,7 @@
 //!   and counts it in [`Lifetimes::reused_while_live`].
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[cfg(test)]
 mod tests;
@@ -293,8 +293,8 @@ impl Trace {
         &self,
         group: impl Fn(Label) -> Label,
     ) -> Result<Lifetimes, Incomplete> {
-        self.complete()
-            .map(|events| Lifetimes::of_grouped(events, group))
+        let events = self.complete()?;
+        Ok(Lifetimes::of_grouped(events, &resolve(events, group)))
     }
 
     /// Returns the allocation event of every surviving block, in request
@@ -316,6 +316,56 @@ impl Trace {
             .filter(|(event, transient)| event.kind == EventKind::Allocated && !transient)
             .map(|(event, _)| *event)
             .collect())
+    }
+
+    /// Returns the peak transient level of each group of labels, and of
+    /// every group together, within each segment of the trace that `starts`
+    /// marks.
+    ///
+    /// An event's *level* for a group is the bytes of the group's transient
+    /// blocks live during it, counted as the classification counts them: a
+    /// block a reallocation moves stays live through the allocation of its
+    /// new block, and a block whose address is reused stays live through the
+    /// reusing allocation (see [`Lifetimes::reused_while_live`]). `group`
+    /// maps each label to the index of its group, below `groups`, or to
+    /// `None` to leave the label's blocks out.
+    ///
+    /// The segments partition the events in order: the first runs from the
+    /// trace's start to `starts[0]`, segment `k` from `starts[k - 1]` to
+    /// `starts[k]`, and the last from the last start to the trace's end, so
+    /// there is one more segment than starts. A segment holding no event,
+    /// such as one between equal starts or one beginning at or beyond the
+    /// trace's end, peaks at zero. A caller holding the trace's [`position`]
+    /// at moments of its own, such as the changes of an account it keeps
+    /// beside the trace, passes those positions as the starts. The account
+    /// then holds one value through each segment, and each group's peak
+    /// within the segment is the most its level reached against that value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `starts` decreases anywhere, or if `group` maps a label to
+    /// an index of `groups` or above.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Incomplete`] when the trace dropped events, as
+    /// [`lifetimes`](Self::lifetimes) does.
+    pub fn segment_peaks(
+        &self,
+        starts: &[usize],
+        groups: usize,
+        group: impl Fn(Label) -> Option<usize>,
+    ) -> Result<SegmentPeaks, Incomplete> {
+        let events = self.complete()?;
+        let resolved = resolve(events, |label| {
+            group(label).inspect(|&index| {
+                assert!(
+                    index < groups,
+                    "{label:?} maps to group {index}, beyond the {groups} groups"
+                );
+            })
+        });
+        Ok(SegmentPeaks::of(events, starts, groups, &resolved))
     }
 
     /// Returns the events when the trace recorded every request, or the
@@ -376,11 +426,12 @@ impl Lifetimes {
     /// Classifies the blocks of an event sequence in request order.
     #[cfg(test)]
     fn of(events: &[Event]) -> Self {
-        Self::of_grouped(events, |label| label)
+        Self::of_grouped(events, &resolve(events, |label| label))
     }
 
     /// Classifies the blocks of an event sequence in request order, with
-    /// each event's label replaced by `group(label)`.
+    /// each event's label replaced by its group in `groups`, which
+    /// [`resolve`] built from the same events.
     ///
     /// The first pass finds which blocks are transient ([`transience`]). The
     /// second replays the events, pairing them the same way, and holds each
@@ -388,7 +439,8 @@ impl Lifetimes {
     /// allocation to the event that ends it. A [`Resized`](EventKind::Resized)
     /// free takes effect only after the next event, the new block's
     /// allocation.
-    fn of_grouped(events: &[Event], group: impl Fn(Label) -> Label) -> Self {
+    fn of_grouped(events: &[Event], groups: &Resolved<Label>) -> Self {
+        let group = |label| groups.of(label);
         let (transient, reused_while_live) = transience(events);
         let mut lifetimes = Self {
             reused_while_live,
@@ -427,6 +479,195 @@ impl Lifetimes {
             }
         }
         lifetimes
+    }
+}
+
+/// Each distinct label of an event sequence, sorted, with the value a
+/// caller's function maps it to.
+///
+/// The analyses that take a caller's function over labels call it once per
+/// distinct label here and replay the events through [`Resolved::of`]. The
+/// replay is then not generic over the function, so it is compiled with this
+/// crate rather than with each caller. A profile's `opt-level` for this
+/// crate therefore optimizes every replay, even for a caller built without
+/// optimization, as a test binary in the dev profile is.
+#[derive(Debug)]
+struct Resolved<T>(Vec<(Label, T)>);
+
+impl<T: Copy> Resolved<T> {
+    /// The value `label` maps to.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `label` is not one of the resolved events' labels.
+    fn of(&self, label: Label) -> T {
+        let index = self
+            .0
+            .binary_search_by_key(&label, |&(resolved, _)| resolved)
+            .expect("every label of the events is resolved");
+        self.0[index].1
+    }
+}
+
+/// Maps each distinct label of `events` through `f`, calling it once per
+/// label.
+fn resolve<T>(events: &[Event], f: impl Fn(Label) -> T) -> Resolved<T> {
+    Resolved(
+        distinct_labels(events)
+            .into_iter()
+            .map(|label| (label, f(label)))
+            .collect(),
+    )
+}
+
+/// Returns the distinct labels of `events`, sorted.
+fn distinct_labels(events: &[Event]) -> Vec<Label> {
+    let mut labels = BTreeSet::new();
+    let mut last = None;
+    for event in events {
+        // Consecutive events usually share a label, so a repeat skips the set.
+        if last != Some(event.label) {
+            labels.insert(event.label);
+            last = Some(event.label);
+        }
+    }
+    labels.into_iter().collect()
+}
+
+/// The peak transient level of each group of labels, and of every group
+/// together, within each segment of a trace, as [`Trace::segment_peaks`]
+/// computes them.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SegmentPeaks {
+    /// The number of groups.
+    groups: usize,
+    /// Each segment's peaks in order, one row per segment: each group's
+    /// peak, then the peak of every group together.
+    rows: Vec<usize>,
+}
+
+impl SegmentPeaks {
+    /// Returns the number of segments: one more than the starts that
+    /// marked them.
+    pub fn len(&self) -> usize {
+        self.rows.len() / (self.groups + 1)
+    }
+
+    /// Returns whether there are no segments, which never holds: even no
+    /// starts mark one segment, the whole trace.
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// Returns the peak level of each group within `segment`, by group
+    /// index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `segment` is not below [`len`](Self::len).
+    pub fn groups(&self, segment: usize) -> &[usize] {
+        &self.row(segment)[..self.groups]
+    }
+
+    /// Returns the peak level of every group together within `segment`,
+    /// which can be less than the sum of the groups' own peaks there.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `segment` is not below [`len`](Self::len).
+    pub fn all(&self, segment: usize) -> usize {
+        self.row(segment)[self.groups]
+    }
+
+    /// Returns `segment`'s row.
+    fn row(&self, segment: usize) -> &[usize] {
+        let width = self.groups + 1;
+        &self.rows[segment * width..][..width]
+    }
+
+    /// Computes each segment's peaks over `events` by replaying them once,
+    /// with each label's group, among `groups`, looked up in `resolved`.
+    ///
+    /// The replay pairs events with the blocks they end as the
+    /// classification does, and keeps each group's level and their total.
+    /// A level rises only at the allocation of an included transient block,
+    /// so a segment's peaks are its levels at its first event, raised at
+    /// each such allocation within it.
+    fn of(
+        events: &[Event],
+        starts: &[usize],
+        groups: usize,
+        resolved: &Resolved<Option<usize>>,
+    ) -> Self {
+        assert!(starts.is_sorted(), "segment starts must not decrease");
+        let (transient, _) = transience(events);
+        let width = groups + 1;
+        let total = groups;
+        let mut rows = vec![0; (starts.len() + 1) * width];
+        // Each group's level, then their total.
+        let mut levels = vec![0usize; width];
+        // Each live included transient block's address, with its size and
+        // group.
+        let mut live: HashMap<usize, (usize, usize)> = HashMap::new();
+        // Blocks that have ended but stay counted until the allocation
+        // completing their event, as group and size.
+        let mut ending: Vec<(usize, usize)> = Vec::new();
+        let (mut segment, mut opened, mut fresh) = (0, 0, true);
+        for (index, (event, transient)) in events.iter().zip(transient).enumerate() {
+            while opened < starts.len() && starts[opened] <= index {
+                segment += 1;
+                opened += 1;
+                fresh = true;
+            }
+            let mut risen = None;
+            match event.kind {
+                EventKind::Allocated => {
+                    let group = if transient {
+                        resolved.of(event.label)
+                    } else {
+                        None
+                    };
+                    let previous = match group {
+                        Some(group) => {
+                            levels[group] += event.size;
+                            levels[total] += event.size;
+                            risen = Some(group);
+                            live.insert(event.address, (event.size, group))
+                        }
+                        None => live.remove(&event.address),
+                    };
+                    if let Some((size, group)) = previous {
+                        ending.push((group, size));
+                    }
+                }
+                EventKind::Resized => {
+                    if let Some((size, group)) = live.remove(&event.address) {
+                        ending.push((group, size));
+                    }
+                }
+                EventKind::Freed => {
+                    if let Some((size, group)) = live.remove(&event.address) {
+                        levels[group] -= size;
+                        levels[total] -= size;
+                    }
+                }
+            }
+            let row = &mut rows[segment * width..][..width];
+            if fresh {
+                row.copy_from_slice(&levels);
+                fresh = false;
+            } else if let Some(group) = risen {
+                row[group] = row[group].max(levels[group]);
+                row[total] = row[total].max(levels[total]);
+            }
+            if event.kind == EventKind::Allocated {
+                for (group, size) in ending.drain(..) {
+                    levels[group] -= size;
+                    levels[total] -= size;
+                }
+            }
+        }
+        Self { groups, rows }
     }
 }
 
@@ -524,6 +765,30 @@ pub fn trace<T>(capacity: usize, f: impl FnOnce() -> T) -> (Trace, T) {
         },
         value,
     )
+}
+
+/// Returns the index the next event of the trace running on this thread
+/// will take, its events recorded and dropped so far, or `None` when no
+/// trace is running.
+///
+/// Code inside a traced region can note the position at moments of its
+/// own, and line them up afterwards with [`Trace::segment_peaks`]. It
+/// neither allocates nor panics, so the allocator's own bookkeeping is
+/// undisturbed.
+pub fn position() -> Option<usize> {
+    let mode = MODE.try_with(Cell::get).ok()?;
+    if !mode.tracing {
+        return None;
+    }
+    BUFFER
+        .try_with(|buffer| {
+            buffer
+                .try_borrow()
+                .ok()
+                .map(|buffer| buffer.events.len() + buffer.dropped)
+        })
+        .ok()
+        .flatten()
 }
 
 /// Runs `f` with `label` current, so every block allocated inside it,

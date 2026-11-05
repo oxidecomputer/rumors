@@ -13,8 +13,8 @@ use proptest::prelude::*;
 use proptest::sample::Index;
 
 use super::{
-    Event, EventKind, Incomplete, Label, LabelLifetimes, Lifetimes, Trace, labelled, trace,
-    untraced,
+    Event, EventKind, Incomplete, Label, LabelLifetimes, Lifetimes, Trace, labelled, position,
+    trace, untraced,
 };
 use crate::tests::Block;
 
@@ -533,4 +533,207 @@ fn a_full_trace_counts_what_it_drops_and_refuses_to_classify() {
             dropped: 1,
         })
     );
+}
+
+/// One step of a raw event sequence over a few addresses, which may free
+/// blocks the trace never saw allocated and allocate at addresses still
+/// live, as another thread's frees make a trace see.
+#[derive(Clone, Copy, Debug)]
+enum RawStep {
+    /// An allocation at `address`.
+    Allocate {
+        address: usize,
+        size: usize,
+        label: Label,
+    },
+    /// A free at `address`.
+    Free { address: usize },
+    /// A reallocation from `from` to `to`: its old block's free, then its
+    /// new block's allocation, the order a trace always records.
+    Resize {
+        from: usize,
+        to: usize,
+        size: usize,
+        label: Label,
+    },
+}
+
+/// Generates raw steps over [`ADDRESSES`] addresses under every label.
+fn arb_raw_step() -> impl Strategy<Value = RawStep> {
+    let address = 0..ADDRESSES;
+    let size = 1..=64usize;
+    let label = (0..LABELS).prop_map(Label);
+    prop_oneof![
+        (address.clone(), size.clone(), label.clone()).prop_map(|(address, size, label)| {
+            RawStep::Allocate {
+                address,
+                size,
+                label,
+            }
+        }),
+        address
+            .clone()
+            .prop_map(|address| RawStep::Free { address }),
+        (address.clone(), address, size, label).prop_map(|(from, to, size, label)| {
+            RawStep::Resize {
+                from,
+                to,
+                size,
+                label,
+            }
+        }),
+    ]
+}
+
+/// The events a trace records for `steps`.
+fn raw_events(steps: &[RawStep]) -> Vec<Event> {
+    let at = |kind, label, address, size| Event {
+        kind,
+        label,
+        address,
+        size,
+    };
+    let mut events = Vec::new();
+    for step in steps {
+        match *step {
+            RawStep::Allocate {
+                address,
+                size,
+                label,
+            } => events.push(at(EventKind::Allocated, label, address, size)),
+            RawStep::Free { address } => events.push(at(EventKind::Freed, Label::NONE, address, 1)),
+            RawStep::Resize {
+                from,
+                to,
+                size,
+                label,
+            } => {
+                events.push(at(EventKind::Resized, label, from, 1));
+                events.push(at(EventKind::Allocated, label, to, size));
+            }
+        }
+    }
+    events
+}
+
+/// Computes each event's level for each label, and for every label
+/// together, by intervals rather than by a replay.
+///
+/// An allocation's block ends at the next event at its address, whatever
+/// its kind; with none, the block survives and counts toward no level. A
+/// block a free ends counts up to the free, one a reallocation ends
+/// through the event after it, the new block's allocation, and one a
+/// reusing allocation ends through that allocation. The result holds, for
+/// each event, one level per label in label order, then their total.
+fn interval_levels(events: &[Event]) -> Vec<Vec<usize>> {
+    let width = LABELS as usize + 1;
+    let mut levels = vec![vec![0; width]; events.len()];
+    for (allocation, block) in events.iter().enumerate() {
+        if block.kind != EventKind::Allocated {
+            continue;
+        }
+        let Some(end) =
+            (allocation + 1..events.len()).find(|&index| events[index].address == block.address)
+        else {
+            continue;
+        };
+        let through = match events[end].kind {
+            EventKind::Freed => end,
+            EventKind::Resized => end + 2,
+            EventKind::Allocated => end + 1,
+        };
+        for level in &mut levels[allocation..through.min(events.len())] {
+            level[block.label.0 as usize] += block.size;
+            level[width - 1] += block.size;
+        }
+    }
+    levels
+}
+
+proptest! {
+    /// Each segment's peaks are the highest levels its events reach, for
+    /// each group and for every group together, as an interval model of
+    /// the blocks' lifetimes computes them.
+    ///
+    /// The events reuse a few addresses, free blocks the trace never saw,
+    /// and allocate at addresses still live, so every way a block's
+    /// lifetime can end, and a free that ends none, decides some level. The
+    /// starts fall anywhere in the trace and beyond its end, equal starts
+    /// included, so segments can be empty. The grouping leaves the last
+    /// label out, so excluded blocks still end included blocks' lifetimes
+    /// by reusing their addresses.
+    #[test]
+    fn segment_peaks_are_each_segments_highest_levels(
+        steps in vec(arb_raw_step(), 0..48),
+        mut starts in vec(0..72usize, 0..8),
+    ) {
+        starts.sort_unstable();
+        let events = raw_events(&steps);
+        let levels = interval_levels(&events);
+        let excluded = Label(LABELS - 1);
+        let groups = LABELS as usize - 1;
+        let trace = Trace { events, dropped: 0 };
+        let peaks = trace
+            .segment_peaks(&starts, groups, |label| {
+                (label != excluded).then_some(label.0 as usize)
+            })
+            .expect("a trace that dropped nothing is complete");
+        prop_assert_eq!(peaks.len(), starts.len() + 1);
+        let bounds: Vec<usize> = std::iter::once(0).chain(starts.iter().copied()).collect();
+        for (segment, &begin) in bounds.iter().enumerate() {
+            let end = starts.get(segment).copied().unwrap_or(usize::MAX).min(levels.len());
+            let within = levels.get(begin.min(end)..end).unwrap_or_default();
+            let peak = |column: usize| within.iter().map(|level| level[column]).max().unwrap_or(0);
+            let expected: Vec<usize> = (0..groups).map(peak).collect();
+            let all = within
+                .iter()
+                .map(|level| level[LABELS as usize] - level[excluded.0 as usize])
+                .max()
+                .unwrap_or(0);
+            prop_assert_eq!(peaks.groups(segment), &expected[..], "segment {}", segment);
+            prop_assert_eq!(peaks.all(segment), all, "segment {}", segment);
+        }
+    }
+}
+
+proptest! {
+    /// With no starts, the one segment's peak for each label is that label's
+    /// transient peak, computed independently by the classification over
+    /// the model heap's histories, reallocations included.
+    #[test]
+    fn one_segment_peaks_at_each_labels_transient_peak(
+        preexisting in vec(1..=64usize, 0..=3),
+        steps in vec(arb_step(), 0..64),
+    ) {
+        let history = history(&preexisting, &steps);
+        let lifetimes = Lifetimes::of(&history.events);
+        let trace = Trace { events: history.events, dropped: 0 };
+        let peaks = trace
+            .segment_peaks(&[], LABELS as usize, |label| Some(label.0 as usize))
+            .expect("a trace that dropped nothing is complete");
+        prop_assert_eq!(peaks.len(), 1);
+        for label in (0..LABELS).map(Label) {
+            prop_assert_eq!(
+                peaks.groups(0)[label.0 as usize],
+                lifetimes.label(label).transient_peak
+            );
+        }
+    }
+}
+
+/// Inside a trace, the position is the count of events recorded so far,
+/// and outside one there is none.
+#[test]
+fn position_counts_the_events_recorded_so_far() {
+    assert_eq!(position(), None);
+    let (trace, (before, after)) = trace(16, || {
+        let before = position();
+        let block = std::hint::black_box(vec![0u8; 32]);
+        let after = position();
+        drop(block);
+        (before, after)
+    });
+    assert_eq!(before, Some(0));
+    assert_eq!(after, Some(1));
+    assert_eq!(trace.events().len(), 2);
 }
