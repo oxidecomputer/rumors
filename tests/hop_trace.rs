@@ -17,36 +17,57 @@
 //! greeting, so the earliest frame is the *responder's* opening reply on
 //! its index 0; the initiator's index 0 stays unused).
 //!
+//! The hop count of every session follows one rule, stated and argued in
+//! [`rule`], which predicts it from the two replicas' leaf paths alone. The
+//! property `hops_follow_the_rule` checks the traced count against that
+//! prediction over generated replica pairs and every network secret. The
+//! point traces print the critical path of representative sessions, each
+//! stating its expected count through the rule.
+//!
 //! Run with:
 //!
 //!     cargo nextest run -E 'binary(hop_trace)' --no-capture
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
+use std::iter;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use bytes::Bytes;
+use proptest::prelude::*;
+use proptest::sample::Index;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
-use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Rumors, Version};
+use rumors::{
+    DEFAULT_SYNC_MEMORY_BUDGET, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors, SessionStats, Version,
+};
 use rumors_testkit::bench::latency;
 use rumors_testkit::common::shape::path_radix;
+use rumors_testkit::divided_proptest;
 use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use tokio::time::Instant;
 
 use latency::{DelayedReader, DelayedWriter, delayed_pair};
 
-use rumors_testkit::common::seed::NetworkSeed;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-/// The network of every traced session: the traces pin exact hop counts, which
-/// hold for one tree shape and so for one secret.
+
+/// State the hop rule and predict hop counts from the replicas' leaf paths.
+#[path = "hop_trace/rule.rs"]
+mod rule;
+
+use rule::{Prediction, Replica, Side};
+
+/// The network of every point trace, fixed so that each trace prints the
+/// same critical path on every run.
 const NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// One-way delay; whole milliseconds per the timer wheel's grain.
@@ -277,11 +298,26 @@ where
         .into_rumors()
 }
 
-/// Gossip one pair over a traced delayed pipe and return the trace and the
-/// two handles.
+/// A traced session's record: its trace, both handles, and what each side's
+/// session measured about itself.
+struct Traced<T: Send + Sync + 'static> {
+    /// The frame and wire-event log of the session.
+    trace: Trace,
+    /// Side `'A'`'s handle.
+    a: Rumors<T>,
+    /// Side `'B'`'s handle.
+    b: Rumors<T>,
+    /// Side `'A'`'s session statistics.
+    a_stats: SessionStats,
+    /// Side `'B'`'s session statistics.
+    b_stats: SessionStats,
+}
+
+/// Gossip one pair over a traced delayed pipe and return the trace, the two
+/// handles, and each side's session statistics.
 ///
 /// Each handle must be its peer's sole one, so the hook can attach.
-fn traced_session<T>(a: Rumors<T>, b: Rumors<T>) -> (Trace, Rumors<T>, Rumors<T>)
+fn traced_session<T>(a: Rumors<T>, b: Rumors<T>) -> Traced<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -310,18 +346,23 @@ where
         .start_paused(true)
         .build()
         .expect("build paused current-thread runtime");
-    let (a, b) = runtime.block_on(async {
+    runtime.block_on(async {
         let a = hooked(a, 'A', &trace).await;
         let b = hooked(b, 'B', &trace).await;
         let (a_result, b_result) = tokio::join!(
             a.gossip_once(a_read, a_write),
             b.gossip_once(b_read, b_write)
         );
-        a_result.expect("peer A gossip");
-        b_result.expect("peer B gossip");
-        (a, b)
-    });
-    (trace, a, b)
+        let (a_report, ..) = a_result.expect("peer A gossip");
+        let (b_report, ..) = b_result.expect("peer B gossip");
+        Traced {
+            trace,
+            a,
+            b,
+            a_stats: a_report.stats,
+            b_stats: b_report.stats,
+        }
+    })
 }
 
 /// Render the phase a data stream index carries under each speaker role.
@@ -400,7 +441,7 @@ fn report(name: &str, trace: &Trace) {
     );
 }
 
-/// Two default-budget V2 peers with a shared prefix and divergence on
+/// Two peers at the default budget with a shared history and insertions on
 /// both sides, mirroring the pipelining test's shape at reduced scale.
 fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     const COMMON: usize = 2_048;
@@ -410,17 +451,17 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
         .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
-    // Fixed, so the pinned hop count is measured on the same corpus every run.
+    // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork(&left);
+    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
 
     send_random(&left, DIVERGENT_PER_SIDE, &mut rng);
     send_random(&right, DIVERGENT_PER_SIDE, &mut rng);
     (left, right)
 }
 
-/// Two default-budget V2 peers diverged purely by disjoint redactions.
+/// Two peers at the default budget diverged purely by disjoint redactions.
 fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     const COMMON: usize = 2_048;
     const REDACT_PER_SIDE: usize = 256;
@@ -429,11 +470,11 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
         .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
-    // Fixed, as is the shuffle below, so the pinned hop count is measured on
-    // the same corpus and the same redactions every run.
+    // Fixed, as is the shuffle below, so the trace prints the same session,
+    // with the same redactions, every run.
     let mut rng = ChaChaRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork(&left);
+    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
 
     let versions: Vec<Version> = left.snapshot().versions().cloned().collect();
     let mut shuffled = versions;
@@ -443,16 +484,22 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     (left, right)
 }
 
+/// Send `count` messages with payloads drawn from `rng`, as one batch.
 fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..count).map(|_| rng.next_u64())).unwrap();
 }
 
-fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
+/// Join `parent`'s network with a new peer holding its messages, at the
+/// default memory budget and with the given target message size.
+fn bootstrap_fork<T>(parent: &Rumors<T>, target_message_size: usize) -> Rumors<T>
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
     pollster::block_on(async {
         let (parent_end, newcomer_end) = rumors::testing::memory_connection(CAPACITY);
         let (served, newcomer) = tokio::join!(
             parent.gossip_once(parent_end.read, parent_end.write),
-            Peer::<u64>::bootstrap().join(newcomer_end.read, newcomer_end.write),
+            Peer::<T>::bootstrap().join(newcomer_end.read, newcomer_end.write),
         );
         served.expect("serve bootstrap");
         (match newcomer {
@@ -460,32 +507,92 @@ fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
             _ => panic!("provider is established"),
         })
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .target_message_size(target_message_size)
         .into_rumors()
     })
 }
 
+/// The largest share of the in-flight window one side's data frames may
+/// total, as a fraction's denominator: the rest leaves room for the
+/// preamble, the greeting, and the completion marker.
+///
+/// A side cannot hold more in flight than it sends in the whole session, so
+/// a session within this share never fills the window.
+const WINDOW_SHARE_DENOMINATOR: u64 = 2;
+
+/// Check that a traced session met the rule's premises: no admission wait on
+/// either side, and an in-flight window that never filled ([`rule`]'s
+/// setting).
+fn assert_in_scope<T: Send + Sync + 'static>(traced: &Traced<T>) {
+    let window_share = CAPACITY as u64 / WINDOW_SHARE_DENOMINATOR;
+    for (side, stats) in [('A', &traced.a_stats), ('B', &traced.b_stats)] {
+        assert_eq!(
+            stats.budget_waits, 0,
+            "side {side}'s budget held work back, outside the rule's setting",
+        );
+        assert!(
+            stats.bytes_sent <= window_share,
+            "side {side} sent {} bytes, more than the window share {window_share} the \
+             rule's setting allows",
+            stats.bytes_sent,
+        );
+    }
+}
+
+/// Check that a traced session converged: both replicas hold the same set.
+fn assert_converged<T: Send + Sync + 'static>(traced: &Traced<T>) {
+    assert_eq!(
+        traced.a.snapshot().hash(),
+        traced.b.snapshot().hash(),
+        "the session converges both replicas on one set",
+    );
+}
+
+/// Trace a session between `a` and `b`, print its critical path under
+/// `name` with the rule's prediction, and check that it converged within the
+/// rule's setting.
+fn trace_point<T>(name: &str, a: Rumors<T>, b: Rumors<T>) -> (Traced<T>, Prediction)
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
+    let predicted = rule::predict(&Replica::of(&a), &Replica::of(&b));
+    let traced = traced_session(a, b);
+    report(name, &traced.trace);
+    println!("-- the rule predicts {predicted:?} --");
+    assert_in_scope(&traced);
+    assert_converged(&traced);
+    (traced, predicted)
+}
+
 /// Traces the serialized hop structure of an insertion-shaped divergent
-/// session and pins its exact hop count: with the opening question riding
-/// the greeting, this shape completes in 7 serialized hops.
+/// session, and checks that its hop count is the one the rule predicts from
+/// the two replicas' leaf paths.
 #[test]
 fn trace_insertion_session() {
     let (left, right) = diverged_insertions();
-    let (trace, left, right) = traced_session(left, right);
-    report("insertions: 2048 common + 512/side", &trace);
-    assert_eq!(left.snapshot().len(), right.snapshot().len());
-    assert_eq!(trace.hops(), 7, "insertion-shaped session hop count");
+    let (traced, predicted) = trace_point("insertions: 2048 common + 512/side", left, right);
+    assert_eq!(
+        traced.trace.hops(),
+        predicted.hops,
+        "insertion-shaped session hop count"
+    );
 }
 
 /// Traces the serialized hop structure of a redaction-shaped divergent
-/// session and pins its exact hop count: 7 hops, like the insertion shape
-/// (the redaction ladder bottoms out at the same depth at this scale).
+/// session, and checks that its hop count is the one the rule predicts.
+///
+/// Each redacted leaf is exclusive to the side that kept it, and costs the
+/// hops of any other exclusive leaf at its parting depth.
 #[test]
 fn trace_redaction_session() {
     let (left, right) = diverged_redactions();
-    let (trace, left, right) = traced_session(left, right);
-    report("redactions: 2048 common, 256 redacted/side", &trace);
-    assert_eq!(left.snapshot().len(), right.snapshot().len());
-    assert_eq!(trace.hops(), 7, "redaction-shaped session hop count");
+    let (traced, predicted) =
+        trace_point("redactions: 2048 common, 256 redacted/side", left, right);
+    assert_eq!(
+        traced.trace.hops(),
+        predicted.hops,
+        "redaction-shaped session hop count"
+    );
 }
 
 /// Two peers with disjoint exclusive content and no dispute, the smaller
@@ -519,7 +626,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
-    let right = bootstrap_fork(&left);
+    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
     {
         left.send_all(0..64u64).unwrap();
     }
@@ -578,50 +685,256 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     (left, right)
 }
 
-/// Traces a pure transfer whose initiator holds exclusive bulk, pinning the
-/// hop ladder of its supplies.
+/// Traces a pure transfer whose initiator holds an exclusive root child,
+/// and checks the hop ladder of its supplies.
 ///
-/// Derived before running: preamble (hop 1), greetings (hop 2), then the
+/// This is the rule's case of a leaf at parting depth 1 whose holder, the
+/// initiator, lists depth 1, so the session takes 3 + 1 + 1 = 5 hops. In
+/// order: the preambles land at hop 1 and the greetings at hop 2. The
 /// responder's opening reply departs at hop 2, requesting the initiator's
-/// exclusive root child; the initiator's supplies answer it, departing at
-/// hop 3 on its level-2 stream and landing at hop 4; the session epilogue
-/// closes at hop 5. The initiator never sends a frame on its unused index 0.
+/// exclusive root child. The initiator's supplies answer it, departing at
+/// hop 3 on its level-2 stream and landing at hop 4, and the completion
+/// markers land at hop 5. The initiator never sends a frame on its unused
+/// index 0.
 #[test]
 fn trace_bulk_initiator_session() {
     let (left, right) = transfer_pair();
-    let (trace, left, right) = traced_session(left, right);
-    report("pure transfer: 2 vs 3 exclusive messages", &trace);
-    assert_eq!(left.snapshot().len(), right.snapshot().len());
-    assert_eq!(trace.hops(), 5, "bulk-initiator session hop count");
+    let (traced, predicted) = trace_point("pure transfer: 2 vs 3 exclusive messages", left, right);
+    let critical = predicted
+        .critical
+        .expect("the staged pair holds exclusive leaves");
     assert_eq!(
-        trace.first_frame_hop('A', 1),
+        (predicted.initiator, critical.holder, critical.depth),
+        (Some(Side::A), Side::A, 1),
+        "the staged shape is an initiator-held leaf parting at depth 1",
+    );
+    assert_eq!(predicted.hops, 5, "the rule's count for this case");
+    assert_eq!(traced.trace.hops(), 5, "bulk-initiator session hop count");
+    assert_eq!(
+        traced.trace.first_frame_hop('A', 1),
         3,
         "the supplies answer the responder's request as it arrives"
     );
     assert!(
-        !trace.sent_on('A', 0),
+        !traced.trace.sent_on('A', 0),
         "the initiator never sends on its unused index 0"
     );
 }
 
-/// Traces the empty session (identical peers): the protocol floor every
+/// Traces the session between identical peers: the protocol floor every
 /// divergent trace is read against.
 ///
-/// Pinned at 3 hops: the root-fan listing
-/// rides the greeting hop itself, and converged peers ask no question
-/// either way, so no further hop exists to pay.
+/// This is the rule's case of equal versions, which takes 3 hops: the
+/// root-fan listing rides the greeting hop itself, and converged peers end
+/// the session at the greeting, so only the completion markers follow.
 #[test]
 fn trace_empty_session() {
     let left = NETWORK
         .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
-    // Fixed, so the pinned hop count is measured on the same corpus every run.
+    // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x1234_5678_9abc_def0);
     send_random(&left, 64, &mut rng);
-    let right = bootstrap_fork(&left);
-    let (trace, left, right) = traced_session(left, right);
-    report("empty divergence: identical 64-message peers", &trace);
-    assert_eq!(left.snapshot().len(), right.snapshot().len());
-    assert_eq!(trace.hops(), 3, "converged-session hop count");
+    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
+    let (traced, predicted) =
+        trace_point("empty divergence: identical 64-message peers", left, right);
+    assert_eq!(predicted.hops, 3, "the rule's count for equal versions");
+    assert_eq!(traced.trace.hops(), 3, "converged-session hop count");
+}
+
+/// The largest shared history a generated pair forks from.
+///
+/// Parting depths grow with the logarithm, base 256, of the other side's
+/// leaf count, so histories up to this size draw exclusive leaves parting at
+/// depths 1 through 3, and occasionally 4: both parities of the listing
+/// side, under both roles.
+const MAX_COMMON: usize = 2_048;
+
+/// The most messages one side of a generated pair sends after the fork.
+const MAX_INSERTS: usize = 256;
+
+/// The most shared messages one side of a generated pair redacts.
+const MAX_REDACTIONS: usize = 256;
+
+/// The largest payload, in bytes, of a generated pair's messages.
+///
+/// With [`MAX_INSERTS`] and [`MAX_REDACTIONS`], it bounds what one side
+/// supplies to about 1 MiB, within the window share
+/// [`assert_in_scope`] checks.
+const MAX_PAYLOAD: usize = 2_048;
+
+/// The most bytes a supply frame grows to under a generated small target
+/// message size, so that supply runs split across many frames.
+const MAX_SMALL_TARGET: usize = 1_024;
+
+/// The divisor of the case count of `hops_follow_the_rule`: each case runs
+/// one bootstrap and one traced session, the session class.
+///
+/// The traced session's runtime has timers, but its clock is paused and
+/// advances without waiting, so the timers cost no wall time.
+const HOP_RULE_DIVISOR: u32 = rumors::testing::property::SESSION_DIVISOR;
+
+/// How one side of a generated pair diverges from the shared history.
+#[derive(Clone, Debug)]
+struct Divergence {
+    /// How many messages this side sends after the fork.
+    inserts: usize,
+    /// Positions, among the messages this side sent after the fork, of the
+    /// ones it redacts again.
+    retracted: Vec<Index>,
+    /// Positions, among the shared messages, of the ones this side redacts.
+    redacted: Vec<Index>,
+    /// This side's target message size; the session runs at the smaller of
+    /// the two.
+    target_message_size: usize,
+}
+
+impl Divergence {
+    /// Diverge `side` from the shared history held in `shared`, sending
+    /// `payload` as every new message.
+    fn apply(&self, side: &Rumors<Bytes>, shared: &rumors::Snapshot<Bytes>, payload: &Bytes) {
+        side.send_all(iter::repeat_n(payload.clone(), self.inserts))
+            .expect("a byte payload encodes");
+        let sent: Vec<Version> = side
+            .snapshot()
+            .versions()
+            .filter(|version| !shared.contains(version))
+            .cloned()
+            .collect();
+        let shared: Vec<Version> = shared.versions().cloned().collect();
+        let mut redacted = picked(&sent, &self.retracted);
+        redacted.extend(picked(&shared, &self.redacted));
+        side.redact_all(&redacted);
+    }
+}
+
+/// The distinct versions `positions` pick out of `versions`; none when
+/// `versions` is empty.
+fn picked(versions: &[Version], positions: &[Index]) -> Vec<Version> {
+    if versions.is_empty() {
+        return Vec::new();
+    }
+    let distinct: BTreeSet<usize> = positions
+        .iter()
+        .map(|position| position.index(versions.len()))
+        .collect();
+    distinct.into_iter().map(|i| versions[i].clone()).collect()
+}
+
+/// A generated replica pair: a shared history, then each side's divergence.
+#[derive(Clone, Debug)]
+struct PairPlan {
+    /// How many messages the network's first peer sends before the second
+    /// joins it.
+    common: usize,
+    /// The payload length, in bytes, of every message.
+    payload_len: usize,
+    /// How side `'A'`, the network's first peer, diverges.
+    a: Divergence,
+    /// How side `'B'`, the joiner, diverges.
+    b: Divergence,
+}
+
+impl PairPlan {
+    /// Build the pair in the network `network` names: side `'A'` creates the
+    /// network and sends the shared history, side `'B'` joins it by
+    /// bootstrap, and then each side diverges.
+    fn build(&self, network: NetworkSeed) -> (Rumors<Bytes>, Rumors<Bytes>) {
+        let payload = Bytes::from(vec![0; self.payload_len]);
+        let a = network
+            .peer()
+            .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+            .target_message_size(self.a.target_message_size)
+            .into_rumors();
+        a.send_all(iter::repeat_n(payload.clone(), self.common))
+            .expect("a byte payload encodes");
+        let b = bootstrap_fork(&a, self.b.target_message_size);
+        let shared = a.snapshot();
+        self.a.apply(&a, &shared, &payload);
+        self.b.apply(&b, &shared, &payload);
+        (a, b)
+    }
+}
+
+/// Counts up to `max`, spread across orders of magnitude: a few, dozens, or
+/// up to `max`, so that small and large cases are both common.
+fn spread(max: usize) -> impl Strategy<Value = usize> + Clone {
+    prop_oneof![0..=4usize, 0..=64usize, 0..=max]
+}
+
+/// One side's divergence: insertions, redactions of its own new messages
+/// and of shared ones, and a target message size that is the minimum, small,
+/// or the default.
+fn divergence() -> impl Strategy<Value = Divergence> {
+    (
+        spread(MAX_INSERTS),
+        spread(MAX_INSERTS).prop_flat_map(|n| prop::collection::vec(any::<Index>(), n)),
+        spread(MAX_REDACTIONS).prop_flat_map(|n| prop::collection::vec(any::<Index>(), n)),
+        prop_oneof![
+            Just(0),
+            1..=MAX_SMALL_TARGET,
+            Just(DEFAULT_TARGET_MESSAGE_SIZE)
+        ],
+    )
+        .prop_map(
+            |(inserts, retracted, redacted, target_message_size)| Divergence {
+                inserts,
+                retracted,
+                redacted,
+                target_message_size,
+            },
+        )
+}
+
+/// A replica pair to trace: a shared history of up to [`MAX_COMMON`]
+/// messages, payloads empty, small, or up to [`MAX_PAYLOAD`] bytes, and an
+/// independent divergence on each side.
+fn pair_plan() -> impl Strategy<Value = PairPlan> {
+    (
+        prop_oneof![0..=8usize, 0..=256usize, 0..=MAX_COMMON],
+        prop_oneof![Just(0), 1..=64usize, 0..=MAX_PAYLOAD],
+        divergence(),
+        divergence(),
+    )
+        .prop_map(|(common, payload_len, a, b)| PairPlan {
+            common,
+            payload_len,
+            a,
+            b,
+        })
+}
+
+divided_proptest! {
+    #![divisor(HOP_RULE_DIVISOR)]
+
+    /// A session's traced hop count equals the count the rule predicts from
+    /// the two replicas' leaf paths and latest versions alone ([`rule`]),
+    /// for every network secret.
+    ///
+    /// The generated pairs diverge by insertions and redactions on either
+    /// side, with every payload size and target message size the strategy
+    /// draws, so supply runs split across frames and replies across chunks.
+    /// Each case also checks that it met the rule's premises, that the
+    /// session elected the initiator the rule names, and that it converged.
+    #[test]
+    fn hops_follow_the_rule(plan in pair_plan(), network in network_seed()) {
+        let (a, b) = plan.build(network);
+        let predicted = rule::predict(&Replica::of(&a), &Replica::of(&b));
+        let traced = traced_session(a, b);
+        assert_in_scope(&traced);
+        if let Some(initiator) = predicted.initiator {
+            let responder = initiator.other().label();
+            assert!(
+                traced.trace.sent_on(responder, 0),
+                "the responder the rule names, {responder}, sends the opening reply ({predicted:?})",
+            );
+        }
+        assert_eq!(
+            traced.trace.hops(),
+            predicted.hops,
+            "traced hops differ from the rule's prediction {predicted:?}",
+        );
+        assert_converged(&traced);
+    }
 }
