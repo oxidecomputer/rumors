@@ -221,6 +221,17 @@ opt-level = 2
 [profile.dev.package.suanpan]
 opt-level = 2
 
+# Leaf paths and node hashes are SHA3-256. On x86_64, keccak computes them
+# in software, and unoptimized that costs about 54 µs a hash, which makes
+# the hash-heavy tests several times slower there than on aarch64, whose
+# hardware SHA3 instructions keccak uses instead. Optimizing the two hash
+# crates removes that gap from the test suite without touching release.
+[profile.dev.package.keccak]
+opt-level = 3
+
+[profile.dev.package.sha3]
+opt-level = 3
+
 # The fuel guests' profile (the fuzz-fit guest's and the fuel board's), part
 # of what fuel measures: fuel counts the instructions of this codegen. One
 # codegen unit keeps function layout independent of build parallelism, and it
