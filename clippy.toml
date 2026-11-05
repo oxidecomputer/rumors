@@ -13,7 +13,39 @@ disallowed-macros = [
     { path = "proptest::prop_assume", reason = "rejected cases count toward a run-wide limit, so some case count fails; construct inputs that satisfy the precondition" },
 ]
 
+# Tokio's `mpsc` channels are disallowed. The protocol's channels use the
+# crate's own wrapper over `futures-channel`
+# (`src/tree/mirror/streaming/channel.rs`), and other code uses that wrapper
+# or `futures-channel` directly.
+#
+# Tokio's `mpsc` keeps its shared state cache-padded: two of its fields are
+# aligned to 128 bytes on x86-64, AArch64, and powerpc64, and to between 32
+# and 256 bytes elsewhere, so each channel is an over-aligned allocation. The
+# system allocator serves those through its aligned-allocation entry point,
+# which is slow on some allocators, illumos's libumem (Rust's default
+# allocator there) among them. A session creates its protocol channels anew,
+# so the cost would recur on every sync.
+#
+# Tokio's `broadcast`, `watch`, and `oneshot` stay allowed: none of them is
+# over-aligned, and `watch` serves as the replica's state cell, created once
+# per peer rather than per session.
+#
+# The types catch every written mention, imports included; the constructors
+# catch a channel whose halves are never named.
+disallowed-types = [
+    { path = "tokio::sync::mpsc::Sender", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::Receiver", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::WeakSender", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::UnboundedSender", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::UnboundedReceiver", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::WeakUnboundedSender", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::Permit", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::OwnedPermit", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+]
+
 disallowed-methods = [
+    { path = "tokio::sync::mpsc::channel", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
+    { path = "tokio::sync::mpsc::unbounded_channel", reason = "Tokio's `mpsc` keeps its shared state cache-padded, so every channel is an over-aligned allocation, slow on some allocators (illumos's libumem among them); use the crate's streaming channel or futures-channel" },
     { path = "proptest::strategy::Strategy::prop_filter", reason = "rejected draws count toward a run-wide limit, so some case count fails; construct values that satisfy the predicate" },
     { path = "proptest::strategy::Strategy::prop_filter_map", reason = "rejected draws count toward a run-wide limit, so some case count fails; construct values that satisfy the predicate" },
     { path = "proptest::strategy::statics::Filter::new", reason = "rejected draws count toward a run-wide limit, so some case count fails; construct values that satisfy the predicate" },

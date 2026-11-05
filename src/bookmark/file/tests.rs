@@ -2,6 +2,8 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::StreamExt;
+use futures::channel::mpsc;
 use tokio::sync::oneshot;
 
 use super::FileBookmark;
@@ -57,12 +59,12 @@ async fn conforms() {
 async fn cancelled_store_cannot_overwrite_its_successor() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("bookmark");
-    let (queued_tx, mut queued_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (queued_tx, mut queued_rx) = mpsc::unbounded();
     let bookmark = Arc::new(FileBookmark::new(path.clone(), move |job| {
         let queued_tx = queued_tx.clone();
         async move {
             let (done, complete) = oneshot::channel();
-            queued_tx.send(QueuedJob { job, done }).unwrap();
+            queued_tx.unbounded_send(QueuedJob { job, done }).unwrap();
             complete
                 .await
                 .map_err(|_| io::Error::other("test runner dropped the job"))?
@@ -73,7 +75,7 @@ async fn cancelled_store_cannot_overwrite_its_successor() {
         let bookmark = bookmark.clone();
         async move { bookmark.store(vec![1]).await }
     });
-    let first_job = queued_rx.recv().await.unwrap();
+    let first_job = queued_rx.next().await.unwrap();
     first.abort();
     first.await.unwrap_err();
 
@@ -82,13 +84,10 @@ async fn cancelled_store_cannot_overwrite_its_successor() {
         async move { bookmark.store(vec![2]).await }
     });
     tokio::task::yield_now().await;
-    assert!(matches!(
-        queued_rx.try_recv(),
-        Err(tokio::sync::mpsc::error::TryRecvError::Empty)
-    ));
+    assert!(matches!(queued_rx.try_recv(), Err(error) if error.is_empty()));
 
     finish(first_job).await;
-    finish(queued_rx.recv().await.unwrap()).await;
+    finish(queued_rx.next().await.unwrap()).await;
     second.await.unwrap().unwrap();
 
     let bytes = tokio::task::spawn_blocking(move || std::fs::read(path))

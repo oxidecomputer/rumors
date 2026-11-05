@@ -33,25 +33,23 @@ fn runaway_self_waking_exhausts_the_poll_budget() {
 }
 
 /// An inherited Tokio task budget cannot masquerade as protocol quiescence.
+///
+/// Inside a Tokio task, each unit of cooperative budget a future spends counts
+/// against the task. Once the budget runs out, Tokio yields: the future
+/// returns pending and defers its wake to the runtime, so the closed-world
+/// poller would see a pending poll with no wake and report a stall. Spending
+/// twice one budget inside the poller must instead complete.
 #[tokio::test(flavor = "current_thread")]
 async fn ignores_tokio_cooperative_yields() {
-    const ITEMS: usize = 256;
+    // Twice Tokio's per-task budget, so a constrained budget would run out.
+    const UNITS: usize = 256;
 
-    let (send, mut receive) = tokio::sync::mpsc::channel(ITEMS);
-    for item in 0..ITEMS {
-        send.try_send(item).expect("channel has room");
-    }
-
-    let received = run_to_quiescence(async move {
-        let mut items = Vec::with_capacity(ITEMS);
-        while let Some(item) = receive.recv().await {
-            items.push(item);
-            if items.len() == ITEMS {
-                break;
-            }
+    let spent = run_to_quiescence(async {
+        for _ in 0..UNITS {
+            tokio::task::coop::consume_budget().await;
         }
-        items
+        UNITS
     });
 
-    assert_eq!(received, Ok((0..ITEMS).collect()));
+    assert_eq!(spent, Ok(UNITS));
 }

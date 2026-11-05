@@ -4,11 +4,14 @@
 //! receiver, and one session task polls both. [`channel`] builds such an edge
 //! on the bounded `mpsc` channel of `futures-channel`, whose shared state has
 //! ordinary alignment. Tokio's bounded channel would serve the same edge, but
-//! it pads its shared state to 128 bytes, which separates producer and
-//! consumer cache lines for threads that run concurrently. An edge's two ends
-//! never do, and the system allocator must serve every over-aligned block
-//! through the platform's aligned-allocation entry point, which illumos's
-//! libumem serializes behind one lock shared by every thread.
+//! it aligns two fields of its shared state to the target's cache-line size
+//! (128 bytes on x86-64, AArch64, and powerpc64, and between 32 and 256
+//! bytes elsewhere), which separates producer and consumer cache lines for
+//! threads that run concurrently. An edge's two ends never do, and the
+//! system allocator must serve every over-aligned block through the
+//! platform's aligned-allocation entry point, which is slow on some
+//! allocators, illumos's libumem (Rust's default allocator there) among
+//! them.
 //!
 //! The channel behaves as Tokio's bounded channel of the same capacity:
 //!
