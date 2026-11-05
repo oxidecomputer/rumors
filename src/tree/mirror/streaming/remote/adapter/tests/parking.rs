@@ -8,13 +8,16 @@
 //! Supplied payloads stream through `Convert::assemble` into backend
 //! custody while the reply retains one node handle per supplied node, and
 //! a maximally disputed reply retains a pure skeleton of at most fan²
-//! listing entries, each a radix, a hash, and a grandchild count. The coexistence of an encoded reply and
-//! that decoded skeleton is pinned here by
-//! [`DISPUTED_REPLY_TRANSIENT_CEILING`]: the encoded half is measured from
-//! the codec, and the decoded half is derived from
-//! `FAN² × size_of::<Listed>()`.
+//! listing entries, each a radix, a hash, and a grandchild count.
+//!
+//! While such a reply decodes, its encoding and its decoded skeleton can be
+//! resident at once. Both halves are measured here against the figures
+//! they are derived from, so neither needs a ceiling of its own: the
+//! encoded reply is exactly [`DEFAULT_TARGET_MESSAGE_SIZE`], a fan of
+//! full-fan query frames, and the decoded skeleton holds exactly fan²
+//! listing entries of `size_of::<Listed>()` bytes each.
 
-use crate::tree::mirror::streaming::message::{Listed, listed};
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::mem;
 
 use futures::{TryStreamExt, stream};
@@ -26,7 +29,8 @@ use crate::{
         mirror::streaming::{
             Backend, ErasedNode, FAN, Local,
             erased::{Reaction, Reply},
-            remote::codec::{self, RunBudget, Speaker, Stream},
+            ledger::buffer,
+            remote::codec::{self, DEFAULT_TARGET_MESSAGE_SIZE, RunBudget, Speaker, Stream},
         },
         typed::{
             self, Hash, Prefix,
@@ -46,15 +50,6 @@ use super::{
 /// child nodes are multi-leaf, so a handle demonstrably covers a subtree
 /// larger than itself.
 const LEAVES: u64 = 512;
-
-/// The pinned coexistence transient of one maximally disputed reply.
-///
-/// One encoded and one decoded copy of the fan² skeleton resident at
-/// once, plus per-frame signal and count framing, with ~3% headroom over
-/// the measured 3,796,480 bytes.
-/// Chosen tight so growth in either half — a wider hash, a larger fan,
-/// heavier framing — fails the pin and forces the charge to be reconsidered.
-const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_910_000;
 
 /// A parked decoded reply holds one node handle per supplied node — O(fan)
 /// handles independent of how many leaves streamed through assembly into
@@ -172,17 +167,24 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     }
 }
 
-/// A maximally disputed reply parks a bounded skeleton and no payload.
+/// A maximally disputed reply parks a bounded skeleton and no payload, and
+/// both its halves are exactly the figures they are derived from.
 ///
-/// The skeleton is fan queries of fan listing entries each, and its
-/// coexistence transient — the encoded reply and the decoded skeleton
-/// resident at once, mid-decode — stays within the charged figure the
-/// module doc states, pinned as measured encoded bytes plus the derived
-/// decoded size so growth in either half fails loudly.
+/// The skeleton is fan queries of fan listing entries each, every count at
+/// its widest. Its encoding is exactly [`DEFAULT_TARGET_MESSAGE_SIZE`]: a
+/// fan of frames, each the full-fan query frame that constant is derived
+/// from. Its decoded form holds exactly fan² listing entries, at exactly
+/// their size, so the two resident at once mid-decode hold that sum and no
+/// more.
 #[test]
 fn maximally_disputed_reply_parks_bounded_skeleton() {
     let listing: Vec<Listed> = (0..FAN)
-        .map(|radix| listed(radix as u8, hash(radix as u8)))
+        .map(|radix| Listed {
+            radix: radix as u8,
+            hash: hash(radix as u8),
+            grandchildren: Grandchildren::MAX,
+            children_less_one: 0,
+        })
         .collect();
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
@@ -201,11 +203,9 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             .expect("the local backend is infallible")
     });
 
-    // The coexistence transient, held to the module doc's charged figure:
-    // the encoded half measured off the codec (every frame's exact wire
-    // bytes), the decoded half derived from the skeleton's in-memory
-    // entries. Which logical stream carries the frames changes nothing:
-    // every frame's opener names its stream in an item of one fixed width.
+    // The encoded half, measured off the codec: every frame's exact wire
+    // bytes. Which logical stream carries the frames changes nothing: every
+    // frame's opener names its stream in an item of one fixed width.
     let stream = Stream::new(11).expect("a valid logical stream index");
     let encoded_bytes: usize = frames
         .iter()
@@ -216,18 +216,9 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             wire.len()
         })
         .sum();
-    let decoded_skeleton = FAN * FAN * mem::size_of::<Listed>();
-    let transient = encoded_bytes + decoded_skeleton;
-    eprintln!(
-        "disputed-reply transient: {encoded_bytes} B encoded + \
-         {decoded_skeleton} B decoded = {transient} B",
-    );
-    assert!(
-        transient <= DISPUTED_REPLY_TRANSIENT_CEILING,
-        "the coexistence transient (encoded {encoded_bytes} B plus decoded \
-         skeleton {decoded_skeleton} B = {transient} B) must stay within \
-         the memory model's charged figure of \
-         {DISPUTED_REPLY_TRANSIENT_CEILING} B",
+    assert_eq!(
+        encoded_bytes, DEFAULT_TARGET_MESSAGE_SIZE,
+        "a maximally disputed reply encodes as a fan of full-fan query frames",
     );
 
     let mut frames = stream::iter(frames);
@@ -256,10 +247,16 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     .expect("decoding validated positions");
     assert_eq!(questions.len(), FAN);
     assert_eq!(decoded.reactions.len(), FAN);
+    // The decoded half, measured off the parked listings at their
+    // capacities.
     let mut entries = 0_usize;
+    let mut skeleton_bytes = 0_usize;
     for reaction in &decoded.reactions {
         match reaction {
-            Reaction::Query(nested) => entries += nested.len(),
+            Reaction::Query(nested) => {
+                entries += nested.len();
+                skeleton_bytes += buffer(nested);
+            }
             _ => panic!("a maximally disputed reply parks queries only"),
         }
     }
@@ -267,5 +264,10 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
         entries,
         FAN * FAN,
         "the parked skeleton is exactly fan² listing entries",
+    );
+    assert_eq!(
+        skeleton_bytes,
+        FAN * FAN * mem::size_of::<Listed>(),
+        "the parked skeleton holds its entries at exactly their size",
     );
 }
