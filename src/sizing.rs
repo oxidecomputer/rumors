@@ -38,11 +38,9 @@
 //!
 //! The reference link reflects the default budget's tuning goal: enough
 //! parallel work to keep a 1 Gb/s link busy across a 100 ms round trip, even
-//! with small messages. The table below uses 100,000 messages per replica as an
-//! example set size. We choose **100 encoded bytes** for the reference message:
-//! a small, round size above the estimated crossover where the memory
-//! constraint affects latency, so the default budget should keep the link
-//! running at full speed.
+//! with small messages. The table below uses 100,000 messages per replica
+//! as an example set size, and **100 encoded bytes** as a small, round
+//! reference message.
 //!
 //! The table models two completely different, uniformly hashed sets of
 //! that size on a link with a 12.5 MB BDP. The *window* counts
@@ -50,25 +48,20 @@
 //! *budget* covers the estimated buffering across all levels. `m` is the
 //! mean CBOR-encoded message size in bytes, excluding protocol overhead.
 //!
-//! Each cell estimates slowdown relative to uninterrupted transfer using
-//! `max(1, BDP / ((43 + m) × window))`. The 43 bytes are an approximate
-//! per-message share of hashes, versions, framing, and session setup.
-//! This overhead varies with the set sizes, shared history, and message
-//! sizes. The model assumes enough differences to keep the window busy
-//! and leaves out computation and the initial exchanges needed to locate
-//! differences. It does not predict total synchronization time.
+//! The window column is the calculation the library performs. The slowdown
+//! cells are an idealized model, `max(1, BDP / ((43 + m) × window))`,
+//! relative to uninterrupted transfer. The 43 bytes are an approximate
+//! per-message share of hashes, versions, framing, and session setup;
+//! this overhead varies with the set sizes, shared history, and message
+//! sizes. The model has not been validated against measured sessions:
+//! measured sessions can run slower than it predicts, even with a window
+//! that covers one BDP of messages. Treat the cells as a comparison between
+//! budgets, not a prediction of synchronization time.
 //!
-//! At these set sizes, the default grants a window of 100,000 subtrees. Filling
-//! one BDP calls for `12,500,000 / 100,000 = 125` wire bytes per message.
-//! Measured protocol overhead near this crossover is about 41.73 bytes per
-//! message, leaving `ceil(125 − 41.73) = 84` encoded payload bytes, below which
-//! the pipeline may, in principle, fill and begin to impose backpressure. The
-//! 100-byte reference clears this threshold.
-//!
-//! The 100-byte column estimates about 9.2× transfer time at 64 MiB, 2.0×
-//! at 256 MiB, and 1.0× at the default. The final rows are identical because
-//! the window already covers this example's full population. Different set
-//! sizes and shared history change the window and the work that uses it.
-//! Use the table to understand the trade-off, then measure your workload.
+//! At this set size, the default budget grants a window covering the
+//! example's whole population, so a larger budget cannot widen it further.
+//! Different set sizes and shared history change the window and the work
+//! that uses it. Use the table to understand the trade-off, then measure
+//! your workload.
 //!
 #![doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]

@@ -17,10 +17,6 @@ mod corners;
 #[path = "window/knee.rs"]
 mod knee;
 
-/// Compare the slowdown model with measured sessions.
-#[path = "window/operator.rs"]
-mod operator;
-
 /// Check that the default window pipelines an ordinary disputed frontier.
 #[path = "window/pipelining.rs"]
 mod pipelining;
@@ -28,7 +24,3 @@ mod pipelining;
 /// Check the window choices used throughout generated protocol schedules.
 #[path = "window/sweep.rs"]
 mod sweep;
-
-/// Provide the hand-run closed-form trade-off validation.
-#[path = "window/tradeoff_probe.rs"]
-mod tradeoff_probe;

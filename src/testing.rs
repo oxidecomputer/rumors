@@ -23,8 +23,8 @@ use crate::{
             Backend, Local,
             remote::{self, RunBudget, codec::LeafRun},
             window::{
-                self, DISPUTE_OVERHEAD_BYTES, DISPUTE_WIRE_BYTES, REFERENCE_SCOPE_BYTES,
-                ReplicaSize, SUPPLY_DECODE_ENVELOPE_BYTES, Window,
+                self, DISPUTE_OVERHEAD_BYTES, DISPUTE_WIRE_BYTES, ReplicaSize,
+                SUPPLY_DECODE_ENVELOPE_BYTES, Window,
             },
         },
         typed::{
@@ -131,14 +131,6 @@ pub fn node_census() -> NodeCensus {
 /// Restart the census high-water mark from the current live count.
 pub fn node_census_reset() {
     census::reset_peak();
-}
-
-/// Mean modeled memory per scope in the reference sizing example.
-///
-/// This workload-specific estimate helps validate the explanatory model. The
-/// window calculation derives its prices from the actual session instead.
-pub fn reference_scope_bytes() -> usize {
-    REFERENCE_SCOPE_BYTES
 }
 
 /// Mean wire bytes per differing reference-size message in the calibration fixture.
@@ -281,9 +273,6 @@ pub async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
 pub fn window_tradeoff_table() -> String {
     window::tradeoff_table()
 }
-
-/// Messages per replica in the reference sizing example.
-pub const REFERENCE_SESSION_MESSAGES: usize = window::REFERENCE_SESSION_MESSAGES as usize;
 
 /// The largest canonical version-bound encoding in a snapshot's tree, in
 /// bytes.

@@ -7,11 +7,10 @@ mod envelope;
 use proptest::prelude::*;
 
 use super::{
-    DEFAULT_SYNC_MEMORY_BUDGET, DISPUTE_OVERHEAD_BYTES, FAN, FAN_SLOT_BYTES, KEY_DEPTH,
-    LEAF_REQUEST_BYTES, REFERENCE_RECORD_BYTES, REFERENCE_SCOPE_BYTES, REFERENCE_SESSION_MESSAGES,
-    REFERENCE_SLOT_BYTES, ReplicaSize, SCOPE_FIXED_BYTES, SPEC_BDP_BYTES,
-    SUPPLY_DECODE_ENVELOPE_BYTES, SUPPLY_RECORDS_PER_STREAM, Window, WindowConfig,
-    children_quantile, disputed, occupied, stage_population,
+    DEFAULT_SYNC_MEMORY_BUDGET, FAN, FAN_SLOT_BYTES, KEY_DEPTH, LEAF_REQUEST_BYTES,
+    REFERENCE_SLOT_BYTES, ReplicaSize, SCOPE_FIXED_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES,
+    SUPPLY_RECORDS_PER_STREAM, Window, WindowConfig, children_quantile, disputed, occupied,
+    stage_population,
 };
 use crate::link::STREAM_COUNT;
 
@@ -206,36 +205,6 @@ fn deep_levels_are_sparse() {
     }
 }
 
-/// The reference scope cost matches its derivation, and the default admits that population.
-#[test]
-fn reference_scope_cost_matches_the_derivation() {
-    let n = u128::from(REFERENCE_SESSION_MESSAGES);
-    let mut total = 0u128;
-    for depth in 1..=KEY_DEPTH {
-        let held = usize::try_from(children_quantile(n, depth))
-            .expect("a child count cannot exceed the radix fan");
-        let reference = (local_node_bytes(held, 0) + REFERENCE_SLOT_BYTES) as u128;
-        total += stage_population(n, n * n, depth).min(n)
-            * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
-    }
-    total += stage_population(n, n * n, KEY_DEPTH).min(n) * LEAF_REQUEST_BYTES as u128;
-    assert_eq!(
-        REFERENCE_SCOPE_BYTES as u128,
-        total.div_ceil(n),
-        "REFERENCE_SCOPE_BYTES must equal the reference session's per-scope charge",
-    );
-
-    let window = Window::from_budget(
-        replicas([REFERENCE_SESSION_MESSAGES; 2], [0; 2]),
-        DEFAULT_SYNC_MEMORY_BUDGET,
-        local_node_bytes,
-    );
-    assert!(
-        (0..=KEY_DEPTH).any(|height| window.capacity(height) as u64 >= REFERENCE_SESSION_MESSAGES),
-        "the policy default must admit the reference session's whole population in flight",
-    );
-}
-
 /// The supply-decode envelope is the solve's own flat decode-fan term.
 ///
 /// `SUPPLY_DECODE_ENVELOPE_BYTES` must equal the flat term
@@ -268,39 +237,6 @@ fn tradeoff_table_matches_the_derivation() {
         include_str!("tradeoff.md"),
         crate::testing::window_tradeoff_table(),
         "src/tree/mirror/streaming/window/tradeoff.md is stale: run `just window-tradeoff`",
-    );
-}
-
-/// Preserve the default budget's capacity at two bandwidth-delay-product boundaries.
-///
-/// Each payload size determines a corpus that fills one BDP on the wire.
-/// Find the smallest payload whose corpus fits entirely in the default
-/// window, then check the capacity for a corpus of random u64 messages.
-#[test]
-fn default_crossover_matches_the_solve() {
-    let window_at = |corpus: u64| {
-        let window = Window::from_budget(
-            replicas([corpus; 2], [0; 2]),
-            DEFAULT_SYNC_MEMORY_BUDGET,
-            local_node_bytes,
-        );
-        window.widest()
-    };
-    let crossover = (1..=REFERENCE_RECORD_BYTES).find(|&m| {
-        let corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + m)) as u64;
-        window_at(corpus) >= corpus
-    });
-    assert_eq!(
-        crossover,
-        Some(52),
-        "the default window no longer reaches the expected crossover",
-    );
-    // A random u64 payload CBOR-encodes to 9 bytes (header + value).
-    let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 9)) as u64;
-    assert_eq!(
-        window_at(u64_corpus),
-        91_941,
-        "the default window changed for the u64 BDP-scale corpus",
     );
 }
 

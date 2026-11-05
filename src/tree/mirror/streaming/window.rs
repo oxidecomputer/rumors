@@ -182,12 +182,11 @@ pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize = STREAM_COUNT
     * SUPPLY_RECORDS_PER_STREAM
     * (std::mem::size_of::<typed::Node<Z>>() + FAN_SLOT_BYTES);
 
-/// The specification link's bandwidth-delay product, in bytes: 12.5 MB,
-/// where the two spec links coincide.
+/// The sizing guide's reference link's bandwidth-delay product, in bytes:
+/// 12.5 MB.
 ///
 /// 100 Gbps × 1 ms round trip and 1 Gbps × 100 ms are the same product;
-/// the trade-off table and the crossover figures in the budget docs are
-/// stated at it.
+/// the trade-off table in the sizing guide is stated at it.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 
@@ -203,7 +202,7 @@ pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 43;
 
-/// A round encoded payload size above the sizing guide's measured BDP crossover.
+/// The sizing guide's reference message: a small, round encoded payload size.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const REFERENCE_RECORD_BYTES: usize = 100;
 
@@ -214,18 +213,6 @@ pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + REFERENCE_
 /// Messages per replica in the reference sizing example.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const REFERENCE_SESSION_MESSAGES: u64 = 100_000;
-
-/// Average modeled bytes per scope in the reference sizing example.
-///
-/// The reference case has two fully divergent sets of
-/// [`REFERENCE_SESSION_MESSAGES`] messages.
-/// `reference_scope_cost_matches_the_derivation` recomputes the average using
-/// `Local` pricing. This describes the reference workload; it is not an input
-/// to the window. It is unsuitable as a fixed price at small budgets: decode
-/// buffers and near-root stages contribute costs that do not scale with window
-/// width.
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) const REFERENCE_SCOPE_BYTES: usize = 4_397;
 
 /// The default budget for the memory a synchronization may spend on pipelining: 512 MiB.
 ///
