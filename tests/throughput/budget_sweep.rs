@@ -20,10 +20,16 @@
 //!    `N*`. So no unit waits, as none waits in the unlimited session.
 //! 2. Each direction carries exactly the unlimited session's bytes: the
 //!    budget decides when the session admits its work, never what it sends.
-//! 3. `T(B) ≥ max(W + δ, h · δ)`. The busier direction's last byte
-//!    finishes serializing no earlier than `W`, and arrives `δ` later; and
-//!    the session's longest chain of messages takes `δ` per message on any
-//!    link, which waiting for admission only lengthens.
+//! 3. `T(B) ≥ max(W + 2δ, h · δ)`. Each side writes its preamble while it
+//!    reads its peer's, and writes nothing more until it has read the whole
+//!    of it; both preambles take the same bytes, and every pair here
+//!    carries far more than a preamble each way. So the busier direction's
+//!    bytes after its preamble start serializing no earlier than its peer's
+//!    preamble arrives, `δ` after it could have finished: its wire idles for
+//!    at least `δ`, its last byte finishes serializing no earlier than
+//!    `W + δ`, and arrives `δ` later. And the session's longest chain of
+//!    messages takes `δ` per message on any link, which waiting for
+//!    admission only lengthens.
 //! 4. Each side's ledger is exact: no item needs more than its unit's
 //!    grant, which a reply's parked chunks would if their room were priced
 //!    below what the reply delivers; the ledger holds at most `B − F`
@@ -210,7 +216,7 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
     );
     assert!(
         session.duration() >= floor,
-        "the session lasts {} byte-times, below max(W + δ, h · δ) = {floor}: {case:?}",
+        "the session lasts {} byte-times, below max(W + 2δ, h · δ) = {floor}: {case:?}",
         session.duration(),
     );
     for ledger in &session.admitted.ledgers {
@@ -256,8 +262,9 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// beside the floor allowance is the unlimited session, event for event,
 /// with no unit waiting; the session at half the allowance is the session
 /// at the allowance; every session carries the unlimited session's bytes
-/// in each direction, lasts at least its busier direction's bytes and one
-/// delay, and at least the unlimited session's critical path; and every ledger is exact, holds
+/// in each direction, lasts at least its busier direction's bytes and two
+/// delays, and at least the unlimited session's critical path; and every
+/// ledger is exact, holds
 /// at most its budget (or the allowance, below it), and asks and answers
 /// at depths of opposite parities.
 ///
@@ -292,7 +299,7 @@ fn every_budget_keeps_the_exact_properties() {
             reference.case,
         );
         let delay = reference.case.link.one_way_delay();
-        let floor = (reference.busier_direction_bytes() + delay).max(critical.hops() * delay);
+        let floor = (reference.busier_direction_bytes() + 2 * delay).max(critical.hops() * delay);
         let sessions = &swept[pair * RUNGS..][..RUNGS];
         for session in sessions {
             check_rung(session, reference, no_cost[pair], floor);
