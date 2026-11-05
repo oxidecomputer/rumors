@@ -127,10 +127,25 @@
 //!   tasks, channels, and buffers it sets up for every logical stream and
 //!   tree level, and its greeting's root fan, independent of the budget and
 //!   of the sets' sizes once the root's fan is full. Admission's own
-//!   bookkeeping ([`Holding::Admission`]) is fixed overhead too: each walk
-//!   stage waits on one unit at a time, and a floor slot allocates nothing.
-//!   Together they may be no more than [the reference
+//!   bookkeeping ([`Holding::Admission`]) is fixed overhead too. Together
+//!   they may be no more than [the reference
 //!   session](#the-reference-session)'s whole transient peak.
+//!
+//!   That bound is a measurement rather than a figure derived from types,
+//!   because two of admission's terms belong to the platform and the
+//!   executor, not to the crate: the lock inside each waiting unit, which
+//!   the standard library boxes on some platforms (illumos among them),
+//!   and the clone of its task's waker, which allocates under some
+//!   executors. Its meaning is understood. A unit admitted as it asks
+//!   allocates nothing, and a floor slot is a count in the ledger's own
+//!   account, so admission allocates only for units that wait: each a
+//!   waiter, its lock, its waker's clone, and a place in the queue's
+//!   buffer. Each walk stage waits on one unit at a time, so at most one
+//!   unit per stage, of the [`SESSION_STREAMS`], waits at once, whatever the
+//!   budget and the sets' sizes: a few hundred bytes a side, measured. The
+//!   reference session sets up the same streams as the session under test
+//!   and its own work beside them, so its peak exceeds that setup by far
+//!   more than admission ever holds.
 //!
 //! Each side must also copy at least one node, so that an exploded-node
 //! label that stopped counting cannot pass its bound vacuously. Wherever a
@@ -1742,6 +1757,19 @@ fn leaf_requests_keep_the_bound() {
 /// subtrees mix leaves `A` lacks with leaves `A`'s version knows. The test
 /// checks that the state was reached: `B` sheds every shared message, and
 /// `A` sheds none.
+///
+/// The fixture's size is part of what the exploded nodes' identity shows
+/// here. The deletion filter explodes the nodes below a node whose leaves
+/// `A` partly knows without charging them. Exploding a node copies it only
+/// where it is a compressed node another handle shares. A copy the filter
+/// keeps whole is the survivor, which the merged tree takes as replica
+/// content; one it drops, or explodes in turn and rebuilds from its
+/// survivors, is transient, at most one live per level of the filter's
+/// descent. At this size none of the filter's explosions copies a node, so
+/// the backend's reports, the allocations, and the charges agree, and
+/// their agreement is the measurement that shows it. A larger fixture
+/// would reach such copies, and the identity would then fail by design:
+/// the reports and the allocations count copies no charge pays for.
 #[test]
 fn redacting_replicas_keep_the_bound() {
     let measured = Measured::redacting(
