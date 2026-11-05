@@ -15,10 +15,11 @@
 //! into that resolution and returns at its assembly. The third, the room
 //! the reply's chunks park in ([`room`]), travels with the question's
 //! record to the decoder, which charges each chunk its own part as it
-//! decodes ([`parked_bytes`]) and returns the rest once the reply is
-//! decoded: whatever the bound allowed beyond what the reply holds returns
-//! as soon as the reply is known, and each chunk's part as soon as its
-//! stage has used it.
+//! decodes ([`parked_bytes`]) and returns whatever exceeds what the reply
+//! can still deliver as soon as the reply shows it ([`room_beyond`]):
+//! whatever the bound allowed beyond what the reply holds returns as the
+//! reply narrows it, and each chunk's part as soon as its stage has used
+//! it.
 
 use std::mem::size_of;
 
@@ -29,7 +30,7 @@ use crate::tree::mirror::streaming::{
     ledger::{Charge, ReplyBound, Unit, buffer, queued, shared},
     materialized::{Error, Query, Reserved, Resolution, Resolve},
     message::{Carried, Grandchildren, Listed},
-    remote::{Outstanding, Parked, Scope},
+    remote::{Outstanding, Parked, RecordedChild, Scope},
 };
 use crate::tree::typed::{
     ErasedPrefix,
@@ -136,9 +137,41 @@ pub(crate) fn parent_resolution<E>(bound: ReplyBound) -> usize {
 /// this room together; a chunk that took more would be charged in full
 /// and counted as a shortfall ([`Charge::take`]).
 pub(crate) fn parked_room<E>(bound: ReplyBound, listed: usize) -> usize {
-    (listed.min(bound.reactions) + 1) * queued::<Parked<E>>()
-        + bound.reactions * size_of::<Reaction<E>>()
-        + bound.listing * size_of::<Listed>()
+    parked_price::<E>(Deliverable {
+        chunks: listed.min(bound.reactions) + 1,
+        reactions: bound.reactions,
+        listing: bound.listing,
+    })
+}
+
+/// The most a reply can still deliver to its parked chunks: the chunks,
+/// their reactions, and the listing entries their queries carry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Deliverable {
+    /// The chunks it can still park.
+    pub(crate) chunks: usize,
+    /// The reactions those chunks can hold together.
+    pub(crate) reactions: usize,
+    /// The listing entries their queries can carry together.
+    pub(crate) listing: usize,
+}
+
+/// The bytes the parked chunks `still` describes can hold, priced as each
+/// chunk is ([`parked_bytes`]).
+pub(crate) fn parked_price<E>(still: Deliverable) -> usize {
+    still.chunks * queued::<Parked<E>>()
+        + still.reactions * size_of::<Reaction<E>>()
+        + still.listing * size_of::<Listed>()
+}
+
+/// The bytes of a reply's room, `room`, beyond what the reply can still
+/// deliver, `still`: what the room no longer needs to hold.
+///
+/// The decoder releases exactly this as the reply narrows what it can
+/// still deliver, so the room always covers what is left and the receive
+/// path never waits.
+pub(crate) fn room_beyond<E>(room: usize, still: Deliverable) -> usize {
+    room.saturating_sub(parked_price::<E>(still))
 }
 
 /// The bytes a decoded chunk holds while it parks: its node in the parking
@@ -161,11 +194,10 @@ pub(crate) fn parked_bytes<E>(chunk: &Reply<E>) -> usize {
 }
 
 /// The part of a reservation the records the take derives take: one queue
-/// slot per question the reply can ask, beside the reply's listing entries'
-/// radices and counts.
+/// slot per question the reply can ask, beside a recorded child per entry
+/// of the reply's listings.
 pub(crate) fn records_room(bound: ReplyBound, listed: usize) -> usize {
-    listed.min(bound.reactions) * queued::<Scope>()
-        + bound.listing * size_of::<(u8, Grandchildren)>()
+    listed.min(bound.reactions) * queued::<Scope>() + bound.listing * size_of::<RecordedChild>()
 }
 
 /// The room a question listing `listed` children sets aside for the peer's
@@ -203,7 +235,7 @@ pub(super) fn room<E>(grant: &mut Charge, bound: ReplyBound, listed: usize) -> C
 /// is priced at the larger of the two, beside one radix and count per
 /// listed child.
 pub(crate) fn record_bytes(listed: usize) -> usize {
-    queued::<Outstanding>().max(shared::<Scope>()) + listed * size_of::<(u8, Grandchildren)>()
+    queued::<Outstanding>().max(shared::<Scope>()) + listed * size_of::<RecordedChild>()
 }
 
 /// The charge, built out of `grant`, for the record of a question listing
@@ -445,7 +477,7 @@ pub(crate) fn scratch<E, Err>(place: Holding) -> usize {
                 + queued::<Scope>()
                 + 2 * FAN * size_of::<Scope>()
                 + size_of::<Scope>()
-                + FAN * size_of::<(u8, Grandchildren)>()
+                + FAN * size_of::<RecordedChild>()
         }
         _ => 0,
     }

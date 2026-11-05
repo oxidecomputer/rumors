@@ -644,6 +644,7 @@ impl ListingBuilder {
             radix,
             hash: Hash::from(hash),
             grandchildren,
+            children_less_one: 0,
         });
         self.previous = Some(radix);
     }
@@ -700,6 +701,9 @@ pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[Listed]) {
         radix,
         hash,
         grandchildren,
+        // This side's child count of the child stays local: it rides only
+        // into the record of the question the listing asks.
+        children_less_one: _,
     } in children
     {
         cbor::write_head(out, MAJOR_UINT, u64::from(*radix));

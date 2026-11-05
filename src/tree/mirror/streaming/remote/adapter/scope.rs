@@ -123,9 +123,31 @@ impl ReplyLevel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scope {
     parent: ErasedPrefix,
-    children: Vec<(u8, Grandchildren)>,
+    children: Vec<RecordedChild>,
     bound: Grandchildren,
 }
+
+/// One child a record names: its radix, the count its lister gave it, and,
+/// in the record of a question this side asked, this side's child count of
+/// it less one ([`Listed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RecordedChild {
+    /// The child's radix.
+    radix: u8,
+    /// The lister's grandchild count of the child.
+    grandchildren: Grandchildren,
+    /// This side's child count of the child, less one, where this side
+    /// listed it; zero otherwise.
+    children_less_one: u8,
+}
+
+/// The child count rides in the padding of a radix and a count, so
+/// recording it raises no record's price, which counts each child at this
+/// size.
+const _: () = assert!(
+    size_of::<RecordedChild>() == size_of::<(u8, Grandchildren)>(),
+    "a recorded child's child count must fit its padding",
+);
 
 impl Scope {
     /// Record the question represented by `listing` at `parent`, whose
@@ -135,7 +157,11 @@ impl Scope {
             parent,
             children: listing
                 .iter()
-                .map(|listed| (listed.radix, listed.grandchildren))
+                .map(|listed| RecordedChild {
+                    radix: listed.radix,
+                    grandchildren: listed.grandchildren,
+                    children_less_one: listed.children_less_one,
+                })
                 .collect(),
             bound,
         }
@@ -201,7 +227,11 @@ impl Scope {
         let (parent, radix) = prefix.pop();
         Self {
             parent,
-            children: vec![(radix, Grandchildren::ONE)],
+            children: vec![RecordedChild {
+                radix,
+                grandchildren: Grandchildren::ONE,
+                children_less_one: 0,
+            }],
             bound: Grandchildren::ONE,
         }
     }
@@ -222,17 +252,38 @@ pub(crate) struct Positions<'a> {
     /// The scope's parent prefix, which each child radix extends.
     parent: ErasedPrefix,
     /// The child radices not yet consumed, each with its lister's count.
-    children: slice::Iter<'a, (u8, Grandchildren)>,
+    children: slice::Iter<'a, RecordedChild>,
 }
 
 /// Resolve positional reactions to child prefixes in listing order.
+impl Positions<'_> {
+    /// The positions the cursor has not consumed.
+    pub fn remaining(&self) -> usize {
+        self.children.len()
+    }
+
+    /// This side's child count of the next position's child, in the
+    /// record of a question this side asked ([`Listed`]); one for any
+    /// other record.
+    pub fn upcoming_children(&self) -> usize {
+        self.children
+            .as_slice()
+            .first()
+            .map_or(0, |child| usize::from(child.children_less_one) + 1)
+    }
+}
+
 impl Iterator for Positions<'_> {
     type Item = (ErasedPrefix, Grandchildren);
 
     /// Consume the next position and return its child prefix, with the
     /// grandchild count its lister gave it.
     fn next(&mut self) -> Option<(ErasedPrefix, Grandchildren)> {
-        let (radix, grandchildren) = *self.children.next()?;
+        let RecordedChild {
+            radix,
+            grandchildren,
+            ..
+        } = *self.children.next()?;
         Some((self.parent.push(radix), grandchildren))
     }
 }

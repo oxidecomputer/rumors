@@ -412,6 +412,7 @@ proptest! {
                 radix,
                 hash: erased(leaf(&mut version)).hash(),
                 grandchildren: Grandchildren::ONE,
+                children_less_one: 0,
             })
             .collect();
         let children = ours.union(&theirs).count();

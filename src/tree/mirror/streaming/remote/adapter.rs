@@ -89,6 +89,7 @@ pub use encode::{encode_leaf_reply, encode_reply};
 #[cfg(test)]
 pub use error::BoundedPart;
 pub use error::{DecodeError, EncodeError, OpeningError, ScopeError};
+pub(crate) use scope::RecordedChild;
 pub use scope::{ReplyLevel, Scope, derive_questions};
 
 #[cfg(test)]

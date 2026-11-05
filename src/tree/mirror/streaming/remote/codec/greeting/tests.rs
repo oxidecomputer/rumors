@@ -75,6 +75,7 @@ proptest::proptest! {
                     radix,
                     hash: Hash::from(hash),
                     grandchildren: Grandchildren::from_wire(less_one),
+                    children_less_one: 0,
                 })
                 .collect(),
             set_len,

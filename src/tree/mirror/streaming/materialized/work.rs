@@ -23,11 +23,11 @@ mod queues;
 mod resolver;
 
 pub(crate) use charges::floor_allowance;
-pub(crate) use charges::parked_bytes;
-#[cfg(test)]
-pub(crate) use charges::parked_room;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
+pub(crate) use charges::{Deliverable, parked_bytes, room_beyond};
+#[cfg(test)]
+pub(crate) use charges::{parked_price, parked_room};
 pub(super) use resolver::Resolver;
 
 /// One leaf request in its queue: the leaf's path, with the charge for the

@@ -37,7 +37,6 @@ use crate::tree::{
         channel::{Receiver, Sender, TrySendError},
         erased,
         holding::{Holding, held_by, holding},
-        materialized::parked_bytes,
         protocol::{BoxResponses, Requests},
         remote::{
             adapter::{LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply},
@@ -64,12 +63,12 @@ where
     /// very record the decoder validated it against. Every reply crosses one
     /// [`LeafEdge`], which the pump owns for its whole run.
     ///
-    /// Each chunk is charged its own part of the room the question set
-    /// aside for its reply's chunks ([`parked_bytes`]), which returns once
-    /// the chunk's stage has used it; once the reply is decoded, the part
-    /// of the room its chunks did not take returns. So the room a reply
-    /// parked behind a busy stage holds is what its chunks hold, not what
-    /// its bound allowed.
+    /// The decoder charges each chunk its own part of the room the question
+    /// set aside for its reply's chunks, which returns once the chunk's
+    /// stage has used it, and returns the rest of the room as soon as the
+    /// reply shows it cannot be used ([`decode_reply`]). So the room a
+    /// reply parked behind a busy stage holds is what its chunks hold and
+    /// what it can still deliver, not what its bound allowed.
     ///
     /// Parking never waits, so decoding never waits on the walk: its queue
     /// holds whatever arrives, all of it within the room the questions it
@@ -88,7 +87,7 @@ where
         while let Some(Outstanding {
             scope,
             record,
-            mut room,
+            room,
         }) = questions.recv().await
         {
             asked = true;
@@ -97,8 +96,7 @@ where
             let answered = held_by(Holding::QuestionRecords, || Arc::new(scope));
             let mut opens = Some((answered.clone(), record));
             let mut gone = false;
-            let mut deliver = |mut chunk: erased::Reply<B::Erased>| {
-                chunk.charge = room.take(Holding::ParkedReplies, parked_bytes(&chunk));
+            let mut deliver = |chunk: erased::Reply<B::Erased>| {
                 let parked = Parked {
                     chunk,
                     opens: opens.take(),
@@ -120,12 +118,10 @@ where
                 &answered,
                 &mut incoming,
                 self.codec,
+                room,
                 &mut deliver,
             )
             .await?;
-            // The reply is decoded: the room its chunks did not take
-            // returns now, before its stage reaches it.
-            drop(room);
             if gone {
                 cancelled().await;
             }

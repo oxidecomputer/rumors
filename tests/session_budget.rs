@@ -1172,12 +1172,12 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// Admission fills each side's budget with work, and the floor slots hold
 /// one more unit per depth and kind beside it: each peak is the 8 MiB
 /// budget plus at most its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [9_945_076, 8_480_168];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [9_945_080, 8_480_268];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the budget filled with admitted work, beside the floor
 /// slots' grants, as at 8 MiB.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [34_588_284, 33_604_592];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [34_588_284, 33_604_332];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.

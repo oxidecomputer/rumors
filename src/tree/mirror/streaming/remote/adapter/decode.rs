@@ -7,13 +7,13 @@ use crate::{
     message::PayloadCodec,
     tree::{
         mirror::streaming::{
-            Backend, FAN, Leaf,
+            Backend, ErasedNode, FAN, Leaf,
             backend::BoxNodeStream,
             channel::{QueueKind, QueueRole, Receiver, Sender, channel},
             erased::{Reaction as ProtocolReaction, Reply, ops},
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound},
-            materialized::SupplyLedger,
+            materialized::{Deliverable, SupplyLedger, parked_bytes, room_beyond},
             message::{Carried, Grandchildren, Listed},
         },
         typed::{
@@ -179,6 +179,14 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
 /// reply is empty. Each chunk's reactions are allocated at exactly their
 /// count.
 ///
+/// `room` is the room the question set aside for the reply's chunks. Each
+/// chunk leaves charged its own part of it ([`parked_bytes`]), which
+/// returns once the chunk's stage has used it. As the reply narrows what
+/// it can still deliver, the room beyond that returns at once
+/// ([`room_beyond`]): the room always covers every chunk the reply can
+/// still park, so no chunk falls short of it, and none of it outlives the
+/// reply.
+///
 /// At [`ReplyLevel::Leaf`] only an empty request for the leaf is a valid
 /// query. Validation reads the record through a cursor and builds nothing:
 /// the scopes the reply's questions create are derived when each chunk is
@@ -201,6 +209,7 @@ pub async fn decode_reply<B, F>(
     scope: &Scope,
     frames: &mut F,
     codec: PayloadCodec,
+    room: Charge,
     deliver: &mut (impl FnMut(Reply<B::Erased>) + Send),
 ) -> Result<(), DecodeError<B::Error>>
 where
@@ -224,6 +233,7 @@ where
         leaves,
         assembled,
         codec,
+        room,
     )
     .read(frames, deliver);
     let assemble = holding(
@@ -267,6 +277,7 @@ where
         scope,
         frames,
         codec,
+        Charge::default(),
         &mut |chunk: Reply<B::Erased>| chunks.push(chunk),
     )
     .await?;
@@ -382,17 +393,40 @@ where
     codec: PayloadCodec,
     /// The complete reactions not yet delivered, in wire order.
     ready: Vec<ProtocolReaction<B::Erased>>,
-    /// Whether a query is among the ready reactions.
-    ready_asks: bool,
+    /// The queries among the ready reactions.
+    ready_questions: usize,
+    /// The listing entries the ready queries carry together.
+    ready_listing: usize,
     /// The runs of the open group of supplies, each awaiting its node.
     group: Vec<(u8, ErasedPrefix)>,
+    /// The record's positions the reply has not reached.
+    positions_left: usize,
+    /// The radix of the reply's latest reaction: every later reaction sits
+    /// at a greater one.
+    after: Option<u8>,
+    /// The child counts of the nodes the reply has supplied: each is a
+    /// child of the peer's whose count its grandchild count of the scope
+    /// includes, and whose listing therefore never arrives.
+    supplied_children: usize,
+    /// This side's child counts of the children the reply has matched:
+    /// each matched child is identical on both sides, so the peer's
+    /// grandchild count of the scope includes the same count for it, and
+    /// its listing never arrives.
+    matched_children: usize,
+    /// The part of the room the question set aside for the reply's chunks
+    /// that the chunks delivered so far did not take.
+    room: Charge,
 }
 
 impl<'a, B> Reader<'a, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Begin reading a reply against `scope`.
+    /// Begin reading a reply against `scope`, its chunks charged out of
+    /// `room`.
+    // The inputs are `decode_reply`'s, but for the frames and the chunks'
+    // destination, which `read` takes.
+    #[allow(clippy::too_many_arguments)]
     fn new(
         version_bytes: u64,
         ledger: &'a SupplyLedger,
@@ -401,6 +435,7 @@ where
         leaves: &'a mut Sender<DecodedLeaf<B::Node<Z>>>,
         assembled: &'a mut Receiver<(ErasedPrefix, B::Erased)>,
         codec: PayloadCodec,
+        room: Charge,
     ) -> Self {
         Self {
             ledger,
@@ -414,8 +449,14 @@ where
             assembled,
             codec,
             ready: Vec::new(),
-            ready_asks: false,
+            ready_questions: 0,
+            ready_listing: 0,
             group: Vec::new(),
+            positions_left: scope.positions().remaining(),
+            after: None,
+            supplied_children: 0,
+            matched_children: 0,
+            room,
         }
     }
 
@@ -447,7 +488,10 @@ where
                     self.close_group().await;
                     // Reject the overrun at its frame rather than retaining an
                     // unbounded reply for later walk validation.
-                    positions.next().ok_or(ScopeError::UnpositionedMatch)?;
+                    let children = positions.upcoming_children();
+                    let (prefix, _) = positions.next().ok_or(ScopeError::UnpositionedMatch)?;
+                    self.reach(&prefix);
+                    self.matched_children += children;
                     self.count()?;
                     self.ready.push(ProtocolReaction::Match);
                 }
@@ -455,7 +499,8 @@ where
                     self.close_group().await;
                     // Validate the question's position now, at its frame;
                     // the scope it creates is derived at the take.
-                    self.level.check(&mut positions, &listing)?;
+                    let (prefix, _) = self.level.check(&mut positions, &listing)?;
+                    self.reach(&prefix);
                     self.listed += listing.len();
                     if self.listed > self.bound.listing {
                         return Err(DecodeError::ExceedsBound {
@@ -464,8 +509,9 @@ where
                         });
                     }
                     self.count()?;
+                    self.ready_questions += 1;
+                    self.ready_listing += listing.len();
                     self.ready.push(ProtocolReaction::Query(listing));
-                    self.ready_asks = true;
                 }
                 WireReaction::Supply(records) => {
                     // The codec rejects empty runs. Keep the assertion for
@@ -486,6 +532,7 @@ where
                             .supplies
                             .observe::<B::Error>(self.scope.parent(), &version)?;
                         if let Some(run) = run {
+                            self.after = Some(run.0);
                             self.group.push(run);
                             self.count()?;
                         }
@@ -510,6 +557,7 @@ where
                 }
             }
 
+            self.release();
             if flow == Flow::End {
                 break;
             }
@@ -541,7 +589,7 @@ where
         std::future::poll_fn(|cx| {
             let polled = frames.poll_next_unpin(cx);
             if let Poll::Pending = polled
-                && self.ready_asks
+                && self.ready_questions > 0
             {
                 deliver(self.chunk(false));
             }
@@ -587,23 +635,81 @@ where
                 actual, prefix,
                 "assembly yields each run's node at its version-derived prefix, in run order",
             );
+            self.supplied_children += node.child_count();
             self.ready.push(ProtocolReaction::Supply(radix, node));
         }
+    }
+
+    /// Note that the reply has reached the record's position at `prefix`.
+    fn reach(&mut self, prefix: &ErasedPrefix) {
+        self.positions_left -= 1;
+        self.after = prefix.as_bytes().last().copied();
+    }
+
+    /// The most the reply can still deliver to parked chunks, its ready
+    /// reactions and open group included.
+    ///
+    /// Later reactions number at most what the bound leaves and one per
+    /// radix above the latest; later queries sit only at positions not yet
+    /// reached. Later listing entries number at most what the peer's
+    /// grandchild count of the scope leaves, less the child counts of the
+    /// children it matched and of the nodes it supplied, which that count
+    /// includes and whose listings never come, and at most a fan per later
+    /// query. Every non-last chunk
+    /// holds a query, so the chunks number at most the queries to come and
+    /// one more.
+    ///
+    /// No term grows as the reply goes on: each reaction moves from what
+    /// can come to what is ready, and each chunk delivered takes its
+    /// reactions out of what is ready and its own price out of the room.
+    fn deliverable(&self) -> Deliverable {
+        let radices =
+            usize::from(u8::MAX) + 1 - self.after.map_or(0, |radix| usize::from(radix) + 1);
+        let reactions = (self.bound.reactions - self.reactions).min(radices);
+        let questions = self.positions_left.min(reactions);
+        let listing = self
+            .bound
+            .listing
+            .saturating_sub(self.listed + self.matched_children + self.supplied_children)
+            .min(FAN * questions);
+        Deliverable {
+            chunks: self.ready_questions + questions + 1,
+            reactions: self.ready.len() + self.group.len() + reactions,
+            listing: self.ready_listing + listing,
+        }
+    }
+
+    /// Return the room beyond what the reply can still deliver.
+    ///
+    /// The room covers that much at every moment, which is what lets every
+    /// chunk take its whole price from it: it starts at the reply's bound,
+    /// what the reply can still deliver never grows, and each release
+    /// returns only the excess.
+    fn release(&mut self) {
+        let beyond = room_beyond::<B::Erased>(self.room.bytes(), self.deliverable());
+        drop(self.room.split(Holding::ParkedReplies, beyond));
     }
 
     /// The ready reactions as one chunk, allocated at exactly their count:
     /// a chunk can park, and the reservation for its reply prices each
     /// reaction at its size, which growth slack would exceed.
     fn chunk(&mut self, last: bool) -> Reply<B::Erased> {
-        // A decoded chunk is charged by whoever parks it, out of the room
-        // its question set aside, so it leaves here with no charge.
-        self.ready_asks = false;
-        Reply {
+        self.ready_questions = 0;
+        self.ready_listing = 0;
+        let mut chunk = Reply {
             reactions: self.ready.drain(..).collect(),
             charge: Charge::default(),
             last,
             carried: Carried::Nothing,
+        };
+        chunk.charge = self.room.take(Holding::ParkedReplies, parked_bytes(&chunk));
+        if last {
+            // The reply is whole: nothing more can come.
+            drop(std::mem::take(&mut self.room));
+        } else {
+            self.release();
         }
+        chunk
     }
 }
 

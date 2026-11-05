@@ -133,12 +133,12 @@ pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
 pub(crate) use work::floor_allowance;
-pub(crate) use work::parked_bytes;
-#[cfg(test)]
-pub(crate) use work::parked_room;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
+pub(crate) use work::{Deliverable, parked_bytes, room_beyond};
 use work::{LeafRequest, Resolver, Work};
+#[cfg(test)]
+pub(crate) use work::{parked_price, parked_room};
 
 pub use error::{Error, Violation};
 
@@ -526,11 +526,7 @@ pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
 /// Deriving every listing here keeps those representations identical.
 pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<Listed> {
     fan.iter()
-        .map(|(radix, node)| Listed {
-            radix: *radix,
-            hash: node.hash(),
-            grandchildren: Grandchildren::of(node),
-        })
+        .map(|(radix, node)| Listed::of(*radix, node))
         .collect()
 }
 

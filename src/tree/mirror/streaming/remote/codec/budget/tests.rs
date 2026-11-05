@@ -28,6 +28,7 @@ fn full_fan_frame_len_matches_an_actual_encode() {
             radix,
             hash: Hash::from([radix; MERKLE_HASH_LEN]),
             grandchildren: Grandchildren::MAX,
+            children_less_one: 0,
         })
         .collect();
     let frame: WireFrame = (

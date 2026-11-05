@@ -29,7 +29,8 @@
 //!   is known to be unused. The room the reply's chunks park in travels
 //!   with the question's record to the decoder, which charges each chunk
 //!   its own part as it decodes, returned once the chunk's stage has used
-//!   it, and returns the rest once the reply is decoded. The records part
+//!   it, and returns the rest as soon as the reply shows it cannot use it:
+//!   whatever exceeds what the reply can still deliver. The records part
 //!   returns when the stage has finished the reply, and the parent
 //!   resolution's part moves into that resolution and returns at assembly.
 //! - **Fixed state**, which every session sets up whatever it compares:
@@ -487,7 +488,6 @@ const _: () = {
 
 impl Charge {
     /// The bytes this charge holds.
-    #[cfg(test)]
     pub(crate) fn bytes(&self) -> usize {
         self.bytes
     }

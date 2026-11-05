@@ -54,6 +54,7 @@ impl PositionalCase {
                 radix,
                 hash: hash(radix),
                 grandchildren: count_at(radix),
+                children_less_one: 0,
             })
             .collect()
     }

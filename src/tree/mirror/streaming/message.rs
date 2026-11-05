@@ -142,6 +142,39 @@ pub struct Listed {
     /// child. A peer that asks one sizes its memory for that reply from this
     /// count before asking, and a reply over it fails the session.
     pub grandchildren: Grandchildren,
+    /// This side's child count of the child, less one, when this side
+    /// lists its own child; zero in a listing this side decoded.
+    ///
+    /// The wire does not carry it. It is carried by the entry's padding from
+    /// the walk, which lists its own children, into the record of the question
+    /// the listing asks ([`Scope`](super::remote::Scope)), where the decoder
+    /// reads it when the peer matches the child: a matched child is identical
+    /// on both sides, so the peer's count of it, which the peer's grandchild
+    /// count of the scope includes, is this one, and that many of the reply's
+    /// listing entries can never arrive. Wherever a reply can carry listings,
+    /// each child a question lists has a child of its own, so the count less
+    /// one fits a byte.
+    pub(crate) children_less_one: u8,
+}
+
+/// The child count riding in a listing entry costs no byte: every listing
+/// is priced per entry at its size.
+const _: () = assert!(
+    size_of::<Listed>() == size_of::<(u8, Hash, Grandchildren)>(),
+    "a listing entry's child count must fit its padding",
+);
+
+impl Listed {
+    /// The entry for `node`, listed by this side at `radix`.
+    pub(crate) fn of<E: ErasedNode>(radix: u8, node: &E) -> Self {
+        Self {
+            radix,
+            hash: node.hash(),
+            grandchildren: Grandchildren::of(node),
+            children_less_one: u8::try_from(node.child_count().saturating_sub(1))
+                .expect("a node has at most a fan of children"),
+        }
+    }
 }
 
 /// A grandchild count as a listing carries it: how many children a listed
@@ -200,6 +233,7 @@ pub(crate) fn listed(radix: u8, hash: Hash) -> Listed {
         radix,
         hash,
         grandchildren: Grandchildren::ONE,
+        children_less_one: 0,
     }
 }
 

@@ -14,12 +14,12 @@ use super::reject_extra;
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::{
-    Local,
+    FAN, Local,
     channel::{QueueKind, QueueRole, channel},
     erased::Reaction,
     holding::Holding,
     ledger::{Ledger, buffer},
-    materialized::{parked_bytes, parked_room},
+    materialized::{Deliverable, parked_bytes, parked_price, parked_room},
     message::{Grandchildren, Listed, listed},
     remote::{
         adapter::{ReplyLevel, Scope},
@@ -67,24 +67,51 @@ fn an_unquestioned_decoder_finishes_on_an_empty_stream() {
 }
 
 /// One reply's positional reactions, each a match or a query listing
-/// `entries` children, and after which of its frames the peer pauses.
+/// `entries` children, this side's child count of each position's child,
+/// and after which of its frames the peer pauses.
 #[derive(Clone, Debug)]
 struct SplitReply {
     /// Each position's reaction: `None` matches, `Some(entries)` queries.
     reactions: Vec<Option<u8>>,
+    /// This side's child count of each position's child, which a match
+    /// shows is the peer's too.
+    children: Vec<u8>,
     /// Whether the frames stop arriving after each reaction's frame.
     pauses: Vec<bool>,
 }
 
 /// Replies of one to a dozen positions, each a match or a query listing up
-/// to four children, paused after any of their frames.
+/// to four children, of children with one to four children each, paused
+/// after any of their frames.
 fn split_replies() -> impl Strategy<Value = SplitReply> {
-    prop::collection::vec((prop::option::of(0..=4_u8), any::<bool>()), 1..=12).prop_map(
-        |positions| {
-            let (reactions, pauses) = positions.into_iter().unzip();
-            SplitReply { reactions, pauses }
-        },
+    prop::collection::vec(
+        (prop::option::of(0..=4_u8), 1..=4_u8, any::<bool>()),
+        1..=12,
     )
+    .prop_map(|positions| {
+        let mut reply = SplitReply {
+            reactions: Vec::new(),
+            children: Vec::new(),
+            pauses: Vec::new(),
+        };
+        for (reaction, children, pause) in positions {
+            reply.reactions.push(reaction);
+            reply.children.push(children);
+            reply.pauses.push(pause);
+        }
+        reply
+    })
+}
+
+/// The listing entries the peer's child at each position contributes to
+/// its grandchild count of the scope: what a query lists, or for a match,
+/// this side's child count, the same on both sides.
+fn shares(reply: &SplitReply) -> impl Iterator<Item = usize> + '_ {
+    reply
+        .reactions
+        .iter()
+        .zip(&reply.children)
+        .map(|(reaction, &children)| usize::from(reaction.unwrap_or(children)))
 }
 
 /// The listing a query of `entries` children carries, at ascending radices.
@@ -95,41 +122,52 @@ fn listing(entries: u8) -> Vec<Listed> {
 }
 
 proptest! {
-    /// However a reply's frames arrive, the decoder charges each chunk it
-    /// parks its own price out of the room the question set aside, never
-    /// more than the room in all, and returns the rest of the room once the
-    /// reply is decoded.
+    /// However a reply's frames arrive, the decoder keeps its room at the
+    /// price of what the reply can still deliver, and leaves none of it
+    /// once the reply is decoded.
     ///
-    /// The question lists one child per position, and its peer's count is
-    /// the reply's listing entries, so the room prices exactly the entries
-    /// the reply carries and one parked chunk per question and one more.
-    /// The decoder delivers a chunk wherever the frames pause after a
-    /// query, so the pauses split the reply anywhere a peer's could, and
-    /// the test predicts each split. While
-    /// the reply decodes, the place holds exactly the room, so no chunk
-    /// fell short of it; each chunk's charge is its price, its vectors at
-    /// capacities equal to their lengths, as the room's length-based price
-    /// assumes; and once decoded, the place holds the chunks' charges and
-    /// nothing more, which return with the chunks.
+    /// Each chunk it parks takes its own price out of that room.
+    ///
+    /// The question lists one child per position, each with this side's
+    /// child count of it, and the peer's count is the sum of each child's
+    /// share: its query's listing, or for a matched child, that child
+    /// count. The decoder delivers a chunk wherever
+    /// the frames pause after a query, so the pauses split the reply
+    /// anywhere a peer's could, and the test predicts each split. At every
+    /// pause, the room the chunks have not taken is the price of what the
+    /// reply can still deliver, restated here from the reply so far: later
+    /// reactions at most the bound leaves and one per radix above the
+    /// latest, later queries only at positions not yet reached, later
+    /// listing entries at most what the peer's count leaves beside the
+    /// listings and matched shares so far and a fan per later query, and
+    /// chunks at most one per query to come and one more.
+    /// That bound must cover what the reply then actually delivers, so no
+    /// chunk falls short; each chunk's charge is its price, its vectors at
+    /// capacities equal to their lengths; and once decoded, the place holds
+    /// the chunks' charges alone, which return with the chunks.
     #[test]
-    fn parked_chunks_take_their_price_from_the_room_and_return_the_rest(
+    fn parked_chunks_keep_the_room_at_what_the_reply_can_still_deliver(
         reply in split_replies(),
     ) {
         type E = <Local as crate::tree::mirror::streaming::Backend>::Erased;
         let positions = reply.reactions.len();
-        let entries: usize = reply.reactions.iter().flatten().map(|&entries| usize::from(entries)).sum();
-        let peer_count = Grandchildren::new(entries.max(1)).expect("a dozen queries of four fit");
-        let asked: Vec<Listed> = (0..positions)
-            .map(|radix| Listed {
+        let entries: usize = shares(&reply).sum();
+        let peer_count = Grandchildren::new(entries.max(1)).expect("a dozen shares of four fit");
+        let asked: Vec<Listed> = reply
+            .children
+            .iter()
+            .enumerate()
+            .map(|(radix, &children)| Listed {
                 radix: u8::try_from(radix).expect("a dozen positions fit a radix"),
                 hash: Hash::default(),
                 grandchildren: Grandchildren::ONE,
+                children_less_one: children - 1,
             })
             .collect();
         let scope = Scope::opening(&asked, peer_count);
+        let bound = scope.reply_bound();
         let ledger = Ledger::default();
-        let room_bytes = parked_room::<E>(scope.reply_bound(), positions);
-        let room = ledger.charge(Holding::ParkedReplies, room_bytes);
+        let room = ledger.charge(Holding::ParkedReplies, parked_room::<E>(bound, positions));
 
         let ingress = Ingress::new(
             Local,
@@ -148,11 +186,17 @@ proptest! {
         let mut decoder = pin!(ingress.decode_and_park(ReplyLevel::Branch, questions, incoming, parking));
         let mut context = Context::from_waker(Waker::noop());
 
+        // Each pause's chunk boundary, and the reactions delivered by then.
         let mut chunks = Vec::new();
-        // The decoder delivers what it holds at a pause only if a query is
-        // among it, and always at the reply's end.
+        let mut boundaries = Vec::new();
         let (mut expected, mut asks) = (1, false);
-        for (index, (reaction, pause)) in reply.reactions.iter().zip(&reply.pauses).enumerate() {
+        // What the reply so far has carried: reactions, and the listing
+        // entries and matched shares of the peer's count.
+        let (mut sent, mut spent) = (0, 0);
+        for (index, ((reaction, pause), share)) in
+            reply.reactions.iter().zip(&reply.pauses).zip(shares(&reply)).enumerate()
+        {
+            spent += share;
             let wire = match reaction {
                 None => WireReaction::Match,
                 Some(entries) => {
@@ -160,6 +204,7 @@ proptest! {
                     WireReaction::Query(listing(*entries))
                 }
             };
+            sent += 1;
             let last = index + 1 == positions;
             let flow = if last { Flow::End } else { Flow::Continue };
             frames
@@ -176,15 +221,34 @@ proptest! {
             while let Poll::Ready(Some(chunk)) = parked.poll_next_unpin(&mut context) {
                 chunks.push(chunk);
             }
-            if !last {
-                prop_assert_eq!(
-                    ledger.held_for(Holding::ParkedReplies),
-                    room_bytes,
-                    "while the reply decodes, its chunks and the rest of its room hold the room",
-                );
+            if last {
+                continue;
             }
+            let delivered: usize = chunks.iter().map(|parked| parked.chunk.reactions.len()).sum();
+            let charged: usize = chunks.iter().map(|parked| parked.chunk.charge.bytes()).sum();
+            let room = ledger.held_for(Holding::ParkedReplies) - charged;
+            // What is decoded but not yet delivered.
+            let ready = &reply.reactions[delivered..sent];
+            let ready_questions = ready.iter().flatten().count();
+            let ready_listing: usize = ready.iter().flatten().map(|&entries| usize::from(entries)).sum();
+            // What can still come.
+            let reactions = (bound.reactions - sent).min(FAN - sent);
+            let questions = (positions - sent).min(reactions);
+            let listing = bound.listing.saturating_sub(spent).min(FAN * questions);
+            let still = Deliverable {
+                chunks: ready_questions + questions + 1,
+                reactions: ready.len() + reactions,
+                listing: ready_listing + listing,
+            };
+            prop_assert_eq!(room, parked_price::<E>(still), "the room is the price of what can still come");
+            boundaries.push((chunks.len(), room));
         }
 
+        // Each bound covers what the reply delivered after it.
+        for (taken, room) in boundaries {
+            let later: usize = chunks[taken..].iter().map(|parked| parked.chunk.charge.bytes()).sum();
+            prop_assert!(later <= room, "{later} B delivered after a room of {room} B");
+        }
         let mut charged = 0;
         for parked in &chunks {
             let chunk = &parked.chunk;

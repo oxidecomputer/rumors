@@ -127,14 +127,14 @@
 //! - A question slot at depth `d` frees once the question's items and
 //!   reservation are released: its chunk when encoded, its record when the
 //!   reply's last chunk is taken, the room its reply parks in chunk by
-//!   chunk as this side's stage uses the reply's chunks and the rest once
-//!   the reply is decoded, and the reservation's other parts as the stage
-//!   finishes the reply and assembles the scope asked about. That takes the
-//!   peer's answer and questions about the scope, at depth `d` and below on
-//!   the peer's side, this side's answers to those questions, at `d + 1`,
-//!   and the subtree's assembly: work at depths the induction already
-//!   grants, apart from the peer's answer at `d`, whose own slot frees
-//!   without anything at `d` on this side.
+//!   chunk as this side's stage uses the reply's chunks and the rest as
+//!   the reply shows it cannot be used, and the reservation's other parts
+//!   as the stage finishes the reply and assembles the scope asked about.
+//!   That takes the peer's answer and questions about the scope, at depth
+//!   `d` and below on the peer's side, this side's answers to those
+//!   questions, at `d + 1`, and the subtree's assembly: work at depths the
+//!   induction already grants, apart from the peer's answer at `d`, whose
+//!   own slot frees without anything at `d` on this side.
 //! - An answer slot at depth `d` frees once the answer's scope is
 //!   assembled, which takes its questions, at question depth `d + 1`, and
 //!   their subtrees.
