@@ -62,12 +62,6 @@ pub enum Holding {
     /// subtree over its open right spine, at most one fan per path byte
     /// however many leaves the subtree holds.
     Assembly,
-    /// Nodes a backend builds to explode a node into its children, beyond
-    /// the handles it yields.
-    ///
-    /// For the in-memory backend these are the copies of shared compressed
-    /// nodes that peeling one byte off a path makes.
-    ExplodedNodes,
     /// Admission's own bookkeeping: the units waiting for admission, the
     /// queue that orders them, and the wakers that resume them.
     ///
@@ -88,8 +82,8 @@ pub enum Holding {
     /// For the in-memory backend this is the preimage a branch's hash is
     /// computed over, a record per child, which lives only within the call
     /// that computes the hash: the node keeps only the hash, inside its own
-    /// allocation. A copy that peeling makes starts with no hash, so the
-    /// first listing or comparison that reads it computes one.
+    /// allocation. A peeled view keeps no hash, so each listing or
+    /// comparison that reads one computes it.
     ///
     /// The charge leaves it out, as a fixed amount whatever the budget and
     /// the sets' sizes. Hashing is synchronous, so a thread holds the
@@ -103,7 +97,7 @@ impl Holding {
     /// Every place, in declaration order: how observers of ledgers and of
     /// the allocation meter index their accounts.
     #[cfg(any(test, feature = "test-internals"))]
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 10] = [
         Self::Questions,
         Self::Resolutions,
         Self::QuestionRecords,
@@ -112,7 +106,6 @@ impl Holding {
         Self::OutgoingReplies,
         Self::Wire,
         Self::Assembly,
-        Self::ExplodedNodes,
         Self::Admission,
         Self::Hashing,
     ];
@@ -137,42 +130,6 @@ static HOOK: OnceLock<Hook> = OnceLock::new();
 pub fn attribute_allocations(hook: Hook) -> bool {
     std::ptr::fn_addr_eq(*HOOK.get_or_init(|| hook), hook)
 }
-
-/// The process's report hook: called with a place and the bytes a backend
-/// reported the place's next work will allocate.
-#[cfg(any(test, feature = "test-internals"))]
-pub type ReportHook = fn(Holding, usize);
-
-/// The report hook every session in the process reports through, once
-/// installed.
-#[cfg(any(test, feature = "test-internals"))]
-static REPORT_HOOK: OnceLock<ReportHook> = OnceLock::new();
-
-/// Install `hook` as the process's report hook, returning whether it is now
-/// the installed one.
-///
-/// A session reports, before each node it explodes, the bytes its backend
-/// says the explosion allocates, as work for [`Holding::ExplodedNodes`]; a
-/// meter compares the sum with what that place's marked regions allocated.
-/// The first installation wins for the life of the process, as for
-/// [`attribute_allocations`].
-#[cfg(any(test, feature = "test-internals"))]
-pub fn report_allocations(hook: ReportHook) -> bool {
-    std::ptr::fn_addr_eq(*REPORT_HOOK.get_or_init(|| hook), hook)
-}
-
-/// Report that `holding`'s next work allocates `bytes`.
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) fn reported(holding: Holding, bytes: usize) {
-    if let Some(hook) = REPORT_HOOK.get() {
-        hook(holding, bytes);
-    }
-}
-
-/// Report that `holding`'s next work allocates `bytes`.
-#[cfg(not(any(test, feature = "test-internals")))]
-#[inline(always)]
-pub(crate) fn reported(_: Holding, _: usize) {}
 
 /// Run `region` as work for `holding`.
 #[cfg(any(test, feature = "test-internals"))]

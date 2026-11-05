@@ -129,14 +129,12 @@ const fn with_question(held: Held) -> Held {
 }
 
 /// A resolution of `resolved` at `prefix`, exploded from `original`, built
-/// out of `grant` for its queue slot and slots, and keeping `copies`, the
-/// node copies exploding its node made, until its assembly.
+/// out of `grant` for its queue slot and slots.
 pub(super) fn resolution<E>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
     original: Option<E>,
     resolved: Vec<(u8, Resolve<E>)>,
-    copies: Charge,
 ) -> Resolution<E> {
     let bytes = queued::<Resolution<E>>() + buffer(&resolved);
     Resolution {
@@ -144,7 +142,6 @@ pub(super) fn resolution<E>(
         resolved,
         original,
         charge: grant.take(Holding::Resolutions, bytes),
-        copies,
     }
 }
 
@@ -318,9 +315,8 @@ pub(super) fn record(grant: &mut Charge, listed: usize) -> Charge {
 /// The question about `prefix` that lists `ours`, the children of
 /// `original`, whose reply `bound` bounds, built out of `grant`.
 ///
-/// It is charged for what it holds, `copies` of node copies listing its
-/// children made included, and for the parts of its reply's reservation it
-/// keeps ([`reserve`]). Its handle to `original` sits inline in its queue
+/// It is charged for what it holds and for the parts of its reply's
+/// reservation it keeps ([`reserve`]). Its handle to `original` sits inline in its queue
 /// slot and allocates nothing: it keeps alive a node the walk already held,
 /// the one it listed `ours` from.
 pub(super) fn query<E>(
@@ -329,13 +325,11 @@ pub(super) fn query<E>(
     original: Option<E>,
     ours: Vec<(u8, E)>,
     bound: ReplyBound,
-    copies: usize,
 ) -> Query<E> {
     let held = queued::<Query<E>>() + buffer(&ours);
     Query {
         prefix,
         charge: grant.take(Holding::Questions, held),
-        copies: grant.take(Holding::ExplodedNodes, copies),
         reservation: reserve::<E>(grant, prefix.height(), bound, ours.len()),
         ours,
         original,
@@ -356,8 +350,7 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 
 /// The most an answer's own unit holds, before its scope is explored.
 ///
-/// That is the copies exploding its scope makes, `copies`, its resolution,
-/// with a slot for each of the `children` either side holds, its plan, with
+/// That is its resolution, with a slot for each of the `children` either side holds, its plan, with
 /// an entry for each such child at most, and its reactions that ask
 /// nothing, one per such child at most ([`answer_children`] counts them),
 /// with the set of later matches its match covers, if the `shared` children
@@ -366,11 +359,10 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 ///
 /// A plan entry is priced at an internal answer's: a leaf parent's, which
 /// plans each question by its radix alone, is no larger.
-pub(crate) const fn answer_bound<E, Err>(children: usize, shared: usize, copies: usize) -> usize {
+pub(crate) const fn answer_bound<E, Err>(children: usize, shared: usize) -> usize {
     // A chunk's reactions keep one slot spare for a question
     // ([`Chunks::next_part`](super::answer::Chunks::next_part)).
-    copies
-        + queued::<Resolution<E>>()
+    queued::<Resolution<E>>()
         + children * size_of::<(u8, Resolve<E>)>()
         + children * size_of::<Planned<E, Question<E>>>()
         + chunk_bound::<E, Err>(
@@ -439,20 +431,18 @@ pub(crate) fn answer_children(ours: Radices, theirs: &[Listed]) -> usize {
 /// The most a question's unit holds, before it is built.
 ///
 /// That is a query listing at most `listed` of this side's children, the
-/// copies exploding the child asked about makes, `copies`, the reservation
+/// reservation
 /// for the reply that the peer's count of the child, `theirs`, bounds at
 /// the child's typed `height`, the chunk ending at the question behind the
 /// `leading` reactions and covered sets, and the record.
 pub(crate) const fn question_bound<E, Err>(
     height: usize,
     theirs: Grandchildren,
-    copies: usize,
     leading: Held,
     listed: usize,
 ) -> usize {
     queued::<Query<E>>()
         + listed * size_of::<(u8, E)>()
-        + copies
         + reservation::<E>(height, ReplyBound::of(height, listed, theirs), listed)
         + chunk_bound::<E, Err>(with_question(leading), listed)
         + record_bytes(listed)
@@ -479,13 +469,12 @@ pub(crate) const fn leaf_question_bound<E, Err>(leading: Held) -> usize {
 /// query the reply carries, each answering at least the children its query
 /// lists, and the listing entries of all its queries together are at most
 /// `bound.listing`. What those answers take beyond their entries depends
-/// on this side's children of the node's children and the copies exploding
-/// them, which the walk reads only as it builds the question, after
+/// on this side's children of the node's children, which the walk reads
+/// only as it builds the question, after
 /// admitting it. Until then only the type maximum bounds the answers from
 /// above, so the prediction is the least they can be granted when the
 /// reply lists every entry its bound allows: as few answers as can hold the
-/// entries, a fan each, each answering only the children its entries name
-/// and exploding nothing. It is a lower bound on what any such reply's
+/// entries, a fan each, each answering only the children its entries name. It is a lower bound on what any such reply's
 /// processing admits there.
 ///
 /// The questions processing sends two levels down are not part of it: each
@@ -496,8 +485,8 @@ pub(crate) const fn leaf_question_bound<E, Err>(leading: Held) -> usize {
 /// A reply that lists nothing, about a leaf's parent or answering a request,
 /// is predicted to need nothing; the bound already says so
 /// ([`ReplyBound::of`]), so the node's height adds nothing. The prediction falls short of what
-/// processing keeps wherever this side holds children the peer lacks or
-/// exploding a node copies it, and exceeds it wherever the reply lists less
+/// processing keeps wherever this side holds children the peer lacks, and
+/// exceeds it wherever the reply lists less
 /// than its bound allows or the answers return room they did not use; the
 /// share's pace corrects it from what the answers keep.
 pub(crate) const fn processing_need<E, Err>(bound: ReplyBound) -> usize {
@@ -506,16 +495,16 @@ pub(crate) const fn processing_need<E, Err>(bound: ReplyBound) -> usize {
         return 0;
     }
     // An answer's bound grows by the same bytes with each child it answers.
-    let answer = answer_bound::<E, Err>(0, 0, 0);
-    let per_child = answer_bound::<E, Err>(1, 0, 0) - answer;
+    let answer = answer_bound::<E, Err>(0, 0);
+    let per_child = answer_bound::<E, Err>(1, 0) - answer;
     entries.div_ceil(FAN) * answer + entries * per_child
 }
 
 /// The most a whole reply of at most `reactions` reactions that asks
-/// nothing holds, with `copies` of node copies its building makes: the unit
-/// of an answer that supplies a whole node, or a leaf.
-pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usize {
-    copies + chunk_bound::<E, Err>(Held { reactions, sets: 0 }, 0)
+/// nothing holds: the unit of an answer that supplies a whole node, or a
+/// leaf.
+pub(crate) const fn supply_bound<E, Err>(reactions: usize) -> usize {
+    chunk_bound::<E, Err>(Held { reactions, sets: 0 }, 0)
 }
 
 /// The most any unit's grant holds, in a walk over nodes `E` whose backend
@@ -530,12 +519,6 @@ pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usi
 ///   asks about is at most [`Grandchildren::MAX`], 65,536, so its reply is
 ///   bounded at a fan of reactions and 65,536 listing entries. Any height
 ///   above the leaves' parents bounds a reply that much; the root's is one.
-/// - Each explosion, of the scope an answer explores or of the child a
-///   question asks about, copies at most
-///   [`ErasedNode::MAX_EXPLOSION_BYTES`]: the walk prices every explosion
-///   through its checked report
-///   ([`explosion_bytes`](crate::tree::mirror::streaming::materialized::explosion_bytes)),
-///   and fails the session on a report above the bound.
 /// - A chunk's reactions ahead of its question are entries of its answer's
 ///   plan, one per child either side holds. Each side lists at most a fan,
 ///   as this side's nodes hold and as the peer's listings decode, in
@@ -549,21 +532,14 @@ pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usi
 /// are the one term that grows past a fan. The walk asserts at its construction that this fits the four
 /// bytes a charge counts in ([`assert_grants_fit`]).
 pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
-    let copies = E::MAX_EXPLOSION_BYTES;
     let leading = Held {
         reactions: 2 * FAN,
         sets: 1,
     };
-    let question = question_bound::<E, Err>(
-        height::Root::HEIGHT,
-        Grandchildren::MAX,
-        copies,
-        leading,
-        FAN,
-    );
+    let question = question_bound::<E, Err>(height::Root::HEIGHT, Grandchildren::MAX, leading, FAN);
     let leaf_question = leaf_question_bound::<E, Err>(leading);
-    let answer = answer_bound::<E, Err>(FAN, FAN, copies);
-    let supply = supply_bound::<E, Err>(FAN, copies);
+    let answer = answer_bound::<E, Err>(FAN, FAN);
+    let supply = supply_bound::<E, Err>(FAN);
     max(max(question, leaf_question), max(answer, supply))
 }
 
@@ -585,7 +561,6 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
 ///   holds, or supplies at most a fan of them; an answer about a leaf
 ///   supplies that one leaf.
 const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
-    let copies = E::MAX_EXPLOSION_BYTES;
     let leading = Held {
         reactions: 2 * FAN,
         sets: 1,
@@ -597,16 +572,14 @@ const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
                 reactions: 0,
                 sets: 0,
             };
-            question_bound::<E, Err>(height, Grandchildren::MAX, copies, unled, FAN)
+            question_bound::<E, Err>(height, Grandchildren::MAX, unled, FAN)
         }
         Unit::Question if height == 0 => leaf_question_bound::<E, Err>(leading),
-        Unit::Question => {
-            question_bound::<E, Err>(height, Grandchildren::MAX, copies, leading, FAN)
-        }
-        Unit::Answer if height == 0 => supply_bound::<E, Err>(1, 0),
+        Unit::Question => question_bound::<E, Err>(height, Grandchildren::MAX, leading, FAN),
+        Unit::Answer if height == 0 => supply_bound::<E, Err>(1),
         Unit::Answer => max(
-            answer_bound::<E, Err>(FAN, FAN, copies),
-            supply_bound::<E, Err>(FAN, copies),
+            answer_bound::<E, Err>(FAN, FAN),
+            supply_bound::<E, Err>(FAN),
         ),
     }
 }
@@ -689,10 +662,6 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 ///   fan, in a vector at most twice its length; and the record an encoder
 ///   still holds for the reply it writes after its asker's reservation
 ///   returned, a scope with a fan of radices and counts.
-///
-/// The exploded nodes' place is charged before each explosion the walk
-/// makes; the greeting's copy of the root, made before any unit is
-/// admitted, is the one copy no unit charges.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn scratch<E, Err>(place: Holding) -> usize {
     match place {

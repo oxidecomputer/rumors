@@ -200,11 +200,7 @@ pub(crate) mod ops {
     use super::*;
     use crate::tree::{
         mirror::streaming::{
-            ErasedNode, FAN,
-            backend::BoxNodeStream,
-            holding::{Holding, held_by, reported},
-            materialized::Error,
-            message::CountError,
+            ErasedNode, FAN, backend::BoxNodeStream, materialized::Error, message::CountError,
         },
         typed::{
             ErasedPrefix, Prefix,
@@ -262,12 +258,7 @@ pub(crate) mod ops {
         H: Height,
         S<H>: Height,
     {
-        // A backend may build nodes as it starts exploding this one (the
-        // in-memory backend peels a compressed node's path here), which the
-        // session-budget meter counts apart from the handles' holders.
-        let mut children = pin!(held_by(Holding::ExplodedNodes, || {
-            backend.clone().children(prefix, node)
-        }));
+        let mut children = pin!(backend.clone().children(prefix, node));
         let mut fan = Vec::with_capacity(count);
         while let Some(item) = children.next().await {
             let (prefix, child) = item?;
@@ -317,9 +308,6 @@ pub(crate) mod ops {
     where
         B: Backend<Node<Z>: Leaf>,
     {
-        // The backend's own account of what the explosion allocates, for a
-        // meter to hold against the allocations themselves.
-        reported(Holding::ExplodedNodes, node.explosion_bytes());
         let count = node.child_count();
         if count > FAN {
             return Err(Error::Count(CountError::Children(count)));

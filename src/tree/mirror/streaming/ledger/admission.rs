@@ -2,9 +2,8 @@
 //! which allowance it is charged.
 //!
 //! A *unit* is the work the walk builds in one step of an answer. Each
-//! answer is one [`Unit::Answer`], its own items: its resolution, the node
-//! copies exploding its scope made, and the reply's reactions that ask
-//! nothing. Each question the answer asks is one [`Unit::Question`]: the
+//! answer is one [`Unit::Answer`], its own items: its resolution and the
+//! reply's reactions that ask nothing. Each question the answer asks is one [`Unit::Question`]: the
 //! question's built items (its query, its chunk, and its record) and the
 //! reservation for the peer's reply. The reservation's largest part is the
 //! room the reply's chunks park in as they arrive, *the reply's room*; its
@@ -196,8 +195,8 @@
 //!
 //! - **The predicted need, `n`, is a lower bound.** The answers a reply's
 //!   processing builds one level down are sized by this side's children of
-//!   the node's children and the copies exploding them, which the walk
-//!   reads only as it builds the question, after admitting it, and by the
+//!   the node's children, which the walk reads only as it builds the
+//!   question, after admitting it, and by the
 //!   reply's entries, which only the reply carries. So the counts known at
 //!   admission bound the need only at the type maximum. The
 //!   walk predicts the least it can be instead: the answers that a reply
@@ -215,8 +214,7 @@
 //!   ratio of sums, one until the first reply finishes. It falls below one
 //!   where replies list less than their bounds allow, or where the answers
 //!   return room they did not use, and rises above one where this side
-//!   holds children the peer lacks, or where exploding the children the
-//!   answers concern copies nodes. Since `n` bounds below, `α = 1` takes the
+//!   holds children the peer lacks. Since `n` bounds below, `α = 1` takes the
 //!   prediction as it stands and bounds nothing.
 //! - **The claims nest.** A depth-`d` claim prices only the answers at
 //!   `d + 1` its reply's processing builds. The questions at `d + 2` that

@@ -48,14 +48,6 @@ impl ErasedNode for Counted {
     fn child_radices(&self) -> crate::tree::mirror::streaming::Radices {
         crate::tree::mirror::streaming::Radices::default()
     }
-
-    /// Nothing: listing explodes nothing.
-    fn explosion_bytes(&self) -> usize {
-        0
-    }
-
-    /// Nothing, the most `explosion_bytes` reports.
-    const MAX_EXPLOSION_BYTES: usize = 0;
 }
 
 /// Generates a count around `limit`, the largest any node can have: every

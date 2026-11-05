@@ -170,7 +170,6 @@ fn fills_pendings_in_order() {
         ],
         original: None,
         charge: Default::default(),
-        copies: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],
@@ -205,7 +204,6 @@ fn ready_none_is_deletion() {
         ],
         original: None,
         charge: Default::default(),
-        copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
 
@@ -228,7 +226,6 @@ fn empty_resolution_assembles_to_none() {
         resolved: vec![],
         original: None,
         charge: Default::default(),
-        copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -243,7 +240,6 @@ fn all_deleted_resolution_assembles_to_none() {
         resolved: vec![(1, Resolve::Ready(None)), (2, Resolve::Ready(None))],
         original: None,
         charge: Default::default(),
-        copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -264,14 +260,12 @@ fn chains_two_instances() {
         ],
         original: None,
         charge: Default::default(),
-        copies: Default::default(),
     })];
     let upper: Vec<Item> = vec![Ok(Resolution {
         prefix: parent_prefix(3).pop().0.erase(),
         resolved: vec![(3, Resolve::Pending)],
         original: None,
         charge: Default::default(),
-        copies: Default::default(),
     })];
 
     let chained = assemble::<Local>(
@@ -320,7 +314,6 @@ fn level_error_passes_through() {
         resolved: vec![(1, Resolve::Pending)],
         original: None,
         charge: Default::default(),
-        copies: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],
@@ -363,7 +356,7 @@ fn finished_resolution_keeps_no_charge_for_its_question() {
     let children = ours.len();
     let bound = ReplyBound::of(prefix.height(), children, Grandchildren::ONE);
     let mut grant = ledger.charge(Holding::Questions, 1 << 20);
-    let query = charges::query(&mut grant, prefix, None, ours, bound, 0);
+    let query = charges::query(&mut grant, prefix, None, ours, bound);
     drop(grant);
     assert!(
         ledger.held_for(Holding::Questions) > 0,
@@ -566,14 +559,14 @@ proptest! {
 }
 
 /// One answer processing a reply builds about a child the reply queries:
-/// the entries the query lists, the children this side holds beyond them,
-/// and the node copies exploding the child makes.
-type ChildAnswer = (usize, usize, usize);
+/// the entries the query lists and the children this side holds beyond
+/// them.
+type ChildAnswer = (usize, usize);
 
 /// The answers processing a fully disputed reply builds one level down,
 /// one for each query the reply carries, each listing at least one entry.
 fn arb_child_answers() -> impl Strategy<Value = Vec<ChildAnswer>> {
-    proptest::collection::vec((1..=FAN, 0..=FAN, 0..4_096usize), 1..=6)
+    proptest::collection::vec((1..=FAN, 0..=FAN), 1..=6)
 }
 
 /// The listing entries the queries behind `answers` carry together: the
@@ -591,8 +584,8 @@ fn listing(answers: &[ChildAnswer]) -> usize {
 fn answers_cost(answers: &[ChildAnswer]) -> usize {
     answers
         .iter()
-        .map(|&(entries, extra, copies)| {
-            charges::answer_bound::<Erased, Infallible>((entries + extra).min(FAN), 0, copies)
+        .map(|&(entries, extra)| {
+            charges::answer_bound::<Erased, Infallible>((entries + extra).min(FAN), 0)
         })
         .sum()
 }
@@ -604,8 +597,7 @@ proptest! {
     /// A fully disputed reply lists every entry its bound allows, and
     /// processing builds an answer one level down for each query it
     /// carries, answering at least the children the query lists, whatever
-    /// this side holds beyond them and whatever exploding the child copies;
-    /// each costs at least what the need prices it at. The questions that
+    /// this side holds beyond them; each costs at least what the need prices it at. The questions that
     /// processing sends two levels down are no part of the need: they claim
     /// at their own depth.
     #[test]
@@ -631,7 +623,7 @@ proptest! {
         let need = charges::processing_need::<Erased, Infallible>(bound);
         let answers: Vec<ChildAnswer> = (0..listing)
             .step_by(FAN)
-            .map(|first| ((listing - first).min(FAN), 0, 0))
+            .map(|first| ((listing - first).min(FAN), 0))
             .collect();
         prop_assert_eq!(need, answers_cost(&answers));
     }

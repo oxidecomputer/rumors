@@ -732,8 +732,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// A session counts three things against its budget:
     ///
     /// - **The work it has built:** the questions it keeps in flight, the
-    ///   answers it has built and not yet sent, the records of the questions
-    ///   it asked, and the node copies it makes to compare the sets.
+    ///   answers it has built and not yet sent, and the records of the
+    ///   questions it asked.
     /// - **Room for the answers it invited:** when a session asks a
     ///   question, it sets aside room for the most the peer's answer can
     ///   hold, and keeps it until it has finished with what the answer
@@ -772,9 +772,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// # Accuracy
     ///
     /// A session counts what it holds and sets aside for the budget by the
-    /// in-memory size of each item it builds, the node copies it makes to
-    /// compare the sets included. Allocator rounding falls outside the
-    /// count.
+    /// in-memory size of each item it builds. Allocator rounding falls
+    /// outside the count.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.sync_memory_budget = budget_bytes;

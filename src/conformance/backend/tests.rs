@@ -214,10 +214,6 @@ static RADICES_DROP: Knob = Knob::new(0);
 /// yields: honest at zero, scratch the listing never reports above it.
 static LISTING_SCRATCH: Knob = Knob::new(0);
 
-/// Bytes added to every node's `explosion_bytes` answer: honest at zero,
-/// past the backend's `MAX_EXPLOSION_BYTES` once it exceeds that bound.
-static EXPLOSION_INFLATE: Knob = Knob::new(0);
-
 /// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
 /// at zero, a residency-changing re-tag above it.
 static ASSUME_SLACK: Knob = Knob::new(0);
@@ -342,17 +338,6 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     fn grandchild_count(&self) -> usize {
         self.inner.grandchild_count()
     }
-
-    /// Read the wrapped node's explosion cost, inflated to exercise a
-    /// backend that breaks its bound.
-    fn explosion_bytes(&self) -> usize {
-        self.inner
-            .explosion_bytes()
-            .saturating_add(EXPLOSION_INFLATE.get())
-    }
-
-    /// The wrapped node's bound on its explosion cost.
-    const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
 
     /// Read the wrapped node's child count, skewed to exercise a backend
     /// whose count disagrees with its listing.
@@ -734,26 +719,117 @@ fn a_symmetric_loss_fails_the_completeness_check() {
 ///
 /// The census counts each listed child at its handle's inline bytes beside
 /// its row, though listing allocates only the row; so each child listed
-/// allocates scratch one byte wider than a handle, which no report covers.
+/// allocates scratch one byte wider than a handle.
 #[test]
-#[should_panic(expected = "undercounted explosion")]
+#[should_panic(expected = "allocating listing")]
 fn an_allocating_listing_fails_the_listing_check() {
     let _dishonest = LISTING_SCRATCH.set(size_of::<MaterializedNode<typed::View<Z>>>() + 1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// An `explosion_bytes` answer above the backend's `MAX_EXPLOSION_BYTES`
-/// is convicted by name, since the walk bounds every grant a ledger charge
-/// counts by that bound.
+/// Drain one listing of `node`, viewed whole at `prefix`, through the
+/// charged in-memory backend, returning the contract violations it
+/// recorded.
+fn violations_listing<H>(prefix: Prefix<S<H>>, node: typed::Node<S<H>>) -> Vec<String>
+where
+    H: Height,
+    S<H>: Height,
+{
+    let view = typed::View::from(node);
+    let measured = Local::measure(&view);
+    let parent = super::ChargedNode::wrap(view, measured);
+    let listed = pollster::block_on(
+        super::Charged::new(Local)
+            .children(prefix, parent)
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(listed.len(), 1, "a compressed node lists one child");
+    ledger::take_violations()
+}
+
+/// Listing a compressed leaf that another handle shares allocates nothing
+/// beyond the row it yields, though the leaf's version and payload bytes
+/// have never been cloned.
 ///
-/// Inflated by one byte more than the bound, every node's answer exceeds
-/// it, whatever its own explosion costs.
+/// The leaf sits one level below its parent's height, so its listing
+/// yields it with one path byte hidden; the retained handle is the one the
+/// replica keeps.
 #[test]
-#[should_panic(expected = "explosion over its bound")]
-fn an_explosion_over_its_bound_fails_the_bound_check() {
-    let bound = <<Materializing as Backend>::Erased as ErasedNode>::MAX_EXPLOSION_BYTES;
-    let _dishonest = EXPLOSION_INFLATE.set(bound + 1);
-    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+fn listing_a_shared_fresh_compressed_leaf_allocates_nothing() {
+    let _serial = serialized();
+    let mut version = Version::new();
+    version.tick(&crate::tree::arb::nth_party(0));
+    let node = typed::Node::<S<Z>>::beneath(typed::Node::leaf(version, Message::new(7u64)), 1);
+    let retained = node.clone();
+    let mut path = [0; 32];
+    path[31] = 1;
+    let prefix = Prefix::<S<Z>>::containing(&Path::from(path));
+    let violations = violations_listing(prefix, node);
+    assert!(violations.is_empty(), "{violations:?}");
+    drop(retained);
+}
+
+/// A providing prune allocates nothing beyond its rows at any listing,
+/// including the listings its recursion makes below the node it starts at.
+///
+/// The root holds a compressed child, mixed because the peer's version
+/// knows one of its two leaves and not the other, beside a third, unknown
+/// leaf. Providing the root lists the root and then, in the recursion, the
+/// compressed child, which the replica's root still shares.
+#[test]
+fn a_providing_prune_lists_without_allocating() {
+    use crate::tree::{
+        mirror::streaming::{materialized::unknown::unknown_providing, stats::Recorder},
+        traverse::{Action, act},
+    };
+    let _serial = serialized();
+    let path_from = |head: &[u8]| {
+        let mut bytes = [0u8; 32];
+        bytes[..head.len()].copy_from_slice(head);
+        Path::from(bytes)
+    };
+    let versions = [0, 1, 2].map(|party| {
+        let mut version = Version::new();
+        version.tick(&crate::tree::arb::nth_party(party));
+        version
+    });
+    let known = versions[0].clone();
+    let actions = vec![
+        (
+            path_from(&[1, 2, 5, 7]),
+            versions[0].clone(),
+            Action::Insert(Message::new(())),
+        ),
+        (
+            path_from(&[1, 2, 5, 8]),
+            versions[1].clone(),
+            Action::Insert(Message::new(())),
+        ),
+        (
+            path_from(&[9]),
+            versions[2].clone(),
+            Action::Insert(Message::new(())),
+        ),
+    ];
+    let root = act(None, actions, &mut |_, _| ()).expect("three leaves build a root");
+    let replica = root.clone();
+    let charged = super::Charged::new(Local);
+    let view = typed::View::from(root);
+    let measured = Local::measure(&view);
+    let erased =
+        <super::Charged<Local> as Backend>::erase(super::ChargedNode::wrap(view, measured));
+    let (survivor, _) = pollster::block_on(unknown_providing(
+        &charged,
+        &known,
+        Prefix::new().erase(),
+        erased,
+        &Recorder::default(),
+    ))
+    .expect("the in-memory backend lists exactly the children it reports");
+    assert!(survivor.is_some(), "the unknown leaves survive");
+    let violations = ledger::take_violations();
+    assert!(violations.is_empty(), "{violations:?}");
+    drop(replica);
 }
 
 /// A deflated `version_bytes` answer is caught by the assembly seam's floor.

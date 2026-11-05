@@ -199,14 +199,6 @@ impl Listed {
 /// the session derives from one would be wrong, so the session fails
 /// instead of listing the node.
 ///
-/// The bytes a backend reports exploding a node allocates
-/// ([`ErasedNode::explosion_bytes`]) are bounded the same way, by the
-/// backend's own [`ErasedNode::MAX_EXPLOSION_BYTES`]: the session bounds
-/// every grant it asks its ledger for by that bound, and a ledger charge
-/// counts a grant in four bytes. A report above it breaks the contract as
-/// a corrupted count does, so the session fails instead of exploding the
-/// node.
-///
 /// A backend must also list exactly the children it reports: the session
 /// lists a node's children into a vector sized by its child count, and a
 /// question is priced at that count, so a listing that differs from the
@@ -228,14 +220,6 @@ pub enum CountError {
         /// The children listed, counted up to the first beyond the report,
         /// where listing stops.
         listed: usize,
-    },
-    /// The node's explosion report exceeded the backend's bound.
-    #[error("the backend reported {reported} B to explode a node, more than its bound of {max} B")]
-    ExplosionBytes {
-        /// The bytes reported.
-        reported: usize,
-        /// The backend's bound, its `MAX_EXPLOSION_BYTES`.
-        max: usize,
     },
 }
 
@@ -398,18 +382,13 @@ pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
 /// What an outgoing chunk carries for its encoder beyond its own items,
 /// charged to the endpoint that built the chunk.
 ///
-/// A chunk ends at a question only partway through an answer that explores
-/// its scope, and only a reply that answers a whole scope with supplies
-/// alone copies nodes for them, so no chunk carries both. A chunk this side
-/// decoded carries nothing.
+/// Only a chunk that ends at a question carries anything. A chunk this
+/// side decoded carries nothing.
 #[derive(Debug, Default)]
 pub(crate) enum Carried {
     /// Nothing beyond the chunk's own items.
     #[default]
     Nothing,
-    /// The node copies the chunk's supplies made, which return with the
-    /// chunk once its encoder has used it.
-    Copies(#[expect(dead_code, reason = "held for its bytes, which return when it drops")] Charge),
     /// What the question the chunk ends at sets aside for its reply.
     Question {
         /// The charge for the question's record, which the encoder
@@ -425,8 +404,7 @@ pub(crate) enum Carried {
 
 impl Carried {
     /// Take out the record's charge and the reply's room of the question
-    /// the chunk ends at, if it ends at one, leaving any node copies to
-    /// return with the chunk.
+    /// the chunk ends at, if it ends at one.
     pub(crate) fn take_question(&mut self) -> Option<(Charge, Charge)> {
         match std::mem::take(self) {
             Self::Question { record, room } => Some((record, room)),

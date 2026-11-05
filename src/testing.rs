@@ -41,9 +41,7 @@ pub use crate::tree::mirror::streaming::remote::codec::{
     FramePart, HeadError, LeafRunError,
 };
 
-pub use crate::tree::mirror::streaming::holding::{
-    Holding, Hook, ReportHook, attribute_allocations, report_allocations,
-};
+pub use crate::tree::mirror::streaming::holding::{Holding, Hook, attribute_allocations};
 pub use crate::tree::mirror::streaming::ledger::{
     Admission, AdmissionHook, ChargeUnit, FitHook, LedgerChange, LedgerHook, PLACES, ReplyFit,
     SharePeak, observe_admissions, observe_fits, observe_ledgers,
@@ -492,22 +490,14 @@ pub const LANE_CAPACITY: usize = remote::LANE_CAPACITY;
 ///
 /// That is one stage, encoder, and decoder's scratch for the place per
 /// logical stream, each computed from the types it covers
-/// (`materialized::scratch` derives every term), and for the exploded
-/// nodes, the copy the greeting makes of the root to list its fan, before
-/// any unit is admitted to charge it: at most one node and a full fan's
-/// heap slots. Each term counts requested bytes, as the allocation meter
+/// (`materialized::scratch` derives every term). Each term counts requested bytes, as the allocation meter
 /// does, so the allocator's rounding is not part of it.
 pub fn ledger_scratch(holding: Holding) -> usize {
-    let streams = SESSION_STREAMS
+    SESSION_STREAMS
         * crate::tree::mirror::streaming::materialized::scratch::<
-            untyped::Node,
+            <Local as Backend>::Erased,
             <Local as Backend>::Error,
-        >(holding);
-    let greeting = match holding {
-        Holding::ExplodedNodes => untyped::MAX_EXPLOSION_BYTES,
-        _ => 0,
-    };
-    streams + greeting
+        >(holding)
 }
 
 /// The most bytes the in-memory backend's hashing holds at once on one

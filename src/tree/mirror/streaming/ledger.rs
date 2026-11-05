@@ -17,9 +17,7 @@
 //! - **Built items**, whose size is known when the session builds them:
 //!   the replies it builds, the questions it queues with the children each
 //!   lists, the resolutions awaiting assembly, the records of the questions
-//!   it sent, and the node copies its backend makes to explode a node
-//!   ([`ErasedNode::explosion_bytes`](super::ErasedNode::explosion_bytes)).
-//!   Each is charged as it is built.
+//!   it sent. Each is charged as it is built.
 //! - **Invited items**, which the peer's replies to this side's questions
 //!   become: a parked reply, the records its take derives, and the parent
 //!   resolution the stage builds from it. Each question is charged, when
@@ -268,9 +266,8 @@ fn place_index(place: Holding) -> usize {
         Holding::OutgoingReplies => 5,
         Holding::Wire => 6,
         Holding::Assembly => 7,
-        Holding::ExplodedNodes => 8,
-        Holding::Admission => 9,
-        Holding::Hashing => 10,
+        Holding::Admission => 8,
+        Holding::Hashing => 9,
     }
 }
 

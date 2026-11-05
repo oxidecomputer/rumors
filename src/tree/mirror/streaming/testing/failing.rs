@@ -1,8 +1,8 @@
 //! A composable test backend which injects one source failure after N
 //! operations, or misreports a count of the nodes at one height.
 //!
-//! The misreported count is a child count, a grandchild count, or an
-//! explosion report, as a backend reading corrupted storage would give.
+//! The misreported count is a child count or a grandchild count, as a
+//! backend reading corrupted storage would give.
 
 use std::{
     fmt,
@@ -84,8 +84,6 @@ pub enum Misreport {
     Children(usize),
     /// The node's grandchild count.
     Grandchildren(usize),
-    /// The bytes the backend reports exploding the node allocates.
-    ExplosionBytes(usize),
 }
 
 /// A backend handle which delegates N operations, then injects one failure.
@@ -205,7 +203,7 @@ impl Miscounted {
     fn grandchild_count(&self) -> Option<usize> {
         match self.report {
             Misreport::Grandchildren(count) => Some(self.read(count)),
-            Misreport::Children(_) | Misreport::ExplosionBytes(_) => None,
+            Misreport::Children(_) => None,
         }
     }
 
@@ -214,16 +212,7 @@ impl Miscounted {
     fn children(&self) -> Option<usize> {
         match self.report {
             Misreport::Children(count) => Some(self.read(count)),
-            Misreport::Grandchildren(_) | Misreport::ExplosionBytes(_) => None,
-        }
-    }
-
-    /// The misreported explosion report, if this misreports it, counting
-    /// the read.
-    fn explosion_bytes(&self) -> Option<usize> {
-        match self.report {
-            Misreport::ExplosionBytes(bytes) => Some(self.read(bytes)),
-            Misreport::Children(_) | Misreport::Grandchildren(_) => None,
+            Misreport::Grandchildren(_) => None,
         }
     }
 
@@ -301,17 +290,6 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
             .and_then(Miscounted::grandchild_count)
             .unwrap_or_else(|| self.0.grandchild_count())
     }
-
-    /// Read the wrapped node's explosion cost, or the misreported one.
-    fn explosion_bytes(&self) -> usize {
-        self.1
-            .as_ref()
-            .and_then(Miscounted::explosion_bytes)
-            .unwrap_or_else(|| self.0.explosion_bytes())
-    }
-
-    /// The wrapped node's bound on its explosion cost.
-    const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
 
     /// Read the wrapped node's child radices.
     fn child_radices(&self) -> crate::tree::mirror::streaming::Radices {

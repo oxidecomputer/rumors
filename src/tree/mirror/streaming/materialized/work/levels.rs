@@ -29,9 +29,8 @@ use crate::tree::{
         holding::{Holding, held_by, holding, holding_stream},
         ledger::{ReplyBound, Unit},
         materialized::{
-            Error, Query, Resolution, SupplyLedger, Violation, explosion_bytes, fan_listing,
-            unknown::{providing_explosion_bytes, unknown_providing},
-            violation,
+            Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
+            unknown::unknown_providing, violation,
         },
         message::{Carried, Grandchildren},
         protocol::{BoxRequests, BoxResponses, Requests},
@@ -157,7 +156,6 @@ where
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
         root: Option<B::Erased>,
-        copies: usize,
         responder: Grandchildren,
     ) -> (
         BoxResponses<B, UnderRoot, Error<B::Error>>,
@@ -179,7 +177,6 @@ where
             let bytes = charges::question_bound::<B::Erased, B::Error>(
                 root_scope.height(),
                 responder,
-                copies,
                 Held::default(),
                 fan.len(),
             );
@@ -192,7 +189,7 @@ where
             .map_err(Error::Count)?;
             let record = charges::record(&mut grant, fan.len());
             let room = charges::room::<B::Erased>(&mut grant, bound, fan.len());
-            let query = charges::query(&mut grant, root_scope, root, fan, bound, copies);
+            let query = charges::query(&mut grant, root_scope, root, fan, bound);
             yield held_by(Holding::OutgoingReplies, || {
                 charges::chunk::<B>(&mut grant, listing, true, Carried::Question { record, room })
             });
@@ -238,7 +235,6 @@ where
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
         root: Option<B::Erased>,
-        copies: usize,
         requests: impl Requests<B, UnderRoot>,
     ) -> (
         BoxResponses<B, UnderRoot, Error<B::Error>>,
@@ -298,9 +294,8 @@ where
             let held = ours.iter().map(|(radix, _)| *radix).collect();
             let children = charges::answer_children(held, &theirs);
             let shared = charges::shared_children(held, &theirs);
-            let bytes = charges::answer_bound::<B::Erased, B::Error>(children, shared, copies);
+            let bytes = charges::answer_bound::<B::Erased, B::Error>(children, shared);
             let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
-            let kept = answer_grant.take(Holding::ExplodedNodes, copies);
             let (mut chunks, resolved) = answer::internal(
                 &backend,
                 &their_version,
@@ -313,7 +308,7 @@ where
             .await?
             .into_parts();
             let mut unpublished =
-                Some(charges::resolution(&mut answer_grant, root_scope, root, resolved, kept));
+                Some(charges::resolution(&mut answer_grant, root_scope, root, resolved));
             // The grant now needs only the reply's last chunk, if that asks
             // nothing; the rest returns before any question waits for
             // admission, which the returned bytes may admit.
@@ -324,8 +319,7 @@ where
                 let (question, mut grant) = match ask {
                     Some(question) => {
                         let bytes = question
-                            .bound::<B::Error>(root_scope, charges::held(&leading))
-                            .map_err(Error::Count)?;
+                            .bound::<B::Error>(root_scope, charges::held(&leading));
                         let need = question.need::<B::Error>(root_scope);
                         let mut grant = account.invite(1, bytes, need).await;
                         let built =
@@ -465,14 +459,11 @@ where
 
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
-                        let copies = providing_explosion_bytes(&node, &their_version)
-                            .map_err(Error::Count)?;
                         // The supplies are this side's children of the node
                         // that survive the deletion filter, at most all of
                         // them.
                         let bytes = charges::supply_bound::<B::Erased, B::Error>(
                             node.child_count().min(FAN),
-                            copies,
                         );
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, children) = holding(
@@ -486,8 +477,7 @@ where
                                 .map(|(radix, child)| Reaction::Supply(radix, child))
                                 .collect()
                         });
-                        let mut reply = charges::reply::<B>(&mut grant, reactions);
-                        reply.carried = Carried::Copies(grant.take(Holding::ExplodedNodes, copies));
+                        let reply = charges::reply::<B>(&mut grant, reactions);
                         drop(grant);
                         yield_ready!(
                             progress, child_prefix;
@@ -497,19 +487,14 @@ where
                         continue;
                     }
 
-                    // The node is kept for its scope's assembly, so the
-                    // explosion's bytes are read with that second handle
-                    // held: a backend that peels an unshared node in place
-                    // must copy one the walk keeps.
+                    // The node is kept for its scope's assembly.
                     let original = node.clone();
-                    let copies = explosion_bytes(&node).map_err(Error::Count)?;
                     let held = node.child_radices();
                     let children = charges::answer_children(held, &listing);
                     let shared = charges::shared_children(held, &listing);
                     let bytes =
-                        charges::answer_bound::<B::Erased, B::Error>(children, shared, copies);
+                        charges::answer_bound::<B::Erased, B::Error>(children, shared);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
-                    let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (mut chunks, resolved) = answer::internal(
                         &backend,
@@ -528,7 +513,6 @@ where
                             child_prefix,
                             Some(original),
                             resolved,
-                            kept,
                         ));
                     // The grant now needs only the reply's last chunk, if
                     // that asks nothing; the rest returns before any
@@ -541,8 +525,7 @@ where
                         let (question, mut grant) = match ask {
                             Some(question) => {
                                 let bytes = question
-                                    .bound::<B::Error>(child_prefix, charges::held(&leading))
-                                    .map_err(Error::Count)?;
+                                    .bound::<B::Error>(child_prefix, charges::held(&leading));
                                 let need = question.need::<B::Error>(child_prefix);
                                 let mut grant =
                                     account.invite(depth + 1, bytes, need).await;
@@ -666,14 +649,11 @@ where
 
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
-                        let copies = providing_explosion_bytes(&node, &their_version)
-                            .map_err(Error::Count)?;
                         // The supplies are this side's children of the node
                         // that survive the deletion filter, at most all of
                         // them.
                         let bytes = charges::supply_bound::<B::Erased, B::Error>(
                             node.child_count().min(FAN),
-                            copies,
                         );
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, leaves) = holding(
@@ -687,8 +667,7 @@ where
                                 .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
                                 .collect()
                         });
-                        let mut reply = charges::reply::<B>(&mut grant, reactions);
-                        reply.carried = Carried::Copies(grant.take(Holding::ExplodedNodes, copies));
+                        let reply = charges::reply::<B>(&mut grant, reactions);
                         drop(grant);
                         yield_ready!(
                             progress, child_prefix;
@@ -698,19 +677,14 @@ where
                         continue;
                     }
 
-                    // The node is kept for its scope's assembly, so the
-                    // explosion's bytes are read with that second handle
-                    // held: a backend that peels an unshared node in place
-                    // must copy one the walk keeps.
+                    // The node is kept for its scope's assembly.
                     let original = node.clone();
-                    let copies = explosion_bytes(&node).map_err(Error::Count)?;
                     let held = node.child_radices();
                     let children = charges::answer_children(held, &listing);
                     let shared = charges::shared_children(held, &listing);
                     let bytes =
-                        charges::answer_bound::<B::Erased, B::Error>(children, shared, copies);
+                        charges::answer_bound::<B::Erased, B::Error>(children, shared);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
-                    let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (mut chunks, resolved) = answer::leaf_parent(
                         &their_version,
@@ -726,7 +700,6 @@ where
                             child_prefix,
                             Some(original),
                             resolved,
-                            kept,
                         ));
                     // The grant now needs only the reply's last chunk, if
                     // that asks nothing; the rest returns before any
@@ -847,17 +820,17 @@ where
                         continue;
                     };
 
-                        let bytes = charges::supply_bound::<B::Erased, B::Error>(1, 0);
-                        let mut grant = account.admit(Unit::Answer, depth(child_prefix), bytes).await;
-                        let (reactions, node) =
-                            answer::leaf(&their_version, radix, node, listing, &stats)
-                                .map_err(Error::Violation)?;
-                        yield_ready!(
-                            progress, child_prefix;
-                            yield charges::reply::<B>(&mut grant, reactions);
-                            resolver.ready(radix, node);
-                        );
-                    }
+                    let bytes = charges::supply_bound::<B::Erased, B::Error>(1);
+                    let mut grant = account.admit(Unit::Answer, depth(child_prefix), bytes).await;
+                    let (reactions, node) =
+                        answer::leaf(&their_version, radix, node, listing, &stats)
+                            .map_err(Error::Violation)?;
+                    yield_ready!(
+                        progress, child_prefix;
+                        yield charges::reply::<B>(&mut grant, reactions);
+                        resolver.ready(radix, node);
+                    );
+                }
 
                 // The chunk is used up, so its charges return now, before
                 // the stage waits for the next one: the peer's admission may

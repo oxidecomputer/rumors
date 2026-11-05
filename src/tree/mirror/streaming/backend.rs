@@ -124,6 +124,13 @@ where
     ///
     /// The children are produced in strictly increasing prefix order, each
     /// keyed by the parent's prefix extended with the child's radix.
+    ///
+    /// Listing allocates nothing beyond the handles it yields: the session
+    /// charges each listing's handles to the place that holds them, and
+    /// charges nothing for the listing itself. A backend whose node handles
+    /// reach storage it loads keeps that storage within the handles; the
+    /// in-memory backend yields views that share the stored node. The
+    /// backend conformance suite meters every listing against this.
     fn children<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -278,31 +285,6 @@ pub trait ErasedNode {
     /// one. A radix missing from the answer leaves the answer's resolution
     /// and plan costing more than its grant.
     fn child_radices(&self) -> Radices;
-
-    /// The bytes listing this node's children with [`Backend::children`]
-    /// allocates beyond the handles it yields.
-    ///
-    /// Those are the nodes a backend builds to explode this one, such as the
-    /// in-memory backend's copy of a shared compressed node.
-    ///
-    /// A session reads this before it explodes the node, to charge the
-    /// memory the explosion will hold. It must not fall short of what the
-    /// listing allocates; the session-budget suite holds the in-memory
-    /// backend's answer to exactly the bytes its listings allocate. It
-    /// never exceeds [`MAX_EXPLOSION_BYTES`](Self::MAX_EXPLOSION_BYTES): a
-    /// session that reads a larger answer fails rather than charge it, and
-    /// the backend conformance suite reports one as a violation.
-    fn explosion_bytes(&self) -> usize;
-
-    /// The most [`explosion_bytes`](Self::explosion_bytes) reports for any
-    /// node.
-    ///
-    /// The session bounds the grant of every unit whose node it explodes by
-    /// it, and so the most its floor slots can hold, which every memory
-    /// budget sets aside for them. A grant must fit the four bytes a ledger
-    /// charge counts in, so a backend whose bound would let a grant outgrow
-    /// them fails to compile.
-    const MAX_EXPLOSION_BYTES: usize;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

@@ -72,8 +72,6 @@ where
     /// once that buffer is gone and every child sits in a slot.
     #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
     question: Charge,
-    /// The question's node copies, which the resolution keeps as well.
-    copies: Charge,
     /// The parts of the room the question set aside for the reply that
     /// stayed with it: the resolution takes its slots' part, and the
     /// records' part returns when the resolver is done.
@@ -111,7 +109,6 @@ where
             original,
             bound,
             charge,
-            copies,
             reservation,
         }: Query<B::Erased>,
         their_version: &'session Version,
@@ -132,7 +129,6 @@ where
             stats,
             bound,
             question: charge,
-            copies,
             reservation,
             held: ReplyBound::default(),
             derived: 0,
@@ -266,13 +262,12 @@ where
             );
             // The question's own charge and the reservation's records part
             // return as the resolver drops here; the resolution keeps its
-            // slots' part and the question's node copies.
+            // slots' part.
             Ok(Resolution {
                 prefix: self.prefix,
                 resolved: self.resolved,
                 original: self.original,
                 charge: self.reservation.slots,
-                copies: self.copies,
             })
         }
     }

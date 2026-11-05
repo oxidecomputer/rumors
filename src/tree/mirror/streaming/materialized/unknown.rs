@@ -31,8 +31,7 @@ use crate::{
         mirror::{
             contained,
             streaming::{
-                Backend, ErasedNode, Leaf, erased::ops, materialized::Error, message::CountError,
-                stats::Recorder,
+                Backend, ErasedNode, Leaf, erased::ops, materialized::Error, stats::Recorder,
             },
         },
         typed::{ErasedPrefix, height::Z},
@@ -129,43 +128,13 @@ where
     .boxed()
 }
 
-/// The bytes [`unknown_providing`] allocates exploding `node` itself, read
-/// before it runs, so a caller can charge them first.
-///
-/// A wholly unknown node survives whole, and a mixed one goes to the
-/// reassembly of its survivors, so [`unknown_providing`] keeps either and
-/// explodes a second handle to it. The explosion's bytes are therefore
-/// read here while a second handle is held: a backend that peels an
-/// unshared node in place must copy a shared one, and the in-memory backend
-/// does. A wholly known node is not exploded. The explosions of the
-/// recursion below a mixed node are not counted.
-///
-/// # Errors
-///
-/// Returns [`CountError::ExplosionBytes`] if the backend reports the
-/// explosion above its bound ([`super::explosion_bytes`]).
-pub(super) fn providing_explosion_bytes<E: ErasedNode + Clone>(
-    node: &E,
-    known: &Version,
-) -> Result<usize, CountError> {
-    match knowledge(node, known) {
-        Dominance::Before | Dominance::Between => {
-            let second = node.clone();
-            let bytes = super::explosion_bytes(node);
-            drop(second);
-            bytes
-        }
-        Dominance::After => Ok(0),
-    }
-}
-
 /// The top of the recursion, exposed: prune one subtree and report both the
 /// surviving parent and its surviving children.
 ///
 /// Reporting the children lets an answerer emit them as `Supply` reactions
 /// without re-querying the prefix it just explored (the one-query-per-prefix
 /// invariant; see [`super`]).
-pub(super) async fn unknown_providing<B>(
+pub(crate) async fn unknown_providing<B>(
     backend: &B,
     known: &Version,
     prefix: ErasedPrefix,

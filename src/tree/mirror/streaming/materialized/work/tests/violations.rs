@@ -159,7 +159,6 @@ where
         original: None,
         bound: Default::default(),
         charge: Default::default(),
-        copies: Default::default(),
         reservation: Default::default(),
     };
 
@@ -263,7 +262,6 @@ where
                     original: None,
                     bound: Default::default(),
                     charge: Default::default(),
-                    copies: Default::default(),
                     reservation: Default::default(),
                 }),
                 vec![Reply {
@@ -284,7 +282,6 @@ where
                 original: None,
                 bound: Default::default(),
                 charge: Default::default(),
-                copies: Default::default(),
                 reservation: Default::default(),
             }),
             vec![Reply {
@@ -305,7 +302,6 @@ where
                     original: None,
                     bound: Default::default(),
                     charge: Default::default(),
-                    copies: Default::default(),
                     reservation: Default::default(),
                 }),
                 vec![Reply {
@@ -625,7 +621,6 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         declared,
         fan,
         None,
-        0,
         stream::iter(requests),
     );
     reported_violation(work, responses)

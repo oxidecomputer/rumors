@@ -60,7 +60,7 @@ proptest! {
     /// held, scope by scope up to the root, keeping its hash and bounds;
     /// a rebuilt copy would have publication compute them again. The
     /// placed pairs put every explored scope on a compressed path, whose
-    /// listed child is a peeled copy rather than a stored node.
+    /// listed child is a peeled view rather than a stored node.
     #[test]
     fn a_side_that_learns_nothing_keeps_its_root(
         (ahead, behind) in arb_contained_pair(),

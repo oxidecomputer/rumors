@@ -15,10 +15,10 @@ use crate::{
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound, buffer},
             materialized::{
-                Error, Query, Resolve, Violation, explosion_bytes, fan_listing,
+                Error, Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
             },
-            message::{Carried, CountError, Grandchildren, LaterMatches, Listed},
+            message::{Carried, Grandchildren, LaterMatches, Listed},
             stats::Recorder,
         },
         typed::{ErasedPrefix, height::Z},
@@ -366,37 +366,12 @@ impl<E: ErasedNode + Clone> Question<E> {
     /// A disputed child lists this side's children of it, exactly its
     /// child count, which is at most a fan; a request lists none.
     ///
-    /// Building the question keeps the disputed child for its scope's
-    /// assembly while it explodes it ([`question`]), so its explosion's
-    /// bytes are read here with a second handle held, as the build reads
-    /// them: a backend that peels an unshared node in place must copy a
-    /// shared one.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CountError::ExplosionBytes`] if the backend reports a
-    /// disputed child's explosion above its bound ([`explosion_bytes`]).
-    pub(super) fn bound<Err>(
-        &self,
-        prefix: ErasedPrefix,
-        leading: Held,
-    ) -> Result<usize, CountError> {
-        let (copies, theirs, listed) = match self {
-            Self::Dispute { node, theirs, .. } => {
-                let kept = node.clone();
-                let copies = explosion_bytes(node);
-                drop(kept);
-                (copies?, *theirs, node.child_count().min(FAN))
-            }
-            Self::Request { theirs, .. } => (0, *theirs, 0),
+    pub(super) fn bound<Err>(&self, prefix: ErasedPrefix, leading: Held) -> usize {
+        let (theirs, listed) = match self {
+            Self::Dispute { node, theirs, .. } => (*theirs, node.child_count().min(FAN)),
+            Self::Request { theirs, .. } => (*theirs, 0),
         };
-        Ok(charges::question_bound::<E, Err>(
-            prefix.height() - 1,
-            theirs,
-            copies,
-            leading,
-            listed,
-        ))
+        charges::question_bound::<E, Err>(prefix.height() - 1, theirs, leading, listed)
     }
 }
 
@@ -448,24 +423,19 @@ pub(super) async fn question<B>(
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let (child, original, ours, theirs, copies) = match question {
+    let (child, original, ours, theirs) = match question {
         Question::Dispute {
             radix,
             node,
             theirs,
         } => {
             let child = prefix.push(radix);
-            // The node is kept for the child scope's assembly, and held
-            // while its explosion's bytes are read, as at the unit's bound.
+            // The node is kept for the child scope's assembly.
             let original = node.clone();
-            // Checked here as at the unit's bound ([`Question::bound`]): a
-            // report that changed between the two reads would otherwise be
-            // charged unchecked.
-            let copies = explosion_bytes(&node).map_err(Error::Count)?;
             let ours = holding(Holding::Questions, ops::children_of(backend, child, node)).await?;
-            (child, Some(original), ours, theirs, copies)
+            (child, Some(original), ours, theirs)
         }
-        Question::Request { radix, theirs } => (prefix.push(radix), None, Vec::new(), theirs, 0),
+        Question::Request { radix, theirs } => (prefix.push(radix), None, Vec::new(), theirs),
     };
     let reaction = held_by(Holding::OutgoingReplies, || {
         fan_listing(&ours).map(Reaction::Query)
@@ -475,7 +445,7 @@ where
     let bound = ReplyBound::of(child.height(), ours.len(), theirs);
     let room = charges::room::<B::Erased>(grant, bound, ours.len());
     let query = held_by(Holding::Questions, || {
-        charges::query(grant, child, original, ours, bound, copies)
+        charges::query(grant, child, original, ours, bound)
     });
     Ok((reaction, query, Carried::Question { record, room }))
 }

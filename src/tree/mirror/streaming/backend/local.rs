@@ -83,16 +83,6 @@ impl ErasedNode for typed::untyped::View {
         self.grandchild_count()
     }
 
-    /// Nothing: listing a view's children clones handles and builds no
-    /// node.
-    fn explosion_bytes(&self) -> usize {
-        0
-    }
-
-    /// One node's allocation and the heap slots of a full fan, the copy of
-    /// a shared branch with every child.
-    const MAX_EXPLOSION_BYTES: usize = typed::untyped::MAX_EXPLOSION_BYTES;
-
     /// Count the children listing this node yields, from its shape.
     fn child_count(&self) -> usize {
         self.child_count()

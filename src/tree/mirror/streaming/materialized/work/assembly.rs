@@ -82,7 +82,6 @@ where
                 resolved,
                 original,
                 charge: _charge,
-                copies: _copies,
             } = resolved?;
             let mut children = Vec::with_capacity(resolved.len());
             for (radix, slot) in resolved {

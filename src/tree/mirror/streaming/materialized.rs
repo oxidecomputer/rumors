@@ -131,7 +131,7 @@ pub(super) mod progress;
 mod tests;
 #[cfg(test)]
 pub(super) mod transcript;
-pub(super) mod unknown;
+pub(crate) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
 pub(crate) use work::floor_allowance;
@@ -241,9 +241,6 @@ pub struct Query<E> {
     /// each child into a slot of the parent resolution, whose own charge
     /// covers the slots.
     pub(crate) charge: Charge,
-    /// The node copies listing its children made, which the parent
-    /// resolution keeps until its assembly.
-    pub(crate) copies: Charge,
     /// The parts of the room set aside for what the peer's reply becomes
     /// that stay with the question ([`ledger`]).
     ///
@@ -282,9 +279,6 @@ pub struct Resolution<E> {
     pub(crate) original: Option<E>,
     /// What the resolution holds: its queue slot and its slots.
     pub(crate) charge: Charge,
-    /// The node copies that exploding the node made, which its slots keep
-    /// until assembly.
-    pub(crate) copies: Charge,
 }
 
 /// One child's slot in a [`Resolution`].
@@ -336,8 +330,6 @@ pub struct Connecting<B: Backend<Node<Z>: Leaf>> {
     /// greeting — the descent's workers included — speaks the erased
     /// representation.
     fan: Vec<(u8, B::Erased)>,
-    /// The bytes exploding the root to build the fan copied.
-    copies: usize,
 }
 
 /// A stage that has exchanged greetings and can proceed with reconciliation.
@@ -348,8 +340,6 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     peer: PeerSummary,
     /// The root fan, erased at greeting time ([`Connecting`]).
     fan: Vec<(u8, B::Erased)>,
-    /// The bytes exploding the root to build the fan copied.
-    copies: usize,
 }
 
 /// The remote tree properties retained from its greeting.
@@ -392,8 +382,6 @@ struct Opening<B: Backend<Node<Z>: Leaf>> {
     /// The local root the fan was listed from, erased, which the root
     /// scope's assembly hands the backend as its `original`.
     root: Option<B::Erased>,
-    /// The bytes exploding the root to build the fan copied.
-    copies: usize,
     /// The peer's grandchild count of its root.
     peer_grandchildren: Grandchildren,
     /// The work accumulator configured from both greetings.
@@ -518,51 +506,20 @@ impl<B: Backend<Node<Z>: Leaf>, State: Send> protocol::Phase for Handshaking<B, 
 /// [`Connecting`]/[`Connected`] so the descent never re-asks the backend for
 /// the root's children.
 ///
-/// Returns the fan with the bytes the explosion copied
-/// ([`explosion_bytes`]).
-///
 /// # Errors
 ///
-/// Returns [`Error::Count`] if the backend reports the root's explosion
-/// above its bound, and [`Error::Backend`] if exploding the root fails.
+/// Returns [`Error::Count`] if the backend miscounts the root's children,
+/// and [`Error::Backend`] if exploding the root fails.
 pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
     backend: &B,
     root: Option<B::Node<height::Root>>,
-) -> Result<(Vec<(u8, B::Erased)>, usize), Error<B::Error>> {
+) -> Result<Vec<(u8, B::Erased)>, Error<B::Error>> {
     match root {
         Some(node) => {
-            let node = B::erase(node);
-            let copies = explosion_bytes(&node).map_err(Error::Count)?;
-            let fan = erased::ops::children_of(backend, Prefix::new().erase(), node).await?;
-            Ok((fan, copies))
+            Ok(erased::ops::children_of(backend, Prefix::new().erase(), B::erase(node)).await?)
         }
-        None => Ok((Vec::new(), 0)),
+        None => Ok(Vec::new()),
     }
-}
-
-/// The bytes the backend reports exploding `node` allocates
-/// ([`ErasedNode::explosion_bytes`]), checked against the backend's bound
-/// on every report.
-///
-/// The walk prices every explosion it charges through this, never the
-/// report itself: it bounds every grant by
-/// [`ErasedNode::MAX_EXPLOSION_BYTES`], and a ledger charge counts a grant
-/// in four bytes, so a report above the bound would make a grant the
-/// ledger cannot count.
-///
-/// # Errors
-///
-/// Returns [`CountError::ExplosionBytes`] if the report exceeds the
-/// backend's bound, as storage corrupted at rest could make it.
-pub(crate) fn explosion_bytes<E: ErasedNode>(node: &E) -> Result<usize, CountError> {
-    let reported = node.explosion_bytes();
-    if reported > E::MAX_EXPLOSION_BYTES {
-        return Err(CountError::ExplosionBytes {
-            reported,
-            max: E::MAX_EXPLOSION_BYTES,
-        });
-    }
-    Ok(reported)
 }
 
 /// Derive the wire listing for a materialized fan.
@@ -593,7 +550,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
 
     /// Build and send this participant's greeting.
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let (fan, copies) = greeting_fan(&self.backend, self.root.root.clone()).await?;
+        let fan = greeting_fan(&self.backend, self.root.root.clone()).await?;
         // The root's grandchild count bounds the peer's first reply, so it
         // is checked as every count a listing carries is.
         let grandchildren = match &self.root.root {
@@ -620,7 +577,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
         };
         let next = Handshaking {
             backend: self.backend,
-            state: Connecting { fan, copies },
+            state: Connecting { fan },
             root: self.root,
             target_message_size: self.target_message_size,
             stats: self.stats,
@@ -640,7 +597,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
             state: Connected {
                 peer: PeerSummary::from_greeting(theirs),
                 fan: self.state.fan,
-                copies: self.state.copies,
             },
             root: self.root,
             target_message_size: self.target_message_size,
@@ -669,9 +625,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
     /// Gather the state either descent opening consumes.
     fn open(self) -> Opening<B> {
-        let Connected {
-            peer, fan, copies, ..
-        } = self.state;
+        let Connected { peer, fan, .. } = self.state;
         let ceiling = self.root.ceiling | &peer.version;
         let ledger = SupplyLedger::new(peer.messages);
         let work = Work::new(self.backend, self.stats, self.ledger);
@@ -681,7 +635,6 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
             ceiling,
             fan,
             root: self.root.root.map(B::erase),
-            copies,
             peer_grandchildren: peer.grandchildren,
             work,
         }
@@ -706,12 +659,11 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
             ceiling,
             fan,
             root,
-            copies,
             peer_grandchildren,
             mut work,
         } = self.open();
         let (responses, queries, returns, finish) =
-            work.initiator_level(ceiling, fan, root, copies, peer_grandchildren);
+            work.initiator_level(ceiling, fan, root, peer_grandchildren);
 
         (
             responses,
@@ -742,12 +694,11 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connec
             ceiling,
             fan,
             root,
-            copies,
             peer_grandchildren: _,
             mut work,
         } = self.open();
         let (responses, queries, returns, finish) =
-            work.responder_level(peer_version.clone(), ceiling, fan, root, copies, requests);
+            work.responder_level(peer_version.clone(), ceiling, fan, root, requests);
 
         (
             responses,
@@ -942,7 +893,6 @@ where
             original: None,
             bound: ReplyBound::LEAF,
             charge: Charge::default(),
-            copies: Charge::default(),
             reservation,
         };
         let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, &stats);

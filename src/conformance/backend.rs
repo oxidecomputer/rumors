@@ -10,10 +10,8 @@
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, one assembled node per supplied prefix run,
 //!   child counts and child radices equal to the children listing a node
-//!   yields, and
-//!   explosion reports that cover what listing a node's children
-//!   allocates, by the allocation meter, within the backend's bound on
-//!   them.
+//!   yields, and listings that allocate nothing beyond the rows they
+//!   yield, by the allocation meter.
 //! - **Reconciliation:** both replicas converge to a set of the expected union
 //!   size, and any measured peak increase over the zero-budget run must fit
 //!   within the larger budget.
@@ -136,7 +134,8 @@ mod ledger {
 ///
 /// The census charges node values by the [`Measure`] oracle, which sees
 /// residency, not allocation; this meter sees what a backend allocates to
-/// explode a node, whether or not the copies it makes stay resident.
+/// list a node's children, whether or not anything it builds stays
+/// resident.
 fn allocated_by<T>(work: impl FnOnce() -> T) -> (u64, T) {
     let (stats, output) = alloc_meter::measure(work);
     (widen(stats.bytes_allocated), output)
@@ -277,27 +276,6 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
     fn grandchild_count(&self) -> usize {
         self.inner().grandchild_count()
     }
-
-    /// Read the wrapped node's explosion cost, and record a violation if it
-    /// exceeds the backend's bound.
-    ///
-    /// The bound is checked at every read rather than at the listing: the
-    /// walk fails the session on a report over the bound before it lists
-    /// the node, so a listing never sees one.
-    fn explosion_bytes(&self) -> usize {
-        let reported = self.inner().explosion_bytes();
-        if reported > E::MAX_EXPLOSION_BYTES {
-            ledger::violation(format!(
-                "explosion over its bound: a node answers {reported} B, over the backend's \
-                 MAX_EXPLOSION_BYTES of {} B",
-                E::MAX_EXPLOSION_BYTES,
-            ));
-        }
-        reported
-    }
-
-    /// The wrapped node's bound on its explosion cost.
-    const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
 
     /// Read the wrapped node's child count.
     fn child_count(&self) -> usize {
@@ -443,14 +421,12 @@ where
         // explodes each child through the wrapped backend, outside the
         // ledger, whose census follows only wrapped nodes.
         let stored = parent.grandchild_count();
-        // The explosion contract: listing allocates, beyond the rows the
-        // handles it yields keep resident, no more than the parent's
-        // explosion report, read as the walk reads it, on the erased
-        // handle just before the listing. The allocation meter counts the
-        // wrapped backend's own work alone: building its stream and each
-        // poll of it, not the grandchild count's explosions between polls.
+        // The listing contract: listing allocates nothing beyond the rows
+        // the handles it yields keep resident. The allocation meter counts
+        // the wrapped backend's own work alone: building its stream and
+        // each poll of it, not the grandchild count's listings between
+        // polls.
         let erased = B::erase(parent.into_inner());
-        let reported = erased.explosion_bytes();
         // The child-count contract: listing yields exactly the children the
         // parent reports, read as the walk reads it before listing.
         let children_reported = erased.child_count();
@@ -519,10 +495,10 @@ where
                      its children list {counted}",
                 ));
             }
-            if !failed && allocated.saturating_sub(rows) > widen(reported) {
+            if !failed && allocated > rows {
                 ledger::violation(format!(
-                    "undercounted explosion: the parent answers {reported} B, its listing \
-                     allocated {allocated} B beside {rows} B of yielded rows",
+                    "allocating listing: the listing allocated {allocated} B beside {rows} B \
+                     of yielded rows",
                 ));
             }
         }
@@ -729,8 +705,8 @@ const DIVERGENT: usize = 1_024;
 ///   with one;
 /// - a node listed a different number of children than its child count
 ///   reports, or children at other radices than its child radices report;
-/// - a node's explosion report fell short of what listing its children
-///   allocated, or exceeded the backend's bound on every report;
+/// - listing a node's children allocated beyond the rows they keep
+///   resident;
 /// - the measured peak increase exceeds the budget; or
 /// - the session failed to converge the corpora, or converged them to
 ///   less than their union.

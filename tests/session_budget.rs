@@ -126,10 +126,9 @@
 //!   stream a side receives on.
 //! - **Hashing** holds the preimages the in-memory backend builds to
 //!   compute nodes' hashes. Listing or comparing a node computes its hash
-//!   on first use, and a copy that peeling makes starts with no hash. A
-//!   preimage lives only within the call that computes its hash, and the
-//!   node keeps only the hash, inside its own allocation, so a preimage
-//!   dies before its copy does. The driver polls every task on one thread
+//!   on first use, and a peeled view, which keeps no hash, computes its
+//!   own on each read. A preimage lives only within the call that computes
+//!   its hash, and a node keeps only the hash, inside its own allocation. The driver polls every task on one thread
 //!   and hashing never yields, so a side holds the preimages of at most one
 //!   hashing descent at once, at most one per path byte
 //!   ([`HASHING_SCRATCH_BYTES`] derives the bound, independent of the
@@ -157,20 +156,6 @@
 //!   reference session sets up the same streams as the session under test
 //!   and its own work beside them, so its peak exceeds that setup by far
 //!   more than admission ever holds.
-//!
-//! Before each node it explodes, a session reads its backend's account of
-//! what the explosion will allocate, which is what it can charge for an
-//! explosion before making it, and reports it to this suite. Each side's
-//! reports must sum to exactly the bytes its exploded-node label allocated.
-//! The walk charges each of those explosions to its ledger before making
-//! it, so each side's charges to the exploded nodes' place must sum to the
-//! same bytes: the sum of every rise in that place's account. The one
-//! explosion no charge covers is the deletion filter's below a node whose
-//! leaves its peer partly knows. It never happens in the fully divergent
-//! fixtures, where neither side's version knows a leaf of the other's. The
-//! redacting fixture prunes such nodes, but at its size none of the
-//! filter's explosions below them copies a node: the identity holding
-//! there is the measurement that shows it.
 //!
 //! # The ledger
 //!
@@ -211,7 +196,7 @@
 //!   than the place's scratch. Computing a node's hash while an answer
 //!   lists or compares it is hashing's work, not the outgoing replies'
 //!   (above), so the placed fixture's half fans, each hashed anew on its
-//!   peeled copy, stay out of the share. The floor's premise fails where
+//!   peeled view, stay out of the share. The floor's premise fails where
 //!   the deletion filter prunes: a supply answer can list a fan of
 //!   children of which one survives to be charged as a reaction, so no
 //!   share is derived, and the floor is not asserted for the redacting
@@ -276,7 +261,7 @@
 #[path = "session_budget/link.rs"]
 mod link;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::thread::{self, ScopedJoinHandle};
@@ -292,7 +277,7 @@ use rumors::testing::{
     Admission, COMPARISON_FRAME_BYTES, HASHING_SCRATCH_BYTES, Holding, LANE_CAPACITY, LedgerChange,
     OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, SESSION_STREAMS, assembly_allowance,
     attribute_allocations, join_snapshots, ledger_scratch, observe_admissions, observe_fits,
-    observe_ledgers, report_allocations, supply_decode_envelope_bytes, with_leaf_paths,
+    observe_ledgers, supply_decode_envelope_bytes, with_leaf_paths,
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::bench::session::admitting;
@@ -458,9 +443,6 @@ struct Run {
     join: Stats,
     /// What the driver did.
     drive: Drive,
-    /// Each side's sum of the bytes its backend reported its explosions
-    /// would allocate.
-    reported_explosions: [usize; 2],
     /// Each side's ledger, held against the places it charges.
     ledgers: [LedgerReport; 2],
     /// The replies the session's stages finished, and those that held more
@@ -528,13 +510,12 @@ fn ledger_slack() -> usize {
 
 /// The places the ledger charges: everything a session holds but its
 /// fixed state (wire buffering, decode fans, assembly) and its setup.
-const CHARGED: [Holding; 6] = [
+const CHARGED: [Holding; 5] = [
     Holding::Questions,
     Holding::Resolutions,
     Holding::QuestionRecords,
     Holding::ParkedReplies,
     Holding::OutgoingReplies,
-    Holding::ExplodedNodes,
 ];
 
 /// The position of `holding` in [`CHARGED`].
@@ -716,34 +697,6 @@ fn ledger_reports(
     })
 }
 
-// Clippy's `missing_const_for_thread_local` can reject const-block
-// initializers on targets that lower `thread_local!` through fallback TLS.
-// The allow keeps `-D warnings` clean on those targets.
-thread_local! {
-    /// Each side's running sum of the explosion bytes its backend reports,
-    /// in [`Side::BOTH`] order, for the session being run on this thread.
-    ///
-    /// A report counts only while the driver polls a side, and the driver
-    /// polls on the thread that runs the session, so every report a session
-    /// makes lands in that thread's sums. Keeping them per thread stops
-    /// sessions that run at once in one process, as tests do under
-    /// `cargo test`, from adding to each other's sums.
-    #[allow(clippy::missing_const_for_thread_local)]
-    static REPORTED_EXPLOSIONS: Cell<[usize; 2]> = const { Cell::new([0; 2]) };
-}
-
-/// Adds a report the session makes while the driver polls a side to that
-/// side's sum; a report outside a poll belongs to no session.
-fn report(holding: Holding, bytes: usize) {
-    if holding == Holding::ExplodedNodes
-        && let Some(side) = polling()
-    {
-        let mut sums = REPORTED_EXPLOSIONS.get();
-        sums[side.index()] += bytes;
-        REPORTED_EXPLOSIONS.set(sums);
-    }
-}
-
 /// Runs one session between the peers [`fixture`] builds from `network`,
 /// both on `budget`, over the held link released by `schedule`, and
 /// classifies what it allocated.
@@ -788,10 +741,6 @@ fn run_fixture(
         "this suite's hook is the process's attribution hook"
     );
     assert!(
-        report_allocations(report),
-        "this suite's hook is the process's report hook"
-    );
-    assert!(
         observe_ledgers(ledger_change),
         "this suite's hook is the process's ledger hook"
     );
@@ -809,7 +758,6 @@ fn run_fixture(
     } = build();
     let link = Link::new();
     prepare_pacing();
-    REPORTED_EXPLOSIONS.set([0; 2]);
     let (mut a_read, mut a_write) = (BufReader::new(link.reader(Side::A)), link.writer(Side::A));
     let (mut b_read, mut b_write) = (BufReader::new(link.reader(Side::B)), link.writer(Side::B));
     let moved = usize::try_from(messages[0] + messages[1]).expect("the fixture size fits usize");
@@ -900,7 +848,6 @@ fn run_fixture(
         sends,
         join,
         drive,
-        reported_explosions: REPORTED_EXPLOSIONS.get(),
         ledgers,
         fits,
     }
@@ -1225,23 +1172,6 @@ fn violation(measured: &Measured) -> Option<String> {
                 ));
             }
         }
-        let copies = measured.holding(side, Holding::ExplodedNodes);
-        let reported = measured.run.reported_explosions[side.index()];
-        let allocated = copies.transient_bytes + copies.surviving_bytes;
-        if reported != allocated {
-            return Some(format!(
-                "{side:?}'s backend reported {reported} B of explosions where they allocated \
-                 {allocated} B: {report}"
-            ));
-        }
-        let charged =
-            measured.run.ledgers[side.index()].charged[charged_index(Holding::ExplodedNodes)];
-        if charged != reported {
-            return Some(format!(
-                "{side:?}'s ledger was charged {charged} B for explosions its backend reported \
-                 as {reported} B: {report}"
-            ));
-        }
         let outgoing =
             measured.run.ledgers[side.index()].charged[charged_index(Holding::OutgoingReplies)];
         let built = measured.allocated(side, Holding::OutgoingReplies);
@@ -1394,7 +1324,7 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// claims under the invitation share let its questions take it, and the
 /// floor slots hold one more unit per depth and kind beside it: each peak
 /// is at most the 8 MiB budget plus its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_708_036, 8_471_312];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_683_800, 8_471_088];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
@@ -1402,7 +1332,7 @@ const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_708_036, 8_471_312];
 ///
 /// A claim reserves room for processing still to come, so a side's peak
 /// can stay below its budget.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [31_221_268, 33_567_660];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [31_144_572, 33_456_216];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.
@@ -1410,7 +1340,7 @@ const WIDE_LEDGER_PEAKS: [usize; 2] = [31_221_268, 33_567_660];
 /// It asks one question, about the root, and the responder answers it with
 /// supplies alone, so neither side holds more than that one question and
 /// that one answer.
-const JOINING_LEDGER_PEAKS: [usize; 2] = [14_960, 22_768];
+const JOINING_LEDGER_PEAKS: [usize; 2] = [14_928, 22_752];
 
 /// Targets a session whose ledgers peak at exactly `expected`, the
 /// fixture's committed baseline.
@@ -1743,7 +1673,7 @@ divided_proptest! {
     /// is held to the records part of the question that asked about its
     /// parent.
     ///
-    /// Each leaf parent's peeled copy is hashed anew over its half fan of
+    /// Each leaf parent's peeled view is hashed anew over its half fan of
     /// children, so each side must hash: the hashing place's bound and the
     /// outgoing replies' floor, which leaves that hashing out, then both judge
     /// work that happened.
@@ -1798,7 +1728,7 @@ divided_proptest! {
         for side in Side::BOTH {
             assert!(
                 measured.allocated(side, Holding::Hashing) > 0,
-                "{side:?} must hash a peeled copy: {}",
+                "{side:?} must hash a peeled view: {}",
                 measured.report()
             );
         }
@@ -1829,19 +1759,6 @@ divided_proptest! {
     /// subtrees mix leaves `A` lacks with leaves `A`'s version knows. The test
     /// checks that the state was reached: `B` sheds every shared message, and
     /// `A` sheds none.
-    ///
-    /// The fixture's size is part of what the exploded nodes' identity shows
-    /// here. The deletion filter explodes the nodes below a node whose leaves
-    /// `A` partly knows without charging them. Exploding a node copies it only
-    /// where it is a compressed node another handle shares. A copy the filter
-    /// keeps whole is the survivor, which the merged tree takes as replica
-    /// content; one it drops, or explodes in turn and rebuilds from its
-    /// survivors, is transient, at most one live per level of the filter's
-    /// descent. At this size none of the filter's explosions copies a node, so
-    /// the backend's reports, the allocations, and the charges agree, and
-    /// their agreement is the measurement that shows it. A larger fixture
-    /// would reach such copies, and the identity would then fail by design:
-    /// the reports and the allocations count copies no charge pays for.
     ///
     /// The claim holds for every network seed.
     #[test]

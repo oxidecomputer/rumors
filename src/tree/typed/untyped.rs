@@ -26,31 +26,13 @@ pub struct Node {
     inner: Arc<NodeInner>,
 }
 
-/// The bytes of one node's shared allocation: the two reference counts an
-/// [`Arc`] keeps beside the node's own storage.
-///
-/// Copying a shared node, as peeling a byte off a compressed node's path
-/// does, makes one such allocation; its fan's heap slots, if it has any,
-/// are [`FAN_ENTRY_BYTES`] each.
-pub(crate) const NODE_ALLOCATION_BYTES: usize =
-    2 * mem::size_of::<usize>() + mem::size_of::<NodeInner>();
-
-// The reference counts are words, and the node's storage is no more aligned
-// than a word, so the allocation is their sizes added with no padding.
-const _: () = assert!(mem::align_of::<NodeInner>() <= mem::align_of::<usize>());
-
 /// The radices a branch's children can sit at: one per byte value.
 const RADICES: usize = u8::MAX as usize + 1;
 
 /// The bytes of one heap slot of a branch's fan: a radix beside a child
 /// handle.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const FAN_ENTRY_BYTES: usize = mem::size_of::<(u8, Node)>();
-
-/// The bytes copying a shared branch with a child at every radix
-/// allocates: one node allocation beside a full fan's heap slots, which
-/// grow with the fan's length.
-pub(crate) const MAX_EXPLOSION_BYTES: usize =
-    NODE_ALLOCATION_BYTES + fan::heap_slots(u8::MAX as usize + 1) * FAN_ENTRY_BYTES;
 
 /// Share the node and count the new handle in instrumented builds.
 impl Clone for Node {

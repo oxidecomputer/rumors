@@ -2,8 +2,8 @@
 //!
 //! Backend failures identify storage work that could not complete. Count
 //! errors identify a node count the backend reported outside every node's
-//! range, or an explosion report above the backend's own bound, a breach of
-//! the backend contract such as corrupted storage would cause. Violations identify the protocol invariant that the peer's reply
+//! range, a breach of the backend contract such as corrupted storage would
+//! cause. Violations identify the protocol invariant that the peer's reply
 //! broke; they are diagnostics for finding an implementation defect in one
 //! of the peers.
 
@@ -16,9 +16,8 @@ pub enum Error<E> {
     #[error(transparent)]
     Backend(#[from] E),
     /// The backend reported a count no node can have, for a node the walk
-    /// was listing, an explosion report above its bound, for a node the
-    /// walk was about to explode, or listed a different number of children
-    /// than it reported.
+    /// was listing, or listed a different number of children than it
+    /// reported.
     #[error(transparent)]
     Count(CountError),
     /// The peer's reply broke a reconciliation invariant.

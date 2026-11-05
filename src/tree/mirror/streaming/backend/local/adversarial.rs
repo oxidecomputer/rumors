@@ -24,8 +24,8 @@ pub(super) fn future<F: Future>(future: F) -> impl Future<Output = F::Output> {
 /// Delay every poll of one Local backend stream according to the schedule.
 ///
 /// The stream is held in place rather than boxed, so delaying a listing
-/// allocates nothing: the conformance suite holds what a listing allocates
-/// to the backend's explosion report. A caller whose stream is not `Unpin`
+/// allocates nothing: the conformance suite holds every listing to
+/// allocating nothing beyond the rows it yields. A caller whose stream is not `Unpin`
 /// boxes it.
 pub(super) fn stream<S: Stream + Unpin>(stream: S) -> impl Stream<Item = S::Item> {
     DelayedStream {
