@@ -202,6 +202,16 @@
 //! wrap the read half in `tokio::io::BufReader`, which may outlive a
 //! session.
 //!
+//! Over TCP, disable Nagle's algorithm on both ends with
+//! `TcpStream::set_nodelay(true)` before splitting the stream. A session
+//! often writes a short message and then waits for the peer's answer to it.
+//! With Nagle's algorithm on, the kernel holds a short write back until the
+//! peer acknowledges the bytes already in flight, and the peer's TCP stack
+//! may delay that acknowledgement, commonly by tens to hundreds of
+//! milliseconds, because it has nothing of its own to send yet. Each such
+//! exchange can then stall for the delayed-acknowledgement interval, and a
+//! session makes many in sequence as it descends the tree.
+//!
 //! A departed peer that never closes the connection leaves a session
 //! waiting, and so does a transport whose writes never complete; configure
 //! [`Peer::session_deadline`] to bound such waits.

@@ -9,16 +9,12 @@ mod async_io;
 
 pub use async_io::FrameWrite;
 
+#[cfg(test)]
+use super::{error::EncodeError, frame::WireFrame, signal::Speaker};
 use super::{
-    error::EncodeErrorKind,
+    error::{EncodeErrorKind, FramePart},
     frame::{Frame, LeafRun, Reaction, SUPPLY_HEAD_LEN, listing_len, write_listing},
     signal::{FRAME_OPENER_LEN, Signal, Stream},
-};
-#[cfg(test)]
-use super::{
-    error::{EncodeError, FramePart},
-    frame::WireFrame,
-    signal::Speaker,
 };
 
 /// Append `wire`'s canonical representation to `out`.
@@ -125,50 +121,49 @@ impl<'a> FrameEncoding<'a> {
         Ok(Self { head, body })
     }
 
-    /// Render the whole frame into one contiguous buffer: byte for byte
-    /// what the piece-wise writers emit, materialized only for an
-    /// attached observer's one-item view.
-    fn to_vec(&self) -> Vec<u8> {
-        let body_len = match &self.body {
-            BodyEncoding::Empty => 0,
-            BodyEncoding::Listing(listing) => listing.len(),
-            BodyEncoding::Supply { head, run } => head.as_slice().len() + run.as_bytes().len(),
-        };
-        let mut bytes = Vec::with_capacity(self.head.as_slice().len() + body_len);
-        bytes.extend_from_slice(self.head.as_slice());
-        match &self.body {
-            BodyEncoding::Empty => {}
-            BodyEncoding::Listing(listing) => bytes.extend_from_slice(listing),
-            BodyEncoding::Supply { head, run } => {
-                bytes.extend_from_slice(head.as_slice());
-                bytes.extend_from_slice(run.as_bytes());
+    /// The frame's pieces in wire order, each with the part it carries:
+    /// the opener, then the listing, or the supply run's head and its
+    /// records. Every piece is nonempty, and there are at most
+    /// [`MAX_PIECES`].
+    fn pieces(&self) -> impl Iterator<Item = (FramePart, &[u8])> {
+        let body = match &self.body {
+            BodyEncoding::Empty => [None, None],
+            BodyEncoding::Listing(listing) => {
+                [Some((FramePart::QueryChildren, &listing[..])), None]
             }
+            BodyEncoding::Supply { head, run } => [
+                Some((FramePart::SupplyLength, head.as_slice())),
+                Some((FramePart::SupplyRun, run.as_bytes())),
+            ],
+        };
+        std::iter::once((FramePart::FrameHead, self.head.as_slice()))
+            .chain(body.into_iter().flatten())
+    }
+
+    /// Render the whole frame into one contiguous buffer: byte for byte
+    /// what the writers emit, materialized only for an attached observer's
+    /// one-item view.
+    fn to_vec(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.pieces().map(|(_, piece)| piece.len()).sum());
+        for (_, piece) in self.pieces() {
+            bytes.extend_from_slice(piece);
         }
         bytes
     }
 
     #[cfg(test)]
     fn write(&self, out: &mut impl Write) -> Result<(), EncodeErrorKind> {
-        write(out, FramePart::FrameHead, self.head.as_slice())?;
-        match &self.body {
-            BodyEncoding::Empty => {}
-            BodyEncoding::Listing(listing) => {
-                write(out, FramePart::QueryChildren, listing)?;
-            }
-            BodyEncoding::Supply { head, run } => {
-                write(out, FramePart::SupplyLength, head.as_slice())?;
-                write(out, FramePart::SupplyRun, run.as_bytes())?;
-            }
+        for (part, piece) in self.pieces() {
+            out.write_all(piece)
+                .map_err(|source| EncodeErrorKind::Write { part, source })?;
         }
         Ok(())
     }
 }
 
-#[cfg(test)]
-fn write(out: &mut impl Write, part: FramePart, bytes: &[u8]) -> Result<(), EncodeErrorKind> {
-    out.write_all(bytes)
-        .map_err(|source| EncodeErrorKind::Write { part, source })
-}
+/// The most pieces one frame has: a supply frame's opener, run head, and
+/// records.
+const MAX_PIECES: usize = 3;
 
 #[cfg(test)]
 mod tests;

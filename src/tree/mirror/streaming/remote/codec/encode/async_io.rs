@@ -1,5 +1,7 @@
 //! Direct asynchronous output for validated frame encodings.
 
+use std::io::{self, IoSlice};
+
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::observe::DataObservers;
@@ -9,13 +11,15 @@ use super::super::{
     frame::WireFrame,
     signal::Speaker,
 };
-use super::{BodyEncoding, FrameEncoding};
+use super::{FrameEncoding, MAX_PIECES};
 
 /// Async frame writer over one speaker's direction of the pipe.
 ///
-/// A frame is validated before its signal is written. Its pieces then go
-/// directly to the transport and are flushed before [`frame`](Self::frame)
-/// returns, so a frame is always whole on the wire before the next begins.
+/// A frame is validated before any of it is written. Its pieces then go
+/// directly to the transport as one vectored write, which a transport that
+/// supports vectored writes (a TCP socket, or a `BufWriter`) takes in one
+/// operation, and is flushed before [`frame`](Self::frame) returns, so a
+/// frame is always whole on the wire before the next begins.
 pub struct FrameWrite<W> {
     /// The local protocol role attributed to encoding failures.
     speaker: Speaker,
@@ -84,32 +88,53 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     }
 }
 
-/// Write an encoding's frame head and optional body in wire order.
+/// Write an encoding's pieces in wire order as one vectored write,
+/// continuing with the remainder whenever the transport accepts only part.
+///
+/// A failure names the piece holding the first byte the transport did not
+/// accept.
 async fn write_encoding(
     out: &mut (impl AsyncWrite + Unpin),
     encoding: &FrameEncoding<'_>,
 ) -> Result<(), EncodeErrorKind> {
-    write(out, FramePart::FrameHead, encoding.head.as_slice()).await?;
-    match &encoding.body {
-        BodyEncoding::Empty => {}
-        BodyEncoding::Listing(listing) => {
-            write(out, FramePart::QueryChildren, listing).await?;
+    let mut parts = [(FramePart::FrameHead, 0); MAX_PIECES];
+    let mut slices = [IoSlice::new(&[]); MAX_PIECES];
+    let mut count = 0;
+    for (part, piece) in encoding.pieces() {
+        parts[count] = (part, piece.len());
+        slices[count] = IoSlice::new(piece);
+        count += 1;
+    }
+    let parts = &parts[..count];
+    let mut remaining = &mut slices[..count];
+    let mut written = 0;
+    while !remaining.is_empty() {
+        let part = part_at(parts, written);
+        let accepted = out
+            .write_vectored(remaining)
+            .await
+            .map_err(|source| EncodeErrorKind::Write { part, source })?;
+        if accepted == 0 {
+            return Err(EncodeErrorKind::Write {
+                part,
+                source: io::ErrorKind::WriteZero.into(),
+            });
         }
-        BodyEncoding::Supply { head, run } => {
-            write(out, FramePart::SupplyLength, head.as_slice()).await?;
-            write(out, FramePart::SupplyRun, run.as_bytes()).await?;
-        }
+        written += accepted;
+        IoSlice::advance_slices(&mut remaining, accepted);
     }
     Ok(())
 }
 
-/// Write one frame part, preserving its identity in any error.
-async fn write(
-    out: &mut (impl AsyncWrite + Unpin),
-    part: FramePart,
-    bytes: &[u8],
-) -> Result<(), EncodeErrorKind> {
-    out.write_all(bytes)
-        .await
-        .map_err(|source| EncodeErrorKind::Write { part, source })
+/// The part holding byte `offset` of a frame whose pieces, in wire order,
+/// carry `parts` with the given lengths.
+fn part_at(parts: &[(FramePart, usize)], offset: usize) -> FramePart {
+    let mut end = 0;
+    for &(part, len) in parts {
+        end += len;
+        if offset < end {
+            return part;
+        }
+    }
+    unreachable!("a frame with unwritten bytes has a piece holding the first of them")
 }

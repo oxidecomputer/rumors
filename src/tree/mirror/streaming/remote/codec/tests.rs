@@ -194,6 +194,148 @@ proptest! {
     }
 }
 
+proptest! {
+    /// A transport that takes vectored writes whole receives each frame as
+    /// one write operation, byte for byte the synchronous encoding.
+    #[test]
+    fn a_frame_is_one_vectored_write(
+        frames in vec(arb_frame(), 1..4),
+        speaker in arb_speaker(),
+    ) {
+        let frames: Vec<WireFrame> = frames
+            .into_iter()
+            .map(|frame| place(speaker, frame).1)
+            .collect();
+        let mut writer = FrameWrite::new(speaker, VectoredWrite::new(usize::MAX, usize::MAX));
+        for frame in &frames {
+            pollster::block_on(writer.frame(frame)).unwrap();
+        }
+        let written = writer.into_inner();
+        prop_assert_eq!(written.writes.len(), frames.len());
+        for (frame, write) in frames.iter().zip(&written.writes) {
+            let mut canonical = Vec::new();
+            encode(speaker, frame, &mut canonical).unwrap();
+            prop_assert_eq!(write, &canonical);
+        }
+    }
+
+    /// A transport that fails after taking some of a frame's bytes, in
+    /// vectored writes of any size, fails the frame naming the same part as
+    /// the synchronous encoder does.
+    ///
+    /// That is the part holding the first byte the transport did not take.
+    #[test]
+    fn a_failed_vectored_write_names_the_untaken_part(
+        frame in arb_frame(),
+        speaker in arb_speaker(),
+        chunk in 1usize..16,
+        cut in any::<prop::sample::Index>(),
+    ) {
+        let (speaker, frame) = place(speaker, frame);
+        let mut canonical = Vec::new();
+        encode(speaker, &frame, &mut canonical).unwrap();
+        let budget = cut.index(canonical.len());
+        let expected = encode(speaker, &frame, &mut FailAfter(budget)).unwrap_err();
+        let mut writer = FrameWrite::new(speaker, VectoredWrite::new(chunk, budget));
+        let error = pollster::block_on(writer.frame(&frame)).unwrap_err();
+        prop_assert_eq!(error.origin, expected.origin);
+        match (error.kind, expected.kind) {
+            (
+                EncodeErrorKind::Write { part, .. },
+                EncodeErrorKind::Write { part: expected, .. },
+            ) => prop_assert_eq!(part, expected),
+            other => prop_assert!(false, "both writers fail a write: {other:?}"),
+        }
+    }
+}
+
+/// A synchronous writer that takes the given count of bytes, then fails
+/// every write.
+struct FailAfter(usize);
+
+impl std::io::Write for FailAfter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.0 == 0 {
+            return Err(std::io::ErrorKind::Other.into());
+        }
+        let taken = self.0.min(bytes.len());
+        self.0 -= taken;
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// An async writer that supports vectored writes, taking at most `chunk`
+/// bytes per write across all of its slices until `budget` bytes are
+/// taken, then failing every write. It records each write's bytes.
+struct VectoredWrite {
+    /// The most bytes one write takes.
+    chunk: usize,
+    /// The bytes still to take before writes fail.
+    budget: usize,
+    /// Each write operation's bytes, in order.
+    writes: Vec<Vec<u8>>,
+}
+
+impl VectoredWrite {
+    /// Take at most `chunk` bytes per write, and fail once `budget` bytes
+    /// are taken.
+    fn new(chunk: usize, budget: usize) -> Self {
+        Self {
+            chunk,
+            budget,
+            writes: Vec::new(),
+        }
+    }
+}
+
+impl AsyncWrite for VectoredWrite {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        self.poll_write_vectored(cx, &[std::io::IoSlice::new(bytes)])
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        slices: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        if this.budget == 0 {
+            return Poll::Ready(Err(std::io::ErrorKind::Other.into()));
+        }
+        let mut room = this.chunk.min(this.budget);
+        let mut write = Vec::new();
+        for slice in slices {
+            let taken = room.min(slice.len());
+            write.extend_from_slice(&slice[..taken]);
+            room -= taken;
+        }
+        this.budget -= write.len();
+        let taken = write.len();
+        this.writes.push(write);
+        Poll::Ready(Ok(taken))
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 #[derive(Default)]
 struct RecordingWrite {
     bytes: Vec<u8>,

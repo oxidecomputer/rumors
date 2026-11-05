@@ -29,7 +29,9 @@ impl TcpEnd {
     }
 }
 
-/// Dial and accept one loopback TCP connection, returning both ends split.
+/// Dial and accept one loopback TCP connection, returning both ends split,
+/// with Nagle's algorithm disabled on both, as the crate's transport docs
+/// advise for sessions over TCP.
 ///
 /// `buffers` requests each socket's kernel send and receive buffers, in
 /// bytes, so buffering-sensitive checks engage backpressure sooner. The OS
@@ -52,5 +54,8 @@ pub async fn pair(buffers: Option<u32>) -> io::Result<(TcpEnd, TcpEnd)> {
     let addr = listener.local_addr()?;
     let (dialed, accepted) = tokio::join!(socket()?.connect(addr), listener.accept());
     let (accepted, _) = accepted?;
-    Ok((TcpEnd::split(dialed?), TcpEnd::split(accepted)))
+    let dialed = dialed?;
+    dialed.set_nodelay(true)?;
+    accepted.set_nodelay(true)?;
+    Ok((TcpEnd::split(dialed), TcpEnd::split(accepted)))
 }

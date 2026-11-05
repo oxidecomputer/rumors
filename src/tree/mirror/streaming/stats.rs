@@ -7,6 +7,7 @@
 //! Each peer measures its own side, and collection adds no protocol traffic.
 //! [`Recorder`] is the internal counter shared by the reconciliation layers.
 
+use std::io::IoSlice;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -192,7 +193,8 @@ impl Recorder {
 ///
 /// Wraps the pipe's write half between the frame codec and the transport,
 /// and only while the multiplexer writes frames, so the count is exactly
-/// the codec's frame bytes.
+/// the codec's frame bytes. Vectored writes pass through to the transport,
+/// so a frame stays one write operation where the transport supports it.
 pub struct CountedWrite<W> {
     inner: W,
     recorder: Recorder,
@@ -203,6 +205,17 @@ impl<W> CountedWrite<W> {
     pub fn new(inner: W, recorder: Recorder) -> Self {
         Self { inner, recorder }
     }
+
+    /// Credit the bytes a write accepted, passing its outcome through.
+    fn credit(&self, poll: Poll<std::io::Result<usize>>) -> Poll<std::io::Result<usize>> {
+        if let Poll::Ready(Ok(accepted)) = &poll {
+            self.recorder
+                .inner
+                .bytes_sent
+                .fetch_add(widen(*accepted), Ordering::Relaxed);
+        }
+        poll
+    }
 }
 
 impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
@@ -211,15 +224,21 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        let this = &mut *self;
-        let poll = Pin::new(&mut this.inner).poll_write(cx, buf);
-        if let Poll::Ready(Ok(accepted)) = &poll {
-            this.recorder
-                .inner
-                .bytes_sent
-                .fetch_add(widen(*accepted), Ordering::Relaxed);
-        }
-        poll
+        let poll = Pin::new(&mut self.inner).poll_write(cx, buf);
+        self.credit(poll)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        let poll = Pin::new(&mut self.inner).poll_write_vectored(cx, bufs);
+        self.credit(poll)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
