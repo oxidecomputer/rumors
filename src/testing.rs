@@ -26,7 +26,10 @@ use crate::{
         },
         typed::{
             ErasedPrefix,
-            hash::{Hash, MAX_BRANCH_PREIMAGE_LEN, MERKLE_HASH_LEN as TREE_HASH_LEN, PATH_LEN},
+            hash::{
+                HMAC_KEY_LEN, Hash, HashKey, MAX_BRANCH_PREIMAGE_LEN,
+                MERKLE_HASH_LEN as TREE_HASH_LEN, PATH_LEN,
+            },
             height::{Height, Root},
             untyped::{
                 self, census,
@@ -114,24 +117,46 @@ pub fn memory_connection(capacity: usize) -> (MemoryEnd, MemoryEnd) {
     )
 }
 
-/// Width of the subtree digests consumed by [`branch_hash`].
+/// Width of the subtree digests consumed by [`BranchHasher`].
 pub const MERKLE_HASH_LEN: usize = TREE_HASH_LEN;
 
-/// Hash a branch through the production preimage builder.
+/// Bytes of the raw HMAC key a [`BranchHasher`] takes: one SHA-256 output.
+pub const HASH_KEY_LEN: usize = HMAC_KEY_LEN;
+
+/// The tree hash under a raw key, for hashing branches through the
+/// production preimage builder ([`branch_hash`](Self::branch_hash)).
 ///
 /// The branch-hashing benchmark uses this test-only entry so it cannot drift
-/// from the implementation whose feeding strategy it measures.
-pub fn branch_hash(
-    prefix: &[u8],
-    children: impl IntoIterator<Item = (u8, [u8; MERKLE_HASH_LEN])>,
-) -> [u8; MERKLE_HASH_LEN] {
-    Hash::branch(
-        prefix,
-        children
-            .into_iter()
-            .map(|(radix, hash)| (radix, Hash::from(hash))),
-    )
-    .into()
+/// from the implementation whose feeding strategy it measures. As in the
+/// tree, constructing one keys the hash once, and each branch then clones
+/// the keyed state.
+#[derive(Clone, Debug)]
+pub struct BranchHasher(HashKey);
+
+impl BranchHasher {
+    /// Key the tree hash with the raw key `key`.
+    pub fn new(key: &[u8; HASH_KEY_LEN]) -> Self {
+        Self(HashKey::new(key))
+    }
+
+    /// Hash the branch at `height` with compressed prefix `prefix` over
+    /// `children`, given in ascending radix order with their digests.
+    pub fn branch_hash(
+        &self,
+        height: usize,
+        prefix: &[u8],
+        children: impl IntoIterator<Item = (u8, [u8; MERKLE_HASH_LEN])>,
+    ) -> [u8; MERKLE_HASH_LEN] {
+        self.0
+            .branch(
+                height,
+                prefix,
+                children
+                    .into_iter()
+                    .map(|(radix, hash)| (radix, Hash::from(hash))),
+            )
+            .into()
+    }
 }
 
 /// The 32-byte path at which `snapshot`'s network places a message stamped

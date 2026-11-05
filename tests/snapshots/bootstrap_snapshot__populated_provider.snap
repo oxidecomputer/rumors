@@ -16,9 +16,9 @@ control item 1 (102 bytes) / sealed network secret /
 control item 2 (180 bytes) / greeting /
 24_0(<<{
     "listing": {
-        18: [h'edc27b874b71e611c6dd98f2f3aeda82', 0],
-        140_0: [h'369fdbe3b45d6953f5f2bc234d7cc4d3', 0],
-        250_0: [h'9309a34528b24f003407d2e179fb9ecc', 0],
+        18: [h'79cff020eec2cca873e9de8c07bd45d0', 0],
+        140_0: [h'2fd8b36399c79634d44ec3417b73cfb9', 0],
+        250_0: [h'ab960c889178340a019f70bea3b3c1ca', 0],
     },
     "set_len": 3,
     "version": 53846_1(h'92'),

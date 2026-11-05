@@ -12,6 +12,7 @@
 //! phase's height to outgoing replies for the typed protocol schedule.
 
 use std::pin::{Pin, pin};
+use std::sync::Arc;
 
 use futures::{Stream, StreamExt, future::BoxFuture};
 
@@ -43,6 +44,7 @@ pub(super) use resolver::Resolver;
 pub(crate) type LeafRequest = (Prefix<Z>, Charge, Reserved);
 
 use super::progress::Progress;
+use crate::network::NetworkKeys;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -79,6 +81,9 @@ where
     /// The endpoint's ledger, which every item the walk builds is charged
     /// to.
     ledger: Ledger,
+    /// The network's keys, whose hash key the digests the walk lists and
+    /// compares are cached under ([`hash_key`](super::hash_key)).
+    keys: Option<Arc<NetworkKeys>>,
 }
 
 /// Accumulate phase work and drive its pumps to completion.
@@ -86,9 +91,15 @@ impl<B> Work<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Construct a new work context with the session's stats recorder and
-    /// the endpoint's ledger.
-    pub fn new(backend: B, stats: Recorder, ledger: Ledger) -> Self {
+    /// Construct a new work context with the session's stats recorder, the
+    /// endpoint's ledger, and the keys its digests are listed and compared
+    /// under.
+    pub fn new(
+        backend: B,
+        stats: Recorder,
+        ledger: Ledger,
+        keys: Option<Arc<NetworkKeys>>,
+    ) -> Self {
         // Every grant this walk asks the ledger for fits a charge's count,
         // checked once per backend as the walk compiles.
         const { charges::assert_grants_fit::<B::Erased, B::Error>() };
@@ -99,12 +110,18 @@ where
             tasks: Vec::new(),
             progress,
             ledger,
+            keys,
         }
     }
 
     /// Clone the endpoint's ledger for one independently driven task.
     fn ledger(&self) -> Ledger {
         self.ledger.clone()
+    }
+
+    /// Share the session's keys with one independently driven task.
+    fn keys(&self) -> Option<Arc<NetworkKeys>> {
+        self.keys.clone()
     }
 
     /// Clone the backend for one independently driven task.

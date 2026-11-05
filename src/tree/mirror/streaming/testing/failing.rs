@@ -23,7 +23,7 @@ use crate::{
             Backend, ErasedNode, Leaf, Node, backend::NodeStream, byte_set::ByteSet,
         },
         typed::{
-            ErasedPrefix, Hash, Path, Prefix,
+            ErasedPrefix, Hash, HashKey, Path, Prefix,
             height::{Height, Root, S, Z},
         },
     },
@@ -277,8 +277,8 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
         self.0.span()
     }
 
-    fn hash(&self, at: &ErasedPrefix) -> Hash {
-        self.0.hash(at)
+    fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
+        self.0.hash(at, key)
     }
 
     fn len(&self) -> usize {

@@ -14,7 +14,7 @@ use crate::{
         arb::nth_party,
         mirror::streaming::{Backend, Local, convert::fold_parents},
         typed::{
-            self, Hash, Path, Prefix,
+            self, Hash, HashKey, Path, Prefix,
             height::{S, Z},
         },
     },
@@ -68,7 +68,7 @@ fn fold(children: Vec<(Prefix<Z>, typed::View<Z>)>) -> Vec<(Prefix<S<Z>>, Hash)>
     )
     .unwrap_or_else(|e| match e {})
     .into_iter()
-    .map(|(prefix, node)| (prefix, node.hash()))
+    .map(|(prefix, node)| (prefix, node.hash(&HashKey::fixture())))
     .collect()
 }
 
@@ -99,7 +99,7 @@ proptest! {
             .into_iter()
             .map(|(parent, group)| {
                 let prefix = parent_prefix(parent);
-                (prefix, parent_of(prefix, group).hash())
+                (prefix, parent_of(prefix, group).hash(&HashKey::fixture()))
             })
             .collect();
         prop_assert_eq!(fold(input), expected);

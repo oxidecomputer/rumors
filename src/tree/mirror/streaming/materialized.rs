@@ -108,6 +108,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::counter::widen;
 use crate::message::PayloadDepthLimit;
+use crate::network::NetworkKeys;
 use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Node as _, Root,
@@ -118,7 +119,7 @@ use crate::tree::{
         stats::Recorder,
     },
     typed::{
-        ErasedPrefix, Prefix,
+        ErasedPrefix, HashKey, Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
@@ -319,6 +320,11 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
     /// The endpoint's ledger, which admits and charges the walk's work
     /// against the endpoint's budget.
     ledger: Ledger,
+    /// The keys of the network whose tree this session reconciles, whose
+    /// hash key the digests this side lists and compares are cached under;
+    /// `None` only for a bootstrapper meeting another bootstrapper
+    /// ([`hash_key`]).
+    keys: Option<Arc<NetworkKeys>>,
 }
 
 /// A stage that has been opened but has not yet sent its greeting.
@@ -449,8 +455,19 @@ pub struct Completing<B: Backend<Node<Z>: Leaf>> {
 }
 
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
-    /// Begin a session and advertise `target_message_size` in its greeting.
-    pub fn start(backend: B, root: Root<B>, target_message_size: u64) -> Self {
+    /// Begin a session that lists and compares digests under `keys` and
+    /// advertises `target_message_size` in its greeting.
+    ///
+    /// `keys` must be the keys of the network whose tree `root` is, since
+    /// every node caches its digest under that network's hash key. They may
+    /// be `None` only when `root` is empty and its counterparty is
+    /// bootstrapping too ([`hash_key`]).
+    pub fn start(
+        backend: B,
+        root: Root<B>,
+        keys: Option<Arc<NetworkKeys>>,
+        target_message_size: u64,
+    ) -> Self {
         Self {
             backend,
             state: Start,
@@ -458,6 +475,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             target_message_size,
             stats: Recorder::default(),
             ledger: Ledger::new(admission_budget::<B>(DEFAULT_SYNC_MEMORY_BUDGET)),
+            keys,
         }
     }
 
@@ -526,7 +544,8 @@ pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
     }
 }
 
-/// Derive the wire listing for a materialized fan.
+/// Derive the wire listing for a materialized fan, its digests those cached
+/// under the hash key of `keys` ([`Listed::of`]).
 ///
 /// In particular, the greeting and the initiator's opening question
 /// ([`Work::initiator_level`]) are paired positionally by the remote proxy.
@@ -540,17 +559,38 @@ pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
 ///
 /// Returns a [`CountError`] if the backend reports a count no node can
 /// have for any node of the fan ([`Listed::of`]).
+///
+/// # Panics
+///
+/// Panics if the fan is nonempty and `keys` is `None` ([`hash_key`]).
 pub(crate) fn fan_listing<E: ErasedNode>(
     scope: ErasedPrefix,
     fan: &[(u8, E)],
+    keys: Option<&NetworkKeys>,
 ) -> Result<Vec<Listed>, CountError> {
     // Collecting results into a vector cannot size it from the iterator,
     // which may stop early, so it would grow past the fan's length.
     let mut listing = Vec::with_capacity(fan.len());
     for (radix, node) in fan {
-        listing.push(Listed::of(scope, *radix, node)?);
+        listing.push(Listed::of(scope, *radix, node, hash_key(keys))?);
     }
     Ok(listing)
+}
+
+/// The key this side's digests are cached under: the hash key of `keys`,
+/// the keys of the tree the session reconciles.
+///
+/// Every digest a session lists or compares is of a node of this side's own
+/// tree, so a session over an empty tree asks for none.
+///
+/// # Panics
+///
+/// Panics if `keys` is `None`. Only a bootstrapper meeting another
+/// bootstrapper runs a session without keys, since neither holds a network
+/// secret, and its tree is empty: such a session never calls this.
+pub(crate) fn hash_key(keys: Option<&NetworkKeys>) -> &HashKey {
+    keys.expect("a session without keys has an empty tree, which lists and compares no digest")
+        .hash()
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
@@ -581,7 +621,8 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
             // send, so an in-process participant carries the default.
             payload_depth_limit: PayloadDepthLimit::default().get(),
             target_message_size: self.target_message_size,
-            listing: fan_listing(Prefix::new().erase(), &fan).map_err(Error::Count)?,
+            listing: fan_listing(Prefix::new().erase(), &fan, self.keys.as_deref())
+                .map_err(Error::Count)?,
         };
         let next = Handshaking {
             backend: self.backend,
@@ -590,6 +631,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
             target_message_size: self.target_message_size,
             stats: self.stats,
             ledger: self.ledger,
+            keys: self.keys,
         };
         Ok((greeting, next))
     }
@@ -610,6 +652,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
             target_message_size: self.target_message_size,
             stats: self.stats,
             ledger: self.ledger,
+            keys: self.keys,
         })
     }
 }
@@ -636,7 +679,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
         let Connected { peer, fan, .. } = self.state;
         let ceiling = self.root.ceiling | &peer.version;
         let ledger = SupplyLedger::new(peer.messages);
-        let work = Work::new(self.backend, self.stats, self.ledger);
+        let work = Work::new(self.backend, self.stats, self.ledger, self.keys);
         Opening {
             peer_version: peer.version,
             ledger,

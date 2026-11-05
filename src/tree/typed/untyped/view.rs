@@ -27,7 +27,10 @@ use super::{
     memo_census::{self, Work},
     seeded_bounds,
 };
-use crate::{causally, tree::typed::Hash};
+use crate::{
+    causally,
+    tree::typed::{Hash, HashKey},
+};
 
 #[cfg(test)]
 mod tests;
@@ -206,16 +209,20 @@ impl<N: Borrow<Node>> View<N> {
         self.peeled == other.peeled && self.stored().ptr_eq(other.stored())
     }
 
-    /// The subtree's hash, as observed from the top of the visible path.
+    /// The subtree's digest under `key`, as observed from the top of the
+    /// visible path, at the view's height ([`height`](Self::height)).
     ///
-    /// A whole node reads its memo. A peeled view computes the hash on each
-    /// call, one preimage over the visible path and the body's children's
-    /// memoized hashes: the stored memo commits the whole path, and a view
-    /// keeps no memo of its own.
-    pub fn hash(&self) -> Hash {
+    /// A whole node reads its memo. A peeled view computes the digest on
+    /// each call, one preimage over its height, the visible path and the
+    /// body's children's memoized digests: the stored memo commits the
+    /// whole path at the node's top, and a view keeps no memo of its own.
+    ///
+    /// `key` must be the hash key of the network whose tree holds the
+    /// stored node, as at [`Node::hash`].
+    pub fn hash(&self, key: &HashKey) -> Hash {
         match self.peeled {
-            Peel::P0 => self.stored().hash(),
-            _ => self.shape().hash(),
+            Peel::P0 => self.stored().hash(key),
+            _ => self.shape().hash(key),
         }
     }
 

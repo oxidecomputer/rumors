@@ -8,6 +8,7 @@
 //! One edge carries every reply a decode pump decodes, so a sequence of
 //! replies through one edge must decode each reply as a fresh edge would.
 
+use crate::network::NetworkKeys;
 use crate::tree::mirror::streaming::message::{Listed, listed};
 use futures::{Stream, StreamExt, stream};
 use proptest::{collection::vec, prelude::*};
@@ -176,7 +177,10 @@ fn supplies(reply: &Reply<<Local as Backend>::Erased>) -> Vec<Listed> {
         .map(|reaction| match reaction {
             Reaction::Supply(radix, node) => listed(
                 *radix,
-                node.hash(&Prefix::<Root>::new().push(*radix).erase()),
+                node.hash(
+                    &Prefix::<Root>::new().push(*radix).erase(),
+                    NetworkKeys::fixture().hash(),
+                ),
             ),
             _ => panic!("a pure-supply reply decodes to supplies only"),
         })

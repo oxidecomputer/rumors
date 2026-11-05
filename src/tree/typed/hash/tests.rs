@@ -1,13 +1,30 @@
-//! Hash input layouts and the kind and length tags that distinguish them.
+//! Hash input layouts, the kind, height and length fields that distinguish
+//! them, and the keyed hash they are digested by.
 
-use super::{BRANCH_TAG, Hash, LEAF_TAG, MERKLE_HASH_LEN, PathHash};
+use super::{BRANCH_TAG, HMAC_KEY_LEN, Hash, HashKey, LEAF_TAG, MERKLE_HASH_LEN};
 use proptest::prelude::*;
 
-/// A branch commits to exactly `BRANCH_TAG ‖ prefix_len ‖ prefix ‖
+/// The fixture network's hash key, the key these layout tests digest under.
+fn key() -> HashKey {
+    HashKey::fixture()
+}
+
+/// Generates two distinct one-byte heights.
+fn arb_distinct_heights() -> impl Strategy<Value = (usize, usize)> {
+    // Skipping `a` in the second draw's range makes every distinct pair
+    // reachable, and no pair equal.
+    (0..=u8::MAX, 0..u8::MAX).prop_map(|(a, b)| {
+        let b = if b >= a { b + 1 } else { b };
+        (usize::from(a), usize::from(b))
+    })
+}
+
+/// A branch commits to exactly `BRANCH_TAG ‖ height ‖ prefix_len ‖ prefix ‖
 /// child_count ‖ (radix ‖ child_hash)*`.
 ///
-/// The prefix length uses one byte; the child count uses a big-endian `u16`.
-/// Each radix and hash follows in the supplied order, without padding.
+/// The height and the prefix length use one byte each; the child count uses
+/// a big-endian `u16`. Each radix and hash follows in the supplied order,
+/// without padding.
 #[test]
 fn branch_preimage_layout() {
     let prefix = [0x0a, 0x0b, 0x0c];
@@ -16,22 +33,23 @@ fn branch_preimage_layout() {
         (200u8, Hash([0x11; MERKLE_HASH_LEN])),
     ];
 
-    let mut expected = vec![BRANCH_TAG, 3, 0x0a, 0x0b, 0x0c, 0x00, 0x02];
+    let mut expected = vec![BRANCH_TAG, 20, 3, 0x0a, 0x0b, 0x0c, 0x00, 0x02];
     for (radix, child) in &children {
         expected.push(*radix);
         expected.extend_from_slice(&child.0);
     }
 
-    assert_eq!(Hash::branch(&prefix, children), Hash::of(&expected));
+    assert_eq!(key().branch(20, &prefix, children), key().of(&expected));
 }
 
-/// A leaf hashes its kind tag and length-tagged path suffix. The version
-/// determines the full path; its encoding and the payload are not repeated.
+/// A leaf hashes its kind tag, its height, and its length-tagged path
+/// suffix. The version determines the full path; its encoding and the
+/// payload are not repeated.
 #[test]
 fn leaf_preimage_layout() {
     let suffix = [0x01, 0x02, 0x03, 0x04];
-    let expected = vec![LEAF_TAG, 4, 0x01, 0x02, 0x03, 0x04];
-    assert_eq!(Hash::leaf(&suffix), Hash::of(&expected));
+    let expected = vec![LEAF_TAG, 4, 4, 0x01, 0x02, 0x03, 0x04];
+    assert_eq!(key().leaf(4, &suffix), key().of(&expected));
 }
 
 proptest! {
@@ -42,7 +60,7 @@ proptest! {
         let high = a.max(b);
         for low in [a.min(b), high] {
             let result = std::panic::catch_unwind(|| {
-                Hash::branch(&[], [(high, Hash::default()), (low, Hash::default())]);
+                key().branch(1, &[], [(high, Hash::default()), (low, Hash::default())]);
             });
             prop_assert!(result.is_err(), "accepted radixes {}, {}", high, low);
         }
@@ -54,10 +72,79 @@ proptest! {
     fn leaf_hash_matches_contiguous_input(suffix in any::<[u8; 255]>()) {
         for len in 0..=u8::MAX {
             let suffix = &suffix[..usize::from(len)];
-            let mut input = vec![LEAF_TAG, len];
+            let mut input = vec![LEAF_TAG, len, len];
             input.extend_from_slice(suffix);
-            prop_assert_eq!(Hash::leaf(suffix), Hash::of(&input), "suffix length {}", len);
+            prop_assert_eq!(
+                key().leaf(usize::from(len), suffix),
+                key().of(&input),
+                "suffix length {}",
+                len
+            );
         }
+    }
+
+    /// A digest is HMAC-SHA-256 of its input under the hash key, truncated
+    /// to the Merkle width.
+    ///
+    /// The expected value is recomputed through the `hmac` crate's one-shot
+    /// interface rather than the pre-keyed state the key clones. The
+    /// network's tests check that the key schedule derives the key itself.
+    #[test]
+    fn a_digest_is_the_truncated_keyed_hash(
+        raw in any::<[u8; HMAC_KEY_LEN]>(),
+        input in proptest::collection::vec(any::<u8>(), 0..300),
+    ) {
+        use hmac::{Hmac, KeyInit, Mac};
+        use sha2::Sha256;
+
+        let expected = <Hmac<Sha256>>::new_from_slice(&raw)
+            .expect("HMAC accepts a key of any length")
+            .chain_update(&input)
+            .finalize()
+            .into_bytes();
+        let derived = <[u8; MERKLE_HASH_LEN]>::from(HashKey::new(&raw).of(&input));
+        prop_assert_eq!(&derived[..], &expected[..MERKLE_HASH_LEN]);
+    }
+
+    /// One branch layout at two different heights hashes to two different
+    /// digests: the height separates the domains of nodes at different
+    /// levels.
+    ///
+    /// The disagreement fails with probability about 2⁻¹²⁸ per case.
+    #[test]
+    fn the_height_separates_branch_digests(
+        (low, high) in arb_distinct_heights(),
+        prefix in proptest::collection::vec(any::<u8>(), 0..=32),
+        digests in any::<[[u8; MERKLE_HASH_LEN]; 2]>(),
+    ) {
+        let children = [(0u8, Hash(digests[0])), (1u8, Hash(digests[1]))];
+        prop_assert_ne!(
+            key().branch(low, &prefix, children),
+            key().branch(high, &prefix, children),
+        );
+    }
+
+    /// One leaf layout and one branch layout each hash to unrelated digests
+    /// under two different keys: the key enters every digest.
+    ///
+    /// The disagreement fails with probability about 2⁻¹²⁸ per comparison.
+    #[test]
+    fn different_keys_give_unrelated_digests(
+        a in any::<[u8; HMAC_KEY_LEN]>(),
+        byte in 0..HMAC_KEY_LEN,
+        flip in 1..=u8::MAX,
+        suffix in proptest::collection::vec(any::<u8>(), 0..=32),
+        digests in any::<[[u8; MERKLE_HASH_LEN]; 2]>(),
+    ) {
+        let mut b = a;
+        b[byte] ^= flip;
+        let (a, b) = (HashKey::new(&a), HashKey::new(&b));
+        prop_assert_ne!(a.leaf(suffix.len(), &suffix), b.leaf(suffix.len(), &suffix));
+        let children = [(0u8, Hash(digests[0])), (1u8, Hash(digests[1]))];
+        prop_assert_ne!(
+            a.branch(suffix.len() + 1, &suffix, children),
+            b.branch(suffix.len() + 1, &suffix, children),
+        );
     }
 }
 
@@ -66,31 +153,41 @@ proptest! {
 #[test]
 #[should_panic(expected = "one-child branch is unrepresentable")]
 fn branch_rejects_a_single_child() {
-    Hash::branch(&[], [(0, Hash::default())]);
+    key().branch(1, &[], [(0, Hash::default())]);
 }
 
-/// Reject a suffix whose length cannot be represented by the input's length byte.
+/// Reject a leaf whose height, and suffix length, cannot be represented by
+/// the input's one-byte fields.
 #[test]
-#[should_panic(expected = "a compressed span fits in one length byte")]
-fn leaf_suffix_length_must_fit_one_byte() {
-    Hash::leaf(&[0; 256]);
+#[should_panic(expected = "a trie position's height fits in one byte")]
+fn leaf_height_must_fit_one_byte() {
+    key().leaf(256, &[0; 256]);
 }
 
-/// The empty tree hashes as a prefixless branch with no children —
-/// `sha256(BRANCH_TAG ‖ 0 ‖ 0u16)`, truncated — and the memoized constant agrees with
-/// the general branch rule applied to empty fields.
+/// The empty tree hashes as a prefixless branch with no children at the
+/// root's height — `BRANCH_TAG ‖ 32 ‖ 0 ‖ 0u16` — and agrees with the
+/// general branch rule applied to empty fields.
 #[test]
 fn empty_root_is_the_empty_branch() {
-    assert_eq!(Hash::empty_root(), Hash::of(&[BRANCH_TAG, 0, 0x00, 0x00]));
-    assert_eq!(Hash::empty_root(), Hash::branch(&[], []));
+    assert_eq!(
+        key().empty_root(),
+        key().of(&[BRANCH_TAG, 32, 0, 0x00, 0x00])
+    );
+    assert_eq!(key().empty_root(), key().branch(32, &[], []));
 }
 
-/// An empty-suffix leaf (its parent sits at depth 31) and the empty root
-/// must not collide: the kind tags are what separate them, so both tags are
-/// load-bearing under the single-preimage rule.
+/// An empty-suffix leaf (its parent sits at depth 31) and an empty branch
+/// at height zero digest differently.
+///
+/// Their preimages differ in kind tag and in length, and each difference
+/// alone separates them. The tag is not the only separation between kinds:
+/// a leaf's preimage ends with the suffix its length byte declares, while a
+/// branch's continues past the prefix its length byte declares with a
+/// two-byte child count, so no leaf preimage equals a branch preimage even
+/// under one tag.
 #[test]
-fn empty_suffix_leaf_is_not_the_empty_root() {
-    assert_ne!(Hash::leaf(&[]), Hash::empty_root());
+fn empty_suffix_leaf_is_not_an_empty_branch() {
+    assert_ne!(key().leaf(0, &[]), key().branch(0, &[], []));
 }
 
 /// A prefix byte cannot masquerade as child-record bytes: two branches whose
@@ -102,7 +199,8 @@ fn empty_suffix_leaf_is_not_the_empty_root() {
 /// lengthened by one full record with three — contrived so the untagged
 /// concatenation `prefix ‖ child_count ‖ records` is the same byte string
 /// for both (the test asserts that premise before asserting the hashes
-/// differ). Only the length tag separates the two parses.
+/// differ). Both sit at one height, so only the length tag separates the
+/// two parses.
 #[test]
 fn prefix_len_separates_boundary_shifts() {
     // First child's hash ends in the bytes 0x00 0x03, which the shifted
@@ -145,39 +243,25 @@ fn prefix_len_separates_boundary_shifts() {
     );
 
     assert_ne!(
-        Hash::branch(&prefix_a, children_a),
-        Hash::branch(&prefix_b, children_b),
+        key().branch(30, &prefix_a, children_a),
+        key().branch(30, &prefix_b, children_b),
     );
 }
 
 /// A saturated 256-child branch encodes its count as big-endian `0x01 0x00`
 /// — the u16's high byte, the entire reason the field is not a biased byte,
-/// carries through `Hash::branch` correctly.
+/// carries through `HashKey::branch` correctly.
 #[test]
 fn saturated_fan_count_uses_the_high_byte() {
     let children: Vec<(u8, Hash)> = (0u8..=255)
         .map(|radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
         .collect();
 
-    let mut expected = vec![BRANCH_TAG, 0, 0x01, 0x00];
+    let mut expected = vec![BRANCH_TAG, 32, 0, 0x01, 0x00];
     for (radix, child) in &children {
         expected.push(*radix);
         expected.extend_from_slice(&child.0);
     }
 
-    assert_eq!(Hash::branch(&[], children), Hash::of(&expected));
-}
-
-/// A Merkle hash is the prefix truncation of the full-width content hash of
-/// the same preimage: the leading `MERKLE_HASH_LEN` bytes, nothing
-/// rearranged or re-hashed.
-///
-/// Pinned so an accidental change to either primitive's construction trips
-/// here before it reaches the wire snapshots.
-#[test]
-fn merkle_hash_is_prefix_of_full_width() {
-    let preimage = b"any preimage at all";
-    let truncated = Hash::of(preimage);
-    let full = PathHash::of(preimage);
-    assert_eq!(truncated.as_bytes()[..], full.as_bytes()[..MERKLE_HASH_LEN]);
+    assert_eq!(key().branch(32, &[], children), key().of(&expected));
 }

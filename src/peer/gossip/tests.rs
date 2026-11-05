@@ -171,8 +171,14 @@ async fn claim_bootstrap_with_root(
         Some(Arc::new(NetworkKeys::new(secret)))
     };
     let local_root: streaming::Root<Local> = root.into();
-    let local =
-        materialized::Handshaking::start(Local, local_root, DEFAULT_TARGET_MESSAGE_SIZE as u64);
+    // The claimed root's leaves sit at the fixture secret's paths, so its
+    // digests are listed under the fixture's keys.
+    let local = materialized::Handshaking::start(
+        Local,
+        local_root,
+        Some(NetworkKeys::fixture()),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    );
     let proxy = streaming_remote::Handshaking::start(
         Local,
         &mut end.read,

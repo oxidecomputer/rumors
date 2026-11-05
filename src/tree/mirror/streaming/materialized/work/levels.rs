@@ -167,6 +167,7 @@ where
         let (returns, mut returns_rx) = initiator_root_return::<B>();
         let progress = self.progress;
         let account = self.ledger();
+        let keys = self.keys();
 
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
@@ -184,7 +185,7 @@ where
             progress.wire(root_scope);
             let bound = ReplyBound::of(root_scope.height(), fan.len(), responder);
             let listing = held_by(Holding::OutgoingReplies, || {
-                fan_listing(root_scope, &fan).map(|listing| vec![Reaction::Query(listing)])
+                fan_listing(root_scope, &fan, keys.as_deref()).map(|listing| vec![Reaction::Query(listing)])
             })
             .map_err(Error::Count)?;
             let record = charges::record(&mut grant, fan.len());
@@ -250,6 +251,7 @@ where
         let assembling = backend.clone();
         let progress = self.progress;
         let account = self.ledger();
+        let keys = self.keys();
 
         let responses = try_stream! {
             let mut requests = requests;
@@ -302,6 +304,7 @@ where
                 root_scope,
                 ours,
                 theirs,
+                keys.as_deref(),
                 &stats,
                 &mut answer_grant,
             )
@@ -323,7 +326,8 @@ where
                         let need = question.need::<B::Error>(root_scope);
                         let mut grant = account.invite(1, bytes, need).await;
                         let built =
-                            answer::question(&backend, &mut grant, root_scope, question).await?;
+                            answer::question(&backend, keys.as_deref(), &mut grant, root_scope, question)
+                                .await?;
                         (Some(built), grant)
                     }
                     None => (None, std::mem::take(&mut answer_grant)),
@@ -428,6 +432,7 @@ where
         let (mut lower, lower_rx) = internal_child_resolutions::<B>(asked_height + 1);
         let progress = self.progress;
         let account = self.ledger();
+        let keys = self.keys();
 
         let responses = try_stream! {
             let mut requests = requests;
@@ -503,6 +508,7 @@ where
                         child_prefix,
                         children,
                         listing,
+                        keys.as_deref(),
                         &stats,
                         &mut answer_grant,
                     )
@@ -532,6 +538,7 @@ where
                                     account.invite(depth + 1, bytes, need).await;
                                 let built = answer::question(
                                     &backend,
+                                    keys.as_deref(),
                                     &mut grant,
                                     child_prefix,
                                     question,

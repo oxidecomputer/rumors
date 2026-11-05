@@ -20,7 +20,7 @@ use crate::{
     tree::{
         mirror::streaming::{byte_set::ByteSet, convert::Convert},
         typed::{
-            ErasedPrefix, Hash, Prefix,
+            ErasedPrefix, Hash, HashKey, Prefix,
             height::{self, Height, S, Z},
         },
     },
@@ -276,8 +276,14 @@ pub trait ErasedNode {
     fn span(&self) -> Span<'_>;
 
     /// The subtree digest used to compare nodes at the same trie position,
-    /// the node's coordinate `at`.
-    fn hash(&self, at: &ErasedPrefix) -> Hash;
+    /// the node's coordinate `at`, under `key`, the hash key of the network
+    /// whose tree holds the node.
+    ///
+    /// It commits the height of `at`: a node viewed from inside its
+    /// compressed path has a different digest at each level. A backend
+    /// that caches digests fills each cache under one key, the key of the
+    /// tree the node belongs to, which every session passes.
+    fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash;
 
     /// The number of live leaves under this node, exact ([`Node::len`]).
     fn len(&self) -> usize;

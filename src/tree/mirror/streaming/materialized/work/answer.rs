@@ -7,6 +7,7 @@ use super::{LeafRequest, charges};
 
 use crate::{
     Version,
+    network::NetworkKeys,
     tree::{
         mirror::streaming::{
             Backend, ErasedNode, FAN, Leaf,
@@ -15,7 +16,7 @@ use crate::{
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound, buffer},
             materialized::{
-                Error, Query, Resolve, Violation, fan_listing,
+                Error, Query, Resolve, Violation, fan_listing, hash_key,
                 unknown::{known, unknown},
             },
             message::{Carried, Grandchildren, LaterMatches, Listed},
@@ -281,12 +282,16 @@ pub(crate) struct Held {
 /// request.
 ///
 /// The plan is charged out of `grant`, the answer's own.
+// The arguments are the answer's inputs, one per concern; bundling them
+// into a struct would only rename the arity.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn internal<B>(
     backend: &B,
     their_version: &Version,
     prefix: ErasedPrefix,
     ours: Vec<(u8, B::Erased)>,
     theirs: Vec<Listed>,
+    keys: Option<&NetworkKeys>,
     stats: &Recorder,
     grant: &mut Charge,
 ) -> Result<Answer<B::Erased, Question<B::Erased>>, Error<B::Error>>
@@ -307,8 +312,10 @@ where
         .merge_join_by(theirs, |(ours, _), theirs| ours.cmp(&theirs.radix))
     {
         match pair {
+            // Replicas compare their cached digests directly: both are MACs
+            // under the network's hash key.
             EitherOrBoth::Both((radix, node), theirs)
-                if node.hash(&prefix.push(radix)) == theirs.hash =>
+                if node.hash(&prefix.push(radix), hash_key(keys)) == theirs.hash =>
             {
                 matches.plan(&mut planned, radix);
                 resolved.push((radix, Resolve::Ready(Some(node))));
@@ -428,6 +435,7 @@ pub(super) type Built<E, Q> = (Reaction<E>, Q, Carried);
 /// ([`holding`](crate::tree::mirror::streaming::holding)).
 pub(super) async fn question<B>(
     backend: &B,
+    keys: Option<&NetworkKeys>,
     grant: &mut Charge,
     prefix: ErasedPrefix,
     question: Question<B::Erased>,
@@ -450,7 +458,7 @@ where
         Question::Request { radix, theirs } => (prefix.push(radix), None, Vec::new(), theirs),
     };
     let reaction = held_by(Holding::OutgoingReplies, || {
-        fan_listing(child, &ours).map(Reaction::Query)
+        fan_listing(child, &ours, keys).map(Reaction::Query)
     })
     .map_err(Error::Count)?;
     let record = charges::record(grant, ours.len());

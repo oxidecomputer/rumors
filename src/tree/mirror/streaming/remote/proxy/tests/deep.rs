@@ -495,12 +495,17 @@ impl Session {
         let [left, right] = roots;
         let (roots, queues) = with_observation(|| {
             run_to_quiescence(async {
-                let left =
-                    Handshaking::start(Local, Root::from(left), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                        .budget(self.budget);
+                let left = Handshaking::start(
+                    Local,
+                    Root::from(left),
+                    Some(crate::network::NetworkKeys::fixture()),
+                    DEFAULT_TARGET_MESSAGE_SIZE as u64,
+                )
+                .budget(self.budget);
                 let right = Handshaking::start(
                     Local,
                     Root::from(right),
+                    Some(crate::network::NetworkKeys::fixture()),
                     DEFAULT_TARGET_MESSAGE_SIZE as u64,
                 )
                 .budget(self.budget);

@@ -42,8 +42,9 @@
 //! uniformly, and the trie's shape is a pure function of its membership:
 //! two replicas holding the same set of messages hold the *same tree*,
 //! whatever order they learned it in. Each interior node memoizes two
-//! summaries of its subtree: a 16-byte digest (a truncation of SHA-256)
-//! and the ceiling and floor of its leaves' versions. The digest answers
+//! summaries of its subtree: a 16-byte digest (a truncation of
+//! HMAC-SHA-256 under a key derived from the network's secret) and the
+//! ceiling and floor of its leaves' versions. The digest answers
 //! "do we hold the same things
 //! here?"; the version bounds answer "could anything here be news to a
 //! peer at that causal position?". The whole protocol is those two
@@ -141,10 +142,12 @@
 //!
 //! # Sixteen-byte digests
 //!
-//! The digests the descent compares are 16-byte truncations of SHA-256
-//! (truncating an approved hash is itself an approved hash of the shorter
-//! width: NIST SP 800-107 Rev. 1, §5.1). SHA-256 is the hash because
-//! current x86 and Arm processors compute it in hardware.
+//! The digests the descent compares are 16-byte truncations of HMAC-SHA-256
+//! under a key derived from the network's secret (NIST SP 800-107 Rev. 1,
+//! §5.3, approves truncating an HMAC output). Each node's digest covers
+//! its layout and its height in the trie, so leaves and branches, and nodes
+//! at different heights, hash in separate domains. SHA-256 is the hash
+//! because current x86 and Arm processors compute it in hardware.
 //! Digest bytes dominate every dispute listing on the wire — they are the
 //! protocol's main metadata price — so the width is spent deliberately;
 //! leaf addresses in the tree remain full 32-byte hashes.
@@ -161,13 +164,13 @@
 //!
 //! The acceptance is priced on the accident bound. A digest at prefix `P`
 //! is only ever compared against the counterparty's digest at the same
-//! `P`, so under the uniform-hash model a false-equal is a
-//! per-comparison event at 2⁻¹²⁸, independent across comparisons:
-//! pairwise, never birthday-amplified across the tree's population. Take
-//! a deliberately absurd lifetime: a million peers, each running ten
-//! thousand sessions a day of a thousand comparisons each, for a century.
-//! That is about 2⁵⁸ comparisons, and the chance that any one of them is a
-//! false-equal is about 2⁻⁷⁰.
+//! `P`, and HMAC under a secret key is a pseudorandom function, so a
+//! false-equal is a per-comparison event, independent across comparisons:
+//! pairwise, never birthday-amplified across the tree's population. Its
+//! probability is 2⁻¹²⁸. Take a deliberately absurd lifetime: a million
+//! peers, each running ten thousand sessions a day of a thousand
+//! comparisons each, for a century. That is about 2⁵⁸ comparisons, and the
+//! chance that any one of them is a false-equal is about 2⁻⁷⁰.
 //!
 //! Every compared digest is a pure function of the *version set*: a leaf's
 //! digest commits its address and its version, a branch's commits its
@@ -184,7 +187,7 @@
 //! observer outside the network can infer, and whose timing it can steer by
 //! choosing when peers connect. Were addresses plain hashes of versions,
 //! such an observer could search offline for two version sets whose digests
-//! collide under one root child, a birthday search of about 2⁶⁸ hash
+//! collide under one root child, a birthday search of about 2⁶⁴ hash
 //! evaluations at sixteen bytes, and then steer the peers into producing
 //! them: a chosen, silent, fleet-wide deletion.
 //!
@@ -192,9 +195,19 @@
 //! a 128-bit secret drawn when the network is [seeded](crate::Peer::seed).
 //! Peers hand the secret only to joining peers, sealed for the joiner's
 //! ephemeral key, and publish only the [`Network`](crate::Network)
-//! identifier, which is derived beside the key and reveals nothing about
-//! the secret or it. Without the secret no one can compute an address or a
-//! digest, so the accident bound above is the whole calculation. The secret
+//! identifier, which is derived beside the keys and reveals nothing about
+//! the secret or them.
+//!
+//! Keyed addresses alone would not be enough. A subtree's digest commits its
+//! children's digests, so were digests plain hashes, an observer could hash
+//! any subset of the children a listing names into the digest that subset
+//! would form, and run the same search over subsets without the secret. So
+//! every digest is keyed too: HMAC-SHA-256 under a second key derived from
+//! the secret. Without the secret no one can compute an address or a
+//! digest, so the accident bound above is the whole calculation for every
+//! collision an observer could search for offline; searching among the
+//! digests it sees listed would take about 2⁶⁴ distinct states of one
+//! subtree, each made by sends or redactions. The secret
 //! must stay inside the network: whoever learns it can run that search for
 //! the rest of the network's life, and it cannot be rotated, since a new
 //! secret moves every address and no replica under the old one could

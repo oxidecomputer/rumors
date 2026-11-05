@@ -884,12 +884,14 @@ where
     let left = Handshaking::start(
         left_backend,
         B::lift(left),
+        Some(crate::network::NetworkKeys::fixture()),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
     .budget(budget);
     let right = Handshaking::start(
         right_backend,
         B::lift(right),
+        Some(crate::network::NetworkKeys::fixture()),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
     .budget(budget);

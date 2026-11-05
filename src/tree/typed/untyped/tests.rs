@@ -8,7 +8,7 @@ use crate::tree::arb::{arb_leaf_paths, arb_radixes, arb_version};
 use crate::{Version, message::Message};
 
 use super::{
-    Body, Node, PATH_LEN, SortedLeaves, View,
+    Body, HashKey, Node, PATH_LEN, SortedLeaves, View,
     fan::{Fan, heap_slots},
 };
 
@@ -37,6 +37,12 @@ const MAX_BRANCHING: usize = 256;
 /// branching factor at any node is capped at `min(MAX_BRANCHING, budget)`,
 /// so to exercise very wide branches the budget must be at least that wide.
 pub(super) const TREE_LEAF_BUDGET: usize = 16;
+
+/// The hash key these tests digest nodes under: the fixture network's, the
+/// one key every node built here caches its digest under.
+pub(super) fn key() -> HashKey {
+    HashKey::fixture()
+}
 
 /// Generate an arbitrary tree of uniform depth `depth` with at most `budget`
 /// leaves, constructed only via the public smart constructors `Node::leaf` and
@@ -292,10 +298,10 @@ proptest! {
     fn decompose_and_rebuild_preserves_hash_and_ceiling(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let hash_before = tree.hash();
+        let hash_before = tree.hash(&key());
         let ceiling_before = tree.ceiling().clone();
         let rebuilt = rebuild_with(tree, &|b| b.clone());
-        prop_assert_eq!(rebuilt.hash(), hash_before);
+        prop_assert_eq!(rebuilt.hash(&key()), hash_before);
         prop_assert_eq!(rebuilt.ceiling(), &ceiling_before);
     }
 
@@ -431,7 +437,7 @@ proptest! {
             wrapped.compressed_prefix_len(),
             child_prefix_len + indices.len(),
         );
-        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
+        prop_assert_eq!(wrapped.hash(&key()), reference_hash(wrapped.clone()));
     }
 
     /// Popping the topmost compressed-prefix byte (via `into_children`)
@@ -477,7 +483,7 @@ proptest! {
                 .expect("one-child branch is non-empty");
         }
 
-        prop_assert_eq!(popped.hash(), reference.hash());
+        prop_assert_eq!(popped.hash(&key()), reference.hash(&key()));
     }
 
     /// A one-child branch at index `i` never materializes: `Node::branch`
@@ -493,12 +499,12 @@ proptest! {
         index in any::<u8>(),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let child_hash = child.hash();
+        let child_hash = child.hash(&key());
         let wrapped = Node::branch(Fan::unit(index, child))
             .expect("one-child branch is non-empty");
 
-        prop_assert_ne!(wrapped.hash(), child_hash);
-        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
+        prop_assert_ne!(wrapped.hash(&key()), child_hash);
+        prop_assert_eq!(wrapped.hash(&key()), reference_hash(wrapped.clone()));
     }
 
     /// `beneath` must invalidate the memoized hash.
@@ -514,11 +520,11 @@ proptest! {
         index in any::<u8>(),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let child_hash = child.hash(); // populate the child's lazy memo
+        let child_hash = child.hash(&key()); // populate the child's lazy memo
         let wrapped = child.beneath(index);
 
-        prop_assert_ne!(wrapped.hash(), child_hash);
-        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
+        prop_assert_ne!(wrapped.hash(&key()), child_hash);
+        prop_assert_eq!(wrapped.hash(&key()), reference_hash(wrapped.clone()));
     }
 
     /// `into_children` popping a prefix byte must invalidate the memoized hash.
@@ -531,15 +537,15 @@ proptest! {
         index in any::<u8>(),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let child_hash = child.hash();
+        let child_hash = child.hash(&key());
         let wrapped = child.beneath(index);
-        let top_hash = wrapped.hash(); // populate the wrapped node's lazy memo
+        let top_hash = wrapped.hash(&key()); // populate the wrapped node's lazy memo
         prop_assert_ne!(top_hash, child_hash);
 
         let popped = wrapped.into_children().expect("non-empty");
         let (_, popped_child) = popped.iter().next().expect("singleton");
 
-        prop_assert_eq!(popped_child.hash(), child_hash);
+        prop_assert_eq!(popped_child.hash(&key()), child_hash);
     }
 
     /// Node hashes match the independent encoding of their kind, prefix,
@@ -548,7 +554,7 @@ proptest! {
     fn hash_matches_independent_reference(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        prop_assert_eq!(tree.hash(), reference_hash(tree.clone()));
+        prop_assert_eq!(tree.hash(&key()), reference_hash(tree.clone()));
     }
 
     /// Node diagnostics display compressed prefixes in path order at every length.
@@ -590,22 +596,23 @@ proptest! {
         let mut node = bare.clone();
         for &radix in path.iter().rev() {
             // Cache before each change: adding a level must invalidate it.
-            node.hash();
+            node.hash(&key());
             node = node.beneath(radix);
         }
-        prop_assert_eq!(node.hash(), super::Hash::leaf(&path));
+        prop_assert_eq!(node.hash(&key()), key().leaf(PATH_LEN, &path));
         prop_assert!(bare.get(&[]).is_some());
 
         for depth in 0..path.len() {
             // Keeping this handle forces prefix removal to copy node state.
             let retained = node.clone();
-            let hash = retained.hash();
+            let hash = retained.hash(&key());
             let children = node.into_children().expect("a prefix has a child");
             prop_assert_eq!(children.len(), 1);
             let (radix, child) = children.into_iter().next().expect("one child");
             prop_assert_eq!(radix, path[depth]);
-            prop_assert_eq!(child.hash(), super::Hash::leaf(&path[depth + 1..]));
-            prop_assert_eq!(retained.hash(), hash);
+            let below = &path[depth + 1..];
+            prop_assert_eq!(child.hash(&key()), key().leaf(below.len(), below));
+            prop_assert_eq!(retained.hash(&key()), hash);
             prop_assert!(retained.get(&path[depth..]).is_some());
             node = child;
         }
@@ -652,26 +659,37 @@ proptest! {
 
 /// Independent reference for the node-hash convention, computed with literal
 /// tag bytes over the public decomposition API.
+fn reference_hash(node: Node) -> super::Hash {
+    reference_hash_and_height(node).0
+}
+
+/// The reference digest of `node` under the fixture key, with the height of
+/// its top, derived from the decomposition alone.
 ///
 /// The node is unwound one virtual level at a time via `into_children`: a
 /// singleton child map is a compressed-prefix byte (a materialized branch
 /// always has >= 2 children, by the path-compression invariant), so its
 /// index accumulates onto the reference prefix in path order until the
-/// underlying leaf or true branch point is reached. The preimage is then
-/// assembled by hand — `LEAF_TAG ‖ len ‖ prefix` for a leaf,
-/// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*` for a
-/// branch — with every child hash computed by the same reference
-/// recursively, never by [`Node::hash`].
-fn reference_hash(mut node: Node) -> super::Hash {
+/// underlying leaf or true branch point is reached. The height is counted
+/// rather than read from the node: a leaf's top lies one level above it per
+/// prefix byte, and a branch's one level above its children's plus one per
+/// prefix byte. The preimage is then assembled by hand —
+/// `LEAF_TAG ‖ height ‖ len ‖ prefix` for a leaf,
+/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`
+/// for a branch — with every child hash computed by the same reference
+/// recursively, never by [`Node::hash`], and keyed by [`HashKey::of`].
+fn reference_hash_and_height(mut node: Node) -> (super::Hash, usize) {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
+    let byte = |n: usize| u8::try_from(n).expect("a height or span fits one byte");
     let mut prefix: Vec<u8> = Vec::new();
     loop {
         node = match node.into_children() {
             Err(_leaf) => {
-                let mut buf = vec![LEAF_TAG, u8::try_from(prefix.len()).expect("short prefix")];
+                let height = prefix.len();
+                let mut buf = vec![LEAF_TAG, byte(height), byte(prefix.len())];
                 buf.extend_from_slice(&prefix);
-                return super::Hash::of(&buf);
+                return (key().of(&buf), height);
             }
             Ok(children) if children.len() == 1 => {
                 let (index, child) = children.into_iter().next().expect("len checked");
@@ -679,18 +697,24 @@ fn reference_hash(mut node: Node) -> super::Hash {
                 child
             }
             Ok(children) => {
-                let mut buf = vec![
-                    BRANCH_TAG,
-                    u8::try_from(prefix.len()).expect("short prefix"),
-                ];
-                buf.extend_from_slice(&prefix);
                 let count = u16::try_from(children.len()).expect("fan-out is at most 256");
-                buf.extend_from_slice(&count.to_be_bytes());
+                let mut records = Vec::new();
+                let mut child_heights = BTreeSet::new();
                 for (radix, child) in children {
-                    buf.push(radix);
-                    buf.extend_from_slice(reference_hash(child).as_bytes());
+                    let (hash, height) = reference_hash_and_height(child);
+                    child_heights.insert(height);
+                    records.push(radix);
+                    records.extend_from_slice(hash.as_bytes());
                 }
-                return super::Hash::of(&buf);
+                let [child_height] = child_heights.into_iter().collect::<Vec<_>>()[..] else {
+                    panic!("every child of a branch sits at one height");
+                };
+                let height = child_height + 1 + prefix.len();
+                let mut buf = vec![BRANCH_TAG, byte(height), byte(prefix.len())];
+                buf.extend_from_slice(&prefix);
+                buf.extend_from_slice(&count.to_be_bytes());
+                buf.extend_from_slice(&records);
+                return (key().of(&buf), height);
             }
         };
     }
@@ -762,7 +786,7 @@ fn branch_releases_the_allocation_a_shortened_fan_kept() {
 /// leaves at `paths`) one virtual level at a time, checking at every
 /// position that its hash matches the canonical from-scratch construction.
 fn check_virtual_levels(node: Node, depth: usize, paths: &[[u8; 32]]) -> Result<(), TestCaseError> {
-    prop_assert_eq!(node.hash(), canonical_at(depth, paths).hash());
+    prop_assert_eq!(node.hash(&key()), canonical_at(depth, paths).hash(&key()));
     match node.into_children() {
         // A bare leaf: the walk consumed the entire 32-byte path.
         Err(_leaf) => prop_assert_eq!(depth, 32),
@@ -792,14 +816,19 @@ fn node_hash_preimage_is_in_path_order() {
     const LEAF_TAG: u8 = 0;
     let leaf = Node::leaf(Version::new(), Message::new(()));
     let wrapped = leaf.beneath(0xAA).beneath(0xBB);
-    assert_eq!(wrapped.hash(), super::Hash::of(&[LEAF_TAG, 2, 0xBB, 0xAA]));
+    // Height 2: the wrapped leaf's top lies two levels above it.
+    assert_eq!(
+        wrapped.hash(&key()),
+        key().of(&[LEAF_TAG, 2, 2, 0xBB, 0xAA])
+    );
 }
 
 /// A hand-built two-leaf tree pins the preimages end to end.
 ///
-/// Each leaf commits its length-tagged 29-byte suffix, and the root branch
-/// commits its 2-byte shared prefix in path order, the big-endian `u16`
-/// child count, and both ascending `radix ‖ hash` records.
+/// Each leaf commits its height and its length-tagged 29-byte suffix, both
+/// 29, and the root branch commits the root's height, 32, its 2-byte shared
+/// prefix in path order, the big-endian `u16` child count, and both
+/// ascending `radix ‖ hash` records.
 #[test]
 fn small_tree_hash_matches_byte_literal_preimage() {
     const LEAF_TAG: u8 = 0;
@@ -812,19 +841,20 @@ fn small_tree_hash_matches_byte_literal_preimage() {
     let tree = canonical_at(0, &[low, high]);
 
     let leaf_hash = |suffix: &[u8]| {
-        let mut buf = vec![LEAF_TAG, u8::try_from(suffix.len()).expect("short suffix")];
+        let len = u8::try_from(suffix.len()).expect("short suffix");
+        let mut buf = vec![LEAF_TAG, len, len];
         buf.extend_from_slice(suffix);
-        super::Hash::of(&buf)
+        key().of(&buf)
     };
-    // Root: prefix [1, 2] (path order), two children at radixes 3 and 7,
-    // each a leaf whose suffix is the rest of its path.
-    let mut preimage = vec![BRANCH_TAG, 2, 1, 2, 0x00, 0x02];
+    // Root: height 32, prefix [1, 2] (path order), two children at radixes
+    // 3 and 7, each a leaf whose suffix is the rest of its path.
+    let mut preimage = vec![BRANCH_TAG, 32, 2, 1, 2, 0x00, 0x02];
     preimage.push(3);
     preimage.extend_from_slice(leaf_hash(&low[3..]).as_bytes());
     preimage.push(7);
     preimage.extend_from_slice(leaf_hash(&high[3..]).as_bytes());
 
-    assert_eq!(tree.hash(), super::Hash::of(&preimage));
+    assert_eq!(tree.hash(&key()), key().of(&preimage));
 }
 
 /// Keep node layout growth explicit: every leaf pays for the largest
@@ -876,7 +906,7 @@ fn same_tree(actual: &Node, expected: &Node) -> Result<(), TestCaseError> {
         actual.inner.prefix.as_slice(),
         expected.inner.prefix.as_slice()
     );
-    prop_assert_eq!(actual.hash(), expected.hash());
+    prop_assert_eq!(actual.hash(&key()), expected.hash(&key()));
     prop_assert_eq!(actual.len(), expected.len());
     match (&actual.inner.body, &expected.inner.body) {
         (

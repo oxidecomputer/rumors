@@ -148,12 +148,14 @@ async fn reconcile_locally(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
     let a = Handshaking::start(
         Local,
         Root::<Local>::from(a),
+        Some(crate::network::NetworkKeys::fixture()),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);
     let b = Handshaking::start(
         Local,
         Root::<Local>::from(b),
+        Some(crate::network::NetworkKeys::fixture()),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);
@@ -259,12 +261,14 @@ async fn reconcile_with_failing_walk(
     let a = Handshaking::start(
         left_backend,
         failing_root(a),
+        Some(crate::network::NetworkKeys::fixture()),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);
     let b = Handshaking::start(
         right_backend,
         failing_root(b),
+        Some(crate::network::NetworkKeys::fixture()),
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);

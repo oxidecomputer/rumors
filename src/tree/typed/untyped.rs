@@ -8,7 +8,11 @@ use tinyvec::ArrayVec;
 use before::Span;
 
 use super::hash::PATH_LEN;
-use crate::{Version, message::Message, tree::typed::Hash};
+use crate::{
+    Version,
+    message::Message,
+    tree::typed::{Hash, HashKey},
+};
 
 pub mod fan;
 mod iter;
@@ -212,9 +216,26 @@ struct NodeInner {
     /// The path is at most 32 bytes, so storing it inline avoids a separate
     /// allocation for compressed nodes, at the cost of a larger node body.
     prefix: ArrayVec<[u8; PATH_LEN]>,
-    /// Subtree hash as seen from the top of `prefix`, computed on first use.
+    /// Subtree digest as seen from the top of `prefix`, computed on first use
+    /// under the hash key of the network whose tree holds the node
+    /// ([`Node::hash`]).
+    ///
     /// Both leaves and branches cache it. Cloning preserves the cached value;
     /// changing either `prefix` or `body` must clear it.
+    ///
+    /// # One key per cache
+    ///
+    /// The memo records no key, so every read must pass the key it was
+    /// filled under. Every digest accessor takes the key from the tree that
+    /// holds the node, and a node is reachable only from trees of one
+    /// network: a tree's clones share its keys, [`Tree::join`] merges only
+    /// trees with equal keys, a session lists and compares digests under the
+    /// keys of the tree it reconciles and returns its nodes into that tree,
+    /// and a bootstrapper's tree holds nothing until the session that fills
+    /// it under the keys it received. Independently seeded universes never
+    /// interact, so no node is shared between two networks' trees.
+    ///
+    /// [`Tree::join`]: crate::tree::Tree::join
     hash: OnceLock<Hash>,
     /// The leaf or branch stored beneath the prefix.
     body: Body,
@@ -334,6 +355,17 @@ enum Body {
     },
 }
 
+impl Body {
+    /// The height of the body above the leaves: zero for a leaf, and a
+    /// branch's stored height.
+    fn height(&self) -> usize {
+        match self {
+            Body::Leaf { .. } => 0,
+            Body::Branch { height, .. } => usize::from(*height),
+        }
+    }
+}
+
 /// A body under a compressed path, as one level of the tree sees it: a
 /// stored node's whole path, or the part of it a [`View`] leaves visible.
 ///
@@ -386,19 +418,36 @@ impl Shape<'_> {
         }
     }
 
-    /// The subtree's hash, computed rather than read from any memo
-    /// ([`Node::hash`] gives the convention).
-    fn hash(self) -> Hash {
+    /// The height of the trie position this shape describes, the top of
+    /// its visible path: its body's height plus one level per visible path
+    /// byte.
+    ///
+    /// A typed handle at height `H` sees exactly the shape whose top is `H`
+    /// ([`View::at_height`]), so this is the handle's typed height.
+    fn height(self) -> usize {
+        self.body.height() + self.prefix.len()
+    }
+
+    /// The subtree's digest under `key`, computed rather than read from any
+    /// memo ([`Node::hash`] gives the convention).
+    ///
+    /// The preimage commits the shape's own height ([`height`](Self::height)),
+    /// and each child contributes its memoized digest, which commits the
+    /// child's height, one level below the body.
+    fn hash(self, key: &HashKey) -> Hash {
         memo_census::record(Work::Hash);
         // The preimage takes the prefix in path order, shallowest byte
         // first, while storage is shallowest-last, so reverse into a stack
         // buffer (a compressed span never exceeds the 32-byte path).
         let prefix: ArrayVec<[u8; PATH_LEN]> = self.prefix.iter().rev().copied().collect();
         match self.body {
-            Body::Leaf { .. } => Hash::leaf(&prefix),
-            Body::Branch { children, .. } => Hash::branch(
+            Body::Leaf { .. } => key.leaf(self.height(), &prefix),
+            Body::Branch { children, .. } => key.branch(
+                self.height(),
                 &prefix,
-                children.iter().map(|(radix, child)| (radix, child.hash())),
+                children
+                    .iter()
+                    .map(|(radix, child)| (radix, child.hash(key))),
             ),
         }
     }
@@ -674,16 +723,7 @@ impl Node {
     /// lower height, down to the body's, views it from inside its path
     /// ([`View::at_height`]).
     pub fn height(&self) -> usize {
-        self.body_height() + self.inner.prefix.len()
-    }
-
-    /// The height of this node's body above the leaves: zero for a leaf,
-    /// and a branch's stored height.
-    fn body_height(&self) -> usize {
-        match self.inner.body {
-            Body::Leaf { .. } => 0,
-            Body::Branch { height, .. } => usize::from(height),
-        }
+        self.shape().height()
     }
 
     /// Check [`View::grandchild_count`] against a direct count
@@ -789,20 +829,25 @@ impl Node {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
-    /// Hash the subtree rooted at this node, as observed from the top of its
-    /// compressed prefix.
+    /// The digest of the subtree rooted at this node under `key`, as
+    /// observed from the top of its compressed prefix.
     ///
-    /// The hash is computed lazily on first call and memoized, so the first
+    /// The digest is computed lazily on first call and memoized, so the first
     /// read of a freshly-built subtree is `O(nodes)` — one preimage and one
-    /// SHA-256 pass per node — and every read thereafter is an `O(1)` field
-    /// load. The convention (see [`Hash::leaf`] and [`Hash::branch`]): a
-    /// single preimage commits the node's kind, its compressed prefix in
-    /// path order, and, for a branch, its children as ascending
-    /// `radix ‖ hash` records. Hash agreement between differently-built
-    /// trees rests on the tree's canonical shape; see [`Hash::branch`]'s
-    /// canonicity section.
-    pub fn hash(&self) -> Hash {
-        *self.inner.hash.get_or_init(|| self.shape().hash())
+    /// HMAC-SHA-256 pass per node — and every read thereafter is an `O(1)`
+    /// field load. The convention (see [`HashKey::leaf`] and
+    /// [`HashKey::branch`]): a single preimage commits the node's kind, the
+    /// height of its top, its compressed prefix in path order, and, for a
+    /// branch, its children as ascending `radix ‖ hash` records. Digest
+    /// agreement between differently-built trees rests on the tree's
+    /// canonical shape; see [`HashKey::branch`]'s canonicity section.
+    ///
+    /// `key` must be the hash key of the network whose tree holds this node:
+    /// the memo is filled under the first key passed and records none
+    /// ([`NodeInner`]'s `hash` gives the argument that every caller passes
+    /// the same one).
+    pub fn hash(&self, key: &HashKey) -> Hash {
+        *self.inner.hash.get_or_init(|| self.shape().hash(key))
     }
 
     /// This node's whole compressed path over its body.
@@ -1255,22 +1300,22 @@ impl Certifier {
     }
 }
 
-/// Node equality compares the replicated version set.
-impl Eq for Node {}
-
-/// Compare shared storage first, then subtree hashes.
-impl PartialEq for Node {
-    /// Test version-set equality without walking equal shared subtrees.
-    fn eq(&self, other: &Self) -> bool {
-        // Shared backing settles equality with no hashing (and even cold): the
-        // common case for forked/cloned trees and the subtrees they share.
-        // Distinct allocations fall back to the Merkle hash, which commits
-        // shape and version set — never message bytes — so this is
-        // version-set equality — and content equality, because no two
-        // messages ever share a version. (Same-version leaves with
-        // different payloads would compare equal; producing such a pair
-        // takes an already-fatal linearity violation.)
-        self.ptr_eq(other) || self.hash() == other.hash()
+/// Compare replicated version sets.
+impl Node {
+    /// Whether `self` and `other`, at the same trie position in trees of
+    /// the network whose hash key is `key`, hold the same version set,
+    /// without walking equal shared subtrees.
+    ///
+    /// Shared backing settles equality with no hashing (and even cold): the
+    /// common case for forked or cloned trees and the subtrees they share.
+    /// Distinct allocations fall back to the Merkle digest, which commits
+    /// shape and version set, never message bytes. So this is version-set
+    /// equality, and content equality, because no two messages ever share a
+    /// version. (Same-version leaves with different payloads would compare
+    /// equal; producing such a pair takes an already-fatal linearity
+    /// violation.)
+    pub fn same(&self, other: &Self, key: &HashKey) -> bool {
+        self.ptr_eq(other) || self.hash(key) == other.hash(key)
     }
 }
 

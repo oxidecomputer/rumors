@@ -16,6 +16,7 @@ use tokio::{
     sync::{Mutex, watch},
 };
 
+use crate::counter::widen;
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use crate::message::PayloadCodec;
 use crate::network::NetworkKeys;
@@ -664,7 +665,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             read,
             write,
             codec,
-            keys: Some(Arc::clone(&self.keys)),
+            keys: Some(Arc::clone(prior_tree.keys())),
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             stats: stats.clone(),
@@ -909,9 +910,13 @@ struct Reconciliation<'a> {
     /// earlier session's ingress). Its depth limit rides the greeting,
     /// where the counterparty's must match.
     codec: PayloadCodec,
-    /// The network's keys, whose path key places supplied leaves, or `None`
-    /// for a bootstrapper meeting another bootstrapper, which holds no
-    /// network secret and can be supplied nothing.
+    /// The keys of the network whose tree `root` is, or `None` for a
+    /// bootstrapper meeting another bootstrapper.
+    ///
+    /// Their path key places supplied leaves, and their hash key is the one
+    /// `root`'s nodes cache their digests under, which this side lists and
+    /// compares. A bootstrapper meeting a bootstrapper holds no network
+    /// secret, lists nothing, and can be supplied nothing.
     keys: Option<Arc<NetworkKeys>>,
     /// The memory budget the session's ledger admits its work against.
     sync_memory_budget: usize,
@@ -993,10 +998,14 @@ impl<'a> Reconciliation<'a> {
             observe,
             remote_role,
         } = self;
-        let local: LocalParticipant =
-            materialized::Handshaking::start(Local, root.into(), run_budget.bytes() as u64)
-                .sync_memory_budget(sync_memory_budget)
-                .stats(stats.clone());
+        let local: LocalParticipant = materialized::Handshaking::start(
+            Local,
+            root.into(),
+            keys.clone(),
+            widen(run_budget.bytes()),
+        )
+        .sync_memory_budget(sync_memory_budget)
+        .stats(stats.clone());
         let proxy: RemoteParticipant<'a> =
             streaming_remote::Handshaking::start(Local, read, write, codec, keys)
                 .stats(stats)

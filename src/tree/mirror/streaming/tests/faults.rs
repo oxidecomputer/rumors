@@ -24,8 +24,19 @@ use crate::tree::mirror::{
 use crate::tree::{
     Root,
     arb::{arb_wide_divergent_pair, leaf_parent_dispute_pair},
-    typed::height::{self, Height as _},
+    typed::{
+        Hash, HashKey,
+        height::{self, Height as _},
+    },
 };
+
+/// The digest of `root`'s live set under the fixture keys, which the
+/// streaming test sessions run under, or `None` for an empty root.
+fn live_hash(root: &Root) -> Option<Hash> {
+    root.node
+        .as_ref()
+        .map(|node| node.hash(&HashKey::fixture()))
+}
 
 /// A `Failing<Local>` endpoint at a budget of zero over `root`, its nodes
 /// wrapped for the failing backend, which misreports the root's count if
@@ -35,7 +46,13 @@ fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Loc
         ceiling: root.ceiling,
         root: root.node.map(|node| backend.root(node.into())),
     };
-    Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64).budget(0)
+    Handshaking::start(
+        backend,
+        root,
+        Some(crate::network::NetworkKeys::fixture()),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .budget(0)
 }
 
 /// The last ordinary walk reply in the full-depth fixture.
@@ -357,8 +374,8 @@ fn greeting_lies_are_classified_exhaustively() {
                     let (ours, theirs): (Root, Root) = (ours.into(), theirs.into());
                     let (base_client, base_server) =
                         streaming_mirror_sides(client_root, server_root);
-                    assert_eq!(&ours.node, &base_client.node);
-                    assert_eq!(&theirs.node, &base_server.node);
+                    assert_eq!(live_hash(&ours), live_hash(&base_client));
+                    assert_eq!(live_hash(&theirs), live_hash(&base_server));
                     if lie == GreetingLie::InflatedSetLen {
                         assert_eq!(&ours.ceiling, &base_client.ceiling);
                         assert_eq!(&theirs.ceiling, &base_server.ceiling);

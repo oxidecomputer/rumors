@@ -119,26 +119,26 @@ fn insert_at(
 /// ground truth.
 ///
 /// The canonical shape is derived directly from the sorted leaf-path set: a
-/// lone path below `depth` is a leaf committing its remaining suffix and its
-/// version's canonical bytes, and otherwise the run's shared span up to its
-/// first divergence byte is the branch's compressed prefix, with one child
-/// recursing per divergence radix — so every branch has >= 2 children and
-/// maximal prefixes by construction. Preimages are assembled with literal
-/// tag bytes, `LEAF_TAG ‖ len ‖ suffix` and
-/// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`, each hash
-/// truncated to its leading
-/// [`MERKLE_HASH_LEN`](crate::tree::typed::hash::MERKLE_HASH_LEN) bytes. The
-/// empty tree is the prefixless branch with no children. The tree's root
-/// hash must match this however its content arrived.
+/// lone path below `depth` is a leaf committing its remaining suffix, and
+/// otherwise the run's shared span up to its first divergence byte is the
+/// branch's compressed prefix, with one child recursing per divergence radix
+/// — so every branch has >= 2 children and maximal prefixes by construction.
+/// The node observed from `depth` sits at height `32 - depth`. Preimages are
+/// assembled with literal tag bytes, `LEAF_TAG ‖ height ‖ len ‖ suffix` and
+/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`,
+/// each digested by the fixture network's keyed hash ([`keyed`]). The empty
+/// tree is the prefixless branch with no children at the root's height. The
+/// tree's root hash must match this however its content arrived.
 fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
 
     fn hash_at(depth: usize, leaves: &[([u8; 32], &Version)]) -> Hash {
+        let height = (32 - depth) as u8;
         if let [(path, _version)] = leaves {
-            let mut preimage = vec![LEAF_TAG, (32 - depth) as u8];
+            let mut preimage = vec![LEAF_TAG, height, height];
             preimage.extend_from_slice(&path[depth..]);
-            return Hash::of(&preimage);
+            return keyed(&preimage);
         }
 
         // Two or more distinct sorted paths diverge at the first byte where
@@ -162,7 +162,7 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
             rest = tail;
         }
 
-        let mut preimage = vec![BRANCH_TAG, (branch_at - depth) as u8];
+        let mut preimage = vec![BRANCH_TAG, height, (branch_at - depth) as u8];
         preimage.extend_from_slice(&first[depth..branch_at]);
         let count = u16::try_from(records.len()).expect("fan-out is at most 256");
         preimage.extend_from_slice(&count.to_be_bytes());
@@ -170,7 +170,7 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
             preimage.push(radix);
             preimage.extend_from_slice(hash.as_bytes());
         }
-        Hash::of(&preimage)
+        keyed(&preimage)
     }
 
     // Level 32 (the value level): every distinct path maps to a leaf; the
@@ -183,16 +183,23 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     leaves.dedup_by_key(|(path, _)| *path);
 
     if leaves.is_empty() {
-        // The empty tree: a prefixless branch with no children.
-        return Hash::of(&[BRANCH_TAG, 0, 0, 0]);
+        // The empty tree: a prefixless branch with no children, at the
+        // root's height.
+        return keyed(&[BRANCH_TAG, 32, 0, 0, 0]);
     }
 
     hash_at(0, &leaves)
 }
 
+/// The fixture network's keyed hash of `preimage`, the hash every
+/// `Tree::default()` digests its nodes with.
+fn keyed(preimage: &[u8]) -> Hash {
+    NetworkKeys::fixture().hash().of(preimage)
+}
+
 /// An empty tree's root hash must match the reference: the prefixless branch
-/// with no children, `sha256(BRANCH_TAG ‖ 0 ‖ 0u16)` truncated to the
-/// comparison width.
+/// with no children at the root's height, `BRANCH_TAG ‖ 32 ‖ 0 ‖ 0u16`,
+/// under the fixture network's keyed hash.
 #[test]
 fn empty_tree_hash_matches_reference() {
     let tree: Tree<Bytes> = Tree::default();
@@ -350,7 +357,7 @@ proptest! {
             .unwrap_or_default();
         prop_assert_eq!(&canonical_view, &expected_view);
         if let Some(node) = canonical {
-            prop_assert_eq!(*node.hash().as_bytes(), direct.hash());
+            prop_assert_eq!(*node.hash(direct.hash_key()).as_bytes(), direct.hash());
         }
     }
 

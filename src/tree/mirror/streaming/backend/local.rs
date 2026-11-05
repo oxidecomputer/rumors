@@ -66,13 +66,13 @@ impl ErasedNode for typed::ErasedView {
         self.span()
     }
 
-    /// Read the subtree digest at `at`: a whole node's memo, computed on
-    /// first read, or a peeled view's, computed on each read.
+    /// Read the subtree digest at `at` under `key`: a whole node's memo,
+    /// computed on first read, or a peeled view's, computed on each read.
     ///
     /// For the session-budget meter, computing it is hashing's own work
     /// ([`Holding::Hashing`]), whichever place's code read it.
-    fn hash(&self, at: &ErasedPrefix) -> typed::Hash {
-        held_by(Holding::Hashing, || self.at(at).hash())
+    fn hash(&self, at: &ErasedPrefix, key: &typed::HashKey) -> typed::Hash {
+        held_by(Holding::Hashing, || self.at(at).hash(key))
     }
 
     /// Return the stored leaf count.

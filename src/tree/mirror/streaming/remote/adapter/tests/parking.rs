@@ -33,7 +33,7 @@ use crate::{
             remote::codec::{self, DEFAULT_TARGET_MESSAGE_SIZE, RunBudget, Speaker, Stream},
         },
         typed::{
-            self, Hash, Prefix,
+            self, Hash, HashKey, Prefix,
             height::{Root, UnderRoot},
         },
     },
@@ -82,7 +82,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     let children: Vec<(u8, typed::Node<UnderRoot>)> = root.into_children().into_iter().collect();
     let expected: Vec<(u8, Hash, usize)> = children
         .iter()
-        .map(|(radix, node)| (*radix, node.hash(), node.len()))
+        .map(|(radix, node)| (*radix, node.hash(&HashKey::fixture()), node.len()))
         .collect();
     assert!(
         expected.len() <= FAN,
@@ -156,7 +156,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
                 assert_eq!(actual, radix);
                 let at = Prefix::<Root>::new().push(*actual).erase();
                 assert_eq!(
-                    node.hash(&at),
+                    node.hash(&at, &HashKey::fixture()),
                     *hash,
                     "assembled custody matches the source"
                 );

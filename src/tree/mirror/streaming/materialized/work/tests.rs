@@ -6,6 +6,7 @@
 //! errors through unchanged. Counterparty-fault classification lives in
 //! [`violations`].
 
+use crate::network::NetworkKeys;
 use crate::tree::mirror::streaming::message::LaterMatches;
 use std::{collections::BTreeSet, convert::Infallible, future};
 
@@ -92,7 +93,7 @@ proptest! {
         dropped in any::<bool>(),
         terminal_ready in any::<bool>(),
     ) {
-        let mut work = Work::new(Local, Recorder::default(), Default::default());
+        let mut work = Work::new(Local, Recorder::default(), Default::default(), Some(crate::network::NetworkKeys::fixture()));
         // A closed consumer may stop a pump before later items are read.
         // Put the error first in that case so it is actually detected.
         let buffered = buffered && !dropped;
@@ -123,6 +124,7 @@ fn work_failure_preempts_parked_tasks() {
         Failing::after(Local, usize::MAX),
         Recorder::default(),
         Default::default(),
+        Some(crate::network::NetworkKeys::fixture()),
     );
     for _ in 0..31 {
         work.tasks.push(Box::pin(future::pending()));
@@ -186,10 +188,10 @@ fn fills_pendings_in_order() {
             .into_iter()
             .map(|item| {
                 item.expect("no errors were fed in")
-                    .map(|node| node.hash(&parent_prefix(3).erase()))
+                    .map(|node| node.hash(&parent_prefix(3).erase(), NetworkKeys::fixture().hash()))
             })
             .collect::<Vec<_>>(),
-        vec![expected.map(|node| node.hash())],
+        vec![expected.map(|node| node.hash(NetworkKeys::fixture().hash()))],
     );
 }
 
@@ -217,10 +219,10 @@ fn ready_none_is_deletion() {
             .into_iter()
             .map(|item| {
                 item.expect("no errors were fed in")
-                    .map(|node| node.hash(&parent_prefix(3).erase()))
+                    .map(|node| node.hash(&parent_prefix(3).erase(), NetworkKeys::fixture().hash()))
             })
             .collect::<Vec<_>>(),
-        vec![expected.map(|node| node.hash())],
+        vec![expected.map(|node| node.hash(NetworkKeys::fixture().hash()))],
     );
 }
 
@@ -295,9 +297,12 @@ fn chains_two_instances() {
     assert_eq!(
         output
             .into_iter()
-            .map(|node| node.map(|node| node.hash(&parent_prefix(3).pop().0.erase())))
+            .map(|node| node.map(|node| node.hash(
+                &parent_prefix(3).pop().0.erase(),
+                NetworkKeys::fixture().hash()
+            )))
             .collect::<Vec<_>>(),
-        vec![expected.map(|node| node.hash())],
+        vec![expected.map(|node| node.hash(NetworkKeys::fixture().hash()))],
     );
 }
 
@@ -419,7 +424,7 @@ proptest! {
             .iter()
             .map(|&radix| Listed {
                 radix,
-                hash: leaf(&mut version).hash(),
+                hash: leaf(&mut version).hash(NetworkKeys::fixture().hash()),
                 grandchildren: Grandchildren::ONE,
                 children_less_one: 0,
             })
@@ -453,6 +458,7 @@ proptest! {
             parent_prefix(0).erase(),
             ours_nodes,
             theirs_listing,
+            Some(&*NetworkKeys::fixture()),
             &stats,
             &mut Charge::default(),
         ))

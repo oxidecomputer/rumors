@@ -22,7 +22,7 @@ use crate::{
             byte_set::ByteSet, convert::Convert, with_kind_capacity,
         },
         typed::{
-            self, ErasedPrefix, Hash, Path, Prefix,
+            self, ErasedPrefix, Hash, HashKey, Path, Prefix,
             height::{Height, S, Z},
         },
     },
@@ -326,8 +326,8 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
         self.inner.span()
     }
 
-    fn hash(&self, at: &ErasedPrefix) -> Hash {
-        self.inner.hash(at)
+    fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
+        self.inner.hash(at, key)
     }
 
     fn len(&self) -> usize {

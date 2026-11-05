@@ -19,20 +19,22 @@
 //!   hold the same tree, regardless of insertion order or which peer sent
 //!   what. Union is well-defined node-by-node.
 //! - **Equal hash ⟹ equal subtree.** Each node memoizes a Merkle hash of
-//!   its subtree — a pure function of the version set, blind to message
-//!   bytes — so replicas can prune agreement wholesale: the engine of
-//!   the [`mirror`] protocol's divergence-proportional cost. The Merkle
-//!   hash is a 16-byte truncation, deliberately narrower than the 32-byte
-//!   version address: a comparison signal tolerates truncation that an
-//!   identity cannot (see [`typed::Hash`] for the asymmetry argument).
+//!   its subtree — a pure function of the version set under the network's
+//!   hash key, blind to message bytes — so replicas can prune agreement
+//!   wholesale: the engine of the [`mirror`] protocol's
+//!   divergence-proportional cost. The Merkle hash is a 16-byte truncation,
+//!   deliberately narrower than the 32-byte version address: a comparison
+//!   signal tolerates truncation that an identity cannot (see
+//!   [`typed::Hash`] for the asymmetry argument).
 //! - **Uniform spread.** Hashed paths are uniform, so the trie is
 //!   expected-balanced; and keyed by a secret no one outside the network
 //!   holds, no one can choose versions that crowd one subtree or collide
 //!   in a digest. Depth bounds are real bounds.
 //!
 //! Single-child spines are path-compressed away, and each node's hash is a
-//! single preimage committing its compressed prefix and children together
-//! (see [`Hash::branch`](typed::Hash::branch)). Hash agreement across
+//! single keyed preimage committing its height, compressed prefix and
+//! children together (see [`HashKey::branch`](typed::HashKey::branch)).
+//! Hash agreement across
 //! peers therefore rests on the tree's *canonical shape*: equal content
 //! yields equal compression, by the same ≥ 2-children maximal-compression
 //! invariant enforced by the node constructors.
@@ -111,7 +113,10 @@ pub struct Tree<T> {
 ///
 /// The ceiling survives redactions, even when no nodes remain. Joins use it
 /// to distinguish messages not yet seen from messages already redacted.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// A root carries no keys, so it compares through the tree that holds it
+/// ([`same`](Self::same)).
+#[derive(Clone, Debug)]
 pub struct Root {
     /// Causal history, including redactions; excluded from the node hash.
     ceiling: Version,
@@ -136,7 +141,37 @@ impl Root {
     pub(crate) fn len(&self) -> usize {
         self.node.as_ref().map(typed::Node::len).unwrap_or_default()
     }
+
+    /// Whether `self` and `other`, roots of trees of the network whose hash
+    /// key is `key`, hold the same causal history and the same live
+    /// version set ([`typed::Node::same`]).
+    pub(crate) fn same(&self, other: &Self, key: &typed::HashKey) -> bool {
+        self.ceiling == other.ceiling
+            && match (&self.node, &other.node) {
+                (None, None) => true,
+                (Some(ours), Some(theirs)) => ours.same(theirs, key),
+                _ => false,
+            }
+    }
 }
+
+/// Compare two roots of trees under the fixture keys, as [`same`](Root::same)
+/// does under their hash key.
+///
+/// Test-only: every test that compares bare roots builds them under
+/// [`NetworkKeys::fixture`], the keys streaming test sessions run under. A
+/// root of another network must be compared through its tree, since its
+/// nodes cache their digests under that network's key.
+#[cfg(test)]
+impl PartialEq for Root {
+    fn eq(&self, other: &Self) -> bool {
+        self.same(other, NetworkKeys::fixture().hash())
+    }
+}
+
+/// Root equality under the fixture keys is an equivalence relation.
+#[cfg(test)]
+impl Eq for Root {}
 
 /// Clone a tree by sharing its immutable nodes.
 impl<T> Clone for Tree<T> {
@@ -171,7 +206,7 @@ impl<T> PartialEq for Tree<T> {
     /// Returns whether both trees represent the same replica state of one
     /// network.
     fn eq(&self, other: &Self) -> bool {
-        self.keys == other.keys && self.root == other.root
+        self.keys == other.keys && self.root.same(&other.root, self.hash_key())
     }
 }
 
@@ -299,6 +334,12 @@ impl<T> Tree<T> {
         self.keys.path()
     }
 
+    /// The keyed hash that digests this tree's nodes: the one key their
+    /// memos are filled under.
+    pub(crate) fn hash_key(&self) -> &typed::HashKey {
+        self.keys.hash()
+    }
+
     /// Returns the tree's causal history, including redacted messages.
     pub fn latest(&self) -> &Version {
         &self.root.ceiling
@@ -353,14 +394,16 @@ impl<T> Tree<T> {
             .unwrap_or_default()
     }
 
-    /// Hash the live version set, excluding the root's causal ceiling.
+    /// The root digest of the live version set under the tree's hash key,
+    /// excluding the root's causal ceiling.
     ///
-    /// Node hashes are memoized, so reading a published tree's hash is cheap.
+    /// Node digests are memoized, so reading a published tree's digest is
+    /// cheap.
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         #[cfg(test)]
         meter::record_root_hash_read();
-        Node::root_hash(self.root.node.as_ref()).into()
+        Node::root_hash(self.root.node.as_ref(), self.hash_key()).into()
     }
 
     /// Finds the live message whose path and stored version match `version`.
@@ -411,7 +454,7 @@ impl<T> Tree<T> {
     /// version sizes also computes the bounds they depend on.
     pub(crate) fn warm_memos(&self) {
         if let Some(root) = &self.root.node {
-            root.hash();
+            root.hash(self.hash_key());
             root.version_bytes();
         }
     }
@@ -591,6 +634,7 @@ impl<T> Tree<T> {
             their_root,
             &self.root.ceiling,
             &their_version,
+            self.keys.hash(),
             &mut changed,
         );
         let new_ceiling = &self.root.ceiling | their_version;

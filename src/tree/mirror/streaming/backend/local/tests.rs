@@ -26,7 +26,7 @@ use crate::{
         arb::{arb_leaf_paths, nth_party},
         mirror::streaming::{Backend, ErasedNode, backend::BoxNodeStream, convert::Convert},
         typed::{
-            self, Path, Prefix,
+            self, HashKey, Path, Prefix,
             height::{self, S, Z},
         },
     },
@@ -118,7 +118,7 @@ proptest! {
         let (theirs_prefix, theirs_node) = theirs.into_iter().next().expect("asserted nonempty");
         prop_assert_eq!(ours_prefix, root);
         prop_assert_eq!(theirs_prefix, root);
-        prop_assert_eq!(ours_node.hash(), theirs_node.hash());
+        prop_assert_eq!(ours_node.hash(&HashKey::fixture()), theirs_node.hash(&HashKey::fixture()));
         prop_assert_eq!(ours_node.len(), theirs_node.len());
         prop_assert_eq!(ours_node.span(), theirs_node.span());
         prop_assert_eq!(ours_node.version_bytes(), theirs_node.version_bytes());
@@ -155,7 +155,7 @@ proptest! {
             ours.into_iter().zip(theirs)
         {
             prop_assert_eq!(ours_prefix, theirs_prefix);
-            prop_assert_eq!(ours_node.hash(), theirs_node.hash());
+            prop_assert_eq!(ours_node.hash(&HashKey::fixture()), theirs_node.hash(&HashKey::fixture()));
             prop_assert_eq!(ours_node.len(), theirs_node.len());
             prop_assert_eq!(ours_node.version_bytes(), theirs_node.version_bytes());
             let walked = leaves_local(ours_prefix, ours_node);
@@ -269,5 +269,5 @@ fn reading_at_a_coordinate_off_the_nodes_path_panics() {
         "one path byte is visible"
     );
     let (parent, _) = at.pop();
-    let _wrong = erased.hash(&parent.push(TOP ^ 1).erase());
+    let _wrong = erased.hash(&parent.push(TOP ^ 1).erase(), &HashKey::fixture());
 }

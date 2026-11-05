@@ -224,12 +224,20 @@ impl LocalSession {
             transcript,
         } = self;
         let recorders = stats.then(|| (Recorder::default(), Recorder::default()));
-        let mut client =
-            Handshaking::start(Local, client.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                .budget(budget);
-        let mut server =
-            Handshaking::start(Local, server.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                .budget(budget);
+        let mut client = Handshaking::start(
+            Local,
+            client.into(),
+            Some(crate::network::NetworkKeys::fixture()),
+            DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        )
+        .budget(budget);
+        let mut server = Handshaking::start(
+            Local,
+            server.into(),
+            Some(crate::network::NetworkKeys::fixture()),
+            DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        )
+        .budget(budget);
         if let Some((client_recorder, server_recorder)) = &recorders {
             client = client.stats(client_recorder.clone());
             server = server.stats(server_recorder.clone());
@@ -320,7 +328,13 @@ impl Outcome {
 /// undriven session: the ones that wrap it in a fault or failure decorator,
 /// and the ones that poll it themselves.
 fn floor_start(root: Root) -> Handshaking<Local, Start> {
-    Handshaking::start(Local, root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64).budget(0)
+    Handshaking::start(
+        Local,
+        root.into(),
+        Some(crate::network::NetworkKeys::fixture()),
+        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+    )
+    .budget(0)
 }
 
 /// Reconcile `a` and `b` through the streaming local backend, returning both

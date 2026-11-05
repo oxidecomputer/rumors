@@ -8,7 +8,7 @@ use before::Span;
 
 use crate::{Version, causally, message::Message};
 
-use super::hash::{Hash, PATH_LEN};
+use super::hash::{Hash, HashKey, PATH_LEN};
 use super::height::{self, Height, S, Z};
 use super::prefix::Prefix;
 use super::untyped;
@@ -253,9 +253,17 @@ impl<H: Height> Node<H> {
         self.inner.max_bound_bytes()
     }
 
-    /// The memoized Merkle hash of this subtree; see [`untyped::Node::hash`].
-    pub fn hash(&self) -> Hash {
-        self.inner.hash()
+    /// The memoized digest of this subtree under `key`, the hash key of
+    /// the network whose tree holds it; see [`untyped::Node::hash`].
+    pub fn hash(&self, key: &HashKey) -> Hash {
+        self.inner.hash(key)
+    }
+
+    /// Whether `self` and `other`, at this height in trees of the network
+    /// whose hash key is `key`, hold the same version set; see
+    /// [`untyped::Node::same`].
+    pub fn same(&self, other: &Self, key: &HashKey) -> bool {
+        self.inner.same(&other.inner, key)
     }
 }
 
@@ -352,23 +360,12 @@ impl Node<height::Root> {
         untyped::Range::root(node.map(|node| &node.inner), query)
     }
 
-    /// The observable hash of a possibly-absent root.
+    /// The observable digest of a possibly-absent root under `key`.
     #[cfg(any(test, feature = "test-internals"))]
-    pub fn root_hash(node: Option<&Root>) -> Hash {
+    pub fn root_hash(node: Option<&Root>, key: &HashKey) -> Hash {
         // An absent root is the empty tree, which hashes as a prefixless
-        // branch with no children (`sha256(BRANCH_TAG ‖ 0 ‖ 0u16)`, truncated), not as
-        // the all-zero default.
-        node.map(Node::hash).unwrap_or_else(Hash::empty_root)
-    }
-}
-
-/// Storage-node equality is total at a fixed height.
-impl<H: Height> Eq for Node<H> {}
-
-/// Compare the storage nodes viewed at this height.
-impl<H: Height> PartialEq for Node<H> {
-    /// Delegate to the storage node's subtree comparison.
-    fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        // branch with no children at the root's height
+        // ([`HashKey::empty_root`]), not as the all-zero default.
+        node.map_or_else(|| key.empty_root(), |node| node.hash(key))
     }
 }

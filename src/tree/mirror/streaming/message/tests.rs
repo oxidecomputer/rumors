@@ -6,8 +6,12 @@ use proptest::prelude::*;
 
 use super::{CountError, Listed};
 use crate::Version;
+use crate::network::NetworkKeys;
 use crate::tree::mirror::streaming::{ErasedNode, byte_set::ByteSet};
-use crate::tree::typed::{ErasedPrefix, Hash, Prefix};
+use crate::tree::typed::{
+    ErasedPrefix, Hash, HashKey, Prefix,
+    untyped::memo_census::{self, Work},
+};
 
 /// A node whose child and grandchild counts the test chooses, as a backend
 /// reading corrupted storage could report them.
@@ -25,7 +29,7 @@ impl ErasedNode for Counted {
     }
 
     /// The default digest: listing copies it unread.
-    fn hash(&self, _: &ErasedPrefix) -> Hash {
+    fn hash(&self, _: &ErasedPrefix, _: &HashKey) -> Hash {
         Hash::default()
     }
 
@@ -69,7 +73,12 @@ proptest! {
         grandchildren in arb_count(65_536),
         radix in any::<u8>(),
     ) {
-        let listed = Listed::of(Prefix::new().erase(), radix, &Counted { children, grandchildren });
+        let listed = Listed::of(
+            Prefix::new().erase(),
+            radix,
+            &Counted { children, grandchildren },
+            NetworkKeys::fixture().hash(),
+        );
         if children > 256 {
             prop_assert_eq!(listed, Err(CountError::Children(children)));
         } else if grandchildren > 65_536 {
@@ -80,5 +89,60 @@ proptest! {
             prop_assert_eq!(listed.grandchildren.get(), grandchildren.max(1));
             prop_assert_eq!(usize::from(listed.children_less_one), children.max(1) - 1);
         }
+    }
+}
+
+/// The root fan of `root` as its greeting lists it, through the in-memory
+/// backend.
+fn root_fan(
+    root: crate::tree::Root,
+) -> Vec<(
+    u8,
+    <crate::tree::mirror::streaming::Local as crate::tree::mirror::streaming::Backend>::Erased,
+)> {
+    use crate::tree::mirror::streaming::{Local, Root, materialized};
+    let root: Root<Local> = root.into();
+    pollster::block_on(materialized::greeting_fan(&Local, root.root))
+        .expect("the in-memory backend lists exactly the children it reports")
+}
+
+proptest! {
+    /// A listing carries each listed node's own digest at its coordinate,
+    /// under the tree's hash key, and listing a fan whose memos are warm
+    /// computes a digest only for a node viewed from inside its compressed
+    /// path.
+    ///
+    /// Publication warms every node's memo, so a greeting's root fan of
+    /// stored nodes lists with no hashing. A root with a compressed path has
+    /// one child, the root itself one level down, whose digest at that level
+    /// no memo holds.
+    #[test]
+    fn a_listing_carries_each_node_s_cached_digest(
+        root in crate::tree::arb::arb_tree_root(0, 2..64),
+    ) {
+        let keys = NetworkKeys::fixture();
+        let peeled = usize::from(root.node.as_ref().is_some_and(|node| {
+            node.clone().into_untyped().compressed_prefix_len() > 0
+        }));
+        let fan = root_fan(root);
+        let at = |radix: u8| Prefix::new().erase().push(radix);
+        // Reading every digest warms the memos, as publication does.
+        let expected: Vec<Hash> = fan
+            .iter()
+            .map(|(radix, node)| node.hash(&at(*radix), keys.hash()))
+            .collect();
+
+        let before = memo_census::read(Work::Hash);
+        let listing = crate::tree::mirror::streaming::materialized::fan_listing(
+            Prefix::new().erase(),
+            &fan,
+            Some(&keys),
+        )
+            .expect("the in-memory backend keeps every count in range");
+        let computed = memo_census::read(Work::Hash) - before;
+
+        prop_assert!(!listing.is_empty(), "a tree of two or more leaves lists its root fan");
+        prop_assert_eq!(listing.iter().map(|entry| entry.hash).collect::<Vec<_>>(), expected);
+        prop_assert_eq!(computed, peeled as u64);
     }
 }

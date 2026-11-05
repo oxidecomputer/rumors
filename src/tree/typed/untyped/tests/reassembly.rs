@@ -15,7 +15,7 @@ use crate::tree::typed::untyped::{
     memo_census::{self, Work},
 };
 
-use super::{MAX_TEST_DEPTH, TREE_LEAF_BUDGET, arb_tree};
+use super::{MAX_TEST_DEPTH, TREE_LEAF_BUDGET, arb_tree, key};
 
 /// Children as reassembly takes them: views at ascending radices.
 type Listing = Vec<(u8, View)>;
@@ -47,9 +47,15 @@ fn nodes(listing: &Listing) -> Fan {
         .collect()
 }
 
-/// The hash of the subtree reassembly returned, if any.
+/// The hash of the subtree reassembly returned, if any, under the fixture
+/// key.
 fn hash_of(view: Option<&View>) -> Option<crate::tree::typed::Hash> {
-    view.map(View::hash)
+    view.map(|view| view.hash(&key()))
+}
+
+/// The hash of a node, if any, under the fixture key.
+fn node_hash(node: Option<&Node>) -> Option<crate::tree::typed::Hash> {
+    node.map(|node| node.hash(&key()))
 }
 
 /// A leaf at `version`, under a path of zero bytes reaching `height`: a
@@ -193,7 +199,7 @@ proptest! {
         let listing = changed(listing, child_height(view), change);
         let built = Node::branch(nodes(&listing));
         let rebuilt = View::rebuild(Some(view.clone()), listing);
-        prop_assert_eq!(hash_of(rebuilt.as_ref()), built.as_ref().map(Node::hash));
+        prop_assert_eq!(hash_of(rebuilt.as_ref()), node_hash(built.as_ref()));
         prop_assert!(rebuilt.is_none_or(|rebuilt| !rebuilt.same(view)));
     }
 }
@@ -286,14 +292,14 @@ proptest! {
         edits in vec(arb_edit(), 1..4),
     ) {
         // Published trees are warm: what seeding reads of the original side.
-        tree.hash();
+        tree.hash(&key());
         tree.version_bytes();
         let listings = listings(tree);
         let (view, listing) = &listings[pick.index(listings.len())];
         let listing = edited(listing, child_height(view), &edits);
         let built = Node::branch(nodes(&listing));
         let rebuilt = View::rebuild(Some(view.clone()), listing).map(View::into_node);
-        prop_assert_eq!(rebuilt.as_ref().map(Node::hash), built.as_ref().map(Node::hash));
+        prop_assert_eq!(node_hash(rebuilt.as_ref()), node_hash(built.as_ref()));
         if let Some(rebuilt) = rebuilt {
             prop_assert!(rebuilt.mismemoized().is_none(), "memos drifted: {rebuilt:?}");
         }

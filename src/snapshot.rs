@@ -68,10 +68,12 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
         self.tree.len()
     }
 
-    /// Returns the Merkle root over the live messages.
+    /// Returns the digest of the Merkle root over the live messages: a MAC
+    /// under the network's hash key, equal for any two replicas of one
+    /// network that hold equal live sets.
     ///
-    /// Test support for checking the tree's internal comparison signal. Use
-    /// snapshot equality or the read methods in application code.
+    /// Test support for checking the tree's comparison signal. Use snapshot
+    /// equality or the read methods in application code.
     #[cfg(any(test, feature = "test-internals"))]
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         self.tree.hash()

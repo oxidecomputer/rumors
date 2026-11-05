@@ -70,8 +70,20 @@ where
     let codec = PayloadCodec::new::<T>(PayloadDepthLimit::default());
     run_to_quiescence(async move {
         let size = DEFAULT_TARGET_MESSAGE_SIZE as u64;
-        let a_walk = Handshaking::start(Local, a.into(), size).budget(a_budget);
-        let b_walk = Handshaking::start(Local, b.into(), size).budget(b_budget);
+        let a_walk = Handshaking::start(
+            Local,
+            a.into(),
+            Some(crate::network::NetworkKeys::fixture()),
+            size,
+        )
+        .budget(a_budget);
+        let b_walk = Handshaking::start(
+            Local,
+            b.into(),
+            Some(crate::network::NetworkKeys::fixture()),
+            size,
+        )
+        .budget(b_budget);
         let a_proxy = RemoteHandshaking::start(
             Local,
             a_end.read,

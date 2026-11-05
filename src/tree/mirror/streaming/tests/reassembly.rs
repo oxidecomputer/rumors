@@ -95,7 +95,7 @@ proptest! {
 /// replica serves it.
 fn warmed(root: Root) -> Root {
     if let Some(node) = &root.node {
-        node.hash();
+        node.hash(&crate::tree::typed::HashKey::fixture());
         node.version_bytes();
     }
     root

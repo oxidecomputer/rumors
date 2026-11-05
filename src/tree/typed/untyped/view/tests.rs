@@ -5,7 +5,7 @@ use proptest::test_runner::TestCaseError;
 
 use crate::tree::arb::arb_leaf_paths;
 use crate::tree::typed::untyped::tests::{
-    MAX_TEST_DEPTH, TREE_LEAF_BUDGET, arb_tree, leaves_below,
+    MAX_TEST_DEPTH, TREE_LEAF_BUDGET, arb_tree, key, leaves_below,
 };
 
 use super::{Node, PATH_LEN, View};
@@ -127,13 +127,13 @@ proptest! {
             prop_assert_eq!(placed.child_count(), whole.child_count());
             prop_assert!(placed.child_radices().eq(whole.child_radices()));
             prop_assert_eq!(placed.grandchild_count(), whole.grandchild_count());
-            prop_assert_eq!(placed.hash(), copy.hash());
+            prop_assert_eq!(placed.hash(&key()), copy.hash(&key()));
             prop_assert_eq!(placed.stored().len(), copy.len());
             prop_assert_eq!(placed.stored().span(), copy.span());
             prop_assert_eq!(placed.stored().version_bytes(), copy.version_bytes());
             let built = derived.into_node();
             prop_assert_eq!(built.compressed_prefix_len(), copy.compressed_prefix_len());
-            prop_assert_eq!(built.hash(), copy.hash());
+            prop_assert_eq!(built.hash(&key()), copy.hash(&key()));
             Ok(())
         })?;
     }

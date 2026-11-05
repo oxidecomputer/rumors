@@ -244,8 +244,12 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
         max_version_bytes: root.max_version_bytes(),
         payload_depth_limit: retiree.codec.limit().get(),
         target_message_size: retiree.run_budget.bytes() as u64,
-        listing: materialized::fan_listing(Prefix::new().erase(), &fan)
-            .expect("the in-memory backend keeps every count in range"),
+        listing: materialized::fan_listing(
+            Prefix::new().erase(),
+            &fan,
+            Some(retiree.keys.as_ref()),
+        )
+        .expect("the in-memory backend keeps every count in range"),
     };
     crate::tree::mirror::streaming::remote::codec::greeting::encode_greeting(&greeting).len()
 }

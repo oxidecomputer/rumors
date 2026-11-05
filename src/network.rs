@@ -2,18 +2,21 @@
 //!
 //! Every network has a 128-bit secret, drawn when it is
 //! [`seed`](crate::Peer::seed)ed and held by each of its peers. One key
-//! schedule ([`NetworkKeys`]) derives two values from the secret: the network's
-//! public identifier, and the key of the hash that places every message in the
-//! network's content tree (the tree's `PathKey`). This latter key ensures that
-//! a party who hasn't joined the network canot predict where a future message
-//! will sit in the tree or what any subtree's digest will be. A peer only sends
-//! it out encrypted, to an authenticated peer, in the item a provider sends a
-//! bootstrapping peer (the mirror's `secret` module). It is never printed:
-//! [`NetworkSecret`]'s `Debug` redacts it, and it has no `Display`.
+//! schedule ([`NetworkKeys`]) derives three values from the secret: the
+//! network's public identifier; the key of the hash that places every message
+//! in the network's content tree (the tree's `PathKey`); and the key of the
+//! hash that digests every subtree of that tree, the digests gossip lists and
+//! compares (the tree's `HashKey`). These two keys ensure that a party who
+//! hasn't joined the network canot predict where a future message will sit in
+//! the tree or what any subtree's digest will be; the tree's `Hash` says why
+//! the digests are keyed. A peer only sends the secret out encrypted, to an
+//! authenticated peer, in the item a provider sends a bootstrapping peer (the
+//! mirror's `secret` module). It is never printed: [`NetworkSecret`]'s `Debug`
+//! redacts it, and it has no `Display`.
 //!
 //! Everything publicly accessible from the API speaks in terms of the
 //! [`Network`] identifier instead, which reveals nothing about the secret or
-//! the path key derived beside it. Preambles carry it, compatibility checks and
+//! the keys derived beside it. Preambles carry it, compatibility checks and
 //! [`Mismatch::Network`](crate::error::Mismatch::Network) compare it, bookmarks
 //! key their records by it.
 //!
@@ -26,11 +29,10 @@
 //! the choice of algorithms. The choice of cryptography is intentionally
 //! bog-standard:
 //!
-//! - SHA-256 (FIPS 180-4), truncated to 16 bytes (SP 800-107), for the
-//!   comparison digests;
-//! - HMAC-SHA-256 (FIPS 198-1) for leaf paths;
+//! - HMAC-SHA-256 (FIPS 198-1) for leaf paths, and, truncated to 16 bytes
+//!   (SP 800-107), for the subtree digests gossip compares;
 //! - HKDF with SHA-256 (RFC 5869, SP 800-56C) for the key schedule that
-//!   derives the leaf-path key and the network identifier from the secret;
+//!   derives both of those keys and the network identifier from the secret;
 //! - HPKE (RFC 9180) for the sealed secret a provider sends a bootstrapping
 //!   peer, with the suite DHKEM(P-256, HKDF-SHA256), HKDF-SHA256 and
 //!   AES-256-GCM: ECDH over P-256 (SP 800-56A), HKDF with SHA-256
@@ -55,13 +57,16 @@ use serde::Serializer;
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-use crate::tree::typed::{HMAC_KEY_LEN, PathKey};
+use crate::tree::typed::{HMAC_KEY_LEN, HashKey, PathKey};
 
 /// Bytes in one network identifier, and in one network secret.
 pub(crate) const NETWORK_BYTES: usize = 16;
 
 /// The key schedule's info label for the leaf-path key ([`NetworkKeys`]).
 const PATH_KEY_LABEL: &[u8] = b"rumors path key";
+
+/// The key schedule's info label for the tree hash key ([`NetworkKeys`]).
+const HASH_KEY_LABEL: &[u8] = b"rumors tree hash key";
 
 /// The key schedule's info label for the network identifier
 /// ([`NetworkKeys`]).
@@ -83,7 +88,7 @@ const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 //
 // Internally, the identifier is expanded from the network's secret by its
 // key schedule (`NetworkKeys`), so publishing it reveals nothing about the
-// secret or the path key derived beside it. Each network's secret
+// secret or the keys derived beside it. Each network's secret
 // also keys where its messages sit in the content tree, which strengthens
 // the separation of independently seeded networks: they place even
 // identical versions at unrelated addresses, so nothing one network
@@ -149,20 +154,20 @@ impl fmt::Display for Network {
 }
 
 /// A network's 128-bit secret: the input from which its key schedule
-/// ([`NetworkKeys`]) derives the key of its leaf paths and its public
-/// [`Network`] identifier.
+/// ([`NetworkKeys`]) derives the keys of its leaf paths and tree digests,
+/// and its public [`Network`] identifier.
 ///
-/// Leaf paths are keyed because versions are predictable. A version is a
+/// Both are keyed because versions are predictable. A version is a
 /// deterministic function of the network's causal history, so anyone who
-/// can infer that history, and could compute paths and digests, could
-/// search offline for two version sets whose subtree digests collide, then
+/// can infer that history, and could compute the digests replicas compare,
+/// could search offline for two version sets whose digests collide, then
 /// steer when peers insert and gossip until those versions arise. Gossip
 /// settles a subtree on digest equality alone, so that collision would
 /// silently delete the messages beneath it fleet-wide. With 16-byte digests
-/// such a birthday search costs about 2⁶⁸ evaluations, within reach of a
-/// state-level budget. Under a key derived from the secret, nobody without the secret can compute
-/// a path or a digest, so only accidental collisions remain, which the
-/// digest width argument (the tree's `Hash`) bounds.
+/// such a birthday search costs about 2⁶⁴ evaluations. Every tree digest is
+/// a MAC under a key derived from the secret, so nobody without the secret
+/// can evaluate one, leaving the collisions the digest width argument (the
+/// tree's `Hash`) bounds.
 ///
 /// Whoever holds the secret can compute every path and digest again, so a
 /// leaked secret re-enables that search for the rest of the network's life.
@@ -208,8 +213,8 @@ impl NetworkSecret {
     pub(crate) const FIXTURE: NetworkSecret = NetworkSecret([0x5e; NETWORK_BYTES]);
 
     /// Draws a fresh random secret from `rng`, which must be a cryptographic
-    /// generator: the secret keys every leaf path, so a predictable one
-    /// re-enables the offline search that keying the paths rules out.
+    /// generator: the secret keys every leaf path and tree digest, so a
+    /// predictable one re-enables the offline search that keying rules out.
     ///
     /// A secret whose identifier would be the bootstrap placeholder
     /// ([`Network::BOOTSTRAP`]) is drawn again, since its network would be
@@ -255,14 +260,14 @@ impl fmt::Debug for NetworkSecret {
 }
 
 /// A network's secret together with everything derived from it: the keyed
-/// hash that places leaves ([`PathKey`]) and the public [`Network`]
-/// identifier.
+/// hash that places leaves ([`PathKey`]), the keyed hash that digests the
+/// content tree ([`HashKey`]), and the public [`Network`] identifier.
 ///
 /// The keys are derived once, when a peer draws or receives the secret, and
 /// shared through `Arc` by everything that needs them: the peer, every clone
-/// of its tree, and each session it runs. Constructing a [`PathKey`]
-/// absorbs its key into HMAC's padded key blocks, so deriving it once also
-/// spares every path lookup that work.
+/// of its tree, and each session it runs. Constructing either keyed hash
+/// absorbs its key into HMAC's padded key blocks, so deriving them once also
+/// spares every path lookup and every tree digest that work.
 ///
 /// # Key schedule
 ///
@@ -275,11 +280,12 @@ impl fmt::Debug for NetworkSecret {
 /// | Value | Info label | Bytes |
 /// |---|---|---|
 /// | the leaf-path key ([`PathKey`]) | `"rumors path key"` | 32 |
+/// | the tree hash key ([`HashKey`]) | `"rumors tree hash key"` | 32 |
 /// | the network identifier ([`Network`]) | `"rumors network id"` | 16 |
 ///
-/// The path key is one SHA-256 output, the shortest key RFC 2104 recommends
-/// for HMAC-SHA-256. Its strength is still the secret's 128 bits, not its
-/// own 256: whoever finds the secret derives the key from it. The
+/// Each HMAC key is one SHA-256 output, the shortest key RFC 2104 recommends
+/// for HMAC-SHA-256. A key's strength is still the secret's 128 bits, not
+/// its own 256: whoever finds the secret derives every key from it. The
 /// identifier is as wide as the secret.
 ///
 /// The extract step takes no salt, which RFC 5869 defines as a salt of 32
@@ -290,14 +296,18 @@ impl fmt::Debug for NetworkSecret {
 ///
 /// HKDF guarantees that values expanded under distinct info labels are
 /// independent pseudorandom keys. So publishing the identifier reveals
-/// nothing about the secret or the path key. That is: whoever reads the
-/// identifier off a preamble is no closer to computing a path than one who
-/// never saw it.
+/// nothing about the secret or either key, and each key reveals nothing
+/// about the other. That is: whoever reads the identifier off a preamble is
+/// no closer to computing a path or a compared digest than one who never
+/// saw it.
 pub(crate) struct NetworkKeys {
     /// The secret every other field is derived from.
     secret: NetworkSecret,
     /// The keyed hash that places the network's leaves.
     path: PathKey,
+    /// The keyed hash that digests the network's content tree, whose
+    /// digests gossip lists and compares.
+    hash: HashKey,
     /// The network's public identifier.
     network: Network,
 }
@@ -309,6 +319,7 @@ impl NetworkKeys {
         let schedule = KeySchedule::extract(&secret);
         Self {
             path: PathKey::new(&schedule.expand::<HMAC_KEY_LEN>(PATH_KEY_LABEL)),
+            hash: HashKey::new(&schedule.expand::<HMAC_KEY_LEN>(HASH_KEY_LABEL)),
             network: schedule.network(),
             secret,
         }
@@ -332,6 +343,12 @@ impl NetworkKeys {
     /// The keyed hash that places the network's leaves.
     pub(crate) fn path(&self) -> &PathKey {
         &self.path
+    }
+
+    /// The keyed hash that digests the network's content tree, whose
+    /// digests gossip lists and compares.
+    pub(crate) fn hash(&self) -> &HashKey {
+        &self.hash
     }
 
     /// The network's public identifier.

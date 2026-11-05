@@ -26,7 +26,7 @@ use crate::{
     tree::{
         mirror::streaming::{Backend, ErasedNode, Leaf, byte_set::ByteSet, ledger::Charge},
         typed::{
-            ErasedPrefix, Hash,
+            ErasedPrefix, Hash, HashKey,
             height::{Height, Z},
         },
     },
@@ -139,7 +139,9 @@ pub struct Greeting {
 pub struct Listed {
     /// The child's radix under the listed node.
     pub radix: u8,
-    /// The child's subtree hash.
+    /// The child's subtree digest: the lister's cached digest of the
+    /// child, a MAC under the network's hash key ([`struct@Hash`] says
+    /// why it is keyed).
     pub hash: Hash,
     /// The lister's grandchild count of the child.
     ///
@@ -171,7 +173,12 @@ const _: () = assert!(
 
 impl Listed {
     /// The entry for `node`, listed by this side at `radix` beneath
-    /// `scope`, so at the coordinate `scope` extended by `radix`.
+    /// `scope`, so at the coordinate `scope` extended by `radix`, with its
+    /// digest under `key`, the hash key of this side's tree.
+    ///
+    /// The digest is the one the node caches, so listing a whole node
+    /// computes no hash; a node viewed from inside its compressed path
+    /// computes its digest at that level ([`ErasedNode::hash`]).
     ///
     /// # Errors
     ///
@@ -182,6 +189,7 @@ impl Listed {
         scope: ErasedPrefix,
         radix: u8,
         node: &E,
+        key: &HashKey,
     ) -> Result<Self, CountError> {
         let at = scope.push(radix);
         let children = node.child_count(&at);
@@ -189,7 +197,7 @@ impl Listed {
             u8::try_from(children.saturating_sub(1)).map_err(|_| CountError::Children(children))?;
         Ok(Self {
             radix,
-            hash: node.hash(&at),
+            hash: node.hash(&at, key),
             grandchildren: Grandchildren::of(node, &at)?,
             children_less_one,
         })
@@ -296,8 +304,8 @@ impl Grandchildren {
     }
 }
 
-/// A listing entry for the child at `radix` with subtree hash `hash` and
-/// the smallest grandchild count.
+/// A listing entry for the child at `radix` with digest `hash` and the
+/// smallest grandchild count.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn listed(radix: u8, hash: Hash) -> Listed {
     Listed {

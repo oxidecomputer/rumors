@@ -233,10 +233,10 @@ impl<H: Height> View<H> {
         self.node.version_bytes()
     }
 
-    /// The subtree's hash ([`untyped::View::hash`]).
+    /// The subtree's digest under `key` ([`untyped::View::hash`]).
     #[cfg(test)]
-    pub fn hash(&self) -> super::Hash {
-        self.untyped().hash()
+    pub fn hash(&self, key: &super::HashKey) -> super::Hash {
+        self.untyped().hash(key)
     }
 
     /// Walk every leaf beneath this view at `prefix`, in ascending path

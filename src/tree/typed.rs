@@ -23,7 +23,7 @@ pub mod view;
 pub(crate) mod untyped;
 
 pub(crate) use hash::HMAC_KEY_LEN;
-pub use hash::{Hash, PathKey};
+pub use hash::{Hash, HashKey, PathKey};
 pub(crate) use node::SortedRun;
 pub use node::{Children, Node};
 pub use path::Path;

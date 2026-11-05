@@ -57,7 +57,7 @@ use crate::{
             byte_set::ByteSet, convert::Convert, materialized, ops,
         },
         typed::{
-            ErasedPrefix, Hash, Path, Prefix,
+            ErasedPrefix, Hash, HashKey, Path, Prefix,
             height::{self, Height, S, Z},
         },
     },
@@ -264,8 +264,8 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
         self.inner().span()
     }
 
-    fn hash(&self, at: &ErasedPrefix) -> Hash {
-        self.inner().hash(at)
+    fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
+        self.inner().hash(at, key)
     }
 
     fn len(&self) -> usize {
@@ -805,12 +805,23 @@ where
     // includes them and any later handles held by either endpoint.
     ledger::reset_peak();
 
-    let client =
-        materialized::Handshaking::start(charged.clone(), left, DEFAULT_TARGET_MESSAGE_SIZE as u64)
-            .budget(budget);
-    let server =
-        materialized::Handshaking::start(charged, right, DEFAULT_TARGET_MESSAGE_SIZE as u64)
-            .budget(budget);
+    // Both corpora are fixture trees, so both sessions, and the
+    // convergence check below, digest under the fixture keys.
+    let keys = crate::network::NetworkKeys::fixture();
+    let client = materialized::Handshaking::start(
+        charged.clone(),
+        left,
+        Some(Arc::clone(&keys)),
+        widen(DEFAULT_TARGET_MESSAGE_SIZE),
+    )
+    .budget(budget);
+    let server = materialized::Handshaking::start(
+        charged,
+        right,
+        Some(Arc::clone(&keys)),
+        widen(DEFAULT_TARGET_MESSAGE_SIZE),
+    )
+    .budget(budget);
     let (ours, theirs) = streaming::mirror(client, server)
         .await
         .unwrap_or_else(|error| fail(&format!("the conformance session reconciles: {error:?}")));
@@ -825,7 +836,7 @@ where
             let right_root = Charged::<B>::erase(right_root);
             let root = Prefix::<height::Root>::new().erase();
             (
-                left_root.hash(&root) == right_root.hash(&root),
+                left_root.hash(&root, keys.hash()) == right_root.hash(&root, keys.hash()),
                 left_root.len(),
             )
         }

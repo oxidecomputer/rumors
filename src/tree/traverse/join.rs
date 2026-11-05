@@ -10,8 +10,9 @@
 //! - Differing nodes merge their sorted child lists and recurse. Reassembly
 //!   through [`Node::branch`] compresses singleton branches again.
 //!
-//! Equality checks shared ownership first, then Merkle hashes. A divergent
-//! branch visits at most 256 children; equal subtrees need no descent.
+//! Equality checks shared ownership first, then Merkle hashes under the
+//! trees' one hash key ([`Node::same`]). A divergent branch visits at most
+//! 256 children; equal subtrees need no descent.
 
 use itertools::{EitherOrBoth, Itertools};
 
@@ -23,6 +24,9 @@ use height::{Height, Root, S, Z};
 
 /// Merge the roots using their causal ceilings to recognize deletions.
 ///
+/// Both roots belong to trees of the network whose hash key is `key`, which
+/// compares their subtrees.
+///
 /// Set `changed` if the result gains or loses a leaf relative to `a`; never
 /// clear it. The walk detects gains by a surviving subtree and losses by a
 /// reduced leaf count, without hashing solely to check for change. Each path
@@ -32,23 +36,26 @@ pub fn join(
     b: Option<Node<Root>>,
     a_version: &Version,
     b_version: &Version,
+    key: &HashKey,
     changed: &mut bool,
 ) -> Option<Node<Root>> {
     // Tests can interrupt the walk before any candidate is published.
     #[cfg(test)]
     crate::tree::panic_injection::fire_if_armed();
 
-    Join::join(a, b, a_version, b_version, changed)
+    Join::join(a, b, a_version, b_version, key, changed)
 }
 
 /// One height of the merge, preserving [`join`]'s change-detection contract.
 pub trait Join: Unknown {
-    /// Merge the nodes at this height and record any change from `a`.
+    /// Merge the nodes at this height, comparing subtrees under `key`, and
+    /// record any change from `a`.
     fn join(
         a: Option<Node<Self>>,
         b: Option<Node<Self>>,
         a_version: &Version,
         b_version: &Version,
+        key: &HashKey,
         changed: &mut bool,
     ) -> Option<Node<Self>>;
 }
@@ -64,6 +71,7 @@ where
         b: Option<Node<S<H>>>,
         a_version: &Version,
         b_version: &Version,
+        key: &HashKey,
         changed: &mut bool,
     ) -> Option<Node<S<H>>> {
         // A later fuse step exercises unwinding after some children were merged.
@@ -88,7 +96,7 @@ where
             (Some(ours), Some(theirs)) => {
                 // Equal paths commit the same versions, hence the same messages
                 // under the unique-version contract. Keep our cached node.
-                if ours == theirs {
+                if ours.same(&theirs, key) {
                     return Some(ours);
                 }
 
@@ -103,7 +111,7 @@ where
                 for pair in ours.into_iter().merge_join_by(theirs, |a, b| a.0.cmp(&b.0)) {
                     let (radix, ours, theirs) = match pair {
                         EitherOrBoth::Both((radix, ours), (_, theirs)) => {
-                            if ours == theirs {
+                            if ours.same(&theirs, key) {
                                 merged.push(radix, ours);
                                 continue;
                             }
@@ -112,7 +120,9 @@ where
                         EitherOrBoth::Left((radix, ours)) => (radix, Some(ours), None),
                         EitherOrBoth::Right((radix, theirs)) => (radix, None, Some(theirs)),
                     };
-                    if let Some(child) = Join::join(ours, theirs, a_version, b_version, changed) {
+                    if let Some(child) =
+                        Join::join(ours, theirs, a_version, b_version, key, changed)
+                    {
                         // The merge yields unique ascending radices, so append
                         // without a search or shifting existing entries.
                         merged.push(radix, child);
@@ -133,6 +143,7 @@ impl Join for Z {
         b: Option<Node<Z>>,
         a_version: &Version,
         b_version: &Version,
+        _key: &HashKey,
         changed: &mut bool,
     ) -> Option<Node<Z>> {
         match (a, b) {

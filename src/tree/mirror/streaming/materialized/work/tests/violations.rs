@@ -4,6 +4,7 @@
 //! counterparty cannot cheaply select a type-level height. Connected-session
 //! tests separately check that these violations cross the public driver.
 
+use crate::network::NetworkKeys;
 use crate::tree::mirror::streaming::message::{Listed, listed};
 use std::{collections::BTreeSet, convert::Infallible, marker::PhantomData};
 
@@ -377,7 +378,12 @@ impl InjectHeight for Z {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Recorder::default(), Default::default());
+        let mut work = Work::new(
+            Local,
+            Recorder::default(),
+            Default::default(),
+            Some(crate::network::NetworkKeys::fixture()),
+        );
         let (responses, _resolutions) = work.leaf_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -394,7 +400,12 @@ impl InjectHeight for S<Z> {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Recorder::default(), Default::default());
+        let mut work = Work::new(
+            Local,
+            Recorder::default(),
+            Default::default(),
+            Some(crate::network::NetworkKeys::fixture()),
+        );
         let (responses, _asked, _upper, _lower) = work.leaf_parent_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -417,7 +428,12 @@ where
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Recorder::default(), Default::default());
+        let mut work = Work::new(
+            Local,
+            Recorder::default(),
+            Default::default(),
+            Some(crate::network::NetworkKeys::fixture()),
+        );
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -563,7 +579,7 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         .collect::<Vec<_>>();
     let theirs = ours
         .iter()
-        .map(|(radix, node)| listed(*radix, node.hash()))
+        .map(|(radix, node)| listed(*radix, node.hash(NetworkKeys::fixture().hash())))
         .collect::<Vec<Listed>>();
     let fan = ours
         .into_iter()
@@ -626,7 +642,12 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         OpeningInjection::TrailingQuery => one(vec![question(), Reaction::Query(Vec::new())]),
     };
 
-    let mut work = Work::new(Local, Recorder::default(), Default::default());
+    let mut work = Work::new(
+        Local,
+        Recorder::default(),
+        Default::default(),
+        Some(crate::network::NetworkKeys::fixture()),
+    );
     // The channels the leg publishes into stay open for the run: a closed
     // one ends the leg quietly instead of reporting.
     let (responses, _asked, _returns, _finish) = work.responder_level(
