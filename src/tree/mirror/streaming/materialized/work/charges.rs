@@ -101,7 +101,6 @@ pub(super) fn resolution<E>(
         prefix,
         resolved,
         charge: grant.take(Holding::Resolutions, bytes),
-        kept: Charge::default(),
         copies,
     }
 }

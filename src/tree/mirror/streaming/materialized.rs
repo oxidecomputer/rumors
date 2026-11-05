@@ -222,12 +222,15 @@ pub struct Query<E> {
     /// The bound on the peer's reply, from the grandchild count the peer
     /// gave the node.
     pub(crate) bound: ReplyBound,
-    /// What the question holds: its queue slot and its children. It moves
-    /// into the parent resolution the reply becomes, which keeps those
-    /// children, and returns at its assembly.
+    /// What the question holds: its queue slot and the buffer of its
+    /// children, until the resolver has finished the reply.
+    ///
+    /// The stage's resolver walks that buffer as the reply arrives, moving
+    /// each child into a slot of the parent resolution, whose own charge
+    /// covers the slots.
     pub(crate) charge: Charge,
     /// The node copies listing its children made, which the parent
-    /// resolution keeps as well.
+    /// resolution keeps until its assembly.
     pub(crate) copies: Charge,
     /// The room set aside for what the peer's reply becomes ([`ledger`]).
     ///
@@ -260,9 +263,6 @@ pub struct Resolution<E> {
     pub(crate) resolved: Vec<(u8, Resolve<E>)>,
     /// What the resolution holds: its queue slot and its slots.
     pub(crate) charge: Charge,
-    /// What its slots keep until assembly beyond their handles: the
-    /// children that exploding the node made.
-    pub(crate) kept: Charge,
     /// The node copies that exploding the node made, which its slots keep
     /// until assembly.
     pub(crate) copies: Charge,

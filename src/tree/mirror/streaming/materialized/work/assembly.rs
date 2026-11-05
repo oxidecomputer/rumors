@@ -78,7 +78,6 @@ where
                 prefix,
                 resolved,
                 charge: _charge,
-                kept: _kept,
                 copies: _copies,
             } = resolved?;
             let mut children = Vec::with_capacity(resolved.len());

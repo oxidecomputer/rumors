@@ -11,7 +11,7 @@ use std::{convert::Infallible, future};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use proptest::prelude::*;
 
-use super::{Work, assembly::assemble};
+use super::{Work, assembly::assemble, charges, resolver::Resolver};
 
 mod violations;
 
@@ -24,8 +24,11 @@ use crate::{
         arb::nth_party,
         mirror::streaming::{
             Backend, Failing, Failure, Local, Operation,
-            erased::Reply,
-            materialized::{Error, Resolution, Resolve, Violation},
+            erased::{Reaction, Reply},
+            holding::Holding,
+            ledger::{Ledger, ReplyBound},
+            materialized::{Error, Resolution, Resolve, SupplyLedger, Violation},
+            message::Grandchildren,
         },
         typed::{
             self, Path, Prefix,
@@ -164,7 +167,6 @@ fn fills_pendings_in_order() {
             (5, Resolve::Pending),
         ],
         charge: Default::default(),
-        kept: Default::default(),
         copies: Default::default(),
     };
     let output = assembled(
@@ -199,7 +201,6 @@ fn ready_none_is_deletion() {
             (2, Resolve::Ready(None)),
         ],
         charge: Default::default(),
-        kept: Default::default(),
         copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
@@ -222,7 +223,6 @@ fn empty_resolution_assembles_to_none() {
         prefix: parent_prefix(3).erase(),
         resolved: vec![],
         charge: Default::default(),
-        kept: Default::default(),
         copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
@@ -237,7 +237,6 @@ fn all_deleted_resolution_assembles_to_none() {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Ready(None)), (2, Resolve::Ready(None))],
         charge: Default::default(),
-        kept: Default::default(),
         copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
@@ -258,14 +257,12 @@ fn chains_two_instances() {
             (7, Resolve::Ready(Some(erased(b.clone())))),
         ],
         charge: Default::default(),
-        kept: Default::default(),
         copies: Default::default(),
     })];
     let upper: Vec<Item> = vec![Ok(Resolution {
         prefix: parent_prefix(3).pop().0.erase(),
         resolved: vec![(3, Resolve::Pending)],
         charge: Default::default(),
-        kept: Default::default(),
         copies: Default::default(),
     })];
 
@@ -313,7 +310,6 @@ fn level_error_passes_through() {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Pending)],
         charge: Default::default(),
-        kept: Default::default(),
         copies: Default::default(),
     };
     let output = assembled(
@@ -338,4 +334,53 @@ fn the_floor_allowance_is_the_documented_figure() {
         (33 * MIB + MIB / 2..34 * MIB + MIB / 2).contains(&allowance),
         "the floor allowance is {allowance} B, not about 34 MiB",
     );
+}
+
+/// A finished resolver returns its question's own charge, leaving the
+/// resolution its slots' charge alone while it waits for assembly.
+///
+/// The question's queue slot is gone once its stage received it, and the
+/// buffer of this side's children is gone once the resolver has walked it
+/// into the resolution's slots, which the slots' charge covers.
+#[test]
+fn finished_resolution_keeps_no_charge_for_its_question() {
+    let ledger = Ledger::default();
+    let mut version = Version::default();
+    let prefix = parent_prefix(7).erase();
+    let ours: Vec<(u8, Erased)> = (1..=3)
+        .map(|radix| (radix, erased(leaf(&mut version))))
+        .collect();
+    let children = ours.len();
+    let bound = ReplyBound::of(prefix.height(), children, Grandchildren::ONE);
+    let mut grant = ledger.charge(Holding::Questions, 1 << 20);
+    let query = charges::query(&mut grant, prefix, ours, bound, 0);
+    drop(grant);
+    assert!(
+        ledger.held_for(Holding::Questions) > 0,
+        "the question charges its queue slot and its children's buffer",
+    );
+
+    let supplies = SupplyLedger::new(u64::MAX);
+    let stats = Recorder::default();
+    let mut resolver = Resolver::<Local>::new(query, &version, &supplies, &stats);
+    for _ in 0..children {
+        let dispute = resolver
+            .react(Reaction::Match)
+            .expect("each match pairs with a child");
+        assert!(dispute.is_none(), "a match resolves its child here");
+    }
+    let resolution = resolver.finish().expect("every child was answered");
+
+    assert_eq!(
+        ledger.held_for(Holding::Questions),
+        0,
+        "the question's charge returns when its reply is finished",
+    );
+    assert_eq!(
+        ledger.held(),
+        resolution.charge.bytes(),
+        "the waiting resolution holds its slots' charge and nothing more",
+    );
+    drop(resolution);
+    assert_eq!(ledger.held(), 0, "assembly returns the rest");
 }

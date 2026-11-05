@@ -51,9 +51,11 @@ where
     stats: &'session Recorder,
     /// The bound on the reply, which sized the resolution's slots.
     bound: ReplyBound,
-    /// The question's charge for its children, which the resolution keeps
-    /// until assembly.
-    kept: Charge,
+    /// The question's charge for its queue slot and the buffer of its
+    /// children, which `fan` walks: it returns when the resolver finishes,
+    /// once that buffer is gone and every child sits in a slot.
+    #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
+    question: Charge,
     /// The question's node copies, which the resolution keeps as well.
     copies: Charge,
     /// The room the question set aside for the reply: the resolution takes
@@ -104,7 +106,7 @@ where
             ledger,
             stats,
             bound,
-            kept: charge,
+            question: charge,
             copies,
             reservation,
             held: ReplyBound::default(),
@@ -190,11 +192,13 @@ where
             violation(Violation::UnfinishedReply)
         } else {
             ledger::fitted(self.bound, self.held);
+            // The question's own charge and the reservation's other parts
+            // return as the resolver drops here; the resolution keeps its
+            // slots' part and the question's node copies.
             Ok(Resolution {
                 prefix: self.prefix,
                 resolved: self.resolved,
                 charge: self.reservation.slots,
-                kept: self.kept,
                 copies: self.copies,
             })
         }
