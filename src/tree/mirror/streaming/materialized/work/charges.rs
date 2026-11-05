@@ -310,6 +310,18 @@ const _: () = assert!(
     "a leaf parent's plan entry must fit an internal answer's price",
 );
 
+/// What an answer's grant must still hold once its resolution and plan are
+/// built.
+///
+/// That is the reply's last chunk if it asks nothing, holding `unasked`
+/// reactions ([`Chunks::unasked_last`](super::answer::Chunks::unasked_last)),
+/// and nothing if it ends at a question, whose own grant builds it.
+///
+/// The chunk's reactions keep one slot spare, as every chunk's do.
+pub(super) fn unasked_chunk_bound<E, Err>(unasked: Option<usize>) -> usize {
+    unasked.map_or(0, |reactions| chunk_bound::<E, Err>(reactions + 1, 0))
+}
+
 /// The most children an answer's scope can hold when this side holds
 /// `ours` of them and the peer listed `theirs`: their sum, at most a fan.
 ///

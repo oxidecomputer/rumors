@@ -695,6 +695,27 @@ impl Charge {
         }
     }
 
+    /// Return all of this charge but `bytes` to its ledger now.
+    ///
+    /// A grant reports the part it returns to the admission hook as unused
+    /// before its unit is built ([`Admission::partial`]), and the rest as
+    /// usual when it drops.
+    ///
+    /// The returned part is split off and dropped, so a floor grant keeps
+    /// its slot: the part leaves the slot's sharers as it drops, while this
+    /// charge still shares it. The drop reconsiders the waiters, so the
+    /// returned bytes may admit a waiting unit at once.
+    pub(crate) fn keep(&mut self, bytes: usize) {
+        let returned = self.bytes().saturating_sub(bytes);
+        #[cfg(any(test, feature = "test-internals"))]
+        if let (Some(account), Some((unit, depth))) =
+            (&self.account, self.origin.and_then(Origin::grant_of))
+        {
+            admission::settled(account, unit, depth, returned, self.slot.is_some(), true);
+        }
+        drop(self.split(self.place, returned));
+    }
+
     /// Build an item's charge of `bytes` for `place` out of this grant.
     ///
     /// A grant bounds what its unit builds, so it always has the bytes; if
@@ -804,7 +825,7 @@ impl Drop for Charge {
         let bytes = widen(self.bytes);
         #[cfg(any(test, feature = "test-internals"))]
         if let Some((unit, depth)) = self.origin.and_then(Origin::grant_of) {
-            admission::settled(&account, unit, depth, bytes, self.slot.is_some());
+            admission::settled(&account, unit, depth, bytes, self.slot.is_some(), false);
         }
         admission::release(&account, self.place, bytes, self.slot, self.unit());
     }

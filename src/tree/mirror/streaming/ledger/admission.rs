@@ -749,6 +749,10 @@ pub struct Admission {
     /// unit was built, rather than the grant itself: `bytes` then counts
     /// what returned, and `waited` is false.
     pub leftover: bool,
+    /// Whether this leftover is a part the grant returned before its unit
+    /// was built, as soon as the unit was known not to need it; the rest
+    /// returns, in a report without this flag, once the unit is built.
+    pub partial: bool,
 }
 
 /// The process's admission hook, called as each unit takes its grant and
@@ -780,14 +784,23 @@ fn admitted(account: &Account, waiter: &Waiter, grant: &Charge, waited: bool) {
             floor: grant.is_floor(),
             waited,
             leftover: false,
+            partial: false,
         });
     }
 }
 
 /// Report a grant of `unit` kind at `depth` returning the `bytes` its unit
-/// did not use, through a floor slot if `floor`, to the installed hook.
+/// did not use, through a floor slot if `floor`, to the installed hook,
+/// before its unit is built if `partial`.
 #[cfg(any(test, feature = "test-internals"))]
-pub(super) fn settled(account: &Account, unit: Unit, depth: usize, bytes: usize, floor: bool) {
+pub(super) fn settled(
+    account: &Account,
+    unit: Unit,
+    depth: usize,
+    bytes: usize,
+    floor: bool,
+    partial: bool,
+) {
     if let Some(hook) = ADMISSION_HOOK.get() {
         hook(Admission {
             ledger: std::ptr::from_ref(account) as usize,
@@ -797,6 +810,7 @@ pub(super) fn settled(account: &Account, unit: Unit, depth: usize, bytes: usize,
             floor,
             waited: false,
             leftover: true,
+            partial,
         });
     }
 }

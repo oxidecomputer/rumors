@@ -123,6 +123,25 @@ pub(super) struct Part<E, Q> {
 }
 
 impl<E, Q> Chunks<E, Q> {
+    /// The reactions the reply's last chunk holds if it asks nothing, or
+    /// `None` if it ends at a question; read before any chunk is handed out.
+    ///
+    /// Only such a chunk is built out of the answer's own grant: every
+    /// chunk that ends at a question is built out of that question's.
+    pub(super) fn unasked_last(&self) -> Option<usize> {
+        let planned = self.planned.as_slice();
+        match planned.last() {
+            Some(Planned::Ask(_)) => None,
+            _ => Some(
+                planned
+                    .iter()
+                    .rev()
+                    .take_while(|planned| matches!(planned, Planned::Ready(_)))
+                    .count(),
+            ),
+        }
+    }
+
     /// The next chunk, or `None` once the last chunk has been handed out.
     ///
     /// An answer with no reactions is one empty last chunk.

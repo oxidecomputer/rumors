@@ -508,7 +508,8 @@ fn record_admission(admission: Admission) {
         let Some(now) = readings.link.as_ref().map(Link::now) else {
             return;
         };
-        if admission.depth == 0 && !admission.question && admission.leftover {
+        // A part returned before the answer was built is not its end.
+        if admission.depth == 0 && !admission.question && admission.leftover && !admission.partial {
             readings.root_answered = true;
         }
         let reading = &mut readings.ledger(admission.ledger).reading;

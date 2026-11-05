@@ -301,6 +301,12 @@ where
             .into_parts();
             let mut unpublished =
                 Some(charges::resolution(&mut answer_grant, root_scope, resolved, kept));
+            // The grant now needs only the reply's last chunk, if that asks
+            // nothing; the rest returns before any question waits for
+            // admission, which the returned bytes may admit.
+            answer_grant.keep(charges::unasked_chunk_bound::<B::Erased, B::Error>(
+                chunks.unasked_last(),
+            ));
             while let Some(Part { leading, ask, last }) = chunks.next_part() {
                 let (question, mut grant) = match ask {
                     Some(question) => {
@@ -487,6 +493,13 @@ where
                     .into_parts();
                     let mut unpublished =
                         Some(charges::resolution(&mut answer_grant, child_prefix, resolved, kept));
+                    // The grant now needs only the reply's last chunk, if
+                    // that asks nothing; the rest returns before any
+                    // question waits for admission, which the returned bytes
+                    // may admit.
+                    answer_grant.keep(charges::unasked_chunk_bound::<B::Erased, B::Error>(
+                        chunks.unasked_last(),
+                    ));
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {
                         let (question, mut grant) = match ask {
                             Some(question) => {
@@ -653,6 +666,13 @@ where
                     .into_parts();
                     let mut unpublished =
                         Some(charges::resolution(&mut answer_grant, child_prefix, resolved, kept));
+                    // The grant now needs only the reply's last chunk, if
+                    // that asks nothing; the rest returns before any
+                    // question waits for admission, which the returned bytes
+                    // may admit.
+                    answer_grant.keep(charges::unasked_chunk_bound::<B::Erased, B::Error>(
+                        chunks.unasked_last(),
+                    ));
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {
                         let (question, mut grant) = match ask {
                             Some(radix) => {
