@@ -100,14 +100,14 @@ impl ReplyCorruption {
 /// in-process walk these lies drive never reads a supply's versions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GreetingLie {
-    /// Declare an empty set: the first absorbed honest supply overruns
-    /// the declared length ([`Violation::OverdrawnSupply`]).
+    /// Declare an empty set: the first absorbed supply overruns the
+    /// declared length ([`Violation::OverdrawnSupply`]).
     ShrunkenSetLen,
-    /// Declare a single leaf while holding more: honest supply overruns
-    /// the nonzero allowance mid-session ([`Violation::OverdrawnSupply`]).
+    /// Declare a single leaf while holding more: the supplies overrun the
+    /// nonzero declared length mid-session ([`Violation::OverdrawnSupply`]).
     ///
     /// The walk-side face of the lie the wire decoder catches within one
-    /// still-open reply: here the allowance admits supply before the
+    /// still-open reply: here the declared length admits supply before the
     /// ledger's accumulation trips, unlike the zero declaration's
     /// first-charge rejection.
     UnderdeclaredSetLen,

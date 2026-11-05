@@ -152,13 +152,13 @@ pub(crate) use fixed::session_allowance;
 #[cfg(doc)]
 pub(crate) use work::covered_set_price;
 pub(crate) use work::largest_grant;
-pub(crate) use work::{
-    Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, derived_bytes, floor_allowance, grant_bounds,
-    parked_bytes,
-};
 use work::{LeafRequest, OpeningAdvance, Resolver, Work};
 #[cfg(test)]
 pub(crate) use work::{Left, Ready, parked_price, parked_room};
+pub(crate) use work::{
+    OUTGOING_REPLY_CHUNKS, Overdraft, ReplyQuota, derived_bytes, floor_allowance, grant_bounds,
+    parked_bytes,
+};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::{grant_bound, scratch};
 
@@ -529,7 +529,8 @@ impl PeerSummary {
 struct Opening<B: Backend<Node<Z>: Leaf>> {
     /// The peer's causal version, retained through the descent.
     peer_version: Version,
-    /// The session-total allowance for supplies received from the peer.
+    /// The session's count of supplied leaves against the set length the
+    /// peer declared.
     ledger: SupplyLedger,
     /// The joined ceiling assigned to reconstructed nodes.
     ceiling: Version,

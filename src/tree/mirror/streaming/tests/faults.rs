@@ -328,7 +328,7 @@ fn greeting_lies_are_classified_exhaustively() {
                 // The zero declaration trips at the first absorbed supply;
                 // the one-leaf declaration admits supply first and trips on
                 // the ledger's accumulation; both land as the same
-                // violation, from opposite ends of the allowance.
+                // violation, from opposite ends of the declared length.
                 GreetingLie::ShrunkenSetLen | GreetingLie::UnderdeclaredSetLen => {
                     Some(Violation::OverdrawnSupply)
                 }

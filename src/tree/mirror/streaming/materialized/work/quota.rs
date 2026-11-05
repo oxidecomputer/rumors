@@ -7,22 +7,22 @@
 //! returns that room as the reply shows it cannot use it, so that a reply
 //! much smaller than its bound does not hold the rest of the bound until it
 //! ends. Returning room early is safe only if the room left always covers
-//! every chunk the reply can still park. An [`Allowance`] makes that hold
+//! every chunk the reply can still park. A [`ReplyQuota`] makes that hold
 //! by construction:
 //!
 //! - It records what the reply has used of each limit the room is priced
 //!   on: reaction slots, listing entries, the radix floor, the positions,
 //!   and the one covered set.
-//! - Each frame spends from it, and fails, leaving the allowance as it was,
+//! - Each frame spends from it, and fails, leaving the quota as it was,
 //!   if the spend would pass a limit. So no reply the decoder accepts ever
-//!   uses more than the allowance counted.
+//!   uses more than the quota counted.
 //! - Its price, what the reply can still deliver, is a function of those
 //!   limits that no spend raises: each spend moves what it uses from what
 //!   can come to what is ready, and each chunk delivered takes what was
 //!   ready out of the price as it takes its own bytes out of the room.
 //! - It returns the room beyond its price after each frame, and the room
 //!   starts at its price, since the question priced the room as a fresh
-//!   allowance's price ([`parked_room`]), so the room covers the price at
+//!   quota's price ([`parked_room`]), so the room covers the price at
 //!   every moment, and each chunk's bytes come out of what the price set
 //!   aside for it.
 
@@ -86,9 +86,9 @@ pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
 /// price of everything a reply within `bound` can deliver, about `listed`
 /// of the asker's children.
 ///
-/// That is the price of a fresh [`Allowance`] for the same bound and
+/// That is the price of a fresh [`ReplyQuota`] for the same bound and
 /// positions, computed by the same code ([`opening`]): the room
-/// a question sets aside is exactly what its reply's allowance first
+/// a question sets aside is exactly what its reply's quota first
 /// prices, and the reservation holds no parked room its reply could never
 /// use. Before its first frame, a reply can still deliver:
 ///
@@ -118,10 +118,10 @@ pub(crate) const fn parked_room<E>(bound: ReplyBound, listed: usize) -> usize {
 
 /// The most a reply within `bound`, about `listed` of the asker's
 /// children, can deliver before its first frame: what a fresh
-/// [`Allowance`] for the same bound and positions prices.
+/// [`ReplyQuota`] for the same bound and positions prices.
 ///
 /// The two parts of a reservation that grow with the reply's listing are
-/// priced from it, by the one formula the allowance prices with
+/// priced from it, by the one formula the quota prices with
 /// ([`Left::deliverable`]): the room the reply's chunks park in
 /// ([`parked_room`]) and the records its questions derive
 /// ([`records_room`](super::charges::records_room)). Neither holds room
@@ -130,7 +130,7 @@ pub(crate) const fn opening(bound: ReplyBound, listed: usize) -> Deliverable {
     Left::opening(bound, listed).deliverable(Ready::NONE)
 }
 
-/// What a frame asked of an [`Allowance`] that it could not give.
+/// What a frame asked of a [`ReplyQuota`] that it could not give.
 ///
 /// Each names the limit the frame would pass. A conforming peer passes
 /// none, so each reveals a miscounting or misordering peer at the frame
@@ -271,13 +271,13 @@ impl Left {
 /// beyond what the reply can still deliver returns
 /// ([`release`](Self::release)).
 ///
-/// The allowance assumes nothing about the reply it does not check, so the
+/// The quota assumes nothing about the reply it does not check, so the
 /// room covers what is left whatever the peer sends. It checks counts and
 /// order: the record's cursor, which the decoder consults first, checks
 /// *which* position each match and query takes and which positions a match
 /// covers.
 #[derive(Debug)]
-pub(crate) struct Allowance<E> {
+pub(crate) struct ReplyQuota<E> {
     /// The bound the record of the question sets on the reply.
     bound: ReplyBound,
     /// The reaction slots the reply has taken: one per reaction, and one per
@@ -314,16 +314,16 @@ pub(crate) struct Allowance<E> {
     handles: PhantomData<fn() -> E>,
 }
 
-impl<E> Allowance<E> {
-    /// The allowance of a reply bounded by `bound` against a record listing
+impl<E> ReplyQuota<E> {
+    /// The quota of a reply bounded by `bound` against a record listing
     /// `positions` positions for its matches and queries, its chunks parked
     /// out of `room`.
     ///
     /// Its price starts at [`parked_room`] of the same bound and
     /// positions, which is what a question sets aside: that price is this
-    /// fresh allowance's, which this checks in debug builds.
+    /// fresh quota's, which this checks in debug builds.
     pub(crate) fn new(bound: ReplyBound, positions: usize, room: Charge) -> Self {
-        let allowance = Self {
+        let quota = Self {
             bound,
             slots: 0,
             listing: 0,
@@ -336,11 +336,11 @@ impl<E> Allowance<E> {
             handles: PhantomData,
         };
         debug_assert_eq!(
-            allowance.left(),
+            quota.left(),
             Left::opening(bound, positions),
-            "a fresh allowance leaves what parked_room prices",
+            "a fresh quota leaves what parked_room prices",
         );
-        allowance
+        quota
     }
 
     /// Whether the reply has taken no reaction slot yet.

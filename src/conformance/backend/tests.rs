@@ -140,7 +140,7 @@ impl Measure for Local {
 
 /// The in-memory backend's operations keep their contracts, and
 /// reconciliation at [`CENSUS_BUDGET`] stays within its peak-increase
-/// allowance.
+/// budget.
 #[test]
 fn local_backend_conforms() {
     let _serial = serialized();
@@ -638,7 +638,7 @@ fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
 }
 
 /// The row store's operations keep their contracts, and reconciliation
-/// stays within the fixture's peak-increase allowance.
+/// stays within the fixture's peak-increase budget.
 #[test]
 fn materializing_backend_conforms() {
     let _serial = serialized();

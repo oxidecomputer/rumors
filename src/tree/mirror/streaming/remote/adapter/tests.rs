@@ -52,7 +52,7 @@ fn hash(byte: u8) -> Hash {
     Hash::from([byte; MERKLE_HASH_LEN])
 }
 
-/// A set-length allowance no fixture here can exhaust, for tests whose
+/// A declared set length no fixture here can exhaust, for tests whose
 /// subject is not the ingress supply charge.
 fn unbounded() -> SupplyLedger {
     SupplyLedger::new(u64::MAX)

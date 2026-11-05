@@ -211,7 +211,7 @@ pub enum DecodeError<E> {
     Record(#[source] DecodeLeafError),
 }
 
-/// The error a reply's frame reveals by asking its allowance for more than
+/// The error a reply's frame reveals by asking its quota for more than
 /// it can give: the bound it would exceed, or the scope rule it would
 /// break.
 impl<E> From<Overdraft> for DecodeError<E> {

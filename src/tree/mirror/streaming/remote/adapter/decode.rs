@@ -15,7 +15,7 @@ use crate::{
             erased::{Reaction as ProtocolReaction, Reply, ops},
             holding::{Holding, held_by, holding},
             ledger::Charge,
-            materialized::{Allowance, SupplyLedger, parked_bytes},
+            materialized::{ReplyQuota, SupplyLedger, parked_bytes},
             message::{Carried, Grandchildren, Listed},
         },
         typed::{
@@ -213,7 +213,7 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
 /// chunk leaves charged its own part of it ([`parked_bytes`]), which
 /// returns once the chunk's stage has used it. As the reply narrows what
 /// it can still deliver, the room beyond that returns at once: the reply's
-/// [`Allowance`] checks every frame against what the room was priced on,
+/// [`ReplyQuota`] checks every frame against what the room was priced on,
 /// so the room always covers every chunk the reply can still park, no
 /// chunk falls short of it, and none of it outlives the reply.
 ///
@@ -403,7 +403,8 @@ struct Reader<'a, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// The peer's remaining declared supply allowance.
+    /// The leaves the peer can still supply, counted against the set length
+    /// its greeting declared.
     ledger: &'a SupplyLedger,
     /// How the reply's queries pair with positions.
     level: ReplyLevel,
@@ -426,7 +427,7 @@ where
     /// What the reply can still deliver, which checks each frame and
     /// holds the part of the room no chunk has taken and no release has
     /// returned.
-    allowance: Allowance<B::Erased>,
+    quota: ReplyQuota<B::Erased>,
 }
 
 impl<'a, B> Reader<'a, B>
@@ -460,7 +461,7 @@ where
             path_key,
             ready: Vec::new(),
             group: Vec::new(),
-            allowance: Allowance::new(scope.reply_bound(), scope.positions().remaining(), room),
+            quota: ReplyQuota::new(scope.reply_bound(), scope.positions().remaining(), room),
         }
     }
 
@@ -483,7 +484,7 @@ where
             let (frame, permit) = item.into_parts();
             let (reaction, flow) = match frame {
                 Frame::Reaction(reaction, flow) => (reaction, flow),
-                Frame::End(End::Reply) if self.allowance.is_untouched() => {
+                Frame::End(End::Reply) if self.quota.is_untouched() => {
                     positions.end()?;
                     break;
                 }
@@ -499,11 +500,8 @@ where
                     // rather than retaining a reply for later walk
                     // validation.
                     let matched = positions.matched(&later)?;
-                    self.allowance.matched(
-                        radix(&matched.prefix),
-                        later.set(),
-                        matched.children,
-                    )?;
+                    self.quota
+                        .matched(radix(&matched.prefix), later.set(), matched.children)?;
                     self.ready.push(ProtocolReaction::Match(later));
                 }
                 WireReaction::Query(listing) => {
@@ -511,7 +509,7 @@ where
                     // Validate the question's position now, at its frame;
                     // the scope it creates is derived at the take.
                     let (prefix, _) = self.level.check(&mut positions, &listing)?;
-                    self.allowance.query(radix(&prefix), listing.len())?;
+                    self.quota.query(radix(&prefix), listing.len())?;
                     self.ready.push(ProtocolReaction::Query(listing));
                     // The chunk ends at its question, unless the question
                     // ends the reply, whose last chunk then carries it.
@@ -540,7 +538,7 @@ where
                             self.path_key,
                         )?;
                         if let Some(run) = run {
-                            self.allowance.supply(run.0)?;
+                            self.quota.supply(run.0)?;
                             self.group.push(run);
                         }
                         // Charge the peer's declared set length before the
@@ -569,7 +567,7 @@ where
                 }
             }
 
-            self.allowance.release();
+            self.quota.release();
             if flow == Flow::End {
                 // The end is never inferred, only checked: every listed
                 // child after the last frame must be covered.
@@ -602,7 +600,7 @@ where
                 actual, prefix,
                 "assembly yields each run's node at its version-derived prefix, in run order",
             );
-            self.allowance.supplied(node.child_count(&actual));
+            self.quota.supplied(node.child_count(&actual));
             self.ready.push(ProtocolReaction::Supply(radix, node));
         }
     }
@@ -621,7 +619,7 @@ where
             last,
             carried: Carried::Nothing,
         };
-        chunk.charge = self.allowance.chunk(parked_bytes(&chunk), last);
+        chunk.charge = self.quota.chunk(parked_bytes(&chunk), last);
         chunk
     }
 }
@@ -775,7 +773,7 @@ impl<'a> SupplyRuns<'a> {
         self.previous_leaf = Some(leaf_prefix);
 
         // A run that resumes after a positional reaction starts anew here,
-        // and the reply's allowance refuses it: its radix does not sit above
+        // and the reply's quota refuses it: its radix does not sit above
         // the reaction that interrupted it.
         let run = if self.current != Some(node_prefix) {
             self.current = Some(node_prefix);

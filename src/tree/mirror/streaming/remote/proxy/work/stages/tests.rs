@@ -158,7 +158,7 @@ proptest! {
     /// pause, the room the chunks have not taken is the price of what the
     /// reply can still deliver: what is decoded but not yet delivered,
     /// beside what later frames can still use, both restated here from the
-    /// reply so far and priced by the allowance's one formula
+    /// reply so far and priced by the quota's one formula
     /// ([`Left::deliverable`]). Later frames can use reaction slots up to
     /// what the bound leaves, a covered child taking one beside each frame,
     /// and one per radix above the latest that the match does not cover;

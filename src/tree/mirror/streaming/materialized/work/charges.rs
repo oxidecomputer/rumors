@@ -20,7 +20,7 @@
 //! the question's record to the decoder, which charges each chunk its own
 //! part as it decodes ([`parked_bytes`]) and returns whatever exceeds what
 //! the reply can still deliver as soon as the reply shows it
-//! ([`Allowance`]): whatever the bound allowed beyond what the reply holds
+//! ([`ReplyQuota`]): whatever the bound allowed beyond what the reply holds
 //! returns as the reply narrows it, and each chunk's part as soon as its
 //! stage has used it.
 
@@ -42,10 +42,10 @@ use crate::tree::typed::{
 };
 
 use super::LeafRequest;
-#[cfg(doc)]
-use super::allowance::Allowance;
-use super::allowance::{opening, parked_room};
 use super::answer::{Held, Planned, Question};
+#[cfg(doc)]
+use super::quota::ReplyQuota;
+use super::quota::{opening, parked_room};
 
 /// The bytes the reactions own beyond their own slots: the listing each
 /// query carries, at its capacity, and the set a match carries of the later
@@ -216,8 +216,8 @@ pub(super) const fn covered_sets(listed: usize) -> usize {
 ///   ([`parked_bytes`]). The room for a reply's parked chunks is priced at
 ///   the reply's bound ([`parked_room`]), which counts a slot for every
 ///   child either side holds, covered children among them, and the
-///   reply's [`Allowance`] holds every reply to that count, a covered
-///   child taking its slot as the match arrives. What the allowance then
+///   reply's [`ReplyQuota`] holds every reply to that count, a covered
+///   child taking its slot as the match arrives. What the quota then
 ///   prices counts the ready match's covered children as slots until the
 ///   match's chunk takes its price, and no later reaction can take their
 ///   slots: none sits at a covered radix, and the bound has counted them.
@@ -268,7 +268,7 @@ pub(crate) const fn derived_bytes(recorded: usize) -> usize {
 /// [`derived_record_bytes`] can sum to over a reply to a question about a
 /// node at `height` that lists `listed` children, bounded by `bound`.
 ///
-/// That is the records of what a fresh reply's allowance prices
+/// That is the records of what a fresh reply's quota prices
 /// ([`opening`]), the formula the reply's parked room is priced by too: a
 /// queue slot for each question the reply can ask, beside a recorded child
 /// for each listing entry its queries can carry, at most a fan per

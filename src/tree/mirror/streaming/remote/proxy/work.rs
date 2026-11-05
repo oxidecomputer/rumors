@@ -57,7 +57,8 @@ where
     backend: B,
     /// What every supplied leaf's version must satisfy.
     bounds: SupplyBounds,
-    /// The peer's remaining declared supply allowance.
+    /// The leaves the peer can still supply, counted against the set length
+    /// its greeting declared.
     ledger: SupplyLedger,
     /// The peer's declared grandchild count of its root, which bounds its
     /// reply to the local opening question when it responds.

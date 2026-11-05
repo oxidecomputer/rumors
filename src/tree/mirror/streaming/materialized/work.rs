@@ -16,17 +16,14 @@ use std::sync::Arc;
 
 use futures::{Stream, StreamExt, future::BoxFuture};
 
-mod allowance;
 mod answer;
 mod assembly;
 mod charges;
 mod levels;
 mod queues;
+mod quota;
 mod resolver;
 
-pub(crate) use allowance::{Allowance, Overdraft};
-#[cfg(test)]
-pub(crate) use allowance::{Left, Ready, parked_price, parked_room};
 /// Named for the documentation of `LaterMatches`, which links the covered
 /// set's net price.
 #[cfg(doc)]
@@ -38,6 +35,9 @@ pub(crate) use charges::{
 };
 pub(crate) use levels::OpeningAdvance;
 pub(crate) use queues::OUTGOING_REPLY_CHUNKS;
+#[cfg(test)]
+pub(crate) use quota::{Left, Ready, parked_price, parked_room};
+pub(crate) use quota::{Overdraft, ReplyQuota};
 pub(super) use resolver::Resolver;
 
 /// One leaf request in its queue: the leaf's path, with the charge for the
