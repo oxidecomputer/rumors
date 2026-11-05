@@ -103,6 +103,11 @@ num-bigint = "0.5"
 num-traits = "0.2"
 peak_alloc = "0.3"
 plotters = { version = "0.3", default-features = false }
+# 1.0's `block_on` keeps a wakeup only in its thread's park token, so a
+# future that parks its own thread while polled (`std::thread::scope` does,
+# to wait for its threads) can consume the wakeup and leave `block_on`
+# parked for good; the peer suite's redaction race does this. 0.4 keeps the
+# wakeup in its own state.
 pollster = { version = "0.4", features = ["macro"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 proptest = "1.12"
