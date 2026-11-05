@@ -39,6 +39,8 @@ divided_proptest! {
     /// Tree traversal and the staging map retain structural allocations, but fewer
     /// than one per staged message. This catches a copied key, or any equivalent
     /// per-version allocation, without pinning the map's internal node size.
+    /// Those structural allocations are the ceiling's floor: a reading of none
+    /// means the meter stopped seeing the staging.
     ///
     /// The claim holds for every network seed.
     #[test]
@@ -50,6 +52,10 @@ divided_proptest! {
         let (stats, first) = alloc_meter::measure(|| messages.try_next());
 
         assert!(matches!(first, rumors::TryNext::Message(_)));
+        assert!(
+            stats.allocations > 0,
+            "staging {ALLOCATION_BACKLOG} messages allocated nothing, yet the staging map holds them",
+        );
         assert!(
             stats.allocations < ALLOCATION_BACKLOG as usize,
             "staging {ALLOCATION_BACKLOG} messages performed {} allocations",

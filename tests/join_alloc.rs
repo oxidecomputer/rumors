@@ -24,6 +24,11 @@ divided_proptest! {
     /// A mostly shared, wide tree must not be copied wholesale to merge a small
     /// divergence. Measure the join and its reader metadata, after fixture setup.
     ///
+    /// The ceiling has a floor: each side holds messages the other lacks, so
+    /// the joined tree's root is neither side's, and the join builds at least
+    /// that one node. A reading of no allocations means the meter stopped
+    /// seeing the join, not that the join was free.
+    ///
     /// The claim holds for every network seed.
     #[test]
     fn wide_join_allocation_is_bounded(network in network_seed()) {
@@ -48,6 +53,10 @@ divided_proptest! {
         let ours = ours.snapshot();
         let theirs = theirs.snapshot();
         let (stats, joined) = measure(|| rumors::testing::join_snapshots(&ours, &theirs));
+        assert!(
+            stats.allocations > 0,
+            "the join allocated nothing, yet it must build a root neither side holds",
+        );
         assert!(
             stats.bytes_allocated <= JOIN_ALLOCATION_BUDGET,
             "join allocated {} bytes, exceeding its {}-byte budget",
