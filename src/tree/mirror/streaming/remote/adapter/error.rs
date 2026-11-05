@@ -110,13 +110,27 @@ pub enum DecodeError<E> {
     /// nothing, and cannot place a leaf without its network's key.
     #[error("a leaf was supplied to a bootstrapper holding no network secret")]
     UnkeyedSupply,
-    /// A supplied leaf's version-derived path is outside the expected scope.
+    /// A supplied leaf's keyed path lies outside the scope its run was
+    /// supplied under.
+    ///
+    /// The message prints keyed paths, which reveal no key (see
+    /// [`NetworkSecret`](crate::network::NetworkSecret)).
     #[error("supplied leaf {actual:02x?} is outside reply scope {expected:02x?}")]
-    LeafOutsideScope { expected: Vec<u8>, actual: [u8; 32] },
-    /// Supplied leaves were not strictly ascending by version-derived path.
+    LeafOutsideScope {
+        /// The path prefix of the scope the leaf was supplied under.
+        expected: Vec<u8>,
+        /// The leaf's keyed path, computed from its version.
+        actual: [u8; 32],
+    },
+    /// Supplied leaves were not strictly ascending by keyed path.
+    ///
+    /// The message prints keyed paths, which reveal no key (see
+    /// [`NetworkSecret`](crate::network::NetworkSecret)).
     #[error("supplied leaf {current:02x?} does not follow {previous:02x?}")]
     LeafOrder {
+        /// The keyed path of the leaf supplied before it.
         previous: [u8; 32],
+        /// The keyed path of the leaf out of order.
         current: [u8; 32],
     },
     /// A supplied version's encoding exceeds the peer's declared `max_version_bytes`.

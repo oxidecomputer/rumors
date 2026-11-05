@@ -43,17 +43,21 @@
 //!   9.1): without the joiner's private key, an observer of both items
 //!   learns nothing about the secret.
 //! - **Integrity.** A sealed item that was altered in any way fails to open,
-//!   so the secret's protection does not rest on the transport's integrity
-//!   either.
+//!   so the joiner never accepts a secret that was tampered with in transit.
 //! - **Binding.** The KEM binds the encapsulated key and the joiner's public
 //!   key into the key schedule, and the key schedule binds the suite and the
 //!   `info`, so a seal opens only for the key pair it was sealed to, under
 //!   these bindings.
 //!
 //! Base mode does not authenticate the sender: anyone holding the joiner's
-//! public key could seal something to it. The transport's authentication
-//! identifies the provider, which is the only peer the joiner reads a
-//! sealed item from.
+//! public key could seal something to it. Nor does HPKE protect the key
+//! item, which travels in the clear: whoever replaced it with a key of its
+//! own would receive the secret. So the secret's confidentiality rests on
+//! the transport's authentication, which delivers the key item unaltered
+//! and identifies the provider, the only peer the joiner reads a sealed
+//! item from. The crate's model provides both: the transport is
+//! authenticated, and an adversary outside the peers can observe a session
+//! but not alter it.
 //!
 //! Every primitive here is aligned with a FIPS algorithm standard, as all
 //! of the crate's are (the `network` module lists them): SP 800-56A ECDH

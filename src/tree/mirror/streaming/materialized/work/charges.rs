@@ -291,8 +291,8 @@ pub(super) fn room<E>(grant: &mut Charge, bound: ReplyBound, listed: usize) -> C
 /// The record waits in the decoder's queue beside its charge and its
 /// reply's room ([`Outstanding`]), then in the allocation the decoder
 /// shares with the take until the take reads its reply's last chunk, so it
-/// is priced at the larger of the two, beside one radix and count per
-/// listed child.
+/// is priced at the larger of the two, beside one recorded child per listed
+/// child ([`RecordedChild`]).
 pub(crate) const fn record_bytes(listed: usize) -> usize {
     max(queued::<Outstanding>(), shared::<Scope>()) + listed * size_of::<RecordedChild>()
 }

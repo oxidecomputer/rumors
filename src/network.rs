@@ -180,7 +180,10 @@ impl fmt::Display for Network {
 /// identifier, and a restarted peer learns the secret again from the
 /// provider it joins through. Nothing prints it either: `Debug` shows
 /// `NetworkSecret(..)`, there is no `Display`, and errors and observations
-/// carry only the public identifier.
+/// name a network only by its public identifier. A decode error that
+/// rejects a supplied leaf prints the leaf's keyed path and the scope it
+/// was expected under; those are outputs of the path key, from which
+/// neither the secret nor any other key can be recovered.
 ///
 /// A secret zeroizes its bytes when it drops, as best-effort hygiene: moves
 /// and compiler temporaries can leave copies, and the threat model does not

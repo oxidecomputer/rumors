@@ -361,9 +361,11 @@ pub(crate) struct Outstanding {
     /// The charge for the record, which returns once the take has read the
     /// reply's last chunk.
     pub(crate) record: Charge,
-    /// The room the reply's chunks take while they park: the decoder
-    /// charges each chunk its part out of it and returns the rest once the
-    /// reply is decoded.
+    /// The room the reply's chunks take while they park.
+    ///
+    /// The decoder charges each chunk its part out of it, and returns the
+    /// room beyond what the reply can still deliver as each frame narrows
+    /// that, so none of it outlives the reply.
     pub(crate) room: Charge,
 }
 
