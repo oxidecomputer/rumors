@@ -1,4 +1,6 @@
 use crate::tree::mirror::streaming::ledger::ReplyBound;
+#[cfg(test)]
+use crate::tree::mirror::streaming::ledger::{buffer, queued};
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::slice;
 
@@ -181,6 +183,14 @@ impl Scope {
     #[cfg(test)]
     pub fn opening_unbounded(listing: &[Listed]) -> Self {
         Self::opening(listing, Grandchildren::MAX)
+    }
+
+    /// The bytes this record holds while it waits in a channel, as the
+    /// take's record of a question the peer asked: its node in the channel
+    /// and its children's buffer, at its capacity.
+    #[cfg(test)]
+    pub(crate) fn held_bytes(&self) -> usize {
+        queued::<Self>() + buffer(&self.children)
     }
 
     /// The bound on the reply this record awaits.

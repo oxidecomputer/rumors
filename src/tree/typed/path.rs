@@ -31,7 +31,7 @@ impl Path<Root> {
     /// [`PathHash`] preserves full collision resistance because the path
     /// identifies the leaf. The shorter Merkle hash only compares subtrees.
     pub fn for_leaf(version: &Version) -> Self {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-internals"))]
         if let Some(path) = fixture::get(version) {
             return path;
         }
@@ -134,7 +134,7 @@ impl From<Path<Root>> for [u8; PATH_LEN] {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-internals"))]
 mod fixture;
 #[cfg(test)]
 mod tests;

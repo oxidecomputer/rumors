@@ -255,8 +255,8 @@ pub struct Query<E> {
 /// charges each chunk its part as it decodes.
 #[derive(Default)]
 pub(crate) struct Reserved {
-    /// The records the take derives from the reply's questions.
-    #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
+    /// The records the take derives from the reply's questions, held for
+    /// its bytes, which return when it drops.
     pub(crate) records: Charge,
     /// The parent resolution's slots, which the resolution keeps until its
     /// assembly.

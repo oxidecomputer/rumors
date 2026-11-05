@@ -939,6 +939,10 @@ pub struct ReplyFit {
     pub listing: usize,
     /// The listing entries its reservation allowed.
     pub listing_bound: usize,
+    /// The bytes the records the take derived from its questions held.
+    pub records: usize,
+    /// The bytes its reservation's records part held for them.
+    pub records_bound: usize,
 }
 
 /// The process's fit hook, called as each stage finishes a reply.
@@ -958,15 +962,18 @@ pub fn observe_fits(hook: FitHook) -> bool {
 }
 
 /// Report a finished reply that held `held` against the `bound` its
-/// question reserved for.
+/// question reserved for, and whose questions derived records of `records`
+/// bytes against a records part of `records_bound` bytes.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) fn fitted(bound: ReplyBound, held: ReplyBound) {
+pub(crate) fn fitted(bound: ReplyBound, held: ReplyBound, records_bound: usize, records: usize) {
     if let Some(hook) = FIT_HOOK.get() {
         hook(ReplyFit {
             reactions: held.reactions,
             reaction_bound: bound.reactions,
             listing: held.listing,
             listing_bound: bound.listing,
+            records,
+            records_bound,
         });
     }
 }
@@ -974,7 +981,7 @@ pub(crate) fn fitted(bound: ReplyBound, held: ReplyBound) {
 /// Report a finished reply: nothing outside test builds.
 #[cfg(not(any(test, feature = "test-internals")))]
 #[inline(always)]
-pub(crate) fn fitted(_: ReplyBound, _: ReplyBound) {}
+pub(crate) fn fitted(_: ReplyBound, _: ReplyBound, _: usize, _: usize) {}
 
 #[cfg(test)]
 mod tests;

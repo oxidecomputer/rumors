@@ -15,6 +15,7 @@ use super::{Work, answer, assembly::assemble, charges, resolver::Resolver};
 
 mod violations;
 
+use crate::tree::mirror::streaming::remote::{ReplyLevel, Scope, derive_questions};
 use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
@@ -31,7 +32,7 @@ use crate::{
             message::{Grandchildren, Listed},
         },
         typed::{
-            self, Path, Prefix,
+            self, ErasedPrefix, Path, Prefix,
             height::{S, Z},
         },
     },
@@ -445,5 +446,97 @@ proptest! {
         let (_, resolved) = internal.into_parts();
         prop_assert_eq!(resolved.len(), children);
         prop_assert!(resolved.capacity() <= priced, "an internal scope's slots: {}", resolved.capacity());
+    }
+}
+
+/// A prefix at `height`, its bytes all `byte`.
+fn prefix_at(height: usize, byte: u8) -> ErasedPrefix {
+    (height..32).fold(Prefix::new().erase(), |prefix, _| prefix.push(byte))
+}
+
+/// One reply a question about a node at `height` can receive, within the
+/// bound its question reserved for.
+///
+/// That is the listing the question sent, the peer's grandchild count of
+/// the node, and for each listed child, in order, a match or a query
+/// listing that many children.
+///
+/// About a leaf's parent, every query requests its leaf and lists nothing.
+fn arb_reply_to_question() -> impl Strategy<Value = (usize, usize, usize, Vec<Option<usize>>)> {
+    (1..=4_usize, 1..=24_usize).prop_flat_map(|(height, listed)| {
+        let grandchildren = 1..=4 * listed;
+        (Just(height), Just(listed), grandchildren).prop_flat_map(move |(height, listed, count)| {
+            let entries = if height == 1 {
+                0..=0_usize
+            } else {
+                0..=4_usize
+            };
+            let reactions = proptest::collection::vec(proptest::option::of(entries), listed);
+            (Just(height), Just(listed), Just(count), reactions)
+        })
+    })
+}
+
+proptest! {
+    /// The records the take derives from any reply within its question's
+    /// bound hold no more than the question's records part, at a leaf's
+    /// parent as at every height above.
+    ///
+    /// Each record holds exactly what [`charges::derived_record_bytes`]
+    /// prices it at.
+    ///
+    /// The reply's queries list at most what the peer's count leaves, which
+    /// the reply's bound allows; about a leaf's parent, each query requests
+    /// its leaf, and the record the take derives for it names that leaf.
+    #[test]
+    fn derived_records_fit_the_records_part(
+        (height, listed, count, reactions) in arb_reply_to_question(),
+    ) {
+        let parent = prefix_at(height, 0);
+        let asked: Vec<Listed> = (0..listed)
+            .map(|radix| Listed {
+                radix: u8::try_from(radix).expect("a few dozen radices fit a byte"),
+                hash: Default::default(),
+                grandchildren: Grandchildren::ONE,
+                children_less_one: 0,
+            })
+            .collect();
+        let peer_count = Grandchildren::new(count).expect("the count is in range");
+        let scope = Scope::new(parent, &asked, peer_count);
+        let bound = scope.reply_bound();
+        // The peer's queries list at most what its count allows.
+        let mut left = bound.listing;
+        let replied: Vec<Reaction<Erased>> = reactions
+            .iter()
+            .map(|reaction| match reaction {
+                None => Reaction::Match,
+                Some(entries) => {
+                    let entries = (*entries).min(left);
+                    left -= entries;
+                    let listing = (0..entries)
+                        .map(|radix| Listed {
+                            radix: u8::try_from(radix).expect("a few radices fit a byte"),
+                            hash: Default::default(),
+                            grandchildren: Grandchildren::ONE,
+                            children_less_one: 0,
+                        })
+                        .collect();
+                    Reaction::Query(listing)
+                }
+            })
+            .collect();
+        let level = if height == 1 { ReplyLevel::Leaf } else { ReplyLevel::Branch };
+        let derived = derive_questions(level, &scope, &mut 0, &replied)
+            .expect("a reply at its positions derives");
+        let listings = replied.iter().filter_map(|reaction| match reaction {
+            Reaction::Query(listing) => Some(listing.len()),
+            _ => None,
+        });
+        for (record, listing) in derived.iter().zip(listings) {
+            prop_assert_eq!(record.held_bytes(), charges::derived_record_bytes(height, listing));
+        }
+        let held: usize = derived.iter().map(Scope::held_bytes).sum();
+        let room = charges::records_room(height, bound, listed);
+        prop_assert!(held <= room, "{held} B of records over a records part of {room} B");
     }
 }

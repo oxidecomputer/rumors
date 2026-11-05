@@ -193,26 +193,58 @@ pub(crate) fn parked_bytes<E>(chunk: &Reply<E>) -> usize {
     queued::<Parked<E>>() + buffer(&chunk.reactions) + listings
 }
 
-/// The part of a reservation the records the take derives take: one queue
-/// slot per question the reply can ask, beside a recorded child per entry
-/// of the reply's listings.
-pub(crate) const fn records_room(bound: ReplyBound, listed: usize) -> usize {
-    min(listed, bound.reactions) * queued::<Scope>() + bound.listing * size_of::<RecordedChild>()
+/// The bytes the take's record of one question a reply asks holds while it
+/// waits, the question listing `listing` entries in a reply about a node
+/// at `height`.
+///
+/// That is its node in the channel it waits in, and one recorded child per
+/// listing entry, or, at height 1, a leaf's parent, the one leaf the
+/// question requests, its listing being empty.
+///
+/// The take derives each record, a [`Scope`], at exactly that many
+/// children.
+pub(crate) const fn derived_record_bytes(height: usize, listing: usize) -> usize {
+    let recorded = if height == 1 { 1 } else { listing };
+    queued::<Scope>() + recorded * size_of::<RecordedChild>()
 }
 
-/// The room a question listing `listed` children sets aside for the peer's
-/// reply bounded by `bound`: the reply's chunks parked, the records its take
-/// derives, and the parent resolution the stage builds.
-pub(crate) const fn reservation<E>(bound: ReplyBound, listed: usize) -> usize {
-    parked_room::<E>(bound, listed) + records_room(bound, listed) + parent_resolution::<E>(bound)
+/// The part of a reservation the records the take derives take: the most
+/// [`derived_record_bytes`] can sum to over a reply to a question about a
+/// node at `height` that lists `listed` children, bounded by `bound`.
+///
+/// That is one queue slot per question the reply can ask, beside a
+/// recorded child per entry of the reply's listings, or, about a leaf's
+/// parent, one per question: the leaf it requests.
+pub(crate) const fn records_room(height: usize, bound: ReplyBound, listed: usize) -> usize {
+    let questions = min(listed, bound.reactions);
+    let recorded = if height == 1 {
+        questions
+    } else {
+        bound.listing
+    };
+    questions * queued::<Scope>() + recorded * size_of::<RecordedChild>()
 }
 
-/// The parts of the room, built out of `grant`, a question listing
-/// `listed` children sets aside for the reply `bound` bounds that its query
-/// keeps, each charged to the place its items take.
-fn reserve<E>(grant: &mut Charge, bound: ReplyBound, listed: usize) -> Reserved {
+/// The room a question about a node at `height` listing `listed` children
+/// sets aside for the peer's reply bounded by `bound`.
+///
+/// That is the reply's chunks parked, the records its take derives, and
+/// the parent resolution the stage builds.
+pub(crate) const fn reservation<E>(height: usize, bound: ReplyBound, listed: usize) -> usize {
+    parked_room::<E>(bound, listed)
+        + records_room(height, bound, listed)
+        + parent_resolution::<E>(bound)
+}
+
+/// The parts of the room, built out of `grant`, a question about a node at
+/// `height` listing `listed` children sets aside for the reply `bound`
+/// bounds that its query keeps, each charged to the place its items take.
+fn reserve<E>(grant: &mut Charge, height: usize, bound: ReplyBound, listed: usize) -> Reserved {
     Reserved {
-        records: grant.take(Holding::QuestionRecords, records_room(bound, listed)),
+        records: grant.take(
+            Holding::QuestionRecords,
+            records_room(height, bound, listed),
+        ),
         slots: grant.take(Holding::Resolutions, parent_resolution::<E>(bound)),
     }
 }
@@ -263,7 +295,7 @@ pub(super) fn query<E>(
         prefix,
         charge: grant.take(Holding::Questions, held),
         copies: grant.take(Holding::ExplodedNodes, copies),
-        reservation: reserve::<E>(grant, bound, ours.len()),
+        reservation: reserve::<E>(grant, prefix.height(), bound, ours.len()),
         ours,
         bound,
     }
@@ -275,7 +307,7 @@ pub(super) fn query<E>(
 pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) {
     (
         grant.take(Holding::Questions, queued::<LeafRequest>()),
-        reserve::<E>(grant, ReplyBound::LEAF, 0),
+        reserve::<E>(grant, 0, ReplyBound::LEAF, 0),
         room::<E>(grant, ReplyBound::LEAF, 0),
     )
 }
@@ -360,7 +392,7 @@ pub(crate) const fn question_bound<E, Err>(
     queued::<Query<E>>()
         + listed * size_of::<(u8, E)>()
         + copies
-        + reservation::<E>(ReplyBound::of(height, listed, theirs), listed)
+        + reservation::<E>(height, ReplyBound::of(height, listed, theirs), listed)
         + chunk_bound::<E, Err>(leading + 1, listed)
         + record_bytes(listed)
 }
@@ -370,7 +402,7 @@ pub(crate) const fn question_bound<E, Err>(
 /// reactions, and its record.
 pub(crate) const fn leaf_question_bound<E, Err>(leading: usize) -> usize {
     queued::<LeafRequest>()
-        + reservation::<E>(ReplyBound::LEAF, 0)
+        + reservation::<E>(0, ReplyBound::LEAF, 0)
         + chunk_bound::<E, Err>(leading + 1, 0)
         + record_bytes(0)
 }

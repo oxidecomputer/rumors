@@ -177,7 +177,12 @@
 //!   alone keeps room set aside in one place from hiding a charge missing in
 //!   another.
 //! - **Fit.** Every reply a stage finishes held no more reactions, and its
-//!   queries no more listing entries, than its question reserved room for.
+//!   queries no more listing entries, than its question reserved room for,
+//!   and the records the take derives from its questions held no more than
+//!   the reservation's records part, which pays for nothing else.
+//!   Coverage checks that part's place together with the question records'
+//!   own charges, and does not see the part missing at these fixtures'
+//!   sizes; this check does.
 //! - **Zero.** Each side's ledger holds nothing once the session ends.
 //! - **Outgoing floor.** Over the session, each side's charges to its
 //!   outgoing replies, the sum of every rise in that place's account, are
@@ -185,11 +190,20 @@
 //!   ([`OUTGOING_REPLIES_FLOOR_DIVISOR`] derives the share). Coverage
 //!   alone cannot see a missing charge there: a chunk's charge returns
 //!   once its frames are written, so its items never outlive it by more
-//!   than the place's scratch. The floor's premise is that the deletion
-//!   filter prunes nothing, which holds in every fixture but the redacting
-//!   one: there a supply answer can list a fan of children of which one
-//!   survives to be charged as a reaction, so no share is derived, and the
-//!   floor is not asserted.
+//!   than the place's scratch. The floor's premise fails in two fixtures,
+//!   so the floor is not asserted for them:
+//!   - Where the deletion filter prunes, a supply answer can list a fan of
+//!     children of which one survives to be charged as a reaction, so no
+//!     share is derived: the redacting fixture.
+//!   - Listing or comparing a node computes its hash on first use, into a
+//!     buffer of a record per child that is freed at once and that no
+//!     charge pays for, inside the code the meter files under the outgoing
+//!     replies. The copies the walk peels of a node start with no hash, so
+//!     each is hashed anew. At the hashed fixtures' sizes the peeled nodes
+//!     have a child or two and the buffers are small; the placed fixture's
+//!     leaf parents have half a fan of children each, and their buffers
+//!     make up most of what the place allocates
+//!     ([`leaf_requests_keep_the_bound`]).
 //!
 //! It also holds each ledger to its bound: at most the budget outside its
 //! floor slots, at most the peer's memory budget in all, and every item
@@ -241,13 +255,15 @@ use link::{Drive, Held, Link, Portion, Release, Side, drive, polling, prepare_pa
 use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 use rumors::testing::{
-    COMPARISON_FRAME_BYTES, Holding, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES,
-    ReplyFit, SESSION_STREAMS, assembly_allowance, attribute_allocations, join_snapshots,
-    ledger_scratch, observe_fits, observe_ledgers, report_allocations,
-    supply_decode_envelope_bytes,
+    Admission, COMPARISON_FRAME_BYTES, Holding, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR,
+    PLACES, ReplyFit, SESSION_STREAMS, assembly_allowance, attribute_allocations, join_snapshots,
+    ledger_scratch, observe_admissions, observe_fits, observe_ledgers, report_allocations,
+    supply_decode_envelope_bytes, with_leaf_paths,
 };
-use rumors::{Peer, Rumors, SessionStats};
+use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::bench::session::admitting;
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
 
@@ -312,6 +328,9 @@ struct Fixture {
     allocations: usize,
 }
 
+/// The first value of side `B`'s messages; side `A`'s start at zero.
+const B_VALUES: u64 = 1_000_000;
+
 /// Builds two forks of one fresh network, holding `messages` messages, in
 /// [`Side::BOTH`] order, that the other lacks.
 ///
@@ -322,13 +341,33 @@ struct Fixture {
 /// side `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with
 /// leaves `A`'s version knows and `B` must not resend.
 fn fixture(messages: [u64; 2], redacted: u64, budget: usize) -> Fixture {
+    seeded_fixture(
+        || Peer::<u64>::seed().into_rumors(),
+        messages,
+        redacted,
+        budget,
+    )
+}
+
+/// Builds the forks [`fixture`] builds, of the network `seed` starts.
+///
+/// `A`'s messages are the values from 0 and `B`'s from [`B_VALUES`], so a
+/// message's value names its side and its place among that side's sends.
+/// A seed that makes the network reproducible makes every message's
+/// version reproducible too, since forking and sending are deterministic.
+fn seeded_fixture(
+    seed: impl FnOnce() -> Rumors<u64>,
+    messages: [u64; 2],
+    redacted: u64,
+    budget: usize,
+) -> Fixture {
     let configure = |peer: Peer<u64>| {
         peer.sync_memory_budget(admitting(budget))
             .target_message_size(COMPARISON_FRAME_BYTES)
     };
     let (built, [a, b]) = measure(|| {
         block_on(async {
-            let seed = Peer::<u64>::seed().into_rumors();
+            let seed = seed();
             seed.send_all((0..redacted).map(|value| 2_000_000 + value))
                 .expect("the shared messages encode");
             [
@@ -344,7 +383,7 @@ fn fixture(messages: [u64; 2], redacted: u64, budget: usize) -> Fixture {
     let [a_messages, b_messages] = messages;
     let (a_sends, ()) = measure(|| a.send_all(0..a_messages).expect("A's messages encode"));
     let (b_sends, ()) = measure(|| {
-        b.send_all((0..b_messages).map(|value| 1_000_000 + value))
+        b.send_all((0..b_messages).map(|value| B_VALUES + value))
             .expect("B's messages encode")
     });
     let (join, joined) = measure(|| join_snapshots(&a.snapshot(), &b.snapshot()));
@@ -448,7 +487,11 @@ struct LedgerReport {
 struct Fits {
     /// Replies finished.
     replies: usize,
-    /// Those that held more than their reservation allowed.
+    /// The bytes the records the takes derived from those replies'
+    /// questions held, summed.
+    records: usize,
+    /// Those that held more than their reservation allowed, or whose
+    /// questions derived records beyond its records part.
     over: Vec<ReplyFit>,
 }
 
@@ -513,7 +556,7 @@ thread_local! {
     static LEDGER_EVENTS: RefCell<Vec<LedgerEvent>> = const { RefCell::new(Vec::new()) };
     /// The reply fits of the session being run, on this thread.
     #[allow(clippy::missing_const_for_thread_local)]
-    static FITS: RefCell<Fits> = const { RefCell::new(Fits { replies: 0, over: Vec::new() }) };
+    static FITS: RefCell<Fits> = const { RefCell::new(Fits { replies: 0, records: 0, over: Vec::new() }) };
 }
 
 /// Records one ledger change of a traced session, outside the trace.
@@ -542,7 +585,11 @@ fn reply_fit(fit: ReplyFit) {
         FITS.with(|fits| {
             let mut fits = fits.borrow_mut();
             fits.replies += 1;
-            if fit.reactions > fit.reaction_bound || fit.listing > fit.listing_bound {
+            fits.records += fit.records;
+            if fit.reactions > fit.reaction_bound
+                || fit.listing > fit.listing_bound
+                || fit.records > fit.records_bound
+            {
                 fits.over.push(fit);
             }
         });
@@ -675,6 +722,27 @@ fn run_session(
     budget: usize,
     schedule: impl FnMut([usize; 2]) -> Release,
 ) -> Run {
+    run_fixture(
+        || fixture(messages, redacted, budget),
+        messages,
+        budget,
+        schedule,
+    )
+}
+
+/// Runs one session between the peers `build` builds, holding `messages`
+/// messages in [`Side::BOTH`] order that the other lacks, as
+/// [`run_session`] does.
+///
+/// # Panics
+///
+/// As [`run_session`].
+fn run_fixture(
+    build: impl FnOnce() -> Fixture,
+    messages: [u64; 2],
+    budget: usize,
+    schedule: impl FnMut([usize; 2]) -> Release,
+) -> Run {
     assert!(
         attribute_allocations(attribute),
         "this suite's hook is the process's attribution hook"
@@ -698,7 +766,7 @@ fn run_session(
         sends,
         join,
         allocations,
-    } = fixture(messages, redacted, budget);
+    } = build();
     let link = Link::new();
     prepare_pacing();
     for sum in &REPORTED_EXPLOSIONS {
@@ -818,8 +886,6 @@ fn reference() -> &'static Run {
 struct Measured {
     /// Messages per side.
     messages: u64,
-    /// Messages both sides received and side `A` redacted.
-    redacted: u64,
     /// The budget both peers ran.
     budget: usize,
     /// The bound on wire buffering.
@@ -829,6 +895,9 @@ struct Measured {
     /// The bound on the unattributed blocks and admission's bookkeeping
     /// together: the reference session's larger transient peak.
     fixed: u128,
+    /// Whether the outgoing replies' floor's premise holds for the fixture,
+    /// so the floor is asserted (see the module docs).
+    outgoing_floor: bool,
     /// The session under test.
     run: Run,
 }
@@ -849,19 +918,26 @@ impl Measured {
         budget: usize,
         schedule: impl FnMut([usize; 2]) -> Release,
     ) -> Self {
+        let run = run_session([messages; 2], redacted, budget, schedule);
+        Self::of(messages, redacted, budget, run)
+    }
+
+    /// The measurement of `run`, a session of `messages` messages per side,
+    /// `redacted` of them redacted by `A`, at `budget`, beside the bounds it
+    /// is judged against.
+    fn of(messages: u64, redacted: u64, budget: usize, run: Run) -> Self {
         let fixed = Side::BOTH
             .map(|side| reference().sides[side.index()].transient_peak)
             .into_iter()
             .max()
             .expect("a session has two sides") as u128;
-        let run = run_session([messages; 2], redacted, budget, schedule);
         Self {
             messages,
-            redacted,
             budget,
             wire: (WIRE_FRAMES * 2 * COMPARISON_FRAME_BYTES) as u128,
             assembly: assembly_allowance() as u128,
             fixed,
+            outgoing_floor: redacted == 0,
             run,
         }
     }
@@ -1127,9 +1203,9 @@ fn violation(measured: &Measured) -> Option<String> {
         let outgoing =
             measured.run.ledgers[side.index()].charged[charged_index(Holding::OutgoingReplies)];
         let built = measured.allocated(side, Holding::OutgoingReplies);
-        // The floor's premise, that the filter prunes nothing, holds only
-        // where nothing is redacted (see the module docs).
-        if measured.redacted == 0 && outgoing * OUTGOING_REPLIES_FLOOR_DIVISOR < built {
+        // The floor is asserted only where its premise holds (see the
+        // module docs).
+        if measured.outgoing_floor && outgoing * OUTGOING_REPLIES_FLOOR_DIVISOR < built {
             return Some(format!(
                 "{side:?}'s ledger was charged {outgoing} B for outgoing replies that allocated \
                  {built} B, less than 1/{OUTGOING_REPLIES_FLOOR_DIVISOR} of it: {report}"
@@ -1153,6 +1229,14 @@ fn violation(measured: &Measured) -> Option<String> {
     if let Some(violation) = ledger_violation(&measured.run, measured.budget) {
         return Some(format!("{violation}: {report}"));
     }
+    // Every divergent fixture's replies ask questions; a joining session's
+    // need not, so this floor lives here rather than with the ledger's.
+    if measured.run.fits.records == 0 {
+        return Some(format!(
+            "no reply's questions derived a record, so the records part's fit stopped \
+             counting: {report}"
+        ));
+    }
     if Side::BOTH
         .into_iter()
         .all(|side| measured.run.ledgers[side.index()].waited == 0)
@@ -1169,7 +1253,7 @@ fn violation(measured: &Measured) -> Option<String> {
 /// each place it charges, less that place's scratch, at every allocation
 /// event, and must return to zero once the session ends; every reply the
 /// session's stages finished must fit the room its question reserved for
-/// it, with at least one reply finished. And each side's ledger, admitting
+/// it, records part included, with at least one reply finished. And each side's ledger, admitting
 /// against `budget`, must hold at most the budget outside its floor slots
 /// and at most its peer's memory budget in all, the budget beside the
 /// floor allowance, with every item built within its unit's grant.
@@ -1507,6 +1591,143 @@ fn any_release_schedule_keeps_the_bound() {
     if let Err(failure) = result {
         panic!("{failure}");
     }
+}
+
+/// Depth-31 nodes the placed fixture's sides dispute.
+const PLACED_NODES: u64 = 8;
+
+/// Leaves each side holds under each placed node: half a fan, so the two
+/// sides fill it.
+const PLACED_HALF_FAN: u64 = 128;
+
+/// The placed fixture's budget, 64 KiB: room for many leaf requests at
+/// once, beside units that still wait.
+const PLACED_BUDGET: usize = 64 << 10;
+
+/// The network the placed fixture forks, from a fixed random source, so a
+/// rebuild reproduces every message's version.
+fn placed_seed() -> Rumors<u64> {
+    Peer::<u64>::seed_rng(&mut ChaChaRng::seed_from_u64(0x1eaf_0031_d15b_07e5)).into_rumors()
+}
+
+/// The placed path of the message of `value`: under placed node
+/// `index / 128`, its first byte, at a last byte from the lower half of
+/// the fan for `A` and the upper half for `B`, with zeros between.
+///
+/// Every path below one node shares its first 31 bytes, so the two sides
+/// dispute that node one byte above the leaves.
+fn placed_path(value: u64) -> [u8; 32] {
+    let (half, index) = match value.checked_sub(B_VALUES) {
+        Some(index) => (PLACED_HALF_FAN, index),
+        None => (0, value),
+    };
+    let mut path = [0; 32];
+    path[0] = u8::try_from(index / PLACED_HALF_FAN).expect("the placed nodes fit a byte");
+    path[31] = u8::try_from(half + index % PLACED_HALF_FAN).expect("a radix fits a byte");
+    path
+}
+
+/// Leaf requests each side's ledger admitted, in [`Side::BOTH`] order of
+/// the ledgers' first admissions, for the session the placed test runs.
+static LEAF_REQUESTS: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::new(Vec::new());
+
+/// Counts one admitted leaf request, a question about a scope at depth 32,
+/// against its ledger, outside the trace.
+fn count_leaf_request(admission: Admission) {
+    if admission.question && admission.depth == 32 && !admission.leftover {
+        untraced(|| {
+            let mut counts = LEAF_REQUESTS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match counts
+                .iter_mut()
+                .find(|(ledger, _)| *ledger == admission.ledger)
+            {
+                Some((_, count)) => *count += 1,
+                None => counts.push((admission.ledger, 1)),
+            }
+        });
+    }
+}
+
+/// When the two sides differ under nodes one byte above the leaves, each
+/// place a session keeps state in stays within its bound and the ledgers
+/// keep their identities, with leaf requests in flight.
+///
+/// Hashing cannot place leaves that share 31 bytes, so the fixture places
+/// them ([`with_leaf_paths`]): under each of [`PLACED_NODES`] nodes, `A`
+/// holds the lower half of a fan of leaves and `B` the upper half. Every
+/// level above disputes, and each node's leaf-parent answer asks a leaf
+/// request for each leaf the peer listed that it lacks, half a fan per
+/// node. At [`PLACED_BUDGET`] many are in flight at once, more than the
+/// questions' scratch allows per stream, so coverage sees a leaf request's
+/// charge go missing; and every record the take derives for a leaf request
+/// is held to the records part of the question that asked about its
+/// parent.
+///
+/// The outgoing replies' floor is not asserted: hashing each peeled copy
+/// of a leaf parent's half fan fills buffers its premise does not count
+/// (see the module docs).
+///
+/// A first build of the same network, outside the placement, learns each
+/// message's version, since forking and sending a reproducible network
+/// are deterministic; the placement panics on any version it does not
+/// list, so a rebuild that drifted fails loudly.
+#[test]
+fn leaf_requests_keep_the_bound() {
+    assert!(
+        observe_admissions(count_leaf_request),
+        "this suite's hook is the process's admission hook"
+    );
+    let messages = [PLACED_NODES * PLACED_HALF_FAN; 2];
+    // The reference session's leaves are hashed, so it runs outside the
+    // placement.
+    reference();
+    let dry = seeded_fixture(placed_seed, messages, 0, PLACED_BUDGET);
+    let paths: Vec<(Version, [u8; 32])> = dry
+        .peers
+        .iter()
+        .flat_map(|peer| {
+            peer.snapshot()
+                .iter()
+                .map(|(version, value)| (version.clone(), placed_path(*value)))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    drop(dry);
+    let run = with_leaf_paths(paths, || {
+        run_fixture(
+            || seeded_fixture(placed_seed, messages, 0, PLACED_BUDGET),
+            messages,
+            PLACED_BUDGET,
+            release_everything,
+        )
+    });
+    let measured = Measured {
+        // Wide placed fans break the floor's premise (see the module docs).
+        outgoing_floor: false,
+        ..Measured::of(messages[0], 0, PLACED_BUDGET, run)
+    };
+    let leaf_requests = LEAF_REQUESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    println!(
+        "{}; leaf requests per ledger {leaf_requests:?}",
+        measured.report()
+    );
+    if let Some(violation) = violation(&measured) {
+        panic!("{violation}");
+    }
+    let most = leaf_requests
+        .iter()
+        .map(|(_, count)| *count)
+        .max()
+        .unwrap_or(0);
+    assert!(
+        most as u64 >= PLACED_NODES * PLACED_HALF_FAN / 2,
+        "the placed fixture must make leaf requests: {leaf_requests:?}"
+    );
 }
 
 /// When side `A` has redacted every message the two sides shared, each

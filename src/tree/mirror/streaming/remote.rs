@@ -71,6 +71,8 @@ pub(crate) use codec::{prepare_frame, write_prepared_frame};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use adapter::SUPPLY_DECODE_ENVELOPE_BYTES;
 pub(crate) use adapter::{RecordedChild, Scope};
+#[cfg(test)]
+pub(crate) use adapter::{ReplyLevel, derive_questions};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::STREAM_COUNT;
 pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};

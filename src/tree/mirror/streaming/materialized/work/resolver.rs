@@ -21,6 +21,8 @@ use crate::{
     },
 };
 
+use super::charges;
+
 /// One query's reaction loop.
 ///
 /// The resolver pairs held children with the reply's reactions in order,
@@ -65,6 +67,10 @@ where
     /// What the reply has held so far: its reactions and the listing
     /// entries its queries carried.
     held: ReplyBound,
+    /// The bytes the records the take derives from the reply's questions
+    /// so far hold ([`charges::derived_record_bytes`]), which the
+    /// reservation's records part covers.
+    derived: usize,
 }
 
 /// A held child that the peer reports as different.
@@ -111,6 +117,7 @@ where
             copies,
             reservation,
             held: ReplyBound::default(),
+            derived: 0,
         }
     }
 
@@ -162,6 +169,7 @@ where
             }
             Reaction::Query(listing) => {
                 self.held.listing += listing.len();
+                self.derived += charges::derived_record_bytes(self.prefix.height(), listing.len());
                 let Some((radix, node)) = self.fan.next() else {
                     return violation(Violation::UnexpectedQuery);
                 };
@@ -192,7 +200,12 @@ where
         if self.fan.next().is_some() {
             violation(Violation::UnfinishedReply)
         } else {
-            ledger::fitted(self.bound, self.held);
+            ledger::fitted(
+                self.bound,
+                self.held,
+                self.reservation.records.bytes(),
+                self.derived,
+            );
             // The question's own charge and the reservation's records part
             // return as the resolver drops here; the resolution keeps its
             // slots' part and the question's node copies.

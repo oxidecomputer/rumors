@@ -332,6 +332,31 @@ pub async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
     remote::write_prepared_frame(frame, out).await
 }
 
+/// Run `run` with each listed version's leaf placed at its chosen 32-byte
+/// path instead of at the hash of the version.
+///
+/// This exists only to construct placements that hashing cannot reach:
+/// two replicas that dispute a node one byte above the leaves need leaf
+/// paths sharing 31 bytes, a 248-bit collision. Build, use, and drop every
+/// tree inside `run`, and drive every peer on this thread, since the
+/// placement is the calling thread's. A version missing from the placement
+/// panics when its leaf's path is derived.
+///
+/// # Panics
+///
+/// Panics if two listed versions are equal or two listed paths are equal.
+pub fn with_leaf_paths<R>(
+    paths: impl IntoIterator<Item = (crate::Version, [u8; 32])>,
+    run: impl FnOnce() -> R,
+) -> R {
+    crate::tree::typed::Path::with_leaf_paths(
+        paths
+            .into_iter()
+            .map(|(version, path)| (version, crate::tree::typed::Path::from(path))),
+        run,
+    )
+}
+
 /// Why polling stopped before a closed in-memory future completed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Quiescence {
