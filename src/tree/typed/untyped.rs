@@ -87,6 +87,30 @@ impl Iterator for ChildIter {
     }
 }
 
+/// One child a node lists, as [`Node::child_iter`] would yield it, read
+/// in place.
+#[derive(Clone, Copy)]
+enum Listed<'a> {
+    /// A bare branch's child, stored in its fan.
+    Stored(&'a Node),
+    /// The one child of a node with a compressed path: the node itself with
+    /// its top path byte peeled. The view shares the node's body, and so
+    /// its bounds and its encoded version size.
+    Peeled(&'a Node),
+}
+
+impl Listed<'_> {
+    /// Whether `candidate` is this child: the same allocation as a stored
+    /// child, or for a peeled one, the node's remaining path over the same
+    /// body ([`Node::is_peel_of`]).
+    fn is(self, candidate: &Node) -> bool {
+        match self {
+            Listed::Stored(node) => node.ptr_eq(candidate),
+            Listed::Peeled(node) => candidate.is_peel_of(node),
+        }
+    }
+}
+
 /// Share the node and count the new handle in instrumented builds.
 impl Clone for Node {
     /// Clone the shared handle without copying node state.
@@ -167,6 +191,9 @@ pub(crate) mod memo_census {
         /// The subtrees a session receives are built leaf by leaf
         /// ([`SortedLeaves`](super::SortedLeaves)) and not counted.
         Branch,
+        /// A node returned whole by [`Node::rebuild`](super::Node::rebuild)
+        /// because its children came back unchanged.
+        Reused,
         /// A hash computed rather than read from its memo.
         Hash,
         /// A branch's bounds computed from all of its children.
@@ -385,6 +412,103 @@ impl Node {
                 })))
             }
         }
+    }
+
+    /// Assemble children into a subtree as [`branch`](Self::branch) does,
+    /// reusing `original`, the node the children were listed from before
+    /// any of them changed.
+    ///
+    /// When the children are exactly those `original` lists, at the same
+    /// radices, this returns `original` itself, its hash and every other
+    /// memo intact, so reassembling an unchanged scope allocates nothing and
+    /// computes no memo. Otherwise it builds the node `branch` builds.
+    ///
+    /// A stored child counts as unchanged only as the same allocation. A
+    /// compressed node lists a peeled view of itself, which the walk's
+    /// explosion builds fresh, so that child counts as unchanged when it has
+    /// the node's remaining path over the same body ([`Self::is_peel_of`]).
+    pub fn rebuild(original: Option<Node>, children: Fan) -> Option<Self> {
+        let Some(original) = original else {
+            return Node::branch(children);
+        };
+        // An empty group deletes the scope, whatever stood there.
+        if children.len() == 0 {
+            return None;
+        }
+        if original.lists_exactly(&children) {
+            memo_census::record(Work::Reused);
+            return Some(original);
+        }
+        Node::branch(children)
+    }
+
+    /// Whether `children` are exactly the children
+    /// [`child_iter`](Self::child_iter) lists for this node: the same
+    /// radices, each child the one listed there ([`Listed::is`]).
+    fn lists_exactly(&self, children: &Fan) -> bool {
+        let mut listed = self.listed();
+        children.iter().all(|(radix, child)| {
+            listed
+                .next()
+                .is_some_and(|(at, own)| at == radix && own.is(child))
+        }) && listed.next().is_none()
+    }
+
+    /// The children [`child_iter`](Self::child_iter) lists for this node,
+    /// read in place, in radix order: a bare branch's fan, a compressed
+    /// node's one peeled view, and none for a bare leaf.
+    fn listed(&self) -> impl Iterator<Item = (u8, Listed<'_>)> {
+        let peeled = self
+            .inner
+            .prefix
+            .last()
+            .map(|&top| (top, Listed::Peeled(self)));
+        let fan = match (peeled, &self.inner.body) {
+            (None, Body::Branch { children, .. }) => Some(
+                children
+                    .iter()
+                    .map(|(radix, child)| (radix, Listed::Stored(child))),
+            ),
+            _ => None,
+        };
+        peeled.into_iter().chain(fan.into_iter().flatten())
+    }
+
+    /// Whether this node is `parent` with its top path byte peeled: the
+    /// rest of `parent`'s path over the same body, and so the same subtree
+    /// as the child `parent`'s listing yields.
+    ///
+    /// Peeling copies a shared node, so the view is a separate allocation
+    /// whose body copies `parent`'s: the same leaf, or a fan of the same
+    /// child handles. Comparing those decides it, in at most a fan's pointer
+    /// comparisons. A leaf is identified by its version, as everywhere in
+    /// the tree: no two messages share one.
+    fn is_peel_of(&self, parent: &Node) -> bool {
+        let Some((_, below)) = parent.inner.prefix.split_last() else {
+            return false;
+        };
+        self.inner.prefix.as_slice() == below
+            && match (&self.inner.body, &parent.inner.body) {
+                (
+                    Body::Leaf { version: ours, .. },
+                    Body::Leaf {
+                        version: theirs, ..
+                    },
+                ) => ours == theirs,
+                (
+                    Body::Branch { children: ours, .. },
+                    Body::Branch {
+                        children: theirs, ..
+                    },
+                ) => {
+                    ours.len() == theirs.len()
+                        && ours
+                            .iter()
+                            .zip(theirs.iter())
+                            .all(|((a, x), (b, y))| a == b && x.ptr_eq(y))
+                }
+                _ => false,
+            }
     }
 
     /// Convert a node into its radix fan of children (inverse to

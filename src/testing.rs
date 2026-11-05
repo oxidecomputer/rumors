@@ -201,6 +201,9 @@ pub struct MemoWork {
     /// assembles them. The subtrees a session receives are built leaf by
     /// leaf and not counted.
     pub branches: u64,
+    /// Nodes reassembly returned whole because their children came back
+    /// unchanged.
+    pub reused: u64,
     /// Hashes computed rather than read from their memos.
     pub hashes: u64,
     /// Branch bounds computed from all of the branch's children.
@@ -213,6 +216,7 @@ pub struct MemoWork {
 pub fn memo_work() -> MemoWork {
     MemoWork {
         branches: memo_census::read(Work::Branch),
+        reused: memo_census::read(Work::Reused),
         hashes: memo_census::read(Work::Hash),
         bounds_full: memo_census::read(Work::BoundsFull),
         version_bytes_full: memo_census::read(Work::VersionBytesFull),

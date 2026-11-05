@@ -167,11 +167,12 @@ impl Backend for Local {
         children
     }
 
-    /// Assemble one in-memory branch from its surviving children.
+    /// Assemble one in-memory branch from its surviving children, returning
+    /// the original node whole when they are its own.
     fn parent<H>(
         self,
         _prefix: Prefix<S<H>>,
-        _original: Option<Self::Node<S<H>>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where
@@ -179,8 +180,10 @@ impl Backend for Local {
         S<H>: Height,
     {
         // A deleted child simply doesn't join the reassembly, and deleting
-        // every child deletes the parent: `branch` of the empty set is `None`.
-        let parent = future::ready(Ok(typed::Node::branch(
+        // every child deletes the parent: `rebuild` of the empty set is
+        // `None`.
+        let parent = future::ready(Ok(typed::Node::rebuild(
+            original,
             children
                 .into_iter()
                 .filter_map(|(radix, child)| Some((radix, child?)))

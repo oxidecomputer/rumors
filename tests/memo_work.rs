@@ -93,19 +93,20 @@ fn fixtures() -> [(&'static str, Shape); 6] {
 /// and a commit that moves them says why.
 #[test]
 fn memo_work_matches_the_baseline() {
-    let work = |branches, hashes, bounds_full, version_bytes_full| MemoWork {
+    let work = |branches, reused, hashes, bounds_full, version_bytes_full| MemoWork {
         branches,
+        reused,
         hashes,
         bounds_full,
         version_bytes_full,
     };
     let baseline = [
-        work(0, 0, 0, 0),
-        work(4, 5, 4, 4),
-        work(194, 307, 194, 194),
-        work(2, 10_949, 949, 949),
-        work(1_406, 12_254, 1_570, 1_570),
-        work(522, 923, 522, 522),
+        work(0, 0, 0, 0, 0),
+        work(2, 2, 3, 2, 2),
+        work(108, 86, 221, 108, 108),
+        work(1, 1, 10_948, 948, 948),
+        work(1_406, 0, 12_254, 1_570, 1_570),
+        work(261, 395, 529, 261, 261),
     ];
     let measured: Vec<(&str, MemoWork)> = fixtures()
         .into_iter()

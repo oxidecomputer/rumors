@@ -294,6 +294,16 @@ where
         })
     }
 
+    /// Assemble a subtree from its children, reusing `original`, the node
+    /// they were listed from, when they are exactly its children
+    /// ([`untyped::Node::rebuild`]).
+    pub fn rebuild(original: Option<Self>, children: Children<H>) -> Option<Self> {
+        Some(Node {
+            height: PhantomData,
+            inner: untyped::Node::rebuild(original.map(Node::into_untyped), children.into_fan())?,
+        })
+    }
+
     /// Convert a node into a map from child index to child node (inverse to
     /// [`Node::branch`]).
     pub fn into_children(self) -> Children<H> {

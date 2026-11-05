@@ -12,6 +12,8 @@ use super::{
     fan::{Fan, heap_slots},
 };
 
+mod reassembly;
+
 /// Upper bound on the depth of trees generated in property tests.
 ///
 /// Each test samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks

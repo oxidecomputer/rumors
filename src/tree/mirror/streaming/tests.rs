@@ -42,6 +42,7 @@ mod fixtures;
 mod grid;
 mod local_eq;
 mod pipe;
+mod reassembly;
 mod skeleton;
 mod stats;
 
