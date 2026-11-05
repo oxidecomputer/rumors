@@ -41,16 +41,16 @@ nondegeneracy pins), the burial gadget family
 (Proofs/WcImpossibilityK.lean's widened wedges), the closures. NEW
 WORK: the adversarial extension lemma (realize a punishing skeleton
 behind any observation), and the slack accounting — how many
-unlicensed frames the pipe floats harmlessly is where the theorem's
-teeth live.
+unlicensed frames the pipe floats harmlessly is what decides how
+strong the theorem is.
 
 SCOPE CAVEAT. Necessity holds relative to liveness on ALL skeletons; a
 scheduler tuned to a restricted workload class may legitimately
 over-push, and the statement must say so.
 
-VALUE. Converts the product conclusion (the `Link` contract stands)
-from theorem-backed to theorem-stated: windowing is not just
-sufficient but what correctness means over one channel.
+VALUE. Converts windowing's role from theorem-backed to
+theorem-stated: windowing is not just sufficient but what correctness
+means over one channel.
 
 # The latency conjectures
 

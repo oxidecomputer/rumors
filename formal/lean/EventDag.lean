@@ -357,7 +357,7 @@ def chanList (sk : Skel) : Array Chan := Id.run do
 
 /-- E1 (message) and E2 (back-pressure) edges for the given event set,
 appended to the E3 process edges. `capOne` forces every capacity to 1
-(the experiment knob). One definition shared by the analyzer and the
+(an experimental setting). One definition shared by the analyzer and the
 schedule validator, so a candidate schedule is checked against exactly
 the edge set the acyclicity oracle certifies. -/
 def dagEdges (sk : Skel) (nodes : Array Ev) (procEdges : Array (Ev × Ev))
@@ -695,7 +695,7 @@ structure Analysis where
   monoErrs : Array String      -- per-channel-side seq/depth monotonicity
 
 /-- Full DAG analysis. `capOne` overrides every channel capacity to 1 in
-the E2 back-pressure edges (an experiment knob, not the model); the
+the E2 back-pressure edges (an experimental setting, not the model); the
 cap-1 pass also skips the greedy empirical drain, which is capacity-
 independent and thus pure repeat work. -/
 def analyze (sk : Skel) (fuel : Nat := 50000) (capOne : Bool := false) : Analysis := Id.run do
