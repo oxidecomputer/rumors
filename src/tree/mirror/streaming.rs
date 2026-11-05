@@ -140,14 +140,19 @@ where
 
     /// The reconciliation [`reconcile`](Self::reconcile) boxes, unboxed, so
     /// that a test can read its size from its type.
-    pub(crate) async fn descent(self) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>> {
+    ///
+    /// This returns [`descend`]'s future itself: an `async fn` awaiting it
+    /// would keep a second copy of the participants for the whole run.
+    pub(crate) fn descent(
+        self,
+    ) -> impl Future<Output = Result<(C::Output, S::Output), Error<C::Error, S::Error>>> {
         let Handshaken {
             client: local,
             server: remote,
             local_key,
             remote_key,
         } = self;
-        descend(local, remote, local_key, remote_key).await
+        descend(local, remote, local_key, remote_key)
     }
 }
 

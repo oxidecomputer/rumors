@@ -1,4 +1,5 @@
 use std::convert::identity;
+use std::pin::pin;
 use std::task::Poll;
 
 use futures::future;
@@ -15,7 +16,7 @@ fn routed_error_precedes_same_poll_session_error() {
     });
 
     assert_eq!(
-        pollster::block_on(race_session(session, first_error)),
+        pollster::block_on(race_session(pin!(session), first_error)),
         Err("primary")
     );
 }
@@ -27,7 +28,7 @@ fn standalone_session_error_is_preserved() {
     let session = future::ready(Err::<(), _>("terminal"));
 
     assert_eq!(
-        pollster::block_on(race_session(session, first_error)),
+        pollster::block_on(race_session(pin!(session), first_error)),
         Err("terminal")
     );
 }
@@ -60,7 +61,7 @@ fn first_report_wins_across_routes() {
             let session = future::pending::<Result<(), usize>>();
 
             assert_eq!(
-                pollster::block_on(race_session(session, first_error)),
+                pollster::block_on(race_session(pin!(session), first_error)),
                 Err(0),
                 "report sequence {mask:0length$b} of length {length}",
             );

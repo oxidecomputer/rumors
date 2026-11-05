@@ -897,8 +897,8 @@ impl<'a> Reconciliation<'a> {
             .await
             .map_err(streaming_remote::streaming_error(Phase::Greeting))?;
         remote_role.validate(handshaken.remote_version())?;
-        let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-        let (root, (read, write)) = descent
+        let (root, (read, write)) = handshaken
+            .reconcile()
             .await
             .map_err(streaming_remote::streaming_error(Phase::Reconciliation))?;
         Ok((root.into(), read, write))
