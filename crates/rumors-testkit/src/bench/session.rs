@@ -1,9 +1,9 @@
 //! Deterministic replica pairs, and the runner that reconciles them over a
 //! [`Link`] and reads what each side's ledger admitted.
 //!
-//! Every pair forks one network seeded from a fixed ChaCha stream, so its
-//! leaves, and with them the tree's shape, are the same on every run and
-//! every machine. Every message is a string sized so that its CBOR
+//! Every pair forks one network seeded from a ChaCha stream, a fixed one
+//! unless the shape names another seed, so its leaves, and with them the
+//! tree's shape, are the same on every run and every machine. Every message is a string sized so that its CBOR
 //! encoding, head and characters, takes the shape's
 //! [`message_bytes`](crate::bench::session::Shape::message_bytes): 100
 //! bytes unless the shape names another size.
@@ -51,7 +51,7 @@ use crate::common::{
     wire::{block_on, bootstrap_fork_with_budget_async},
 };
 
-/// The seed of every fixture's network.
+/// The seed of every fixture's network, unless its shape names another.
 const NETWORK_SEED: NetworkSeed = NetworkSeed::new(7);
 
 /// A LAN: 1 Gb/s with a 1 ms round trip, a 125 kB bandwidth-delay product.
@@ -109,10 +109,17 @@ pub struct Shape {
     /// it its leaf's path, differs from the draws before it.
     ///
     /// A leaf's path is its version's hash keyed by the network's secret,
-    /// and every fixture's network is seeded from `NETWORK_SEED`, so the
-    /// counts alone fix a pair's tree; the draw changes the tree and
-    /// nothing else, since a redaction leaves no trace in either tree.
+    /// so the counts and the network's seed fix a pair's tree; the draw
+    /// changes the tree and nothing else, since a redaction leaves no trace
+    /// in either tree.
     pub draw: u64,
+    /// The seed of the pair's network, which keys every leaf's path: a
+    /// fixed seed unless the shape names another ([`Shape::with_network`]).
+    ///
+    /// A suite that checks exact numbers keeps the fixed seed; a property
+    /// that holds for every secret draws one from
+    /// [`network_seed`](crate::common::seed::network_seed).
+    pub network: NetworkSeed,
 }
 
 impl Shape {
@@ -127,6 +134,7 @@ impl Shape {
             redacted_b: 0,
             message_bytes: MESSAGE_BYTES,
             draw: 0,
+            network: NETWORK_SEED,
         }
     }
 
@@ -142,6 +150,7 @@ impl Shape {
             redacted_b: 0,
             message_bytes: MESSAGE_BYTES,
             draw: 0,
+            network: NETWORK_SEED,
         }
     }
 
@@ -156,6 +165,7 @@ impl Shape {
             redacted_b: 0,
             message_bytes: MESSAGE_BYTES,
             draw: 0,
+            network: NETWORK_SEED,
         }
     }
 
@@ -173,6 +183,12 @@ impl Shape {
     /// ([`Shape::draw`]).
     pub const fn with_draw(self, draw: u64) -> Self {
         Self { draw, ..self }
+    }
+
+    /// This shape's pair on the network `network` seeds: another tree, and
+    /// another secret, for the same counts ([`Shape::network`]).
+    pub const fn with_network(self, network: NetworkSeed) -> Self {
+        Self { network, ..self }
     }
 
     /// This shape with every message encoding in `bytes` bytes.
@@ -261,7 +277,7 @@ pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
 /// then redacts its own, numbered after the shared ones.
 pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<String>) {
     block_on(async {
-        let root = NETWORK_SEED.peer::<String>().into_rumors();
+        let root = shape.network.peer::<String>().into_rumors();
         if shape.draw > 0 {
             root.send_all((0..shape.draw).map(|index| message('d', index, shape.message_bytes)))
                 .expect("fixture messages encode");
@@ -513,6 +529,16 @@ pub struct LedgerReading {
     pub share_peak: usize,
     /// The check that weighed the share peak, if it made any.
     pub share_peak_check: Option<DatedCheck>,
+    /// For each depth, the largest sum among that depth's checks that
+    /// raised the share peak: the peak's history, split by depth.
+    ///
+    /// A check that admits its question is reported by its grant's own
+    /// charge, so in a session with no budget, where every check admits,
+    /// every check that raises the peak is seen. A depth's entry is then its
+    /// largest check whenever that check outweighed every earlier check of
+    /// the ledger, as the checks a ledger makes first, before any other
+    /// depth's, always do.
+    pub share_peaks: [usize; DEPTHS],
     /// Units that waited for admission, as the ledger counts them.
     pub waited: u64,
     /// The bytes it held outside its floor slots, integrated over the
@@ -578,6 +604,7 @@ impl Default for LedgerReading {
             floor_bound: 0,
             share_peak: 0,
             share_peak_check: None,
+            share_peaks: [0; DEPTHS],
             waited: 0,
             budget_area: 0,
             charged: 0,
@@ -867,6 +894,7 @@ fn record_change(change: LedgerChange) {
         reading.floor_bound = reading.floor_bound.max(change.floor_bound);
         if change.share_peak.sum > reading.share_peak {
             reading.share_peak = change.share_peak.sum;
+            reading.share_peaks[change.share_peak.depth] = change.share_peak.sum;
             reading.share_peak_check = Some(DatedCheck {
                 at: now,
                 check: change.share_peak,
