@@ -1,3 +1,17 @@
+// TODO-docs: Restate every figure in this guide from measurements on real
+// links, then rewrite the guide around them. No measurement on a real link
+// backs these claims of the guide:
+// - that a session slows only "slightly" before its memory use reaches the
+//   budget;
+// - that a link with a larger bandwidth-delay product needs a larger budget
+//   to keep it busy, and that a session can use more budget on a link with
+//   a long round trip;
+// - that the budget a session can use before nothing waits grows in
+//   proportion to the messages the larger replica holds.
+// The minimum budget is `MIN_SYNC_MEMORY_BUDGET`, and the setter raises
+// every smaller budget to it, so a figure measured at a smaller budget
+// describes a budget no session runs on; measure each figure at or above
+// the minimum.
 //! Choosing a synchronization memory budget.
 //!
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets the
