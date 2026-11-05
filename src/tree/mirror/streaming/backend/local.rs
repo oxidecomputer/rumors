@@ -230,7 +230,7 @@ impl Backend for Local {
             }
         };
         #[cfg(test)]
-        return adversarial::stream(assembled);
+        return adversarial::stream(Box::pin(assembled));
         #[cfg(not(test))]
         assembled
     }

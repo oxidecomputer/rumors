@@ -201,6 +201,10 @@ static GRANDCHILDREN_SKEW: Knob = Knob::new(0);
 /// it.
 static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 
+/// Bytes subtracted from every node's `explosion_bytes` answer: honest at
+/// zero, an undercount of the copies listing its children makes above it.
+static EXPLOSION_DEFLATE: Knob = Knob::new(0);
+
 /// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
 /// at zero, a residency-changing re-tag above it.
 static ASSUME_SLACK: Knob = Knob::new(0);
@@ -325,9 +329,12 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
         self.inner.grandchild_count()
     }
 
-    /// Read the wrapped node's explosion cost.
+    /// Read the wrapped node's explosion cost, deflated to exercise an
+    /// undercounting backend.
     fn explosion_bytes(&self) -> usize {
-        self.inner.explosion_bytes()
+        self.inner
+            .explosion_bytes()
+            .saturating_sub(EXPLOSION_DEFLATE.get())
     }
 
     /// The wrapped node's bound on its explosion cost.
@@ -683,6 +690,19 @@ fn a_re_tagged_assembled_node_fails_the_run_check() {
 fn a_symmetric_loss_fails_the_completeness_check() {
     let _serial = serialized();
     pollster::block_on(run(Materializing, 0, 1));
+}
+
+/// An `explosion_bytes` answer below the copies listing a node makes is
+/// convicted by name at the listing's allocation check.
+///
+/// The fixture's corpora share compressed nodes between the replica and
+/// the session's handles, so peeling one copies it; deflated to nothing,
+/// the answer misses every such copy.
+#[test]
+#[should_panic(expected = "undercounted explosion")]
+fn an_undercounted_explosion_fails_the_explosion_check() {
+    let _dishonest = EXPLOSION_DEFLATE.set(usize::MAX);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A deflated `version_bytes` answer is caught by the assembly seam's floor.

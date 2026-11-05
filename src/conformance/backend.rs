@@ -8,7 +8,9 @@
 //! - **Residency:** height erasure and restoration preserve a node's
 //!   measured residency.
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
-//!   confined to their prefix, and one assembled node per supplied prefix run.
+//!   confined to their prefix, one assembled node per supplied prefix run,
+//!   and explosion reports that cover what listing a node's children
+//!   allocates, by the allocation meter.
 //! - **Reconciliation:** both replicas converge to a set of the expected union
 //!   size, and any measured peak increase over the zero-budget run must fit
 //!   within the larger budget.
@@ -35,13 +37,14 @@
 //! own tests.
 
 use std::collections::BTreeMap;
+use std::future::poll_fn;
 use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_stream::stream;
 use before::Span;
-use futures::{StreamExt, stream as futures_stream};
+use futures::{Stream, StreamExt, stream as futures_stream};
 
 use crate::{
     DEFAULT_TARGET_MESSAGE_SIZE, Version,
@@ -123,6 +126,17 @@ mod ledger {
                 .expect("the violation ledger mutex is not poisoned"),
         )
     }
+}
+
+/// Run `work`, returning the bytes it allocated on this thread beside its
+/// output.
+///
+/// The census charges node values by the [`Measure`] oracle, which sees
+/// residency, not allocation; this meter sees what a backend allocates to
+/// explode a node, whether or not the copies it makes stay resident.
+fn allocated_by<T>(work: impl FnOnce() -> T) -> (u64, T) {
+    let (stats, output) = alloc_meter::measure(work);
+    (widen(stats.bytes_allocated), output)
 }
 
 /// Fail with the recorded violations so a later symptom cannot hide its cause.
@@ -404,12 +418,29 @@ where
         // explodes each child through the wrapped backend, outside the
         // ledger, whose census follows only wrapped nodes.
         let stored = parent.grandchild_count();
+        // The explosion contract: listing allocates, beyond the rows the
+        // handles it yields keep resident, no more than the parent's
+        // explosion report, read as the walk reads it, on the erased
+        // handle just before the listing. The allocation meter counts the
+        // wrapped backend's own work alone: building its stream and each
+        // poll of it, not the grandchild count's explosions between polls.
+        let erased = B::erase(parent.into_inner());
+        let reported = erased.explosion_bytes();
+        let parent = B::assume::<S<H>>(erased);
         let counter = self.inner.clone();
         stream! {
             let mut counted = 0_u64;
             let mut failed = false;
-            let mut children = pin!(self.inner.children(prefix, parent.into_inner()));
-            while let Some(child) = children.next().await {
+            let (mut allocated, children) = allocated_by(|| self.inner.children(prefix, parent));
+            let mut rows = 0_u64;
+            let mut children = pin!(children);
+            while let Some(child) = poll_fn(|cx| {
+                let (bytes, poll) = allocated_by(|| children.as_mut().poll_next(cx));
+                allocated += bytes;
+                poll
+            })
+            .await
+            {
                 match &child {
                     Ok(_) if H::HEIGHT == 0 => counted += 1,
                     Ok((child_prefix, node)) => {
@@ -422,6 +453,7 @@ where
                 }
                 yield child.map(|(prefix, node)| {
                     let measured = B::measure(&node);
+                    rows += widen(measured);
                     (prefix, ChargedNode::wrap(node, measured))
                 });
             }
@@ -429,6 +461,12 @@ where
                 ledger::violation(format!(
                     "mis-propagated grandchildren: parent answers {stored}, \
                      its children list {counted}",
+                ));
+            }
+            if !failed && allocated.saturating_sub(rows) > widen(reported) {
+                ledger::violation(format!(
+                    "undercounted explosion: the parent answers {reported} B, its listing \
+                     allocated {allocated} B beside {rows} B of yielded rows",
                 ));
             }
         }
