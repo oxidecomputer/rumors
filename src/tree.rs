@@ -383,8 +383,7 @@ impl<T> Tree<T> {
     ///
     /// Deliberately excludes the root ceiling riding outside the nodes:
     /// that value is the greeting version, one per tree, priced outside
-    /// the per-node memory model. Test instrumentation; see
-    /// [`testing::max_bound_bytes`](crate::testing::max_bound_bytes).
+    /// the per-node memory model. Test instrumentation.
     #[cfg(test)]
     pub(crate) fn max_bound_bytes(&self) -> usize {
         self.root
