@@ -20,6 +20,7 @@ use tokio::io::{BufReader, duplex, split};
 use super::{COMPLETION_MARKER, SessionDefect, epilogue};
 use crate::error::Phase;
 use crate::observe::SessionHandle;
+use crate::testing::property::{NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::{MEMORY_CAPACITY, MemoryEnd, memory_connection};
 use crate::tree::mirror::{
     party,
@@ -56,7 +57,9 @@ proptest! {
     /// Complete marker bytes either confirm completion or report the exact
     /// invalid bytes as a protocol violation in the completion phase.
     #[test]
-    fn complete_markers_are_classified(bytes in prop_oneof![Just(COMPLETION_MARKER), any::<[u8; 2]>()]) {
+    fn complete_markers_are_classified(
+        bytes in prop_oneof![Just(COMPLETION_MARKER), any::<[u8; 2]>()],
+    ) {
         let mut reader = &bytes[..];
         let mut writer = tokio::io::sink();
         let result = pollster::block_on(epilogue(&mut reader, &mut writer, &SessionHandle::default()));
@@ -110,9 +113,10 @@ fn bytes_after_the_marker_stay_untouched() {
 ///
 /// The fixture uses the normal send and redact paths: redaction advances the
 /// frontier and leaves no tombstone, so sending and then redacting `events`
-/// messages leaves an empty root with an `events`-tick version.
-fn redacted_history_root(events: u64) -> tree::Root {
-    let donor = Peer::<u64>::seed();
+/// messages leaves an empty root with an `events`-tick version. The donor
+/// that builds it founds the network `network` names.
+fn redacted_history_root(network: NetworkSeed, events: u64) -> tree::Root {
+    let donor = network.peer::<u64>();
     donor
         .send_all(0..events)
         .expect("flat test payloads are within any depth limit");
@@ -170,9 +174,9 @@ async fn claim_bootstrap_with_root(
     Ok((party, Tree::from_root(root.into())))
 }
 
-/// A seeded provider holding `values`.
-fn provider_with(values: &[u64]) -> Peer<u64> {
-    let provider = Peer::<u64>::seed();
+/// A provider founding the network `network` names, holding `values`.
+fn provider_with(network: NetworkSeed, values: &[u64]) -> Peer<u64> {
+    let provider = network.peer::<u64>();
     provider
         .send_all(values.iter().copied())
         .expect("flat test payloads are within any depth limit");
@@ -184,142 +188,152 @@ fn party_of(provider: &Peer<u64>) -> Party {
     provider.inner.borrow().party.dangerously_alias()
 }
 
-/// A provider serving a bootstrap rejects a claimant whose greeting declares
-/// causal history: [`Error::Protocol`], nothing moved.
-///
-/// The declared version would otherwise drive the deletion-honoring filter
-/// as the claimant's causal frontier, making every dominated local subtree
-/// read as deleted-there — a claimant providing nothing while declaring a
-/// dominating version would empty the provider's replica. The rejection
-/// runs after the greeting and before the descent: the provider's content,
-/// version, and party are unchanged, the speculative bootstrap fork is
-/// re-joined, and the error names the claimed history's event floor.
-#[test]
-fn bootstrap_claimant_declaring_history_is_rejected() {
-    let provider = provider_with(&[1, 2, 3]);
-    let hash_before = provider.snapshot().hash();
-    let party_before = party_of(&provider);
-    let claimant_tree = Tree::<()>::from_root(redacted_history_root(8));
-    let claimed_min_events = claimant_tree.latest().min_ticks();
-    assert!(
-        provider.snapshot().latest() < claimant_tree.latest(),
-        "the claimed version dominates the provider's frontier",
-    );
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let provider_ref = &provider;
-    let (claim_out, first) = pollster::block_on(async {
-        let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
-        tokio::join!(
-            async move { claim_bootstrap_with_root(&mut a_end, claimant_tree.root).await },
-            async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
-        )
-    });
+    /// A provider serving a bootstrap rejects a claimant whose greeting declares
+    /// causal history: [`Error::Protocol`], nothing moved.
+    ///
+    /// The declared version would otherwise drive the deletion-honoring filter
+    /// as the claimant's causal frontier, making every dominated local subtree
+    /// read as deleted-there — a claimant providing nothing while declaring a
+    /// dominating version would empty the provider's replica. The rejection
+    /// runs after the greeting and before the descent: the provider's content,
+    /// version, and party are unchanged, the speculative bootstrap fork is
+    /// re-joined, and the error names the claimed history's event floor.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn bootstrap_claimant_declaring_history_is_rejected(network in network_seed()) {
+        let provider = provider_with(network, &[1, 2, 3]);
+        let hash_before = provider.snapshot().hash();
+        let party_before = party_of(&provider);
+        let claimant_tree = Tree::<()>::from_root(redacted_history_root(network, 8));
+        let claimed_min_events = claimant_tree.latest().min_ticks();
+        assert!(
+            provider.snapshot().latest() < claimant_tree.latest(),
+            "the claimed version dominates the provider's frontier",
+        );
 
-    match first {
-        Err(Error::Protocol(error)) => {
-            let Some(SessionDefect::BootstrapHistory {
-                claimed_min_events: reported,
-            }) = error.source.downcast_ref::<SessionDefect>()
-            else {
-                panic!("missing claimant diagnostic: {error:?}");
-            };
-            assert_eq!(*reported, claimed_min_events);
-        }
-        other => panic!("the provider rejects the claimant, got {other:?}"),
-    }
-    assert!(
-        claim_out.is_err(),
-        "the rejected claimant's session fails, got {claim_out:?}",
-    );
-    assert_eq!(
-        provider.snapshot().hash(),
-        hash_before,
-        "the provider's content is unchanged",
-    );
-    assert_eq!(
-        party_of(&provider),
-        party_before,
-        "the speculative bootstrap fork snapped back in place",
-    );
-}
+        let provider_ref = &provider;
+        let (claim_out, first) = pollster::block_on(async {
+            let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+            tokio::join!(
+                async move { claim_bootstrap_with_root(&mut a_end, claimant_tree.root).await },
+                async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
+            )
+        });
 
-/// A joining peer rejects a mutual-bootstrap counterparty whose greeting
-/// declares causal history, instead of bailing as if the encounter were two
-/// newborns.
-///
-/// The newborn requirement binds every bootstrap claimant, and in a
-/// mutual-bootstrap encounter the joining side is the side facing one: it
-/// surfaces the same [`Error::Protocol`] a serving provider would, rather than
-/// certifying a clean mutual bail against a counterparty that is neither
-/// newborn nor a provider.
-#[test]
-fn mutual_bootstrap_counterparty_with_history_is_rejected() {
-    let (join_out, claim_out) = pollster::block_on(async {
-        let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
-        tokio::join!(
-            async move { Peer::<u64>::bootstrap().join(a_end.read, a_end.write).await },
-            async move { claim_bootstrap_with_root(&mut b_end, redacted_history_root(8)).await },
-        )
-    });
-
-    assert!(
-        matches!(
-            join_out,
-            crate::Joined::Failed {
-                error: Error::Protocol(_),
-                ..
+        match first {
+            Err(Error::Protocol(error)) => {
+                let Some(SessionDefect::BootstrapHistory {
+                    claimed_min_events: reported,
+                }) = error.source.downcast_ref::<SessionDefect>()
+                else {
+                    panic!("missing claimant diagnostic: {error:?}");
+                };
+                assert_eq!(*reported, claimed_min_events);
             }
-        ),
-        "the joining side rejects the counterparty's claimed history, got {join_out:?}",
-    );
-    assert!(
-        claim_out.is_err(),
-        "the rejected counterparty's session fails, got {claim_out:?}",
-    );
-}
+            other => panic!("the provider rejects the claimant, got {other:?}"),
+        }
+        assert!(
+            claim_out.is_err(),
+            "the rejected claimant's session fails, got {claim_out:?}",
+        );
+        assert_eq!(
+            provider.snapshot().hash(),
+            hash_before,
+            "the provider's content is unchanged",
+        );
+        assert_eq!(
+            party_of(&provider),
+            party_before,
+            "the speculative bootstrap fork snapped back in place",
+        );
+    }
 
-/// A rejected claimant costs the provider nothing: a newborn claimant
-/// over a fresh connection afterwards succeeds and replicates the full
-/// content.
-///
-/// The rejection's recovery contract is the claimant's alone — the
-/// provider needs no repair beyond a fresh connection, and a newborn
-/// claimant (empty greeting version) is served exactly as before.
-#[test]
-fn rejected_claimant_leaves_the_provider_serviceable() {
-    let provider = provider_with(&[1, 2, 3]);
+    /// A joining peer rejects a mutual-bootstrap counterparty whose greeting
+    /// declares causal history, instead of bailing as if the encounter were two
+    /// newborns.
+    ///
+    /// The newborn requirement binds every bootstrap claimant, and in a
+    /// mutual-bootstrap encounter the joining side is the side facing one: it
+    /// surfaces the same [`Error::Protocol`] a serving provider would, rather than
+    /// certifying a clean mutual bail against a counterparty that is neither
+    /// newborn nor a provider.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn mutual_bootstrap_counterparty_with_history_is_rejected(network in network_seed()) {
+        let (join_out, claim_out) = pollster::block_on(async {
+            let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            tokio::join!(
+                async move { Peer::<u64>::bootstrap().join(a_end.read, a_end.write).await },
+                async move { claim_bootstrap_with_root(&mut b_end, redacted_history_root(network, 8)).await },
+            )
+        });
 
-    let provider_ref = &provider;
-    pollster::block_on(async {
-        let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
-        let (claim_out, provider_out) = tokio::join!(
-            async move { claim_bootstrap_with_root(&mut a_end, redacted_history_root(8)).await },
-            async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
+        assert!(
+            matches!(
+                join_out,
+                crate::Joined::Failed {
+                    error: Error::Protocol(_),
+                    ..
+                }
+            ),
+            "the joining side rejects the counterparty's claimed history, got {join_out:?}",
         );
         assert!(
-            matches!(provider_out, Err(Error::Protocol(_))),
-            "the provider rejects the claimant, got {provider_out:?}",
+            claim_out.is_err(),
+            "the rejected counterparty's session fails, got {claim_out:?}",
         );
-        assert!(claim_out.is_err());
-    });
+    }
 
-    let witness = pollster::block_on(async {
-        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
-        let (witness_out, provider_out) = tokio::join!(
-            Peer::<u64>::bootstrap().join(&mut a_end.read, &mut a_end.write),
-            provider.gossip_once(&mut b_end.read, &mut b_end.write),
+    /// A rejected claimant costs the provider nothing: a newborn claimant
+    /// over a fresh connection afterwards succeeds and replicates the full
+    /// content.
+    ///
+    /// The rejection's recovery contract is the claimant's alone — the
+    /// provider needs no repair beyond a fresh connection, and a newborn
+    /// claimant (empty greeting version) is served exactly as before.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn rejected_claimant_leaves_the_provider_serviceable(network in network_seed()) {
+        let provider = provider_with(network, &[1, 2, 3]);
+
+        let provider_ref = &provider;
+        pollster::block_on(async {
+            let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+            let (claim_out, provider_out) = tokio::join!(
+                async move { claim_bootstrap_with_root(&mut a_end, redacted_history_root(network, 8)).await },
+                async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
+            );
+            assert!(
+                matches!(provider_out, Err(Error::Protocol(_))),
+                "the provider rejects the claimant, got {provider_out:?}",
+            );
+            assert!(claim_out.is_err());
+        });
+
+        let witness = pollster::block_on(async {
+            let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            let (witness_out, provider_out) = tokio::join!(
+                Peer::<u64>::bootstrap().join(&mut a_end.read, &mut a_end.write),
+                provider.gossip_once(&mut b_end.read, &mut b_end.write),
+            );
+            provider_out.expect("the provider serves the newborn claimant");
+            match witness_out {
+                crate::Joined::Joined { peer, .. } => peer,
+                _ => panic!("the provider donates"),
+            }
+        });
+        assert_eq!(
+            witness.snapshot().len(),
+            3,
+            "the newborn claimant replicates the provider's full content",
         );
-        provider_out.expect("the provider serves the newborn claimant");
-        match witness_out {
-            crate::Joined::Joined { peer, .. } => peer,
-            _ => panic!("the provider donates"),
-        }
-    });
-    assert_eq!(
-        witness.snapshot().len(),
-        3,
-        "the newborn claimant replicates the provider's full content",
-    );
+    }
 }
 
 proptest! {
@@ -491,81 +505,87 @@ impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldCompletion<
     }
 }
 
-/// Deadline expiry at completion reports failure without undoing the
-/// complete local commit. A fresh connection can then confirm convergence.
-#[test]
-fn completion_deadline_preserves_the_local_commit() {
-    use futures::FutureExt;
-    use std::future::{Future, poll_fn};
-    use std::sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    };
-    use std::task::Poll;
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
-    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let (served, joined) = run_to_quiescence(async {
-        futures::join!(
-            a.gossip_once(&mut near.read, &mut near.write),
-            Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)
-        )
-    })
-    .unwrap();
-    served.unwrap();
-    let crate::Joined::Joined { peer, .. } = joined else {
-        panic!("bootstrap succeeds")
-    };
-    let b = peer.into_rumors();
-    a.send(1).unwrap();
-    b.send(2).unwrap();
+    /// Deadline expiry at completion reports failure without undoing the
+    /// complete local commit. A fresh connection can then confirm convergence.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn completion_deadline_preserves_the_local_commit(network in network_seed()) {
+        use futures::FutureExt;
+        use std::future::{Future, poll_fn};
+        use std::sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+        };
+        use std::task::Poll;
 
-    let (expire, deadline) = futures::channel::oneshot::channel();
-    let deadline = Mutex::new(Some(deadline));
-    let a = pollster::block_on(a.try_into_peer())
-        .unwrap()
-        .session_deadline(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
-        .into_rumors();
-    let reached = Arc::new(AtomicBool::new(false));
-    let mut far_write = HoldCompletion {
-        inner: far.write,
-        reached: reached.clone(),
-    };
-    let mut left = Box::pin(a.gossip_once(&mut near.read, &mut near.write));
-    let mut right = Box::pin(b.gossip_once(&mut far.read, &mut far_write));
-    run_to_quiescence(poll_fn(|cx| {
-        assert!(left.as_mut().poll(cx).is_pending());
-        assert!(right.as_mut().poll(cx).is_pending());
-        if reached.load(Ordering::SeqCst) && a.snapshot().len() == 2 {
-            Poll::Ready(())
-        } else {
-            Poll::Pending
-        }
-    }))
-    .expect("reconciliation reaches the held completion marker");
-    assert_eq!(a.snapshot().hash(), b.snapshot().hash());
-    assert_eq!(a.snapshot().len(), 2);
-    expire.send(()).unwrap();
-    assert!(matches!(
-        run_to_quiescence(left).unwrap(),
-        Err(Error::DeadlineExceeded)
-    ));
-    drop(right);
+        let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let (served, joined) = run_to_quiescence(async {
+            futures::join!(
+                a.gossip_once(&mut near.read, &mut near.write),
+                Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)
+            )
+        })
+        .unwrap();
+        served.unwrap();
+        let crate::Joined::Joined { peer, .. } = joined else {
+            panic!("bootstrap succeeds")
+        };
+        let b = peer.into_rumors();
+        a.send(1).unwrap();
+        b.send(2).unwrap();
 
-    // The peer's content is intact; remove the test's single-use deadline
-    // factory before checking ordinary gossip over a fresh connection.
-    let a = pollster::block_on(a.try_into_peer())
-        .unwrap()
-        .session_deadline(std::future::pending)
-        .into_rumors();
-    let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
-    let (left, right) = run_to_quiescence(async {
-        futures::join!(
-            a.gossip_once(&mut near.read, &mut near.write),
-            b.gossip_once(&mut far.read, &mut far.write)
-        )
-    })
-    .unwrap();
-    left.unwrap();
-    right.unwrap();
+        let (expire, deadline) = futures::channel::oneshot::channel();
+        let deadline = Mutex::new(Some(deadline));
+        let a = pollster::block_on(a.try_into_peer())
+            .unwrap()
+            .session_deadline(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
+            .into_rumors();
+        let reached = Arc::new(AtomicBool::new(false));
+        let mut far_write = HoldCompletion {
+            inner: far.write,
+            reached: reached.clone(),
+        };
+        let mut left = Box::pin(a.gossip_once(&mut near.read, &mut near.write));
+        let mut right = Box::pin(b.gossip_once(&mut far.read, &mut far_write));
+        run_to_quiescence(poll_fn(|cx| {
+            assert!(left.as_mut().poll(cx).is_pending());
+            assert!(right.as_mut().poll(cx).is_pending());
+            if reached.load(Ordering::SeqCst) && a.snapshot().len() == 2 {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        }))
+        .expect("reconciliation reaches the held completion marker");
+        assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+        assert_eq!(a.snapshot().len(), 2);
+        expire.send(()).unwrap();
+        assert!(matches!(
+            run_to_quiescence(left).unwrap(),
+            Err(Error::DeadlineExceeded)
+        ));
+        drop(right);
+
+        // The peer's content is intact; remove the test's single-use deadline
+        // factory before checking ordinary gossip over a fresh connection.
+        let a = pollster::block_on(a.try_into_peer())
+            .unwrap()
+            .session_deadline(std::future::pending)
+            .into_rumors();
+        let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
+        let (left, right) = run_to_quiescence(async {
+            futures::join!(
+                a.gossip_once(&mut near.read, &mut near.write),
+                b.gossip_once(&mut far.read, &mut far.write)
+            )
+        })
+        .unwrap();
+        left.unwrap();
+        right.unwrap();
+    }
 }

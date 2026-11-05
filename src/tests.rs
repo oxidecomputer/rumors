@@ -13,6 +13,9 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::observe::Attachment;
+use crate::testing::property::{
+    FLEET_DIVISOR, LOCAL_DIVISOR, NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed,
+};
 use crate::testing::{
     AdversarialRead, AdversarialWrite, IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide,
     MEMORY_CAPACITY, PREAMBLE_LEN, memory_connection, run_to_quiescence, wrap_io,
@@ -70,135 +73,147 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
     })
 }
 
-/// A peer that absorbs a retiree whose party **overlaps** its own rejects it
-/// with [`Error::Protocol`] rather than corrupting its clock.
-///
-/// A correct universe never produces this (live parties are always disjoint);
-/// we forge it with [`Party::dangerously_alias`] to check that absorption
-/// detects a peer's violation of party disjointness.
-#[test]
-fn overlapping_retiree_party_is_rejected() {
-    let survivor = Peer::<u64>::seed();
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    // Forge a retiree sharing the survivor's network and its *exact* party
-    // region (not a disjoint fork), with an empty tree so its version equals the
-    // survivor's and the survivor takes the absorb branch.
-    let forged = Peer::<u64> {
-        codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
-        gossip_policy: Default::default(),
-        network: survivor.network,
-        sync_memory_budget: survivor.sync_memory_budget,
-        run_budget: survivor.run_budget,
-        inner: watch::Sender::new(Inner::new(
+    /// A peer that absorbs a retiree whose party **overlaps** its own rejects it
+    /// with [`Error::Protocol`] rather than corrupting its clock.
+    ///
+    /// A correct universe never produces this (live parties are always disjoint);
+    /// we forge it with [`Party::dangerously_alias`] to check that absorption
+    /// detects a peer's violation of party disjointness.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn overlapping_retiree_party_is_rejected(network in network_seed()) {
+        let survivor = network.peer::<u64>();
+
+        // Forge a retiree sharing the survivor's network and its *exact* party
+        // region (not a disjoint fork), with an empty tree so its version equals the
+        // survivor's and the survivor takes the absorb branch.
+        let forged = Peer::<u64> {
+            codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            gossip_policy: Default::default(),
+            network: survivor.network,
+            sync_memory_budget: survivor.sync_memory_budget,
+            run_budget: survivor.run_budget,
+            inner: watch::Sender::new(Inner::new(
+                party_of(&survivor),
+                Tree::from_root(Root::default()),
+            )),
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            observe: Attachment::default(),
+        };
+
+        // Each side's future owns its halves: the absorber rejects the overlap
+        // *before* writing its completion marker, so only its halves' drop lets the
+        // forged retiree's marker read observe the abort as EOF.
+        let (retire_out, survivor_out) = pollster::block_on(async {
+            let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+            tokio::join!(
+                async move { forged.retire(a_end.read, a_end.write).await },
+                async move { survivor.gossip_once(b_end.read, b_end.write).await },
+            )
+        });
+
+        assert!(
+            matches!(survivor_out, Err(Error::Protocol(_))),
+            "absorbing an overlapping party must surface PartyOverlap, got {survivor_out:?}"
+        );
+        // The absorber aborted pre-marker, so the forged retiree's party is in
+        // limbo: `Uncertain`, never a false `Retired`.
+        assert!(
+            matches!(retire_out, Retire::Uncertain { .. }),
+            "an unconfirmed in-flight party must consume the retiree, got {retire_out:?}"
+        );
+    }
+
+    /// Retiring every fork back into the peer they descended from reclaims the whole
+    /// id-space with no leak: the survivor's party normalizes back to exactly
+    /// [`Party::seed`] (`"1"`, the whole interval).
+    ///
+    /// Each bootstrap hands a child a disjoint slice of the seed's region; each
+    /// `retire` hands a slice back, and a leak anywhere would leave the reunited
+    /// party short of the whole.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn retiring_all_forks_reconstitutes_the_seed_party(network in network_seed()) {
+        let survivor = network.peer::<u64>();
+        // Each child is a party-disjoint fork created by serving a bootstrap.
+        // All are empty, so they share the seed's version, are reflexively dominated,
+        // and retire with no prior gossip.
+        let (survivor, c1) = bootstrap_from(survivor);
+        let (survivor, c2) = bootstrap_from(survivor);
+        let (survivor, c3) = bootstrap_from(survivor);
+
+        let survivor = retire_child_into(survivor, c3);
+        let survivor = retire_child_into(survivor, c2);
+        let survivor = retire_child_into(survivor, c1);
+
+        assert_eq!(
             party_of(&survivor),
-            Tree::from_root(Root::default()),
-        )),
-        bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-        observe: Attachment::default(),
-    };
+            Party::seed(),
+            "retiring all forks back must reconstitute the whole id-space",
+        );
+    }
 
-    // Each side's future owns its halves: the absorber rejects the overlap
-    // *before* writing its completion marker, so only its halves' drop lets the
-    // forged retiree's marker read observe the abort as EOF.
-    let (retire_out, survivor_out) = pollster::block_on(async {
-        let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
-        tokio::join!(
-            async move { forged.retire(a_end.read, a_end.write).await },
-            async move { survivor.gossip_once(b_end.read, b_end.write).await },
-        )
-    });
+    /// Bootstrap creates a fresh party by forking the provider's; retiring that
+    /// peer back must reclaim exactly that forked region.
+    ///
+    /// Provider with real content, bootstrap (a wire fork), then retire the
+    /// newcomer home: the provider's party normalizes back to [`Party::seed`],
+    /// proving the bootstrap hand-off and the retire commit are jointly leak-free.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn bootstrap_then_retire_reconstitutes_the_seed_party(network in network_seed()) {
+        let provider = with_messages(network.peer::<u64>(), &[1, 2, 3]);
 
-    assert!(
-        matches!(survivor_out, Err(Error::Protocol(_))),
-        "absorbing an overlapping party must surface PartyOverlap, got {survivor_out:?}"
-    );
-    // The absorber aborted pre-marker, so the forged retiree's party is in
-    // limbo: `Uncertain`, never a false `Retired`.
-    assert!(
-        matches!(retire_out, Retire::Uncertain { .. }),
-        "an unconfirmed in-flight party must consume the retiree, got {retire_out:?}"
-    );
-}
+        let (provider, newcomer) = bootstrap_from(provider);
+        // The newcomer pulled all content and is a causal fork (equal version), so
+        // the provider reflexively dominates it and absorbs it on retire.
+        let provider = retire_child_into(provider, newcomer);
 
-/// Retiring every fork back into the peer they descended from reclaims the whole
-/// id-space with no leak: the survivor's party normalizes back to exactly
-/// [`Party::seed`] (`"1"`, the whole interval).
-///
-/// Each bootstrap hands a child a disjoint slice of the seed's region; each
-/// `retire` hands a slice back, and a leak anywhere would leave the reunited
-/// party short of the whole.
-#[test]
-fn retiring_all_forks_reconstitutes_the_seed_party() {
-    let survivor = Peer::<u64>::seed();
-    // Each child is a party-disjoint fork created by serving a bootstrap.
-    // All are empty, so they share the seed's version, are reflexively dominated,
-    // and retire with no prior gossip.
-    let (survivor, c1) = bootstrap_from(survivor);
-    let (survivor, c2) = bootstrap_from(survivor);
-    let (survivor, c3) = bootstrap_from(survivor);
+        assert_eq!(
+            party_of(&provider),
+            Party::seed(),
+            "retiring a bootstrapped peer back must reconstitute the whole id-space",
+        );
+    }
 
-    let survivor = retire_child_into(survivor, c3);
-    let survivor = retire_child_into(survivor, c2);
-    let survivor = retire_child_into(survivor, c1);
+    /// A retiree whose counterparty is *also* retiring is declined cleanly after
+    /// the preamble.
+    ///
+    /// Both come back intact, parties untouched, and a clean retire of one into the
+    /// other afterwards still reconstitutes the whole id-space.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn mutual_retire_declines_both(network in network_seed()) {
+        let survivor = network.peer::<u64>();
+        let (survivor, child) = bootstrap_from(survivor);
 
-    assert_eq!(
-        party_of(&survivor),
-        Party::seed(),
-        "retiring all forks back must reconstitute the whole id-space",
-    );
-}
+        let (a_out, b_out) = pollster::block_on(async {
+            let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+            tokio::join!(
+                survivor.retire(a_end.read, a_end.write),
+                child.retire(b_end.read, b_end.write)
+            )
+        });
+        let (Retire::Declined { peer: survivor, .. }, Retire::Declined { peer: child, .. }) =
+            (a_out, b_out)
+        else {
+            panic!("mutual retirement must decline both sides intact");
+        };
 
-/// Bootstrap creates a fresh party by forking the provider's; retiring that
-/// peer back must reclaim exactly that forked region.
-///
-/// Provider with real content, bootstrap (a wire fork), then retire the
-/// newcomer home: the provider's party normalizes back to [`Party::seed`],
-/// proving the bootstrap hand-off and the retire commit are jointly leak-free.
-#[test]
-fn bootstrap_then_retire_reconstitutes_the_seed_party() {
-    let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
-
-    let (provider, newcomer) = bootstrap_from(provider);
-    // The newcomer pulled all content and is a causal fork (equal version), so
-    // the provider reflexively dominates it and absorbs it on retire.
-    let provider = retire_child_into(provider, newcomer);
-
-    assert_eq!(
-        party_of(&provider),
-        Party::seed(),
-        "retiring a bootstrapped peer back must reconstitute the whole id-space",
-    );
-}
-
-/// A retiree whose counterparty is *also* retiring is declined cleanly after
-/// the preamble.
-///
-/// Both come back intact, parties untouched, and a clean retire of one into the
-/// other afterwards still reconstitutes the whole id-space.
-#[test]
-fn mutual_retire_declines_both() {
-    let survivor = Peer::<u64>::seed();
-    let (survivor, child) = bootstrap_from(survivor);
-
-    let (a_out, b_out) = pollster::block_on(async {
-        let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
-        tokio::join!(
-            survivor.retire(a_end.read, a_end.write),
-            child.retire(b_end.read, b_end.write)
-        )
-    });
-    let (Retire::Declined { peer: survivor, .. }, Retire::Declined { peer: child, .. }) =
-        (a_out, b_out)
-    else {
-        panic!("mutual retirement must decline both sides intact");
-    };
-
-    let survivor = retire_child_into(survivor, child);
-    assert_eq!(
-        party_of(&survivor),
-        Party::seed(),
-        "a declined retire must leave both parties whole",
-    );
+        let survivor = retire_child_into(survivor, child);
+        assert_eq!(
+            party_of(&survivor),
+            Party::seed(),
+            "a declined retire must leave both parties whole",
+        );
+    }
 }
 
 // ---- fault injection: severing the wire mid-retire ------------------------
@@ -282,115 +297,125 @@ fn severed_retire(
     })
 }
 
-/// A session severed during the reconciliation descent costs nothing.
-///
-/// The trailing party frame was provably never sent, so the retiree comes back
-/// intact ([`Retire::Recovered`]) — same content, still-live party — and a
-/// subsequent clean retire of the recovered set reconstitutes the seed's whole
-/// identity space. This pins retire's fork-last ordering: the identity is
-/// never in limbo during the descent.
-#[test]
-fn severed_descent_recovers_the_retiree() {
-    let survivor = Peer::<u64>::seed();
-    let (mut survivor, child) = bootstrap_from(survivor);
-    // Diverge: the child holds content the survivor lacks, so the retire
-    // session must descend, and its frames overflow the budget's slack.
-    let child = with_messages(child, &(0..32).collect::<Vec<u64>>());
-    let hash = child.snapshot().hash();
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    // Admit exactly the preamble and greeting, plus a slack smaller than any
-    // descent frame: the cut provably lands after the handshake completes and
-    // before the party hand-off.
-    let budget = PREAMBLE_LEN + greeting_frame_len(&child) + 16;
-    let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
+    /// A session severed during the reconciliation descent costs nothing.
+    ///
+    /// The trailing party frame was provably never sent, so the retiree comes back
+    /// intact ([`Retire::Recovered`]) — same content, still-live party — and a
+    /// subsequent clean retire of the recovered set reconstitutes the seed's whole
+    /// identity space. This pins retire's fork-last ordering: the identity is
+    /// never in limbo during the descent.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn severed_descent_recovers_the_retiree(network in network_seed()) {
+        let survivor = network.peer::<u64>();
+        let (mut survivor, child) = bootstrap_from(survivor);
+        // Diverge: the child holds content the survivor lacks, so the retire
+        // session must descend, and its frames overflow the budget's slack.
+        let child = with_messages(child, &(0..32).collect::<Vec<u64>>());
+        let hash = child.snapshot().hash();
 
-    assert!(
-        peer_out.is_err(),
-        "the severed wire fails the absorbing side too"
-    );
-    let Retire::Recovered { peer: child, .. } = child_out else {
-        panic!("a pre-hand-off failure must recover the retiree, got {child_out:?}");
-    };
-    assert_eq!(
-        child.snapshot().hash(),
-        hash,
-        "the recovered retiree's content is intact"
-    );
+        // Admit exactly the preamble and greeting, plus a slack smaller than any
+        // descent frame: the cut provably lands after the handshake completes and
+        // before the party hand-off.
+        let budget = PREAMBLE_LEN + greeting_frame_len(&child) + 16;
+        let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 
-    // The recovered retiree still owns its live region: a clean retire (whose
-    // gossip round re-carries the divergent content) succeeds. The survivor's
-    // party then normalizes back to the whole identity space.
-    let survivor = retire_child_into(survivor, child);
-    assert_eq!(
-        party_of(&survivor),
-        Party::seed(),
-        "a severed-then-retried retire must reconstitute the whole id-space",
-    );
-}
+        assert!(
+            peer_out.is_err(),
+            "the severed wire fails the absorbing side too"
+        );
+        let Retire::Recovered { peer: child, .. } = child_out else {
+            panic!("a pre-hand-off failure must recover the retiree, got {child_out:?}");
+        };
+        assert_eq!(
+            child.snapshot().hash(),
+            hash,
+            "the recovered retiree's content is intact"
+        );
 
-/// A session severed as the retiree writes its completion marker still consumes
-/// the retiree.
-///
-/// The party frame was delivered whole, so the absorber may well hold the
-/// identity: [`Retire::Recovered`] here would let the same identity live
-/// twice, and [`Retire::Retired`] would overstate (the peer's commit was
-/// never confirmed). The only safe outcome is [`Retire::Uncertain`], and
-/// its error identifies [`Phase::Completion`](crate::error::Phase::Completion).
-/// Failure at this point must preserve the uncertain retirement outcome;
-/// the donated identity cannot be recovered safely.
-#[test]
-fn severed_completion_marker_is_uncertain() {
-    let survivor = Peer::<u64>::seed();
-    let (mut survivor, child) = bootstrap_from(survivor);
+        // The recovered retiree still owns its live region: a clean retire (whose
+        // gossip round re-carries the divergent content) succeeds. The survivor's
+        // party then normalizes back to the whole identity space.
+        let survivor = retire_child_into(survivor, child);
+        assert_eq!(
+            party_of(&survivor),
+            Party::seed(),
+            "a severed-then-retried retire must reconstitute the whole id-space",
+        );
+    }
 
-    // Both peers are empty and converged. This budget admits the preamble,
-    // greeting, and party item, then fails the write of the completion marker.
-    let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len(&child);
-    let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
+    /// A session severed as the retiree writes its completion marker still consumes
+    /// the retiree.
+    ///
+    /// The party frame was delivered whole, so the absorber may well hold the
+    /// identity: [`Retire::Recovered`] here would let the same identity live
+    /// twice, and [`Retire::Retired`] would overstate (the peer's commit was
+    /// never confirmed). The only safe outcome is [`Retire::Uncertain`], and
+    /// its error identifies [`Phase::Completion`](crate::error::Phase::Completion).
+    /// Failure at this point must preserve the uncertain retirement outcome;
+    /// the donated identity cannot be recovered safely.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn severed_completion_marker_is_uncertain(network in network_seed()) {
+        let survivor = network.peer::<u64>();
+        let (mut survivor, child) = bootstrap_from(survivor);
 
-    let Retire::Uncertain { error } = child_out else {
-        panic!("a failure on the completion marker must consume the retiree, got {child_out:?}");
-    };
-    assert!(
-        matches!(error, Error::Transport(ref error) if error.context.phase == crate::error::Phase::Completion),
-        "the post-hand-off failure is the distinguished post-commit error, got {error:?}"
-    );
-    // The absorber committed the party before its own epilogue read hit the
-    // severed wire: it reports the same post-commit residue.
-    assert!(
-        matches!(peer_out, Err(Error::Transport(ref error)) if error.context.phase == crate::error::Phase::Completion),
-        "the absorber's confirmation of the retiree's completion fails, got {peer_out:?}"
-    );
-    drop(survivor);
-}
+        // Both peers are empty and converged. This budget admits the preamble,
+        // greeting, and party item, then fails the write of the completion marker.
+        let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len(&child);
+        let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 
-/// A session severed on the trailing party frame itself leaves delivery
-/// irreducibly uncertain.
-///
-/// The retiree cannot know whether the peer received its
-/// party, so it is consumed ([`Retire::Uncertain`]) rather than risk
-/// duplicating the region by surviving alongside a delivered copy.
-#[test]
-fn severed_party_frame_is_uncertain() {
-    let survivor = Peer::<u64>::seed();
-    let (mut survivor, child) = bootstrap_from(survivor);
+        let Retire::Uncertain { error } = child_out else {
+            panic!("a failure on the completion marker must consume the retiree, got {child_out:?}");
+        };
+        assert!(
+            matches!(error, Error::Transport(ref error) if error.context.phase == crate::error::Phase::Completion),
+            "the post-hand-off failure is the distinguished post-commit error, got {error:?}"
+        );
+        // The absorber committed the party before its own epilogue read hit the
+        // severed wire: it reports the same post-commit residue.
+        assert!(
+            matches!(peer_out, Err(Error::Transport(ref error)) if error.context.phase == crate::error::Phase::Completion),
+            "the absorber's confirmation of the retiree's completion fails, got {peer_out:?}"
+        );
+        drop(survivor);
+    }
 
-    // Both empty and converged, so the retiree's outgoing bytes are exactly
-    // preamble + greeting + party frame + completion marker. The budget admits
-    // the first two to the byte, so the party frame is the write that fails
-    // (and the trailing marker is never reached).
-    let budget = PREAMBLE_LEN + greeting_frame_len(&child);
-    let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
+    /// A session severed on the trailing party frame itself leaves delivery
+    /// irreducibly uncertain.
+    ///
+    /// The retiree cannot know whether the peer received its
+    /// party, so it is consumed ([`Retire::Uncertain`]) rather than risk
+    /// duplicating the region by surviving alongside a delivered copy.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn severed_party_frame_is_uncertain(network in network_seed()) {
+        let survivor = network.peer::<u64>();
+        let (mut survivor, child) = bootstrap_from(survivor);
 
-    assert!(
-        matches!(child_out, Retire::Uncertain { .. }),
-        "a failure on the party frame itself must consume the retiree, got {child_out:?}"
-    );
-    assert!(
-        peer_out.is_err(),
-        "the absorber never receives the promised party frame"
-    );
-    drop(survivor);
+        // Both empty and converged, so the retiree's outgoing bytes are exactly
+        // preamble + greeting + party frame + completion marker. The budget admits
+        // the first two to the byte, so the party frame is the write that fails
+        // (and the trailing marker is never reached).
+        let budget = PREAMBLE_LEN + greeting_frame_len(&child);
+        let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
+
+        assert!(
+            matches!(child_out, Retire::Uncertain { .. }),
+            "a failure on the party frame itself must consume the retiree, got {child_out:?}"
+        );
+        assert!(
+            peer_out.is_err(),
+            "the absorber never receives the promised party frame"
+        );
+        drop(survivor);
+    }
 }
 
 // ---- fault injection: cutting the wire across a bootstrap hand-off -------
@@ -406,14 +431,17 @@ fn joined_party<R, W>(joined: crate::Joined<u64, R, W>) -> Option<Party> {
     }
 }
 
-/// One bootstrap from a fresh seed holding three messages, over a connection
-/// whose joiner-side halves fail as `fault` says.
+/// One bootstrap from a fresh peer of `network` holding three messages, over
+/// a connection whose joiner-side halves fail as `fault` says.
 ///
 /// Returns the provider after its session, the joiner's party if the join
 /// returned a peer, and the joiner's transport report: how many of the
 /// provider's bytes it read, and how many of its own it wrote.
-fn cut_bootstrap(fault: Option<IoFault>) -> (Peer<u64>, Option<Party>, crate::testing::IoReport) {
-    let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
+fn cut_bootstrap(
+    network: NetworkSeed,
+    fault: Option<IoFault>,
+) -> (Peer<u64>, Option<Party>, crate::testing::IoReport) {
+    let provider = with_messages(network.peer::<u64>(), &[1, 2, 3]);
     pollster::block_on(async move {
         let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
         let plan = IoPlan {
@@ -432,58 +460,65 @@ fn cut_bootstrap(fault: Option<IoFault>) -> (Peer<u64>, Option<Party>, crate::te
     })
 }
 
-/// Cutting the wire at any point of a bootstrap never gives one identity to
-/// both sides, and a joiner that has received its whole party keeps it.
-///
-/// The cut falls after every prefix of the provider's bytes as the joiner
-/// reads them, and after every prefix of the joiner's own bytes as it writes
-/// them. At every cut the provider's party and the joiner's are disjoint.
-/// Once the joiner has read the whole party item, which is everything the
-/// provider sends but its two-byte completion marker, it returns its peer,
-/// and the two parties together are the seed's whole identity: nothing is
-/// stranded. A cut inside the hand-off window, after the provider began
-/// sending the party and before the joiner holds all of it, can strand the
-/// fork, but never duplicates it.
-#[test]
-fn cut_bootstrap_never_duplicates_and_keeps_a_received_party() {
-    let (_, clean, report) = cut_bootstrap(None);
-    assert!(clean.is_some(), "an uncut bootstrap joins");
-    let party_end = report.read_bytes - crate::peer::COMPLETION_MARKER.len();
-    let cuts = (0..=report.read_bytes)
-        .map(|after| (IoOperation::Read, after))
-        .chain((0..=report.write_bytes).map(|after| (IoOperation::Write, after)));
-    let mut kept_after_failure = 0;
-    for (operation, after) in cuts {
-        let fault = IoFault {
-            operation,
-            after,
-            unit: IoFaultUnit::Bytes,
-        };
-        let (provider, joiner, cut) = cut_bootstrap(Some(fault));
-        let mut whole = party_of(&provider);
-        match joiner {
-            Some(joiner) => {
-                assert!(
-                    whole.join(joiner).is_ok(),
-                    "a {operation:?} cut after {after} bytes left one identity on both sides",
-                );
-                assert_eq!(
-                    whole,
-                    Party::seed(),
-                    "a {operation:?} cut after {after} bytes stranded identity the joiner holds a peer for",
-                );
-                kept_after_failure += usize::from(cut.injected.is_some());
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// Cutting the wire at any point of a bootstrap never gives one identity to
+    /// both sides, and a joiner that has received its whole party keeps it.
+    ///
+    /// The cut falls after every prefix of the provider's bytes as the joiner
+    /// reads them, and after every prefix of the joiner's own bytes as it writes
+    /// them. At every cut the provider's party and the joiner's are disjoint.
+    /// Once the joiner has read the whole party item, which is everything the
+    /// provider sends but its two-byte completion marker, it returns its peer,
+    /// and the two parties together are the seed's whole identity: nothing is
+    /// stranded. A cut inside the hand-off window, after the provider began
+    /// sending the party and before the joiner holds all of it, can strand the
+    /// fork, but never duplicates it.
+    ///
+    /// The claim holds for every network seed. Each case runs one bootstrap
+    /// for every byte the two sides exchange, so it takes the fleet divisor.
+    #[test]
+    fn cut_bootstrap_never_duplicates_and_keeps_a_received_party(network in network_seed()) {
+        let (_, clean, report) = cut_bootstrap(network, None);
+        assert!(clean.is_some(), "an uncut bootstrap joins");
+        let party_end = report.read_bytes - crate::peer::COMPLETION_MARKER.len();
+        let cuts = (0..=report.read_bytes)
+            .map(|after| (IoOperation::Read, after))
+            .chain((0..=report.write_bytes).map(|after| (IoOperation::Write, after)));
+        let mut kept_after_failure = 0;
+        for (operation, after) in cuts {
+            let fault = IoFault {
+                operation,
+                after,
+                unit: IoFaultUnit::Bytes,
+            };
+            let (provider, joiner, cut) = cut_bootstrap(network, Some(fault));
+            let mut whole = party_of(&provider);
+            match joiner {
+                Some(joiner) => {
+                    assert!(
+                        whole.join(joiner).is_ok(),
+                        "a {operation:?} cut after {after} bytes left one identity on both sides",
+                    );
+                    assert_eq!(
+                        whole,
+                        Party::seed(),
+                        "a {operation:?} cut after {after} bytes stranded identity the joiner holds a peer for",
+                    );
+                    kept_after_failure += usize::from(cut.injected.is_some());
+                }
+                None => assert!(
+                    cut.read_bytes < party_end,
+                    "a {operation:?} cut after {after} bytes dropped a party the joiner had read whole",
+                ),
             }
-            None => assert!(
-                cut.read_bytes < party_end,
-                "a {operation:?} cut after {after} bytes dropped a party the joiner had read whole",
-            ),
         }
+        assert!(
+            kept_after_failure > 0,
+            "some cut falls after the party arrived, so the kept-party arm is exercised",
+        );
     }
-    assert!(
-        kept_after_failure > 0,
-        "some cut falls after the party arrived, so the kept-party arm is exercised",
-    );
 }
 
 /// A writer that passes `budget` bytes through to `inner`, then accepts no
@@ -530,236 +565,254 @@ impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for StallAfter<W> {
     }
 }
 
-/// The seed of [`deadline_after_the_party_arrives_keeps_it`]'s providers'
-/// network.
-const DEADLINE_PROVIDER_SEED: u64 = 0x7374_616c_6c65_6421;
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-/// A joiner whose session deadline expires after its whole party has
-/// arrived keeps the party.
-///
-/// The deadline expires while the joiner waits for the provider's completion
-/// marker, and the join returns
-/// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed) carrying a peer with
-/// the provider's content and the deadline's error.
-///
-/// A clean bootstrap measures how many bytes the provider writes. A second
-/// provider, built identically from the same seeded network, then serves
-/// through a writer that passes every byte before its completion marker
-/// and stalls on the marker. Under a paused clock the joiner's deadline
-/// fires exactly when nothing else can run: after the party arrived.
-#[test]
-fn deadline_after_the_party_arrives_keeps_it() {
-    use rand::SeedableRng;
-    let provider = || {
-        let mut rng = rand_chacha::ChaChaRng::seed_from_u64(DEADLINE_PROVIDER_SEED);
-        with_messages(Peer::<u64>::seed_rng(&mut rng), &[1, 2, 3])
-    };
-    let clean = provider();
-    let provider_bytes = pollster::block_on(async {
-        let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
-        let (mut read, mut write, report) = wrap_io(
-            IoSide::Left,
-            IoPlan::default(),
-            a_end.read.into_inner(),
-            a_end.write,
-        );
-        let (served, joined) = tokio::join!(
-            clean.gossip_once(&mut read, &mut write),
-            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
-        );
-        served.expect("the measured bootstrap completes");
-        assert!(
-            joined_party(joined).is_some(),
-            "the measured bootstrap joins"
-        );
-        report.snapshot().write_bytes
-    });
-
-    let provider = provider();
-    let joined = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .start_paused(true)
-        .build()
-        .unwrap()
-        .block_on(async {
-            let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
-            let mut stalled = StallAfter {
-                inner: &mut a_end.write,
-                budget: provider_bytes - crate::peer::COMPLETION_MARKER.len(),
-            };
-            let serve = provider.gossip_once(&mut a_end.read, &mut stalled);
-            let join = Peer::<u64>::bootstrap()
-                .session_deadline(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
-                .join(&mut b_end.read, &mut b_end.write);
-            let joined = tokio::select! {
-                joined = join => joined,
-                _ = serve => panic!("the stalled provider cannot finish"),
-            };
-            match joined {
-                crate::Joined::Unconfirmed { peer, error, .. } => (peer, error),
-                other => panic!("a deadline after the party arrives keeps the peer, got {other:?}"),
-            }
+    /// A joiner whose session deadline expires after its whole party has
+    /// arrived keeps the party.
+    ///
+    /// The deadline expires while the joiner waits for the provider's completion
+    /// marker, and the join returns
+    /// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed) carrying a peer with
+    /// the provider's content and the deadline's error.
+    ///
+    /// A clean bootstrap measures how many bytes the provider writes. A second
+    /// provider, built identically from the same network seed, then serves
+    /// through a writer that passes every byte before its completion marker
+    /// and stalls on the marker. Under a paused clock the joiner's deadline
+    /// fires exactly when nothing else can run: after the party arrived.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn deadline_after_the_party_arrives_keeps_it(network in network_seed()) {
+        let provider = || with_messages(network.peer::<u64>(), &[1, 2, 3]);
+        let clean = provider();
+        let provider_bytes = pollster::block_on(async {
+            let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            let (mut read, mut write, report) = wrap_io(
+                IoSide::Left,
+                IoPlan::default(),
+                a_end.read.into_inner(),
+                a_end.write,
+            );
+            let (served, joined) = tokio::join!(
+                clean.gossip_once(&mut read, &mut write),
+                Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+            );
+            served.expect("the measured bootstrap completes");
+            assert!(
+                joined_party(joined).is_some(),
+                "the measured bootstrap joins"
+            );
+            report.snapshot().write_bytes
         });
-    let (peer, error) = joined;
-    assert!(matches!(error, Error::DeadlineExceeded), "got {error:?}");
-    assert_eq!(
-        peer.snapshot().len(),
-        3,
-        "the joiner holds the provider's content"
-    );
-    let mut whole = party_of(&provider);
-    assert!(
-        whole.join(party_of(&peer)).is_ok(),
-        "the parties are disjoint"
-    );
-    assert_eq!(
-        whole,
-        Party::seed(),
-        "the provider and joiner hold the whole identity"
-    );
-}
 
-/// An uncontained supply crossing a real peer session surfaces through
-/// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
-///
-/// The error is [`Error::Protocol`] carrying `UncontainedSupply`, and the
-/// replica's content is untouched.
-///
-/// This observes through [`Rumors::gossip`](crate::Rumors::gossip) the same
-/// rejection the mirror tests exercise directly. A local [`Tree::join`]
-/// builds the invalid store because session validation cannot guard an
-/// in-process join.
-#[test]
-fn uncontained_supply_fails_gossip() {
-    use crate::message::Message;
-    use crate::tree::mirror::streaming::materialized::Violation as MaterializedViolation;
-
-    let survivor = Peer::<u64>::seed();
-    let (survivor, child) = bootstrap_from(survivor);
-
-    // Causally concurrent divergence on both sides makes the session
-    // descends instead of short-circuiting on equal declared versions.
-    let receiver = with_messages(survivor, &[1]);
-    let poisoned = with_messages(child, &[2]);
-
-    // Poison the serving peer's store: the escaped leaf plants above the
-    // declared ceiling while leaving that ceiling unchanged, creating the
-    // store a nonconforming implementation would serve.
-    let base = poisoned.inner.borrow().tree.latest().clone();
-    let (escaped_root, _, escaped) =
-        crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
-    poisoned.inner.send_modify(|inner| {
-        inner.tree.join(Tree::from_root(escaped_root));
-    });
-    assert!(
-        !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),
-        "the planted leaf's version escapes the declared ceiling",
-    );
-
-    let receiver = receiver.into_rumors();
-    let before = receiver.snapshot().hash();
-
-    // The receiving side's own materialized participant diagnoses the
-    // violation mid-session, so the poisoned counterparty never reaches a
-    // session boundary; racing the two sides lets the receiver's typed
-    // error surface without waiting on the abandoned peer.
-    let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
-    let receiver_out = run_to_quiescence(async {
-        tokio::select! {
-            out = receiver.gossip_once(&mut a_end.read, &mut a_end.write) => out,
-            out = poisoned.gossip_once(&mut b_end.read, &mut b_end.write) => {
-                panic!("the poisoned side must not complete a session, got {out:?}")
-            }
-        }
-    })
-    .expect("the rejecting session becomes quiescent");
-    assert!(
-        matches!(
-            receiver_out,
-            Err(Error::Protocol(ref error))
-                if matches!(error.source.downcast_ref::<MaterializedViolation>(), Some(MaterializedViolation::UncontainedSupply)),
-        ),
-        "the receiving peer rejects the escaped leaf with its typed violation, got {receiver_out:?}",
-    );
-
-    // Nothing of the failed session reached the replica.
-    assert_eq!(
-        receiver.snapshot().hash(),
-        before,
-        "the replica's content is unchanged by the rejected session",
-    );
-}
-
-/// The root-hash meter is alive: a root-hash read through the public
-/// snapshot surface moves the per-thread counter by exactly one.
-///
-/// This makes the counters used by `batch_commit_root_hash_reads` and
-/// `gossip_session_root_hash_reads` fail if root-hash reads stop registering.
-#[test]
-fn root_hash_read_meter_is_live() {
-    let peer = with_messages(Peer::<u64>::seed(), &[1]);
-    let before = crate::tree::meter::root_hash_reads();
-    let _ = peer.snapshot().hash();
-    assert_eq!(
-        crate::tree::meter::root_hash_reads() - before,
-        1,
-        "one snapshot hash is exactly one root-hash read",
-    );
-}
-
-/// Pins the root-hash reads a batch commit performs: zero.
-///
-/// The commit decides "did the tree change?" from the changed flag
-/// [`Tree::act`] returns, so no root hash is read — and none *forced* over
-/// the freshly rebuilt, memo-less copy-on-write spine — inside the watch
-/// critical section. Both the batch build and the commit run synchronously
-/// on this thread, so the bracketed count is exact.
-#[test]
-fn batch_commit_root_hash_reads() {
-    let peer = with_messages(Peer::<u64>::seed(), &[1, 2]);
-    let before = crate::tree::meter::root_hash_reads();
-    peer.batch(|batch| batch.send(3))
-        .expect("a flat payload is within any depth limit");
-    assert_eq!(
-        crate::tree::meter::root_hash_reads() - before,
-        0,
-        "a batch commit reads no root hash in its critical section",
-    );
-}
-
-/// Pins the root-hash reads a plain gossip session performs, across both
-/// sides: zero.
-///
-/// Each side's write-back commit decides "did the tree change?" from the
-/// changed flag [`Tree::join`] returns, so no root hash is read — and none
-/// *forced* over the freshly merged, memo-less spine — inside the watch
-/// critical section; the mirror exchange itself hashes nodes, never the
-/// root through [`Tree::hash`]. Both peers run on this thread (`pollster`
-/// drives the joined futures with no spawns), so the bracketed count is
-/// exact.
-#[test]
-fn gossip_session_root_hash_reads() {
-    let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
-    let (provider, joiner) = bootstrap_from(provider);
-
-    // Divergence on both sides gives the session real work: each
-    // side both provides and absorbs content.
-    let provider = with_messages(provider, &[10]);
-    let joiner = with_messages(joiner, &[20]);
-
-    let before = crate::tree::meter::root_hash_reads();
-    pollster::block_on(async {
-        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
-        let (provider_out, joiner_out) = tokio::join!(
-            provider.gossip_once(&mut a_end.read, &mut a_end.write),
-            joiner.gossip_once(&mut b_end.read, &mut b_end.write)
+        let provider = provider();
+        let joined = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .start_paused(true)
+            .build()
+            .unwrap()
+            .block_on(async {
+                let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+                let mut stalled = StallAfter {
+                    inner: &mut a_end.write,
+                    budget: provider_bytes - crate::peer::COMPLETION_MARKER.len(),
+                };
+                let serve = provider.gossip_once(&mut a_end.read, &mut stalled);
+                let join = Peer::<u64>::bootstrap()
+                    .session_deadline(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
+                    .join(&mut b_end.read, &mut b_end.write);
+                let joined = tokio::select! {
+                    joined = join => joined,
+                    _ = serve => panic!("the stalled provider cannot finish"),
+                };
+                match joined {
+                    crate::Joined::Unconfirmed { peer, error, .. } => (peer, error),
+                    other => panic!("a deadline after the party arrives keeps the peer, got {other:?}"),
+                }
+            });
+        let (peer, error) = joined;
+        assert!(matches!(error, Error::DeadlineExceeded), "got {error:?}");
+        assert_eq!(
+            peer.snapshot().len(),
+            3,
+            "the joiner holds the provider's content"
         );
-        provider_out.expect("provider gossip");
-        joiner_out.expect("joiner gossip");
-    });
-    assert_eq!(
-        crate::tree::meter::root_hash_reads() - before,
-        0,
-        "a gossip session reads no root hash in either side's commit",
-    );
+        let mut whole = party_of(&provider);
+        assert!(
+            whole.join(party_of(&peer)).is_ok(),
+            "the parties are disjoint"
+        );
+        assert_eq!(
+            whole,
+            Party::seed(),
+            "the provider and joiner hold the whole identity"
+        );
+    }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// An uncontained supply crossing a real peer session surfaces through
+    /// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
+    ///
+    /// The error is [`Error::Protocol`] carrying `UncontainedSupply`, and the
+    /// replica's content is untouched.
+    ///
+    /// This observes through [`Rumors::gossip`](crate::Rumors::gossip) the same
+    /// rejection the mirror tests exercise directly. A local [`Tree::join`]
+    /// builds the invalid store because session validation cannot guard an
+    /// in-process join.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn uncontained_supply_fails_gossip(network in network_seed()) {
+        use crate::message::Message;
+        use crate::tree::mirror::streaming::materialized::Violation as MaterializedViolation;
+
+        let survivor = network.peer::<u64>();
+        let (survivor, child) = bootstrap_from(survivor);
+
+        // Causally concurrent divergence on both sides makes the session
+        // descends instead of short-circuiting on equal declared versions.
+        let receiver = with_messages(survivor, &[1]);
+        let poisoned = with_messages(child, &[2]);
+
+        // Poison the serving peer's store: the escaped leaf plants above the
+        // declared ceiling while leaving that ceiling unchanged, creating the
+        // store a nonconforming implementation would serve.
+        let base = poisoned.inner.borrow().tree.latest().clone();
+        let (escaped_root, _, escaped) =
+            crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
+        poisoned.inner.send_modify(|inner| {
+            inner.tree.join(Tree::from_root(escaped_root));
+        });
+        assert!(
+            !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),
+            "the planted leaf's version escapes the declared ceiling",
+        );
+
+        let receiver = receiver.into_rumors();
+        let before = receiver.snapshot().hash();
+
+        // The receiving side's own materialized participant diagnoses the
+        // violation mid-session, so the poisoned counterparty never reaches a
+        // session boundary; racing the two sides lets the receiver's typed
+        // error surface without waiting on the abandoned peer.
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+        let receiver_out = run_to_quiescence(async {
+            tokio::select! {
+                out = receiver.gossip_once(&mut a_end.read, &mut a_end.write) => out,
+                out = poisoned.gossip_once(&mut b_end.read, &mut b_end.write) => {
+                    panic!("the poisoned side must not complete a session, got {out:?}")
+                }
+            }
+        })
+        .expect("the rejecting session becomes quiescent");
+        assert!(
+            matches!(
+                receiver_out,
+                Err(Error::Protocol(ref error))
+                    if matches!(error.source.downcast_ref::<MaterializedViolation>(), Some(MaterializedViolation::UncontainedSupply)),
+            ),
+            "the receiving peer rejects the escaped leaf with its typed violation, got {receiver_out:?}",
+        );
+
+        // Nothing of the failed session reached the replica.
+        assert_eq!(
+            receiver.snapshot().hash(),
+            before,
+            "the replica's content is unchanged by the rejected session",
+        );
+    }
+}
+
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
+
+    /// The root-hash meter is alive: a root-hash read through the public
+    /// snapshot surface moves the per-thread counter by exactly one.
+    ///
+    /// This makes the counters used by `batch_commit_root_hash_reads` and
+    /// `gossip_session_root_hash_reads` fail if root-hash reads stop registering.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn root_hash_read_meter_is_live(network in network_seed()) {
+        let peer = with_messages(network.peer::<u64>(), &[1]);
+        let before = crate::tree::meter::root_hash_reads();
+        let _ = peer.snapshot().hash();
+        assert_eq!(
+            crate::tree::meter::root_hash_reads() - before,
+            1,
+            "one snapshot hash is exactly one root-hash read",
+        );
+    }
+
+    /// Pins the root-hash reads a batch commit performs: zero.
+    ///
+    /// The commit decides "did the tree change?" from the changed flag
+    /// [`Tree::act`] returns, so no root hash is read — and none *forced* over
+    /// the freshly rebuilt, memo-less copy-on-write spine — inside the watch
+    /// critical section. Both the batch build and the commit run synchronously
+    /// on this thread, so the bracketed count is exact.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn batch_commit_root_hash_reads(network in network_seed()) {
+        let peer = with_messages(network.peer::<u64>(), &[1, 2]);
+        let before = crate::tree::meter::root_hash_reads();
+        peer.batch(|batch| batch.send(3))
+            .expect("a flat payload is within any depth limit");
+        assert_eq!(
+            crate::tree::meter::root_hash_reads() - before,
+            0,
+            "a batch commit reads no root hash in its critical section",
+        );
+    }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// Pins the root-hash reads a plain gossip session performs, across both
+    /// sides: zero.
+    ///
+    /// Each side's write-back commit decides "did the tree change?" from the
+    /// changed flag [`Tree::join`] returns, so no root hash is read — and none
+    /// *forced* over the freshly merged, memo-less spine — inside the watch
+    /// critical section; the mirror exchange itself hashes nodes, never the
+    /// root through [`Tree::hash`]. Both peers run on this thread (`pollster`
+    /// drives the joined futures with no spawns), so the bracketed count is
+    /// exact.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_session_root_hash_reads(network in network_seed()) {
+        let provider = with_messages(network.peer::<u64>(), &[1, 2, 3]);
+        let (provider, joiner) = bootstrap_from(provider);
+
+        // Divergence on both sides gives the session real work: each
+        // side both provides and absorbs content.
+        let provider = with_messages(provider, &[10]);
+        let joiner = with_messages(joiner, &[20]);
+
+        let before = crate::tree::meter::root_hash_reads();
+        pollster::block_on(async {
+            let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            let (provider_out, joiner_out) = tokio::join!(
+                provider.gossip_once(&mut a_end.read, &mut a_end.write),
+                joiner.gossip_once(&mut b_end.read, &mut b_end.write)
+            );
+            provider_out.expect("provider gossip");
+            joiner_out.expect("joiner gossip");
+        });
+        assert_eq!(
+            crate::tree::meter::root_hash_reads() - before,
+            0,
+            "a gossip session reads no root hash in either side's commit",
+        );
+    }
 }

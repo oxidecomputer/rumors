@@ -10,6 +10,7 @@ use crate::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::Peer;
 use crate::bookmark::Bookmark;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
+use crate::testing::property::{NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::RunBudget;
 
@@ -67,8 +68,10 @@ impl Bookmark for Storage {
     }
 }
 
-/// Retry failed and mutually bootstrapping sessions, then join and gossip.
+/// Retry failed and mutually bootstrapping sessions, then join the network
+/// `network` founds and gossip.
 fn retry_then_join<B: Bookmark>(
+    network: NetworkSeed,
     mut bootstrap: Bootstrap<u64, B>,
     fail: &[bool],
     sessions: &Sessions,
@@ -114,7 +117,8 @@ fn retry_then_join<B: Bookmark>(
             }
         }
 
-        let provider = Peer::<u64>::seed()
+        let provider = network
+            .peer::<u64>()
             .payload_depth_limit(depth.get())
             .into_rumors();
         provider.send(42).unwrap();
@@ -167,6 +171,7 @@ proptest! {
         depth in 1u64..32,
         attempts in prop::collection::vec(any::<bool>(), 0..6),
         configure_after_bookmark in any::<bool>(),
+        network in network_seed(),
     ) {
         let expected = (
             budget,
@@ -179,6 +184,7 @@ proptest! {
             .payload_depth_limit(depth);
         let plain_sessions = Arc::new(Sessions::default());
         retry_then_join(
+            network,
             config.clone().observe(plain_sessions.clone()).clone(),
             &attempts, &plain_sessions, None, expected,
         );
@@ -195,35 +201,43 @@ proptest! {
             config.observe(bookmarked_sessions.clone()).bookmark(Storage(stored.clone()))
         };
         retry_then_join(
+            network,
             config,
             &attempts, &bookmarked_sessions, Some(&stored), expected,
         );
     }
 }
 
-/// Default joins inherit the seed's defaults, and oversized targets saturate.
-#[test]
-fn configuration_defaults_and_saturation() {
-    let config = Peer::<u64>::bootstrap();
-    assert_eq!(config.sync_memory_budget, DEFAULT_SYNC_MEMORY_BUDGET);
-    assert_eq!(config.run_budget, RunBudget::default());
-    assert_eq!(
-        config.payload_depth_limit,
-        crate::message::PayloadDepthLimit::default()
-    );
-    let sessions = Arc::new(Sessions::default());
-    retry_then_join(
-        config.observe(sessions.clone()),
-        &[],
-        &sessions,
-        None,
-        (
-            DEFAULT_SYNC_MEMORY_BUDGET,
-            RunBudget::default(),
-            crate::message::PayloadDepthLimit::default(),
-        ),
-    );
-    let saturated = Peer::<u64>::bootstrap().target_message_size(usize::MAX);
-    assert_eq!(saturated.run_budget, RunBudget::from_bytes(usize::MAX));
-    assert_ne!(saturated.run_budget.bytes(), usize::MAX);
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// Default joins inherit the seed's defaults, and oversized targets saturate.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn configuration_defaults_and_saturation(network in network_seed()) {
+        let config = Peer::<u64>::bootstrap();
+        assert_eq!(config.sync_memory_budget, DEFAULT_SYNC_MEMORY_BUDGET);
+        assert_eq!(config.run_budget, RunBudget::default());
+        assert_eq!(
+            config.payload_depth_limit,
+            crate::message::PayloadDepthLimit::default()
+        );
+        let sessions = Arc::new(Sessions::default());
+        retry_then_join(
+            network,
+            config.observe(sessions.clone()),
+            &[],
+            &sessions,
+            None,
+            (
+                DEFAULT_SYNC_MEMORY_BUDGET,
+                RunBudget::default(),
+                crate::message::PayloadDepthLimit::default(),
+            ),
+        );
+        let saturated = Peer::<u64>::bootstrap().target_message_size(usize::MAX);
+        assert_eq!(saturated.run_budget, RunBudget::from_bytes(usize::MAX));
+        assert_ne!(saturated.run_budget.bytes(), usize::MAX);
+    }
 }

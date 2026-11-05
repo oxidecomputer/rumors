@@ -11,8 +11,9 @@ use before::Party;
 use proptest::prelude::*;
 use tokio::sync::watch;
 
-use super::{Inner, MAX_RUN_BUDGET_BYTES, OPTIMISTIC_ATTEMPTS, Peer};
+use super::{Inner, MAX_RUN_BUDGET_BYTES, OPTIMISTIC_ATTEMPTS};
 use crate::message::Message;
+use crate::testing::property::{LOCAL_DIVISOR, divided_proptest, network_seed};
 use crate::tree::mirror::streaming::remote::WRITE_BUFFER_BYTES;
 use crate::tree::{Action, Tree};
 
@@ -66,33 +67,39 @@ fn on_drop(callback: impl Fn() + Send + Sync + 'static) -> Message {
     })
 }
 
-/// Settings remain readable across the Peer/Rumors split, with message targets
-/// reported after the saturation applied to the wire greeting.
-#[test]
-fn synchronization_settings_report_effective_values() {
-    let depth = 17;
-    let peer = Peer::<u64>::seed()
-        .sync_memory_budget(1_234)
-        .target_message_size(usize::MAX)
-        .payload_depth_limit(depth);
-    let expected = super::SynchronizationSettings {
-        sync_memory_budget: 1_234,
-        target_message_size: MAX_RUN_BUDGET_BYTES,
-        payload_depth_limit: depth,
-    };
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-    assert_eq!(peer.synchronization_settings(), expected);
-    let peer_debug = format!("{peer:?}");
-    assert!(peer_debug.contains("sync_memory_budget: 1234"));
-    assert!(peer_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
-    assert!(peer_debug.contains("payload_depth_limit: 17"));
+    /// Settings remain readable across the Peer/Rumors split, with message targets
+    /// reported after the saturation applied to the wire greeting.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn synchronization_settings_report_effective_values(network in network_seed()) {
+        let depth = 17;
+        let peer = network.peer::<u64>()
+            .sync_memory_budget(1_234)
+            .target_message_size(usize::MAX)
+            .payload_depth_limit(depth);
+        let expected = super::SynchronizationSettings {
+            sync_memory_budget: 1_234,
+            target_message_size: MAX_RUN_BUDGET_BYTES,
+            payload_depth_limit: depth,
+        };
 
-    let rumors = peer.into_rumors();
-    assert_eq!(rumors.synchronization_settings(), expected);
-    let rumors_debug = format!("{rumors:?}");
-    assert!(rumors_debug.contains("sync_memory_budget: 1234"));
-    assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
-    assert!(rumors_debug.contains("payload_depth_limit: 17"));
+        assert_eq!(peer.synchronization_settings(), expected);
+        let peer_debug = format!("{peer:?}");
+        assert!(peer_debug.contains("sync_memory_budget: 1234"));
+        assert!(peer_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
+        assert!(peer_debug.contains("payload_depth_limit: 17"));
+
+        let rumors = peer.into_rumors();
+        assert_eq!(rumors.synchronization_settings(), expected);
+        let rumors_debug = format!("{rumors:?}");
+        assert!(rumors_debug.contains("sync_memory_budget: 1234"));
+        assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
+        assert!(rumors_debug.contains("payload_depth_limit: 17"));
+    }
 }
 
 /// The session's write buffer is the "about 63 KiB" the crate and peer

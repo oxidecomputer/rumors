@@ -5,6 +5,7 @@ use proptest::prelude::*;
 use super::party_of;
 use crate::peer::Inner;
 use crate::peer::gossip::ForkGuard;
+use crate::testing::property::network_seed;
 use crate::testing::run_to_quiescence;
 use crate::testing::{MEMORY_CAPACITY, memory_connection};
 use crate::{Peer, Retire};
@@ -17,8 +18,9 @@ proptest! {
         initial in 0u64..8,
         added in 0u64..8,
         redact in any::<bool>(),
+        network in network_seed(),
     ) {
-        let provider = Peer::<u64>::seed();
+        let provider = network.peer::<u64>();
         provider.send_all(0..initial).unwrap();
         let original_party = party_of(&provider);
         let mut changes = provider.inner.subscribe();
@@ -57,8 +59,9 @@ proptest! {
     #[test]
     fn abandoned_donations_restore_identity_without_notification(
         initial in 0u64..8,
+        network in network_seed(),
     ) {
-        let provider = Peer::<u64>::seed();
+        let provider = network.peer::<u64>();
         provider.send_all(0..initial).unwrap();
         let original_party = party_of(&provider);
         let before = provider.snapshot();

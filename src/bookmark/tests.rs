@@ -10,6 +10,7 @@ use futures::{FutureExt, future::LocalBoxFuture};
 use proptest::prelude::*;
 
 use super::*;
+use crate::testing::property::{SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
 use crate::{Joined, Peer};
 
@@ -98,31 +99,37 @@ fn update<'a>(
     }
 }
 
-/// A non-Sync bookmark supports Send attachment and gossip futures.
-#[test]
-fn non_sync_bookmark_can_attach_and_gossip() {
-    run_to_quiescence(async {
-        let rumors = Peer::<u64>::seed().into_rumors();
-        rumors.send(7).unwrap();
-        let peer = rumors.try_into_peer().await.unwrap();
-        let peer = sendable(peer.bookmark(Memory::default())).await.unwrap();
-        let rumors = peer.into_rumors();
-        let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
-        let (served, joined) = futures::join!(
-            sendable(rumors.gossip_once(&mut near.read, &mut near.write)),
-            sendable(Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)),
-        );
-        served.unwrap();
-        let Joined::Joined { peer, .. } = joined else {
-            panic!("the peer must join")
-        };
-        let received = peer.into_rumors().snapshot();
-        assert_eq!(
-            received.iter().map(|(_, value)| *value).collect::<Vec<_>>(),
-            [7]
-        );
-    })
-    .expect("the session must make progress");
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// A non-Sync bookmark supports Send attachment and gossip futures.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn non_sync_bookmark_can_attach_and_gossip(network in network_seed()) {
+        run_to_quiescence(async {
+            let rumors = network.peer::<u64>().into_rumors();
+            rumors.send(7).unwrap();
+            let peer = rumors.try_into_peer().await.unwrap();
+            let peer = sendable(peer.bookmark(Memory::default())).await.unwrap();
+            let rumors = peer.into_rumors();
+            let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
+            let (served, joined) = futures::join!(
+                sendable(rumors.gossip_once(&mut near.read, &mut near.write)),
+                sendable(Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)),
+            );
+            served.unwrap();
+            let Joined::Joined { peer, .. } = joined else {
+                panic!("the peer must join")
+            };
+            let received = peer.into_rumors().snapshot();
+            assert_eq!(
+                received.iter().map(|(_, value)| *value).collect::<Vec<_>>(),
+                [7]
+            );
+        })
+        .expect("the session must make progress");
+    }
 }
 
 proptest! {
@@ -299,9 +306,13 @@ proptest! {
     /// The public limit applies to the first bootstrap checkpoint, survives the
     /// Rumors-to-Peer round trip, and lowering it forces another store.
     #[test]
-    fn configured_limit_controls_checkpoints(limit in 0usize..300, configure_first in any::<bool>()) {
+    fn configured_limit_controls_checkpoints(
+        limit in 0usize..300,
+        configure_first in any::<bool>(),
+        network in network_seed(),
+    ) {
         run_to_quiescence(async {
-            let seed = Peer::<u64>::seed().into_rumors();
+            let seed = network.peer::<u64>().into_rumors();
             let bootstrap = if configure_first {
                 Peer::<u64>::bootstrap().bookmark_size_limit(limit).bookmark(Memory::default())
             } else {
@@ -335,9 +346,13 @@ proptest! {
     /// Failed attachment retains the chosen limit even if the failed store
     /// replaced bytes.
     #[test]
-    fn failed_attachment_preserves_limit(limit in 0usize..300, after in any::<bool>()) {
+    fn failed_attachment_preserves_limit(
+        limit in 0usize..300,
+        after in any::<bool>(),
+        network in network_seed(),
+    ) {
         run_to_quiescence(async {
-            let rumors = Peer::<u64>::seed().into_rumors();
+            let rumors = network.peer::<u64>().into_rumors();
             rumors.send(7).unwrap();
             let peer = rumors.try_into_peer().await.unwrap().bookmark_size_limit(limit);
             let storage = Memory::default();
