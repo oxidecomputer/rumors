@@ -165,7 +165,7 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 /// Each of those producers takes its next input without waiting for its
 /// edge to drain, so such an edge fills only when its producer runs more
 /// than a fan of items ahead of its consumer. Few of the encoders' frames
-/// or the walks' chunks park, but about one frame in six on the incoming
+/// or the walks' chunks park, but about one frame in ten on the incoming
 /// lanes does: the demultiplexer reads the peer's frames as fast as the
 /// transport delivers them, and waits on a decoder only once that decoder's
 /// lane is full. Every other edge holds a fan or more, or is unbounded, and
@@ -179,13 +179,13 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 fn sends_parked_per_edge_match_the_baseline() {
     let Session { tally, .. } = session();
     let baseline = BTreeMap::from([
-        (QueueKind::OutgoingResponses, sends(2_482, 5, 6)),
+        (QueueKind::OutgoingResponses, sends(2_482, 6, 7)),
         (QueueKind::AssemblyLevelReturns, sends(1_369, 0, 0)),
         (QueueKind::InitiatorRootQuery, sends(1, 0, 0)),
         (QueueKind::InitiatorRootReturn, sends(1, 0, 0)),
         (QueueKind::ResponderChildQueries, sends(256, 0, 0)),
         (QueueKind::ResponderRootResolution, sends(1, 0, 0)),
-        (QueueKind::ResponderRootReturns, sends(256, 109, 119)),
+        (QueueKind::ResponderRootReturns, sends(256, 112, 120)),
         (QueueKind::InternalChildQueries, sends(1_053, 0, 0)),
         (QueueKind::InternalParentResolutions, sends(1_310, 0, 0)),
         (QueueKind::InternalChildResolutions, sends(316, 0, 0)),
@@ -194,8 +194,8 @@ fn sends_parked_per_edge_match_the_baseline() {
         (QueueKind::ProxyResponses, sends(2_481, 0, 0)),
         (QueueKind::ProxyLocalQuestions, sends(1_310, 0, 0)),
         (QueueKind::ProxyNextScopes, sends(1_310, 0, 0)),
-        (QueueKind::PipeOutgoing, sends(3_591, 9, 9)),
-        (QueueKind::PipeIncoming, sends(3_587, 574, 574)),
+        (QueueKind::PipeOutgoing, sends(3_591, 13, 13)),
+        (QueueKind::PipeIncoming, sends(3_587, 385, 385)),
     ]);
     assert_eq!(tally, baseline);
 }

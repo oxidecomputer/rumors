@@ -20,7 +20,7 @@ use crate::tree::{
         remote::{
             adapter::Scope,
             codec::{RunBudget, Speaker},
-            pipe::{Demultiplexer, Multiplexer, PipeRead},
+            pipe::{Demultiplexer, Multiplexer, PipeRead, WriteBatch},
             proxy::{
                 Error,
                 work::{Ingress, Physical, Work},
@@ -50,6 +50,8 @@ where
     pub(super) stats: Recorder,
     /// Observes the elected role and wire traffic.
     pub(super) observe: SessionHandle,
+    /// How many bytes of frames one flush of the multiplexer may carry.
+    pub(super) write_batch: WriteBatch,
 }
 
 impl<B, R, W> Connected<B, R, W>
@@ -66,6 +68,7 @@ where
             budget,
             stats,
             observe,
+            write_batch,
         } = self;
         observe.elected(match remote.other() {
             Speaker::Initiator => Role::Initiator,
@@ -79,7 +82,7 @@ where
                 read,
                 write,
                 remote,
-                multiplexer: Multiplexer::default(),
+                multiplexer: Multiplexer::new(write_batch),
                 demultiplexer: Demultiplexer::default(),
             },
             stats,

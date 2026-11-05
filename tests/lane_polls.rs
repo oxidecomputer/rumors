@@ -162,9 +162,13 @@ fn every_frame_costs_at_least_one_lane_poll() {
 /// encoder hands over every frame closing a chunk's reactions without
 /// waiting for the multiplexer to take them. Otherwise the encoder that
 /// handed over the last one must run again before it can hand over
-/// another. Finding none, it flushes and polls once more before it waits, and is polled again by the wake that brings the
-/// next frame. The session polls it as one member of a task set that polls
-/// each member only for its own wakes, so nothing else polls it.
+/// another. Finding none with a frame unflushed, it yields to the session's
+/// other work and polls again, a few passes in a row, each poll finding
+/// whatever the members it woke have handed over since. Only when every
+/// such poll also finds none does it flush and poll once more before it
+/// waits, to be polled again by the wake that brings the next frame. The
+/// session polls it as one member of a task set that polls each member
+/// only for its own wakes and its own yields, so nothing else polls it.
 ///
 /// The counts are deterministic: the fixture's network is seeded, the
 /// runtime polls its tasks in a fixed order, and nothing in a session reads
@@ -176,10 +180,10 @@ fn lane_polls_per_frame_match_the_baseline() {
     assert_eq!(
         tally,
         Tally {
-            polls: 4_219,
+            polls: 4_297,
             frames: 3_591,
-            polled: 3_965,
-            unstaged: 67_404,
+            polled: 3_947,
+            unstaged: 68_542,
         }
     );
 }

@@ -31,7 +31,7 @@ use crate::{
         secret,
         streaming::{
             self, Local, materialized,
-            remote::{self as streaming_remote, PipeRead, RunBudget},
+            remote::{self as streaming_remote, PipeRead, RunBudget, WriteBatch},
             stats::{Recorder, SessionStats},
         },
     },
@@ -280,6 +280,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 .run(Self::bootstrap_erased(
                     config.sync_memory_budget,
                     config.run_budget,
+                    config.write_batch,
                     codec,
                     &mut received,
                     read as DynRead<'_>,
@@ -334,6 +335,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             keys: Arc::clone(&keys),
             sync_memory_budget: config.sync_memory_budget,
             run_budget: config.run_budget,
+            write_batch: config.write_batch,
             gossip_policy: config.gossip_policy,
             inner: watch::Sender::new(Inner::new(party, Tree::from_root(keys, root))),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
@@ -355,6 +357,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     fn bootstrap_erased<'a>(
         sync_memory_budget: usize,
         run_budget: RunBudget,
+        write_batch: WriteBatch,
         codec: PayloadCodec,
         received: &'a mut Option<Received>,
         read: DynRead<'a>,
@@ -414,6 +417,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 keys: received_keys.clone(),
                 sync_memory_budget,
                 run_budget,
+                write_batch,
                 remote_role,
                 stats,
                 observe: observe.clone(),
@@ -673,6 +677,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             keys: Some(Arc::clone(prior_tree.keys())),
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
+            write_batch: self.write_batch,
             stats: stats.clone(),
             observe: observe.clone(),
             remote_role: match counterparty {
@@ -926,6 +931,9 @@ struct Reconciliation<'a> {
     sync_memory_budget: usize,
     /// The supply-run sizing budget; its byte target rides the greeting.
     run_budget: RunBudget,
+    /// How many bytes of frames one flush of the session's multiplexer may
+    /// carry.
+    write_batch: WriteBatch,
     /// The session's stats recorder, shared by both protocol participants.
     stats: Recorder,
     /// The session's observation handle: inert unless a handler is
@@ -998,6 +1006,7 @@ impl<'a> Reconciliation<'a> {
             keys,
             sync_memory_budget,
             run_budget,
+            write_batch,
             stats,
             observe,
             remote_role,
@@ -1013,7 +1022,8 @@ impl<'a> Reconciliation<'a> {
         let proxy: RemoteParticipant<'a> =
             streaming_remote::Handshaking::start(Local, read, write, codec, keys)
                 .stats(stats)
-                .observe(observe);
+                .observe(observe)
+                .write_batch(write_batch);
         let handshaken = streaming::handshake(local, proxy)
             .await
             .map_err(streaming_remote::streaming_error(Phase::Greeting))?;

@@ -2,6 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::convert::Infallible;
+use std::ops::Bound;
 use std::rc::Rc;
 use std::sync::{Arc, Barrier, mpsc};
 use std::thread;
@@ -71,7 +72,9 @@ divided_proptest! {
     #![divisor(LOCAL_DIVISOR)]
 
     /// Settings remain readable across the Peer/Rumors split, with message targets
-    /// reported after the saturation applied to the wire greeting.
+    /// reported after the saturation applied to the wire greeting, and the
+    /// write batch range's end after saturation at the write buffer's
+    /// capacity.
     ///
     /// The claim holds for every network seed.
     #[test]
@@ -81,10 +84,12 @@ divided_proptest! {
         let peer = network.peer::<u64>()
             .sync_memory_budget(budget)
             .target_message_size(usize::MAX)
+            .write_batch_range(5..=usize::MAX)
             .payload_depth_limit(depth);
         let expected = super::SynchronizationSettings {
             sync_memory_budget: budget,
             target_message_size: MAX_RUN_BUDGET_BYTES,
+            write_batch_range: (Bound::Included(5), Bound::Included(WRITE_BUFFER_BYTES)),
             payload_depth_limit: depth,
         };
 
@@ -92,6 +97,7 @@ divided_proptest! {
         let peer_debug = format!("{peer:?}");
         assert!(peer_debug.contains(&format!("sync_memory_budget: {budget}")));
         assert!(peer_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
+        assert!(peer_debug.contains(&format!("write_batch_range: (Included(5), Included({WRITE_BUFFER_BYTES}))")));
         assert!(peer_debug.contains("payload_depth_limit: 17"));
 
         let rumors = peer.into_rumors();
@@ -99,7 +105,107 @@ divided_proptest! {
         let rumors_debug = format!("{rumors:?}");
         assert!(rumors_debug.contains(&format!("sync_memory_budget: {budget}")));
         assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
+        assert!(rumors_debug.contains(&format!("write_batch_range: (Included(5), Included({WRITE_BUFFER_BYTES}))")));
         assert!(rumors_debug.contains("payload_depth_limit: 17"));
+    }
+}
+
+/// One bound of a write batch range: included, excluded, or unbounded.
+///
+/// Its sizes lie around the conversion's edges (zero, one, the default
+/// segment size, the write buffer's capacity, and the largest size) and
+/// between them.
+fn batch_bound() -> impl Strategy<Value = Bound<usize>> {
+    let size = prop_oneof![
+        Just(0usize),
+        Just(1),
+        0usize..=2 * WRITE_BUFFER_BYTES,
+        Just(*crate::default::tls::WRITE_BATCH_RANGE.start()),
+        (WRITE_BUFFER_BYTES - 1)..=(WRITE_BUFFER_BYTES + 1),
+        Just(usize::MAX - 1),
+        Just(usize::MAX),
+    ];
+    prop_oneof![
+        size.clone().prop_map(Bound::Included),
+        size.prop_map(Bound::Excluded),
+        Just(Bound::Unbounded),
+    ]
+}
+
+/// The write batch range a session applies for the bounds `start` and
+/// `end`, step by step as `Peer::write_batch_range` documents it.
+///
+/// Each bound converts to an inclusive size, the end saturates at the
+/// write buffer's capacity, and the start is lowered to the end, or to the
+/// capacity under an unbounded end.
+fn applied_range(start: Bound<usize>, end: Bound<usize>) -> (Bound<usize>, Bound<usize>) {
+    let start = match start {
+        Bound::Included(start) => start,
+        Bound::Excluded(start) => start.saturating_add(1),
+        Bound::Unbounded => 0,
+    };
+    let end = match end {
+        Bound::Included(end) => Some(end),
+        Bound::Excluded(end) => Some(end.saturating_sub(1)),
+        Bound::Unbounded => None,
+    }
+    .map(|end| end.min(WRITE_BUFFER_BYTES));
+    let start = start.min(end.unwrap_or(WRITE_BUFFER_BYTES));
+    (
+        Bound::Included(start),
+        end.map_or(Bound::Unbounded, Bound::Included),
+    )
+}
+
+/// A peer that never sets a write batch range applies
+/// `default::tls::WRITE_BATCH_RANGE` exactly: neither of its ends moves
+/// in conversion.
+#[test]
+fn the_default_write_batch_range_applies_as_given() {
+    let default = crate::default::tls::WRITE_BATCH_RANGE;
+    let peer = Peer::<u64>::seed();
+    assert_eq!(
+        peer.synchronization_settings().write_batch_range,
+        (
+            Bound::Included(*default.start()),
+            Bound::Included(*default.end())
+        )
+    );
+}
+
+proptest! {
+    /// The write batch range reads back as its documented conversion
+    /// applies it, and selects the same batching when passed back in.
+    ///
+    /// It also follows the peer through `into_rumors`, cloning, reunion
+    /// into a `Peer`, and bookmark attachment, as its docs promise.
+    ///
+    /// Each bound is drawn included, excluded, or unbounded, at sizes on
+    /// both sides of every edge the conversion has: zero, the write
+    /// buffer's capacity, and the largest size, so starts above ends,
+    /// empty ranges, and saturating ends all occur.
+    #[test]
+    fn write_batch_range_follows_the_peer(
+        network in network_seed(),
+        start in batch_bound(),
+        end in batch_bound(),
+    ) {
+        let expected = applied_range(start, end);
+        let read = |settings: super::SynchronizationSettings| settings.write_batch_range;
+        let peer = network.peer::<u64>().write_batch_range((start, end));
+        prop_assert_eq!(read(peer.synchronization_settings()), expected);
+        let again = network.peer::<u64>().write_batch_range(expected);
+        prop_assert_eq!(read(again.synchronization_settings()), expected);
+        let rumors = peer.into_rumors();
+        let clone = rumors.clone();
+        prop_assert_eq!(read(clone.synchronization_settings()), expected);
+        drop(clone);
+        let peer = pollster::block_on(rumors.try_into_peer())
+            .expect("the last handle reunites into a peer");
+        prop_assert_eq!(read(peer.synchronization_settings()), expected);
+        let peer = pollster::block_on(peer.bookmark(crate::bookmark::NoBookmark))
+            .unwrap_or_else(|_| panic!("attaching an inert bookmark succeeds"));
+        prop_assert_eq!(read(peer.synchronization_settings()), expected);
     }
 }
 

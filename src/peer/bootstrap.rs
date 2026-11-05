@@ -1,6 +1,6 @@
 //! Configure a bootstrap session and retain its settings when a retry is needed.
 
-use std::{fmt, marker::PhantomData, sync::Arc};
+use std::{fmt, marker::PhantomData, ops::RangeBounds, sync::Arc};
 
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncBufRead, AsyncWrite};
@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufRead, AsyncWrite};
 use crate::bookmark::{Bookmark, NoBookmark};
 use crate::message::PayloadDepthLimit;
 use crate::observe::{Attachment, Observer};
-use crate::tree::mirror::streaming::remote::RunBudget;
+use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
 use crate::{Error, Peer};
 
 use super::bookmark::Unbookmarked;
@@ -38,6 +38,8 @@ pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     pub(crate) sync_memory_budget: usize,
     /// Supply-run size target used during and after the join.
     pub(crate) run_budget: RunBudget,
+    /// Write batch range used during and after the join.
+    pub(crate) write_batch: WriteBatch,
     /// Initiation policy and session deadline, both inherited by the joined peer.
     pub(crate) gossip_policy: super::policy::Policy<T>,
     /// Payload nesting limit used during and after the join.
@@ -67,6 +69,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> 
         f.debug_struct("Bootstrap")
             .field("sync_memory_budget", &self.sync_memory_budget)
             .field("run_budget", &self.run_budget)
+            .field("write_batch", &self.write_batch)
             .field("payload_depth_limit", &self.payload_depth_limit)
             .field("observe", &self.observe)
             .field("bookmark", &std::any::type_name::<B>())
@@ -82,6 +85,7 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
         Self {
             sync_memory_budget: crate::default::SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
+            write_batch: WriteBatch::default(),
             gossip_policy: super::policy::Policy::default(),
             payload_depth_limit: PayloadDepthLimit::default(),
             observe: Attachment::default(),
@@ -105,6 +109,7 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
         Bootstrap {
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
+            write_batch: self.write_batch,
             gossip_policy: self.gossip_policy,
             payload_depth_limit: self.payload_depth_limit,
             observe: self.observe,
@@ -122,6 +127,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         Bootstrap {
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
+            write_batch: self.write_batch,
             gossip_policy: self.gossip_policy.clone(),
             payload_depth_limit: self.payload_depth_limit,
             observe: self.observe.clone(),
@@ -181,6 +187,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// what the target accounts for.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
+        self
+    }
+
+    /// Set the write batch range during and after bootstrap.
+    ///
+    /// See [`Peer::write_batch_range`] for the default, how the bounds
+    /// convert, and how to choose a range.
+    pub fn write_batch_range(mut self, range: impl RangeBounds<usize>) -> Self {
+        self.write_batch = WriteBatch::from_range(range);
         self
     }
 

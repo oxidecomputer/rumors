@@ -16,7 +16,7 @@ use crate::{
             protocol::{self, Accept, CompleteConnect, Connect},
             remote::{
                 codec::{RunBudget, greeting as greeting_codec},
-                pipe::PipeRead,
+                pipe::{PipeRead, WriteBatch},
                 proxy::{Connected, Error, work::Ingress},
             },
             stats::Recorder,
@@ -53,6 +53,9 @@ where
     /// The session's observation handle: every wire item this session
     /// moves is delivered through it (inert unless a handler attached).
     observe: SessionHandle,
+    /// How many bytes of frames one flush of the session's multiplexer may
+    /// carry.
+    write_batch: WriteBatch,
 }
 
 impl<B, R, W> Handshaking<B, R, W>
@@ -81,6 +84,7 @@ where
             codec,
             keys,
             observe: SessionHandle::default(),
+            write_batch: WriteBatch::default(),
         }
     }
 
@@ -101,6 +105,15 @@ where
     /// Without this call the session runs with the inert default.
     pub fn observe(mut self, observe: SessionHandle) -> Self {
         self.observe = observe;
+        self
+    }
+
+    /// Batch the session's outgoing frames within `write_batch`.
+    ///
+    /// Without this call the session batches within the default
+    /// [`WriteBatch`].
+    pub fn write_batch(mut self, write_batch: WriteBatch) -> Self {
+        self.write_batch = write_batch;
         self
     }
 }
@@ -171,6 +184,7 @@ where
             budget,
             stats: self.stats,
             observe: self.observe,
+            write_batch: self.write_batch,
         })
     }
 }
@@ -199,6 +213,7 @@ where
             codec: self.codec,
             keys: self.keys,
             observe: self.observe,
+            write_batch: self.write_batch,
         };
         Ok((greeting, next))
     }

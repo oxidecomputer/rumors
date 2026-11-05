@@ -8,9 +8,12 @@
 //! - The [`Multiplexer`] owns the write half. Each local encoder hands it
 //!   frames through its own channel of [`LANE_CAPACITY`] frames
 //!   ([`Outgoing`]). It writes whole frames, choosing a waiting frame that
-//!   is not a supply run ahead of any waiting supply run ([`Class`]),
-//!   flushes whenever no frame is ready, and returns when every encoder's
-//!   channel has closed.
+//!   is not a supply run ahead of any waiting supply run ([`Class`]). It
+//!   keeps the frames each flush carries within a ceiling its
+//!   [`WriteBatch`] sets, and flushes once a poll finds no frame ready
+//!   after it has let the session's other woken work run
+//!   ([`Multiplexer::run`]). It returns when every encoder's channel has
+//!   closed.
 //! - The [`Demultiplexer`] owns the read half. It reads frames in pipe order
 //!   and routes each, by the logical stream its signal names, to that
 //!   stream's decoder over a channel of [`LANE_CAPACITY`] frames. It stops
@@ -30,7 +33,7 @@
 //!
 //! | Waiter | Waits for | Why the wait ends without the walk |
 //! | --- | --- | --- |
-//! | Demultiplexer | the pipe | The peer writes independently. |
+//! | Demultiplexer | the pipe | The peer writes and flushes independently. |
 //! | Demultiplexer | its stream's decoder to accept a frame | The decoder is only finishing its current frame. |
 //! | Decoder | the local record of the question its next reply answers | The encoder publishes it right after handing the frame carrying the question to the multiplexer, without waiting for the write, into an unbounded queue. |
 //! | Decoder | the storage backend, absorbing supplied leaves | Backend operations complete without waiting on other session work. |
@@ -56,6 +59,27 @@
 //! of the session's polls. Each wait in the table therefore ends when what
 //! it waits for wakes it, whatever the walk's members are doing, provided
 //! only that every poll returns.
+//!
+//! The multiplexer never waits while a frame it wrote sits in its buffer or
+//! unflushed. Finding no frame ready, it may first *yield*: wake itself and
+//! return `Pending`, so that the set polls the members already woken
+//! before polling it again. A yield is not a wait, since the set polls the
+//! multiplexer again within a bounded number of the session's polls,
+//! whatever else happens. [`EMPTY_PASSES`] yields in a row that bring no
+//! new frame are followed by a flush, and a yield that brings a frame
+//! grows the batch by at least a byte, so within [`EMPTY_PASSES`] times as
+//! many yields as the batch's ceiling has bytes, and [`EMPTY_PASSES`] more
+//! (the ceiling being the segment size for a batch that keeps one-segment
+//! records, the largest batch for any other, as [`WriteBatch`] sets them),
+//! the batch is flushed, before the multiplexer waits. So a peer that
+//! wrote a frame flushes it within a bounded number of its session's
+//! polls, without waiting on its walk: that is what "independently" means
+//! in the table.
+//! A peer whose largest batch is unbounded keeps that bound only for
+//! batches within its segment size; any other batch it flushes after the
+//! first run of [`EMPTY_PASSES`] passes that bring no frame, which comes
+//! without waiting on this side, since without new frames from here its
+//! walk readies only finitely many frames.
 //!
 //! On the sending side, encoders wait for the multiplexer and the
 //! multiplexer waits for the pipe, but no receiving stage's consumption
@@ -122,6 +146,8 @@
 use std::future::poll_fn;
 use std::io;
 use std::mem;
+use std::num::NonZeroUsize;
+use std::ops::{Bound, RangeBounds};
 use std::pin::Pin;
 #[cfg(any(test, feature = "test-internals"))]
 use std::sync::OnceLock;
@@ -571,9 +597,19 @@ pub struct Multiplexer {
     /// The lanes whose channels have woken the multiplexer, and the task
     /// they wake.
     wakes: Arc<Mutex<Wakes>>,
+    /// How many bytes of frames one flush may carry.
+    batch: WriteBatch,
 }
 
 impl Multiplexer {
+    /// A multiplexer with no lanes yet, batching its writes within `batch`.
+    pub fn new(batch: WriteBatch) -> Self {
+        Self {
+            batch,
+            ..Self::default()
+        }
+    }
+
     /// Create the channel for one local logical stream, labeled at the
     /// height of the replies it carries.
     pub fn lane(&mut self, stream: Stream, height: usize) -> Outgoing {
@@ -606,19 +642,58 @@ impl Multiplexer {
     ///
     /// Each frame is written whole before the next is chosen, through a
     /// Tokio `BufWriter` of [`WRITE_BUFFER_BYTES`]: a frame smaller than the
-    /// buffer is copied into it, after the buffered frames are written out
-    /// if it does not fit beside them, and one at least its size passes it.
-    /// Writing does not flush: the buffer is written out and the write half
-    /// flushed whenever no frame is ready, before waiting for one, and
-    /// before returning. The buffer usually reaches the write half as one
-    /// plain write, continued wherever the write half takes only part of
-    /// one. Frames ready together therefore share a flush, and usually one
-    /// write, and the multiplexer never waits for a frame while a frame it
-    /// wrote sits in its buffer or unflushed; while it writes and flushes,
-    /// it waits only on the write half. A frame handed to a lane wakes the
-    /// waiting multiplexer through that lane's waker, so every frame handed
-    /// to it reaches the peer without waiting on anything but the pipe.
-    /// The write half is borrowed, and rests flushed at a frame boundary on
+    /// buffer is copied into it, and one at least its size passes it.
+    /// Writing does not flush by itself; when the multiplexer flushes
+    /// depends on its [`WriteBatch`].
+    ///
+    /// The frames written since the last flush form one *batch*, which the
+    /// multiplexer keeps within its ceiling, the segment size or the
+    /// largest batch, as [`WriteBatch`] describes. It flushes before
+    /// writing a frame that would push the batch past its ceiling, and as
+    /// soon as the batch reaches it, since no further frame fits beside it
+    /// then; a frame larger than the ceiling therefore goes out alone, and
+    /// a frame larger than the segment size starts a batch of its own
+    /// after the one before it is flushed. When a poll finds no frame
+    /// ready while a batch is unflushed, the multiplexer yields to the
+    /// session's task set before deciding, up to [`EMPTY_PASSES`] times:
+    /// the frames it took woke their encoders, and frames the session read
+    /// woke the members that turn them into replies, which all run only
+    /// once its poll returns, so lanes it found empty may hold frames again
+    /// after a few passes of the set. As soon as a poll finds a frame, it
+    /// keeps writing; if none does, it flushes, and only then waits for a
+    /// frame.
+    ///
+    /// With a largest batch of zero, it never yields: it flushes whenever a
+    /// poll finds no frame ready, so only the frames ready within one poll
+    /// share a flush, and the buffer writes itself out whenever the next
+    /// frame does not fit beside the buffered ones.
+    ///
+    /// Either way it flushes before returning, and a flush with nothing
+    /// written since the last one does nothing. A flushed batch reaches
+    /// the write half as one plain write, continued wherever the write half
+    /// takes only part of one.
+    ///
+    /// A frame the multiplexer wrote reaches a flush within a bounded
+    /// number of passes of the session's task set: after at most
+    /// [`EMPTY_PASSES`] passes in a row that bring no frame the
+    /// multiplexer flushes, and every pass that brings one adds at least
+    /// one frame, of at least one byte, to the batch, so the batch reaches
+    /// its ceiling, and is flushed, within [`EMPTY_PASSES`] times as many
+    /// passes as the ceiling has bytes, and [`EMPTY_PASSES`] more. That is
+    /// the segment size for a batch that keeps one-segment records, and
+    /// the largest batch for any other. Under an unbounded largest batch, a
+    /// batch past the segment size has no ceiling: the buffer writes
+    /// itself out whenever the next frame does not fit, and the flush
+    /// comes after the first run of [`EMPTY_PASSES`] passes that bring no
+    /// frame. Without new frames from the peer, this side's walk readies
+    /// only finitely many frames, so that run comes without waiting on the
+    /// peer, though no bound in bytes holds. The multiplexer never waits
+    /// for a frame while a frame it wrote sits in its buffer or unflushed:
+    /// a yield is not a wait. While it writes and flushes, it waits only on
+    /// the write half. A frame handed to a lane wakes the waiting
+    /// multiplexer through that lane's waker, so every frame handed to it
+    /// reaches the peer without waiting on anything but the pipe. The
+    /// write half is borrowed, and rests flushed at a frame boundary on
     /// success, ready for the closing exchange.
     pub async fn run<W: AsyncWrite + Unpin>(
         mut self,
@@ -629,11 +704,27 @@ impl Multiplexer {
     ) -> Result<(), EncodeError> {
         let write =
             BufWriter::with_capacity(WRITE_BUFFER_BYTES, CountedWrite::new(write, stats.clone()));
-        let mut out =
-            FrameWrite::new(speaker, write).observed(observe.data(speaker.role(), Direction::Sent));
+        let mut out = FrameWrite::new(speaker, write)
+            .observed(observe.data(speaker.role(), Direction::Sent))
+            .batched(self.batch.segment(), self.batch.largest());
+        let yields = self.batch.yields();
         let mut cursors = [0; Class::ORDER.len()];
         loop {
-            let ready = poll_fn(|cx| Poll::Ready(self.poll_next(cx, &mut cursors))).await;
+            let mut ready = poll_fn(|cx| Poll::Ready(self.poll_next(cx, &mut cursors))).await;
+            if ready.is_pending() && yields && out.is_unflushed() {
+                // We found no frame, but the members we woke, the encoders
+                // whose frames we took and those turning the frames the
+                // session read into replies, may not have run yet, so we let
+                // every member woken so far run, a few passes in a row,
+                // before deciding to flush.
+                for _ in 0..EMPTY_PASSES {
+                    yield_to_members().await;
+                    ready = poll_fn(|cx| Poll::Ready(self.poll_next(cx, &mut cursors))).await;
+                    if ready.is_ready() {
+                        break;
+                    }
+                }
+            }
             let next = match ready {
                 Poll::Ready(next) => next,
                 Poll::Pending => {
@@ -738,6 +829,173 @@ impl Multiplexer {
             }
         }
         None
+    }
+}
+
+/// Return `Pending` once, waking the polling task first, then `Ready`.
+///
+/// Within the session's task set, a
+/// [`FuturesUnordered`](futures::stream::FuturesUnordered), the wake
+/// queues the multiplexer behind every member already woken: the set keeps
+/// one first-in, first-out queue of woken members and never queues a
+/// member twice. So the multiplexer's next poll follows a poll of each
+/// member woken before the yield, the encoders it woke by taking their
+/// frames among them. It is a yield, not a wait: nothing outside the set
+/// need happen for the multiplexer to be polled again.
+///
+/// The set counts this wake as a yield of the multiplexer's own. Once two
+/// members have yielded in one poll of the set, or it has polled as many
+/// members as it holds, it wakes the session and returns `Pending` to the
+/// executor, keeping its queue as it is. Either way the order holds:
+/// the members queued ahead of the multiplexer are polled before it,
+/// whether in this poll of the set or the next. The yield cannot spin,
+/// because the multiplexer yields only while a batch is unflushed, at most
+/// [`EMPTY_PASSES`] times in a row without finding a frame, and again only
+/// after a poll that found one, which grows the batch toward its ceiling
+/// ([`WriteBatch`]); once that many yields in a row find no frame, it
+/// flushes and then waits.
+async fn yield_to_members() {
+    let mut yielded = false;
+    poll_fn(|cx| {
+        if mem::replace(&mut yielded, true) {
+            Poll::Ready(())
+        } else {
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await;
+}
+
+/// The most passes in a row of the session's task set, each finding no
+/// frame, that the multiplexer lets run before it flushes an unflushed
+/// batch ([`Multiplexer::run`]).
+///
+/// A frame this side writes is most often caused by a frame it read, and it
+/// reaches the multiplexer only once each member on the way has run in
+/// turn: the demultiplexer hands the read frame to its decoder, the decoder
+/// parks the reply, and the encoder of the stage that answers it polls the
+/// stage's walk for the answer and hands its frame to a lane. Each yield
+/// lets the members woken so far run once, so a frame read before the
+/// multiplexer first finds nothing can arrive by its second pass, after the
+/// decoder's and the encoder's turns, and flushing after the first pass
+/// sends a short batch of what was ready while the replies the session is
+/// already building are a pass away. Four passes also take in the frames
+/// read up to two passes later. A pass that finds the set at rest costs one
+/// empty poll of the multiplexer, and the set returns to its executor once
+/// two of its members have yielded in one of its polls
+/// ([`yield_to_members`]), so a session with nothing coming flushes after
+/// four empty polls and two trips of its task through the executor's
+/// queue: microseconds on an executor with nothing else to run, and longer
+/// behind other ready tasks.
+pub(crate) const EMPTY_PASSES: usize = 4;
+
+/// How the multiplexer gathers frames into flushes: its *write batch
+/// range*, from a *segment size* `S` to a *largest batch* `R`.
+///
+/// The frames written between two flushes form a *batch*, and each batch
+/// has a *ceiling*, fixed by its first frame and the batches before it:
+///
+/// - `S`, when its first frame is at most `S` bytes, writing out the batch
+///   before it did not wait on the write half, and fewer than
+///   [`CUTS_TO_GROW`](super::codec::CUTS_TO_GROW) batches in a row before
+///   it were flushed at their ceiling rather than because nothing more was
+///   ready. Every frame in it is then at most `S`, so the batch keeps
+///   one-segment records.
+/// - `R`, or no ceiling when `R` is unbounded, otherwise: a frame larger
+///   than `S` spans segments however it is written, so it shares a write
+///   with the frames after it; while the write half is full, bytes queue
+///   anyway, so small writes buy no latency; and batches filled to their
+///   ceiling that many times in a row show frames coming back to back,
+///   where each small write would only delay the frames queued behind it.
+///   A single cut does not suffice: a burst of a little over one segment,
+///   which a session between nearly identical replicas meets now and then,
+///   keeps one-segment records, which the peer can decrypt as each segment
+///   arrives.
+///
+/// A ceiling bounds a batch, never makes the multiplexer wait for more:
+/// it flushes before a frame that would push the batch past its ceiling,
+/// as soon as the batch reaches it, and whenever its task set brings no
+/// new frame in [`EMPTY_PASSES`] yields in a row ([`Multiplexer::run`]). A frame larger than its
+/// batch's ceiling therefore goes out alone. `R` = 0 instead turns
+/// batching across polls off: the multiplexer flushes whenever a poll
+/// finds no frame ready, without yielding first, and no ceiling applies.
+///
+/// The range only chooses when the buffer is flushed. The buffer itself
+/// stays [`WRITE_BUFFER_BYTES`], so the range moves no memory bound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WriteBatch {
+    /// The segment size `S`: at most `largest`, or at most
+    /// [`WRITE_BUFFER_BYTES`] when `largest` is unbounded.
+    segment: usize,
+    /// The largest batch `R`, at most [`WRITE_BUFFER_BYTES`], or `None`
+    /// for no ceiling.
+    largest: Option<usize>,
+}
+
+impl WriteBatch {
+    /// The write batch `range` describes, as
+    /// [`Peer::write_batch_range`](crate::Peer::write_batch_range)
+    /// documents the conversion.
+    ///
+    /// Each bound converts to an inclusive size: an excluded start `s` to
+    /// `s + 1` (saturating), an excluded end `e` to `e - 1` (and an
+    /// excluded end of zero, an empty range, to zero), an unbounded start
+    /// to zero. An unbounded end means no ceiling. The end saturates at
+    /// [`WRITE_BUFFER_BYTES`], since a batch past the buffer writes itself
+    /// out before any flush, and the start is lowered to the end, or to
+    /// the buffer's capacity under an unbounded end.
+    pub fn from_range(range: impl RangeBounds<usize>) -> Self {
+        let largest = match range.end_bound() {
+            Bound::Included(&end) => Some(end.min(WRITE_BUFFER_BYTES)),
+            Bound::Excluded(&end) => Some(end.saturating_sub(1).min(WRITE_BUFFER_BYTES)),
+            Bound::Unbounded => None,
+        };
+        let start = match range.start_bound() {
+            Bound::Included(&start) => start,
+            Bound::Excluded(&start) => start.saturating_add(1),
+            Bound::Unbounded => 0,
+        };
+        Self {
+            segment: start.min(largest.unwrap_or(WRITE_BUFFER_BYTES)),
+            largest,
+        }
+    }
+
+    /// The range as the multiplexer applies it: the segment size, included,
+    /// to the largest batch, included, or unbounded.
+    ///
+    /// Converting it back gives the same write batch.
+    pub fn range(self) -> (Bound<usize>, Bound<usize>) {
+        (
+            Bound::Included(self.segment),
+            self.largest.map_or(Bound::Unbounded, Bound::Included),
+        )
+    }
+
+    /// The segment size `S` in bytes.
+    pub const fn segment(self) -> usize {
+        self.segment
+    }
+
+    /// The ceiling on a batch that does not keep to the segment size: the
+    /// largest batch `R`, or `None` for no ceiling, which `R` = 0 also
+    /// means.
+    pub fn largest(self) -> Option<NonZeroUsize> {
+        self.largest.and_then(NonZeroUsize::new)
+    }
+
+    /// Whether the multiplexer yields to its task set before flushing, so
+    /// that batches grow across passes: always, except at `R` = 0.
+    pub fn yields(self) -> bool {
+        self.largest != Some(0)
+    }
+}
+
+/// The batch range of [`default::tls::WRITE_BATCH_RANGE`].
+impl Default for WriteBatch {
+    fn default() -> Self {
+        Self::from_range(crate::default::tls::WRITE_BATCH_RANGE)
     }
 }
 

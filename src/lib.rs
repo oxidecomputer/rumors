@@ -207,15 +207,19 @@
 //! that are its own, so whatever follows a session stays in your buffer:
 //! keep the `BufReader` for the next session on the same connection, and
 //! never read the connection around it. The write half needs no wrapper: a
-//! session copies the messages it writes into a buffer of its own, about
-//! 63 KiB, and writes the buffer out whenever it would otherwise wait, so
-//! the messages written between flushes usually reach the write half as one
-//! write: one system call on a TCP socket, and one batch of records on a TLS
-//! stream. A session writes more often when more is ready at once than the
-//! buffer holds, writes a message at least the buffer's size directly, and
-//! continues any write the transport takes only part of. A `BufWriter`
-//! around the write half is safe, but only copies again what the session
-//! has already gathered.
+//! session gathers the messages it writes into *batches*, in a buffer of
+//! its own of about 63 KiB, and writes and flushes each batch at once, so
+//! each batch reaches the write half as one write: one system call on a TCP
+//! socket. A batch ends when the session has nothing more ready to send, or
+//! when it reaches the bounds [`Peer::write_batch_range`] sets. The default
+//! bounds suit TLS 1.3 over TCP: a batch of small messages leaves as one
+//! record that fills at most one TCP segment, and any other batch as one
+//! record of at most TLS's largest plaintext, unless one message alone
+//! outgrows that record and goes out by itself ([`default::tls`]). A session
+//! writes a message at least the buffer's size directly, and continues any
+//! write the transport takes only part of. A `BufWriter` around the write
+//! half is safe, but only copies again what the session has already
+//! gathered.
 //!
 //! Over TCP, disable Nagle's algorithm on both ends with
 //! `TcpStream::set_nodelay(true)` before splitting the stream. A session

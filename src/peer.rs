@@ -4,6 +4,7 @@
 
 use std::{
     borrow::Borrow,
+    ops::{Bound, RangeBounds},
     sync::{Arc, PoisonError, RwLock},
 };
 
@@ -21,7 +22,7 @@ use crate::network::{NetworkKeys, NetworkSecret};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::MAX_RUN_BUDGET_BYTES;
-use crate::tree::mirror::streaming::remote::RunBudget;
+use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
 use crate::tree::mirror::streaming::{Local, materialized};
 use crate::{
     Batch, Bookmark, CausalMessages, Changes, Committed, Network, Rumors, Snapshot,
@@ -176,6 +177,9 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The supply-run byte budget selected by
     /// [`target_message_size`](Self::target_message_size).
     pub(crate) run_budget: RunBudget,
+    /// The write batch range selected by
+    /// [`write_batch_range`](Self::write_batch_range).
+    pub(crate) write_batch: WriteBatch,
     /// Initiation and deadline factories inherited by every gossip handle.
     pub(crate) gossip_policy: policy::Policy<T>,
     /// Shared replica state and change notifications for handles and drivers.
@@ -211,6 +215,14 @@ pub struct SynchronizationSettings {
     pub sync_memory_budget: usize,
     /// The saturated wire-message target this peer advertises.
     pub target_message_size: usize,
+    /// The write batch range this peer's sessions batch their writes
+    /// within ([`Peer::write_batch_range`]), as they apply it.
+    ///
+    /// It runs from the segment size, included, to the largest batch,
+    /// included and saturated at the write buffer's capacity, or
+    /// unbounded. Passing it back to [`Peer::write_batch_range`] selects
+    /// the same batching.
+    pub write_batch_range: (Bound<usize>, Bound<usize>),
     /// The payload nesting limit this peer requires its counterpart to match.
     pub payload_depth_limit: u64,
 }
@@ -478,6 +490,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
             keys: Arc::clone(&keys),
             sync_memory_budget: default::SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
+            write_batch: WriteBatch::default(),
             gossip_policy: policy::Policy::default(),
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(keys))),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
@@ -509,6 +522,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             keys: Arc::clone(&self.keys),
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
+            write_batch: self.write_batch,
             gossip_policy: self.gossip_policy.clone(),
             inner: self.inner.clone(),
             bookmark: Arc::clone(&self.bookmark),
@@ -559,6 +573,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         SynchronizationSettings {
             sync_memory_budget: self.sync_memory_budget,
             target_message_size: self.run_budget.bytes(),
+            write_batch_range: self.write_batch.range(),
             payload_depth_limit: self.codec.limit().get(),
         }
     }
@@ -577,6 +592,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             .field("len", &inner.tree.len())
             .field("sync_memory_budget", &settings.sync_memory_budget)
             .field("target_message_size", &settings.target_message_size)
+            .field("write_batch_range", &settings.write_batch_range)
             .field("payload_depth_limit", &settings.payload_depth_limit)
             .finish_non_exhaustive()
     }
@@ -896,6 +912,91 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
+        self
+    }
+
+    /// Choose how many bytes of messages each write to your write half
+    /// carries, so the writes suit your transport.
+    ///
+    /// A session sends many small messages, and each write to your write
+    /// half costs your transport something whatever its size: a system
+    /// call on a socket, a record on a TLS stream. So a session gathers the
+    /// messages it builds into *batches*, and writes and flushes each batch
+    /// at once. The range's start is the *segment size*, the most a batch
+    /// of small messages carries, so that each such write fits one network
+    /// segment; its end is the *largest batch*, the most any batch carries.
+    ///
+    /// - A batch whose messages each fit the segment size stays within it:
+    ///   the session flushes before a message that would push the batch
+    ///   past the segment size, and as soon as the batch reaches it.
+    /// - A message larger than the segment size spans segments however it
+    ///   is written. The session flushes the batch before it, keeping that
+    ///   batch's one-segment write, and the large message starts a batch
+    ///   that the messages after it share, up to the largest batch.
+    /// - While your write half is full, small writes buy no latency, since
+    ///   bytes queue anyway. Once writing out a batch has had to wait for
+    ///   your write half, each next batch grows up to the largest batch,
+    ///   until one is written out without waiting.
+    /// - While the session readies messages back to back, small writes buy
+    ///   no latency either: each would only delay the messages queued behind
+    ///   it. Once two batches in a row have been flushed at their ceiling,
+    ///   each next batch grows up to the largest batch, until one ends
+    ///   because nothing more was ready. A single burst a little over the
+    ///   segment size keeps its one-segment writes.
+    ///
+    /// Either way the session also flushes whenever it has nothing more
+    /// ready to send. It never waits for more messages to fill a batch, so
+    /// both bounds are ceilings, not targets, and a message larger than
+    /// its batch's ceiling is written and flushed alone.
+    ///
+    /// A peer that never calls this uses [`default::tls::WRITE_BATCH_RANGE`],
+    /// from 1,426 to 16,384 bytes, because TLS over TCP is the common
+    /// deployment. Over TLS 1.3 on a 1,500-byte Ethernet link, each batch
+    /// of small messages that keeps to the segment size then leaves as one
+    /// record that fills at most one TCP segment, and every other batch as
+    /// one record of at most TLS's largest plaintext. [`default::tls`] gives the arithmetic and how to
+    /// adjust both bounds for other links and transports.
+    ///
+    /// # How the bounds convert
+    ///
+    /// Inclusive and exclusive bounds both work: an excluded start of `s`
+    /// bytes means `s + 1`, and an excluded end of `e` bytes means
+    /// `e - 1`.
+    ///
+    /// - An unbounded start means a segment size of zero: every batch
+    ///   grows to the largest batch.
+    /// - A start above the end is lowered to the end.
+    /// - An end above the session's write buffer, about 63 KiB, saturates
+    ///   to it.
+    /// - An end of zero, as in `..=0` or the empty `..0`, turns batching
+    ///   across the session's work off. The session flushes whenever it
+    ///   finds no message ready, without first letting its other work
+    ///   build more, so a write carries only the messages ready together,
+    ///   and the write buffer writes itself out whenever the next message
+    ///   does not fit beside the buffered ones.
+    /// - An unbounded end means no largest batch. A batch of small messages
+    ///   still keeps to the segment size, but any other batch grows until
+    ///   the session has nothing more ready to send, and the write buffer
+    ///   writes itself out whenever it fills. You rarely want that: it
+    ///   suits a write half that gains nothing from smaller writes and
+    ///   holds nothing back until flushed, such as a raw socket carrying a
+    ///   bulk transfer. It gives up the bound on how long a written message
+    ///   waits for its flush, which then lasts as long as the session keeps
+    ///   readying messages, and a write half that holds bytes until flushed,
+    ///   such as an encrypting or compressing layer, holds them that long.
+    ///
+    /// The setting chooses only when the write buffer is flushed, never
+    /// its size, so it changes no memory bound:
+    /// [`sync_memory_budget`](Self::sync_memory_budget), its minimum, and
+    /// the buffers beside it are the same whatever you set here. It is
+    /// local to this peer and is not negotiated with the counterparty.
+    ///
+    /// The choice follows the peer through
+    /// [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement.
+    #[must_use]
+    pub fn write_batch_range(mut self, range: impl RangeBounds<usize>) -> Self {
+        self.write_batch = WriteBatch::from_range(range);
         self
     }
 

@@ -95,6 +95,8 @@ pub use capture::{
 pub use decode::FrameRead;
 #[cfg(test)]
 pub use decode::{decode, decode_exact};
+#[cfg(any(test, feature = "test-internals"))]
+pub use encode::CUTS_TO_GROW;
 pub use encode::FrameWrite;
 #[cfg(test)]
 pub use encode::encode;

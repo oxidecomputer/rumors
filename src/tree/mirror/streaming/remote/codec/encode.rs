@@ -8,6 +8,8 @@ use crate::tree::mirror::cbor::{self, MAJOR_ARRAY, MAJOR_BSTR, MAJOR_UINT, TAG_C
 
 mod async_io;
 
+#[cfg(any(test, feature = "test-internals"))]
+pub use async_io::CUTS_TO_GROW;
 pub use async_io::FrameWrite;
 
 #[cfg(test)]
@@ -167,11 +169,16 @@ impl<'a> FrameEncoding<'a> {
             .chain(body.into_iter().flatten())
     }
 
+    /// The frame's encoded length in bytes: the sum of its pieces.
+    fn len(&self) -> usize {
+        self.pieces().map(|(_, piece)| piece.len()).sum()
+    }
+
     /// Render the whole frame into one contiguous buffer: byte for byte
     /// what the writers emit, materialized only for an attached observer's
     /// one-item view.
     fn to_vec(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.pieces().map(|(_, piece)| piece.len()).sum());
+        let mut bytes = Vec::with_capacity(self.len());
         for (_, piece) in self.pieces() {
             bytes.extend_from_slice(piece);
         }

@@ -14,6 +14,8 @@
 
 use crate::tree::mirror::streaming::remote::codec::{FULL_FAN_QUERY_FRAME_LEN, MAX_QUERY_CHILDREN};
 
+pub mod tls;
+
 /// The memory budget for each synchronization session a peer uses unless
 /// you set one: 512 MiB.
 ///

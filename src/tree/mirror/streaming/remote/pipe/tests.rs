@@ -15,8 +15,8 @@ use tokio::io::{AsyncReadExt, BufReader};
 use super::*;
 use crate::Version;
 use crate::message::Message;
-use crate::testing::{IoPlan, IoSide, run_to_quiescence, wrap_io};
-use crate::tree::mirror::streaming::remote::codec::{Flow, LeafRun, encode};
+use crate::testing::{IoPlan, IoSide, Quiescence, run_to_quiescence, wrap_io};
+use crate::tree::mirror::streaming::remote::codec::{CUTS_TO_GROW, Flow, LeafRun, encode};
 use crate::tree::mirror::streaming::{holding::Holding, ledger::Ledger};
 
 /// The speaker whose direction these tests write and read.
@@ -217,20 +217,42 @@ fn supply_of_len(stream: Stream, len: usize) -> ReplyFrame {
     frame
 }
 
-/// A write half's destination the test can watch: the bytes written to it,
-/// and the waker of a task waiting for them.
+/// A write half's destination the test can watch.
 #[derive(Clone, Default)]
-struct Sink(Arc<Mutex<(Vec<u8>, Option<Waker>)>>);
+struct Sink(Arc<Mutex<SinkState>>);
+
+/// What has reached a [`Sink`], and who waits for more.
+#[derive(Default)]
+struct SinkState {
+    /// The bytes written to the sink.
+    bytes: Vec<u8>,
+    /// The waker of a task waiting for more bytes.
+    waker: Option<Waker>,
+    /// How many bytes had been written at each flush, in order.
+    flushes: Vec<usize>,
+    /// Whether each flush, in order, waits once before completing; flushes
+    /// past the end of the script complete at once.
+    waits: VecDeque<bool>,
+    /// Whether the next flush has already waited once.
+    waited: bool,
+}
 
 impl Sink {
+    /// A sink whose flushes wait once or not, in order, as `waits` says.
+    fn waiting(waits: &[bool]) -> Self {
+        let sink = Self::default();
+        sink.0.lock().expect("sink lock").waits = waits.iter().copied().collect();
+        sink
+    }
+
     /// Wait until at least `len` bytes have reached the sink.
     async fn wait_for(&self, len: usize) {
         poll_fn(|cx| {
             let mut sink = self.0.lock().expect("sink lock");
-            if sink.0.len() >= len {
+            if sink.bytes.len() >= len {
                 Poll::Ready(())
             } else {
-                sink.1 = Some(cx.waker().clone());
+                sink.waker = Some(cx.waker().clone());
                 Poll::Pending
             }
         })
@@ -239,11 +261,27 @@ impl Sink {
 
     /// The bytes that have reached the sink.
     fn bytes(&self) -> Vec<u8> {
-        self.0.lock().expect("sink lock").0.clone()
+        self.0.lock().expect("sink lock").bytes.clone()
+    }
+
+    /// The bytes each flush carried: those written since the flush before
+    /// it, in order, omitting flushes that carried nothing.
+    fn flushed(&self) -> Vec<usize> {
+        let sink = self.0.lock().expect("sink lock");
+        let mut previous = 0;
+        let mut groups = Vec::new();
+        for &at in &sink.flushes {
+            if at > previous {
+                groups.push(at - previous);
+            }
+            previous = at;
+        }
+        groups
     }
 }
 
-/// Take every write whole, waking the waiting task.
+/// Take every write whole, waking the waiting task, and complete each
+/// flush once, or after one wait where the script says so.
 impl AsyncWrite for Sink {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -251,14 +289,25 @@ impl AsyncWrite for Sink {
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
         let mut sink = self.0.lock().expect("sink lock");
-        sink.0.extend_from_slice(bytes);
-        if let Some(waker) = sink.1.take() {
+        sink.bytes.extend_from_slice(bytes);
+        if let Some(waker) = sink.waker.take() {
             waker.wake();
         }
         Poll::Ready(Ok(bytes.len()))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let mut sink = self.0.lock().expect("sink lock");
+        if sink.waits.front() == Some(&true) && !mem::replace(&mut sink.waited, true) {
+            // A full socket would wake the writer once it drains; this one
+            // drains at once.
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        sink.waits.pop_front();
+        sink.waited = false;
+        let at = sink.bytes.len();
+        sink.flushes.push(at);
         Poll::Ready(Ok(()))
     }
 
@@ -270,8 +319,16 @@ impl AsyncWrite for Sink {
 proptest! {
     /// Every frame the multiplexer writes reaches the write half whole, in
     /// order, and flushed before the multiplexer waits for the next one,
-    /// whatever its length against the write buffer and however the write
-    /// half takes writes.
+    /// at every write batch range.
+    ///
+    /// That holds whatever a frame's length against the write buffer, and
+    /// however the write half takes writes.
+    ///
+    /// Each bound of the range is drawn as in
+    /// `flushes_keep_batches_within_their_ceilings`, so ranges that turn
+    /// batching across passes off, and an unbounded end, which leaves a
+    /// batch of large frames no ceiling, both occur: whatever the range, a
+    /// pass that brings no frame must flush.
     ///
     /// Each batch mixes thin frames with supply frames just below, at, and
     /// just above [`WRITE_BUFFER_BYTES`], so some frames are copied and some
@@ -297,6 +354,8 @@ proptest! {
         write_chunk in prop_oneof![Just(usize::MAX), 1_000usize..=70_000],
         delays in prop::collection::vec(0u8..=2, 0..16),
         vectored in any::<bool>(),
+        start in batch_bound(),
+        end in batch_bound(),
     ) {
         let stream = interior(1);
         let mut supplies = std::collections::HashMap::new();
@@ -332,7 +391,7 @@ proptest! {
             ..IoPlan::default()
         };
         let (_, mut write, _) = wrap_io(IoSide::Left, plan, tokio::io::empty(), sink.clone());
-        let mut multiplexer = Multiplexer::default();
+        let mut multiplexer = Multiplexer::new(WriteBatch::from_range((start, end)));
         let mut lane = multiplexer.lane(stream, 0);
         let (handed, sink_ref) = (&batches, &sink);
         let producer = async move {
@@ -360,6 +419,484 @@ proptest! {
             .collect();
         expected.push((stream, Frame::End(End::Stream)));
         prop_assert_eq!(decode_all(&sink.bytes()), expected);
+    }
+}
+
+/// A multiplexer fed a thin frame on every pass, at the default write
+/// batch range, first flushes once its batch reaches the segment size,
+/// long before its buffer fills.
+///
+/// The producer shares one future with the multiplexer and keeps its lane
+/// full, so every poll that follows a yield finds a frame, and no pass
+/// ever brings nothing: only the batch's ceiling can end the batch. A
+/// thin frame fits a segment and nothing has waited yet, so the ceiling
+/// is the segment size. The multiplexer flushes before the frame that
+/// would push the batch past it, so the first flush carries more than the
+/// segment size less one frame, and at most the segment size. That is
+/// more frames than one pass hands it, a lane's worth at most, so the
+/// batch grew across passes, and far fewer bytes than the buffer holds,
+/// as the first assertion checks, so the ceiling, not the buffer, ended
+/// it.
+#[test]
+fn a_multiplexer_fed_every_pass_flushes_at_the_segment_size() {
+    let stream = interior(1);
+    let thin = frame(Kind::Match, 0);
+    let thin_len = encoded_len(stream, &thin);
+    let batch = WriteBatch::default().segment();
+    assert!(
+        batch < WRITE_BUFFER_BYTES / 2,
+        "a batch fits in the write buffer with room to spare, so only the ceiling flushes it"
+    );
+    let sink = Sink::default();
+    let mut write = sink.clone();
+    let mut multiplexer = Multiplexer::default();
+    let mut lane = multiplexer.lane(stream, 0);
+    run_to_quiescence(async {
+        let producer = async {
+            while sink.bytes().is_empty() {
+                lane.frame(thin.clone(), Charge::default()).await;
+            }
+            drop(lane);
+        };
+        let observe = SessionHandle::default();
+        let run = multiplexer.run(&mut write, SPEAKER, Recorder::default(), &observe);
+        let (written, ()) = futures::join!(run, producer);
+        written.expect("writing into the sink cannot fail");
+    })
+    .expect("the multiplexer drains its lane once the producer stops");
+    let first = sink.flushed()[0];
+    assert!(
+        first > batch - thin_len && first <= batch,
+        "the first flush carried {first} bytes, against a segment size of {batch}"
+    );
+    assert!(first / thin_len > LANE_CAPACITY, "{first} bytes");
+}
+
+/// One bound of a write batch range: included, excluded, or unbounded.
+///
+/// Its sizes run from zero through the default range's ends to past the
+/// write buffer's capacity.
+fn batch_bound() -> impl Strategy<Value = Bound<usize>> {
+    let size = prop_oneof![
+        Just(0usize),
+        1usize..64,
+        64usize..4_000,
+        Just(*crate::default::tls::WRITE_BATCH_RANGE.start()),
+        Just(*crate::default::tls::WRITE_BATCH_RANGE.end()),
+        Just(WRITE_BUFFER_BYTES),
+        Just(WRITE_BUFFER_BYTES * 2),
+    ];
+    prop_oneof![
+        size.clone().prop_map(Bound::Included),
+        size.prop_map(Bound::Excluded),
+        Just(Bound::Unbounded),
+    ]
+}
+
+/// The ceiling under `batch` of a batch whose first frame is `first`
+/// bytes, when writing out the batch before it did not wait and the
+/// `cuts` batches in a row before it were cut at their ceiling.
+///
+/// It is the segment size if the frame fits it and `cuts` is under
+/// [`CUTS_TO_GROW`], and otherwise the largest batch, or `None` for no
+/// ceiling.
+fn unwaited_ceiling(batch: WriteBatch, first: usize, cuts: usize) -> Option<usize> {
+    if first <= batch.segment() && cuts < CUTS_TO_GROW {
+        Some(batch.segment())
+    } else {
+        batch.largest().map(NonZeroUsize::get)
+    }
+}
+
+proptest! {
+    /// Over a write half that never waits, every flush of a multiplexer
+    /// carries whole frames within its batch's ceiling, or a single frame
+    /// larger than it, whatever the write batch range and frame lengths.
+    ///
+    /// A batch that starts with a frame that fits a segment, after fewer
+    /// than [`CUTS_TO_GROW`] batches in a row cut at their ceiling, stays
+    /// within the segment size, so the frames batched before a larger
+    /// frame are flushed before it; any other batch stays within the
+    /// largest batch. A batch was cut at its ceiling only if the frame
+    /// after it would not have fitted beside it under that ceiling, so only
+    /// if it would not have fitted under the smallest ceiling the batch
+    /// could have had: the segment size when its first frame fits it. The
+    /// test counts the batches in a row that may have been cut by that
+    /// measure, which are at least as many as were, and predicts the
+    /// segment size wherever fewer than [`CUTS_TO_GROW`] precede a batch,
+    /// where the multiplexer must have used it; the largest batch bounds
+    /// every other flush.
+    ///
+    /// The frames mix thin frames with supply frames from tiny to several
+    /// times the larger segment sizes, all smaller than the write buffer.
+    /// Each bound of the range is drawn included, excluded, or unbounded,
+    /// from zero through the default range's ends to past the buffer's
+    /// capacity, so empty ranges, starts above ends, saturating ends and
+    /// an unbounded end, which leaves a large frame's batch no ceiling,
+    /// all occur.
+    #[test]
+    fn flushes_keep_batches_within_their_ceilings(
+        texts in prop::collection::vec(prop::option::of(0usize..3_000), 1..60),
+        start in batch_bound(),
+        end in batch_bound(),
+    ) {
+        let stream = interior(1);
+        let frames: Vec<ReplyFrame> = texts
+            .iter()
+            .map(|text| match text {
+                None => frame(Kind::Match, 0),
+                Some(text) => {
+                    let mut run = LeafRun::new();
+                    run.push(&Version::new(), &Message::new("x".repeat(*text)), RunBudget::default())
+                        .expect("a record within the run cap fits a fresh run");
+                    ReplyFrame::reaction(Reaction::Supply(run), Flow::End)
+                }
+            })
+            .collect();
+        let lens: Vec<usize> = frames.iter().map(|frame| encoded_len(stream, frame)).collect();
+        let batch = WriteBatch::from_range((start, end));
+        let sink = Sink::default();
+        let mut write = sink.clone();
+        let mut multiplexer = Multiplexer::new(batch);
+        let lane = multiplexer.lane(stream, 0);
+        run_to_quiescence(async {
+            let observe = SessionHandle::default();
+            let run = multiplexer.run(&mut write, SPEAKER, Recorder::default(), &observe);
+            let (written, ()) = futures::join!(run, produce(lane, frames));
+            written.expect("writing into the sink cannot fail");
+        })
+        .expect("the multiplexer drains its lane");
+        let mut end = Vec::new();
+        encode(SPEAKER, &(stream, Frame::End(End::Stream)), &mut end)
+            .expect("an end-of-stream frame encodes");
+        let end_len = end.len();
+        let mut frames = lens.iter().copied().chain(std::iter::once(end_len)).peekable();
+        let mut possible_cuts = 0;
+        for group in sink.flushed() {
+            let mut carried = Vec::new();
+            while carried.iter().sum::<usize>() < group {
+                carried.push(frames.next().expect("a flush carries only written frames"));
+            }
+            prop_assert_eq!(carried.iter().sum::<usize>(), group, "a flush ends at a frame boundary");
+            let ceiling = unwaited_ceiling(batch, carried[0], possible_cuts);
+            let smallest = unwaited_ceiling(batch, carried[0], 0);
+            let possibly_cut =
+                smallest.is_some_and(|smallest| frames.peek().is_some_and(|&next| group + next > smallest));
+            possible_cuts = if possibly_cut { (possible_cuts + 1).min(CUTS_TO_GROW) } else { 0 };
+            prop_assert!(
+                ceiling.is_none_or(|ceiling| group <= ceiling) || carried.len() == 1,
+                "a flush of {} bytes in {} frames, against a ceiling of {:?} under {:?}",
+                group,
+                carried.len(),
+                ceiling,
+                batch
+            );
+        }
+        prop_assert!(frames.next().is_none(), "every frame was flushed");
+    }
+
+    /// A batch after one that waited on the write half, or after
+    /// [`CUTS_TO_GROW`] batches in a row cut at their ceiling, grows to the
+    /// largest batch; any other batch keeps to the segment size.
+    ///
+    /// A batch after a single cut keeps to the segment size too.
+    /// A batch *ended idle* when it was flushed because nothing more was
+    /// ready, which ends a run of cuts. The producer shares one future with
+    /// the multiplexer and hands over bursts of thin frames, all of one
+    /// length, waiting after each burst until all of it has reached the
+    /// sink. Within a burst it keeps the lane full, as in
+    /// `a_multiplexer_fed_every_pass_flushes_at_the_segment_size`, so only
+    /// a batch's ceiling ends a flush before the burst's end: such a flush
+    /// is a cut, and carries more than its ceiling less one frame, and at
+    /// most the ceiling. The flush that ends a burst ended idle, unless it
+    /// filled its ceiling exactly, which cuts it. The write half's flushes
+    /// wait once or not as a drawn script says. Each flush's ceiling
+    /// follows from the run of cuts before it and whether the flush before
+    /// it waited; the first batch keeps to the segment size. Bursts run
+    /// from one frame to many segments' worth, so runs of no cut, one cut,
+    /// and many cuts all end in idle flushes.
+    #[test]
+    fn a_waiting_flush_or_a_run_of_cuts_lets_the_next_batch_grow_to_the_largest(
+        bursts in prop::collection::vec(1usize..=1_000, 1..6),
+        waits in prop::collection::vec(any::<bool>(), 0..16),
+        segment in 64usize..=600,
+        growth in 1usize..=4,
+    ) {
+        let stream = interior(1);
+        let thin = frame(Kind::Match, 0);
+        let thin_len = encoded_len(stream, &thin);
+        let largest = segment * growth;
+        let batch = WriteBatch::from_range(segment..=largest);
+        let sink = Sink::waiting(&waits);
+        let mut write = sink.clone();
+        let mut multiplexer = Multiplexer::new(batch);
+        let mut lane = multiplexer.lane(stream, 0);
+        let ends: Vec<usize> = bursts
+            .iter()
+            .scan(0, |sent, &frames| {
+                *sent += frames * thin_len;
+                Some(*sent)
+            })
+            .collect();
+        let (bursts_ref, ends_ref, sink_ref) = (&bursts, &ends, &sink);
+        run_to_quiescence(async {
+            let producer = async move {
+                for (&frames, &end) in bursts_ref.iter().zip(ends_ref) {
+                    for _ in 0..frames {
+                        lane.frame(thin.clone(), Charge::default()).await;
+                    }
+                    sink_ref.wait_for(end).await;
+                }
+                drop(lane);
+            };
+            let observe = SessionHandle::default();
+            let run = multiplexer.run(&mut write, SPEAKER, Recorder::default(), &observe);
+            let (written, ()) = futures::join!(run, producer);
+            written.expect("writing into the sink cannot fail");
+        })
+        .expect("the multiplexer drains its lane once the producer stops");
+        // The closing end-of-stream frame's own flush follows the bursts.
+        let flushed = sink.flushed();
+        let (mut sent, mut cuts, mut waited) = (0, 0, false);
+        for (index, &group) in flushed.iter().enumerate() {
+            if sent == *ends.last().expect("at least one burst") {
+                break;
+            }
+            let ceiling = if cuts >= CUTS_TO_GROW || waited { largest } else { segment };
+            sent += group;
+            let ends_burst = ends.contains(&sent);
+            prop_assert!(
+                group <= ceiling && (ends_burst || group > ceiling - thin_len),
+                "flush {} carried {} bytes, against a ceiling of {} (segment {}, largest {}, \
+                 ends a burst: {}): {:?}",
+                index,
+                group,
+                ceiling,
+                segment,
+                largest,
+                ends_burst,
+                flushed
+            );
+            let cut = !ends_burst || group >= ceiling;
+            cuts = if cut { (cuts + 1).min(CUTS_TO_GROW) } else { 0 };
+            waited = waits.get(index).copied().unwrap_or(false);
+        }
+        prop_assert_eq!(sent, *ends.last().expect("at least one burst"), "every burst was flushed");
+    }
+}
+
+/// A write half that takes every write whole and logs each flush that
+/// delivers bytes, with the pass of the test's clock it completed in.
+struct PassSink {
+    /// The pass the test's future is in: how many times it has been polled.
+    clock: Arc<AtomicUsize>,
+    /// The bytes written since the last flush.
+    pending: usize,
+    /// Each delivering flush's pass and bytes, in order.
+    flushes: Arc<Mutex<Vec<(usize, usize)>>>,
+}
+
+/// Take every write whole, and log every flush that delivers bytes.
+impl AsyncWrite for PassSink {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.get_mut().pending += bytes.len();
+        Poll::Ready(Ok(bytes.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let sink = self.get_mut();
+        if sink.pending > 0 {
+            let pass = sink.clock.load(Ordering::Relaxed);
+            let bytes = mem::take(&mut sink.pending);
+            sink.flushes
+                .lock()
+                .expect("flush log lock")
+                .push((pass, bytes));
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// Drive a multiplexer batching within `batch` while a producer hands it
+/// `frames` thin frames, one every `gap` passes, counting passes on a clock.
+///
+/// The future polls the clock, then the multiplexer, then the producer, so
+/// each of its polls is one pass, and the multiplexer polls ahead of the
+/// producer within a pass. Once it has handed over its last frame, the
+/// producer waits for every frame's flush before closing its lane, since a
+/// closing lane would end the last batch at once.
+///
+/// Returns a thin frame's length, the pass in which the producer handed
+/// over each frame, and the pass and bytes of each flush that delivered
+/// bytes.
+fn paced(
+    batch: WriteBatch,
+    frames: usize,
+    gap: usize,
+) -> Result<(usize, Vec<usize>, Vec<(usize, usize)>), Quiescence> {
+    let stream = interior(1);
+    let thin = frame(Kind::Match, 0);
+    let len = encoded_len(stream, &thin);
+    let clock = Arc::new(AtomicUsize::new(0));
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut write = PassSink {
+        clock: Arc::clone(&clock),
+        pending: 0,
+        flushes: Arc::clone(&log),
+    };
+    let mut multiplexer = Multiplexer::new(batch);
+    let mut lane = multiplexer.lane(stream, 0);
+    let (clock_ref, log_ref) = (&clock, &log);
+    let flushed = || -> usize {
+        log_ref
+            .lock()
+            .expect("flush log lock")
+            .iter()
+            .map(|&(_, bytes)| bytes)
+            .sum()
+    };
+    let producer = async move {
+        let mut handed = Vec::with_capacity(frames);
+        for _ in 0..frames {
+            handed.push(clock_ref.load(Ordering::Relaxed));
+            lane.frame(thin.clone(), Charge::default()).await;
+            for _ in 0..gap {
+                yield_to_members().await;
+            }
+        }
+        while flushed() < frames * len {
+            yield_to_members().await;
+        }
+        drop(lane);
+        handed
+    };
+    let tick = poll_fn(|_| {
+        clock_ref.fetch_add(1, Ordering::Relaxed);
+        Poll::<()>::Pending
+    });
+    let handed = run_to_quiescence(async {
+        let observe = SessionHandle::default();
+        let run = multiplexer.run(&mut write, SPEAKER, Recorder::default(), &observe);
+        let work = async { futures::join!(run, producer) };
+        match futures::future::select(pin!(tick), pin!(work)).await {
+            Either::Right(((written, handed), _)) => {
+                written.expect("writing into the sink cannot fail");
+                handed
+            }
+            Either::Left(((), _)) => unreachable!("the clock never completes"),
+        }
+    })?;
+    let flushes = log.lock().expect("flush log lock").clone();
+    Ok((len, handed, flushes))
+}
+
+/// The pass and bytes of each flush a multiplexer batching within `batch`
+/// makes, over a write half that never waits, when it writes frames of
+/// `len` bytes in the passes `written`, and nothing else arrives.
+///
+/// A batch ends idle [`EMPTY_PASSES`] passes after its last write when no
+/// frame is written in those passes, and is cut at its ceiling in the pass
+/// that writes the frame reaching the ceiling, or the frame that would pass
+/// it.
+fn modeled_flushes(
+    batch: WriteBatch,
+    len: usize,
+    written: impl IntoIterator<Item = usize>,
+) -> Vec<(usize, usize)> {
+    let mut flushes = Vec::new();
+    let (mut bytes, mut cuts, mut ceiling, mut last) = (0, 0, None, 0);
+    for written in written {
+        if bytes > 0 && written > last + EMPTY_PASSES {
+            flushes.push((last + EMPTY_PASSES, bytes));
+            (bytes, cuts) = (0, 0);
+        }
+        if bytes > 0 && ceiling.is_some_and(|ceiling| bytes + len > ceiling) {
+            flushes.push((written, bytes));
+            (bytes, cuts) = (0, (cuts + 1).min(CUTS_TO_GROW));
+        }
+        if bytes == 0 {
+            ceiling = unwaited_ceiling(batch, len, cuts);
+        }
+        bytes += len;
+        last = written;
+        if ceiling.is_some_and(|ceiling| bytes >= ceiling) {
+            flushes.push((written, bytes));
+            (bytes, cuts) = (0, (cuts + 1).min(CUTS_TO_GROW));
+        }
+    }
+    if bytes > 0 {
+        flushes.push((last + EMPTY_PASSES, bytes));
+    }
+    flushes
+}
+
+proptest! {
+    /// The multiplexer flushes a batch [`EMPTY_PASSES`] passes after its
+    /// last write when those passes bring no frame, and keeps it open
+    /// across any shorter gap.
+    ///
+    /// So each frame of a batch adds at most [`EMPTY_PASSES`] passes of the
+    /// session's task set to the wait of the batch's first frame for its
+    /// flush.
+    ///
+    /// A producer hands over a thin frame every `gap` passes ([`paced`]).
+    /// The multiplexer polls ahead of the producer within a pass, so it
+    /// writes each frame in the pass after the frame is handed over, and
+    /// finds a frame handed over within [`EMPTY_PASSES`] passes of its last
+    /// write in one of the polls that follow its yields. Every flush must
+    /// match, in pass and in bytes, the model of the rule
+    /// ([`modeled_flushes`]). An idle flush comes a fixed, nonzero number
+    /// of passes after its last write, so the match also shows that the
+    /// clock counts passes. Gaps run past [`EMPTY_PASSES`], ceilings run
+    /// from below one frame to many, and an unbounded end leaves a grown
+    /// batch no ceiling, so idle flushes, cuts and frames flushed alone all
+    /// occur.
+    ///
+    /// Every flush must also meet the per-frame bound behind the one
+    /// [`Multiplexer::run`] documents: it comes within [`EMPTY_PASSES`]
+    /// passes per frame it carries of its first frame's write, and a frame
+    /// takes at least a byte of its ceiling.
+    #[test]
+    fn a_batch_is_flushed_once_empty_passes_bring_no_frame(
+        frames in 1usize..=200,
+        gap in 1usize..=2 * EMPTY_PASSES,
+        segment in 1usize..=300,
+        growth in prop::option::of(1usize..=4),
+    ) {
+        let batch = WriteBatch::from_range((
+            Bound::Included(segment),
+            growth.map_or(Bound::Unbounded, |growth| Bound::Included(segment * growth)),
+        ));
+        let (len, handed, flushes) = paced(batch, frames, gap)
+            .map_err(|stopped| TestCaseError::fail(format!("the multiplexer stopped: {stopped:?}")))?;
+        let written: Vec<usize> = handed.iter().map(|&pass| pass + 1).collect();
+        prop_assert_eq!(
+            &flushes,
+            &modeled_flushes(batch, len, written.iter().copied()),
+            "{:?} at a gap of {} passes",
+            batch,
+            gap
+        );
+        let mut first = 0;
+        for &(pass, bytes) in &flushes {
+            let carried = bytes / len;
+            let waited = pass - written[first];
+            prop_assert!(
+                waited <= EMPTY_PASSES * carried,
+                "a flush of {} frames came {} passes after its first frame's write",
+                carried,
+                waited
+            );
+            first += carried;
+        }
     }
 }
 

@@ -102,6 +102,7 @@ divided_proptest! {
             keys: survivor.keys.clone(),
             sync_memory_budget: survivor.sync_memory_budget,
             run_budget: survivor.run_budget,
+            write_batch: survivor.write_batch,
             inner: watch::Sender::new(Inner::new(
                 party_of(&survivor),
                 Tree::from_root(survivor.keys.clone(), Root::default()),

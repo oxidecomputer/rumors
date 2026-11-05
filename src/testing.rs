@@ -40,8 +40,8 @@ use crate::{
 };
 
 pub use crate::tree::mirror::streaming::remote::codec::{
-    DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind, DecodeLeafError,
-    FramePart, HeadError, LeafRunError,
+    CUTS_TO_GROW, DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind,
+    DecodeLeafError, FramePart, HeadError, LeafRunError,
 };
 
 pub use crate::tree::mirror::streaming::holding::{Holding, Hook, attribute_allocations};

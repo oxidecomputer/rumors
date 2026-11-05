@@ -1,6 +1,10 @@
 //! Direct asynchronous output for validated frame encodings.
 
 use std::io::{self, IoSlice};
+use std::mem;
+use std::num::NonZeroUsize;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
@@ -13,6 +17,20 @@ use super::super::{
 };
 use super::{FrameEncoding, MAX_PIECES};
 
+/// How many batches in a row must be flushed at their ceiling before the
+/// next batch may grow past the segment size.
+///
+/// One cut shows only that a burst outgrew one segment, which a session
+/// between nearly identical replicas meets now and then; the next batch
+/// then keeps one-segment records, which the peer can decrypt as each
+/// segment arrives, where it decrypts a larger record only once all of it
+/// has arrived. A second cut in a row shows frames coming back to back for
+/// longer than two segments take, the mark of a session readying frames
+/// faster than one-segment writes carry them; there each small write only
+/// delays the frames queued behind it, and costs a system call, a record
+/// and the peer's receive processing.
+pub const CUTS_TO_GROW: usize = 2;
+
 /// Async frame writer over one speaker's direction of the pipe.
 ///
 /// A frame is validated before any of it is written. Its pieces then go
@@ -21,7 +39,10 @@ use super::{FrameEncoding, MAX_PIECES};
 /// operation, so a frame is always whole on the transport before the next
 /// begins. Writing does not flush: [`flush`](Self::flush) delivers every
 /// frame written since the last flush, so frames written together can share
-/// one flush on a buffered or encrypting writer.
+/// one flush on a buffered or encrypting writer. A writer given batch
+/// ceilings ([`batched`](Self::batched)) keeps the frames between two
+/// flushes within them, flushing by itself where the next frame would
+/// exceed its batch's ceiling.
 ///
 /// # Failure attribution
 ///
@@ -44,6 +65,28 @@ pub struct FrameWrite<W> {
     /// The logical stream of the last frame written since the last flush,
     /// if any: a flush failure is attributed to it.
     unflushed: Option<Stream>,
+    /// The bytes of the frames written since the last flush.
+    unflushed_bytes: usize,
+    /// The ceiling of a batch whose first frame is at most this many bytes,
+    /// after a predecessor that did not wait on the write half and fewer
+    /// than [`CUTS_TO_GROW`] cuts in a row: the *segment size*.
+    segment: usize,
+    /// The ceiling of every other batch, or `None` for none: the *largest
+    /// batch*.
+    largest: Option<NonZeroUsize>,
+    /// The ceiling of the batch being written, fixed by its first frame,
+    /// or `None` for none.
+    ceiling: Option<usize>,
+    /// Whether a call on the write half has returned `Pending` since the
+    /// last flush completed.
+    waited: bool,
+    /// Whether writing out the last flushed batch, its frames and its
+    /// flush, waited on the write half.
+    last_waited: bool,
+    /// How many batches in a row, ending with the last that delivered
+    /// frames, were flushed at their ceiling rather than because nothing
+    /// more was ready, counted up to [`CUTS_TO_GROW`].
+    cuts: usize,
 }
 
 /// Constructs frame writers and recovers their transport.
@@ -55,6 +98,13 @@ impl<W> FrameWrite<W> {
             write,
             observe: None,
             unflushed: None,
+            unflushed_bytes: 0,
+            segment: 0,
+            largest: None,
+            ceiling: None,
+            waited: false,
+            last_waited: false,
+            cuts: 0,
         }
     }
 
@@ -63,6 +113,30 @@ impl<W> FrameWrite<W> {
     pub fn observed(mut self, observe: Option<DataObservers>) -> Self {
         self.observe = observe;
         self
+    }
+
+    /// Keep the frames each flush carries within a ceiling chosen per
+    /// batch, from `segment` and `largest`.
+    ///
+    /// A batch whose first frame is at most `segment` bytes has a ceiling
+    /// of `segment` bytes, unless writing out its predecessor waited on the
+    /// write half, or the [`CUTS_TO_GROW`] batches before it were each
+    /// flushed at their ceiling, rather than because nothing more was
+    /// ready. Any other batch has a ceiling of `largest` bytes, or none
+    /// when it is `None`.
+    ///
+    /// [`frame`](Self::frame) flushes before a frame that would push the
+    /// unflushed frames past their batch's ceiling, and once they reach
+    /// it. Without this call, no batch has a ceiling.
+    pub fn batched(mut self, segment: usize, largest: Option<NonZeroUsize>) -> Self {
+        self.segment = segment;
+        self.largest = largest;
+        self
+    }
+
+    /// Whether a frame has been written since the last flush.
+    pub fn is_unflushed(&self) -> bool {
+        self.unflushed.is_some()
     }
 
     /// Recover the transport writer. The frame writer holds no frame
@@ -77,13 +151,21 @@ impl<W> FrameWrite<W> {
 
 /// Writes complete frames to an asynchronous transport.
 impl<W: AsyncWrite + Unpin> FrameWrite<W> {
-    /// Validate and write one canonical frame, without flushing it.
+    /// Validate and write one canonical frame.
+    ///
+    /// Without a ceiling, this never flushes. With one, it first flushes
+    /// the frames already written if this frame would push them past
+    /// their batch's ceiling, and flushes after writing once they reach
+    /// it, since no further frame fits beside them; so a frame larger than
+    /// its batch's ceiling is flushed alone. A frame that starts a batch
+    /// fixes the batch's ceiling ([`batched`](Self::batched)).
     ///
     /// # Errors
     ///
     /// A frame that does not encode fails before anything is written. A
     /// write the transport fails names this frame and the part being
-    /// offered, as the type's docs describe.
+    /// offered, as the type's docs describe, and a flush failure names the
+    /// last frame written before it, as [`flush`](Self::flush)'s does.
     ///
     /// # Cancel safety
     ///
@@ -94,28 +176,80 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     /// cancellation.
     pub async fn frame(&mut self, wire: &WireFrame) -> Result<(), EncodeError> {
         let (stream, frame) = wire;
-        let result = async {
-            let encoding = FrameEncoding::new(*stream, frame)?;
-            write_encoding(&mut self.write, &encoding).await?;
-            self.unflushed = Some(*stream);
-            // The write half has taken the whole frame, into its buffer if
-            // it has one: deliver its one-item view. The pieces are the
-            // bytes just written, so the materialized buffer equals the
-            // wire by construction.
-            if let Some(observe) = &mut self.observe {
-                observe.message(stream.index(), &encoding.to_vec());
-            }
-            Ok(())
+        let speaker = self.speaker;
+        let failed = |kind| EncodeError::new(speaker, *stream, kind);
+        let encoding = FrameEncoding::new(*stream, frame).map_err(failed)?;
+        let len = encoding.len();
+        if self.unflushed_bytes > 0
+            && self
+                .ceiling
+                .is_some_and(|ceiling| self.unflushed_bytes + len > ceiling)
+        {
+            self.flush_at_ceiling().await?;
         }
-        .await;
-        result.map_err(|kind| EncodeError::new(self.speaker, *stream, kind))
+        if self.unflushed_bytes == 0 {
+            // We start a batch. It keeps to the segment size only if this
+            // frame fits a segment, the last batch was written out without
+            // waiting, and fewer than `CUTS_TO_GROW` batches in a row filled
+            // their ceiling: a larger frame spans segments however it is
+            // written; while the write half is full, bytes queue anyway;
+            // and once that many batches in a row filled their ceiling,
+            // frames are coming back to back, and each one-segment write
+            // would only delay the frames queued behind it.
+            self.ceiling = if len <= self.segment && !self.last_waited && self.cuts < CUTS_TO_GROW {
+                Some(self.segment)
+            } else {
+                self.largest.map(NonZeroUsize::get)
+            };
+        }
+        let mut write = Watched {
+            write: &mut self.write,
+            waited: &mut self.waited,
+        };
+        write_encoding(&mut write, &encoding)
+            .await
+            .map_err(failed)?;
+        self.unflushed = Some(*stream);
+        self.unflushed_bytes += len;
+        // The write half has taken the whole frame, into its buffer if it
+        // has one: deliver its one-item view. The pieces are the bytes just
+        // written, so the materialized buffer equals the wire by
+        // construction.
+        if let Some(observe) = &mut self.observe {
+            observe.message(stream.index(), &encoding.to_vec());
+        }
+        if self
+            .ceiling
+            .is_some_and(|ceiling| self.unflushed_bytes >= ceiling)
+        {
+            self.flush_at_ceiling().await?;
+        }
+        Ok(())
+    }
+
+    /// Flush a batch that has reached its ceiling, counting it as one more
+    /// batch in a row cut there, for the next batch's ceiling.
+    ///
+    /// The batch holds frames, so the flush delivers them.
+    async fn flush_at_ceiling(&mut self) -> Result<(), EncodeError> {
+        let cuts = self.cuts;
+        self.flush().await?;
+        self.cuts = (cuts + 1).min(CUTS_TO_GROW);
+        Ok(())
     }
 
     /// Flush every frame written since the last flush, doing nothing when
     /// there is none.
     ///
     /// A failure names the last frame written: the failed flush did not
-    /// deliver it, nor perhaps the frames written before it.
+    /// deliver it, nor perhaps the frames written before it. A flush that
+    /// completes records whether writing out the batch, its frames or the
+    /// flush itself, waited on the write half, for the next batch's
+    /// ceiling; a flush called from outside that delivers frames also
+    /// records that their batch ended because nothing more was ready,
+    /// which ends any run of batches cut at their ceiling. A flush with
+    /// nothing to deliver records nothing, so a run of cuts continues
+    /// across an instant at which no frame was ready.
     ///
     /// # Cancel safety
     ///
@@ -126,11 +260,81 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
         let Some(stream) = self.unflushed else {
             return Ok(());
         };
-        self.write.flush().await.map_err(|source| {
+        let mut write = Watched {
+            write: &mut self.write,
+            waited: &mut self.waited,
+        };
+        write.flush().await.map_err(|source| {
             EncodeError::new(self.speaker, stream, EncodeErrorKind::Flush(source))
         })?;
         self.unflushed = None;
+        self.unflushed_bytes = 0;
+        self.last_waited = mem::take(&mut self.waited);
+        self.cuts = 0;
         Ok(())
+    }
+}
+
+/// A borrowed write half that records whether any call on it returned
+/// `Pending`, passing every call through unchanged.
+///
+/// A `Pending` write or flush means the write half could not take more
+/// yet: a socket whose send buffer is full, or a peer reading slower than
+/// this side writes. A Tokio socket also returns `Pending`, having woken
+/// the task, once the task has spent its cooperative scheduling budget,
+/// whatever room the socket has; that counts as a wait too, which only
+/// lets the next batch grow to the largest batch.
+struct Watched<'a, W> {
+    /// The write half beneath.
+    write: &'a mut W,
+    /// Set once a call returns `Pending`; never cleared here.
+    waited: &'a mut bool,
+}
+
+impl<W> Watched<'_, W> {
+    /// Record whether `poll` waited, passing it through.
+    fn note<T>(&mut self, poll: Poll<T>) -> Poll<T> {
+        *self.waited |= poll.is_pending();
+        poll
+    }
+}
+
+/// Pass every call through, recording whether it waited.
+impl<W: AsyncWrite + Unpin> AsyncWrite for Watched<'_, W> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        let poll = Pin::new(&mut *this.write).poll_write(cx, bytes);
+        this.note(poll)
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        slices: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        let poll = Pin::new(&mut *this.write).poll_write_vectored(cx, slices);
+        this.note(poll)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.write.is_write_vectored()
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let poll = Pin::new(&mut *this.write).poll_flush(cx);
+        this.note(poll)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let poll = Pin::new(&mut *this.write).poll_shutdown(cx);
+        this.note(poll)
     }
 }
 
