@@ -260,9 +260,8 @@ fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
 /// in both orientations.
 ///
 /// Each stage then reads every reply one reaction at a time, each encoder
-/// releases a reply's frames chunk by chunk, and each decoder, finding
-/// every next frame missing, delivers each question as its frame arrives,
-/// across fixtures whose replies carry full fans of questions and long
+/// releases a reply's frames chunk by chunk, and each decoder delivers
+/// each question as its frame decodes, across fixtures whose replies carry full fans of questions and long
 /// runs of supplies.
 #[test]
 fn stress_fixtures_complete_with_split_replies_over_a_one_byte_pipe() {

@@ -61,7 +61,8 @@
 //! group's last node and sends the group's nodes back. Meanwhile the reader
 //! retains only the reactions it has read and not yet delivered, and one
 //! placeholder per run of the open group; it delivers the complete
-//! reactions in a chunk whenever the next frame has not arrived. Thus
+//! reactions in a chunk at each question the reply asks before its last
+//! reaction, and the rest with the reply's end. Thus
 //! memory remains those reactions, their completed node handles, one
 //! encoded run, and the buffered fan of decoded leaves; no subtree payload
 //! is accumulated merely to cross the backend boundary.

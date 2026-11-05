@@ -126,14 +126,16 @@ proptest! {
     /// price of what the reply can still deliver, and leaves none of it
     /// once the reply is decoded.
     ///
-    /// Each chunk it parks takes its own price out of that room.
+    /// Each chunk it parks takes its own price out of that room, holds at
+    /// most one question, and ends at it.
     ///
     /// The question lists one child per position, each with this side's
     /// child count of it, and the peer's count is the sum of each child's
     /// share: its query's listing, or for a matched child, that child
-    /// count. The decoder delivers a chunk wherever
-    /// the frames pause after a query, so the pauses split the reply
-    /// anywhere a peer's could, and the test predicts each split. At every
+    /// count. The decoder ends a chunk at each query but the reply's last,
+    /// whatever the pauses, so the test predicts the chunks from the reply
+    /// alone: one per query before the last reaction, and one more. The
+    /// pauses only choose where the test looks. At every
     /// pause, the room the chunks have not taken is the price of what the
     /// reply can still deliver, restated here from the reply so far: later
     /// reactions at most the bound leaves and one per radix above the
@@ -189,7 +191,7 @@ proptest! {
         // Each pause's chunk boundary, and the reactions delivered by then.
         let mut chunks = Vec::new();
         let mut boundaries = Vec::new();
-        let (mut expected, mut asks) = (1, false);
+        let mut expected = 1;
         // What the reply so far has carried: reactions, and the listing
         // entries and matched shares of the peer's count.
         let (mut sent, mut spent) = (0, 0);
@@ -199,23 +201,19 @@ proptest! {
             spent += share;
             let wire = match reaction {
                 None => WireReaction::Match,
-                Some(entries) => {
-                    asks = true;
-                    WireReaction::Query(listing(*entries))
-                }
+                Some(entries) => WireReaction::Query(listing(*entries)),
             };
             sent += 1;
             let last = index + 1 == positions;
+            if reaction.is_some() && !last {
+                expected += 1;
+            }
             let flow = if last { Flow::End } else { Flow::Continue };
             frames
                 .try_send(Frame::Reaction(wire, flow))
                 .unwrap_or_else(|_| panic!("the stream has room for every frame"));
             if !(last || *pause) {
                 continue;
-            }
-            if !last && asks {
-                expected += 1;
-                asks = false;
             }
             prop_assert!(decoder.as_mut().poll(&mut context).is_pending(), "the decoder awaits more");
             while let Poll::Ready(Some(chunk)) = parked.poll_next_unpin(&mut context) {
@@ -253,6 +251,10 @@ proptest! {
         for parked in &chunks {
             let chunk = &parked.chunk;
             prop_assert_eq!(chunk.charge.bytes(), parked_bytes(chunk), "a chunk carries its price");
+            let asked = chunk.reactions.iter().position(|reaction| matches!(reaction, Reaction::Query(_)));
+            if let Some(at) = asked {
+                prop_assert_eq!(at + 1, chunk.reactions.len(), "a chunk ends at its question");
+            }
             prop_assert_eq!(chunk.reactions.capacity(), chunk.reactions.len());
             for reaction in &chunk.reactions {
                 if let Reaction::Query(listing) = reaction {
@@ -261,7 +263,7 @@ proptest! {
             }
             charged += chunk.charge.bytes();
         }
-        prop_assert_eq!(chunks.len(), expected, "the pauses after queries split the reply");
+        prop_assert_eq!(chunks.len(), expected, "the reply's queries split it");
         prop_assert!(chunks.last().is_some_and(|parked| parked.chunk.last), "the reply ends");
         prop_assert_eq!(
             ledger.held_for(Holding::ParkedReplies),

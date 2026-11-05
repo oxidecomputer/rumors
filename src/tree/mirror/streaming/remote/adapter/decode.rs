@@ -1,4 +1,4 @@
-use std::{mem, pin::Pin, task::Poll};
+use std::{mem, pin::Pin};
 
 use futures::{Stream, StreamExt, future::try_join, stream};
 
@@ -170,14 +170,16 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
 ///
 /// A reaction completes at its frame, or for a supply once its run of
 /// leaves ends: at the next positional reaction, at a run of another
-/// radix, or at the reply's end. Whenever the next frame has not arrived
-/// and a question is among the reactions already complete, those reactions
-/// are delivered first, so a question the peer must answer never waits
-/// behind frames the peer may send only after that answer. A reply
-/// therefore arrives in at most one more chunk than it asks questions. The
-/// last chunk is marked, and holds the reply's last reaction unless the
-/// reply is empty. Each chunk's reactions are allocated at exactly their
-/// count.
+/// radix, or at the reply's end. A chunk ends at each question the reply
+/// asks but its last, delivered with the reactions completed before it as
+/// soon as its frame decodes, so a question the peer must answer never
+/// waits behind frames the peer may send only after that answer. Where a
+/// reply's chunks end therefore depends only on the reply, never on when
+/// its frames arrive: a reply arrives in exactly one more chunk than it
+/// asks questions before its last reaction, and no chunk holds more than
+/// one question. The last chunk is marked, and holds the reply's last
+/// reaction unless the reply is empty. Each chunk's reactions are
+/// allocated at exactly their count.
 ///
 /// `room` is the room the question set aside for the reply's chunks. Each
 /// chunk leaves charged its own part of it ([`parked_bytes`]), which
@@ -248,8 +250,8 @@ where
 }
 
 /// Decode one reply as [`decode_reply`] does, joining its chunks into one
-/// last chunk: the one chunk itself when the reply arrived whole, so its
-/// allocation is the decoder's own.
+/// last chunk: the one chunk itself when the reply asks no question before
+/// its last reaction, so its allocation is the decoder's own.
 // The arguments are `decode_reply`'s, but for the chunks' destination.
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
@@ -473,7 +475,7 @@ where
     {
         let mut positions = self.scope.positions();
         loop {
-            let Some(frame) = self.next_frame(frames, deliver).await else {
+            let Some(frame) = frames.next().await else {
                 return Err(DecodeError::TruncatedReply);
             };
             let (reaction, flow) = match frame {
@@ -512,6 +514,11 @@ where
                     self.ready_questions += 1;
                     self.ready_listing += listing.len();
                     self.ready.push(ProtocolReaction::Query(listing));
+                    // The chunk ends at its question, unless the question
+                    // ends the reply, whose last chunk then carries it.
+                    if flow == Flow::Continue {
+                        deliver(self.chunk(false));
+                    }
                 }
                 WireReaction::Supply(records) => {
                     // The codec rejects empty runs. Keep the assertion for
@@ -566,36 +573,6 @@ where
         self.leaves.send(DecodedLeaf::End).await.expect(EDGE_OPEN);
         deliver(self.chunk(true));
         Ok(())
-    }
-
-    /// Await the next frame, first delivering the reactions already
-    /// complete if it has not arrived and they ask a question.
-    ///
-    /// Delivery happens inside the poll that finds the frame missing, and
-    /// never waits, so the reactions leave before this reader waits on the
-    /// peer: the frames still to come may be ones the peer sends only once
-    /// those reactions' questions are answered. Matches and supplies ask
-    /// nothing the peer waits on, so reactions without a question wait for
-    /// more of their reply, which keeps a reply's chunks to one more than
-    /// its questions.
-    async fn next_frame<F>(
-        &mut self,
-        frames: &mut F,
-        deliver: &mut (impl FnMut(Reply<B::Erased>) + Send),
-    ) -> Option<Frame>
-    where
-        F: Stream<Item = Frame> + Unpin,
-    {
-        std::future::poll_fn(|cx| {
-            let polled = frames.poll_next_unpin(cx);
-            if let Poll::Pending = polled
-                && self.ready_questions > 0
-            {
-                deliver(self.chunk(false));
-            }
-            polled
-        })
-        .await
     }
 
     /// Count one more reaction, failing unless the reply still fits its

@@ -446,8 +446,7 @@ proptest! {
     ///
     /// Each stage then reads every reply one reaction at a time, and over
     /// the pipe each encoder releases a reply's frames chunk by chunk while
-    /// each decoder, finding every next frame missing, delivers each
-    /// question as its frame arrives.
+    /// each decoder delivers each question as its frame decodes.
     #[test]
     fn model_predicts_every_split_reply(
         (left, right) in arb_divergent_pair(),
@@ -463,7 +462,7 @@ proptest! {
 }
 
 /// Bytes each direction of the split-reply sessions' pipe buffers: one, so
-/// every frame arrives after the decoder has looked for it.
+/// every byte crosses in its own handoff.
 const ONE_BYTE: usize = 1;
 
 /// Messages both forks of [`model_predicts_forked_replicas`] share.
