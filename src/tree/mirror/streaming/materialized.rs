@@ -127,6 +127,7 @@ use before::Version;
 use futures::{Stream, StreamExt, future::BoxFuture};
 
 mod error;
+mod fixed;
 pub(super) mod progress;
 #[cfg(test)]
 mod tests;
@@ -135,6 +136,9 @@ pub(super) mod transcript;
 pub(crate) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use fixed::assembly_allowance;
+pub(crate) use fixed::fixed_allowance;
 /// Named for the documentation of `LaterMatches`, which links the covered
 /// set's net price.
 #[cfg(doc)]
@@ -158,23 +162,28 @@ fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
 /// The budget a session's ledger admits work against when the session may
 /// hold `budget` in all.
 ///
-/// That is `budget` less the floor allowance of a walk over `B`'s nodes
-/// ([`floor_allowance`]), or nothing beyond the floor slots if `budget` is
-/// no more than that allowance.
+/// That is `budget` less what every session over `B`'s nodes sets aside:
+/// the floor allowance of its walk ([`floor_allowance`]) and the fixed
+/// allowance of its fixed state ([`fixed_allowance`]). A `budget` no
+/// more than those two leaves nothing beyond the floor slots.
 fn admission_budget<B: Backend<Node<Z>: Leaf>>(budget: usize) -> usize {
-    budget.saturating_sub(floor_allowance::<B::Erased, B::Error>())
+    budget
+        .saturating_sub(floor_allowance::<B::Erased, B::Error>())
+        .saturating_sub(fixed_allowance::<B>())
 }
 
 /// The least memory budget a session over `B`'s nodes runs on through the
 /// public API when its peer's own message-size target is
 /// `_target_message_size`.
 ///
-/// It is the floor allowance ([`floor_allowance`]) and the largest grant
-/// beside it ([`largest_grant`]).
+/// It is the floor allowance ([`floor_allowance`]), the largest grant
+/// beside it ([`largest_grant`]), and the fixed allowance
+/// ([`fixed_allowance`]).
 ///
 /// A memory budget of at least this gives its ledger a budget of at least
-/// the largest grant ([`admission_budget`]), so the ledger can always admit
-/// any one unit beside the floor slots. Below it, a session runs in a
+/// the largest grant ([`admission_budget`]), exactly the largest grant at
+/// the minimum itself, so the ledger can always admit any one unit beside
+/// the floor slots. Below it, a session runs in a
 /// starved regime where units race for room, and a larger budget can slow
 /// a session by more than a round trip. Every session the public API runs
 /// has at least this, since a peer raises its budget to the minimum for its
@@ -182,13 +191,15 @@ fn admission_budget<B: Backend<Node<Z>: Leaf>>(budget: usize) -> usize {
 /// a ledger budget below the largest grant is reachable only by setting it
 /// directly ([`Handshaking::budget`]).
 ///
-/// Neither term depends on the target, so the minimum is the same at every
+/// No term depends on the target, so the minimum is the same at every
 /// target. Callers pass the target anyway, so that each computation of the
 /// minimum names the target it is the minimum for.
 pub(crate) const fn min_memory_budget<B: Backend<Node<Z>: Leaf>>(
     _target_message_size: usize,
 ) -> usize {
-    floor_allowance::<B::Erased, B::Error>() + largest_grant::<B::Erased, B::Error>()
+    floor_allowance::<B::Erased, B::Error>()
+        + largest_grant::<B::Erased, B::Error>()
+        + fixed_allowance::<B>()
 }
 
 /// Tracks supplied leaves against the peer's declared set length.
@@ -508,15 +519,15 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     /// it.
     ///
     /// Its ledger admits work against `budget` less the floor allowance
-    /// ([`floor_allowance`]), so that what it holds outside its floor slots
-    /// and what they hold come to at most `budget` together.
+    /// ([`floor_allowance`]) and the fixed allowance ([`fixed_allowance`]),
+    /// so that what it holds outside its floor slots, what they hold, and
+    /// its fixed state come to at most `budget` together.
     ///
     /// This applies `budget` as given: a peer raises its budget to
     /// [`min_memory_budget`] for its target before it reaches here. A
-    /// budget at or
-    /// below the floor allowance admits work through the floor slots
-    /// alone, as a budget of zero does ([`budget`](Self::budget)), and
-    /// holds at most the floor allowance.
+    /// budget at or below the two allowances together admits work through
+    /// the floor slots alone, as a ledger budget of zero does
+    /// ([`budget`](Self::budget)).
     pub fn sync_memory_budget(self, budget: usize) -> Self {
         self.budget(admission_budget::<B>(budget))
     }

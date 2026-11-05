@@ -50,7 +50,7 @@ pub enum Holding {
     /// The charge leaves these out. Each logical stream's fan holds at most
     /// a fan of decoded leaves, and its decoder one more, whatever the
     /// budget, so together they cost a fixed amount whatever the budget and
-    /// the sets' sizes.
+    /// the sets' sizes, which the fixed allowance sets aside.
     DecodedLeaves,
     /// Replies this side builds and hands toward the wire, supplies
     /// included, before they are encoded: the charge's outgoing-replies
@@ -62,10 +62,11 @@ pub enum Holding {
     /// fixed capacity around it: the level return queues between
     /// assemblers and the terminal leaf resolutions.
     ///
-    /// The queues are a fan deep whatever the budget, so they cost a fixed
-    /// amount per level, and the in-memory backend builds each supplied
-    /// subtree over its open right spine, at most one fan per path byte
-    /// however many leaves the subtree holds.
+    /// The charge leaves these out. The queues are a fan deep whatever the
+    /// budget, so they cost a fixed amount per level, and the in-memory
+    /// backend builds each supplied subtree over its open right spine, at
+    /// most one fan per path byte however many leaves the subtree holds;
+    /// the fixed allowance sets both aside.
     Assembly,
     /// Admission's own bookkeeping: the units waiting for admission, the
     /// queue that orders them, and the wakers that resume them.
@@ -91,17 +92,18 @@ pub enum Holding {
     /// comparison that reads one computes it.
     ///
     /// The charge leaves it out, as a fixed amount whatever the budget and
-    /// the sets' sizes. Hashing is synchronous, so a thread holds the
-    /// preimages of at most one hashing descent at once, and a descent
-    /// nests at most one preimage per branch along a path. Marking it apart
+    /// the sets' sizes, which the fixed allowance sets aside. Hashing is
+    /// synchronous, so a thread holds the preimages of at most one hashing
+    /// descent at once, and a descent nests at most one preimage per branch
+    /// along a path. Marking it apart
     /// keeps it out of whichever place's code read the hash.
     Hashing,
 }
 
 impl Holding {
     /// Every place, in declaration order: how observers of ledgers and of
-    /// the allocation meter index their accounts.
-    #[cfg(any(test, feature = "test-internals"))]
+    /// the allocation meter index their accounts, and how the fixed
+    /// allowance sums the places' working buffers.
     pub const ALL: [Self; 10] = [
         Self::Questions,
         Self::Resolutions,

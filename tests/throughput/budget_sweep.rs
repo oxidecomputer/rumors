@@ -5,8 +5,9 @@
 //!
 //! For one pair on one link, write `T∞` for the session's duration with an
 //! unlimited budget, `F` for the floor allowance every budget sets aside
-//! for the floor slots, which a ledger admits work beyond against the
-//! rest, `M` for [`MIN_SYNC_MEMORY_BUDGET`], the least budget the public
+//! for the floor slots, `X` for the fixed allowance it sets aside for the
+//! session's fixed state, beyond both of which a ledger admits work against
+//! the rest, `M` for [`MIN_SYNC_MEMORY_BUDGET`], the least budget the public
 //! setter lets a session run on, `N*` for the session's no-cost point, the ledger budget defined
 //! in [`no_slowdown`](super::no_slowdown), `W` for the bytes the busier
 //! direction carries, `δ` for the link's one-way delay, and `h` for the
@@ -15,9 +16,9 @@
 //! each of which waits for the one before. At every budget `B` the setter
 //! is given, the session runs on `B' = max(B, M)`, and:
 //!
-//! 1. If `B' ≥ F + N*`, the session is the unlimited session, event for
+//! 1. If `B' ≥ F + X + N*`, the session is the unlimited session, event for
 //!    event: every admission and share check the unlimited session makes
-//!    passes against `B' − F`, by the induction along its schedule that
+//!    passes against `B' − F − X`, by the induction along its schedule that
 //!    [`no_slowdown`](super::no_slowdown) gives for a ledger budget of
 //!    `N*`. So no unit waits, as none waits in the unlimited session.
 //! 2. Each direction carries exactly the unlimited session's bytes: the
@@ -34,26 +35,27 @@
 //!    admission only lengthens.
 //! 4. Each side's ledger is exact: no item needs more than its unit's
 //!    grant, which a reply's parked chunks would if their room were priced
-//!    below what the reply delivers; the ledger holds at most `B' − F`
+//!    below what the reply delivers; the ledger holds at most `B' − F − X`
 //!    outside its floor slots, and its floor slots at most `F`, so it holds
-//!    at most `B'` in all; and it asks questions only about scopes at
+//!    at most `B' − X` in all; and it asks questions only about scopes at
 //!    depths of one parity and answers only at the other, the premise `F`
 //!    is derived on.
 //! 5. A budget below `M` runs the session as `M` does, event for event:
-//!    the sessions at `F / 2`, at `F`, and at every rung below `M` are the
-//!    session at `M`.
+//!    the sessions at `F / 2`, at `F + X`, and at every rung below `M` are
+//!    the session at `M`.
 //!
 //! # What it does not claim
 //!
-//! Below `F + N*`, a larger budget can make a session slower, and this test
-//! states no tolerance there. Admission is greedy: it admits whatever fits when
-//! room returns, deeper units first, each stage in arrival order. A different
-//! budget admits a different set of units at some moment, which reorders the
-//! work after it, and moves the stretches where one direction's wire idles,
-//! waiting for room, against the other direction's traffic. The duration is set
-//! by the busier wire's bytes, which do not move, and by its idle time, which
-//! moves either way. Such an inversion is an anomaly of the kind Graham showed
-//! for greedy list scheduling, where more resources can lengthen a schedule.
+//! Below `F + X + N*`, a larger budget can make a session slower, and this test
+//! states no tolerance there. Admission is greedy: it admits whatever fits
+//! when room returns, deeper units first, each stage in arrival order. A
+//! different budget admits a different set of units at some moment, which
+//! reorders the work after it, and moves the stretches where one
+//! direction's wire idles, waiting for room, against the other direction's
+//! traffic. The duration is set by the busier wire's bytes, which do not
+//! move, and by its idle time, which moves either way. Such an inversion is
+//! an anomaly of the kind Graham showed for greedy list scheduling, where
+//! more resources can lengthen a schedule.
 //!
 //! Those inversions are bounded above the largest grant any unit can take,
 //! `c_max`, the least ledger budget which may be set by the public API. For
@@ -84,12 +86,12 @@
 //! For each pair and link, the test runs the unlimited session on the link,
 //! which reads `N*`, `W` and `T∞`, and on its latency-only form, which
 //! reads `h`. Then it runs the session at each budget of a fixed ladder,
-//! every one through the public setter: `F` beside fractions of `N*`,
+//! every one through the public setter: `F + X` beside fractions of `N*`,
 //! below and above it, `M`, and half of `F`; and it checks the claims at
 //! each.
 
 use rumors::MIN_SYNC_MEMORY_BUDGET;
-use rumors::testing::floor_allowance;
+use rumors::testing::{FIXED_ALLOWANCE, floor_allowance, ledger_budget_within};
 use rumors_testkit::bench::link::{LinkConfig, Side};
 use rumors_testkit::bench::session::{
     self as fixture, Case, DEPTHS, Grants, LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Session, Shape,
@@ -132,9 +134,9 @@ const PAIRS: [(Shape, u64); 5] = [
 /// The denominator of the ladder's fractions of `N*`.
 const SIXTEENTHS: usize = 16;
 
-/// The budgets each pair runs at beside the floor allowance, in sixteenths
-/// of its `N*`: from none, where only the floor slots admit work, through
-/// `N*` itself, to twice it.
+/// The budgets each pair runs at beside the floor and fixed allowances, in
+/// sixteenths of its `N*`: from none, where only the floor slots admit
+/// work, through `N*` itself, to twice it.
 const LADDER: [usize; 9] = [0, 1, 4, 8, 12, 15, 16, 20, 32];
 
 /// The rung below the ladder, half the floor allowance: a budget a
@@ -146,8 +148,8 @@ fn below_floor() -> usize {
 /// The budget at the ladder's rung `sixteenths`, for a pair whose no-cost
 /// point is `no_cost`.
 ///
-/// That is the floor allowance and the rung's fraction of the no-cost
-/// point beside it, at least [`admitting`] the no-cost point exactly when
+/// That is the floor and fixed allowances and the rung's fraction of the
+/// no-cost point beside them, at least [`admitting`] the no-cost point exactly when
 /// the rung is at least `N*`.
 fn budget(no_cost: usize, sixteenths: usize) -> usize {
     admitting(no_cost * sixteenths / SIXTEENTHS)
@@ -176,8 +178,8 @@ const RUNGS: usize = LADDER.len() + 2;
 const MINIMUM_RUNG: usize = LADDER.len();
 
 /// Every pair at every rung, pair-major: the ladder's, each a fraction of
-/// the pair's no-cost point in `no_cost` beside the floor allowance, then
-/// [`MIN_SYNC_MEMORY_BUDGET`], then [`below_floor`].
+/// the pair's no-cost point in `no_cost` beside the floor and fixed
+/// allowances, then [`MIN_SYNC_MEMORY_BUDGET`], then [`below_floor`].
 fn ladder(no_cost: &[usize; PAIRS.len()]) -> [Case; PAIRS.len() * RUNGS] {
     std::array::from_fn(|index| {
         let pair = index / RUNGS;
@@ -235,10 +237,10 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
     let case = &session.case;
     let allowance = floor_allowance();
     let runs_on = requested(case).max(MIN_SYNC_MEMORY_BUDGET);
-    let admitted = runs_on - allowance;
+    let admitted = ledger_budget_within(runs_on);
     println!(
-        "{:?} on BDP {}: B = {}, B' = {runs_on} (F = {allowance} + {:.4} N*), {} waited, \
-         T = {} byte-times, T∞ = {}, floor {floor}",
+        "{:?} on BDP {}: B = {}, B' = {runs_on} (F + X = {allowance} + {FIXED_ALLOWANCE} \
+         + {:.4} N*), {} waited, T = {} byte-times, T∞ = {}, floor {floor}",
         case.shape,
         case.link.bdp(),
         requested(case),
@@ -279,7 +281,7 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
         assert!(
             ledger.budget_peak <= admitted,
             "a ledger held {} B outside its floor slots, over the {admitted} B the budget \
-             admits beside the floor allowance: {case:?}",
+             admits beside the floor and fixed allowances: {case:?}",
             ledger.budget_peak,
         );
         assert!(
@@ -305,19 +307,19 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// Across a ladder of budgets, every session keeps the exact properties.
 ///
 /// They are identity with the unlimited session at or above the no-cost
-/// point beside the floor allowance, identity with the session at
+/// point beside the floor and fixed allowances, identity with the session at
 /// [`MIN_SYNC_MEMORY_BUDGET`] below it, and the bytes, the lower bound on
 /// duration, and ledger exactness at every budget.
 ///
-/// Every session whose budget, raised to the minimum,
-/// admits at least its pair's no-cost point beside the floor allowance is
-/// the unlimited session, event for event, with no unit waiting; every
-/// session below the minimum, at the allowance and at half of it included,
-/// is the session at the minimum; every session carries the unlimited
-/// session's bytes in each direction, lasts at least its busier
-/// direction's bytes and two delays, and at least the unlimited session's
-/// critical path; and every ledger is exact, holds at most its raised
-/// budget, and asks and answers at depths of opposite parities.
+/// Every session whose budget, raised to the minimum, admits at least its
+/// pair's no-cost point beside the floor and fixed allowances is the
+/// unlimited session, event for event, with no unit waiting; every session
+/// below the minimum, at the two allowances and at half the floor
+/// allowance included, is the session at the minimum; every session
+/// carries the unlimited session's bytes in each direction, lasts at least
+/// its busier direction's bytes and two delays, and at least the unlimited
+/// session's critical path; and every ledger is exact, holds at most its
+/// raised budget, and asks and answers at depths of opposite parities.
 ///
 /// Below the no-cost point this test holds the duration to the lower bound
 /// alone: greedy admission makes it non-monotone there, and the owner's
@@ -363,7 +365,7 @@ fn every_budget_keeps_the_exact_properties() {
             .collect();
         assert!(
             below_minimum.len() >= 2,
-            "the rungs at F and at F / 2 lie below the minimum: {:?}",
+            "the rungs at F + X and at F / 2 lie below the minimum: {:?}",
             reference.case,
         );
         for session in below_minimum {

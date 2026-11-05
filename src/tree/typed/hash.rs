@@ -118,9 +118,19 @@ const BRANCH_HEADER_LEN: usize = 3 * size_of::<u8>() + size_of::<u16>();
 /// The most bytes [`HashKey::branch`] allocates for one preimage in the
 /// typed tree: the header, a compressed prefix of at most [`PATH_LEN`]
 /// bytes, and a record for each child of a full fan.
-#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const MAX_BRANCH_PREIMAGE_LEN: usize =
     BRANCH_HEADER_LEN + PATH_LEN + CHILD_RECORD_LEN * (u8::MAX as usize + 1);
+
+/// The most bytes the typed tree's hashing holds at once on one thread.
+///
+/// Computing a branch's hash allocates its preimage, a record per child,
+/// and frees it before the hash returns; the node keeps only the hash.
+/// Hashing never yields, so a thread holds the preimages of one hashing
+/// descent at a time, which nests one preimage per branch whose hash it
+/// computes along a path: at most one per path byte, since each branch
+/// below another sits at least one byte deeper. Each preimage holds at
+/// most [`MAX_BRANCH_PREIMAGE_LEN`] bytes.
+pub(crate) const HASHING_SCRATCH_BYTES: usize = PATH_LEN * MAX_BRANCH_PREIMAGE_LEN;
 
 /// Expose a digest's comparison bytes.
 impl Hash {

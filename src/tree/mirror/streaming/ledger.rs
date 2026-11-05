@@ -234,7 +234,8 @@ struct Account {
     #[cfg(any(test, feature = "test-internals"))]
     slot_peaks: [[AtomicUsize; admission::DEPTHS]; 2],
     /// The most the ledger may hold outside its floor slots: for a
-    /// session, its memory budget less the floor allowance ([`admission`]).
+    /// session, its memory budget less the floor and fixed allowances
+    /// ([`admission`]).
     budget: usize,
     /// The units waiting for admission.
     admission: Mutex<admission::Queue>,

@@ -21,17 +21,13 @@ use crate::{
     peer::MemoryBudget,
     tree::{
         mirror::streaming::{
-            Backend, FAN, Local,
-            materialized::{Resolution, Resolve},
-            remote::{self, RunBudget, SUPPLY_DECODE_ENVELOPE_BYTES, codec::LeafRun},
+            Backend, Local,
+            materialized::fixed_allowance,
+            remote::{self, RunBudget, codec::LeafRun},
         },
         typed::{
-            ErasedPrefix,
-            hash::{
-                HMAC_KEY_LEN, Hash, HashKey, MAX_BRANCH_PREIMAGE_LEN,
-                MERKLE_HASH_LEN as TREE_HASH_LEN, PATH_LEN,
-            },
-            height::{Height, Root},
+            hash::{HMAC_KEY_LEN, Hash, HashKey, MERKLE_HASH_LEN as TREE_HASH_LEN},
+            height::{Root, Z},
             untyped::{
                 self, census,
                 memo_census::{self, Work},
@@ -317,10 +313,9 @@ pub fn dispute_overhead_bytes() -> usize {
 }
 
 /// The most bytes one session's decode fans hold at once on the in-memory
-/// backend.
-pub fn supply_decode_envelope_bytes() -> usize {
-    SUPPLY_DECODE_ENVELOPE_BYTES
-}
+/// backend: a full fan of decoded leaves and one more per logical stream a
+/// session decodes, each counted at twice its size for its channel node.
+pub const DECODE_AHEAD_BYTES: usize = remote::decode_ahead_bytes::<<Local as Backend>::Node<Z>>();
 
 /// Read exactly `declared` payload bytes under the framing layer's
 /// growth policy, returning the payload.
@@ -530,9 +525,11 @@ pub const LANE_CAPACITY: usize = remote::LANE_CAPACITY;
 ///
 /// That is one stage, encoder, and decoder's scratch for the place per
 /// logical stream, each computed from the types it covers
-/// (`materialized::scratch` derives every term). Each term counts requested bytes, as the allocation meter
-/// does, so the allocator's rounding is not part of it.
-pub fn ledger_scratch(holding: Holding) -> usize {
+/// (`materialized::scratch` derives every term). Each term counts requested
+/// bytes, as the allocation meter does, so the allocator's rounding is not
+/// part of it. Summed over every place, these are the working buffers the
+/// fixed allowance sets aside ([`FIXED_ALLOWANCE`]).
+pub const fn ledger_scratch(holding: Holding) -> usize {
     SESSION_STREAMS
         * crate::tree::mirror::streaming::materialized::scratch::<
             <Local as Backend>::Erased,
@@ -543,14 +540,9 @@ pub fn ledger_scratch(holding: Holding) -> usize {
 /// The most bytes the in-memory backend's hashing holds at once on one
 /// thread ([`Holding::Hashing`]).
 ///
-/// Computing a branch's hash allocates its preimage, a record per child,
-/// and frees it before the hash returns; the node keeps only the hash.
-/// Hashing never yields, so a thread holds the preimages of one hashing
-/// descent at a time, which nests one preimage per branch whose hash it
-/// computes along a path: at most one per path byte, since each branch
-/// below another sits at least one byte deeper. Each preimage holds at
-/// most a full fan's records beside a whole path's prefix.
-pub const HASHING_SCRATCH_BYTES: usize = PATH_LEN * MAX_BRANCH_PREIMAGE_LEN;
+/// That is the preimages of one hashing descent, at most one per path
+/// byte, each at most a full fan's records beside a whole path's prefix.
+pub const HASHING_SCRATCH_BYTES: usize = crate::tree::typed::hash::HASHING_SCRATCH_BYTES;
 
 /// The divisor `d` of the least share of its outgoing replies' allocations
 /// that one side's ledger charges to them over a session.
@@ -581,37 +573,17 @@ pub const OUTGOING_REPLIES_FLOOR_DIVISOR: usize = 2;
 pub const COMPARISON_FRAME_BYTES: usize = remote::codec::FULL_FAN_QUERY_FRAME_LEN;
 
 /// The most bytes one side's assembly can hold at once on the in-memory
-/// backend, whatever the replicas' sizes: the bound the session-budget suite
-/// holds [`Holding::Assembly`] to.
+/// backend, whatever the replicas' sizes.
 ///
-/// The ledger charges none of assembly: the queues of fixed capacity around
-/// it, and the in-memory backend's build of each supplied subtree, are
-/// fixed state. Counted at their capacities:
+/// It is the bound the session-budget suite holds [`Holding::Assembly`]
+/// to, and a term of the fixed allowance ([`FIXED_ALLOWANCE`]).
 ///
-/// - each assembled height, the root's through the leaves', returns at most
-///   a fan of child handles to the height above, and builds at most one
-///   parent at a time from at most a fan of children;
-/// - the terminal leaf resolutions wait at most a fan deep, each with one
-///   slot;
-/// - each of the [`SESSION_STREAMS`] reply decoders assembles at most one
-///   supplied subtree at a time, holding only its open right spine
-///   ([`ASSEMBLY_SPINE_BYTES`]) however many leaves it has, and queues at
-///   most a fan of assembled supplies for its reader.
-///
-/// Every queued item is counted at twice its size: the most a vector holds
-/// for its length, or a channel node beside its item.
-pub fn assembly_allowance() -> usize {
-    use std::mem::size_of;
-    let heights = Root::HEIGHT + 1;
-    let fan = FAN;
-    let returned = size_of::<Option<<Local as Backend>::Erased>>();
-    let child = size_of::<(u8, Option<<Local as Backend>::Erased>)>();
-    let terminal = size_of::<Resolution<<Local as Backend>::Erased>>()
-        + size_of::<(u8, Resolve<<Local as Backend>::Erased>)>();
-    let supplied = size_of::<(ErasedPrefix, <Local as Backend>::Erased)>();
-    let levels = 2 * (heights * fan * (returned + child) + fan * terminal);
-    let decoders = SESSION_STREAMS * (ASSEMBLY_SPINE_BYTES + 2 * fan * supplied);
-    levels + decoders
+/// The charge leaves assembly out: its queues have fixed capacities, and
+/// the in-memory backend builds each supplied subtree over its open right
+/// spine ([`ASSEMBLY_SPINE_BYTES`]) however many leaves it has, at most one
+/// per reply decoder, of the [`SESSION_STREAMS`], at a time.
+pub const fn assembly_allowance() -> usize {
+    crate::tree::mirror::streaming::materialized::assembly_allowance::<Local>()
 }
 
 /// The most transient bytes the in-memory backend holds while it assembles
@@ -714,11 +686,14 @@ pub const LARGEST_GRANT: usize = crate::tree::mirror::streaming::materialized::l
 >();
 
 /// The floor allowance of a session over the in-memory replica: the most
-/// its floor slots can hold at once, which its memory budget sets aside
-/// for them, so its ledger admits work against the budget less this.
+/// its floor slots can hold at once.
 ///
-/// A memory budget at or below it, which only [`ledger_budget`] reaches,
-/// admits work through the floor slots alone.
+/// Its memory budget sets this aside for them beside the fixed allowance
+/// ([`FIXED_ALLOWANCE`]), so its ledger admits work against the budget
+/// less both.
+///
+/// A memory budget at or below the two together, which only
+/// [`ledger_budget`] reaches, admits work through the floor slots alone.
 pub fn floor_allowance() -> usize {
     crate::tree::mirror::streaming::materialized::floor_allowance::<
         <Local as Backend>::Erased,
@@ -726,9 +701,44 @@ pub fn floor_allowance() -> usize {
     >()
 }
 
+/// The fixed allowance of a session over the in-memory replica: the most
+/// the state it holds outside its ledger whatever its budget can hold.
+///
+/// Its memory budget sets this aside beside the floor allowance
+/// ([`floor_allowance`]).
+///
+/// It is the sum of the decode fans' read-ahead ([`DECODE_AHEAD_BYTES`]),
+/// assembly's bound ([`assembly_allowance`]), hashing's
+/// ([`HASHING_SCRATCH_BYTES`]), and every place's working buffers
+/// ([`ledger_scratch`]).
+pub const FIXED_ALLOWANCE: usize = fixed_allowance::<Local>();
+
+/// The memory budget whose sessions' ledgers admit work against exactly
+/// `bytes`.
+///
+/// That is `bytes` beside the floor allowance ([`floor_allowance`]) and
+/// the fixed allowance ([`FIXED_ALLOWANCE`]), saturating at `usize::MAX`.
+pub fn memory_budget_admitting(bytes: usize) -> usize {
+    floor_allowance()
+        .saturating_add(FIXED_ALLOWANCE)
+        .saturating_add(bytes)
+}
+
+/// The budget the ledgers of sessions on the memory budget `budget` admit
+/// work against.
+///
+/// That is what `budget` leaves beside the floor allowance
+/// ([`floor_allowance`]) and the fixed allowance ([`FIXED_ALLOWANCE`]), or
+/// zero. Inverse to [`memory_budget_admitting`] wherever that does not
+/// saturate.
+pub fn ledger_budget_within(budget: usize) -> usize {
+    budget
+        .saturating_sub(floor_allowance())
+        .saturating_sub(FIXED_ALLOWANCE)
+}
+
 /// Set the budget `peer`'s sessions' ledgers admit work against to exactly
-/// `bytes`, beside the floor allowance ([`floor_allowance`]), saturating
-/// at `usize::MAX` in all.
+/// `bytes`, its memory budget becoming [`memory_budget_admitting`]`(bytes)`.
 ///
 /// Unlike a budget set through
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which a
@@ -743,7 +753,7 @@ pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
     bytes: usize,
 ) -> crate::Peer<T, B> {
-    peer.sync_memory_budget = MemoryBudget::Exact(floor_allowance().saturating_add(bytes));
+    peer.sync_memory_budget = MemoryBudget::Exact(memory_budget_admitting(bytes));
     peer
 }
 

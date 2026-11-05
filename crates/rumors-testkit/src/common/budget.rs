@@ -12,11 +12,13 @@
 //! explicit byte budgets and the production default on top. Every budget
 //! sets aside the floor allowance
 //! ([`floor_allowance`](rumors::testing::floor_allowance)) for the floor
-//! slots and admits work beyond them against the rest, so the explicit
-//! budgets are drawn beyond it. Peers draw choices independently, so
-//! sessions between differently-configured endpoints arise throughout the
-//! population; each side of such a session admits its work against its
-//! own budget.
+//! slots and the fixed allowance
+//! ([`FIXED_ALLOWANCE`](rumors::testing::FIXED_ALLOWANCE)) for the
+//! session's fixed state, and admits work beyond them against the rest, so
+//! the explicit budgets are drawn beyond both. Peers draw choices
+//! independently, so sessions between differently-configured endpoints
+//! arise throughout the population; each side of such a session admits its
+//! work against its own budget.
 
 use crate::bench::session::admitting;
 use proptest::prelude::*;
@@ -29,8 +31,8 @@ pub enum BudgetChoice {
     /// the zero-everywhere baseline.
     Zero,
     /// An explicit memory budget in bytes, through the public setter: the
-    /// floor allowance and the bytes the ledgers admit work against beside
-    /// it, raised to
+    /// allowances and the bytes the ledgers admit work against beside
+    /// them, raised to
     /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET).
     Bytes(usize),
     /// An explicit ledger budget in bytes, set through the test path
@@ -94,19 +96,21 @@ impl BudgetAssignment {
 }
 
 /// Smallest power-of-two exponent the budget arm draws: budgets admitting
-/// from `2^MIN_BUDGET_EXPONENT` bytes, 4 KiB, upward beside the floor
-/// allowance.
+/// from `2^MIN_BUDGET_EXPONENT` bytes, 4 KiB, upward beside the floor and
+/// fixed allowances.
 pub const MIN_BUDGET_EXPONENT: u32 = 12;
 
 /// Largest power-of-two exponent the budget arm draws: budgets admitting
-/// up to `2^MAX_BUDGET_EXPONENT` bytes, 16 MiB, beside the floor allowance.
+/// up to `2^MAX_BUDGET_EXPONENT` bytes, 16 MiB, beside the floor and fixed
+/// allowances.
 pub const MAX_BUDGET_EXPONENT: u32 = 24;
 
 /// Strategy for one peer's budget choice.
 ///
-/// The budget arm draws the floor allowance and `2^e + jitter` beside it,
-/// for `e` across [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`]
-/// ([`admitting`]), through the public setter: the draws below
+/// The budget arm draws the floor and fixed allowances and `2^e + jitter`
+/// beside them, for `e` across
+/// [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`] ([`admitting`]),
+/// through the public setter: the draws below
 /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) exercise its
 /// raise, and the rest reach budgets that suite-scale sessions do not
 /// fill. Shrinking heads toward [`BudgetChoice::Zero`], the baseline the

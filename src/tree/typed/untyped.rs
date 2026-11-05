@@ -35,7 +35,6 @@ const RADICES: usize = u8::MAX as usize + 1;
 
 /// The bytes of one heap slot of a branch's fan: a radix beside a child
 /// handle.
-#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const FAN_ENTRY_BYTES: usize = mem::size_of::<(u8, Node)>();
 
 /// Share the node and count the new handle in instrumented builds.
@@ -1453,7 +1452,6 @@ impl SortedLeaves {
     /// full fan, counted twice for the blocks a growing vector or fan frees
     /// as it reallocates. Closed children are not transient: each becomes
     /// part of the finished subtree.
-    #[cfg(any(test, feature = "test-internals"))]
     pub(crate) const MAX_TRANSIENT_BYTES: usize =
         2 * PATH_LEN * (mem::size_of::<OpenBranch>() + fan::heap_slots(256) * FAN_ENTRY_BYTES);
 

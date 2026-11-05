@@ -83,14 +83,18 @@
 //! only refuses admissions that step 2 would allow.
 //!
 //! A session that may hold `M` in all, as a peer's memory budget sets it,
-//! gives its ledger the budget `B = M − A`, where `A` is the walk's *floor
-//! allowance*, the most its floor slots can hold at once, derived from the
-//! largest grant each slot can admit
-//! ([`floor_allowance`](crate::tree::mirror::streaming::materialized::floor_allowance)).
+//! gives its ledger the budget `B = M − A − X`. Here `A` is the walk's
+//! *floor allowance*, the most its floor slots can hold at once, derived
+//! from the largest grant each slot can admit
+//! ([`floor_allowance`](crate::tree::mirror::streaming::materialized::floor_allowance)),
+//! and `X` is the session's *fixed allowance*, the most the state it holds
+//! outside the ledger whatever its budget can hold
+//! ([`fixed_allowance`](crate::tree::mirror::streaming::materialized::fixed_allowance)).
 //! Each slot holds at most one grant of its kind and depth, its own unit's
-//! or what it carries, so the slots hold at most `A` together and the
-//! ledger at most `M`. An `M` at or below `A` gives the ledger a budget of
-//! zero: the session runs on its floor slots alone and holds at most `A`.
+//! or what it carries, so the slots hold at most `A` together, the ledger
+//! at most `M − X`, and the session at most `M` with its fixed state.
+//! An `M` at or below `A + X` gives the ledger a budget of zero: the
+//! session runs on its floor slots alone.
 //!
 //! # Carrying
 //!

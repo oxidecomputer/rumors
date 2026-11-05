@@ -163,13 +163,15 @@
 //! # The ledger
 //!
 //! A peer's memory budget sets aside the floor allowance for its ledger's
-//! floor slots, the most they can hold at once, and the ledger admits work
-//! beyond them against the rest. Every budget this suite names is that
+//! floor slots, the most they can hold at once, and the fixed allowance
+//! for the session's fixed state: the bounds above on the decode fans,
+//! assembly, and hashing, and every place's scratch. The ledger admits work
+//! beyond both against the rest. Every budget this suite names is that
 //! rest, what the ledgers admit against: each peer's memory budget is the
-//! named budget beside the floor allowance
-//! ([`admitting`]), so that the suite's fixtures admit work as their
-//! names say. Some of those budgets lie below the largest grant, which the
-//! public setter's minimum
+//! named budget beside the two allowances
+//! ([`admitting`](rumors_testkit::bench::session::admitting)), so that the
+//! suite's fixtures admit work as their names say. Some of those budgets
+//! lie below the largest grant, which the public setter's minimum
 //! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET)) keeps
 //! every application's session above, so the suite sets each ledger budget
 //! directly ([`ledger_budget`](rumors::testing::ledger_budget)).
@@ -282,13 +284,12 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 use rumors::testing::{
-    Admission, COMPARISON_FRAME_BYTES, HASHING_SCRATCH_BYTES, Holding, LANE_CAPACITY, LedgerChange,
-    OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, SESSION_STREAMS, assembly_allowance,
-    attribute_allocations, join_snapshots, ledger_scratch, observe_admissions, observe_fits,
-    observe_ledgers, supply_decode_envelope_bytes, with_leaf_paths,
+    Admission, COMPARISON_FRAME_BYTES, DECODE_AHEAD_BYTES, HASHING_SCRATCH_BYTES, Holding,
+    LANE_CAPACITY, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, SESSION_STREAMS,
+    assembly_allowance, attribute_allocations, floor_allowance, join_snapshots, ledger_scratch,
+    observe_admissions, observe_fits, observe_ledgers, with_leaf_paths,
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
-use rumors_testkit::bench::session::admitting;
 use rumors_testkit::common::property::divided_cases;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
@@ -368,8 +369,9 @@ const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001)
 /// messages, in [`Side::BOTH`] order, that the other lacks.
 ///
 /// Each fork runs on the suite's run target and on a memory budget whose
-/// ledger admits work against `budget` ([`admitting`]), set through the
-/// test path so that it reaches below the public minimum.
+/// ledger admits work against `budget`
+/// ([`admitting`](rumors_testkit::bench::session::admitting)), set through
+/// the test path so that it reaches below the public minimum.
 ///
 /// The network first holds `redacted` messages both forks receive, which
 /// side `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with
@@ -472,9 +474,8 @@ struct LedgerReport {
     /// The most the ledger held outside its floor slots at once: what its
     /// budget bounds.
     normal_peak: usize,
-    /// The most the ledger held beyond its peer's memory budget, the
-    /// budget it admits against beside the floor allowance, at any change:
-    /// zero when the session holds at most its memory budget throughout.
+    /// The most the ledger held beyond its bound ([`ledger_bound`]) at any
+    /// change: zero when the ledger holds at most that throughout.
     over_bound: usize,
     /// What the ledger held when the session ended.
     left: usize,
@@ -508,6 +509,17 @@ struct Fits {
     /// Those that held more than their reservation allowed, or whose
     /// questions derived records beyond its records part.
     over: Vec<ReplyFit>,
+}
+
+/// The most a side's ledger may hold in all when it admits work against
+/// `budget`.
+///
+/// That is the budget beside the floor allowance, the most the floor slots
+/// hold: the side's memory budget
+/// ([`admitting`](rumors_testkit::bench::session::admitting)) less the
+/// fixed allowance, which the ledger never holds.
+fn ledger_bound(budget: usize) -> usize {
+    floor_allowance().saturating_add(budget)
 }
 
 /// The most the charged places' transient heap may exceed a side's ledger
@@ -691,7 +703,7 @@ fn ledger_reports(
                 .unwrap_or(0),
             over_bound: mine
                 .iter()
-                .map(|event| event.held.saturating_sub(admitting(budget)))
+                .map(|event| event.held.saturating_sub(ledger_bound(budget)))
                 .max()
                 .unwrap_or(0),
             left: last.map_or(0, |event| event.held),
@@ -951,7 +963,7 @@ impl Measured {
     /// docs derive every bound.
     fn holding_bound(&self, holding: Holding) -> Option<u128> {
         match holding {
-            Holding::DecodedLeaves => Some(2 * supply_decode_envelope_bytes() as u128),
+            Holding::DecodedLeaves => Some(DECODE_AHEAD_BYTES as u128),
             Holding::Wire => Some(self.wire),
             Holding::Assembly => Some(self.assembly),
             Holding::Hashing => Some(HASHING_SCRATCH_BYTES as u128),
@@ -1233,10 +1245,12 @@ fn violation(measured: &Measured) -> Option<String> {
 /// each place it charges, less that place's scratch, at every allocation
 /// event, and must return to zero once the session ends; every reply the
 /// session's stages finished must fit the room its question reserved for
-/// it, records part included, with at least one reply finished. And each side's ledger, admitting
-/// against `budget`, must hold at most the budget outside its floor slots
-/// and at most its peer's memory budget in all, the budget beside the
-/// floor allowance, with every item built within its unit's grant.
+/// it, records part included, with at least one reply finished. And each
+/// side's ledger, admitting against `budget`, must hold at most the budget
+/// outside its floor slots and at most the budget beside the floor
+/// allowance in all ([`ledger_bound`]), what its peer's memory budget
+/// leaves it beside the fixed allowance, with every item built within its
+/// unit's grant.
 fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
     for side in Side::BOTH {
         let ledger = run.ledgers[side.index()];
@@ -1254,8 +1268,9 @@ fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
         }
         if ledger.over_bound > 0 {
             return Some(format!(
-                "{side:?}'s ledger exceeded its memory budget of {} B by {} B: {ledger:?}",
-                admitting(budget),
+                "{side:?}'s ledger exceeded the {} B its memory budget leaves it by {} B: \
+                 {ledger:?}",
+                ledger_bound(budget),
                 ledger.over_bound,
             ));
         }

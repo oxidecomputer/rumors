@@ -132,14 +132,13 @@ fn one_slot_decode_channel_makes_progress() {
 /// reader runs as far ahead as the channel permits. Equality makes the bound
 /// both strict and non-vacuous.
 #[test]
-fn eager_decode_occupancy_pins_the_charged_ceiling() {
+fn eager_decode_occupancy_reaches_the_priced_ceiling() {
     let leaves = leaves(4 * FAN as u64);
     let peak = peak_occupancy(stream::iter(frames(&leaves)));
     assert_eq!(
         peak, SUPPLY_RECORDS_PER_STREAM,
-        "peak resident decoded records must equal the charged ceiling: one full \
-         fan channel plus the record in the reader's hand, the per-stream shape \
-         SUPPLY_DECODE_ENVELOPE_BYTES prices",
+        "peak resident decoded records must equal the ceiling decode_ahead_bytes \
+         prices per stream: one full fan channel plus the record in the reader's hand",
     );
 }
 

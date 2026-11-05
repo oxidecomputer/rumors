@@ -40,7 +40,7 @@ use std::thread;
 
 use rumors::Rumors;
 use rumors::testing::{
-    Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, floor_allowance,
+    Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, memory_budget_admitting,
     observe_admissions, observe_ledgers,
 };
 
@@ -249,9 +249,12 @@ fn letter(side: Side) -> char {
     }
 }
 
-/// The memory budget whose sessions' ledgers admit work against `bytes`:
-/// `bytes` beside the floor allowance every budget sets aside
-/// ([`floor_allowance`]).
+/// The memory budget whose sessions' ledgers admit work against `bytes`.
+///
+/// That is `bytes` beside the floor allowance
+/// ([`floor_allowance`](rumors::testing::floor_allowance)) and the fixed
+/// allowance ([`FIXED_ALLOWANCE`](rumors::testing::FIXED_ALLOWANCE)) every
+/// budget sets aside ([`memory_budget_admitting`]).
 ///
 /// A session raises this, set through the public setter, to
 /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) when `bytes`
@@ -260,7 +263,7 @@ fn letter(side: Side) -> char {
 /// must reach below that, sets the ledger budget directly instead
 /// ([`BudgetChoice::Ledger`]).
 pub fn admitting(bytes: usize) -> usize {
-    floor_allowance().saturating_add(bytes)
+    memory_budget_admitting(bytes)
 }
 
 /// Builds a pair of the given shape, both peers on a memory budget of

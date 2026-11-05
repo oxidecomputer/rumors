@@ -117,7 +117,6 @@ pub use frame::{Frame, LeafRun, Reaction, ReplyFrame};
 #[cfg(test)]
 pub(crate) use frame::{ListingIssue, parse_listing_map, write_listing};
 pub use greeting::GreetingError;
-#[cfg(any(test, feature = "test-internals"))]
 pub(crate) use signal::STREAM_COUNT;
 #[cfg(test)]
 pub(crate) use signal::{DecodeSignalError, Signal};

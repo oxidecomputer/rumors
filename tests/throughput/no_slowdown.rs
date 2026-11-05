@@ -28,9 +28,10 @@
 //! no-cost point.
 //!
 //! The budget here is the ledger's: a peer's memory budget less the floor
-//! allowance it sets aside for the floor slots, so the suite sets each
-//! budget it states as the ledger's directly ([`BudgetChoice::Ledger`]),
-//! reaching budgets below those the public setter allows.
+//! allowance it sets aside for the floor slots and the fixed allowance it
+//! sets aside for the session's fixed state, so the suite sets each budget
+//! it states as the ledger's directly ([`BudgetChoice::Ledger`]), reaching
+//! budgets below those the public setter allows.
 //!
 //! # The measurement
 //!

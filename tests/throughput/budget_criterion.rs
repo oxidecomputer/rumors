@@ -3,13 +3,13 @@
 //!
 //! # The criterion
 //!
-//! Write `T(B)` for a session's duration at ledger budget `B` (the budget its
-//! ledgers admit work against, beside the floor allowance), `c_max` for the
-//! largest grant any unit can take ([`LARGEST_GRANT`]), `N*` for the session's
-//! no-cost point, and `δ` for the link's one-way delay, so that one round trip
-//! is `2δ` on every link. The owner's ruling states what holds for every pair
-//! of ledger budgets `c_max ≤ B ≤ B′`, where a public budget always leaves the
-//! ledger at least `c_max`:
+//! Write `T(B)` for a session's duration at ledger budget `B` (the budget
+//! its ledgers admit work against, beside the floor and fixed allowances),
+//! `c_max` for the largest grant any unit can take ([`LARGEST_GRANT`]),
+//! `N*` for the session's no-cost point, and `δ` for the link's one-way
+//! delay, so that one round trip is `2δ` on every link. The owner's ruling states what
+//! holds for every pair of ledger budgets `c_max ≤ B ≤ B′`, where a public
+//! budget always leaves the ledger at least `c_max`:
 //!
 //! - **(a)** On every link, no inversion exceeds one round trip:
 //!   `T(B′) ≤ T(B) + 2δ`. Inversions are cumulative, so the claim covers

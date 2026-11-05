@@ -33,13 +33,15 @@ use serde::{Serialize, de::DeserializeOwned};
 
 /// The smallest memory budget a synchronization session runs on at the
 /// default message-size target ([`default::TARGET_MESSAGE_SIZE`]): about
-/// 27 MiB on 64-bit targets.
+/// 34 MiB on 64-bit targets.
 ///
 /// A smaller budget, zero included, is raised to this, so a session holds
 /// at most the larger of its budget and this minimum. It covers the room
 /// every session keeps for one piece of work in flight at each level of
-/// its comparison, which is how a session always makes progress, and room
-/// beside it for the largest single piece of work. At or above this
+/// its comparison, which is how a session always makes progress, room
+/// beside it for the largest single piece of work, and the fixed state
+/// every session holds whatever its budget
+/// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) lists it). At or above this
 /// minimum, no measured session has run more than one round trip slower
 /// at a larger budget than at a smaller one; that is observed behavior,
 /// not a guarantee.
@@ -853,13 +855,43 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   25.5 MiB on the in-memory replica on 64-bit targets, whatever the
     ///   sets' sizes.
     ///
+    /// Every budget also sets aside the *fixed allowance*: room for what a
+    /// session holds whatever its budget and the sets' sizes, about
+    /// 7 MiB on the in-memory replica on 64-bit targets, as
+    /// [the session's fixed state](#the-sessions-fixed-state) lists.
+    ///
     /// A session admits the rest of its work against the budget less the
-    /// floor allowance, so that the two together stay within the budget.
-    /// [`MIN_SYNC_MEMORY_BUDGET`] is the allowance and room beside it for
-    /// the largest single question or answer, so the rest always has room
-    /// for any one piece of work.
+    /// floor allowance and the fixed allowance, so that the three together
+    /// stay within the budget. [`MIN_SYNC_MEMORY_BUDGET`] is the two
+    /// allowances and room beside them for the largest single question or
+    /// answer, so the rest always has room for any one piece of work.
     /// [`target_message_size`](Self::target_message_size) bounds the wire
     /// messages a session buffers.
+    ///
+    /// # The session's fixed state
+    ///
+    /// The fixed allowance covers what a session holds whatever its budget
+    /// and the sets' sizes, each part bounded by fixed capacities:
+    ///
+    /// - **Working buffers.** A session fills small buffers as it builds a
+    ///   question or answer, before it counts the result against the
+    ///   budget, and keeps a few briefly after.
+    /// - **Subtrees under construction.** The in-memory replica builds each
+    ///   subtree a session receives whole as its leaves arrive, keeping
+    ///   only the branches still open along the path of the latest leaf: at
+    ///   most one partly built branch per byte of a leaf's path, whatever
+    ///   the subtree's size. A session builds at most one such subtree at
+    ///   each level of its comparison at a time, and queues a few finished
+    ///   ones between the levels it assembles.
+    /// - **Decoded leaves on their way to assembly.** A session decodes the
+    ///   leaves of each subtree it receives a little ahead of building it,
+    ///   holding at most one more decoded leaf at each level of its
+    ///   comparison than a node of the tree can have children. The messages
+    ///   those leaves carry join the replica, which the budget never
+    ///   covers.
+    /// - **Hashing.** The in-memory replica computes a node's hash over a
+    ///   record of each of its children, and frees the record once the hash
+    ///   is computed: at most one record per byte of a path at once.
     ///
     /// # What the budget does not cover
     ///
@@ -873,12 +905,6 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   ends. The same holds for the nodes the session itself rebuilds: the
     ///   new copies join the replica, and the originals they replace stay in
     ///   memory until the session ends.
-    /// - **Decoded leaves on their way to assembly.** A session decodes the
-    ///   leaves of each subtree it receives a little ahead of building it,
-    ///   holding at most one more decoded leaf at each level of its
-    ///   comparison than a node of the tree can have children: a fixed
-    ///   amount, whatever the budget and the sets' sizes. The messages
-    ///   those leaves carry join the replica, as above.
     /// - **Your transport's own buffers,** such as socket buffers, which
     ///   are outside the library.
     /// - **Observers.** Backlogs of observers such as [`CausalMessages`] grow

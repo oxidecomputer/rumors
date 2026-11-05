@@ -31,22 +31,24 @@ use super::{
 
 /// Leaf records each reply decoder holds at once at most: a full fan in its
 /// leaves' edge and the one in its reader's hand.
-#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SUPPLY_RECORDS_PER_STREAM: usize = FAN + 1;
 
-/// The most bytes one session's decode fans hold at once on the in-memory
-/// backend.
+/// The most bytes one session's decode fans hold at once, for leaves whose
+/// handles are `N`: the *decode-ahead* a session's memory budget sets aside.
 ///
-/// Each of the [`STREAM_COUNT`](super::super::STREAM_COUNT) logical reply streams a session decodes
-/// holds at most [`SUPPLY_RECORDS_PER_STREAM`] decoded leaves, each a
-/// [`DecodedLeaf`] whose handle keeps nothing resident beyond it on the
-/// in-memory backend. A full fan permits one parent group's worth of
-/// read-ahead, reducing wakeups and overlapping parsing with slower
-/// assembly; capacity one still makes progress.
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize = super::super::STREAM_COUNT
-    * SUPPLY_RECORDS_PER_STREAM
-    * mem::size_of::<DecodedLeaf<<crate::tree::mirror::streaming::Local as Backend>::Node<Z>>>();
+/// Each of the [`STREAM_COUNT`](super::super::STREAM_COUNT) logical reply
+/// streams a session decodes holds at most [`SUPPLY_RECORDS_PER_STREAM`]
+/// decoded leaves, each a [`DecodedLeaf`], counted at twice its size: the
+/// most a channel node takes beside its item. A full fan permits one parent
+/// group's worth of read-ahead, reducing wakeups and overlapping parsing
+/// with slower assembly; capacity one still makes progress.
+///
+/// The leaf a [`DecodedLeaf`] carries is replica content from the moment
+/// it is built, so only its handle counts here. On the in-memory backend
+/// the handle keeps nothing resident beyond the node.
+pub(crate) const fn decode_ahead_bytes<N>() -> usize {
+    2 * super::super::STREAM_COUNT * SUPPLY_RECORDS_PER_STREAM * mem::size_of::<DecodedLeaf<N>>()
+}
 
 /// One item on a [`LeafEdge`]'s way to assembly.
 pub(crate) enum DecodedLeaf<N> {
@@ -90,8 +92,8 @@ where
     /// A full fan amortizes reader and assembler wakeups and lets parsing
     /// run ahead when assembly is slower. Progress needs only one slot, which
     /// the tests' one-slot edge establishes, so the fan is a throughput choice,
-    /// a fixed amount per logical stream whatever the budget, not a liveness
-    /// requirement.
+    /// a fixed amount per logical stream that the fixed allowance sets aside
+    /// ([`decode_ahead_bytes`]), not a liveness requirement.
     pub fn new() -> Self {
         Self::with_capacity(FAN)
     }

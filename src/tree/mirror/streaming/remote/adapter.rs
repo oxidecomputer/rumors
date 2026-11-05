@@ -84,8 +84,7 @@ mod encode;
 mod error;
 mod scope;
 
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) use decode::SUPPLY_DECODE_ENVELOPE_BYTES;
+pub(crate) use decode::decode_ahead_bytes;
 #[cfg(test)]
 pub use decode::decode_whole_reply;
 pub use decode::{LeafEdge, decode_reply, opening_reply};

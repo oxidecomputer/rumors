@@ -34,12 +34,14 @@
 //!   each level of the session's comparison, so that the session always
 //!   makes progress: the *floor allowance*, the most that work can hold,
 //!   about 25.5 MiB on the in-memory replica on 64-bit targets, whatever the
-//!   sets' sizes. A session admits the rest of its work against what
+//!   sets' sizes. Every budget also sets aside room for the session's fixed
+//!   state, which it holds whatever the budget: the *fixed allowance*,
+//!   about 7 MiB. A session admits the rest of its work against what
 //!   remains of the budget.
 //! - **The smallest budget,**
 //!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), adds room
-//!   for the largest single question or answer beside the floor
-//!   allowance. A session raises any smaller budget, zero included, to
+//!   for the largest single question or answer beside the two
+//!   allowances. A session raises any smaller budget, zero included, to
 //!   it. At the smallest budget a session pipelines little: beyond one
 //!   question and one answer at each level of its comparison, it keeps in
 //!   flight only what the added room holds, and otherwise waits for

@@ -663,10 +663,9 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 ///   fan, in a vector at most twice its length; and the record an encoder
 ///   still holds for the reply it writes after its asker's reservation
 ///   returned, a scope with a fan of radices and counts.
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) fn scratch<E, Err>(place: Holding) -> usize {
+pub(crate) const fn scratch<E, Err>(place: Holding) -> usize {
     match place {
-        Holding::Questions => queued::<Query<E>>().max(queued::<LeafRequest>()),
+        Holding::Questions => max(queued::<Query<E>>(), queued::<LeafRequest>()),
         Holding::Resolutions => 2 * queued::<Resolution<E>>(),
         Holding::OutgoingReplies => chunk_bound::<E, Err>(with_question(Held::LEADING_MAX), FAN),
         Holding::ParkedReplies => {

@@ -253,7 +253,8 @@
 //! so a smaller budget adds latency and never stops a session. Every
 //! session's budget is at least
 //! [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET): that part,
-//! and room beside it for the largest single question or answer.
+//! room beside it for the largest single question or answer, and the
+//! fixed state a session holds whatever its budget.
 //! Message bodies are governed separately: supplies stream as
 //! size-targeted runs, with at most 258 runs buffered per level sending,
 //! and 257 per level receiving plus one more for the whole receiving
