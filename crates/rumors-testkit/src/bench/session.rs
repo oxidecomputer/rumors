@@ -32,8 +32,9 @@
 //! [`observe_admissions`]: rumors::testing::observe_admissions
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
+use std::ops::Range;
 use std::pin::pin;
 use std::thread;
 
@@ -84,18 +85,35 @@ pub fn resolution(latency_only: &Session) -> u64 {
     latency_only.hops() * SEGMENT_BYTES
 }
 
-/// The messages a pair shares, those each side holds that the other
-/// lacks, and the bytes each message encodes in.
+/// The messages a pair shares, those each side inserted that the other
+/// has never seen, those each side redacted that the other still holds,
+/// and the bytes each message encodes in.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Shape {
     /// Messages both sides hold.
     pub shared: u64,
-    /// Messages only [`Side::A`] holds.
+    /// Messages only [`Side::A`] holds, which [`Side::B`] has never seen.
     pub a: u64,
-    /// Messages only [`Side::B`] holds.
+    /// Messages only [`Side::B`] holds, which [`Side::A`] has never seen.
     pub b: u64,
+    /// Messages both sides received, which [`Side::A`] has since redacted
+    /// and [`Side::B`] still holds: its version covers each, and its tree
+    /// holds none.
+    pub redacted_a: u64,
+    /// Messages both sides received, which [`Side::B`] has since redacted
+    /// and [`Side::A`] still holds.
+    pub redacted_b: u64,
     /// The bytes each message's CBOR encoding takes, head included.
     pub message_bytes: usize,
+    /// The draw of the pair's tree: messages the network sends and redacts
+    /// before any other, so that every later message's version, and with
+    /// it its leaf's path, differs from the draws before it.
+    ///
+    /// A leaf's path is the hash of its version, and the network's seed
+    /// enters no version, so the counts alone fix a pair's tree; the draw
+    /// changes the tree and nothing else, since a redaction leaves no
+    /// trace in either tree.
+    pub draw: u64,
 }
 
 impl Shape {
@@ -106,7 +124,10 @@ impl Shape {
             shared: 0,
             a: messages,
             b: messages,
+            redacted_a: 0,
+            redacted_b: 0,
             message_bytes: MESSAGE_BYTES,
+            draw: 0,
         }
     }
 
@@ -118,7 +139,10 @@ impl Shape {
             shared,
             a: messages - shared,
             b: messages - shared,
+            redacted_a: 0,
+            redacted_b: 0,
             message_bytes: MESSAGE_BYTES,
+            draw: 0,
         }
     }
 
@@ -129,8 +153,27 @@ impl Shape {
             shared: 0,
             a: messages,
             b: 0,
+            redacted_a: 0,
+            redacted_b: 0,
             message_bytes: MESSAGE_BYTES,
+            draw: 0,
         }
+    }
+
+    /// This shape with `a` more messages both sides received that
+    /// [`Side::A`] has redacted, and `b` that [`Side::B`] has.
+    pub const fn with_redactions(self, a: u64, b: u64) -> Self {
+        Self {
+            redacted_a: a,
+            redacted_b: b,
+            ..self
+        }
+    }
+
+    /// This shape's draw number `draw`: another tree for the same counts
+    /// ([`Shape::draw`]).
+    pub const fn with_draw(self, draw: u64) -> Self {
+        Self { draw, ..self }
     }
 
     /// This shape with every message encoding in `bytes` bytes.
@@ -204,22 +247,75 @@ pub fn admitting(bytes: usize) -> usize {
 /// Builds a pair of the given shape, both peers on a memory budget of
 /// `budget` bytes.
 ///
-/// The shared messages are sent before either side joins, so both receive
-/// them while joining.
+/// The shared messages, and those either side goes on to redact, are sent
+/// before either side joins, so both receive them while joining; each side
+/// then redacts its own, numbered after the shared ones.
 pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
     block_on(async {
         let mut rng = ChaChaRng::seed_from_u64(NETWORK_SEED);
         let root = Peer::<String>::seed_rng(&mut rng).into_rumors();
-        root.send_all((0..shape.shared).map(|index| message('s', index, shape.message_bytes)))
+        if shape.draw > 0 {
+            root.send_all((0..shape.draw).map(|index| message('d', index, shape.message_bytes)))
+                .expect("fixture messages encode");
+            let drawn: Vec<_> = root
+                .snapshot()
+                .iter()
+                .map(|(version, _)| version.clone())
+                .collect();
+            root.redact_all(&drawn);
+        }
+        let received = shape.shared + shape.redacted_a + shape.redacted_b;
+        root.send_all((0..received).map(|index| message('s', index, shape.message_bytes)))
             .expect("fixture messages encode");
         let a = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
         let b = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
+        let redacted_by_a = shape.shared..shape.shared + shape.redacted_a;
+        let redacted_by_b = redacted_by_a.end..received;
+        redact(&a, redacted_by_b.clone(), redacted_by_a.clone(), shape);
+        redact(&b, redacted_by_a, redacted_by_b, shape);
         a.send_all((0..shape.a).map(|index| message(letter(Side::A), index, shape.message_bytes)))
             .expect("fixture messages encode");
         b.send_all((0..shape.b).map(|index| message(letter(Side::B), index, shape.message_bytes)))
             .expect("fixture messages encode");
         (a, b)
     })
+}
+
+/// Has `replica` redact the shared messages numbered in `redacted`, after
+/// checking that it holds those numbered in `kept`, which its peer
+/// redacts.
+///
+/// # Panics
+///
+/// If the replica does not hold every message in both ranges, each once.
+fn redact(replica: &Rumors<String>, kept: Range<u64>, redacted: Range<u64>, shape: Shape) {
+    let snapshot = replica.snapshot();
+    let numbered = |range: Range<u64>| -> BTreeSet<String> {
+        range
+            .map(|index| message('s', index, shape.message_bytes))
+            .collect()
+    };
+    let (kept, redacted) = (numbered(kept), numbered(redacted));
+    let versions: Vec<_> = snapshot
+        .iter()
+        .filter(|(_, message)| redacted.contains(message.as_str()))
+        .map(|(version, _)| version.clone())
+        .collect();
+    assert_eq!(
+        versions.len(),
+        redacted.len(),
+        "each message to redact is held once"
+    );
+    let held = snapshot
+        .iter()
+        .filter(|(_, message)| kept.contains(message.as_str()))
+        .count();
+    assert_eq!(
+        held,
+        kept.len(),
+        "each message the peer redacts is held once"
+    );
+    replica.redact_all(&versions);
 }
 
 /// One session to run: the pair's shape, both peers' budget, and the link.
@@ -371,6 +467,15 @@ pub struct LedgerReading {
     /// The most bytes it held outside its floor slots: the part its budget
     /// counts.
     pub budget_peak: usize,
+    /// The link time it first held `budget_peak`, in byte-times.
+    pub budget_peak_at: u64,
+    /// What each holder outside floor slots held at that moment, every
+    /// holder that held anything, in holder order: they add up to
+    /// `budget_peak` and `budget_peak_carried`.
+    pub budget_peak_holders: Vec<(Holder, usize)>,
+    /// The bytes its floor slots carried for charges admitted against the
+    /// budget at that moment.
+    pub budget_peak_carried: usize,
     /// The most bytes it held in all.
     pub held_peak: usize,
     /// The most bytes its floor slots held at once, what they carried for
@@ -438,6 +543,9 @@ impl Default for LedgerReading {
         Self {
             side: None,
             budget_peak: 0,
+            budget_peak_at: 0,
+            budget_peak_holders: Vec::new(),
+            budget_peak_carried: 0,
             held_peak: 0,
             floor_peak: 0,
             floor_bound: 0,
@@ -682,6 +790,7 @@ fn record_change(change: LedgerChange) {
             places,
             floor,
             carried,
+            holders,
             ..
         } = ledger;
         let before_held = std::mem::replace(held, change.held);
@@ -706,7 +815,16 @@ fn record_change(change: LedgerChange) {
                 bytes: normal,
             }),
         }
-        reading.budget_peak = reading.budget_peak.max(normal);
+        if normal > reading.budget_peak {
+            reading.budget_peak = normal;
+            reading.budget_peak_at = now;
+            reading.budget_peak_carried = change.carried;
+            reading.budget_peak_holders = holders
+                .iter()
+                .filter(|(holder, (bytes, ..))| !holder.through_floor && *bytes > 0)
+                .map(|(holder, (bytes, ..))| (*holder, *bytes))
+                .collect();
+        }
         reading.held_peak = reading.held_peak.max(change.held);
         reading.floor_peak = reading.floor_peak.max(change.floor + change.carried);
         reading.floor_bound = reading.floor_bound.max(change.floor_bound);

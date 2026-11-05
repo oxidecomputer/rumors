@@ -3,7 +3,7 @@
 
 use proptest::prelude::*;
 
-use super::{Case, LAN_BDP, LedgerReading, Shape, message, run, text_chars};
+use super::{Case, LAN_BDP, LedgerReading, Shape, message, pair, run, text_chars};
 use crate::bench::link::{LinkConfig, Side};
 
 /// The bytes `text` takes encoded as a CBOR text string.
@@ -62,7 +62,9 @@ fn profile_area(ledger: &LedgerReading) -> u128 {
 /// the peak the ledger kept, its terms add up to that sum as the share's
 /// rule computes it, and it falls within the session; a side makes such a
 /// check in every session with no budget, and one that makes none keeps a
-/// share peak of zero. The two ledgers are read as the two sides'.
+/// share peak of zero. What the holders outside floor slots held at the
+/// budget peak adds up to that peak and what floor slots carried then, at a
+/// moment within the session. The two ledgers are read as the two sides'.
 #[test]
 fn records_over_time_agree_with_the_ledger_totals() {
     let shape = Shape::overlapping(3_000, 0);
@@ -111,6 +113,13 @@ fn records_over_time_agree_with_the_ledger_totals() {
                 );
                 assert_eq!(ledger.share_peak, 0);
             }
+            let at_peak: usize = ledger
+                .budget_peak_holders
+                .iter()
+                .map(|(_, bytes)| bytes)
+                .sum();
+            assert_eq!(at_peak, ledger.budget_peak + ledger.budget_peak_carried);
+            assert!(ledger.budget_peak_at <= session.duration());
             assert_eq!(profile_area(ledger), ledger.budget_area);
             assert_eq!(ledger.profile.last().map(|step| step.bytes), Some(0));
             let area = |through_floor: bool| -> u128 {
@@ -131,4 +140,56 @@ fn records_over_time_agree_with_the_ledger_totals() {
             }
         }
     }
+}
+
+/// A shape's redactions take effect on the side that makes them and on
+/// that side alone.
+///
+/// Before the session, each replica holds the shared messages, its own
+/// insertions, and the messages its peer redacted, and none it redacted
+/// itself. A session over the pair still gains each side exactly the
+/// messages its peer inserted, since a redaction crosses as a version,
+/// never as a message.
+#[test]
+fn redactions_hold_on_the_redacting_side_alone() {
+    let shape = Shape::overlapping(2_000, 50).with_redactions(100, 300);
+    let (a, b) = pair(shape, usize::MAX);
+    assert_eq!(
+        a.snapshot().len() as u64,
+        shape.shared + shape.a + shape.redacted_b
+    );
+    assert_eq!(
+        b.snapshot().len() as u64,
+        shape.shared + shape.b + shape.redacted_a
+    );
+    drop((a, b));
+    run(Case {
+        shape,
+        budget: usize::MAX,
+        link: LinkConfig::with_bdp(LAN_BDP),
+    });
+}
+
+/// Each draw of a shape builds another tree for the same counts: every
+/// replica holds as many messages at every draw, and its tree's hash
+/// differs from draw to draw, since the draw moves every leaf's path.
+#[test]
+fn draws_change_the_tree_and_not_the_counts() {
+    let shape = Shape::overlapping(500, 50).with_redactions(20, 30);
+    let replicas: Vec<_> = (0..3)
+        .map(|draw| pair(shape.with_draw(draw), usize::MAX))
+        .collect();
+    for (a, b) in &replicas {
+        assert_eq!(
+            a.snapshot().len() as u64,
+            shape.shared + shape.a + shape.redacted_b
+        );
+        assert_eq!(
+            b.snapshot().len() as u64,
+            shape.shared + shape.b + shape.redacted_a
+        );
+    }
+    let hashes: std::collections::BTreeSet<_> =
+        replicas.iter().map(|(a, _)| a.snapshot().hash()).collect();
+    assert_eq!(hashes.len(), replicas.len());
 }
