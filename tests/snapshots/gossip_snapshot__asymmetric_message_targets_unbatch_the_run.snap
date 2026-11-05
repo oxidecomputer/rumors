@@ -13,21 +13,21 @@ control item 0 (30 bytes) / preamble /
 ])
 control item 1 (144 bytes) / greeting /
 24_0(<<{
-    "listing": {234_0: [h'29ba6e2f659b0ec5dd9dc8e1de54812b', 1]},
+    "listing": {127_0: [h'2b4a3e658e6b58286792e62a1aec00f4', 1]},
     "set_len": 2,
     "version": 53846_1(h'400fff001ff9'),
     "grandchildren": 1,
-    "max_version_bytes": 6,
+    "max_version_bytes": 5,
     "payload_depth_limit": 256_1,
     "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Responder stream 0 (height 31), 41 wire bytes
-  frame 0 (16 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'5540'), 0>>)>>)]
-  frame 1 (22 bytes) / Supply(End) /
-[0, 7, 63_0(<<63_0(<<53846_1(h'40114c008a10'), 551_1>>)>>)]
+Responder stream 0 (height 31), 43 wire bytes
+  frame 0 (20 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'4055c02a90'), 169_0>>)>>)]
+  frame 1 (20 bytes) / Supply(End) /
+[0, 7, 63_0(<<63_0(<<53846_1(h'40524028d0'), 162_0>>)>>)]
   frame 2 (3 bytes) / End(Stream) /
 [0, 9]
 

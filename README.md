@@ -287,12 +287,20 @@ The transport has these responsibilities:
   protocol makes no finer-grained access decision.
 - **Integrity.** The wire decoders detect malformed frames, not
   tampering: a transport that lets a third party modify bytes in flight
-  has granted that party the session.
+  has granted that party the session. In a bootstrap it has also granted
+  the network's secret: the third party can replace the joining peer's
+  public key with its own and open the secret the provider seals to it.
+  A leaked secret stays useful for the network's whole life, since it
+  cannot be rotated (see
+  keyed addresses).
 - **Confidentiality.** Session traffic (message bodies, set sizes,
   version structure, the greeting's metadata) crosses the connection in
   cleartext; the protocol adds no encryption of its own. The one exception
   is the network's identity material that a provider hands a joining
-  peer, which travels sealed inside the session.
+  peer, which travels sealed inside the session. The set's integrity
+  does not rest on confidentiality: the digests and address bytes an
+  observer reads on the wire do not let it compute those of versions it
+  chooses (see keyed addresses).
 - **Freshness.** The protocol does not authenticate a connection or a
   session as new; a transport that could replay recorded traffic into a
   live connection must rule that out itself.

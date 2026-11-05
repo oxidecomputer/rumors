@@ -41,10 +41,14 @@ fn with_messages(peer: Rumors<u64>, messages: &[u64]) -> Rumors<u64> {
 }
 
 /// Network-independent state used to compare equivalent sessions.
+///
+/// The live set is read out as versions and payloads rather than as its
+/// Merkle root: each network's secret keys its leaf paths, so two networks
+/// holding the same messages have different roots.
 #[derive(Debug, PartialEq, Eq)]
 struct Fingerprint {
-    /// The Merkle root of the live message set.
-    hash: Vec<u8>,
+    /// The live messages, by version.
+    content: BTreeMap<Vec<u8>, u64>,
     /// The complete causal frontier.
     latest: rumors::Version,
 }
@@ -53,7 +57,7 @@ struct Fingerprint {
 fn fingerprint(peer: &Rumors<u64>) -> Fingerprint {
     let snapshot = peer.snapshot();
     Fingerprint {
-        hash: snapshot.hash().to_vec(),
+        content: readout(&snapshot),
         latest: snapshot.latest().clone(),
     }
 }
@@ -448,14 +452,14 @@ proptest! {
 
 proptest! {
     /// Retiring A into B over the wire (after gossiping to convergence)
-    /// leaves B with the same live content (`hash`) and causal version
-    /// (`latest`) as a plain gossip session in an identically-built
-    /// universe.
+    /// leaves B with the same live content and causal version (`latest`) as
+    /// a plain gossip session in an identically-built universe.
     ///
     /// The party hand-off moves no content and no version. Two
-    /// independently-seeded universes built from identical action sequences
-    /// are compared; `hash`/`latest` are network-independent, so the
-    /// distinct `Network` ids do not perturb the comparison.
+    /// independently seeded universes built from identical action sequences
+    /// are compared, never connected; the content readout and `latest` are
+    /// network-independent, so the distinct network secrets do not perturb
+    /// the comparison.
     #[test]
     fn retire_matches_plain_gossip(
         a_actions in arb_local_actions(),

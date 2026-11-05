@@ -414,8 +414,8 @@ fn standard_schedules() -> [(Vec<u8>, Vec<u8>); 4] {
 /// record: `join` and the mirror delegate deletion honoring to the same
 /// filter, so a reconciled endpoint must hold exactly the joined tree.
 fn join_oracle(a: Root, b: Root) -> Root {
-    let mut joined = Tree::<()>::from_root(a);
-    joined.join(Tree::from_root(b));
+    let mut joined = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, a);
+    joined.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, b));
     joined.root
 }
 

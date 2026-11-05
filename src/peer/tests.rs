@@ -136,7 +136,7 @@ proptest! {
         completes(move || {
             let mut party = Party::seed();
             let remote = party.fork();
-            let prior = Tree::new();
+            let prior = Tree::default();
             let mut incoming = prior.clone();
             for i in 0..remote_events { insert(&mut incoming, &remote, i as u64); }
             let sender = watch::Sender::new(Inner::new(party, prior.clone()));
@@ -155,8 +155,8 @@ proptest! {
                         Inner::commit(&sender, |party, tree| {
                             insert(tree, party, 100 + attempt as u64);
                             if redact {
-                                let path = crate::tree::typed::Path::for_leaf(tree.latest());
-                                tree.act(party, [Action::Forget(path)]);
+                                let forgotten = tree.latest().clone();
+                                tree.act(party, [Action::Forget(forgotten)]);
                             }
                             true
                         });
@@ -197,7 +197,7 @@ proptest! {
         exclusive in any::<bool>(),
     ) {
         let mut local = Party::seed();
-        let mut prior = Tree::new();
+        let mut prior = Tree::default();
         insert(&mut prior, &local, 0);
         let original = prior.latest().clone();
         let remote = local.fork();
@@ -206,10 +206,10 @@ proptest! {
         for i in 0..local_events { insert(&mut live, &local, 100 + i as u64); }
         for i in 0..remote_events { insert(&mut incoming, &remote, 200 + i as u64); }
         if redact_local {
-            live.act(&local, [Action::Forget(crate::tree::typed::Path::for_leaf(&original))]);
+            live.act(&local, [Action::Forget(original.clone())]);
         }
         if redact_remote {
-            incoming.act(&remote, [Action::Forget(crate::tree::typed::Path::for_leaf(&original))]);
+            incoming.act(&remote, [Action::Forget(original.clone())]);
         }
         let mut expected = live.clone();
         expected.join(incoming.clone());
@@ -243,13 +243,13 @@ proptest! {
     #[test]
     fn stale_swaps_leave_state_and_callbacks_untouched(empty in any::<bool>()) {
         let party = Party::seed();
-        let mut prior = Tree::new();
+        let mut prior = Tree::default();
         if !empty { insert(&mut prior, &party, 0); }
         let mut live = prior.clone();
         insert(&mut live, &party, 1);
         if empty {
             let inserted = live.latest().clone();
-            live.act(&party, [Action::Forget(crate::tree::typed::Path::for_leaf(&inserted))]);
+            live.act(&party, [Action::Forget(inserted.clone())]);
         }
         let sender = watch::Sender::new(Inner::new(party, live.clone()));
         let receiver = sender.subscribe();
@@ -276,7 +276,7 @@ proptest! {
     #[test]
     fn rejected_updates_do_not_publish(exclusive in any::<bool>(), events in 1usize..8) {
         let party = Party::seed();
-        let prior = Tree::new();
+        let prior = Tree::default();
         let mut incoming = prior.clone();
         for i in 0..events { insert(&mut incoming, &party, i as u64); }
         let sender = watch::Sender::new(Inner::new(party, prior.clone()));
@@ -302,7 +302,7 @@ proptest! {
     ) {
         completes(move || {
             let mut local = Party::seed();
-            let prior = Tree::new();
+            let prior = Tree::default();
             let incoming: Vec<_> = remote_events.into_iter().map(|events| {
                 let remote = local.fork();
                 let mut tree = prior.clone();
@@ -352,7 +352,7 @@ proptest! {
     #[test]
     fn publication_releases_payloads_after_unlocking(exclusive in any::<bool>()) {
         completes(move || {
-            let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::<OnDrop>::new()));
+            let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::<OnDrop>::default()));
             let prior = Inner::snapshot(&sender);
             let callback_sender = sender.clone();
             Inner::commit(&sender, |party, tree| {
@@ -371,8 +371,8 @@ proptest! {
             let mut incoming = Inner::snapshot(&sender);
             {
                 let inner = sender.borrow();
-                let path = crate::tree::typed::Path::for_leaf(incoming.latest());
-                incoming.act(&inner.party, [Action::Forget(path)]);
+                let forgotten = incoming.latest().clone();
+                incoming.act(&inner.party, [Action::Forget(forgotten)]);
             }
             if exclusive {
                 let gate = sender.borrow().commit_gate.clone();
@@ -389,7 +389,7 @@ proptest! {
 #[test]
 fn exclusive_gate_allows_snapshots() {
     completes(|| {
-        let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::<u64>::new()));
+        let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::<u64>::default()));
         let gate = sender.borrow().commit_gate.clone();
         let _hold = gate.write().unwrap();
         let reader = thread::spawn(move || assert!(Inner::snapshot(&sender).is_empty()));
@@ -404,7 +404,7 @@ fn exclusive_publication_unwind_allows_later_commits() {
     completes(|| {
         let mut party = Party::seed();
         let remote = party.fork();
-        let prior = Tree::new();
+        let prior = Tree::default();
         let mut incoming = prior.clone();
         insert(&mut incoming, &remote, 0);
         let sender = watch::Sender::new(Inner::new(party, prior.clone()));
@@ -461,7 +461,7 @@ proptest! {
             (version.clone(), Path::from(path))
         }).collect();
         Path::with_leaf_paths(paths, || {
-            let mut tree = Tree::new();
+            let mut tree = Tree::default();
             for i in 0..width { insert(&mut tree, &party, i as u64); }
             let sender = watch::Sender::new(Inner::new(party, tree));
             Inner::snapshot(&sender).assert_memos_warm();
@@ -478,7 +478,7 @@ proptest! {
     #[test]
     fn local_preparation_orders_party_handoffs(events in 1usize..32) {
         completes(move || {
-            let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::new()));
+            let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::default()));
             let (started, ready) = mpsc::channel();
             let (resume, proceed) = mpsc::channel();
             let writer = sender.clone();

@@ -1,6 +1,8 @@
 use std::fmt::{self, Debug};
 use std::sync::LazyLock;
 
+use hmac::{Hmac, KeyInit, Mac};
+use sha2::digest::Output;
 use sha2::{Digest, Sha256};
 
 /// Width in bytes of the subtree comparison digests exchanged during gossip.
@@ -8,14 +10,17 @@ use sha2::{Digest, Sha256};
 /// [`struct@Hash`] gives the margin calculation that justifies this width.
 pub(crate) const MERKLE_HASH_LEN: usize = 16;
 
-/// Bytes in a leaf address: the full SHA-256 output, one byte per tree level.
+/// Bytes in a leaf address: the full HMAC-SHA-256 output, one byte per tree
+/// level.
 pub const PATH_LEN: usize = 32;
 
 /// A subtree comparison digest: the leading 16 bytes of SHA-256.
 ///
 /// Peers compare these digests at the same trie position. Leaf hashes depend
 /// on version-derived paths; branch hashes combine their prefix and ordered
-/// child hashes. Message payloads do not enter either calculation.
+/// child hashes. Message payloads do not enter either calculation. Paths are
+/// keyed by the network's secret ([`PathKey`]), so every digest is a function
+/// of the secret too.
 ///
 /// Both these digests and leaf paths use SHA-256 because current processors
 /// compute it in hardware: the SHA extensions on x86 and the SHA-2
@@ -44,9 +49,18 @@ pub const PATH_LEN: usize = 32;
 /// or 2⁵⁸, so the chance of any false match over that whole lifetime is at
 /// most about 2⁵⁸ × 2⁻¹²⁸ = 2⁻⁷⁰.
 ///
-/// The threat model does not change this calculation. Hostile peers are
-/// outside it, only authorized peers' clocks produce versions, and message
-/// payloads enter no digest.
+/// That bound holds for inputs nobody chose. Versions are deterministic, and
+/// an adversary outside the peers can infer them and steer when peers insert
+/// and gossip. If it could compute paths and digests, it could search
+/// offline for two version sets whose digests collide under one root child,
+/// a birthday search over the radix byte and the digest of about 2⁶⁸
+/// evaluations at this width, and then make those versions arise. Keying the
+/// paths with the network's secret rules that search out: without the secret
+/// no one can compute a path or a digest, so the only collisions left are
+/// accidents, and the bound above applies. A leaked secret permits the
+/// search for the network's whole life, since the secret cannot be rotated
+/// without moving every path (see `NetworkSecret`). Message payloads enter
+/// no digest.
 ///
 /// Leaf paths instead keep the full 32-byte [`PathHash`]. A path is a storage
 /// address: a collision between *any* two versions would make them occupy
@@ -215,12 +229,14 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
     }
 }
 
-/// A full-width, 32-byte SHA-256 digest used to derive leaf paths.
+/// A full-width, 32-byte SHA-256 digest: a leaf path, or the untruncated
+/// form of a comparison digest.
 ///
 /// [`Path::for_leaf`](super::Path::for_leaf) hashes a version's canonical
-/// encoding at this width. Any two versions sharing an address would compete
-/// for one leaf, so paths retain all 256 bits. The shorter [`struct@Hash`]
-/// compares corresponding subtrees rather than assigning storage addresses.
+/// encoding at this width, keyed by [`PathKey`]. Any two versions sharing an
+/// address would compete for one leaf, so paths retain all 256 bits. The
+/// shorter [`struct@Hash`] compares corresponding subtrees rather than
+/// assigning storage addresses.
 pub struct PathHash([u8; PATH_LEN]);
 
 /// Format a leaf address digest as hexadecimal.
@@ -252,6 +268,59 @@ impl PathHash {
     /// Reference to the raw 32 bytes.
     pub fn as_bytes(&self) -> &[u8; PATH_LEN] {
         &self.0
+    }
+}
+
+/// Bytes of each HMAC key the network's key schedule derives: one SHA-256
+/// output, HMAC-SHA-256's full-strength key.
+pub(crate) const HMAC_KEY_LEN: usize = size_of::<Output<Sha256>>();
+
+/// The keyed hash that derives a network's leaf paths: HMAC-SHA-256 under the
+/// path key, which the network's key schedule derives from its secret.
+///
+/// Keying the paths keeps them, and every digest computed from them,
+/// unpredictable to anyone without the secret; [`struct@Hash`]'s width
+/// argument says why that matters. HMAC rather than a keyed prefix on a
+/// plain SHA-256 input rules out length extension, for about one more
+/// SHA-256 compression per path. Constructing a key absorbs the key's
+/// two padded key blocks once, so each path then costs the two compressions
+/// of a short message: one inner, one outer.
+///
+/// The keyed state is a function of the secret, so it is cleared when a key
+/// drops, through the `zeroize` support of the `hmac` and `sha2` crates, as
+/// the same best-effort hygiene as `NetworkSecret`'s own.
+#[derive(Clone)]
+pub struct PathKey(Hmac<Sha256>);
+
+/// Derive leaf paths under one network's secret.
+impl PathKey {
+    /// Key the path hash with `key`, the path key the network's key
+    /// schedule derives (`NetworkSecret::path_key`).
+    pub(crate) fn new(key: &[u8; HMAC_KEY_LEN]) -> Self {
+        Self(Hmac::new_from_slice(key).expect("HMAC accepts a key of any length"))
+    }
+
+    /// The key of trees tests build directly: the path hash under
+    /// [`NetworkSecret::FIXTURE`](crate::network::NetworkSecret::FIXTURE),
+    /// which `Tree::default` uses.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn fixture() -> Self {
+        crate::network::NetworkSecret::FIXTURE.path_key()
+    }
+
+    /// The keyed full-width hash of `bytes`.
+    pub fn hash(&self, bytes: &[u8]) -> PathHash {
+        let mut mac = self.0.clone();
+        mac.update(bytes);
+        PathHash(mac.finalize().into_bytes().into())
+    }
+}
+
+/// Redacts the key: its state is a function of the network's secret.
+impl Debug for PathKey {
+    /// Show only the type's name.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("PathKey(..)")
     }
 }
 

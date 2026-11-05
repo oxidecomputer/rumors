@@ -50,7 +50,7 @@ proptest! {
             }
         }
         Path::with_leaf_paths(placements, || {
-            let mut base = Tree::<usize>::new();
+            let mut base = Tree::<usize>::default();
             base.react(shared);
             let mut ours = base.clone();
             let mut theirs = base;
@@ -65,7 +65,7 @@ proptest! {
             let hash_before = ours.hash();
             let changed = ours.join(theirs);
             let actual: std::collections::BTreeMap<_, _> = ours.iter()
-                .map(|(version, value)| (Path::for_leaf(version), (version.clone(), *value)))
+                .map(|(version, value)| (Path::for_fixture_leaf(version), (version.clone(), *value)))
                 .collect();
             assert_eq!(actual, expected);
             assert_eq!(ours.latest(), &ceiling);
@@ -96,7 +96,7 @@ proptest! {
             (version.clone(), Path::from(bytes))
         }).collect();
         Path::with_leaf_paths(paths, || {
-            let mut ours = Tree::<Bytes>::new();
+            let mut ours = Tree::<Bytes>::default();
             ours.act(&party, (0..width + 1).map(|_| insert_action(Bytes::new())));
             ours.warm_memos();
             let sibling = ours.root.node.as_ref().unwrap().clone().into_children().remove(0).unwrap();

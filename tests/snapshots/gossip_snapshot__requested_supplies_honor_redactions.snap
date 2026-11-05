@@ -13,19 +13,19 @@ control item 0 (30 bytes) / preamble /
 ])
 control item 1 (145 bytes) / greeting /
 24_0(<<{
-    "listing": {116_0: [h'c687c44d90e28bf4b2000f687ecfc90f', 1]},
+    "listing": {250_0: [h'43ebafd6af13b7243275e6c0761bdeaa', 1]},
     "set_len": 2,
     "version": 53846_1(h'4002003000fff4'),
     "grandchildren": 2,
-    "max_version_bytes": 6,
+    "max_version_bytes": 4,
     "payload_depth_limit": 256_1,
     "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Initiator stream 1 (height 30), 25 wire bytes
-  frame 0 (22 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'401dbc00ed50'), 950_1>>)>>)]
+Initiator stream 1 (height 30), 22 wire bytes
+  frame 0 (19 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'40b3015d'), 88_0>>)>>)]
   frame 1 (3 bytes) / End(Stream) /
 [1, 9]
 
@@ -38,12 +38,12 @@ control item 0 (30 bytes) / preamble /
     h'85075c6362fdf6d4e12c2575ea5bcd04',
     0,
 ])
-control item 1 (182 bytes) / greeting /
+control item 1 (183 bytes) / greeting /
 24_0(<<{
     "listing": {
-        0: [h'6df204e291a16d44d00cc85640e99af1', 0],
-        60_0: [h'20873e401929d2ccebf84f17efba13ff', 0],
-        110_0: [h'd855c40a696d4fd55c12880abbf20f87', 0],
+        175_0: [h'3a6a792f9e15d154aeed158f3f8127fc', 0],
+        239_0: [h'066b43fb16e493259ec3e157d7cadeec', 0],
+        240_0: [h'93a8a528b10c0b6d1154fc29fbb33a5f', 0],
     },
     "set_len": 3,
     "version": 53846_1(h'541ec0'),
@@ -56,11 +56,11 @@ control item 2 (2 bytes) / epilogue /
 "."
 Responder stream 0 (height 31), 60 wire bytes
   frame 0 (18 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'54f0'), 10001_1>>)>>)]
-  frame 1 (18 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'544c'), 10002_1>>)>>)]
-  frame 2 (18 bytes) / Supply(Continue) /
+  frame 1 (18 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'54b0'), 10000_1>>)>>)]
+  frame 2 (18 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'54f0'), 10001_1>>)>>)]
   frame 3 (3 bytes) / QueryEmpty(End) /
 [0, 3]
   frame 4 (3 bytes) / End(Stream) /

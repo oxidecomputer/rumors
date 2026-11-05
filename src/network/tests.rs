@@ -1,5 +1,5 @@
 //! Tests for network secrets and for the key schedule that derives their
-//! public identifiers.
+//! path keys and public identifiers.
 
 use hmac::{Hmac, KeyInit, Mac};
 use proptest::prelude::*;
@@ -18,29 +18,44 @@ fn hmac(key: &[u8], message: &[u8]) -> [u8; 32] {
         .into()
 }
 
-/// The network identifier the key schedule derives from `secret`.
+/// The key schedule's two outputs for `secret`: the path key and the
+/// network identifier, in that order.
 ///
-/// It is transcribed from RFC 5869 rather than built through the `hkdf`
-/// crate or the module's label: the extract step is HMAC-SHA-256 keyed by
-/// the default salt of 32 zero bytes over the secret, and the identifier
-/// fits one expand block, HMAC-SHA-256 keyed by that pseudorandom key over
-/// the info label and the block counter `0x01`.
-fn transcribed_identifier(secret: &[u8; NETWORK_BYTES]) -> [u8; NETWORK_BYTES] {
+/// They are transcribed from RFC 5869 rather than built through the `hkdf`
+/// crate or the module's labels: the extract step is HMAC-SHA-256 keyed by
+/// the default salt of 32 zero bytes over the secret, and each output fits
+/// one expand block, HMAC-SHA-256 keyed by that pseudorandom key over the
+/// info label and the block counter `0x01`.
+fn transcribed_schedule(secret: &[u8; NETWORK_BYTES]) -> ([u8; 32], [u8; NETWORK_BYTES]) {
     let prk = hmac(&[0; 32], secret);
-    hmac(&prk, b"rumors network id\x01")[..NETWORK_BYTES]
-        .try_into()
-        .expect("an identifier is a prefix of one block")
+    let id = hmac(&prk, b"rumors network id\x01");
+    (
+        hmac(&prk, b"rumors path key\x01"),
+        id[..NETWORK_BYTES]
+            .try_into()
+            .expect("an identifier is a prefix of one block"),
+    )
 }
 
 proptest! {
-    /// A network's identifier is what RFC 5869's HKDF-SHA-256 derives from
-    /// its secret under the documented label.
+    /// A network's path key and identifier are what RFC 5869's HKDF-SHA-256
+    /// derives from its secret under the documented labels, and the two
+    /// outputs differ.
+    ///
+    /// The path key is checked through what it computes: a leaf path is
+    /// HMAC-SHA-256 under the path key.
     #[test]
-    fn the_identifier_follows_rfc_5869(secret in any::<[u8; NETWORK_BYTES]>()) {
-        prop_assert_eq!(
-            NetworkSecret::from_bytes(secret).network().to_bytes(),
-            transcribed_identifier(&secret)
-        );
+    fn the_key_schedule_follows_rfc_5869(
+        secret in any::<[u8; NETWORK_BYTES]>(),
+        message in any::<Vec<u8>>(),
+    ) {
+        let (path_key, id) = transcribed_schedule(&secret);
+        prop_assert_ne!(&path_key[..NETWORK_BYTES], &id[..]);
+
+        let secret = NetworkSecret::from_bytes(secret);
+        prop_assert_eq!(secret.network().to_bytes(), id);
+        let path: [u8; 32] = secret.path_key().hash(&message).into();
+        prop_assert_eq!(path, hmac(&path_key, &message));
     }
 
     /// Two secrets give the same identifier exactly when they are the same

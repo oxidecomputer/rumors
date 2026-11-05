@@ -108,10 +108,10 @@ pub struct Shape {
     /// before any other, so that every later message's version, and with
     /// it its leaf's path, differs from the draws before it.
     ///
-    /// A leaf's path is the hash of its version, and the network's seed
-    /// enters no version, so the counts alone fix a pair's tree; the draw
-    /// changes the tree and nothing else, since a redaction leaves no
-    /// trace in either tree.
+    /// A leaf's path is its version's hash keyed by the network's secret,
+    /// and every fixture's network is seeded from `NETWORK_SEED`, so the
+    /// counts alone fix a pair's tree; the draw changes the tree and
+    /// nothing else, since a redaction leaves no trace in either tree.
     pub draw: u64,
 }
 

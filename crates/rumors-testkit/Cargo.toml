@@ -15,7 +15,6 @@ rand.workspace = true
 rand_chacha.workspace = true
 rumors = { workspace = true, features = ["test-internals"] }
 serde = { workspace = true, default-features = true, features = ["derive"] }
-sha2.workspace = true
 tokio = { workspace = true, features = [
     "rt",
     "rt-multi-thread",

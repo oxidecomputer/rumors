@@ -168,7 +168,10 @@ fs = ["dep:tempfile"]
 before = { workspace = true, features = ["serde"] }
 bitvec.workspace = true
 bytes.workspace = true
-sha2.workspace = true
+# The `zeroize` features clear the network secret's HMAC key state, and
+# the SHA-256 cores inside it, when a path key drops.
+sha2 = { workspace = true, features = ["zeroize"] }
+hmac = { workspace = true, features = ["zeroize"] }
 sha3.workspace = true
 zeroize.workspace = true
 # The bootstrap's sealed secret: HPKE base mode with DHKEM(P-256,
@@ -238,9 +241,6 @@ alloc-meter.workspace = true
 # The sealed exchange's tests seal and open through `hpke` directly, as an
 # oracle for the documented bindings, with its allocating API.
 hpke = { workspace = true, features = ["alloc"] }
-# The network tests transcribe the key schedule from RFC 5869 over
-# HMAC-SHA-256, independently of the `hkdf` crate.
-hmac.workspace = true
 
 [profile.dev]
 debug = "line-tables-only"

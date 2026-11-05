@@ -51,10 +51,10 @@ const REFERENCE_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + REFERENC
 /// deterministic for the minimal cell's corpus).
 const U64_ENCODED_BYTES: usize = 9;
 
-/// The small-record fixture's rounded mean falls two bytes below the
+/// The small-record fixture's rounded mean falls one byte below the
 /// estimate. Smaller records amortize their shared frame headers over more
 /// messages.
-const MINIMAL_CELL_RESIDUAL: usize = 2;
+const MINIMAL_CELL_RESIDUAL: usize = 1;
 
 /// How far, in bytes per message, the large corpus's overhead may sit from
 /// the reference fixture's estimate.
@@ -154,7 +154,7 @@ fn dispute_wire_bytes_is_the_reference_record_cost() {
     );
 }
 
-/// Tiny records' rounded mean stays two bytes below payload plus the estimate.
+/// Tiny records' rounded mean stays one byte below payload plus the estimate.
 #[test]
 fn minimal_records_cost_less_than_the_reference_estimate() {
     let implied = implied_bytes_per_message::<u64>(|rng| rng.next_u64());

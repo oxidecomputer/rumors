@@ -18,14 +18,14 @@ use crate::tree::{Action, Root, Tree};
 
 /// Merge two roots through the public tree operation.
 fn join_tree(a: Root, b: Root) -> Root {
-    let mut a = Tree::<()>::from_root(a);
-    a.join(Tree::from_root(b));
+    let mut a = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, a);
+    a.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, b));
     a.root
 }
 
 /// Read the concrete version set, independently of the root's hash and memos.
 fn leaves(root: &Root) -> BTreeSet<Vec<u8>> {
-    let tree = Tree::<()>::from_root(root.clone());
+    let tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, root.clone());
     let leaves: BTreeSet<_> = tree.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
     assert_eq!(
         leaves.len(),
@@ -44,7 +44,7 @@ fn survivors<const N: usize>(roots: &[Root; N]) -> BTreeSet<Vec<u8>> {
     let live = roots.each_ref().map(leaves);
     let trees = roots
         .each_ref()
-        .map(|root| Tree::<()>::from_root(root.clone()));
+        .map(|root| Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, root.clone()));
     let candidates: BTreeMap<_, _> = trees
         .iter()
         .flat_map(|tree| tree.iter().map(|(v, _)| (v.as_bytes().to_vec(), v.clone())))
@@ -80,23 +80,27 @@ fn check_survivors(roots: [Root; 2]) -> Result<(), TestCaseError> {
 /// losing alignment after a shared run would delete an unrelated leaf.
 #[test]
 fn joining_own_causal_past_preserves_clone_derived_fans() {
-    let mut past = Tree::<()>::new();
+    let mut past = Tree::<()>::default();
     past.act(
         &nth_party(0),
         (0..25).map(|_| Action::Insert(Message::new(()))),
     );
-    let paths: Vec<_> = past
-        .iter()
-        .map(|(version, _)| crate::tree::typed::Path::for_leaf(version))
-        .collect();
+    let versions: Vec<_> = past.iter().map(|(version, _)| version.clone()).collect();
 
-    for path in paths {
-        let mut current = Tree::<()>::from_root(past.root.clone());
-        current.act(&nth_party(1), [Action::Forget(path)]);
+    for version in versions {
+        let mut current =
+            Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, past.root.clone());
+        current.act(&nth_party(1), [Action::Forget(version.clone())]);
         let expected = current.root.clone();
 
-        current.join(Tree::from_root(past.root.clone()));
-        assert_eq!(current.root, expected, "joining the past at {path:?}");
+        current.join(Tree::from_root(
+            crate::network::NetworkSecret::FIXTURE,
+            past.root.clone(),
+        ));
+        assert_eq!(
+            current.root, expected,
+            "joining the past after forgetting {version:?}"
+        );
     }
 }
 

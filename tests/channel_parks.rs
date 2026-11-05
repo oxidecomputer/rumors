@@ -171,23 +171,23 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 fn sends_parked_per_edge_match_the_baseline() {
     let Session { tally, .. } = session();
     let baseline = BTreeMap::from([
-        (QueueKind::OutgoingResponses, sends(2_454, 1_024, 1_218)),
-        (QueueKind::AssemblyLevelReturns, sends(1_348, 0, 0)),
+        (QueueKind::OutgoingResponses, sends(2_482, 1_019, 1_226)),
+        (QueueKind::AssemblyLevelReturns, sends(1_369, 0, 0)),
         (QueueKind::InitiatorRootQuery, sends(1, 0, 0)),
         (QueueKind::InitiatorRootReturn, sends(1, 0, 0)),
         (QueueKind::ResponderChildQueries, sends(256, 0, 0)),
         (QueueKind::ResponderRootResolution, sends(1, 0, 0)),
-        (QueueKind::ResponderRootReturns, sends(256, 3, 17)),
-        (QueueKind::InternalChildQueries, sends(1_043, 0, 0)),
-        (QueueKind::InternalParentResolutions, sends(1_300, 0, 0)),
-        (QueueKind::InternalChildResolutions, sends(305, 0, 0)),
-        (QueueKind::DecodedLeaves, sends(4_930, 0, 0)),
-        (QueueKind::AssembledSupplies, sends(1_995, 0, 0)),
-        (QueueKind::ProxyResponses, sends(2_453, 0, 0)),
-        (QueueKind::ProxyLocalQuestions, sends(1_300, 0, 0)),
-        (QueueKind::ProxyNextScopes, sends(1_300, 0, 0)),
-        (QueueKind::PipeOutgoing, sends(3_587, 982, 1_602)),
-        (QueueKind::PipeIncoming, sends(3_583, 905, 1_769)),
+        (QueueKind::ResponderRootReturns, sends(256, 10, 23)),
+        (QueueKind::InternalChildQueries, sends(1_053, 0, 0)),
+        (QueueKind::InternalParentResolutions, sends(1_310, 0, 0)),
+        (QueueKind::InternalChildResolutions, sends(316, 0, 0)),
+        (QueueKind::DecodedLeaves, sends(4_950, 0, 0)),
+        (QueueKind::AssembledSupplies, sends(1_990, 0, 0)),
+        (QueueKind::ProxyResponses, sends(2_481, 0, 0)),
+        (QueueKind::ProxyLocalQuestions, sends(1_310, 0, 0)),
+        (QueueKind::ProxyNextScopes, sends(1_310, 0, 0)),
+        (QueueKind::PipeOutgoing, sends(3_591, 982, 1_602)),
+        (QueueKind::PipeIncoming, sends(3_587, 882, 1_771)),
     ]);
     assert_eq!(tally, baseline);
 }

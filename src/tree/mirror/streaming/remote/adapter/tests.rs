@@ -164,7 +164,7 @@ impl LeafCase {
 
     /// Return the content path derived from this leaf's version.
     fn path(&self) -> Path {
-        Path::for_leaf(&self.version)
+        Path::for_fixture_leaf(&self.version)
     }
 }
 

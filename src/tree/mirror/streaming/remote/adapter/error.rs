@@ -93,6 +93,11 @@ pub enum DecodeError<E> {
     /// Transport control leaked through the demultiplexer into reply decoding.
     #[error("a stream-end control reached the protocol reply decoder")]
     UnexpectedStreamEnd,
+    /// A leaf was supplied to a side that holds no network secret: a
+    /// bootstrapper meeting another bootstrapper, which can be supplied
+    /// nothing, and cannot place a leaf without its network's key.
+    #[error("a leaf was supplied to a bootstrapper holding no network secret")]
+    UnkeyedSupply,
     /// A supplied leaf's version-derived path is outside the expected scope.
     #[error("supplied leaf {actual:02x?} is outside reply scope {expected:02x?}")]
     LeafOutsideScope { expected: Vec<u8>, actual: [u8; 32] },

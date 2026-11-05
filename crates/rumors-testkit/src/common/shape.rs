@@ -1,26 +1,26 @@
 //! Deterministic tree-shape staging for the wire-pin fixtures.
 //!
-//! A leaf's tree path is a pure function of its version, and a staged
-//! universe's versions are a pure function of the staging script (the
-//! seeded network, the fork points, the send order) — payload bytes steer
-//! nothing. A fixture therefore stages a required shape in three steps:
+//! A leaf's tree path is a pure function of its version and its network's
+//! secret, and a staged universe's secret and versions are a pure function
+//! of the staging script (the seeded network, the fork points, the send
+//! order) — payload bytes steer nothing. A fixture therefore stages a
+//! required shape in three steps:
 //! send a pool of messages, search the created versions for ones whose
 //! paths satisfy the shape, and redact the rest. Same script, same
 //! versions, same winners, every run: the searches here are deterministic,
 //! and each fixture's self-checks still verify the landed shape.
 
 use rumors::{Rumors, Version};
-use sha2::Digest;
 
-/// A leaf's tree path: the full-width SHA-256 hash of its version's
-/// canonical bytes.
-pub fn leaf_path(version: &Version) -> [u8; 32] {
-    sha2::Sha256::digest(version.as_bytes()).into()
+/// A leaf's tree path in `network`'s network: its version's hash, keyed by
+/// the network's secret, as the library computes it.
+pub fn leaf_path(network: &Rumors<u64>, version: &Version) -> [u8; 32] {
+    rumors::testing::leaf_path(&network.snapshot(), version)
 }
 
-/// The root radix of a leaf's path: its first byte.
-pub fn path_radix(version: &Version) -> u8 {
-    leaf_path(version)[0]
+/// The root radix of a leaf's path in `network`'s network: its first byte.
+pub fn path_radix(network: &Rumors<u64>, version: &Version) -> u8 {
+    leaf_path(network, version)[0]
 }
 
 /// Send `count` messages carrying the payloads `from..from + count`, as
@@ -55,17 +55,24 @@ pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
     rumors.redact_all(&losers);
 }
 
-/// The first pool pair (in payload order) whose paths agree on the
-/// leading `shared` bytes; `distinct_next` additionally requires the byte
-/// after the shared span to differ (a split exactly one level below).
+/// The first pool pair (in payload order) whose paths in `network`'s
+/// network agree on the leading `shared` bytes.
+///
+/// `distinct_next` additionally requires the byte after the shared span to
+/// differ (a split exactly one level below).
 ///
 /// Panics if the pool holds no such pair: enlarge the pool — the verdict
 /// is deterministic, never flaky.
-pub fn shaped_pair(pool: &[(u64, Version)], shared: usize, distinct_next: bool) -> (u64, u64) {
+pub fn shaped_pair(
+    network: &Rumors<u64>,
+    pool: &[(u64, Version)],
+    shared: usize,
+    distinct_next: bool,
+) -> (u64, u64) {
     for (i, (first, v1)) in pool.iter().enumerate() {
-        let p1 = leaf_path(v1);
+        let p1 = leaf_path(network, v1);
         for (second, v2) in &pool[i + 1..] {
-            let p2 = leaf_path(v2);
+            let p2 = leaf_path(network, v2);
             if p1[..shared] == p2[..shared] && (!distinct_next || p1[shared] != p2[shared]) {
                 return (*first, *second);
             }
@@ -74,15 +81,20 @@ pub fn shaped_pair(pool: &[(u64, Version)], shared: usize, distinct_next: bool) 
     panic!("no pool pair shares a {shared}-byte path prefix: enlarge the pool");
 }
 
-/// The first `count` pool payloads whose root radix is not `avoid`:
-/// ballast that stays out of a fixture's disputed subtree.
+/// The first `count` pool payloads whose root radix in `network`'s network
+/// is not `avoid`: ballast that stays out of a fixture's disputed subtree.
 ///
 /// Panics if the pool runs dry: enlarge it — the verdict is
 /// deterministic, never flaky.
-pub fn ballast_avoiding(pool: &[(u64, Version)], avoid: u8, count: usize) -> Vec<u64> {
+pub fn ballast_avoiding(
+    network: &Rumors<u64>,
+    pool: &[(u64, Version)],
+    avoid: u8,
+    count: usize,
+) -> Vec<u64> {
     let picked: Vec<u64> = pool
         .iter()
-        .filter(|(_, v)| path_radix(v) != avoid)
+        .filter(|(_, v)| path_radix(network, v) != avoid)
         .take(count)
         .map(|(value, _)| *value)
         .collect();

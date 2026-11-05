@@ -1,6 +1,8 @@
 //! The wire participant's states for exchanging greetings.
 
 use crate::tree::mirror::streaming::message::Grandchildren;
+use std::sync::Arc;
+
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 use crate::{
@@ -18,7 +20,10 @@ use crate::{
             },
             stats::Recorder,
         },
-        typed::height::{Root, Z},
+        typed::{
+            PathKey,
+            height::{Root, Z},
+        },
     },
 };
 
@@ -44,6 +49,8 @@ where
     stats: Recorder,
     /// This replica's payload codec for supplied messages.
     codec: PayloadCodec,
+    /// The keyed hash that places supplied leaves; `None` admits no supply.
+    path_key: Option<Arc<PathKey>>,
     /// The session's observation handle: every wire item this session
     /// moves is delivered through it (inert unless a handler attached).
     observe: SessionHandle,
@@ -55,8 +62,16 @@ where
 {
     /// Bind one session's pipe halves before exchanging causal versions.
     ///
-    /// `codec` reconstructs every supplied message received in this session.
-    pub fn start(backend: B, read: R, write: W, codec: PayloadCodec) -> Self {
+    /// `codec` reconstructs every supplied message received in this session,
+    /// and `path_key` places each one at its path. A session without a key,
+    /// a bootstrapper's meeting another bootstrapper, rejects every supply.
+    pub fn start(
+        backend: B,
+        read: R,
+        write: W,
+        codec: PayloadCodec,
+        path_key: Option<Arc<PathKey>>,
+    ) -> Self {
         Self {
             backend,
             read,
@@ -64,6 +79,7 @@ where
             versions: Start,
             stats: Recorder::default(),
             codec,
+            path_key,
             observe: SessionHandle::default(),
         }
     }
@@ -147,6 +163,7 @@ where
                     .and_then(Grandchildren::new)
                     .unwrap_or(Grandchildren::ONE),
                 self.codec,
+                self.path_key,
             ),
             read: self.read,
             write: self.write,
@@ -180,6 +197,7 @@ where
             versions: Connecting { remote },
             stats: self.stats,
             codec: self.codec,
+            path_key: self.path_key,
             observe: self.observe,
         };
         Ok((greeting, next))

@@ -104,7 +104,7 @@ divided_proptest! {
             run_budget: survivor.run_budget,
             inner: watch::Sender::new(Inner::new(
                 party_of(&survivor),
-                Tree::from_root(Root::default()),
+                Tree::from_root(survivor.secret.clone(), Root::default()),
             )),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             observe: Attachment::default(),
@@ -904,10 +904,16 @@ divided_proptest! {
         // declared ceiling while leaving that ceiling unchanged, creating the
         // store a nonconforming implementation would serve.
         let base = poisoned.inner.borrow().tree.latest().clone();
-        let (escaped_root, _, escaped) =
-            crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
+        let (escaped_root, _, escaped) = crate::tree::arb::poisoned_root(
+            &poisoned.inner.borrow().tree.path_key(),
+            &party_of(&poisoned),
+            &base,
+            Message::new(0u64),
+        );
         poisoned.inner.send_modify(|inner| {
-            inner.tree.join(Tree::from_root(escaped_root));
+            inner
+                .tree
+                .join(Tree::from_root(poisoned.secret.clone(), escaped_root));
         });
         assert!(
             !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),

@@ -15,10 +15,12 @@ use crate::testing::run_to_quiescence;
 use before::Party;
 use futures::future::BoxFuture;
 use proptest::prelude::*;
+use std::sync::Arc;
 use tokio::io::{BufReader, duplex, split};
 
 use super::{COMPLETION_MARKER, SessionDefect, epilogue};
 use crate::error::Phase;
+use crate::network::NetworkSecret;
 use crate::observe::SessionHandle;
 use crate::testing::property::{NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::{MEMORY_CAPACITY, MemoryEnd, memory_connection};
@@ -159,13 +161,16 @@ async fn claim_bootstrap_with_root(
     .map_err(Error::from)?;
     // A provider seals its network's secret for our key; a bootstrapping
     // counterparty sends its own key item instead, which we discard.
-    if let Some(item) = remote_key {
+    let network_secret = if let Some(item) = remote_key {
         secret::decode_key(&item)?;
+        None
     } else {
-        joining
-            .receive(&mut end.read, remote.network, &SessionHandle::default())
-            .await?;
-    }
+        Some(
+            joining
+                .receive(&mut end.read, remote.network, &SessionHandle::default())
+                .await?,
+        )
+    };
     let local_root: streaming::Root<Local> = root.into();
     let local =
         materialized::Handshaking::start(Local, local_root, DEFAULT_TARGET_MESSAGE_SIZE as u64);
@@ -174,6 +179,9 @@ async fn claim_bootstrap_with_root(
         &mut end.read,
         &mut end.write,
         PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+        network_secret
+            .as_ref()
+            .map(|secret| Arc::new(secret.path_key())),
     );
     let handshaken = streaming::handshake(local, proxy)
         .await
@@ -184,7 +192,9 @@ async fn claim_bootstrap_with_root(
         .map_err(streaming_remote::streaming_error(Phase::Reconciliation))?;
     let party = party::receive(&mut read, &SessionHandle::default()).await?;
     epilogue(&mut read, &mut write, &SessionHandle::default()).await?;
-    Ok((party, Tree::from_root(root.into())))
+    let network_secret =
+        network_secret.expect("only a provider donates a party, and it sends its secret first");
+    Ok((party, Tree::from_root(network_secret, root.into())))
 }
 
 /// A provider founding the network `network` names, holding `values`.
@@ -221,7 +231,7 @@ divided_proptest! {
         let provider = provider_with(network, &[1, 2, 3]);
         let hash_before = provider.snapshot().hash();
         let party_before = party_of(&provider);
-        let claimant_tree = Tree::<()>::from_root(redacted_history_root(network, 8));
+        let claimant_tree = Tree::<()>::from_root(NetworkSecret::FIXTURE, redacted_history_root(network, 8));
         let claimed_min_events = claimant_tree.latest().min_ticks();
         assert!(
             provider.snapshot().latest() < claimant_tree.latest(),

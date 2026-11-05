@@ -151,6 +151,9 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The secret of the network this replica belongs to, drawn at seed or
     /// received at join. Its public identifier is [`network`](Self::network).
+    ///
+    /// It is the same allocation as the secret of every tree `inner`
+    /// publishes, which keys that tree's leaf paths.
     pub(crate) secret: Arc<NetworkSecret>,
     /// The memory budget selected by
     /// [`sync_memory_budget`](Self::sync_memory_budget), which each session's
@@ -447,12 +450,13 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
 
     /// Create a new network using `rng` for its secret.
     fn seed_from_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
+        let secret = Arc::new(NetworkSecret::from_rng(rng));
         Self {
-            secret: Arc::new(NetworkSecret::from_rng(rng)),
+            secret: Arc::clone(&secret),
             sync_memory_budget: DEFAULT_SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
             gossip_policy: policy::Policy::default(),
-            inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new())),
+            inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(secret))),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
             observe: Attachment::default(),
@@ -979,7 +983,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Capture the replica's current immutable state.
     pub(crate) fn snapshot(&self) -> Snapshot<T> {
-        Snapshot::new(self.network(), self.inner.borrow().tree.clone())
+        Snapshot::new(self.inner.borrow().tree.clone())
     }
 
     /// Subscribe to every current and future live message in arbitrary order.

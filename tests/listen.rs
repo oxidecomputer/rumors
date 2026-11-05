@@ -25,7 +25,7 @@ use crate::common::observer::{
 };
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
-use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
 divided_proptest! {
@@ -429,68 +429,84 @@ divided_proptest! {
         );
     }
 
-    /// (negative control): folding *delivered* versions is not a sound
-    /// resume point.
-    ///
-    /// Delivery is in path order (the hash of the version), not causal
-    /// order, so a stopped
-    /// pass can have delivered a later version but not the earliest one; the
-    /// fold then causally contains the earliest, and resuming from it skips
-    /// that message forever — loss, not re-delivery.
-    /// `UnorderedMessages::checkpoint()` (the last *completed* pass's frontier)
-    /// re-delivers instead, which is why the API exposes the pass checkpoint
-    /// and not a per-item fold.
-    ///
-    /// The claim holds for every network seed.
-    #[test]
-    fn folding_delivered_versions_can_lose_a_message(network in network_seed()) {
-        // The counterexample shape: a later-created message is delivered
-        // before the earliest. A leaf's path is the hash of its version, and
-        // successive sends from a fresh seed make the same versions in every
-        // universe (a universe's identifier never enters a version), so their
-        // path order is fixed. Send until it puts a later version first.
-        const MAX_SENDS: u64 = 16;
-        const EARLIEST: u64 = 0;
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let sent = (EARLIEST..MAX_SENDS)
-            .find_map(|value| {
-                rumors.send(value).unwrap();
-                let snapshot = rumors.snapshot();
-                let (_, first) = snapshot.iter().next().expect("a live message");
-                (*first != EARLIEST).then_some(value + 1)
-            })
-            .expect("within a few sends, a later version's path sorts first");
+}
 
-        // Deliver exactly one item — a later version — and stop mid-pass.
-        let mut obs = rumors.unordered_messages();
-        let Step::Item((delivered_version, delivered_value)) = step(&mut obs) else {
-            panic!("the populated set delivers an item");
-        };
-        assert_ne!(delivered_value, EARLIEST, "a later version came first");
+/// The network of [`folding_delivered_versions_can_lose_a_message`]'s
+/// counterexample.
+///
+/// Chosen as the first seed, counting up from zero, under which that
+/// test's search finds a later version sorting first within its sends;
+/// the search's own `expect` checks that it still does.
+const COUNTEREXAMPLE_NETWORK: NetworkSeed = NetworkSeed::new(0);
 
-        // The unsound resume: fold the delivered version into genesis.
-        let fold = {
-            let mut fold = Version::new();
-            fold |= &delivered_version;
-            fold
-        };
-        let mut resumed_from_fold = rumors.unordered_messages_since(fold);
-        let (items, _) = drain(&mut resumed_from_fold);
-        assert!(
-            items.iter().all(|(_, value)| *value != EARLIEST),
-            "the fold causally contains the never-delivered earliest message: it is lost"
-        );
+/// (negative control): folding *delivered* versions is not a sound
+/// resume point.
+///
+/// Delivery is in path order (the version's keyed hash), not causal
+/// order, so a stopped
+/// pass can have delivered a later version but not the earliest one; the
+/// fold then causally contains the earliest, and resuming from it skips
+/// that message forever — loss, not re-delivery.
+/// `UnorderedMessages::checkpoint()` (the last *completed* pass's frontier)
+/// re-delivers instead, which is why the API exposes the pass checkpoint
+/// and not a per-item fold.
+///
+/// This is an existence proof: it exhibits one counterexample, under the
+/// one network seed [`COUNTEREXAMPLE_NETWORK`], not a property of every
+/// network. Under another seed the earliest message's path can sort first
+/// through every send the search makes, and that network shows nothing.
+#[test]
+fn folding_delivered_versions_can_lose_a_message() {
+    // The counterexample shape: a later-created message is delivered
+    // before the earliest. A leaf's path is its version's hash keyed by
+    // the network's secret, and successive sends from one seeded network
+    // make the same versions under the same secret, so under
+    // `COUNTEREXAMPLE_NETWORK` their path order is the same on every run.
+    // Send until it puts a later version first.
+    const MAX_SENDS: u64 = 16;
+    const EARLIEST: u64 = 0;
+    let rumors = COUNTEREXAMPLE_NETWORK
+        .peer::<u64>()
+        .sync_memory_budget(0)
+        .into_rumors();
+    let sent = (EARLIEST..MAX_SENDS)
+        .find_map(|value| {
+            rumors.send(value).unwrap();
+            let snapshot = rumors.snapshot();
+            let (_, first) = snapshot.iter().next().expect("a live message");
+            (*first != EARLIEST).then_some(value + 1)
+        })
+        .expect("within a few sends, a later version's path sorts first");
 
-        // The sound resume: the observer's pass checkpoint (genesis — no pass
-        // completed) re-delivers every message. At-least-once, never loss.
-        let mut resumed_from_checkpoint = rumors.unordered_messages_since(obs.checkpoint().clone());
-        let (items, _) = drain(&mut resumed_from_checkpoint);
-        assert_eq!(
-            items.len() as u64,
-            sent,
-            "the pass checkpoint re-delivers the interrupted pass instead of losing"
-        );
-    }
+    // Deliver exactly one item — a later version — and stop mid-pass.
+    let mut obs = rumors.unordered_messages();
+    let Step::Item((delivered_version, delivered_value)) = step(&mut obs) else {
+        panic!("the populated set delivers an item");
+    };
+    assert_ne!(delivered_value, EARLIEST, "a later version came first");
+
+    // The unsound resume: fold the delivered version into genesis.
+    let fold = {
+        let mut fold = Version::new();
+        fold |= &delivered_version;
+        fold
+    };
+    let mut resumed_from_fold = rumors.unordered_messages_since(fold);
+    let (items, _) = drain(&mut resumed_from_fold);
+    assert!(
+        items.iter().all(|(_, value)| *value != EARLIEST),
+        "the fold causally contains the never-delivered earliest message: it is lost"
+    );
+
+    // The sound resume: the observer's pass checkpoint (genesis — no pass
+    // completed) re-delivers every message. At-least-once, never loss.
+    let mut resumed_from_checkpoint = rumors.unordered_messages_since(obs.checkpoint().clone());
+    let (items, _) = drain(&mut resumed_from_checkpoint);
+    assert_eq!(
+        items.len() as u64,
+        sent,
+        "the pass checkpoint re-delivers the interrupted pass instead of losing"
+    );
 }
 
 proptest! {

@@ -161,8 +161,11 @@ where
 
 /// Return the complete root produced by the in-memory join oracle.
 pub fn join_oracle(left: &TreeRoot, right: &TreeRoot) -> TreeRoot {
-    let mut joined = Tree::<()>::from_root(left.clone());
-    joined.join(Tree::from_root(right.clone()));
+    let mut joined = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, left.clone());
+    joined.join(Tree::from_root(
+        crate::network::NetworkSecret::FIXTURE,
+        right.clone(),
+    ));
     joined.root
 }
 
@@ -170,7 +173,7 @@ pub fn join_oracle(left: &TreeRoot, right: &TreeRoot) -> TreeRoot {
 /// number of unit messages.
 pub fn disjoint_pair(left_messages: usize, right_messages: usize) -> (TreeRoot, TreeRoot) {
     let build = |party, messages| {
-        let mut tree = Tree::<()>::new();
+        let mut tree = Tree::<()>::default();
         tree.act(
             &nth_party(party),
             (0..messages).map(|_| Action::Insert(Message::new(()))),
@@ -892,8 +895,20 @@ where
     .budget(budget);
     let (left_read, left_write) = left_end;
     let (right_read, right_write) = right_end;
-    let remote_right = RemoteHandshaking::start(left_proxy, left_read, left_write, codec);
-    let remote_left = RemoteHandshaking::start(right_proxy, right_read, right_write, codec);
+    let remote_right = RemoteHandshaking::start(
+        left_proxy,
+        left_read,
+        left_write,
+        codec,
+        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+    );
+    let remote_left = RemoteHandshaking::start(
+        right_proxy,
+        right_read,
+        right_write,
+        codec,
+        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+    );
 
     // The left endpoint's materialized participant is the client of its
     // proxy in both arrangements; the topology decides the right one.

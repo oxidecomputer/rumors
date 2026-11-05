@@ -22,7 +22,8 @@ pub mod view;
 // resolve. The items below are still re-exported as the canonical paths.
 pub(crate) mod untyped;
 
-pub use hash::Hash;
+pub(crate) use hash::HMAC_KEY_LEN;
+pub use hash::{Hash, PathKey};
 pub(crate) use node::SortedRun;
 pub use node::{Children, Node};
 pub use path::Path;

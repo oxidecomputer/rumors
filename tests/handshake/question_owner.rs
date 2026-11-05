@@ -74,22 +74,22 @@ fn divergent_root_child_has_one_question_owner() {
         let b = bootstrap_fork_async(&a).await;
         (a, b, first)
     });
-    let radix = path_radix(&first);
+    let radix = path_radix(&a, &first);
     send_pool(&a, 2, RADIX_POOL);
     let sibling = pool(&a, 2, RADIX_POOL)
         .into_iter()
-        .find(|(_, v)| path_radix(v) == radix)
+        .find(|(_, v)| path_radix(&a, v) == radix)
         .map(|(value, _)| value)
         .expect("some pool leaf lands under message 1's radix");
     keep_only(&a, 2, RADIX_POOL, &[1, sibling]);
     let (ballast_from, ballast_pool) = BALLAST_POOL;
     send_pool(&b, ballast_from, ballast_pool);
-    let ballast = ballast_avoiding(&pool(&b, ballast_from, ballast_pool), radix, 3);
+    let ballast = ballast_avoiding(&b, &pool(&b, ballast_from, ballast_pool), radix, 3);
     keep_only(&b, ballast_from, ballast_pool, &ballast);
 
     // Fixture self-checks: one shared radix, disputed; the subtree holder
     // is the smaller set and initiates.
-    let apaths: Vec<u8> = a.snapshot().versions().map(path_radix).collect();
+    let apaths: Vec<u8> = a.snapshot().versions().map(|v| path_radix(&a, v)).collect();
     assert_eq!(apaths.len(), 2, "the initiator holds the sibling pair");
     assert_eq!(
         apaths.first(),
@@ -100,7 +100,7 @@ fn divergent_root_child_has_one_question_owner() {
     assert_eq!(
         b.snapshot()
             .versions()
-            .filter(|v| path_radix(v) == radix)
+            .filter(|v| path_radix(&a, v) == radix)
             .count(),
         1,
         "the responder holds exactly one leaf under the disputed radix"

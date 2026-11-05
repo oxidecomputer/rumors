@@ -72,10 +72,22 @@ where
         let size = DEFAULT_TARGET_MESSAGE_SIZE as u64;
         let a_walk = Handshaking::start(Local, a.into(), size).budget(a_budget);
         let b_walk = Handshaking::start(Local, b.into(), size).budget(b_budget);
-        let a_proxy =
-            RemoteHandshaking::start(Local, a_end.read, a_end.write, codec).observe(a_observe);
-        let b_proxy =
-            RemoteHandshaking::start(Local, b_end.read, b_end.write, codec).observe(b_observe);
+        let a_proxy = RemoteHandshaking::start(
+            Local,
+            a_end.read,
+            a_end.write,
+            codec,
+            Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+        )
+        .observe(a_observe);
+        let b_proxy = RemoteHandshaking::start(
+            Local,
+            b_end.read,
+            b_end.write,
+            codec,
+            Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+        )
+        .observe(b_observe);
         // Each endpoint's walk and proxy run inside its own future, so the
         // channel observation can tell the two sides' queues apart.
         let (a, b) = join!(

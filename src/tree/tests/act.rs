@@ -13,18 +13,22 @@ proptest! {
             bytes[depth] = i as u8;
             Path::from(bytes)
         }).collect();
-        Path::with_leaf_paths(versions.into_iter().zip(paths), || {
-            let mut tree = Tree::<Bytes>::new();
+        // Versions the tree never holds, placed where each redaction descends
+        // to a different depth before finding nothing.
+        let missing: Vec<_> = (0..32).map(|split| {
+            let mut bytes = [0; 32];
+            bytes[split] = 255;
+            (version_for("Q", split as u64 + 1), Path::from(bytes))
+        }).collect();
+        let fixture = versions.into_iter().zip(paths).chain(missing.iter().cloned());
+        Path::with_leaf_paths(fixture, || {
+            let mut tree = Tree::<Bytes>::default();
             tree.act(&party_of("P"), (0..width).map(|_| insert_action(Bytes::new())));
             tree.warm_memos();
             let before = tree.clone();
             assert!(!tree.act(&party_of("P"), []).changed);
             assert!(tree.root_is(&before));
-            let missing = (0..32).map(|split| {
-                let mut bytes = [0; 32];
-                bytes[split] = 255;
-                Action::Forget(Path::from(bytes))
-            });
+            let missing = missing.iter().map(|(version, _)| Action::Forget(version.clone()));
             assert!(!tree.act(&party_of("P"), missing).changed);
             // Identical allocation means the cached hash and bounds survived;
             // value equality alone would miss a needless rebuild.
@@ -44,21 +48,28 @@ proptest! {
             bytes[depth] = i as u8;
             Path::from(bytes)
         }).collect();
-        let target = Path::from([1; 32]);
-        paths.push(target);
+        let target = versions[width].clone();
+        paths.push(Path::from([1; 32]));
         paths.push(Path::from([2; 32]));
-        Path::with_leaf_paths(versions.into_iter().zip(paths), || {
-            let mut tree = Tree::<Bytes>::new();
+        // A version the tree never holds, whose path descends through the
+        // first root child's compressed span.
+        let missing = version_for("Q", 1);
+        let mut missing_path = [0; 32];
+        missing_path[depth] = 255;
+        let fixture = versions
+            .into_iter()
+            .zip(paths)
+            .chain([(missing.clone(), Path::from(missing_path))]);
+        Path::with_leaf_paths(fixture, || {
+            let mut tree = Tree::<Bytes>::default();
             tree.act(&party_of("P"), (0..width + 2).map(|_| insert_action(Bytes::new())));
             tree.warm_memos();
             let before = tree.clone();
             let sibling = before.root.node.as_ref().unwrap().clone().into_children().remove(0).unwrap();
-            let mut missing = [0; 32];
-            missing[depth] = 255;
             let acted = tree.act(&party_of("P"), [
-                Action::Forget(Path::from(missing)),
-                Action::Forget(target),
-                Action::Forget(Path::from(missing)),
+                Action::Forget(missing.clone()),
+                Action::Forget(target.clone()),
+                Action::Forget(missing.clone()),
             ]);
             assert!(acted.changed);
             // Only the held target was removed; the absent key, forgotten
@@ -85,10 +96,12 @@ proptest! {
             bytes[depth] = index as u8;
             Path::from(bytes)
         };
-        let versions: Vec<_> = (1..=initial + actions.len())
+        // Map every version a batch may stamp or forget: forgets name any of
+        // the first 48 paths, held or not.
+        let versions: Vec<_> = (1..=(initial + actions.len()).max(48))
             .map(|i| (version_for("P", i as u64), path(i - 1))).collect();
         Path::with_leaf_paths(versions, || {
-            let mut tree = Tree::<Bytes>::new();
+            let mut tree = Tree::<Bytes>::default();
             tree.act(&party_of("P"), (0..initial).map(|_| insert_action(Bytes::new())));
             let before = tree.clone();
             let mut expected: std::collections::BTreeMap<_, _> =
@@ -106,7 +119,7 @@ proptest! {
                     let key = path(index);
                     expected.remove(&key);
                     touched.insert(key, stamp);
-                    Action::Forget(key)
+                    Action::Forget(version_for("P", index as u64 + 1))
                 }
             }).collect();
             // Only a key present before or after the batch contributes its
@@ -140,13 +153,13 @@ proptest! {
         let mut fresh = [0; 32];
         fresh[depth] = 1;
         let fresh = Path::from(fresh);
-        Path::with_leaf_paths([(initial, held), (inserted, fresh)], || {
-            let mut tree = Tree::<Bytes>::new();
+        Path::with_leaf_paths([(initial, held), (inserted.clone(), fresh)], || {
+            let mut tree = Tree::<Bytes>::default();
             tree.act(&party_of("P"), [insert_action(Bytes::new())]);
             tree.warm_memos();
             let before = tree.clone();
             let actions = std::iter::once(insert_action(Bytes::from_static(b"cancelled")))
-                .chain(std::iter::repeat_n(Action::Forget(fresh), repeats));
+                .chain(std::iter::repeat_n(Action::Forget(inserted.clone()), repeats));
             assert!(!tree.act(&party_of("P"), actions).changed);
             assert!(tree.root_is(&before));
         });
@@ -160,8 +173,8 @@ fn concurrent_fixture_stores_insert_version() {
     let a = version_for("A", 1);
     let b = version_for("B", 1);
     let c = version_for("C", 1);
-    let path = Path::for_leaf(&c);
-    let mut tree = Tree::<Bytes>::new();
+    let path = Path::for_fixture_leaf(&c);
+    let mut tree = Tree::<Bytes>::default();
     tree.react([(path, a, traverse::Action::Insert(msg(Bytes::new())))]);
     tree.react([
         (path, b, traverse::Action::Forget),
@@ -177,8 +190,8 @@ fn concurrent_fixture_stores_insert_version() {
 fn descending_fixture_stores_insert_version() {
     let earlier = version_for("P", 1);
     let later = version_for("P", 2);
-    let path = Path::for_leaf(&earlier);
-    let mut tree = Tree::<Bytes>::new();
+    let path = Path::for_fixture_leaf(&earlier);
+    let mut tree = Tree::<Bytes>::default();
     tree.react([
         (path, later, traverse::Action::Forget),
         (

@@ -25,7 +25,13 @@ const DIVERGENT_PER_SIDE: usize = 96;
 /// The network of every frame-counting test: the supply-frame counts the
 /// cells compare are exact, which hold for one tree shape and so for one
 /// secret.
-const COUNTED_NETWORK: NetworkSeed = NetworkSeed::new(0);
+///
+/// The seed is one under whose tree shape both of
+/// [`nonzero_minimum_binds_both_encoders`]'s margin self-checks hold; the
+/// B -> A margin is a few frames on most seeds and none on some (see
+/// [`BINDING_MESSAGES_PER_SIDE`]), so a change to how paths are derived can
+/// call for another seed.
+const COUNTED_NETWORK: NetworkSeed = NetworkSeed::new(2);
 
 /// Draws the payloads each side originates after the fork:
 /// [`DIVERGENT_PER_SIDE`] of them per side.
@@ -229,12 +235,12 @@ const SMALL_TARGET: usize = 32;
 /// Messages each side originates for the binding-minimum capture: two per
 /// root-fan child on average.
 ///
-/// At this shape both supply directions ship
-/// their exclusive root-fan subtrees as whole multi-record runs — the
-/// responder in its opening reply, the initiator in its replies to the
-/// responder's root-level requests —
-/// so the margin self-checks hold per direction and the tuple equalities
-/// discriminate in both directions.
+/// At this shape the A -> B direction ships many of its exclusive subtrees
+/// as multi-record runs, while B -> A ships only a few, or on some
+/// networks' tree shapes none. Where each direction ships at least one,
+/// the margin self-checks hold per direction and the tuple equalities
+/// discriminate in both directions; [`COUNTED_NETWORK`] is chosen so that
+/// they do.
 const BINDING_MESSAGES_PER_SIDE: usize = 512;
 
 /// The exchanged minimum binds both encoders when nonzero, which the

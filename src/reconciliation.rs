@@ -9,9 +9,10 @@
 //!
 //! # One hash binds identity, causality, and placement
 //!
-//! Every message is stored at one address: the SHA-256 hash of the
-//! [`Version`](crate::Version) stamped on it at send time. Nothing else
-//! enters the address; it rests on the invariant the protocol already
+//! Every message is stored at one address: a 32-byte hash of the
+//! [`Version`](crate::Version) stamped on it at send time, keyed by its
+//! network's secret (see [Keyed addresses](#keyed-addresses)). Nothing else
+//! about the message enters the address; it rests on the invariant the protocol already
 //! requires everywhere — no two sends ever share a version (a replica's
 //! version advances on every send, and disjoint parties can never produce the
 //! same one). Two consequences are deliberate.
@@ -175,8 +176,29 @@
 //! only authorized peers' clocks create versions. Hostile *peers* remain
 //! off-model entirely (see [when *shouldn't* you use
 //! it](crate#when-shouldnt-you-use-it)): peers hold write authority
-//! already, so no width buys anything against a member, and the threat
-//! model leaves the accident bound as the whole calculation.
+//! already, so no width buys anything against a member.
+//!
+//! # Keyed addresses
+//!
+//! Versions are predictable. They follow from the causal history, which an
+//! observer outside the network can infer, and whose timing it can steer by
+//! choosing when peers connect. Were addresses plain hashes of versions,
+//! such an observer could search offline for two version sets whose digests
+//! collide under one root child, a birthday search of about 2⁶⁸ hash
+//! evaluations at sixteen bytes, and then steer the peers into producing
+//! them: a chosen, silent, fleet-wide deletion.
+//!
+//! So each address is HMAC-SHA-256 of the version under a key derived from
+//! a 128-bit secret drawn when the network is [seeded](crate::Peer::seed).
+//! Peers hand the secret only to joining peers, sealed for the joiner's
+//! ephemeral key, and publish only the [`Network`](crate::Network)
+//! identifier, which is derived beside the key and reveals nothing about
+//! the secret or it. Without the secret no one can compute an address or a
+//! digest, so the accident bound above is the whole calculation. The secret
+//! must stay inside the network: whoever learns it can run that search for
+//! the rest of the network's life, and it cannot be rotated, since a new
+//! secret moves every address and no replica under the old one could
+//! compare a single subtree with a replica under the new.
 //!
 //! # The bytes on the wire
 //!

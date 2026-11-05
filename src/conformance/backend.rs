@@ -900,7 +900,7 @@ where
     let mut leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)> = Vec::new();
     for (version, payload) in messages {
         let message = Message::new(*payload);
-        let path = Path::for_leaf(version);
+        let path = Path::for_fixture_leaf(version);
         let leaf = <ChargedNode<B::Node<Z>> as Leaf>::leaf(version.clone(), message)
             .await
             .unwrap_or_else(|error| fail(&format!("corpus leaves construct at rest: {error:?}")));

@@ -54,15 +54,16 @@
 //! so each fixture is two forks of one network holding equal, disjoint message
 //! sets.
 //!
-//! A leaf's tree path is the hash of its version, so the suite cannot place
-//! leaves: two hashed sets of `n` messages each interleave as uniformly
-//! random keys do. At 100,000 messages per side, every depth-1 node and
-//! most depth-2 nodes hold children from both replicas, and deeper nodes
-//! rarely do. Placing leaves so that deeper nodes also hold both would mean
-//! searching versions for chosen hash prefixes, at a cost of `256^k`
-//! versions per shared byte `k`, and would leave the uniform-hash model,
-//! under which the crate's guarantees are stated. Equal, fully divergent
-//! hashed sets are the most adverse fixture within that model.
+//! A leaf's tree path is its version's hash keyed by the network's secret,
+//! so the suite cannot place leaves: two hashed sets of `n` messages each
+//! interleave as uniformly random keys do. At 100,000 messages per side,
+//! every depth-1 node and most depth-2 nodes hold children from both
+//! replicas, and deeper nodes rarely do. Placing leaves so that deeper
+//! nodes also hold both would mean searching versions for chosen hash
+//! prefixes, at a cost of `256^k` versions per shared byte `k`, and would
+//! leave the uniform-hash model, under which the crate's guarantees are
+//! stated. Equal, fully divergent hashed sets are the most adverse fixture
+//! within that model.
 //!
 //! One fixture has side `A` redact messages both sides received before
 //! they diverged ([`redacting_replicas_keep_the_bound`]), so `B`'s supplies
@@ -1326,7 +1327,7 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// claims under the invitation share let its questions take it, and the
 /// floor slots hold one more unit per depth and kind beside it: each peak
 /// is at most the 8 MiB budget plus its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_672_256, 8_471_032];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_676_248, 8_473_928];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
@@ -1334,7 +1335,7 @@ const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_672_256, 8_471_032];
 ///
 /// A claim reserves room for processing still to come, so a side's peak
 /// can stay below its budget.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [31_107_532, 33_567_652];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [31_113_092, 33_619_556];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.

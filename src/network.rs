@@ -1,13 +1,18 @@
 //! A network's secret, and the public identifier derived from it.
 //!
 //! Every network has a 128-bit secret, drawn when it is
-//! [`seed`](crate::Peer::seed)ed and held by each of its peers. It leaves a
+//! [`seed`](crate::Peer::seed)ed and held by each of its peers. One key
+//! schedule ([`KeySchedule`]) derives two values from the secret: the key
+//! of the hash that places every message in the network's content tree (the
+//! tree's `PathKey`), so that nobody outside the network can compute where a
+//! message sits or what any subtree's digest is, and the network's public
+//! identifier. It leaves a
 //! peer only sealed, in the item a provider sends a bootstrapping peer (the
 //! mirror's `secret` module), and it is never printed: [`NetworkSecret`]'s
 //! `Debug` redacts it, and it has no `Display`.
 //!
-//! Everything public speaks the [`Network`] identifier instead, which the
-//! secret's key schedule derives and which reveals nothing about the secret.
+//! Everything public speaks the [`Network`] identifier instead, which
+//! reveals nothing about the secret or the path key derived beside it.
 //! Preambles carry it, compatibility checks and
 //! [`Mismatch::Network`](crate::error::Mismatch::Network) compare it,
 //! bookmarks key their records by it, and the API reports it.
@@ -19,9 +24,11 @@
 //! implementations and an approved random source, never changing the
 //! protocol:
 //!
-//! - SHA-256 (FIPS 180-4) for leaf paths and comparison digests;
+//! - SHA-256 (FIPS 180-4), truncated to 16 bytes (SP 800-107), for the
+//!   comparison digests;
+//! - HMAC-SHA-256 (FIPS 198-1) for leaf paths;
 //! - HKDF with SHA-256 (RFC 5869, SP 800-56C) for the key schedule that
-//!   derives the network identifier from the secret;
+//!   derives the leaf-path key and the network identifier from the secret;
 //! - HPKE (RFC 9180) for the sealed secret a provider sends a bootstrapping
 //!   peer, with the suite DHKEM(P-256, HKDF-SHA256), HKDF-SHA256 and
 //!   AES-256-GCM: ECDH over P-256 (SP 800-56A), HKDF with SHA-256
@@ -45,8 +52,13 @@ use serde::Serializer;
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+use crate::tree::typed::{HMAC_KEY_LEN, PathKey};
+
 /// Bytes in one network identifier, and in one network secret.
 pub(crate) const NETWORK_BYTES: usize = 16;
+
+/// The key schedule's info label for the leaf-path key ([`KeySchedule`]).
+const PATH_KEY_LABEL: &[u8] = b"rumors path key";
 
 /// The key schedule's info label for the network identifier
 /// ([`KeySchedule`]).
@@ -68,7 +80,11 @@ const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 //
 // Internally, the identifier is expanded from the network's secret by its
 // key schedule (`KeySchedule`), so publishing it reveals nothing about the
-// secret.
+// secret or the path key derived beside it. Each network's secret
+// also keys where its messages sit in the content tree, which strengthens
+// the separation of independently seeded networks: they place even
+// identical versions at unrelated addresses, so nothing one network
+// computes about its tree means anything in another.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Network([u8; NETWORK_BYTES]);
 
@@ -129,10 +145,28 @@ impl fmt::Display for Network {
     }
 }
 
-/// A network's 128-bit secret: the preimage of its public [`Network`]
-/// identifier.
+/// A network's 128-bit secret: the input from which its key schedule
+/// ([`KeySchedule`]) derives the key of its leaf paths and its public
+/// [`Network`] identifier.
 ///
-/// The secret lives only in its peers' memory and crosses the wire only
+/// Leaf paths are keyed because versions are predictable. A version is a
+/// deterministic function of the network's causal history, so anyone who
+/// can infer that history, and could compute paths and digests, could
+/// search offline for two version sets whose subtree digests collide, then
+/// steer when peers insert and gossip until those versions arise. Gossip
+/// settles a subtree on digest equality alone, so that collision would
+/// silently delete the messages beneath it fleet-wide. With 16-byte digests
+/// such a birthday search costs about 2⁶⁸ evaluations, within reach of a
+/// state-level budget. Under a key derived from the secret, nobody without the secret can compute
+/// a path or a digest, so only accidental collisions remain, which the
+/// digest width argument (the tree's `Hash`) bounds.
+///
+/// Whoever holds the secret can compute every path and digest again, so a
+/// leaked secret re-enables that search for the rest of the network's life.
+/// The secret cannot be rotated: a new key moves every path, so no two
+/// replicas under different keys could compare a single subtree.
+///
+/// So the secret lives only in its peers' memory and crosses the wire only
 /// sealed for a bootstrapping peer (see the mirror's `secret` module).
 /// Nothing stores it: a bookmark names each network by its public
 /// identifier, and a restarted peer learns the secret again from the
@@ -165,6 +199,11 @@ impl Drop for NetworkSecret {
 impl ZeroizeOnDrop for NetworkSecret {}
 
 impl NetworkSecret {
+    /// The fixed secret of trees that tests build directly, outside any
+    /// seeded peer.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) const FIXTURE: NetworkSecret = NetworkSecret([0x5e; NETWORK_BYTES]);
+
     /// Draws a fresh random secret from `rng`.
     ///
     /// A secret whose identifier would be the bootstrap placeholder
@@ -191,6 +230,12 @@ impl NetworkSecret {
         KeySchedule::extract(self).network()
     }
 
+    /// The keyed hash that places this secret's network's leaves, under the
+    /// path key its key schedule derives ([`KeySchedule`]).
+    pub(crate) fn path_key(&self) -> PathKey {
+        PathKey::new(&KeySchedule::extract(self).expand::<HMAC_KEY_LEN>(PATH_KEY_LABEL))
+    }
+
     /// The raw secret bytes, to seal into the bootstrap's secret item.
     pub(crate) fn as_bytes(&self) -> &[u8; NETWORK_BYTES] {
         &self.0
@@ -211,24 +256,38 @@ impl fmt::Debug for NetworkSecret {
 }
 
 /// A network secret's key schedule after its extract step: HKDF-SHA-256's
-/// pseudorandom key, from which [`network`](Self::network) expands the
-/// network's public identifier.
+/// pseudorandom key, from which [`expand`](Self::expand) derives each value
+/// under its label.
 ///
 /// HKDF is the extract-then-expand key derivation of RFC 5869, which NIST
 /// SP 800-56C approves as its two-step key derivation. The extract step
 /// turns the secret into one pseudorandom key, and the expand step derives
-/// the identifier from that key under its own info label, `"rumors network
-/// id"`, as 16 bytes: as wide as the secret.
+/// each value from that key under its own info label:
+///
+/// | Value | Info label | Bytes |
+/// |---|---|---|
+/// | the leaf-path key (the tree's `PathKey`) | `"rumors path key"` | 32 |
+/// | the network identifier ([`Network`]) | `"rumors network id"` | 16 |
+///
+/// The path key is one SHA-256 output, HMAC-SHA-256's full-strength key,
+/// and the identifier is as wide as the secret.
 ///
 /// The extract step takes no salt, which RFC 5869 defines as a salt of 32
 /// zero bytes. A salt strengthens extraction from input that is not
 /// uniformly random (RFC 5869, section 3.1); the secret is a uniform draw,
-/// and an info label, not a salt, is what separates one expanded value from
-/// another (section 3.2).
+/// and the info labels, not a salt, are what separate the values (section
+/// 3.2).
 ///
-/// HKDF's expand output is pseudorandom and reveals nothing about the key it
-/// was expanded from. That is: whoever reads the identifier off a preamble is
-/// no closer to the secret than one who never saw it.
+/// HKDF guarantees that values expanded under distinct info labels are
+/// independent pseudorandom keys. So publishing the identifier reveals
+/// nothing about the secret or the path key. That is: whoever reads the
+/// identifier off a preamble is no closer to computing a path than one who
+/// never saw it.
+///
+/// The pseudorandom key is a function of the secret, so its HMAC state is
+/// cleared when the schedule drops, through the `zeroize` support of the
+/// `hmac` and `sha2` crates, as the same best-effort hygiene as
+/// [`NetworkSecret`]'s own.
 struct KeySchedule(Hkdf<Sha256>);
 
 impl KeySchedule {

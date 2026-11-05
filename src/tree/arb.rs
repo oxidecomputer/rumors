@@ -9,6 +9,7 @@ use proptest::collection::{SizeRange, vec};
 use proptest::prelude::*;
 use proptest::sample::subsequence;
 
+use crate::network::NetworkSecret;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::height::Root;
 use crate::tree::typed::{Node, Path};
@@ -98,7 +99,7 @@ pub fn arb_root_node(
                 .map(|()| {
                     version.tick(&p);
                     let message = Message::new(());
-                    let path = Path::for_leaf(&version);
+                    let path = Path::for_fixture_leaf(&version);
                     (path, version.clone(), Action::Insert(message))
                 })
                 .collect();
@@ -157,12 +158,12 @@ pub fn arb_divergent_roots<const N: usize>(
     (shared, vec(side, N))
         .prop_map(|(shared, sides)| {
             let mut parties = Party::seed();
-            let mut base = Tree::<()>::new();
+            let mut base = Tree::<()>::default();
             base.act(
                 &parties.fork(),
                 (0..shared).map(|_| Action::Insert(Message::new(()))),
             );
-            let keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
+            let keys: Vec<_> = base.iter().map(|(v, _)| v.clone()).collect();
             let mut sides = sides.into_iter();
             std::array::from_fn(|_| {
                 let (inserts, redact) = sides.next().expect("one plan per replica");
@@ -176,7 +177,8 @@ pub fn arb_divergent_roots<const N: usize>(
                     &party,
                     keys.iter()
                         .zip(redact)
-                        .filter_map(|(key, forget)| forget.then_some(Action::Forget(*key))),
+                        .filter(|(_, forget)| *forget)
+                        .map(|(key, _)| Action::Forget(key.clone())),
                 );
                 tree.root
             })
@@ -222,7 +224,7 @@ pub fn roots_at_depth<const N: usize>(
     roots: [crate::tree::Root; N],
     depth: usize,
 ) -> [crate::tree::Root; N] {
-    let trees = roots.map(crate::tree::Tree::<()>::from_root);
+    let trees = roots.map(|root| crate::tree::Tree::<()>::from_root(NetworkSecret::FIXTURE, root));
     let mut paths: BTreeMap<_, _> = trees
         .iter()
         .flat_map(|tree| {
@@ -278,7 +280,7 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tre
 pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root) {
     use crate::tree::{Action, Tree};
 
-    let path_of = |version: &Version| <[u8; 32]>::from(Path::for_leaf(version));
+    let path_of = |version: &Version| <[u8; 32]>::from(Path::for_fixture_leaf(version));
     let attempt = EARLY_DISPUTE_HINT;
     assert!(
         early_dispute_matches(attempt, &path_of),
@@ -298,7 +300,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root
     let p_a = nth_party(1);
     let p_b = nth_party(2);
     let build = |party: &Party, base: Version, live: usize| {
-        let mut tree = Tree::<()>::new();
+        let mut tree = Tree::<()>::default();
         tree.root.ceiling = base;
         tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))));
         tree
@@ -335,7 +337,7 @@ const EARLY_DISPUTE_STRIDE: usize = 64;
 /// Candidate chosen by searching for the geometry under the current leaf-path
 /// derivation; `early_dispute_hint_matches_current_paths` checks it and
 /// finds a replacement when it goes stale.
-const EARLY_DISPUTE_HINT: usize = 413;
+const EARLY_DISPUTE_HINT: usize = 60;
 
 /// Derive the first radix of `leaves` successive paths after `skip` ticks.
 fn first_radices(
@@ -437,7 +439,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
     // The receiver's valid content: one leaf on its own party,
     // ceiling covering it, exactly as `Tree::act` would leave it.
     let receiver_message = Message::new(());
-    let receiver_path = Path::for_leaf(&receiver_version);
+    let receiver_path = Path::for_fixture_leaf(&receiver_version);
     let receiver = root_with_ceiling(
         act(
             None,
@@ -464,7 +466,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
     );
 
     let message = Message::new(());
-    let path = Path::for_leaf(&escaped);
+    let path = Path::for_fixture_leaf(&escaped);
     let poisoned = root_with_ceiling(
         act(
             None,
@@ -502,9 +504,11 @@ fn root_with_ceiling(node: Option<Node<Root>>, ceiling: Version) -> crate::tree:
 /// leaving the store's own declared ceiling untouched — the shape only a
 /// nonconforming implementation can then transmit. The margin bounds the
 /// ticks a test may perform afterward without containing the
-/// escape. Returns the root plus the escaped leaf's version-derived path
-/// and its version.
+/// escape. The leaf sits at its path under `key`, which must be the key of
+/// the store it is joined into. Returns the root plus the escaped leaf's
+/// version-derived path and its version.
 pub fn poisoned_root(
+    key: &crate::tree::typed::PathKey,
     party: &Party,
     base: &Version,
     message: Message,
@@ -513,7 +517,7 @@ pub fn poisoned_root(
     for _ in 0..ESCAPE_MARGIN {
         escaped.tick(party);
     }
-    let path = Path::for_leaf(&escaped);
+    let path = Path::for_leaf(key, &escaped);
     let root = root_with_ceiling(
         act(
             None,
@@ -528,7 +532,7 @@ pub fn poisoned_root(
 /// Versions on `party`'s chain whose leaf paths open with each of
 /// `prefixes`, one per prefix, in prefix order, at the tick counts in `hint`.
 ///
-/// Leaf paths are hashes of versions, so a fixture that needs leaves under
+/// Leaf paths are keyed hashes of versions, so a fixture that needs leaves under
 /// chosen prefixes takes versions a search of the chain found. Skipped
 /// versions read as content the side sent and redacted, which is invisible
 /// to a peer on another party. `None` means the hint is stale: some tick
@@ -543,7 +547,7 @@ fn hinted_versions(party: &Party, prefixes: &[[u8; 2]], hint: &[usize]) -> Optio
         .map(|(prefix, &ticks)| {
             let mut version = Version::new();
             version.ticks(party, ticks);
-            let path = <[u8; 32]>::from(Path::for_leaf(&version));
+            let path = <[u8; 32]>::from(Path::for_fixture_leaf(&version));
             (path[..2] == prefix[..]).then_some(version)
         })
         .collect()
@@ -558,7 +562,7 @@ const FULL_FAN_INITIATOR_PREFIXES: [[u8; 2]; 2] = [[0, 1], [1, 0]];
 ///
 /// `full_fan_hints_match_current_paths` checks them and finds replacements
 /// when they go stale.
-const FULL_FAN_INITIATOR_HINT: [usize; 2] = [138_710, 133_336];
+const FULL_FAN_INITIATOR_HINT: [usize; 2] = [9_609, 4_740];
 
 /// The prefixes the full-fan fixture's responder needs: `[0, 1]`, `[0, 2]`,
 /// then every `[1, r]`.
@@ -571,29 +575,29 @@ fn full_fan_responder_prefixes() -> Vec<[u8; 2]> {
 /// Tick counts on party 1 reaching [`full_fan_responder_prefixes`], in
 /// order, found and checked as [`FULL_FAN_INITIATOR_HINT`] is.
 const FULL_FAN_RESPONDER_HINT: [usize; 258] = [
-    81_120, 57_882, 103_559, 6_679, 20_451, 41_073, 34_894, 84_987, 89_870, 37_218, 13_455, 31_562,
-    149_088, 18_414, 100_118, 59_262, 55_219, 28_190, 21_915, 218_550, 26_572, 138_091, 26_411,
-    87_289, 125_115, 7_005, 79_699, 105_728, 48_407, 164_481, 48_564, 70_025, 24_978, 51_433,
-    1_698, 10_031, 117_228, 45_963, 2_372, 38_198, 25_839, 10_199, 129_621, 40_336, 4_505, 49_066,
-    93_693, 1_773, 19_401, 68_202, 38_553, 147_052, 1_170, 28_464, 139_758, 16_106, 208_787,
-    29_340, 85_659, 68_084, 170_508, 3_843, 44_581, 9_111, 192_123, 132_234, 101_914, 19_866,
-    13_084, 115_087, 36_047, 2_300, 23_661, 36_970, 80_376, 113_282, 48_248, 17_041, 200_034,
-    10_132, 16_005, 13_710, 14_344, 106_145, 15_771, 13_102, 88_815, 41_784, 62_061, 30_069,
-    167_478, 1_663, 61_515, 28_919, 28_559, 9_740, 206_260, 53_482, 53_891, 92_252, 64_029,
-    151_850, 44_118, 20_101, 332, 3_032, 35_971, 122_355, 17_296, 53_313, 106_375, 105_894,
-    263_863, 154_134, 38_547, 113_897, 88_516, 10_907, 14_805, 9_059, 120_542, 106_076, 44_228,
-    18_230, 22_247, 67_403, 48_703, 183_959, 45_600, 44_409, 60_573, 126_706, 14_254, 36_895,
-    28_700, 55_425, 51_817, 61_524, 17_965, 13_632, 112_316, 101_173, 28_823, 1_176, 96_888,
-    120_333, 29_231, 20_796, 8_703, 139_111, 30_836, 94_510, 6_634, 12_744, 93_861, 138_952,
-    32_799, 25_514, 42_708, 11_138, 214_493, 57_690, 84_802, 69_111, 494_204, 75_570, 43_275,
-    5_776, 70_022, 19_713, 10_949, 95_017, 43_971, 29_701, 129_078, 40_364, 116_473, 403_150,
-    187_065, 15_256, 79_412, 66_308, 29_755, 14_220, 6_729, 57_909, 36_174, 104_790, 7_171, 91_785,
-    9_728, 35_386, 55_730, 39_917, 199_043, 13_212, 21_822, 31_768, 125_980, 385_466, 52_638,
-    123_238, 42_095, 195_937, 34_711, 195_852, 4_027, 52_961, 1_059, 320_544, 79_565, 71_713,
-    25_918, 39_292, 101_507, 66_676, 17_268, 114_795, 5_409, 119_304, 6_062, 144_310, 110_597,
-    90_809, 138_396, 45_325, 2_250, 54_419, 10_376, 19_871, 15_894, 86_859, 106_808, 14_293,
-    29_270, 11_455, 365, 9_125, 26_111, 12_068, 100_046, 115_003, 51_620, 49_061, 44_084, 48_071,
-    43_433, 49_475, 75_801, 14_255, 22_180, 141_641, 19_696, 74_161, 19_121, 5_446, 38_469, 27_065,
+    59_036, 97_616, 57_860, 9_325, 81_292, 127_271, 639, 113_482, 50_757, 38_052, 30_149, 17_063,
+    42_078, 7_189, 151_151, 234_927, 20_704, 69_426, 130_699, 60_998, 287_954, 37_950, 76_339,
+    23_796, 135_434, 178_012, 107_632, 46_786, 38_680, 92_923, 70_011, 8_197, 73_877, 73_770,
+    49_434, 25_554, 145_057, 39_222, 53_441, 46_421, 82_318, 39_453, 122_060, 40_044, 19_353,
+    26_828, 99_748, 134_260, 24_285, 161_536, 38_302, 65_605, 30_438, 6_924, 42_625, 39_018,
+    231_376, 2_995, 328_491, 114_720, 71_413, 79_460, 47_257, 10_582, 14_813, 84_495, 15_616,
+    39_933, 54_156, 9_904, 47_110, 76_152, 71_623, 75_238, 15_250, 32_677, 40_450, 97_990, 627,
+    22_262, 44_194, 189_998, 12_745, 48_845, 19_573, 62_953, 178_604, 43_552, 40_290, 13_741,
+    1_400, 81_161, 40_265, 85_837, 12_348, 40_521, 167_457, 44_888, 52_141, 2_631, 12_094, 19_308,
+    5_788, 3_307, 78_800, 391_830, 26_719, 33_005, 73_921, 79, 46_867, 11_140, 68_889, 167_427,
+    95_168, 79_024, 498_285, 107_655, 20_977, 171_706, 141_311, 40_623, 73_342, 44_122, 112_131,
+    118_611, 54_853, 39_740, 20_779, 57_159, 40_638, 186_764, 108_430, 4_307, 267_919, 41_217,
+    26_562, 1_544, 158_423, 71_404, 110_616, 342, 38_019, 173_321, 50_941, 5_171, 153_158, 62_533,
+    97_541, 56_442, 32_995, 2_778, 26_600, 87_877, 50_750, 8_090, 209_069, 14_038, 110_650, 20_170,
+    76_966, 33_450, 233_502, 82_794, 43_525, 114_402, 22_026, 7_704, 86_967, 53_172, 317_843,
+    152_406, 2_539, 2_961, 19_249, 72_464, 75_231, 308, 8_817, 8_850, 8_584, 41_575, 172_119,
+    137_510, 65_650, 125_368, 18_445, 24_089, 46_491, 64_008, 208_790, 7_124, 51_417, 215_698,
+    62_045, 4_703, 25_942, 219_324, 50_729, 103_257, 104_533, 3_319, 52_243, 82_285, 38_206,
+    62_609, 20_940, 185_426, 66_730, 151_740, 54_201, 192_225, 19_115, 58_982, 31_341, 942, 3_462,
+    229_353, 6_736, 17_136, 7_419, 37_007, 35_493, 110_283, 87_079, 67_310, 285_397, 56_407,
+    99_089, 13_420, 39_944, 64_002, 16_853, 49_104, 55_878, 8_081, 39_240, 17_040, 25_072, 5_568,
+    139_209, 60_898, 57_980, 165_128, 183_140, 88_400, 9_737, 16_708, 1_486, 76_243, 36_117,
+    65_000, 19_400, 55_237, 45_560, 634, 45_321, 10_899,
 ];
 
 /// A tree holding one leaf at each version, at the version's own path.
@@ -605,7 +609,7 @@ fn tree_of(versions: Vec<Version>) -> crate::tree::Root {
         .into_iter()
         .map(|version| {
             (
-                Path::for_leaf(&version),
+                Path::for_fixture_leaf(&version),
                 version,
                 Action::Insert(Message::new(())),
             )

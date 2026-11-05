@@ -396,6 +396,7 @@ impl AdapterHeight for Z {
             &scope,
             frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await?;
         let questions = derive_questions(level, &scope, &mut Replay::default(), &reply.reactions)
@@ -448,6 +449,7 @@ where
             &scope,
             frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await?;
         let questions = derive_questions(level, &scope, &mut Replay::default(), &reply.reactions)

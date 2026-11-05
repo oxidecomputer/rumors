@@ -196,6 +196,7 @@ where
                     &Scope::unbounded(parent.erase(), &[]),
                     &mut frames,
                     codec(),
+                    Some(&crate::tree::typed::PathKey::fixture()),
                 ))
                 .err()
                 .expect("the injected decoding failure was not reached");
@@ -244,7 +245,8 @@ fn assert_encode_failure(error: EncodeError<Failure<Infallible>>, expected: Oper
 /// `2..u8::MAX`, so the supply radix at each height has two lower radixes
 /// and one higher radix beside it.
 ///
-/// A leaf's path is the hash of its version, so the search is deterministic;
+/// A leaf's path is its version's hash under the fixture secret, so the
+/// search is deterministic;
 /// each candidate qualifies with probability about (253/256)³², about 0.7.
 fn interior_radix_leaf() -> LeafCase {
     const CANDIDATES: u64 = 64;

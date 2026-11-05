@@ -34,7 +34,10 @@ use crate::{
             stats::Recorder,
             tasks::TaskRole,
         },
-        typed::height::{Height, Z},
+        typed::{
+            PathKey,
+            height::{Height, Z},
+        },
     },
 };
 
@@ -63,6 +66,11 @@ where
     root_grandchildren: Grandchildren,
     /// The codec used to decode supplied messages.
     codec: PayloadCodec,
+    /// The keyed hash that places supplied leaves; `None` admits no supply.
+    ///
+    /// Shared, because the keyed hash state is a few hundred bytes and this
+    /// handle moves through every greeting state into the session's future.
+    path_key: Option<Arc<PathKey>>,
 }
 
 impl<B> Ingress<B>
@@ -76,6 +84,7 @@ where
         set_len: u64,
         root_grandchildren: Grandchildren,
         codec: PayloadCodec,
+        path_key: Option<Arc<PathKey>>,
     ) -> Self {
         Self {
             backend,
@@ -83,6 +92,7 @@ where
             ledger: SupplyLedger::new(set_len),
             root_grandchildren,
             codec,
+            path_key,
         }
     }
 }

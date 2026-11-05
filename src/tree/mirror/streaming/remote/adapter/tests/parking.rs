@@ -70,7 +70,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     );
 
     let party = before::Party::seed();
-    let mut tree = Tree::<()>::new();
+    let mut tree = Tree::<()>::default();
     tree.act(&party, (0..LEAVES).map(|v| Action::Insert(Message::new(v))));
     let root = tree
         .root
@@ -129,6 +129,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             &scope.clone(),
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         ))
         .expect("a canonical supplied fan decodes");
 
@@ -231,6 +232,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             &Scope::opening_unbounded(&listing),
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         ))
         .expect("a canonical maximally disputed reply decodes");
 

@@ -134,6 +134,20 @@ pub fn branch_hash(
     .into()
 }
 
+/// The 32-byte path at which `snapshot`'s network places a message stamped
+/// with `version`: the version's hash keyed by the network's secret, the
+/// address the replica's own tree uses.
+///
+/// Fixtures that stage a tree shape search versions by this path. It is the
+/// only way a test outside the crate can compute a path, since the secret
+/// never leaves the crate.
+pub fn leaf_path<T: Send + Sync + 'static>(
+    snapshot: &Snapshot<T>,
+    version: &crate::Version,
+) -> [u8; 32] {
+    crate::tree::typed::Path::for_leaf(&snapshot.tree().path_key(), version).into()
+}
+
 /// Join snapshots from one network in memory, preparing the result for readers.
 ///
 /// This exposes the local join to allocation tests without including transport
@@ -147,7 +161,7 @@ pub fn join_snapshots<T: Send + Sync>(ours: &Snapshot<T>, theirs: &Snapshot<T>) 
     let mut tree = ours.tree().clone();
     tree.join(theirs.tree().clone());
     tree.warm_memos();
-    Snapshot::new(ours.network(), tree)
+    Snapshot::new(tree)
 }
 
 /// Render two hook captures grouped by logical stream.
@@ -393,7 +407,7 @@ pub async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
 }
 
 /// Run `run` with each listed version's leaf placed at its chosen 32-byte
-/// path instead of at the hash of the version.
+/// path instead of at the version's keyed hash.
 ///
 /// This exists only to construct placements that hashing cannot reach:
 /// two replicas that dispute a node one byte above the leaves need leaf
@@ -595,13 +609,14 @@ pub struct SuppliedLeaves(
 /// `count` leaves, one per version a fresh party ticks, at their
 /// version-derived paths, in path order.
 pub fn supplied_leaves(count: usize) -> SuppliedLeaves {
-    use crate::tree::typed::{Node, Path, Prefix};
+    use crate::tree::typed::{Node, Path, PathKey, Prefix};
+    let key = PathKey::fixture();
     let party = before::Party::seed().fork();
     let mut version = crate::Version::new();
     let mut leaves: Vec<_> = (0..count)
         .map(|_| {
             version.tick(&party);
-            let path = Prefix::containing(&Path::for_leaf(&version));
+            let path = Prefix::containing(&Path::for_leaf(&key, &version));
             (path, Node::leaf(version.clone(), unit_message()))
         })
         .collect();

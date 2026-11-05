@@ -20,6 +20,7 @@ use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use crate::message::PayloadCodec;
 use crate::network::NetworkSecret;
 use crate::observe::{SessionCompletion, SessionHandle, SessionKind, SessionOutcome};
+use crate::tree::typed::PathKey;
 use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
 use crate::{
@@ -327,12 +328,13 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             party,
             root,
         } = received;
+        let secret = Arc::new(secret);
         Self {
-            secret: Arc::new(secret),
+            secret: Arc::clone(&secret),
             sync_memory_budget: config.sync_memory_budget,
             run_budget: config.run_budget,
             gossip_policy: config.gossip_policy,
-            inner: watch::Sender::new(Inner::new(party, Tree::from_root(root))),
+            inner: watch::Sender::new(Inner::new(party, Tree::from_root(secret, root))),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             codec,
             observe: config.observe,
@@ -380,7 +382,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             .map_err(Error::from)?;
 
             // A provider sends its network's secret next, sealed for our
-            // key, ahead of its greeting. Another bootstrapper has no secret
+            // key, ahead of its greeting, so that this side can place the
+            // leaves it supplies. Another bootstrapper has no secret
             // and supplies nothing; its key item, sent as ours was, is read
             // and discarded.
             let both_bootstrapping = remote.network.is_bootstrap();
@@ -398,11 +401,16 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // Reconcile from an empty tree. On arrival, the returned root
             // holds the provider's content and the next item carries the
             // donated identity. Two bootstrappers instead finish without one.
+            // The received secret keys where each supplied leaf sits; without
+            // one, the session admits no supply.
             let reconciliation = Reconciliation {
                 root: tree::Root::default(),
                 read,
                 write,
                 codec,
+                path_key: received_secret
+                    .as_ref()
+                    .map(|secret| Arc::new(secret.path_key())),
                 sync_memory_budget,
                 run_budget,
                 remote_role: if both_bootstrapping {
@@ -611,9 +619,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             return Ok((unchanged, stats.snapshot()));
         }
 
-        // A bootstrapping counterparty leaves the session holding the
-        // network's secret. Its key item followed its preamble; seal the
-        // secret for that key, ahead of the greeting.
+        // A bootstrapping counterparty needs the network's secret before the
+        // first supply arrives, to place each leaf it receives, and leaves
+        // the session holding it. Its key item followed its preamble; seal
+        // the secret for that key, ahead of the greeting.
         if let Some(item) = remote_key {
             let joiner = secret::decode_key(&item).map_err(Error::widen)?;
             secret::send(&self.secret, &joiner, self.network(), write, &observe)
@@ -668,6 +677,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             read,
             write,
             codec,
+            path_key: Some(Arc::new(self.secret.path_key())),
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             stats: stats.clone(),
@@ -739,7 +749,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         // Record the session's converged frontier before joining in local
         // changes made while it ran. Retain the incoming tree until the
         // commit unlocks: its discarded payloads may access this replica.
-        let merged = Tree::from_root(root);
+        let merged = Tree::from_root(Arc::clone(&self.secret), root);
         let converged = merged.latest().clone();
         let committed = Inner::publish(&self.inner, &prior_tree, &merged, |inner| {
             if let Some(party) = absorbed.take() {
@@ -912,6 +922,10 @@ struct Reconciliation<'a> {
     /// earlier session's ingress). Its depth limit rides the greeting,
     /// where the counterparty's must match.
     codec: PayloadCodec,
+    /// The keyed hash that places supplied leaves, or `None` for a
+    /// bootstrapper meeting another bootstrapper, which holds no network
+    /// secret and can be supplied nothing.
+    path_key: Option<Arc<PathKey>>,
     /// The memory budget the session's ledger admits its work against.
     sync_memory_budget: usize,
     /// The supply-run sizing budget; its byte target rides the greeting.
@@ -985,6 +999,7 @@ impl<'a> Reconciliation<'a> {
             read,
             write,
             codec,
+            path_key,
             sync_memory_budget,
             run_budget,
             stats,
@@ -996,7 +1011,7 @@ impl<'a> Reconciliation<'a> {
                 .sync_memory_budget(sync_memory_budget)
                 .stats(stats.clone());
         let proxy: RemoteParticipant<'a> =
-            streaming_remote::Handshaking::start(Local, read, write, codec)
+            streaming_remote::Handshaking::start(Local, read, write, codec, path_key)
                 .stats(stats)
                 .observe(observe);
         let handshaken = streaming::handshake(local, proxy)

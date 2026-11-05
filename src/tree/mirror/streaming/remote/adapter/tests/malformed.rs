@@ -32,7 +32,7 @@ use crate::tree::mirror::streaming::remote::codec::{
 /// A nonempty reply must end on its last reaction; a later bare end is ambiguous and invalid.
 #[test]
 fn bare_end_cannot_follow_reactions() {
-    let path = Path::for_leaf(&Version::new());
+    let path = Path::for_fixture_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let frames: Vec<Frame> = vec![
         Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::Continue),
@@ -50,6 +50,7 @@ fn bare_end_cannot_follow_reactions() {
             &Scope::unbounded(parent.erase(), &[listed(0, hash(0))]),
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -64,7 +65,7 @@ fn bare_end_cannot_follow_reactions() {
 /// Exhausting the frame stream without an explicit boundary reports truncation, not a reply.
 #[test]
 fn stream_exhaustion_before_a_boundary_is_truncation() {
-    let path = Path::for_leaf(&Version::new());
+    let path = Path::for_fixture_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let mut frames = stream::iter([Frame::Reaction(
         WireReaction::Match(LaterMatches::NONE),
@@ -81,6 +82,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
             &Scope::unbounded(parent.erase(), &[listed(0, hash(0))]),
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -100,7 +102,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
 /// past the fan — rather than after the whole reply decodes.
 #[test]
 fn an_unpositioned_match_is_rejected_in_both_directions() {
-    let path = Path::for_leaf(&Version::new());
+    let path = Path::for_fixture_leaf(&Version::new());
     let parent = Prefix::<S<S<Z>>>::containing(&path);
     // One listed child admits one positional reaction; the request takes
     // it, so the match must fail at its own frame with the reply still
@@ -121,6 +123,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
             &Scope::unbounded(parent.erase(), &[listed(1, hash(1))]),
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -161,7 +164,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
 /// The parent of a test question at branch level: a node two levels above
 /// the leaves, whose replies may match, query, and request.
 fn branch_parent() -> ErasedPrefix {
-    Prefix::<S<S<Z>>>::containing(&Path::for_leaf(&Version::new())).erase()
+    Prefix::<S<S<Z>>>::containing(&Path::for_fixture_leaf(&Version::new())).erase()
 }
 
 /// A question about `parent` listing a child at each of `radixes`.
@@ -190,6 +193,7 @@ fn decode_frames(
             scope,
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
     })
@@ -454,7 +458,7 @@ proptest! {
 /// Prefix-free queries require a remaining positional child in both conversion directions.
 #[test]
 fn an_unpositioned_query_is_rejected_in_both_directions() {
-    let path = Path::for_leaf(&Version::new());
+    let path = Path::for_fixture_leaf(&Version::new());
     let parent = Prefix::<S<S<Z>>>::containing(&path);
     let listing = vec![listed(1, hash(1))];
     let frames: Vec<Frame> = vec![Frame::Reaction(
@@ -473,6 +477,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
             &Scope::unbounded(parent.erase(), &[]),
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -510,7 +515,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
 /// All eight leaf-query paths pin validity, error precedence, framing, and publication.
 #[test]
 fn leaf_query_matrix_is_exhaustive() {
-    let path = Path::for_leaf(&Version::new());
+    let path = Path::for_fixture_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let radix = 3;
     let mut checked = 0;
@@ -581,6 +586,7 @@ fn leaf_query_matrix_is_exhaustive() {
                     &Scope::unbounded(parent.erase(), &scope_listing),
                     &mut frames,
                     codec(),
+                    Some(&crate::tree::typed::PathKey::fixture()),
                 )
                 .await
             });
@@ -614,7 +620,7 @@ fn leaf_query_matrix_is_exhaustive() {
 /// Transport stream-end control is rejected if it leaks past demultiplexing.
 #[test]
 fn stream_end_is_not_a_protocol_reply() {
-    let path = Path::for_leaf(&Version::new());
+    let path = Path::for_fixture_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let mut frames = stream::iter([Frame::End(End::Stream)]);
 
@@ -628,6 +634,7 @@ fn stream_end_is_not_a_protocol_reply() {
             &Scope::unbounded(parent.erase(), &[]),
             &mut frames,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         ))
         .err()
         .expect("stream control must be consumed below the adapter");
@@ -682,6 +689,7 @@ fn leaf_order_is_enforced_within_one_run() {
             &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -726,6 +734,7 @@ fn leaf_scope_is_enforced_within_one_run() {
             &Scope::unbounded(parent.erase(), &[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -767,6 +776,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
             &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -815,6 +825,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             &Scope::unbounded(parent.erase(), &[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .expect("a version exactly at the declared bound is admitted");
@@ -831,6 +842,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             &Scope::unbounded(parent.erase(), &[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()
@@ -845,6 +857,44 @@ fn a_version_over_the_declared_bound_is_rejected() {
     };
     assert_eq!(bound, declared - 1);
     assert_eq!(actual as u64, declared);
+}
+
+/// A side holding no network secret, a bootstrapper meeting another
+/// bootstrapper, rejects any supplied leaf as `UnkeyedSupply` before placing
+/// it, while the same supply decodes under a key.
+#[test]
+fn a_supply_without_a_key_is_rejected() {
+    let leaf = LeafCase::new(0, 0);
+    let parent = Prefix::<Z>::containing(&leaf.path()).pop().0;
+    let decode = |path_key: Option<&crate::tree::typed::PathKey>| {
+        let frames = vec![Frame::Reaction(
+            WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
+            Flow::End,
+        )];
+        runtime().block_on(async {
+            let mut input = stream::iter(frames);
+            decode_whole_reply(
+                &mut LeafEdge::new(),
+                Local,
+                u64::MAX,
+                unbounded(),
+                ReplyLevel::Leaf,
+                &Scope::unbounded(parent.erase(), &[]),
+                &mut input,
+                codec(),
+                path_key,
+            )
+            .await
+            .map(|reply| reply.reactions.len())
+        })
+    };
+    assert_eq!(
+        decode(Some(&crate::tree::typed::PathKey::fixture()))
+            .expect("a keyed side places the leaf"),
+        1,
+    );
+    let error = decode(None).expect_err("an unkeyed side cannot place the leaf");
+    assert!(matches!(error, DecodeError::UnkeyedSupply), "got {error:?}");
 }
 
 /// One whole-root reply supplying every leaf in `cases`, as a single
@@ -876,6 +926,7 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
             &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .map(|reply| reply.reactions.len())
@@ -931,6 +982,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             &Scope::opening_unbounded(&[listed(1, hash(1))]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .err()

@@ -46,9 +46,9 @@ fn leaves(count: u64) -> Vec<(Version, Message)> {
             (version, Message::new(index))
         })
         .collect();
-    // A path is a SHA-256 hash of its version, so compute each once: a key
+    // A path is a keyed hash of its version, so compute each once: a key
     // recomputed per comparison hashes each leaf about 2·log₂(count) times.
-    leaves.sort_by_cached_key(|(version, _)| Path::for_leaf(version));
+    leaves.sort_by_cached_key(|(version, _)| Path::for_fixture_leaf(version));
     leaves
 }
 
@@ -79,6 +79,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
             &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -99,6 +100,7 @@ fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usiz
             &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -193,6 +195,7 @@ fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec
                 &Scope::opening_unbounded(&[]),
                 &mut input,
                 codec(),
+                Some(&crate::tree::typed::PathKey::fixture()),
             )
             .await
             .expect("ascending in-scope leaves assemble");

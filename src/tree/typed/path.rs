@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
 };
 
-use super::hash::{PATH_LEN, PathHash};
+use super::hash::{PATH_LEN, PathKey};
 use super::height::{Height, Root, S};
 use crate::Version;
 
@@ -22,15 +22,19 @@ pub struct Path<H: Height = Root> {
 
 /// Derive full leaf addresses from versions.
 impl Path<Root> {
-    /// Hash the leaf's canonical version bytes into its full 32-byte address.
+    /// Hash the leaf's canonical version bytes, keyed by its network's
+    /// secret, into its full 32-byte address.
     ///
     /// Each insert has a unique version: successive inserts tick their party,
     /// and concurrent parties are disjoint. Message contents do not affect
-    /// the address.
+    /// the address. The key makes the address unpredictable to anyone outside
+    /// the network (see [`PathKey`]), and places the same version at
+    /// unrelated addresses in independently seeded networks.
     ///
-    /// [`PathHash`] preserves full collision resistance because the path
-    /// identifies the leaf. The shorter Merkle hash only compares subtrees.
-    pub fn for_leaf(version: &Version) -> Self {
+    /// The full-width [`PathHash`](super::hash::PathHash) preserves full
+    /// collision resistance because the path identifies the leaf. The shorter
+    /// Merkle hash only compares subtrees.
+    pub fn for_leaf(key: &PathKey, version: &Version) -> Self {
         #[cfg(any(test, feature = "test-internals"))]
         if let Some(path) = fixture::get(version) {
             return path;
@@ -38,8 +42,19 @@ impl Path<Root> {
 
         Self {
             height: PhantomData,
-            hash: PathHash::of(version.as_bytes()).into(),
+            hash: key.hash(version.as_bytes()).into(),
         }
+    }
+}
+
+/// Derive the paths of trees tests build directly.
+#[cfg(test)]
+impl Path<Root> {
+    /// The path a tree under the fixture secret (`Tree::default`) gives
+    /// `version`: [`for_leaf`](Self::for_leaf) under
+    /// [`PathKey::fixture`].
+    pub(crate) fn for_fixture_leaf(version: &Version) -> Self {
+        Self::for_leaf(&PathKey::fixture(), version)
     }
 }
 

@@ -4,7 +4,6 @@ use tokio::sync::watch;
 
 use crate::message::{EncodeError, PayloadCodec};
 use crate::tree::Action;
-use crate::tree::typed::Path;
 use crate::{Inner, Version};
 
 /// Insertions and redactions queued for one atomic commit.
@@ -68,7 +67,7 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
     /// [`Committed::redacted`] counts the queued redactions that removed a
     /// message.
     pub fn redact(&mut self, version: &Version) {
-        self.actions.push(Action::Forget(Path::for_leaf(version)));
+        self.actions.push(Action::Forget(version.clone()));
     }
 
     /// Queue every message `messages` yields.

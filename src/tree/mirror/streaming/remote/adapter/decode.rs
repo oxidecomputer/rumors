@@ -17,7 +17,7 @@ use crate::{
             message::{Carried, Grandchildren, Listed},
         },
         typed::{
-            ErasedPrefix, Path, Prefix,
+            ErasedPrefix, Path, PathKey, Prefix,
             height::{Height, Z},
         },
     },
@@ -211,6 +211,7 @@ pub async fn decode_reply<B, F>(
     scope: &Scope,
     frames: &mut F,
     codec: PayloadCodec,
+    path_key: Option<&PathKey>,
     room: Charge,
     deliver: &mut (impl FnMut(Reply<B::Erased>) + Send),
 ) -> Result<(), DecodeError<B::Error>>
@@ -235,6 +236,7 @@ where
         leaves,
         assembled,
         codec,
+        path_key,
         room,
     )
     .read(frames, deliver);
@@ -264,6 +266,7 @@ pub async fn decode_whole_reply<B, F>(
     scope: &Scope,
     frames: &mut F,
     codec: PayloadCodec,
+    path_key: Option<&PathKey>,
 ) -> Result<Reply<B::Erased>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -279,6 +282,7 @@ where
         scope,
         frames,
         codec,
+        path_key,
         Charge::default(),
         &mut |chunk: Reply<B::Erased>| chunks.push(chunk),
     )
@@ -395,6 +399,8 @@ where
     assembled: &'a mut Receiver<(ErasedPrefix, B::Erased)>,
     /// The codec used to decode supplied messages.
     codec: PayloadCodec,
+    /// The keyed hash that places supplied leaves; `None` admits no supply.
+    path_key: Option<&'a PathKey>,
     /// The complete reactions not yet delivered, in wire order.
     ready: Vec<ProtocolReaction<B::Erased>>,
     /// The queries among the ready reactions.
@@ -447,6 +453,7 @@ where
         leaves: &'a mut Sender<DecodedLeaf<B::Node<Z>>>,
         assembled: &'a mut Receiver<(ErasedPrefix, B::Erased)>,
         codec: PayloadCodec,
+        path_key: Option<&'a PathKey>,
         room: Charge,
     ) -> Self {
         Self {
@@ -460,6 +467,7 @@ where
             leaves,
             assembled,
             codec,
+            path_key,
             ready: Vec::new(),
             ready_questions: 0,
             ready_listing: 0,
@@ -554,9 +562,11 @@ where
                     let mut records = records.records(self.codec);
                     while let Some(record) = held_by(Holding::DecodedLeaves, || records.next()) {
                         let (version, message) = record.map_err(DecodeError::Record)?;
-                        let (leaf_prefix, run) = self
-                            .supplies
-                            .observe::<B::Error>(self.scope.parent(), &version)?;
+                        let (leaf_prefix, run) = self.supplies.observe::<B::Error>(
+                            self.scope.parent(),
+                            &version,
+                            self.path_key,
+                        )?;
                         if let Some(run) = run {
                             // A covered child is one both sides hold.
                             if positions.covers(run.0) {
@@ -789,6 +799,7 @@ impl SupplyRuns {
         &mut self,
         expected_parent: ErasedPrefix,
         version: &crate::Version,
+        path_key: Option<&PathKey>,
     ) -> Result<(Prefix<Z>, Option<(u8, ErasedPrefix)>), DecodeError<E>> {
         // The declared aggregate covers every version the peer's tree
         // materializes, so every version it supplies must encode within
@@ -801,7 +812,10 @@ impl SupplyRuns {
                 actual,
             });
         }
-        let path = Path::for_leaf(version);
+        let Some(path_key) = path_key else {
+            return Err(DecodeError::UnkeyedSupply);
+        };
+        let path = Path::for_leaf(path_key, version);
         let leaf_prefix = Prefix::<Z>::containing(&path);
         let path_bytes = <[u8; 32]>::from(path);
         let parent_len = expected_parent.as_bytes().len();

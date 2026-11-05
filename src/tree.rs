@@ -8,7 +8,8 @@
 //!
 //! Branching factor 256, fixed depth 32: a leaf's path is its 32-byte
 //! version address, one byte per level — the full-width hash of the
-//! leaf's version ([`Path::for_leaf`](typed::Path::for_leaf)). Message
+//! leaf's version, keyed by the network's secret
+//! ([`Path::for_leaf`](typed::Path::for_leaf)). Message
 //! bytes enter no path and no digest; identity rests on the invariant the
 //! protocol already requires everywhere, that no two messages ever share
 //! a version. Version addressing buys three properties at once:
@@ -25,8 +26,9 @@
 //!   version address: a comparison signal tolerates truncation that an
 //!   identity cannot (see [`typed::Hash`] for the asymmetry argument).
 //! - **Uniform spread.** Hashed paths are uniform, so the trie is
-//!   expected-balanced with no adversarial input shape; depth bounds are
-//!   real bounds.
+//!   expected-balanced; and keyed by a secret no one outside the network
+//!   holds, no one can choose versions that crowd one subtree or collide
+//!   in a digest. Depth bounds are real bounds.
 //!
 //! Single-child spines are path-compressed away, and each node's hash is a
 //! single preimage committing its compressed prefix and children together
@@ -64,7 +66,7 @@ use std::sync::Arc;
 pub(crate) mod traverse;
 pub(crate) mod typed;
 
-use crate::{Version, causally, message::Message, tree::typed::Node};
+use crate::{Version, causally, message::Message, network::NetworkSecret, tree::typed::Node};
 
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use typed::hash::MERKLE_HASH_LEN;
@@ -80,7 +82,8 @@ pub use typed::{Leaf, RangeOwned};
 /// leaves store versioned [`Message`]s.
 ///
 /// The tree has a branching factor of 256 and a depth of 32, so a leaf's
-/// 32-byte path is the full-width hash of its version (see
+/// 32-byte path is the full-width hash of its version, keyed by the secret of
+/// the network the tree belongs to (see
 /// [`Path::for_leaf`](typed::Path::for_leaf)). Versions are unique per
 /// send — locally by tick, globally by party disjointness — so two
 /// content-identical messages sent at distinct moments occupy distinct
@@ -89,6 +92,13 @@ pub use typed::{Leaf, RangeOwned};
 pub struct Tree<T> {
     /// The live nodes and the causal history used to honor redactions.
     pub(crate) root: Root,
+    /// The secret of the network this tree belongs to, which keys every leaf
+    /// path in it.
+    ///
+    /// Two trees' paths agree only under one secret, so only trees with
+    /// equal secrets may be joined. Shared, so every clone of a tree, and
+    /// the peer it belongs to, hold one copy of the secret.
+    secret: Arc<NetworkSecret>,
     /// The payload type this tree's typed faces read leaves at.
     ///
     /// Storage is erased ([`Message`] holds `dyn Any`); the facade's `T`
@@ -134,6 +144,7 @@ impl<T> Clone for Tree<T> {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
+            secret: Arc::clone(&self.secret),
             payload: PhantomData,
         }
     }
@@ -155,11 +166,12 @@ impl<T> Tree<T> {
     }
 }
 
-/// Compare the replicated version set and causal frontier.
+/// Compare the network, the replicated version set, and the causal frontier.
 impl<T> PartialEq for Tree<T> {
-    /// Returns whether both trees represent the same replica state.
+    /// Returns whether both trees represent the same replica state of one
+    /// network.
     fn eq(&self, other: &Self) -> bool {
-        self.root == other.root
+        self.secret == other.secret && self.root == other.root
     }
 }
 
@@ -174,9 +186,12 @@ impl<T> fmt::Debug for Tree<T> {
     }
 }
 
+/// An empty tree under the fixture secret, for trees tests build outside any
+/// network.
+#[cfg(any(test, feature = "test-internals"))]
 impl<T> Default for Tree<T> {
     fn default() -> Self {
-        Self::new()
+        Self::new(NetworkSecret::FIXTURE)
     }
 }
 
@@ -196,8 +211,8 @@ pub struct Acted {
 pub enum Action {
     /// Insert a message, stamped with the next tick of the local party.
     Insert(Message),
-    /// Forget the leaf at a version-derived path.
-    Forget(typed::Path),
+    /// Forget the live leaf stamped with this version, if the tree holds one.
+    Forget(Version),
 }
 
 /// The iterator of [`Snapshot::iter`](crate::Snapshot::iter): a lazy
@@ -251,24 +266,38 @@ impl<'a, T: Send + Sync + 'static> ExactSizeIterator for Iter<'a, T> {}
 impl<'a, T: Send + Sync + 'static> std::iter::FusedIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {
-    /// Creates a new, empty tree carrying the empty [`Version`].
+    /// Creates a new, empty tree of the network keyed by `secret`, carrying
+    /// the empty [`Version`].
     ///
     /// A tree owns no party identity: advancing the version is driven by a
     /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller (the
     /// [`Peer`](crate::Peer) that owns the party). Forking a tree is a
     /// plain [`clone`](Clone); any party split happens on the owning
     /// [`Peer`](crate::Peer).
-    pub fn new() -> Self {
-        Self::from_root(Root::default())
+    pub fn new(secret: impl Into<Arc<NetworkSecret>>) -> Self {
+        Self::from_root(secret, Root::default())
     }
 
-    /// Wrap an already-built root pair as a typed tree facade: the caller
-    /// asserts the payload type its leaves were constructed with.
-    pub(crate) fn from_root(root: Root) -> Self {
+    /// Wrap an already-built root pair as a typed tree facade of the network
+    /// keyed by `secret`: the caller asserts that the root's leaves sit at
+    /// paths under that secret, and the payload type they were constructed
+    /// with.
+    pub(crate) fn from_root(secret: impl Into<Arc<NetworkSecret>>, root: Root) -> Self {
         Tree {
             root,
+            secret: secret.into(),
             payload: PhantomData,
         }
+    }
+
+    /// The secret of the network this tree belongs to.
+    pub(crate) fn secret(&self) -> &NetworkSecret {
+        &self.secret
+    }
+
+    /// The keyed hash that places this tree's leaves.
+    pub(crate) fn path_key(&self) -> typed::PathKey {
+        self.secret.path_key()
     }
 
     /// Returns the tree's causal history, including redacted messages.
@@ -337,7 +366,7 @@ impl<T> Tree<T> {
 
     /// Finds the live message whose path and stored version match `version`.
     fn message(&self, version: &Version) -> Option<&Message> {
-        let path = <[u8; 32]>::from(typed::Path::for_leaf(version));
+        let path = <[u8; 32]>::from(typed::Path::for_leaf(&self.path_key(), version));
         let (stored, message) = self.root.node.as_ref()?.get(&path)?;
         (stored == version).then_some(message)
     }
@@ -463,15 +492,19 @@ impl<T> Tree<T> {
     {
         // Tick in specification order, before sorting by path. This gives
         // every insert a unique address and each forget a later timestamp.
+        let key = self.path_key();
         let mut new_version = self.latest().clone();
         self.react(actions.into_iter().map(|action| {
             new_version.tick(party);
             let version = new_version.clone();
 
             let (path, edit) = match action {
-                Action::Forget(path) => (path, traverse::Action::Forget),
+                Action::Forget(forgotten) => (
+                    typed::Path::for_leaf(&key, &forgotten),
+                    traverse::Action::Forget,
+                ),
                 Action::Insert(value) => (
-                    typed::Path::for_leaf(&version),
+                    typed::Path::for_leaf(&key, &version),
                     traverse::Action::Insert(value),
                 ),
             };
@@ -530,7 +563,17 @@ impl<T> Tree<T> {
     /// Returns whether the live set changed, as detected by the traversal.
     /// The causal ceiling can advance even when the result is `false`.
     /// Panics during the walk or ceiling merge leave this tree untouched.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the trees belong to different networks: their leaves sit at
+    /// paths under different keys, so no merge of them means anything. Every
+    /// caller joins trees of one replica's network.
     pub fn join(&mut self, other: Tree<T>) -> bool {
+        assert!(
+            self.secret == other.secret,
+            "only trees of one network can be joined"
+        );
         let Root {
             ceiling: their_version,
             node: their_root,

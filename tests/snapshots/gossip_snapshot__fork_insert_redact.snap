@@ -14,8 +14,8 @@ control item 0 (30 bytes) / preamble /
 control item 1 (161 bytes) / greeting /
 24_0(<<{
     "listing": {
-        191_0: [h'9d716d2cf9fbc2d8b6f2822ef19489cf', 0],
-        211_0: [h'933ef6e114e84d43f3a984347c48a3c9', 0],
+        140_0: [h'369fdbe3b45d6953f5f2bc234d7cc4d3', 0],
+        176_0: [h'c6ec51c06a39033b768806283893b617', 0],
     },
     "set_len": 2,
     "version": 53846_1(h'4b24'),
@@ -48,8 +48,8 @@ control item 0 (30 bytes) / preamble /
 control item 1 (161 bytes) / greeting /
 24_0(<<{
     "listing": {
-        116_0: [h'd956873466af030421260221e013a812', 0],
-        202_0: [h'3554db16ff016daa05f953e388eb189e', 0],
+        150_0: [h'de6f5e5910b717d5ec6ba81205b037cb', 0],
+        250_0: [h'9309a34528b24f003407d2e179fb9ecc', 0],
     },
     "set_len": 2,
     "version": 53846_1(h'5cb0'),
@@ -61,9 +61,9 @@ control item 1 (161 bytes) / greeting /
 control item 2 (2 bytes) / epilogue /
 "."
 Initiator stream 1 (height 30), 22 wire bytes
-  frame 0 (3 bytes) / End(Reply) /
-[1, 8]
-  frame 1 (16 bytes) / Supply(End) /
+  frame 0 (16 bytes) / Supply(End) /
 [1, 7, 63_0(<<63_0(<<53846_1(h'5dc0'), 4>>)>>)]
+  frame 1 (3 bytes) / End(Reply) /
+[1, 8]
   frame 2 (3 bytes) / End(Stream) /
 [1, 9]

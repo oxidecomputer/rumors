@@ -275,12 +275,14 @@ async fn reconcile_with_failing_walk(
         a_end.read,
         a_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
     );
     let remote_a = RemoteHandshaking::start(
         whole(),
         b_end.read,
         b_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
     );
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
@@ -366,9 +368,9 @@ fn symmetric_accept_handshakes_are_live() {
 fn preamble_and_proxy_session_share_the_connections_halves() {
     let a_party = nth_party(0);
     let b_party = nth_party(1);
-    let mut a = Tree::<u64>::new();
+    let mut a = Tree::<u64>::default();
     a.act(&a_party, [Action::Insert(Message::new(1))]);
-    let mut b = Tree::<u64>::new();
+    let mut b = Tree::<u64>::default();
     b.act(&b_party, [Action::Insert(Message::new(2))]);
 
     let (a, b) = run_to_quiescence(reconcile_after_preamble::<u64>(a.root, b.root))

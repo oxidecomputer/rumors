@@ -16,8 +16,8 @@ control item 1 (102 bytes) / sealed network secret /
 control item 2 (160 bytes) / greeting /
 24_0(<<{
     "listing": {
-        116_0: [h'd956873466af030421260221e013a812', 0],
-        211_0: [h'933ef6e114e84d43f3a984347c48a3c9', 0],
+        140_0: [h'369fdbe3b45d6953f5f2bc234d7cc4d3', 0],
+        250_0: [h'9309a34528b24f003407d2e179fb9ecc', 0],
     },
     "set_len": 2,
     "version": 53846_1(h'b8'),
@@ -32,9 +32,9 @@ control item 4 (2 bytes) / epilogue /
 "."
 Responder stream 0 (height 31), 43 wire bytes
   frame 0 (20 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'a8'), "hello">>)>>)]
+[0, 6, 63_0(<<63_0(<<53846_1(h'b8'), "world">>)>>)]
   frame 1 (20 bytes) / Supply(End) /
-[0, 7, 63_0(<<63_0(<<53846_1(h'b8'), "world">>)>>)]
+[0, 7, 63_0(<<63_0(<<53846_1(h'a8'), "hello">>)>>)]
   frame 2 (3 bytes) / End(Stream) /
 [0, 9]
 

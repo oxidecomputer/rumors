@@ -494,13 +494,14 @@ fn trace_redaction_session() {
 /// The staging requires the initiator's two leaf paths to share their
 /// first byte while its ballast counterpart's three land under other root
 /// radices, so no root child is populated on both sides and the session is
-/// pure transfer in both directions. A leaf's path is the SHA-256 hash of
-/// its version's canonical bytes, so the shape is a property of the created
-/// version sequence; the self-checks below verify it.
+/// pure transfer in both directions. A leaf's path is its version's hash
+/// keyed by the network's secret, and the network is seeded, so the shape is
+/// a property of the created version sequence; the self-checks below verify
+/// it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
-    // Stage by pool search: paths are version-derived, and a universe's
-    // identifier never enters a version, so the shape is a deterministic
-    // function of the send order — send a pool, pick the versions whose
+    // Stage by pool search: paths derive from versions under the seeded
+    // network's secret, so the shape is a deterministic function of the
+    // send order — send a pool, pick the versions whose
     // paths land the shape, redact the rest. The left peer keeps exactly two leaves sharing a root radix;
     // the right keeps three ballast leaves outside it and advertises the
     // larger set.
@@ -525,7 +526,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     let mut pool: Vec<(u64, u8)> = left
         .snapshot()
         .iter()
-        .map(|(v, m)| (*m, path_radix(v)))
+        .map(|(v, m)| (*m, path_radix(&left, v)))
         .collect();
     pool.sort_unstable();
     let (first, second) = pool
@@ -547,7 +548,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     let ballast: Vec<u64> = right
         .snapshot()
         .iter()
-        .filter(|(v, _)| path_radix(v) != radix)
+        .filter(|(v, _)| path_radix(&right, v) != radix)
         .take(3)
         .map(|(_, m)| *m)
         .collect();
@@ -556,14 +557,18 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
 
     // Fixture self-checks: mirror the required shape so drift in hashing
     // or version assignment fails here, not in the hop arithmetic.
-    let radices: Vec<u8> = left.snapshot().versions().map(path_radix).collect();
+    let radices: Vec<u8> = left
+        .snapshot()
+        .versions()
+        .map(|v| path_radix(&left, v))
+        .collect();
     assert_eq!(radices.len(), 2, "the left peer holds exactly the pair");
     assert_eq!(radices.first(), radices.last(), "one exclusive subtree");
     assert!(
         right
             .snapshot()
             .versions()
-            .all(|v| path_radix(v) != radices[0]),
+            .all(|v| path_radix(&right, v) != radices[0]),
         "no root child is populated on both sides"
     );
     assert!(

@@ -15,7 +15,6 @@ use super::pipe::placed_over_pipe;
 use crate::message::Message;
 use crate::tree::arb::{nth_party, roots_at_depth};
 use crate::tree::mirror::streaming::testing::session::{completed, over_pipe};
-use crate::tree::typed::Path;
 use crate::tree::{Action, Root, Tree};
 
 /// An unlimited budget.
@@ -43,7 +42,7 @@ const PIPES: [usize; 3] = [1, 64, 8 << 10];
 /// Two forks of one network: both hold `shared` messages, and each then
 /// sends `own` messages the other lacks.
 fn forks(shared: usize, own: usize) -> (Root, Root) {
-    let mut base = Tree::<()>::new();
+    let mut base = Tree::<()>::default();
     base.act(
         &nth_party(0),
         (0..shared).map(|_| Action::Insert(Message::new(()))),
@@ -68,17 +67,14 @@ fn forks(shared: usize, own: usize) -> (Root, Root) {
 /// nothing, the second supplies a subtree through the deletion filter,
 /// which drops every leaf the first knows.
 fn redacting_forks(shared: usize, own: usize) -> (Root, Root) {
-    let mut base = Tree::<()>::new();
+    let mut base = Tree::<()>::default();
     base.act(
         &nth_party(0),
         (0..shared).map(|_| Action::Insert(Message::new(()))),
     );
-    let paths: Vec<Path> = base
-        .iter()
-        .map(|(version, _)| Path::for_leaf(version))
-        .collect();
+    let versions: Vec<_> = base.iter().map(|(version, _)| version.clone()).collect();
     let mut redacting = base.clone();
-    redacting.act(&nth_party(1), paths.into_iter().map(Action::Forget));
+    redacting.act(&nth_party(1), versions.into_iter().map(Action::Forget));
     redacting.act(
         &nth_party(1),
         (0..own).map(|_| Action::Insert(Message::new(()))),

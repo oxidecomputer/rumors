@@ -1,7 +1,7 @@
 //! Scoped leaf addresses for wire fixtures with chosen tree geometry.
 //!
 //! This exists only to construct placements that hashing cannot reach. A
-//! leaf's path is the hash of its version, so two replicas that dispute a
+//! leaf's path is its version's keyed hash, so two replicas that dispute a
 //! node one byte above the leaves need leaf paths sharing 31 bytes, a
 //! 248-bit collision. It is compiled only into test builds and builds with
 //! the `test-internals` feature, never into a default or release build.

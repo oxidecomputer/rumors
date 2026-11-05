@@ -35,6 +35,7 @@ use crate::tree::mirror::streaming::{
     remote::Handshaking as RemoteHandshaking,
 };
 use crate::tree::typed::Path;
+use crate::tree::typed::PathKey;
 use crate::tree::typed::height::{Height, Root as RootHeight};
 use crate::tree::{Action, Root as TreeRoot, Tree, arb::nth_party};
 use crate::{DEFAULT_TARGET_MESSAGE_SIZE, Version};
@@ -100,10 +101,16 @@ impl Divergence {
                 shared = version;
             }
         }
+        // A redaction names its leaf by version; recover each chosen
+        // address's version from the mapping.
+        let version_of: std::collections::BTreeMap<Path, Version> = mapping
+            .iter()
+            .map(|(version, path)| (*path, version.clone()))
+            .collect();
         Path::with_leaf_paths(mapping, || {
             let insert =
                 |path: &Path| Action::Insert(Message::new(<[u8; 32]>::from(*path).to_vec()));
-            let mut base = Tree::<Vec<u8>>::new();
+            let mut base = Tree::<Vec<u8>>::default();
             base.act(&nth_party(0), self.shared.iter().map(insert));
             let sides = std::array::from_fn(|side| {
                 let mut tree = base.clone();
@@ -111,7 +118,9 @@ impl Divergence {
                 tree.act(&party, self.novel[side].iter().map(insert));
                 tree.act(
                     &party,
-                    self.redacted[side].iter().copied().map(Action::Forget),
+                    self.redacted[side]
+                        .iter()
+                        .map(|path| Action::Forget(version_of[path].clone())),
                 );
                 tree
             });
@@ -137,7 +146,7 @@ impl Divergence {
                 assert_eq!(stats.sends, stats.receives, "queue {role:?} did not drain");
             }
             for root in actual {
-                let tree = Tree::<Vec<u8>>::from_root(root);
+                let tree = Tree::<Vec<u8>>::from_root(crate::network::NetworkSecret::FIXTURE, root);
                 assert_eq!(tree.root, expected.root);
                 // Merkle equality identifies versions; inspect payloads too.
                 for (version, payload) in expected.iter() {
@@ -496,12 +505,22 @@ impl Session {
                     DEFAULT_TARGET_MESSAGE_SIZE as u64,
                 )
                 .budget(self.budget);
-                let left_proxy =
-                    RemoteHandshaking::start(Local, left_read, left_write, codec::<Vec<u8>>())
-                        .observe(sent[0].handle());
-                let right_proxy =
-                    RemoteHandshaking::start(Local, right_read, right_write, codec::<Vec<u8>>())
-                        .observe(sent[1].handle());
+                let left_proxy = RemoteHandshaking::start(
+                    Local,
+                    left_read,
+                    left_write,
+                    codec::<Vec<u8>>(),
+                    Some(std::sync::Arc::new(PathKey::fixture())),
+                )
+                .observe(sent[0].handle());
+                let right_proxy = RemoteHandshaking::start(
+                    Local,
+                    right_read,
+                    right_write,
+                    codec::<Vec<u8>>(),
+                    Some(std::sync::Arc::new(PathKey::fixture())),
+                )
+                .observe(sent[1].handle());
                 let (left, right) = join!(
                     Box::pin(mirror(left, left_proxy)),
                     Box::pin(mirror(right, right_proxy)),

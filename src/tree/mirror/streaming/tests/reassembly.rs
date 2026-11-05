@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use super::LocalSession;
 use crate::message::Message;
 use crate::tree::arb::{arb_wide_divergent_pair, roots_at_depth};
-use crate::tree::{Action, Root, Tree, typed::Path};
+use crate::tree::{Action, Root, Tree};
 
 /// Replicas where one, `ahead`, has seen everything the other, `behind`,
 /// has, returned as `(ahead, behind)`.
@@ -24,19 +24,20 @@ fn arb_contained_pair() -> impl Strategy<Value = (Root, Root)> {
     (0..40usize, 0..40usize, vec(any::<bool>(), 0..80), placement).prop_map(
         |(shared, later, redact, placement)| {
             let party = Party::seed();
-            let mut tree = Tree::<()>::new();
+            let mut tree = Tree::<()>::default();
             tree.act(
                 &party,
                 (0..shared).map(|_| Action::Insert(Message::new(()))),
             );
             let behind = tree.root.clone();
             tree.act(&party, (0..later).map(|_| Action::Insert(Message::new(()))));
-            let keys: Vec<_> = tree.iter().map(|(v, _)| Path::for_leaf(v)).collect();
+            let keys: Vec<_> = tree.iter().map(|(v, _)| v.clone()).collect();
             tree.act(
                 &party,
                 keys.iter()
                     .zip(redact)
-                    .filter_map(|(key, forget)| forget.then_some(Action::Forget(*key))),
+                    .filter(|(_, forget)| *forget)
+                    .map(|(key, _)| Action::Forget(key.clone())),
             );
             match placement {
                 None => (tree.root, behind),

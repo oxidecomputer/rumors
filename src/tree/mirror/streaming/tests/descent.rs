@@ -67,7 +67,7 @@ use crate::tree::mirror::streaming::remote::codec::{
 use crate::tree::mirror::streaming::testing::session::{
     AMPLE, completed, observed_over_pipe, over_pipe,
 };
-use crate::tree::typed::{Node as TreeNode, Path};
+use crate::tree::typed::Node as TreeNode;
 use crate::tree::{Action, Tree};
 use crate::{causally, message::Message};
 
@@ -502,15 +502,12 @@ const FORK_OWN: usize = 2_000;
 /// third shared message.
 fn forked_replicas() -> (Root, Root) {
     let seed = nth_party(0);
-    let mut base = Tree::<()>::new();
+    let mut base = Tree::<()>::default();
     base.act(
         &seed,
         (0..FORK_SHARED).map(|_| Action::Insert(Message::new(()))),
     );
-    let shared: Vec<_> = base
-        .iter()
-        .map(|(version, _)| Path::for_leaf(version))
-        .collect();
+    let shared: Vec<_> = base.iter().map(|(version, _)| version.clone()).collect();
     let fork = |index: usize, redact: bool| {
         let party = nth_party(index);
         let mut tree = base.clone();
@@ -521,7 +518,10 @@ fn forked_replicas() -> (Root, Root) {
         if redact {
             tree.act(
                 &party,
-                shared.iter().step_by(3).map(|path| Action::Forget(*path)),
+                shared
+                    .iter()
+                    .step_by(3)
+                    .map(|version| Action::Forget(version.clone())),
             );
         }
         tree.root

@@ -74,6 +74,7 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
             &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -242,6 +243,7 @@ fn a_batched_run_round_trips_the_reply() {
             &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .expect("the batched frame decodes")

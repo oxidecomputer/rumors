@@ -2,17 +2,55 @@ use proptest::prelude::*;
 
 use crate::tree::arb::arb_version;
 
-use super::super::{Prefix, height};
+use super::super::{HMAC_KEY_LEN, Prefix, height};
 use super::*;
-use sha2::Digest;
+use crate::network::NetworkSecret;
+use hmac::{Hmac, KeyInit, Mac};
 
 proptest! {
-    /// A normal leaf address is SHA-256 of its canonical version bytes.
+    /// A normal leaf address is HMAC-SHA-256 of its canonical version bytes
+    /// under the path key.
+    ///
+    /// The expected value is recomputed through the `hmac` crate's one-shot
+    /// interface rather than the pre-keyed state the tree clones. The
+    /// network's tests check that the key schedule derives the key itself.
     #[test]
-    fn for_leaf_is_the_full_width_version_hash(version in arb_version()) {
-        let expected: [u8; PATH_LEN] = sha2::Sha256::digest(version.as_bytes()).into();
-        let path = Path::for_leaf(&version);
-        prop_assert_eq!(<[u8; PATH_LEN]>::from(path), expected);
+    fn for_leaf_is_the_keyed_version_hash(
+        version in arb_version(),
+        raw_key in any::<[u8; HMAC_KEY_LEN]>(),
+    ) {
+        let expected: [u8; PATH_LEN] = <Hmac<sha2::Sha256> as KeyInit>::new_from_slice(&raw_key)
+            .expect("HMAC accepts a key of any length")
+            .chain_update(version.as_bytes())
+            .finalize()
+            .into_bytes()
+            .into();
+        let key = PathKey::new(&raw_key);
+        prop_assert_eq!(<[u8; PATH_LEN]>::from(Path::for_leaf(&key, &version)), expected);
+        // A cloned key derives the same path: the tree clones the pre-keyed
+        // state for every path it derives.
+        let cloned = key.clone();
+        prop_assert_eq!(Path::for_leaf(&cloned, &version), Path::for_leaf(&key, &version));
+    }
+
+    /// Two different secrets place the same version at different paths, so
+    /// independently seeded networks share no placement.
+    ///
+    /// The second secret is the first XOR a nonzero difference: a random
+    /// mask whose byte at `at` is forced nonzero, so every case compares two
+    /// distinct secrets, differing anywhere from one byte to all sixteen.
+    #[test]
+    fn different_secrets_place_a_version_differently(
+        version in arb_version(),
+        a in any::<[u8; 16]>(),
+        mut difference in any::<[u8; 16]>(),
+        at in 0..16usize,
+        forced in 1..=u8::MAX,
+    ) {
+        difference[at] = forced;
+        let b: [u8; 16] = std::array::from_fn(|i| a[i] ^ difference[i]);
+        let path = |secret| Path::for_leaf(&NetworkSecret::from_bytes(secret).path_key(), &version);
+        prop_assert_ne!(path(a), path(b));
     }
 
     /// Nested fixtures replace only their thread's mapping and restore it
@@ -23,18 +61,18 @@ proptest! {
         outer in any::<[u8; 32]>(),
         inner in any::<[u8; 32]>(),
     ) {
-        let hashed = Path::for_leaf(&version);
+        let hashed = Path::for_fixture_leaf(&version);
         Path::with_leaf_paths([(version.clone(), outer.into())], || {
-            assert_eq!(Path::for_leaf(&version), outer.into());
+            assert_eq!(Path::for_fixture_leaf(&version), outer.into());
             std::thread::scope(|scope| {
-                scope.spawn(|| assert_eq!(Path::for_leaf(&version), hashed));
+                scope.spawn(|| assert_eq!(Path::for_fixture_leaf(&version), hashed));
             });
             Path::with_leaf_paths([(version.clone(), inner.into())], || {
-                assert_eq!(Path::for_leaf(&version), inner.into());
+                assert_eq!(Path::for_fixture_leaf(&version), inner.into());
             });
-            assert_eq!(Path::for_leaf(&version), outer.into());
+            assert_eq!(Path::for_fixture_leaf(&version), outer.into());
         });
-        prop_assert_eq!(Path::for_leaf(&version), hashed);
+        prop_assert_eq!(Path::for_fixture_leaf(&version), hashed);
     }
 
     /// At every height, comparisons and debug output use only the active
@@ -82,12 +120,12 @@ proptest! {
 #[test]
 fn missing_fixture_version_restores_hashing_after_panic() {
     let version = Version::new();
-    let hashed = Path::for_leaf(&version);
+    let hashed = Path::for_fixture_leaf(&version);
     let result = std::panic::catch_unwind(|| {
-        Path::with_leaf_paths([], || Path::for_leaf(&version));
+        Path::with_leaf_paths([], || Path::for_fixture_leaf(&version));
     });
     assert!(result.is_err());
-    assert_eq!(Path::for_leaf(&version), hashed);
+    assert_eq!(Path::for_fixture_leaf(&version), hashed);
 }
 
 /// A fixture cannot merge distinct leaf identities or assign one version twice.

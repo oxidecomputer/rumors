@@ -32,7 +32,7 @@ const EARLY_DISPUTE_ATTEMPTS: usize = 2048;
 /// searches for the first qualifying candidate and reports it.
 #[test]
 fn early_dispute_hint_matches_current_paths() {
-    let path_of = |version: &Version| <[u8; 32]>::from(Path::for_leaf(version));
+    let path_of = |version: &Version| <[u8; 32]>::from(Path::for_fixture_leaf(version));
     if !early_dispute_matches(EARLY_DISPUTE_HINT, &path_of) {
         let fresh =
             (0..EARLY_DISPUTE_ATTEMPTS).find(|&attempt| early_dispute_matches(attempt, &path_of));
@@ -49,7 +49,7 @@ fn searched_ticks(party: &Party, prefixes: &[[u8; 2]]) -> Vec<usize> {
     while found.len() < prefixes.len() {
         version.tick(party);
         ticks += 1;
-        let path = <[u8; 32]>::from(Path::for_leaf(&version));
+        let path = <[u8; 32]>::from(Path::for_fixture_leaf(&version));
         let prefix = [path[0], path[1]];
         if prefixes.contains(&prefix) {
             found.entry(prefix).or_insert(ticks);
