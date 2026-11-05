@@ -52,7 +52,8 @@ pub use transport::{
 };
 
 pub use crate::tree::mirror::streaming::remote::{
-    FrameShape, HookCapture, HookStream, PipeCapture, PreparedFrame,
+    FrameShape, HookCapture, HookStream, MultiplexerHook, MultiplexerPoll, PipeCapture,
+    PreparedFrame, observe_multiplexers,
 };
 
 /// The completion marker each side writes in a session's closing exchange,

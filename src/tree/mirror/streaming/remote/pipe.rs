@@ -81,6 +81,8 @@
 use std::future::poll_fn;
 use std::io;
 use std::pin::Pin;
+#[cfg(any(test, feature = "test-internals"))]
+use std::sync::OnceLock;
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
@@ -468,10 +470,13 @@ impl Multiplexer {
         cursors: &mut [usize; Class::ORDER.len()],
     ) -> Poll<Option<(Stream, Frame)>> {
         let mut open = false;
+        let mut tally = MultiplexerPoll::default();
         for lane in &mut self.lanes {
             if lane.staged.is_none()
                 && let Some(frames) = &mut lane.frames
             {
+                tally.unstaged += 1;
+                tally.polled += 1;
                 match frames.poll_next_unpin(cx) {
                     Poll::Ready(Some(frame)) => lane.staged = Some(frame),
                     Poll::Ready(None) => lane.frames = None,
@@ -480,7 +485,7 @@ impl Multiplexer {
             }
             open |= lane.staged.is_some() || lane.frames.is_some();
         }
-        match self.choose(cursors) {
+        let next = match self.choose(cursors) {
             Some(index) => {
                 let lane = &mut self.lanes[index];
                 let frame = lane.staged.take().expect("choose returns a staged lane");
@@ -488,7 +493,10 @@ impl Multiplexer {
             }
             None if open => Poll::Pending,
             None => Poll::Ready(None),
-        }
+        };
+        tally.frame = matches!(next, Poll::Ready(Some(_)));
+        observe_poll(tally);
+        next
     }
 
     /// The lane whose staged frame goes next: the first class with a staged
@@ -513,6 +521,57 @@ impl Multiplexer {
         None
     }
 }
+
+/// What one poll of a multiplexer did, as the process's multiplexer hook
+/// sees it.
+///
+/// A poll stages frames from lane channels, then returns at most one frame
+/// to write. Each lane that is open with nothing staged is a lane the poll
+/// may need to poll, since its channel may hold a frame or its close; the
+/// lanes it polls are some or all of those.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MultiplexerPoll {
+    /// The lanes whose channels the poll polled.
+    pub polled: usize,
+    /// The lanes that were open with nothing staged when the poll reached
+    /// them: the lanes a poll of every lane's channel polls.
+    pub unstaged: usize,
+    /// Whether the poll returned a frame to write.
+    pub frame: bool,
+}
+
+/// The process's multiplexer observation hook, called after every poll of
+/// any multiplexer.
+#[cfg(any(test, feature = "test-internals"))]
+pub type MultiplexerHook = fn(MultiplexerPoll);
+
+/// The hook every multiplexer in the process reports through, once
+/// installed.
+#[cfg(any(test, feature = "test-internals"))]
+static MULTIPLEXER_HOOK: OnceLock<MultiplexerHook> = OnceLock::new();
+
+/// Install `hook` as the process's multiplexer observation hook, returning
+/// whether it is now the installed one.
+///
+/// The first installation wins for the life of the process, as for the
+/// ledger observation hook.
+#[cfg(any(test, feature = "test-internals"))]
+pub fn observe_multiplexers(hook: MultiplexerHook) -> bool {
+    std::ptr::fn_addr_eq(*MULTIPLEXER_HOOK.get_or_init(|| hook), hook)
+}
+
+/// Report one poll of a multiplexer to the installed hook.
+#[cfg(any(test, feature = "test-internals"))]
+fn observe_poll(poll: MultiplexerPoll) {
+    if let Some(hook) = MULTIPLEXER_HOOK.get() {
+        hook(poll);
+    }
+}
+
+/// Report one poll of a multiplexer: nothing outside test builds.
+#[cfg(not(any(test, feature = "test-internals")))]
+#[inline(always)]
+fn observe_poll(_: MultiplexerPoll) {}
 
 /// One remote logical stream's route to its decoder.
 enum IncomingLane {
