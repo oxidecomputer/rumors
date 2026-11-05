@@ -801,14 +801,20 @@ fn decide(
     if let Some(need) = need {
         let invited = slots.budgeted[slot.index()] - slots.carried[slot.index()];
         let claimed = share.claimed[depth];
-        let sum = invited as u128
-            + widen(bytes) as u128
-            + share.pace(depth).scale(claimed.saturating_add(need));
+        let pace = share.pace(depth);
+        let sum = invited as u128 + widen(bytes) as u128 + pace.scale(claimed.saturating_add(need));
         #[cfg(any(test, feature = "test-internals"))]
-        account.share_peak.fetch_max(
-            usize::try_from(sum).unwrap_or(usize::MAX),
-            Ordering::Relaxed,
-        );
+        account.weigh(super::SharePeak {
+            sum: usize::try_from(sum).unwrap_or(usize::MAX),
+            depth,
+            invited,
+            grant: widen(bytes),
+            claimed,
+            need,
+            pace_actual: pace.actual,
+            pace_predicted: pace.predicted,
+            normal: slots.normal,
+        });
         if sum > account.budget as u128 {
             return Decision::Share;
         }

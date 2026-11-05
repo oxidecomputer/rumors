@@ -33,13 +33,15 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::pin;
 use std::thread;
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::testing::{
-    Admission, ChargeUnit, Holding, LedgerChange, PLACES, floor_allowance, observe_admissions,
-    observe_ledgers,
+    Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, floor_allowance,
+    observe_admissions, observe_ledgers,
 };
 use rumors::{Peer, Rumors};
 
@@ -343,9 +345,29 @@ pub struct Held {
     pub inflow: u64,
 }
 
+/// The invitation share check that weighed a ledger's share peak, dated by
+/// the link's clock.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DatedCheck {
+    /// The link time of the first ledger change that reported the check,
+    /// in byte-times.
+    ///
+    /// A check that admits its question is reported by its grant's own
+    /// charge, at the moment it was made, so in a session with no budget,
+    /// where every check admits, this is the check's own time. A check that
+    /// refuses its question is reported by the ledger's next change.
+    pub at: u64,
+    /// The check's terms.
+    pub check: SharePeak,
+}
+
 /// What one side's ledger held and admitted over a session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LedgerReading {
+    /// The side whose session first reported the ledger, if it reported
+    /// while the runner polled one side's session: every ledger [`run`]
+    /// reads.
+    pub side: Option<Side>,
     /// The most bytes it held outside its floor slots: the part its budget
     /// counts.
     pub budget_peak: usize,
@@ -360,6 +382,8 @@ pub struct LedgerReading {
     /// The largest sum any of its invitation share checks weighed: the
     /// share peak.
     pub share_peak: usize,
+    /// The check that weighed the share peak, if it made any.
+    pub share_peak_check: Option<DatedCheck>,
     /// Units that waited for admission, as the ledger counts them.
     pub waited: u64,
     /// The bytes it held outside its floor slots, integrated over the
@@ -412,11 +436,13 @@ impl Default for LedgerReading {
     /// Returns a reading of a ledger that held and admitted nothing.
     fn default() -> Self {
         Self {
+            side: None,
             budget_peak: 0,
             held_peak: 0,
             floor_peak: 0,
             floor_bound: 0,
             share_peak: 0,
+            share_peak_check: None,
             waited: 0,
             budget_area: 0,
             charged: 0,
@@ -593,15 +619,22 @@ struct Readings {
     /// Whether a root answer has returned what its grant left over, which
     /// it does once it has admitted its last question.
     root_answered: bool,
+    /// The side whose session the runner is polling, if it is polling one.
+    polling: Option<Side>,
 }
 
 impl Readings {
     /// The reading of the ledger identified as `ledger`, begun if this is
-    /// its first report.
+    /// its first report, as the ledger of the side being polled.
     fn ledger(&mut self, ledger: usize) -> &mut Reading {
         let order = self.ledgers.len();
+        let side = self.polling;
         self.ledgers.entry(ledger).or_insert_with(|| Reading {
             order,
+            reading: LedgerReading {
+                side,
+                ..LedgerReading::default()
+            },
             ..Reading::default()
         })
     }
@@ -677,7 +710,13 @@ fn record_change(change: LedgerChange) {
         reading.held_peak = reading.held_peak.max(change.held);
         reading.floor_peak = reading.floor_peak.max(change.floor + change.carried);
         reading.floor_bound = reading.floor_bound.max(change.floor_bound);
-        reading.share_peak = reading.share_peak.max(change.share_peak);
+        if change.share_peak.sum > reading.share_peak {
+            reading.share_peak = change.share_peak.sum;
+            reading.share_peak_check = Some(DatedCheck {
+                at: now,
+                check: change.share_peak,
+            });
+        }
         reading.waited = reading.waited.max(change.waited);
         // The runner observes on one thread, so changes arrive in the order
         // they happened and each rise is exactly one charge.
@@ -873,6 +912,19 @@ pub fn run(case: Case) -> Session {
     run_within(case, |session| session()).0
 }
 
+/// `session`, as `side`'s session: while the runner polls it, every ledger
+/// that first reports is read as that side's ([`LedgerReading::side`]).
+async fn sided<F: Future>(side: Side, session: F) -> F::Output {
+    let mut session = pin!(session);
+    std::future::poll_fn(|cx| {
+        READINGS.with(|readings| readings.borrow_mut().polling = Some(side));
+        let poll = session.as_mut().poll(cx);
+        READINGS.with(|readings| readings.borrow_mut().polling = None);
+        poll
+    })
+    .await
+}
+
 /// Builds the pair `case` names and reconciles it over its link, running
 /// the session itself, and nothing of the pair's construction, inside
 /// `within`, which returns what it observed.
@@ -892,8 +944,8 @@ pub fn run_within<T>(case: Case, within: impl FnOnce(&mut dyn FnMut()) -> T) -> 
     let observed = within(&mut || {
         let (a_out, b_out, report) = drive(
             &link,
-            a.gossip_once(&mut a_end.read, &mut a_end.write),
-            b.gossip_once(&mut b_end.read, &mut b_end.write),
+            sided(Side::A, a.gossip_once(&mut a_end.read, &mut a_end.write)),
+            sided(Side::B, b.gossip_once(&mut b_end.read, &mut b_end.write)),
         );
         let gained = [
             a_out

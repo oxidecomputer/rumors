@@ -4,7 +4,7 @@
 use proptest::prelude::*;
 
 use super::{Case, LAN_BDP, LedgerReading, Shape, message, run, text_chars};
-use crate::bench::link::LinkConfig;
+use crate::bench::link::{LinkConfig, Side};
 
 /// The bytes `text` takes encoded as a CBOR text string.
 fn encoded(text: &str) -> usize {
@@ -58,7 +58,11 @@ fn profile_area(ledger: &LedgerReading) -> u128 {
 /// slots add up to the budget area and the area of what floor slots carried
 /// for them, those through floor slots to the floor area. Its waits number the units the ledger counted as waiting, each
 /// admitted no earlier than it was queued and no wait longer than the time
-/// some unit waited.
+/// some unit waited. The check it dates as its share peak weighed exactly
+/// the peak the ledger kept, its terms add up to that sum as the share's
+/// rule computes it, and it falls within the session; a side makes such a
+/// check in every session with no budget, and one that makes none keeps a
+/// share peak of zero. The two ledgers are read as the two sides'.
 #[test]
 fn records_over_time_agree_with_the_ledger_totals() {
     let shape = Shape::overlapping(3_000, 0);
@@ -79,7 +83,34 @@ fn records_over_time_agree_with_the_ledger_totals() {
         "a quarter of the peak holds units back"
     );
     for session in [&unlimited, &budgeted] {
+        let mut sides: Vec<Option<Side>> = session
+            .admitted
+            .ledgers
+            .iter()
+            .map(|ledger| ledger.side)
+            .collect();
+        sides.sort_by_key(|side| side.map(Side::index));
+        assert_eq!(sides, [Some(Side::A), Some(Side::B)]);
         for ledger in &session.admitted.ledgers {
+            if let Some(dated) = ledger.share_peak_check {
+                let check = dated.check;
+                assert_eq!(check.sum, ledger.share_peak);
+                let scaled = u128::from(check.pace_actual) * (check.claimed + check.need) as u128
+                    / u128::from(check.pace_predicted);
+                assert_eq!(
+                    (check.invited + check.grant) as u128 + scaled,
+                    check.sum as u128,
+                );
+                assert!(dated.at <= session.duration());
+            } else {
+                // Under a budget, a side whose questions all take floor
+                // slots or wait for room never reaches the share's check.
+                assert!(
+                    !std::ptr::eq(session, &unlimited),
+                    "with no budget, every side asks some question the share checks"
+                );
+                assert_eq!(ledger.share_peak, 0);
+            }
             assert_eq!(profile_area(ledger), ledger.budget_area);
             assert_eq!(ledger.profile.last().map(|step| step.bytes), Some(0));
             let area = |through_floor: bool| -> u128 {

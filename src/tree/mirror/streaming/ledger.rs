@@ -51,6 +51,8 @@
 //! bound it keeps, and why every unit is admitted.
 
 use std::mem::size_of;
+#[cfg(any(test, feature = "test-internals"))]
+use std::sync::PoisonError;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -227,13 +229,15 @@ struct Account {
     /// A count moves to or from zero only under the admission queue's lock
     /// ([`admission::Slot`]).
     sharing: [AtomicUsize; admission::SLOTS],
-    /// The largest sum any invitation share check has weighed, so the least
+    /// The share peak, with the terms of the check that weighed it: the
+    /// largest sum any invitation share check has weighed, so the least
     /// budget at which every check made so far would pass ([`admission`]).
     ///
     /// Read from a session with no budget, it and the ledger's peak outside
-    /// its floor slots give the session's no-cost point.
+    /// its floor slots give the session's no-cost point. Every check is made
+    /// under the admission queue's lock, which orders the updates.
     #[cfg(any(test, feature = "test-internals"))]
-    share_peak: AtomicUsize,
+    share_peak: Mutex<SharePeak>,
     /// The largest grant each floor slot has admitted or carried, by kind
     /// and depth: each slot's `F`.
     #[cfg(any(test, feature = "test-internals"))]
@@ -427,7 +431,7 @@ impl Ledger {
     /// The largest sum any invitation share check has weighed.
     #[cfg(test)]
     fn share_peak(&self) -> usize {
-        self.account.share_peak.load(Ordering::Relaxed)
+        self.account.share_peak().sum
     }
 
     /// Bytes held outside floor slots: what the budget counts.
@@ -456,7 +460,7 @@ impl Account {
             waited: AtomicU64::new(0),
             sharing: std::array::from_fn(|_| AtomicUsize::new(0)),
             #[cfg(any(test, feature = "test-internals"))]
-            share_peak: AtomicUsize::new(0),
+            share_peak: Mutex::default(),
             #[cfg(any(test, feature = "test-internals"))]
             slot_peaks: std::array::from_fn(|_| std::array::from_fn(|_| AtomicUsize::new(0))),
             budget,
@@ -596,6 +600,28 @@ impl Account {
             Unit::Answer => Some(&self.kept[depth]),
             Unit::Question => None,
         }
+    }
+
+    /// Keep `check` as the share peak if it weighed more than every check
+    /// before it.
+    #[cfg(any(test, feature = "test-internals"))]
+    fn weigh(&self, check: SharePeak) {
+        let mut peak = self
+            .share_peak
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if check.sum > peak.sum {
+            *peak = check;
+        }
+    }
+
+    /// The share peak and the terms of the check that weighed it.
+    #[cfg(any(test, feature = "test-internals"))]
+    fn share_peak(&self) -> SharePeak {
+        *self
+            .share_peak
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -1003,9 +1029,48 @@ pub struct LedgerChange {
     /// The sum over floor slots of the largest grant each has admitted or
     /// carried: the `Σ F` the ledger's bound adds to its budget.
     pub floor_bound: usize,
-    /// The largest sum any invitation share check has weighed so far: the
-    /// least budget at which every check made so far would pass.
-    pub share_peak: usize,
+    /// The largest sum any invitation share check has weighed so far, the
+    /// least budget at which every check made so far would pass, with the
+    /// terms of the check that weighed it.
+    pub share_peak: SharePeak,
+}
+
+/// One invitation share check, as [`LedgerChange::share_peak`] reports the
+/// one that weighed the largest sum: the question it decided and the
+/// ledger's state at that moment.
+///
+/// The check admits a question about a scope at `depth` only while
+/// `invited + grant + α · (claimed + need) ≤ B`, where `α` is the depth's
+/// pace, `pace_actual / pace_predicted`, and the scaled term is rounded
+/// down; `sum` is that left side. The [`Default`] check weighed nothing:
+/// the report of a ledger that has made no check.
+#[cfg(any(test, feature = "test-internals"))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SharePeak {
+    /// The sum the check weighed.
+    pub sum: usize,
+    /// The depth of the scope the question asks about: the root's 0
+    /// through the leaves' 32.
+    pub depth: usize,
+    /// The bytes that depth's questions held against the budget: the room
+    /// its invitations held, `I_d`.
+    pub invited: usize,
+    /// The question's grant, `c`.
+    pub grant: usize,
+    /// The depth's outstanding claims before the question's own: `N_d`,
+    /// the needs of its questions admitted against the budget whose replies
+    /// the stage had not finished.
+    pub claimed: usize,
+    /// The question's predicted need, `n`.
+    pub need: usize,
+    /// The bytes the depth's pace counted as kept: its numerator.
+    pub pace_actual: u64,
+    /// The needs the depth's pace counted as predicted: its denominator,
+    /// never zero.
+    pub pace_predicted: u64,
+    /// The bytes the ledger held outside its floor slots as it made the
+    /// check, `L − F`.
+    pub normal: usize,
 }
 
 /// The unit a charge was built out of, as [`LedgerChange::unit`] reports
@@ -1077,7 +1142,7 @@ fn observe(
                 .flatten()
                 .map(|peak| peak.load(Ordering::Relaxed))
                 .sum(),
-            share_peak: account.share_peak.load(Ordering::Relaxed),
+            share_peak: account.share_peak(),
         });
     }
 }
