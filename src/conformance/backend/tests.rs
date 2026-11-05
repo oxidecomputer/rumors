@@ -401,6 +401,7 @@ impl Backend for Materializing {
     async fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> Result<Option<Self::Node<S<H>>>, Self::Error>
     where
@@ -428,7 +429,8 @@ impl Backend for Materializing {
             .into_iter()
             .map(|(radix, child)| (radix, child.map(|child| child.inner)))
             .collect();
-        let parent = <Local as Backend>::parent(Local, prefix, children).await?;
+        let original = original.map(|original| original.inner);
+        let parent = <Local as Backend>::parent(Local, prefix, original, children).await?;
         Ok(parent.map(|node| {
             let row = ROW_HEADER + ROW_ENTRY * fan + bounds_of(&node);
             MaterializedNode::wrap(node, row)

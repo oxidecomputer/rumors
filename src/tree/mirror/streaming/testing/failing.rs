@@ -376,6 +376,7 @@ where
     async fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> Result<Option<Self::Node<S<H>>>, Self::Error>
     where
@@ -390,7 +391,7 @@ where
             .map(|(radix, child)| (radix, child.map(FailingNode::into_inner)))
             .collect();
         self.inner
-            .parent(prefix, children)
+            .parent(prefix, original.map(FailingNode::into_inner), children)
             .await
             .map(|node| node.map(FailingNode::new))
             .map_err(Failure::Inner)
@@ -431,7 +432,12 @@ mod tests {
         let outer = Failing::after(inner.clone(), 1);
         let prefix = Prefix::<S<Z>>::containing(&Path::from([0; 32]));
 
-        let first = pollster::block_on(Backend::parent::<Z>(outer.clone(), prefix, Vec::new()));
+        let first = pollster::block_on(Backend::parent::<Z>(
+            outer.clone(),
+            prefix,
+            None,
+            Vec::new(),
+        ));
         assert!(matches!(
             first,
             Err(Failure::Inner(Failure::Injected(Operation::Parent {
@@ -439,7 +445,12 @@ mod tests {
             })))
         ));
 
-        let second = pollster::block_on(Backend::parent::<Z>(outer.clone(), prefix, Vec::new()));
+        let second = pollster::block_on(Backend::parent::<Z>(
+            outer.clone(),
+            prefix,
+            None,
+            Vec::new(),
+        ));
         assert!(matches!(
             second,
             Err(Failure::Injected(Operation::Parent { height: 1 }))

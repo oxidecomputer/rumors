@@ -72,7 +72,7 @@ fn parent_of(
     prefix: Prefix<S<Z>>,
     children: Vec<(u8, Option<typed::Node<Z>>)>,
 ) -> Option<typed::Node<S<Z>>> {
-    pollster::block_on(<Local as Backend>::parent(Local, prefix, children))
+    pollster::block_on(<Local as Backend>::parent(Local, prefix, None, children))
         .unwrap_or_else(|e| match e {})
 }
 
@@ -167,6 +167,7 @@ fn fills_pendings_in_order() {
             (2, Resolve::Ready(Some(erased(b.clone())))),
             (5, Resolve::Pending),
         ],
+        original: None,
         charge: Default::default(),
         copies: Default::default(),
     };
@@ -201,6 +202,7 @@ fn ready_none_is_deletion() {
             (1, Resolve::Ready(Some(erased(a.clone())))),
             (2, Resolve::Ready(None)),
         ],
+        original: None,
         charge: Default::default(),
         copies: Default::default(),
     };
@@ -223,6 +225,7 @@ fn empty_resolution_assembles_to_none() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![],
+        original: None,
         charge: Default::default(),
         copies: Default::default(),
     };
@@ -237,6 +240,7 @@ fn all_deleted_resolution_assembles_to_none() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Ready(None)), (2, Resolve::Ready(None))],
+        original: None,
         charge: Default::default(),
         copies: Default::default(),
     };
@@ -257,12 +261,14 @@ fn chains_two_instances() {
             (1, Resolve::Ready(Some(erased(a.clone())))),
             (7, Resolve::Ready(Some(erased(b.clone())))),
         ],
+        original: None,
         charge: Default::default(),
         copies: Default::default(),
     })];
     let upper: Vec<Item> = vec![Ok(Resolution {
         prefix: parent_prefix(3).pop().0.erase(),
         resolved: vec![(3, Resolve::Pending)],
+        original: None,
         charge: Default::default(),
         copies: Default::default(),
     })];
@@ -280,6 +286,7 @@ fn chains_two_instances() {
     let expected = pollster::block_on(<Local as Backend>::parent(
         Local,
         parent_prefix(3).pop().0,
+        None,
         vec![(3, Some(inner))],
     ))
     .unwrap_or_else(|e| match e {});
@@ -310,6 +317,7 @@ fn level_error_passes_through() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Pending)],
+        original: None,
         charge: Default::default(),
         copies: Default::default(),
     };
@@ -354,7 +362,7 @@ fn finished_resolution_keeps_no_charge_for_its_question() {
     let children = ours.len();
     let bound = ReplyBound::of(prefix.height(), children, Grandchildren::ONE);
     let mut grant = ledger.charge(Holding::Questions, 1 << 20);
-    let query = charges::query(&mut grant, prefix, ours, bound, 0);
+    let query = charges::query(&mut grant, prefix, None, ours, bound, 0);
     drop(grant);
     assert!(
         ledger.held_for(Holding::Questions) > 0,

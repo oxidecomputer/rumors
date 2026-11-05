@@ -37,6 +37,9 @@ where
     prefix: ErasedPrefix,
     /// Held children still awaiting a reaction.
     fan: Peekable<std::vec::IntoIter<(u8, B::Erased)>>,
+    /// The node those children were listed from, which the resolution
+    /// carries to assembly.
+    original: Option<B::Erased>,
     /// Child resolutions accumulated in radix order.
     resolved: Vec<(u8, Resolve<B::Erased>)>,
     /// The peer's declared greeting version: every supplied subtree's
@@ -94,6 +97,7 @@ where
         Query {
             prefix,
             ours,
+            original,
             bound,
             charge,
             copies,
@@ -106,6 +110,7 @@ where
         Self {
             prefix,
             fan: ours.into_iter().peekable(),
+            original,
             // Sized at the reservation's slots, so the resolution holds
             // exactly what its part of the reservation prices.
             resolved: Vec::with_capacity(bound.reactions),
@@ -212,6 +217,7 @@ where
             Ok(Resolution {
                 prefix: self.prefix,
                 resolved: self.resolved,
+                original: self.original,
                 charge: self.reservation.slots,
                 copies: self.copies,
             })

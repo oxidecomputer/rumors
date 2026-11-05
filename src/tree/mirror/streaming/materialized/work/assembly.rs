@@ -62,6 +62,9 @@ where
 /// Pairing is positional: resolutions arrive in query order and `level`
 /// carries one item per `Pending` in that same order. An empty resolution
 /// reaches [`Backend::parent`] with an empty group and resolves to `None`.
+/// Each resolution hands the backend the node this side held at its prefix
+/// before the walk explored it, so a scope the session left unchanged can
+/// come back as that node.
 pub(super) fn assemble<B>(
     backend: B,
     resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send,
@@ -77,6 +80,7 @@ where
             let Resolution {
                 prefix,
                 resolved,
+                original,
                 charge: _charge,
                 copies: _copies,
             } = resolved?;
@@ -92,7 +96,7 @@ where
                     }
                 }));
             }
-            yield ops::parent(backend.clone(), prefix, children).await?;
+            yield ops::parent(backend.clone(), prefix, original, children).await?;
         }
     }
 }

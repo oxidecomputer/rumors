@@ -171,6 +171,7 @@ impl Backend for Local {
     fn parent<H>(
         self,
         _prefix: Prefix<S<H>>,
+        _original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where

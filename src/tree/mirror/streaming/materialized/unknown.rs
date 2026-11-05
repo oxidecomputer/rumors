@@ -116,14 +116,15 @@ where
         // children, and reassemble the survivors from the pruned radix
         // group — `None` entries are the children that pruned away. A group
         // that prunes away entirely reassembles to `None`, reporting the
-        // whole node known one level up.
-        let children = ops::children_of(backend, prefix, node).await?;
+        // whole node known one level up. The node itself goes to the
+        // reassembly, which can return it when nothing pruned away.
+        let children = ops::children_of(backend, prefix, node.clone()).await?;
         let mut group = Vec::with_capacity(children.len());
         for (radix, child) in children {
             let survivor = unknown(backend, known, prefix.push(radix), child, stats).await?;
             group.push((radix, survivor));
         }
-        Ok(ops::parent(backend.clone(), prefix, group).await?)
+        Ok(ops::parent(backend.clone(), prefix, Some(node), group).await?)
     }
     .boxed()
 }
@@ -131,14 +132,13 @@ where
 /// The bytes [`unknown_providing`] allocates exploding `node` itself, read
 /// before it runs, so a caller can charge them first.
 ///
-/// A wholly unknown node survives whole, so [`unknown_providing`] keeps it
-/// and explodes a second handle to it. The explosion's bytes are therefore
+/// A wholly unknown node survives whole, and a mixed one goes to the
+/// reassembly of its survivors, so [`unknown_providing`] keeps either and
+/// explodes a second handle to it. The explosion's bytes are therefore
 /// read here while a second handle is held: a backend that peels an
 /// unshared node in place must copy a shared one, and the in-memory backend
-/// does. A mixed node is exploded through the handle the caller passes,
-/// with no second handle, so its bytes are read as it stands; a wholly
-/// known one is not exploded. The explosions of the recursion below a mixed
-/// node are not counted.
+/// does. A wholly known node is not exploded. The explosions of the
+/// recursion below a mixed node are not counted.
 ///
 /// # Errors
 ///
@@ -149,13 +149,12 @@ pub(super) fn providing_explosion_bytes<E: ErasedNode + Clone>(
     known: &Version,
 ) -> Result<usize, CountError> {
     match knowledge(node, known) {
-        Dominance::Before => {
+        Dominance::Before | Dominance::Between => {
             let second = node.clone();
             let bytes = super::explosion_bytes(node);
             drop(second);
             bytes
         }
-        Dominance::Between => super::explosion_bytes(node),
         Dominance::After => Ok(0),
     }
 }
@@ -191,8 +190,9 @@ where
     }
 
     // Mixed: prune the children one by one; the surviving group is both the
-    // provision list and the material `parent` rebuilds the survivor from.
-    let children = ops::children_of(backend, prefix, node).await?;
+    // provision list and the material `parent` rebuilds the survivor from,
+    // beside the node itself, which it returns when nothing pruned away.
+    let children = ops::children_of(backend, prefix, node.clone()).await?;
     let mut group = Vec::with_capacity(children.len());
     let mut survivors = Vec::new();
     for (radix, child) in children {
@@ -203,7 +203,7 @@ where
         group.push((radix, survivor));
     }
     Ok((
-        ops::parent(backend.clone(), prefix, group).await?,
+        ops::parent(backend.clone(), prefix, Some(node), group).await?,
         survivors,
     ))
 }

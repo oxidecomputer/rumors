@@ -373,6 +373,7 @@ where
     async fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> Result<Option<Self::Node<S<H>>>, Self::Error>
     where
@@ -392,7 +393,10 @@ where
             .into_iter()
             .map(|(radix, child)| (radix, child.map(ChargedNode::into_inner)))
             .collect();
-        let parent = self.inner.parent(prefix, children).await?;
+        let parent = self
+            .inner
+            .parent(prefix, original.map(ChargedNode::into_inner), children)
+            .await?;
         // The presence contract: at least one real child yields a
         // parent, and a group with no real child yields none.
         if parent.is_some() != (fan > 0) {
@@ -962,7 +966,7 @@ where
 {
     let answered = charged
         .clone()
-        .parent::<height::UnderRoot>(Prefix::<height::Root>::new(), Vec::new())
+        .parent::<height::UnderRoot>(Prefix::<height::Root>::new(), None, Vec::new())
         .await
         .unwrap_or_else(|error| fail(&format!("an empty group assembles at rest: {error:?}")));
     drop(answered);

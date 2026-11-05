@@ -225,6 +225,10 @@ pub struct Query<E> {
     pub(crate) prefix: ErasedPrefix,
     /// Our children of the node (empty if we don't have it at all).
     pub(crate) ours: Vec<(u8, E)>,
+    /// The node `ours` was listed from, which the scope's assembly hands
+    /// the backend ([`Backend::parent`]'s `original`), or `None` if we
+    /// don't have it.
+    pub(crate) original: Option<E>,
     /// The bound on the peer's reply, from the grandchild count the peer
     /// gave the node.
     pub(crate) bound: ReplyBound,
@@ -270,6 +274,10 @@ pub struct Resolution<E> {
     pub(crate) prefix: ErasedPrefix,
     /// The possibly-resolved children of the node.
     pub(crate) resolved: Vec<(u8, Resolve<E>)>,
+    /// The node this side held at the prefix before the walk explored it,
+    /// handed to [`Backend::parent`] as its `original`, or `None` if this
+    /// side held nothing there.
+    pub(crate) original: Option<E>,
     /// What the resolution holds: its queue slot and its slots.
     pub(crate) charge: Charge,
     /// The node copies that exploding the node made, which its slots keep
@@ -379,6 +387,9 @@ struct Opening<B: Backend<Node<Z>: Leaf>> {
     ceiling: Version,
     /// The local root fan computed for the greeting.
     fan: Vec<(u8, B::Erased)>,
+    /// The local root the fan was listed from, erased, which the root
+    /// scope's assembly hands the backend as its `original`.
+    root: Option<B::Erased>,
     /// The bytes exploding the root to build the fan copied.
     copies: usize,
     /// The peer's grandchild count of its root.
@@ -667,6 +678,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
             ledger,
             ceiling,
             fan,
+            root: self.root.root.map(B::erase),
             copies,
             peer_grandchildren: peer.grandchildren,
             work,
@@ -691,12 +703,13 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
             ledger,
             ceiling,
             fan,
+            root,
             copies,
             peer_grandchildren,
             mut work,
         } = self.open();
         let (responses, queries, returns, finish) =
-            work.initiator_level(ceiling, fan, copies, peer_grandchildren);
+            work.initiator_level(ceiling, fan, root, copies, peer_grandchildren);
 
         (
             responses,
@@ -726,12 +739,13 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connec
             ledger,
             ceiling,
             fan,
+            root,
             copies,
             peer_grandchildren: _,
             mut work,
         } = self.open();
         let (responses, queries, returns, finish) =
-            work.responder_level(peer_version.clone(), ceiling, fan, copies, requests);
+            work.responder_level(peer_version.clone(), ceiling, fan, root, copies, requests);
 
         (
             responses,
@@ -923,6 +937,7 @@ where
         let request = Query {
             prefix: scope.erase(),
             ours: Vec::new(),
+            original: None,
             bound: ReplyBound::LEAF,
             charge: Charge::default(),
             copies: Charge::default(),

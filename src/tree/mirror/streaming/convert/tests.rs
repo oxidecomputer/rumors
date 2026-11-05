@@ -47,6 +47,7 @@ fn parent_of(prefix: Prefix<S<Z>>, children: Vec<(u8, typed::Node<Z>)>) -> typed
     pollster::block_on(<Local as Backend>::parent(
         Local,
         prefix,
+        None,
         children
             .into_iter()
             .map(|(radix, child)| (radix, Some(child)))

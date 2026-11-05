@@ -98,9 +98,22 @@ where
     /// [`assemble`](Self::assemble), a `None` here becomes a missing assembled
     /// node, which the reply decoder treats as a backend contract violation
     /// and enforces by panic.
+    ///
+    /// `original` is the node that stood at `prefix` before the session
+    /// explored it: the node whose [`children`](Self::children) the session
+    /// listed there, or `None` when nothing was listed, as when this side
+    /// held nothing at `prefix` or the group comes from a leaf stream. The
+    /// group alone decides the result; `original` only lets a backend skip
+    /// work. When the group's surviving children are exactly the children
+    /// `original` lists, at the same radices, the backend may return
+    /// `original` itself, with everything it stores or has computed for it.
+    /// Otherwise it may derive the new node's aggregates from `original`'s
+    /// and those of the children that differ, wherever that derivation is
+    /// exact.
     fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where

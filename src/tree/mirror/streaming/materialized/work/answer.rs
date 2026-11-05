@@ -284,13 +284,19 @@ where
     })
 }
 
-impl<E: ErasedNode> Question<E> {
+impl<E: ErasedNode + Clone> Question<E> {
     /// The most this question's unit holds, before it is built, asked about
     /// a child of `prefix` in a chunk behind `leading` reactions
     /// ([`charges::question_bound`]).
     ///
     /// A disputed child lists this side's children of it, exactly its
     /// child count, which is at most a fan; a request lists none.
+    ///
+    /// Building the question keeps the disputed child for its scope's
+    /// assembly while it explodes it ([`question`]), so its explosion's
+    /// bytes are read here with a second handle held, as the build reads
+    /// them: a backend that peels an unshared node in place must copy a
+    /// shared one.
     ///
     /// # Errors
     ///
@@ -303,7 +309,10 @@ impl<E: ErasedNode> Question<E> {
     ) -> Result<usize, CountError> {
         let (copies, theirs, listed) = match self {
             Self::Dispute { node, theirs, .. } => {
-                (explosion_bytes(node)?, *theirs, node.child_count().min(FAN))
+                let kept = node.clone();
+                let copies = explosion_bytes(node);
+                drop(kept);
+                (copies?, *theirs, node.child_count().min(FAN))
             }
             Self::Request { theirs, .. } => (0, *theirs, 0),
         };
@@ -365,21 +374,24 @@ pub(super) async fn question<B>(
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let (child, ours, theirs, copies) = match question {
+    let (child, original, ours, theirs, copies) = match question {
         Question::Dispute {
             radix,
             node,
             theirs,
         } => {
             let child = prefix.push(radix);
+            // The node is kept for the child scope's assembly, and held
+            // while its explosion's bytes are read, as at the unit's bound.
+            let original = node.clone();
             // Checked here as at the unit's bound ([`Question::bound`]): a
             // report that changed between the two reads would otherwise be
             // charged unchecked.
             let copies = explosion_bytes(&node).map_err(Error::Count)?;
             let ours = holding(Holding::Questions, ops::children_of(backend, child, node)).await?;
-            (child, ours, theirs, copies)
+            (child, Some(original), ours, theirs, copies)
         }
-        Question::Request { radix, theirs } => (prefix.push(radix), Vec::new(), theirs, 0),
+        Question::Request { radix, theirs } => (prefix.push(radix), None, Vec::new(), theirs, 0),
     };
     let reaction = held_by(Holding::OutgoingReplies, || {
         fan_listing(&ours).map(Reaction::Query)
@@ -389,7 +401,7 @@ where
     let bound = ReplyBound::of(child.height(), ours.len(), theirs);
     let room = charges::room::<B::Erased>(grant, bound, ours.len());
     let query = held_by(Holding::Questions, || {
-        charges::query(grant, child, ours, bound, copies)
+        charges::query(grant, child, original, ours, bound, copies)
     });
     Ok((reaction, query, Carried::Question { record, room }))
 }

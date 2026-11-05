@@ -147,6 +147,7 @@ where
             .iter()
             .map(|(radix, node)| (*radix, <Local as Backend>::erase(node.clone())))
             .collect(),
+        original: None,
         bound: Default::default(),
         charge: Default::default(),
         copies: Default::default(),
@@ -224,6 +225,7 @@ where
                 Some(Query {
                     prefix: prefix.erase(),
                     ours: Vec::new(),
+                    original: None,
                     bound: Default::default(),
                     charge: Default::default(),
                     copies: Default::default(),
@@ -244,6 +246,7 @@ where
             Some(Query {
                 prefix: prefix.erase(),
                 ours: vec![(5, <Local as Backend>::erase(ours[0].1.clone()))],
+                original: None,
                 bound: Default::default(),
                 charge: Default::default(),
                 copies: Default::default(),
@@ -264,6 +267,7 @@ where
                 Some(Query {
                     prefix: prefix.erase(),
                     ours: Vec::new(),
+                    original: None,
                     bound: Default::default(),
                     charge: Default::default(),
                     copies: Default::default(),
@@ -577,7 +581,13 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
     let mut work = Work::new(Local, Recorder::default(), Default::default());
     // The channels the leg publishes into stay open for the run: a closed
     // one ends the leg quietly instead of reporting.
-    let (responses, _asked, _returns, _finish) =
-        work.responder_level(declared.clone(), declared, fan, 0, stream::iter(requests));
+    let (responses, _asked, _returns, _finish) = work.responder_level(
+        declared.clone(),
+        declared,
+        fan,
+        None,
+        0,
+        stream::iter(requests),
+    );
     reported_violation(work, responses)
 }

@@ -343,10 +343,13 @@ pub(crate) mod ops {
     /// child group ([`Backend::parent`], erased).
     ///
     /// `prefix` is the parent's own prefix, carrying the same
-    /// length-is-height witness as [`children_of`].
+    /// length-is-height witness as [`children_of`]; `original` is the node
+    /// listed at `prefix` before the session explored it, if any, erased
+    /// at that height.
     pub(crate) async fn parent<B>(
         backend: B,
         prefix: ErasedPrefix,
+        original: Option<B::Erased>,
         children: Vec<(u8, Option<B::Erased>)>,
     ) -> Result<Option<B::Erased>, B::Error>
     where
@@ -358,7 +361,11 @@ pub(crate) mod ops {
                 .map(|(radix, child)| (radix, child.map(B::assume::<<H as Pred>::Pred>)))
                 .collect();
             Ok(backend
-                .parent::<<H as Pred>::Pred>(prefix.assume::<H>(), children)
+                .parent::<<H as Pred>::Pred>(
+                    prefix.assume::<H>(),
+                    original.map(B::assume::<H>),
+                    children,
+                )
                 .await?
                 .map(B::erase))
         })

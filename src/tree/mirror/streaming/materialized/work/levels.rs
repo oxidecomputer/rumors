@@ -149,10 +149,14 @@ where
     /// The opening reply is that question alone. Root children only this
     /// side holds travel as ordinary supplies, answering the responder's
     /// empty queries for them one level down.
+    ///
+    /// `root` is the root `fan` was listed from, which the question carries
+    /// to the root's assembly.
     pub fn initiator_level(
         &mut self,
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
+        root: Option<B::Erased>,
         copies: usize,
         responder: Grandchildren,
     ) -> (
@@ -188,7 +192,7 @@ where
             .map_err(Error::Count)?;
             let record = charges::record(&mut grant, fan.len());
             let room = charges::room::<B::Erased>(&mut grant, bound, fan.len());
-            let query = charges::query(&mut grant, root_scope, fan, bound, copies);
+            let query = charges::query(&mut grant, root_scope, root, fan, bound, copies);
             yield held_by(Holding::OutgoingReplies, || {
                 charges::chunk::<B>(&mut grant, listing, true, Carried::Question { record, room })
             });
@@ -225,11 +229,15 @@ where
     /// than exploding the root itself.
     ///
     /// The opening reply is the initiator's root question and nothing else.
+    ///
+    /// `root` is the root `fan` was listed from, which the root's resolution
+    /// carries to its assembly.
     pub fn responder_level(
         &mut self,
         their_version: Version,
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
+        root: Option<B::Erased>,
         copies: usize,
         requests: impl Requests<B, UnderRoot>,
     ) -> (
@@ -306,7 +314,7 @@ where
             .await?
             .into_parts();
             let mut unpublished =
-                Some(charges::resolution(&mut answer_grant, root_scope, resolved, kept));
+                Some(charges::resolution(&mut answer_grant, root_scope, root, resolved, kept));
             // The grant now needs only the reply's last chunk, if that asks
             // nothing; the rest returns before any question waits for
             // admission, which the returned bytes may admit.
@@ -490,6 +498,11 @@ where
                         continue;
                     }
 
+                    // The node is kept for its scope's assembly, so the
+                    // explosion's bytes are read with that second handle
+                    // held: a backend that peels an unshared node in place
+                    // must copy one the walk keeps.
+                    let original = node.clone();
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
                     let children = charges::answer_children(node.child_radices(), &listing);
                     let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
@@ -508,7 +521,13 @@ where
                     .await?
                     .into_parts();
                     let mut unpublished =
-                        Some(charges::resolution(&mut answer_grant, child_prefix, resolved, kept));
+                        Some(charges::resolution(
+                            &mut answer_grant,
+                            child_prefix,
+                            Some(original),
+                            resolved,
+                            kept,
+                        ));
                     // The grant now needs only the reply's last chunk, if
                     // that asks nothing; the rest returns before any
                     // question waits for admission, which the returned bytes
@@ -677,6 +696,11 @@ where
                         continue;
                     }
 
+                    // The node is kept for its scope's assembly, so the
+                    // explosion's bytes are read with that second handle
+                    // held: a backend that peels an unshared node in place
+                    // must copy one the walk keeps.
+                    let original = node.clone();
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
                     let children = charges::answer_children(node.child_radices(), &listing);
                     let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
@@ -692,7 +716,13 @@ where
                     )
                     .into_parts();
                     let mut unpublished =
-                        Some(charges::resolution(&mut answer_grant, child_prefix, resolved, kept));
+                        Some(charges::resolution(
+                            &mut answer_grant,
+                            child_prefix,
+                            Some(original),
+                            resolved,
+                            kept,
+                        ));
                     // The grant now needs only the reply's last chunk, if
                     // that asks nothing; the rest returns before any
                     // question waits for admission, which the returned bytes

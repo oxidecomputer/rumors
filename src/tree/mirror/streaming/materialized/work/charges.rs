@@ -98,12 +98,13 @@ const fn chunk_bound<E, Err>(reactions: usize, listing: usize) -> usize {
         + listing * size_of::<Listed>()
 }
 
-/// A resolution of `resolved` at `prefix`, built out of `grant` for its
-/// queue slot and slots, and keeping `copies`, the node copies exploding
-/// its node made, until its assembly.
+/// A resolution of `resolved` at `prefix`, exploded from `original`, built
+/// out of `grant` for its queue slot and slots, and keeping `copies`, the
+/// node copies exploding its node made, until its assembly.
 pub(super) fn resolution<E>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
+    original: Option<E>,
     resolved: Vec<(u8, Resolve<E>)>,
     copies: Charge,
 ) -> Resolution<E> {
@@ -111,6 +112,7 @@ pub(super) fn resolution<E>(
     Resolution {
         prefix,
         resolved,
+        original,
         charge: grant.take(Holding::Resolutions, bytes),
         copies,
     }
@@ -277,15 +279,18 @@ pub(super) fn record(grant: &mut Charge, listed: usize) -> Charge {
     grant.take(Holding::QuestionRecords, record_bytes(listed))
 }
 
-/// The question about `prefix` that lists `ours`, whose reply `bound`
-/// bounds, built out of `grant`.
+/// The question about `prefix` that lists `ours`, the children of
+/// `original`, whose reply `bound` bounds, built out of `grant`.
 ///
 /// It is charged for what it holds, `copies` of node copies listing its
 /// children made included, and for the parts of its reply's reservation it
-/// keeps ([`reserve`]).
+/// keeps ([`reserve`]). Its handle to `original` sits inline in its queue
+/// slot and allocates nothing: it keeps alive a node the walk already held,
+/// the one it listed `ours` from.
 pub(super) fn query<E>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
+    original: Option<E>,
     ours: Vec<(u8, E)>,
     bound: ReplyBound,
     copies: usize,
@@ -297,6 +302,7 @@ pub(super) fn query<E>(
         copies: grant.take(Holding::ExplodedNodes, copies),
         reservation: reserve::<E>(grant, prefix.height(), bound, ours.len()),
         ours,
+        original,
         bound,
     }
 }
