@@ -26,6 +26,7 @@ use crate::{
                 proxy::{Error, send_or_cancel},
                 streams::{AcceptDriver, AcceptError, FirstStreamError},
             },
+            stats::Recorder,
             tasks::complete,
             window::Window,
         },
@@ -127,6 +128,9 @@ where
     physical: Physical<R, W, A>,
     /// Tasks driven concurrently when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
+    /// The session's stats recorder, which counts the window stalls of the
+    /// proxy's window-sized question queues.
+    stats: Recorder,
     /// Records reply and scope publication order in tests.
     progress: Progress,
 }
@@ -162,6 +166,7 @@ where
         budget: RunBudget,
         remote_listing: Vec<(u8, Hash)>,
         physical: Physical<R, W, A>,
+        stats: Recorder,
     ) -> Self {
         Self {
             ingress,
@@ -170,6 +175,7 @@ where
             remote_listing,
             physical,
             tasks: Vec::new(),
+            stats,
             progress: Progress::new(),
         }
     }

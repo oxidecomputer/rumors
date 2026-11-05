@@ -74,6 +74,7 @@ fn parked_session() -> ParkedSession {
             accept,
             errors,
         },
+        Recorder::default(),
     );
     ParkedSession {
         work,

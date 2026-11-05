@@ -17,14 +17,15 @@ use crate::link::Connector;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::{Receiver, Sender},
+        channel::{Receiver, WindowSender},
         protocol::BoxRequests,
         remote::{
             adapter::{self, Encoded, Scope, encode_reply, opening_listing},
             codec::{ReplyFrame, RunBudget},
-            proxy::{Error, send_or_cancel},
+            proxy::Error,
             streams::StreamSender,
         },
+        tasks::cancelled,
     },
     typed::height::{Height, UnderRoot, Z},
 };
@@ -38,7 +39,7 @@ pub async fn terminal<B, C>(
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
-    mut questions: Option<Sender<Scope>>,
+    mut questions: Option<WindowSender<Scope>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
@@ -78,7 +79,7 @@ pub async fn replies<B, C>(
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: StreamSender<C>,
-    mut questions: Sender<Scope>,
+    mut questions: WindowSender<Scope>,
     progress: Progress,
     question_height: usize,
 ) -> Result<(), Error<B::Error>>
@@ -104,7 +105,7 @@ where
 /// satisfied vacuously, and the question publishes at once.
 pub async fn opening<B>(
     mut requests: BoxRequests<B::Erased>,
-    mut questions: Sender<Scope>,
+    mut questions: WindowSender<Scope>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
@@ -114,7 +115,7 @@ where
     let listing = opening_listing(request).map_err(Error::OpeningEncode)?;
     progress.wire_reply(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
-    send_or_cancel(&mut questions, Scope::opening(&listing)).await;
+    publish_one(&mut questions, Scope::opening(&listing)).await;
     if requests.next().await.is_some() {
         return Err(Error::ExtraOpening);
     }
@@ -140,14 +141,21 @@ where
 
 /// Publish one complete reply's questions in their wire order.
 async fn publish(
-    questions: &mut Sender<Scope>,
+    questions: &mut WindowSender<Scope>,
     batch: Vec<Scope>,
     progress: Progress,
     height: usize,
 ) {
     for question in batch {
         progress.local_question(height);
-        send_or_cancel(questions, question).await;
+        publish_one(questions, question).await;
+    }
+}
+
+/// Publish one question, or await cancellation if its consumer has gone.
+async fn publish_one(questions: &mut WindowSender<Scope>, question: Scope) {
+    if questions.send(question).await.is_err() {
+        cancelled().await;
     }
 }
 

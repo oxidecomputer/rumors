@@ -26,7 +26,7 @@ use futures::{StreamExt as _, stream};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::{QueueKind, QueueRole, Receiver, SendError, Sender, channel},
+        channel::{QueueKind, QueueRole, Receiver, Sender, WindowSender, channel},
         erased::{self, Reply, ReplyResultStream},
         materialized::{Error, Query, Resolution},
         stats::Recorder,
@@ -45,30 +45,6 @@ pub(super) type OkReceiverStream<T, E> = stream::Map<Receiver<T>, fn(T) -> Resul
 fn ok_channel<T, E>(role: QueueRole, capacity: usize) -> (Sender<T>, OkReceiverStream<T, E>) {
     let (sender, receiver) = channel(role, capacity);
     (sender, receiver.map(Ok))
-}
-
-/// A window-controlled sender that records capacity pressure.
-pub(super) struct WindowSender<T> {
-    /// The bounded protocol edge.
-    inner: Sender<T>,
-    /// The session receiving the pressure signal.
-    stats: Recorder,
-}
-
-impl<T> WindowSender<T> {
-    /// Wrap a sender whose capacity was derived from the session window.
-    fn new(inner: Sender<T>, stats: &Recorder) -> Self {
-        Self {
-            inner,
-            stats: stats.clone(),
-        }
-    }
-
-    /// Send one item and record whether the window was full on arrival.
-    pub(super) async fn send(&mut self, item: T) -> Result<(), SendError<T>> {
-        let stats = &self.stats;
-        self.inner.send_with(item, || stats.window_stall()).await
-    }
 }
 
 /// Buffer outgoing protocol replies one at a time.

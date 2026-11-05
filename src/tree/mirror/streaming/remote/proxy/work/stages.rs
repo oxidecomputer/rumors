@@ -127,8 +127,11 @@ where
         incoming: StreamReceiver,
     ) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
         let requests = requests.erase();
-        let (local_questions, questions) =
-            queues::local_questions(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
+        let (local_questions, questions) = queues::local_questions(
+            UnderRoot::HEIGHT,
+            self.window.capacity(UnderRoot::HEIGHT),
+            &self.stats,
+        );
         self.spawn(encode::opening::<B>(
             requests,
             local_questions,
@@ -156,8 +159,11 @@ where
         S<S<H>>: Height,
     {
         let requests = requests.erase();
-        let (local_questions, questions) =
-            queues::local_questions(<S<H>>::HEIGHT, self.window.capacity(<S<H>>::HEIGHT));
+        let (local_questions, questions) = queues::local_questions(
+            <S<H>>::HEIGHT,
+            self.window.capacity(<S<H>>::HEIGHT),
+            &self.stats,
+        );
         self.spawn(encode::replies(
             self.backend(),
             self.budget,
@@ -211,7 +217,7 @@ where
     ) -> (BoxResponses<B, Z, Error<B::Error>>, Receiver<Scope>) {
         let requests = requests.erase();
         let (local_questions, questions) =
-            queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
+            queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT), &self.stats);
         self.spawn(encode::replies(
             self.backend(),
             self.budget,
@@ -301,7 +307,7 @@ where
     {
         let requests = requests.erase();
         let (local_questions, questions) =
-            queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
+            queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT), &self.stats);
         self.spawn(encode::terminal(
             self.backend(),
             self.budget,

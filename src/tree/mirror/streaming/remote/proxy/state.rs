@@ -173,6 +173,7 @@ where
                 accept,
                 errors,
             },
+            stats.clone(),
         );
         Session {
             remote,

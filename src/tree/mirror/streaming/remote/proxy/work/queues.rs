@@ -14,8 +14,9 @@
 //! - [`next_scopes`] carries scopes released by decoded replies.
 
 use crate::tree::mirror::streaming::{
-    channel::{QueueKind, QueueRole, Receiver, Sender, channel},
+    channel::{QueueKind, QueueRole, Receiver, Sender, WindowSender, channel},
     remote::adapter::Scope,
+    stats::Recorder,
 };
 
 /// Carry flushed-but-unanswered questions, window-wide, labeled at the
@@ -30,11 +31,19 @@ use crate::tree::mirror::streaming::{
 /// recycle its slots while those replies remain outstanding, so it cannot
 /// bound this edge. Giving this queue the same depth-specific window preserves
 /// the session's population bound.
-pub fn local_questions(height: usize, capacity: usize) -> (Sender<Scope>, Receiver<Scope>) {
-    channel(
+///
+/// Sized by the window, so it counts its stalls with the walk's window
+/// queues.
+pub fn local_questions(
+    height: usize,
+    capacity: usize,
+    stats: &Recorder,
+) -> (WindowSender<Scope>, Receiver<Scope>) {
+    let (sender, receiver) = channel(
         QueueRole::new(QueueKind::ProxyLocalQuestions, height),
         capacity,
-    )
+    );
+    (WindowSender::new(sender, stats), receiver)
 }
 
 /// Carry scopes derived from a response already published locally,
