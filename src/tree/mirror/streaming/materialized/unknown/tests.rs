@@ -1,8 +1,13 @@
 //! The streaming [`unknown`] prune must agree with the in-memory
 //! [`Unknown`](crate::tree::traverse::unknown::Unknown) oracle, and with a
 //! leaf-by-leaf causal sieve that reads no subtree bounds.
+//!
+//! Combs judge descents mixed at every level, to thirty levels deep,
+//! against the leaves their construction places beyond the counterparty's
+//! version.
 
 use std::collections::BTreeSet;
+use std::task::{Context, Poll};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -18,7 +23,7 @@ use crate::{
         arb::{arb_divergent_roots, leaf_sibling_path, nth_party, roots_at_depth},
         mirror::contained,
         mirror::streaming::{
-            Backend, ErasedNode, Local,
+            Backend, ErasedNode, FAN, Local,
             erased::ops,
             materialized::unknown::{unknown, unknown_providing},
         },
@@ -259,6 +264,141 @@ proptest! {
                     .map(|parent| <Local as Backend>::assume(&Prefix::<Root>::new(), parent).into_node());
                 prop_assert_eq!(held(&root.ceiling, parent), expected);
             }
+        }
+    }
+}
+
+/// The deepest comb [`a_deep_mixed_descent_keeps_what_the_counterparty_lacks`]
+/// prunes: one level short of the leaves' parents, so that every side
+/// subtree of every level can hold several leaves.
+const COMB_DEEPEST: usize = 30;
+
+/// The leaves each side subtree of a branching comb holds: the fewest the
+/// tree stores as a branch rather than as a compressed path to one leaf.
+const COMB_SIDE_LEAVES: usize = 2;
+
+/// A comb: a root whose all-zero path is mixed at each of its first
+/// `depth` levels, so the filter descends it that deep, beside full fans of
+/// side subtrees it settles whole.
+///
+/// At each level the node on the all-zero path holds the all-zero child,
+/// which continues the comb, beside one subtree for every other radix, each
+/// of `side` leaves, and the comb ends at the leaf on the all-zero path. One
+/// party stamps every leaf, so the versions are totally ordered: the leaves
+/// under odd radices come first, and the counterparty's version is the one
+/// that knows exactly them, so each subtree under an odd radix is wholly
+/// known to it and each under an even radix wholly unknown. Every node on
+/// the path holds both, so the filter must descend it, and no side subtree
+/// does, so it never descends one. Returns the root, its ceiling, the
+/// counterparty's version, and the canonical versions of the leaves it
+/// lacks.
+fn comb(depth: usize, side: usize) -> (typed::node::Root, Version, Version, BTreeSet<Vec<u8>>) {
+    let side_path = |level: usize, radix: u8, leaf: usize| {
+        let mut path = [0; 32];
+        path[level] = radix;
+        path[level + 1] = u8::try_from(leaf).expect("a side subtree holds few leaves");
+        path
+    };
+    let sides = |odd: bool| {
+        (0..depth).flat_map(move |level| {
+            (1..=u8::MAX)
+                .filter(move |radix| (radix % 2 == 1) == odd)
+                .flat_map(move |radix| (0..side).map(move |leaf| side_path(level, radix, leaf)))
+        })
+    };
+    let party = nth_party(0);
+    let mut stamp = Version::new();
+    let mut actions = Vec::new();
+    for path in sides(true) {
+        stamp.tick(&party);
+        actions.push((
+            Path::from(path),
+            stamp.clone(),
+            Action::Insert(Message::new(())),
+        ));
+    }
+    let counterparty = stamp.clone();
+    let mut lacking = BTreeSet::new();
+    for path in sides(false).chain([[0; 32]]) {
+        stamp.tick(&party);
+        lacking.insert(stamp.as_bytes().to_vec());
+        actions.push((
+            Path::from(path),
+            stamp.clone(),
+            Action::Insert(Message::new(())),
+        ));
+    }
+    let root = act(None, actions, &mut |_, _| ()).expect("a comb holds leaves");
+    (root, stamp, counterparty, lacking)
+}
+
+/// A deep mixed descent keeps exactly the leaves its counterparty lacks,
+/// credits every other leaf as shed, and holds a full fan of children and
+/// of their survivors at every level it descends.
+///
+/// Every comb ([`comb`]) is mixed at each of its first `depth` levels, so
+/// the filter descends it that deep, recursing once per level, while it
+/// settles every side subtree from its version bounds alone. The test
+/// exhausts the depths from one to [`COMB_DEEPEST`], with side subtrees of
+/// one leaf, which the tree stores as compressed paths, and of
+/// [`COMB_SIDE_LEAVES`], which it stores as branches.
+///
+/// The filter holds each level's children and the group of their
+/// survivors until it reassembles the level, so at the deepest level of a
+/// descent it holds both for every level above, each vector a full fan's
+/// capacity. The peak heap of the prune must therefore reach both vectors
+/// per level of the descent, which the budget leaves out and which this
+/// floor shows grow with the descent's depth. No ceiling is asserted:
+/// test builds of the in-memory backend wrap each listing and reassembly
+/// in a schedule that allocates, so a ceiling measured here would bound
+/// that wrapper as much as the filter.
+#[test]
+fn a_deep_mixed_descent_keeps_what_the_counterparty_lacks() {
+    let per_level = FAN
+        * (std::mem::size_of::<(u8, <Local as Backend>::Erased)>()
+            + std::mem::size_of::<(u8, Option<<Local as Backend>::Erased>)>());
+    for side in [1, COMB_SIDE_LEAVES] {
+        for depth in 1..=COMB_DEEPEST {
+            let (root, ceiling, counterparty, lacking) = comb(depth, side);
+            let leaves = held(&ceiling, Some(root.clone())).len();
+            let stats = Recorder::default();
+            let mut pruning = unknown::<Local>(
+                &Local,
+                &counterparty,
+                Prefix::new().erase(),
+                <Local as Backend>::erase(root.clone().into()),
+                &stats,
+            );
+            let mut cx = Context::from_waker(std::task::Waker::noop());
+            let (heap, polled) = alloc_meter::measure(|| pruning.as_mut().poll(&mut cx));
+            let Poll::Ready(pruned) = polled else {
+                panic!("the in-memory backend never waits");
+            };
+            let pruned = pruned
+                .expect("the in-memory backend lists exactly the children it reports")
+                .map(|pruned| {
+                    <Local as Backend>::assume(&Prefix::<Root>::new(), pruned).into_node()
+                });
+            assert_eq!(
+                held(&ceiling, pruned),
+                lacking,
+                "the prune of a comb {depth} levels deep, {side}-leaf sides, keeps exactly the \
+                 leaves the counterparty lacks",
+            );
+            assert_eq!(
+                stats.snapshot().messages_shed,
+                widen(leaves - lacking.len()),
+                "the prune of a comb {depth} levels deep, {side}-leaf sides, credits every \
+                 known leaf as shed",
+            );
+            assert!(
+                heap.peak_bytes >= depth * per_level,
+                "the prune of a comb {depth} levels deep, {side}-leaf sides, peaked at {} B, \
+                 below a full fan of children and survivors per level, {} B",
+                heap.peak_bytes,
+                depth * per_level,
+            );
+            drop(root);
         }
     }
 }
