@@ -73,7 +73,7 @@ cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", rev = "a6a7
 ciborium = "=0.2.2"
 clap = "4"
 console_error_panic_hook = "0.1"
-criterion = "0.5"
+criterion = "0.8"
 csv = "1"
 dirs = "7"
 dlmalloc = "0.2"
