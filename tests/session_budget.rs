@@ -64,6 +64,11 @@
 //! under which the crate's guarantees are stated. Equal, fully divergent
 //! hashed sets are the most adverse fixture within that model.
 //!
+//! One fixture has side `A` redact messages both sides received before
+//! they diverged ([`redacting_replicas_keep_the_bound`]), so `B`'s supplies
+//! pass through the deletion filter over subtrees that mix leaves `A`
+//! lacks with leaves `A`'s version knows.
+//!
 //! Both peers set their run target to [`COMPARISON_FRAME_BYTES`], the
 //! largest frame that carries one comparison, so no frame of the session is
 //! larger and the wire's allowance below is a few frames' worth.
@@ -142,9 +147,12 @@
 //! The walk charges each of those explosions to its ledger before making
 //! it, so each side's charges to the exploded nodes' place must sum to the
 //! same bytes: the sum of every rise in that place's account. The one
-//! explosion no charge covers, the deletion filter's below a node whose
-//! leaves its peer partly knows, never happens here, since neither side's
-//! version knows a leaf of the other's.
+//! explosion no charge covers is the deletion filter's below a node whose
+//! leaves its peer partly knows. It never happens in the fully divergent
+//! fixtures, where neither side's version knows a leaf of the other's. The
+//! redacting fixture prunes such nodes, but at its size none of the
+//! filter's explosions below them copies a node: the identity holding
+//! there is the measurement that shows it.
 //!
 //! # The ledger
 //!
@@ -178,8 +186,10 @@
 //!   alone cannot see a missing charge there: a chunk's charge returns
 //!   once its frames are written, so its items never outlive it by more
 //!   than the place's scratch. The floor's premise is that the deletion
-//!   filter prunes nothing, which holds here, since neither side's version
-//!   knows a leaf of the other's.
+//!   filter prunes nothing, which holds in every fixture but the redacting
+//!   one: there a supply answer can list a fan of children of which one
+//!   survives to be charged as a reaction, so no share is derived, and the
+//!   floor is not asserted.
 //!
 //! It also holds each ledger to its bound: at most the budget outside its
 //! floor slots, at most the peer's memory budget in all, and every item
@@ -307,7 +317,11 @@ struct Fixture {
 ///
 /// Each fork runs on the suite's run target and on a memory budget whose
 /// ledger admits work against `budget` ([`admitting`]).
-fn fixture(messages: [u64; 2], budget: usize) -> Fixture {
+///
+/// The network first holds `redacted` messages both forks receive, which
+/// side `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with
+/// leaves `A`'s version knows and `B` must not resend.
+fn fixture(messages: [u64; 2], redacted: u64, budget: usize) -> Fixture {
     let configure = |peer: Peer<u64>| {
         peer.sync_memory_budget(admitting(budget))
             .target_message_size(COMPARISON_FRAME_BYTES)
@@ -315,11 +329,17 @@ fn fixture(messages: [u64; 2], budget: usize) -> Fixture {
     let (built, [a, b]) = measure(|| {
         block_on(async {
             let seed = Peer::<u64>::seed().into_rumors();
+            seed.send_all((0..redacted).map(|value| 2_000_000 + value))
+                .expect("the shared messages encode");
             [
                 bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
                 bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
             ]
         })
+    });
+    let (redactions, ()) = measure(|| {
+        let shared: Vec<_> = a.snapshot().versions().cloned().collect();
+        a.redact_all(&shared);
     });
     let [a_messages, b_messages] = messages;
     let (a_sends, ()) = measure(|| a.send_all(0..a_messages).expect("A's messages encode"));
@@ -329,7 +349,7 @@ fn fixture(messages: [u64; 2], budget: usize) -> Fixture {
     });
     let (join, joined) = measure(|| join_snapshots(&a.snapshot(), &b.snapshot()));
     drop(joined);
-    let allocations = [built, a_sends, b_sends, join]
+    let allocations = [built, redactions, a_sends, b_sends, join]
         .iter()
         .map(|stats| stats.allocations + stats.reallocations)
         .sum();
@@ -638,9 +658,12 @@ fn report(holding: Holding, bytes: usize) {
     }
 }
 
-/// Runs one session between two fully divergent peers holding `messages`
-/// messages, in [`Side::BOTH`] order, both on `budget`, over the held link
-/// released by `schedule`, and classifies what it allocated.
+/// Runs one session between the peers [`fixture`] builds, both on
+/// `budget`, over the held link released by `schedule`, and classifies what
+/// it allocated.
+///
+/// The peers hold `messages` messages, in [`Side::BOTH`] order, that the
+/// other lacks, and `redacted` more that both received and `A` redacted.
 ///
 /// # Panics
 ///
@@ -648,6 +671,7 @@ fn report(holding: Holding, bytes: usize) {
 /// a surviving block outlives both its peer and its replica.
 fn run_session(
     messages: [u64; 2],
+    redacted: u64,
     budget: usize,
     schedule: impl FnMut([usize; 2]) -> Release,
 ) -> Run {
@@ -674,7 +698,7 @@ fn run_session(
         sends,
         join,
         allocations,
-    } = fixture(messages, budget);
+    } = fixture(messages, redacted, budget);
     let link = Link::new();
     prepare_pacing();
     for sum in &REPORTED_EXPLOSIONS {
@@ -783,7 +807,7 @@ fn run_session(
 fn reference() -> &'static Run {
     static REFERENCE: OnceLock<Run> = OnceLock::new();
     REFERENCE.get_or_init(|| {
-        run_session([REFERENCE_MESSAGES; 2], 0, |_| {
+        run_session([REFERENCE_MESSAGES; 2], 0, 0, |_| {
             Release::bytes([Portion::All; 2])
         })
     })
@@ -794,6 +818,8 @@ fn reference() -> &'static Run {
 struct Measured {
     /// Messages per side.
     messages: u64,
+    /// Messages both sides received and side `A` redacted.
+    redacted: u64,
     /// The budget both peers ran.
     budget: usize,
     /// The bound on wire buffering.
@@ -808,17 +834,30 @@ struct Measured {
 }
 
 impl Measured {
-    /// Measures the session [`run_session`] runs, beside the bounds it is
-    /// judged against.
+    /// Measures the session [`run_session`] runs between fully divergent
+    /// peers, beside the bounds it is judged against.
     fn new(messages: u64, budget: usize, schedule: impl FnMut([usize; 2]) -> Release) -> Self {
+        Self::redacting(messages, 0, budget, schedule)
+    }
+
+    /// Measures the session [`run_session`] runs with `redacted` shared
+    /// messages that side `A` redacted, beside the bounds it is judged
+    /// against.
+    fn redacting(
+        messages: u64,
+        redacted: u64,
+        budget: usize,
+        schedule: impl FnMut([usize; 2]) -> Release,
+    ) -> Self {
         let fixed = Side::BOTH
             .map(|side| reference().sides[side.index()].transient_peak)
             .into_iter()
             .max()
             .expect("a session has two sides") as u128;
-        let run = run_session([messages; 2], budget, schedule);
+        let run = run_session([messages; 2], redacted, budget, schedule);
         Self {
             messages,
+            redacted,
             budget,
             wire: (WIRE_FRAMES * 2 * COMPARISON_FRAME_BYTES) as u128,
             assembly: assembly_allowance() as u128,
@@ -1088,7 +1127,9 @@ fn violation(measured: &Measured) -> Option<String> {
         let outgoing =
             measured.run.ledgers[side.index()].charged[charged_index(Holding::OutgoingReplies)];
         let built = measured.allocated(side, Holding::OutgoingReplies);
-        if outgoing * OUTGOING_REPLIES_FLOOR_DIVISOR < built {
+        // The floor's premise, that the filter prunes nothing, holds only
+        // where nothing is redacted (see the module docs).
+        if measured.redacted == 0 && outgoing * OUTGOING_REPLIES_FLOOR_DIVISOR < built {
             return Some(format!(
                 "{side:?}'s ledger was charged {outgoing} B for outgoing replies that allocated \
                  {built} B, less than 1/{OUTGOING_REPLIES_FLOOR_DIVISOR} of it: {report}"
@@ -1468,6 +1509,39 @@ fn any_release_schedule_keeps_the_bound() {
     }
 }
 
+/// When side `A` has redacted every message the two sides shared, each
+/// place a session keeps state in stays within its bound, and the ledgers
+/// keep their identities.
+///
+/// Each peer's whole transient peak stays within its labels' bounds, at
+/// [`SEARCH_BUDGET`], where units wait.
+///
+/// The fixture's peers share [`SEARCH_MESSAGES`] messages, which `A`
+/// redacts, beside [`SEARCH_MESSAGES`] of each side's own, so `B`'s
+/// subtrees mix leaves `A` lacks with leaves `A`'s version knows. The test
+/// checks that the state was reached: `B` sheds every shared message, and
+/// `A` sheds none.
+#[test]
+fn redacting_replicas_keep_the_bound() {
+    let measured = Measured::redacting(
+        SEARCH_MESSAGES,
+        SEARCH_MESSAGES,
+        SEARCH_BUDGET,
+        release_everything,
+    );
+    println!("{}", measured.report());
+    if let Some(violation) = violation(&measured) {
+        panic!("{violation}");
+    }
+    let shed = Side::BOTH.map(|side| measured.stats(side).messages_shed);
+    assert_eq!(
+        shed,
+        [0, SEARCH_MESSAGES],
+        "B must shed every message A redacted: {}",
+        measured.report()
+    );
+}
+
 /// When one replica joins from empty, the side receiving every message as
 /// whole supplied subtrees holds no more in assembly than the constant
 /// bound, whatever the subtrees' size.
@@ -1486,7 +1560,7 @@ fn any_release_schedule_keeps_the_bound() {
 /// size with probability below 2⁻⁴⁰⁰.
 #[test]
 fn joining_from_empty_bounds_assembly() {
-    let run = run_session([0, MESSAGES], WIDE_BUDGET, release_everything);
+    let run = run_session([0, MESSAGES], 0, WIDE_BUDGET, release_everything);
     let place = Holding::ALL
         .iter()
         .position(|holding| *holding == Holding::Assembly)
