@@ -53,12 +53,18 @@
 //! run, it requires some drawn budget to have slowed its session beyond the
 //! unlimited one, and some pair of two drawn budgets, both below `N*`, so that
 //! the criterion is judged on sessions the budget constrains.
+//!
+//! A second test checks the threshold's own property on the same pairs
+//! ([`the_first_burst_saturates_at_the_depth1_claims_total`]): it runs each
+//! pair on the latency-only link at `D₁`, at `D₁ − 1`, and at one budget drawn
+//! on each side of them, and compares each session's first burst with the
+//! unlimited session's.
 
 use proptest::prelude::*;
 use rumors::testing::LARGEST_GRANT;
-use rumors_testkit::bench::link::LinkConfig;
+use rumors_testkit::bench::link::{LinkConfig, Side};
 use rumors_testkit::bench::session::{
-    self as fixture, Case, LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Session, Shape,
+    self as fixture, Case, DatedAdmission, LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Session, Shape,
 };
 use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::{FLEET_DIVISOR, run};
@@ -327,5 +333,133 @@ fn a_larger_budget_costs_at_most_a_round_trip() {
         constrained > 0,
         "no pair held two drawn budgets below the no-cost point, so (a) judged no pair of \
          constrained sessions",
+    );
+}
+
+/// The first burst of `session` on the latency-only link: the admissions
+/// the responder's ledger made within one round trip of `start`, the time
+/// of its first depth-1 question in the unlimited session.
+///
+/// The responder's ledger is the one whose session reported from `side`.
+/// Its depth-1 questions travel one way to the initiator, which answers at
+/// once, since the link model computes in no time, so no depth-1 reply can
+/// reach the responder before one round trip has passed: until then,
+/// nothing the budget holds can return to admit a depth-1 question that
+/// waited for one.
+fn first_burst(session: &Session, side: Option<Side>, start: u64) -> Vec<DatedAdmission> {
+    let round_trip = 2 * session.case.link.one_way_delay();
+    session
+        .admitted
+        .ledgers
+        .iter()
+        .find(|ledger| ledger.side == side)
+        .unwrap_or_else(|| panic!("no ledger reported from the responder's side, {side:?}"))
+        .dated
+        .iter()
+        .copied()
+        .filter(|admission| admission.at < start + round_trip)
+        .collect()
+}
+
+/// On the latency-only link, a session's first burst is the unlimited
+/// session's at every ledger budget of at least `D₁`, and differs from it
+/// at every budget below `D₁`.
+///
+/// This is the threshold's own property, which the module docs argue under "The
+/// threshold": at a budget of at least `D₁` every depth-1 question the
+/// responder's root answer asks passes its checks as it is asked, and below
+/// `D₁` the check that weighed `D₁` refuses its question. The first burst is
+/// every admission the responder's ledger makes before a depth-1 reply can
+/// reach it ([`first_burst`]), and two bursts are compared admission by
+/// admission, each one's time, unit, grant, and whether it waited or took its
+/// floor slot.
+///
+/// Each case runs the pair at `D₁` and `D₁ − 1`, which the claim must
+/// separate exactly, and at one budget drawn in `[c_max, D₁ − 1)` and one
+/// drawn in `(D₁, N*)`. Neither half may pass vacuously: the unlimited
+/// burst must hold depth-1 questions, and `D₁` must lie strictly between
+/// `c_max` and the no-cost point, so that every budget drawn lies where a
+/// public budget can leave the ledger and below the point where nothing
+/// waits.
+#[test]
+fn the_first_burst_saturates_at_the_depth1_claims_total() {
+    run(
+        None,
+        FLEET_DIVISOR,
+        concat!(
+            module_path!(),
+            "::the_first_burst_saturates_at_the_depth1_claims_total"
+        ),
+        file!(),
+        (
+            shapes(),
+            proptest::sample::select(LINKS.to_vec()),
+            proptest::array::uniform::<_, 2>(0..PARTS),
+            network_seed(),
+        ),
+        |(shape, bdp, parts, network): (Shape, u64, [u32; 2], NetworkSeed)| {
+            let shape = shape.with_network(network);
+            let latency_only = LinkConfig::with_bdp(bdp).latency_only();
+            let [reference] = fixture::run_all([case(shape, latency_only, UNLIMITED)]);
+            let threshold = depth1_claims(&reference);
+            let no_cost = reference.admitted.no_cost_point();
+            assert!(
+                LARGEST_GRANT < threshold && threshold < no_cost,
+                "the premise fails: the depth-1 claims' total {threshold} must lie between \
+                 c_max {LARGEST_GRANT} and the no-cost point {no_cost}: {shape:?}",
+            );
+            let responder = reference
+                .admitted
+                .ledgers
+                .iter()
+                .find(|ledger| {
+                    ledger
+                        .dated
+                        .iter()
+                        .any(|admission| admission.question && admission.depth == 1)
+                })
+                .expect("the responder's root answer asks depth-1 questions");
+            let start = responder
+                .dated
+                .iter()
+                .find(|admission| admission.question && admission.depth == 1)
+                .map(|admission| admission.at)
+                .expect("the responder admitted a depth-1 question");
+            let unlimited = first_burst(&reference, responder.side, start);
+            assert!(
+                unlimited
+                    .iter()
+                    .filter(|admission| admission.question && admission.depth == 1)
+                    .count()
+                    > 1,
+                "the unlimited first burst holds several depth-1 questions: {unlimited:?}",
+            );
+            let budgets = [
+                (between(LARGEST_GRANT, threshold - 1, parts[0]), false),
+                (threshold - 1, false),
+                (threshold, true),
+                (between(threshold + 1, no_cost, parts[1]), true),
+            ];
+            let sessions =
+                fixture::run_all(budgets.map(|(budget, _)| case(shape, latency_only, budget)));
+            for ((budget, saturated), session) in budgets.into_iter().zip(&sessions) {
+                let burst = first_burst(session, responder.side, start);
+                if saturated {
+                    assert_eq!(
+                        burst, unlimited,
+                        "at ledger budget {budget}, at least the depth-1 claims' total \
+                         {threshold}, the first burst is the unlimited session's: {shape:?}",
+                    );
+                } else {
+                    assert_ne!(
+                        burst, unlimited,
+                        "at ledger budget {budget}, below the depth-1 claims' total \
+                         {threshold}, the first burst differs from the unlimited session's: \
+                         {shape:?}",
+                    );
+                }
+            }
+            Ok(())
+        },
     );
 }
