@@ -854,10 +854,8 @@ where
     .window(window);
     let (left_read, left_write) = left_end;
     let (right_read, right_write) = right_end;
-    let remote_right =
-        RemoteHandshaking::start(left_proxy, left_read, left_write, codec).window(window);
-    let remote_left =
-        RemoteHandshaking::start(right_proxy, right_read, right_write, codec).window(window);
+    let remote_right = RemoteHandshaking::start(left_proxy, left_read, left_write, codec);
+    let remote_left = RemoteHandshaking::start(right_proxy, right_read, right_write, codec);
 
     // The left endpoint's materialized participant is the client of its
     // proxy in both arrangements; the topology decides the right one.

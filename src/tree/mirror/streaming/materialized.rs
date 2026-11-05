@@ -101,7 +101,7 @@ use crate::tree::{
         message::Greeting,
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
-        window::{ReplicaSize, WindowConfig},
+        window::{ReplicaSize, Window, WindowConfig},
     },
     typed::{
         ErasedPrefix, Hash, Prefix,
@@ -265,6 +265,11 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     peer: PeerSummary,
     /// The root fan, erased at greeting time ([`Connecting`]).
     fan: Vec<(u8, B::Erased)>,
+    /// The session's window, once resolved from both greetings: by the
+    /// driver's [`ShareWindow::resolve_window`](protocol::ShareWindow::resolve_window),
+    /// or at the latest when the descent opens. Equal versions never
+    /// resolve it.
+    resolved: Option<Window>,
 }
 
 /// The remote tree properties retained from its greeting.
@@ -465,6 +470,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
             state: Connected {
                 peer: PeerSummary::from_greeting(theirs),
                 fan: self.state.fan,
+                resolved: None,
             },
             root: self.root,
             window: self.window,
@@ -489,14 +495,34 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
     }
 }
 
-/// Prepare the role-independent work shared by both descent openings.
+/// Resolve the session's window, and prepare the role-independent work
+/// shared by both descent openings.
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
-    fn open(self) -> Opening<B> {
-        let Connected { peer, fan } = self.state;
-        let local_size = ReplicaSize::new(self.root.len(), self.root.max_version_bytes());
+    /// The session's window, solved from both greetings on the first call
+    /// and recorded as granted then; later calls return the same window.
+    fn window(&mut self) -> Window {
+        let Self {
+            backend: _,
+            state,
+            root,
+            window,
+            target_message_size: _,
+            stats,
+        } = self;
+        *state.resolved.get_or_insert_with(|| {
+            let local_size = ReplicaSize::new(root.len(), root.max_version_bytes());
+            let resolved = window.resolve([local_size, state.peer.size], B::node_bytes);
+            stats.window_granted(resolved.widest());
+            resolved
+        })
+    }
+
+    /// Gather the state either descent opening consumes, its work sized
+    /// by the session's window.
+    fn open(mut self) -> Opening<B> {
+        let window = self.window();
+        let Connected { peer, fan, .. } = self.state;
         let ceiling = self.root.ceiling | &peer.version;
-        let window = self.window.resolve([local_size, peer.size], B::node_bytes);
-        self.stats.window_granted(window.widest());
         let ledger = SupplyLedger::new(peer.size.messages());
         let work = Work::new(self.backend, window, self.stats);
         Opening {
@@ -514,6 +540,18 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteEqual<B> for Handshaking<B, Co
     async fn complete_equal(self) -> Result<Root<B>, Self::Error> {
         Ok(self.root)
     }
+}
+
+/// The walk holds its endpoint's window configuration, so it resolves the
+/// window itself and ignores any other.
+impl<B: Backend<Node<Z>: Leaf>> protocol::ShareWindow for Handshaking<B, Connected<B>> {
+    /// Resolve the window from both greetings and this side's configuration.
+    fn resolve_window(&mut self) -> Option<Window> {
+        Some(self.window())
+    }
+
+    /// Ignore the counterpart's window: this side sizes its work by its own.
+    fn adopt_window(&mut self, _window: Window) {}
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connected<B>> {

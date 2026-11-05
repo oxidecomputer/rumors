@@ -68,8 +68,10 @@
 //! before selecting a window width. These are different queues with different
 //! purposes, although both use the radix as their capacity.
 //!
-//! The [remote proxy](super::remote) also window-sizes its local-question
-//! queue; the constructor documents why that edge needs its own capacity.
+//! The [remote proxy](super::remote) adopts its endpoint's window from the
+//! walk, which resolves it, so both halves size from one solve. It also
+//! window-sizes its local-question queue; the constructor documents why that
+//! edge needs its own capacity.
 
 use super::remote::STREAM_COUNT;
 use super::{

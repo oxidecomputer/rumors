@@ -878,7 +878,6 @@ impl<'a> Reconciliation<'a> {
                     .window(window)
                     .stats(stats.clone());
             let proxy = streaming_remote::Handshaking::start(Local, read, write, codec)
-                .window(window)
                 .stats(stats)
                 .observe(observe);
             let handshaken = streaming::handshake(local, proxy)

@@ -16,7 +16,6 @@ use crate::{
                 proxy::{Connected, Error, work::Ingress},
             },
             stats::Recorder,
-            window::{ReplicaSize, WindowConfig},
         },
         typed::height::{Root, Z},
     },
@@ -39,10 +38,6 @@ where
     write: W,
     /// State retained by the current greeting phase.
     versions: V,
-    /// The session's window choice, resolved against the greeting's
-    /// exchanged set sizes; see
-    /// [`window`](crate::tree::mirror::streaming::window).
-    window: WindowConfig,
     /// The session's stats recorder: the pipe counts its codec bytes
     /// through it.
     stats: Recorder,
@@ -66,18 +61,10 @@ where
             read,
             write,
             versions: Start,
-            window: WindowConfig::default(),
             stats: Recorder::default(),
             codec,
             observe: SessionHandle::default(),
         }
-    }
-
-    /// Select this session's window choice; see
-    /// [`window`](crate::tree::mirror::streaming::window).
-    pub fn window(mut self, window: WindowConfig) -> Self {
-        self.window = window;
-        self
     }
 
     /// Share the session's stats recorder, so a driver holding its clone
@@ -139,13 +126,6 @@ where
         // Check configuration before the driver can take the equal-version
         // shortcut, so agreement on content cannot hide incompatible peers.
         payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
-        let window = self.window.resolve(
-            [
-                ReplicaSize::new(local.set_len, local.max_version_bytes),
-                ReplicaSize::new(remote.set_len, remote.max_version_bytes),
-            ],
-            B::node_bytes,
-        );
         let budget = run_budget(&local, &remote);
         let Greeting {
             max_version_bytes: remote_version_bytes,
@@ -163,7 +143,7 @@ where
             read: self.read,
             write: self.write,
             remote_listing,
-            window,
+            window: None,
             budget,
             stats: self.stats,
             observe: self.observe,
@@ -191,7 +171,6 @@ where
             read: self.read,
             write: self.write,
             versions: Connecting { remote },
-            window: self.window,
             stats: self.stats,
             codec: self.codec,
             observe: self.observe,

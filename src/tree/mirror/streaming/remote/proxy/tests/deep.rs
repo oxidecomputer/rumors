@@ -481,11 +481,9 @@ impl Session {
                 .window(window);
                 let left_proxy =
                     RemoteHandshaking::start(Local, left_read, left_write, codec::<Vec<u8>>())
-                        .window(window)
                         .observe(sent[0].handle());
                 let right_proxy =
                     RemoteHandshaking::start(Local, right_read, right_write, codec::<Vec<u8>>())
-                        .window(window)
                         .observe(sent[1].handle());
                 let (left, right) = join!(
                     Box::pin(mirror(left, left_proxy)),

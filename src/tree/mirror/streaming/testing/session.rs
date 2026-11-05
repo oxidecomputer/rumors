@@ -36,8 +36,9 @@ pub type Endpoint =
 /// buffer `buffer` bytes; the poller's verdict when the session stopped
 /// first.
 ///
-/// Each endpoint's walk and proxy share that endpoint's window, and both
-/// endpoints decode payloads as `T`.
+/// Each endpoint's walk resolves its window from that endpoint's entry in
+/// `windows`, and its proxy adopts that window; both endpoints decode
+/// payloads as `T`.
 pub fn over_pipe<T>(
     pair: (Root, Root),
     windows: [WindowConfig; 2],
@@ -54,10 +55,8 @@ where
         let size = DEFAULT_TARGET_MESSAGE_SIZE as u64;
         let a_walk = Handshaking::start(Local, a.into(), size).window(a_window);
         let b_walk = Handshaking::start(Local, b.into(), size).window(b_window);
-        let a_proxy =
-            RemoteHandshaking::start(Local, a_end.read, a_end.write, codec).window(a_window);
-        let b_proxy =
-            RemoteHandshaking::start(Local, b_end.read, b_end.write, codec).window(b_window);
+        let a_proxy = RemoteHandshaking::start(Local, a_end.read, a_end.write, codec);
+        let b_proxy = RemoteHandshaking::start(Local, b_end.read, b_end.write, codec);
         let (a, b) = join!(
             Box::pin(mirror(a_walk, a_proxy)),
             Box::pin(mirror(b_walk, b_proxy)),

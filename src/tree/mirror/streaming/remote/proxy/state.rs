@@ -47,8 +47,10 @@ where
     pub(super) write: W,
     /// Root-fan listing sent by the remote endpoint.
     pub(super) remote_listing: Vec<(u8, Hash)>,
-    /// Queue capacities resolved from both greetings.
-    pub(super) window: Window,
+    /// The session window, adopted from the local walk that resolved it
+    /// from both greetings ([`ShareWindow`](protocol::ShareWindow)); `None`
+    /// until the driver hands it over.
+    pub(super) window: Option<Window>,
     /// Supply-run size accepted by both peers.
     pub(super) budget: RunBudget,
     /// Counts bytes crossing the codec boundary.
@@ -62,6 +64,12 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     /// Open the session's pipe after the driver assigns the remote role.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no window was adopted, which only a driver pairing the
+    /// proxy with a participant that resolves none can cause: a programmer
+    /// error, since every endpoint pairs its proxy with its walk.
     fn open(self, remote: Speaker) -> Work<B, R, W> {
         let Connected {
             ingress,
@@ -73,6 +81,8 @@ where
             stats,
             observe,
         } = self;
+        let window = window
+            .expect("the driver hands the proxy its walk's window before either opens a role");
         observe.elected(match remote.other() {
             Speaker::Initiator => Role::Initiator,
             Speaker::Responder => Role::Responder,
@@ -92,6 +102,25 @@ where
             stats,
             observe,
         )
+    }
+}
+
+/// The proxy holds no window configuration of its own: it adopts the window
+/// its local walk resolved, which parking's capacity rests on.
+impl<B, R, W> protocol::ShareWindow for Connected<B, R, W>
+where
+    B: Backend<Node<Z>: Leaf>,
+    R: Send,
+    W: Send,
+{
+    /// Resolve nothing: the proxy's window is its walk's.
+    fn resolve_window(&mut self) -> Option<Window> {
+        None
+    }
+
+    /// Adopt the walk's window for every queue and parking lane.
+    fn adopt_window(&mut self, window: Window) {
+        self.window = Some(window);
     }
 }
 
