@@ -3,8 +3,10 @@
 //!
 //! Every pair forks one network seeded from a fixed ChaCha stream, so its
 //! leaves, and with them the tree's shape, are the same on every run and
-//! every machine. Every message is a 98-character string, which encodes in
-//! CBOR as a two-byte head and its bytes, 100 bytes in all.
+//! every machine. Every message is a string sized so that its CBOR
+//! encoding, head and characters, takes the shape's
+//! [`message_bytes`](crate::bench::session::Shape::message_bytes): 100
+//! bytes unless the shape names another size.
 //!
 //! A session's ledgers report every change through the process's ledger
 //! hook ([`observe_ledgers`]), and every unit they admit through its
@@ -27,7 +29,7 @@ use std::thread;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::testing::{
-    Admission, LedgerChange, floor_allowance, observe_admissions, observe_ledgers,
+    Admission, LedgerChange, PLACES, floor_allowance, observe_admissions, observe_ledgers,
 };
 use rumors::{Peer, Rumors};
 
@@ -55,6 +57,15 @@ pub const LONG_HAUL_BDP: u64 = 12_500_000;
 /// the leaves' 32.
 pub const DEPTHS: usize = 33;
 
+/// The deepest scope whose admissions a reading dates one by one
+/// ([`LedgerReading::dated`]): depth 1, the top-level subtrees, whose
+/// questions the root's answer asks and whose answers open them.
+pub const DATED_DEPTH: usize = 1;
+
+/// The encoded size of every fixture message unless a shape names
+/// another: 100 bytes.
+pub const MESSAGE_BYTES: usize = 100;
+
 /// The model's timing resolution between two sessions of one pair on a
 /// link with bandwidth: one segment's serialization per one-way hop of the
 /// critical path, which `latency_only` measures.
@@ -66,8 +77,8 @@ pub fn resolution(latency_only: &Session) -> u64 {
     latency_only.hops() * SEGMENT_BYTES
 }
 
-/// The messages a pair shares, and those each side holds that the other
-/// lacks.
+/// The messages a pair shares, those each side holds that the other
+/// lacks, and the bytes each message encodes in.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Shape {
     /// Messages both sides hold.
@@ -76,6 +87,8 @@ pub struct Shape {
     pub a: u64,
     /// Messages only [`Side::B`] holds.
     pub b: u64,
+    /// The bytes each message's CBOR encoding takes, head included.
+    pub message_bytes: usize,
 }
 
 impl Shape {
@@ -86,6 +99,7 @@ impl Shape {
             shared: 0,
             a: messages,
             b: messages,
+            message_bytes: MESSAGE_BYTES,
         }
     }
 
@@ -97,6 +111,7 @@ impl Shape {
             shared,
             a: messages - shared,
             b: messages - shared,
+            message_bytes: MESSAGE_BYTES,
         }
     }
 
@@ -107,14 +122,58 @@ impl Shape {
             shared: 0,
             a: messages,
             b: 0,
+            message_bytes: MESSAGE_BYTES,
+        }
+    }
+
+    /// This shape with every message encoding in `bytes` bytes.
+    pub const fn with_message_bytes(self, bytes: usize) -> Self {
+        Self {
+            message_bytes: bytes,
+            ..self
         }
     }
 }
 
 /// The fixture message numbered `index` held by `holder`: the holder's
-/// letter and the index, zero-padded to 98 characters.
-fn message(holder: char, index: u64) -> String {
-    format!("{holder}{index:0>97}")
+/// letter and the index, zero-padded so the string's CBOR encoding, head
+/// and characters, takes `bytes` bytes.
+///
+/// # Panics
+///
+/// If no string of `bytes` encoded bytes holds the letter and the index:
+/// a fixture whose messages are too small to number.
+fn message(holder: char, index: u64, bytes: usize) -> String {
+    let width = text_chars(bytes)
+        .and_then(|chars| chars.checked_sub(1))
+        .unwrap_or_else(|| panic!("no CBOR text string encodes in {bytes} bytes"));
+    let digits = index.to_string();
+    let zeros = width.checked_sub(digits.len()).unwrap_or_else(|| {
+        panic!("a message of {bytes} encoded bytes is too small to number message {index}")
+    });
+    // Built rather than formatted: a formatting width is at most 65,535.
+    let mut message = String::with_capacity(width + 1);
+    message.push(holder);
+    message.extend(std::iter::repeat_n('0', zeros));
+    message.push_str(&digits);
+    message
+}
+
+/// The characters of the ASCII text string whose CBOR encoding takes
+/// `bytes` bytes, if one does.
+///
+/// A text string's head is one byte for fewer than 24 characters, two for
+/// fewer than 256, three for fewer than 65,536, and five below 2^32; no
+/// string encodes in 25 bytes, since 24 characters need a two-byte head.
+fn text_chars(bytes: usize) -> Option<usize> {
+    [
+        (1, 0..24),
+        (2, 24..256),
+        (3, 256..65_536),
+        (5, 65_536..1 << 32),
+    ]
+    .into_iter()
+    .find_map(|(head, chars)| bytes.checked_sub(head).filter(|n| chars.contains(n)))
 }
 
 /// The letter of the messages only `side` holds.
@@ -144,13 +203,13 @@ pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
     block_on(async {
         let mut rng = ChaChaRng::seed_from_u64(NETWORK_SEED);
         let root = Peer::<String>::seed_rng(&mut rng).into_rumors();
-        root.send_all((0..shape.shared).map(|index| message('s', index)))
+        root.send_all((0..shape.shared).map(|index| message('s', index, shape.message_bytes)))
             .expect("fixture messages encode");
         let a = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
         let b = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
-        a.send_all((0..shape.a).map(|index| message(letter(Side::A), index)))
+        a.send_all((0..shape.a).map(|index| message(letter(Side::A), index, shape.message_bytes)))
             .expect("fixture messages encode");
-        b.send_all((0..shape.b).map(|index| message(letter(Side::B), index)))
+        b.send_all((0..shape.b).map(|index| message(letter(Side::B), index, shape.message_bytes)))
             .expect("fixture messages encode");
         (a, b)
     })
@@ -202,6 +261,24 @@ impl Grants {
     }
 }
 
+/// One admission at depth [`DATED_DEPTH`] or shallower, dated by the
+/// link's clock.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DatedAdmission {
+    /// The link time of the admission, in byte-times.
+    pub at: u64,
+    /// The depth of the scope the unit concerns.
+    pub depth: usize,
+    /// Whether the unit is a question rather than an answer's own items.
+    pub question: bool,
+    /// Whether it took its depth's floor slot rather than budget.
+    pub floor: bool,
+    /// Whether it waited for admission.
+    pub waited: bool,
+    /// Its grant's bytes.
+    pub bytes: usize,
+}
+
 /// What one side's ledger held and admitted over a session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LedgerReading {
@@ -221,11 +298,27 @@ pub struct LedgerReading {
     /// The bytes it held outside its floor slots, integrated over the
     /// link's clock: byte-times times bytes.
     pub budget_area: u128,
+    /// The bytes it held for each place, floor slots included, integrated
+    /// over the link's clock, in
+    /// [`Holding::ALL`](rumors::testing::Holding::ALL) order: which places
+    /// held the budget, and for how long.
+    pub place_area: [u128; PLACES],
+    /// The bytes charges built out of floor grants held, integrated over
+    /// the link's clock.
+    pub floor_area: u128,
+    /// The bytes its floor slots carried for charges admitted against the
+    /// budget, integrated over the link's clock: with `budget_area` and
+    /// `floor_area`, what its places held.
+    pub carried_area: u128,
     /// Its grants to questions, by the depth of the scope each asks about.
     pub questions: [Grants; DEPTHS],
     /// Its grants to answers' own items, by the depth of the scope each
     /// answers.
     pub answers: [Grants; DEPTHS],
+    /// Its admissions at depth [`DATED_DEPTH`] or shallower, in order:
+    /// when each top-level subtree's units started, which shows whether
+    /// the root's answer opens its subtrees at once or one after another.
+    pub dated: Vec<DatedAdmission>,
 }
 
 impl Default for LedgerReading {
@@ -238,8 +331,12 @@ impl Default for LedgerReading {
             floor_bound: 0,
             waited: 0,
             budget_area: 0,
+            place_area: [0; PLACES],
+            floor_area: 0,
+            carried_area: 0,
             questions: [Grants::default(); DEPTHS],
             answers: [Grants::default(); DEPTHS],
+            dated: Vec::new(),
         }
     }
 }
@@ -309,6 +406,14 @@ struct Reading {
     last: (usize, u64),
     /// The bytes held in all after the last change.
     held: usize,
+    /// The bytes held for each place after the last change, in
+    /// [`Holding::ALL`](rumors::testing::Holding::ALL) order.
+    places: [usize; PLACES],
+    /// The bytes charges built out of floor grants held after the last
+    /// change.
+    floor: usize,
+    /// The bytes floor slots carried after the last change.
+    carried: usize,
 }
 
 /// One thread's readings: the link whose clock dates them, and each ledger
@@ -363,12 +468,24 @@ fn record_change(change: LedgerChange) {
             reading,
             last,
             held,
+            places,
+            floor,
+            carried,
             ..
         } = readings.ledger(change.ledger);
         let before_held = std::mem::replace(held, change.held);
         let normal = change.held - change.floor - change.carried;
         let (before, since) = *last;
-        reading.budget_area += before as u128 * u128::from(now - since);
+        let elapsed = u128::from(now - since);
+        reading.budget_area += before as u128 * elapsed;
+        for (area, bytes) in reading.place_area.iter_mut().zip(*places) {
+            *area += bytes as u128 * elapsed;
+        }
+        reading.floor_area += *floor as u128 * elapsed;
+        reading.carried_area += *carried as u128 * elapsed;
+        *places = change.places;
+        *floor = change.floor;
+        *carried = change.carried;
         *last = (normal, now);
         reading.budget_peak = reading.budget_peak.max(normal);
         reading.held_peak = reading.held_peak.max(change.held);
@@ -385,10 +502,20 @@ fn record_change(change: LedgerChange) {
 fn record_admission(admission: Admission) {
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
-        if readings.link.is_none() {
+        let Some(now) = readings.link.as_ref().map(Link::now) else {
             return;
-        }
+        };
         let reading = &mut readings.ledger(admission.ledger).reading;
+        if admission.depth <= DATED_DEPTH && !admission.leftover {
+            reading.dated.push(DatedAdmission {
+                at: now,
+                depth: admission.depth,
+                question: admission.question,
+                floor: admission.floor,
+                waited: admission.waited,
+                bytes: admission.bytes,
+            });
+        }
         let kind = if admission.question {
             &mut reading.questions
         } else {
@@ -576,3 +703,6 @@ pub fn run_all<const N: usize>(cases: [Case; N]) -> [Session; N] {
             })
     })
 }
+
+#[cfg(test)]
+mod tests;
