@@ -30,13 +30,12 @@
 
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use rumors::testing::MemoryEnd;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
-use tokio::sync::Notify;
+use tokio::sync::SetOnce;
 
 /// One endpoint's fault plan: byte budgets after which its write
 /// (respectively read) direction fails, and the point at which the
@@ -235,8 +234,8 @@ fn budget(cut: Option<usize>) -> Budget {
 struct VanishState {
     /// Bytes the endpoint can still write before vanishing.
     remaining: Mutex<usize>,
-    tripped: AtomicBool,
-    notify: Notify,
+    /// Set once the point is reached; every operation after it parks.
+    tripped: SetOnce<()>,
 }
 
 impl VanishState {
@@ -244,30 +243,25 @@ impl VanishState {
     fn new(point: Vanish) -> Arc<Self> {
         Arc::new(Self {
             remaining: Mutex::new(point.offset),
-            tripped: AtomicBool::new(false),
-            notify: Notify::new(),
+            tripped: SetOnce::new(),
         })
     }
 
     /// Whether the session must stop all further I/O.
     fn tripped(&self) -> bool {
-        self.tripped.load(Ordering::Acquire)
+        self.tripped.initialized()
     }
 
     /// Stop the endpoint and wake its session owner.
     fn trip(&self) {
-        self.tripped.store(true, Ordering::Release);
-        self.notify.notify_one();
+        // A second trip, from a write racing the first, finds the point
+        // already reached and changes nothing.
+        let _ = self.tripped.set(());
     }
 
     /// Resolves once the point is reached.
     async fn vanished(&self) {
-        loop {
-            if self.tripped() {
-                return;
-            }
-            self.notify.notified().await;
-        }
+        self.tripped.wait().await;
     }
 
     /// How many of `len` bytes a write may admit, or `None` once the

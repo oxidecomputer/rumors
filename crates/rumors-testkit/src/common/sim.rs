@@ -74,11 +74,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use before::Party;
 use proptest::prelude::*;
 use rumors::{Error, Gossiped, Peer, Retire, Rumors, Version};
+use tokio::sync::SetOnce;
 
 use crate::common::budget::{BudgetAssignment, BudgetChoice, arb_budget_choice};
 use crate::common::fault::{self, FaultPlan, Vanish};
@@ -606,7 +606,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
 /// handles, this is the only exercise of the observers' watch-coalescing
 /// path (`send_if_modified` racing `borrow_and_update`) outside
 /// single-threaded tests.
-async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
+async fn run_observers(handle: Rumors<u64>, done: Arc<SetOnce<()>>) {
     use futures::{FutureExt, StreamExt};
 
     let mut plain = handle.unordered_messages();
@@ -619,7 +619,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
         // Settle *before* draining: after the writers finish, one more full
         // drain below sees their complete effect, so the coverage check
         // races nothing.
-        let finished = done.load(Ordering::Acquire);
+        let finished = done.initialized();
 
         while let Some(Some((version, _))) = plain.next().now_or_never() {
             assert!(
@@ -678,9 +678,9 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
 /// this loop never samples, and retirements begin only after `done`. A
 /// prober over a phase with founder-to-founder transfers needs a
 /// consistent snapshot, or a re-read that confirms an overlap persists.
-async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<AtomicBool>) {
+async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<SetOnce<()>>) {
     loop {
-        let finished = done.load(Ordering::Acquire);
+        let finished = done.initialized();
         let parties: Vec<(usize, Party)> = handles
             .iter()
             .enumerate()
@@ -746,7 +746,9 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     // script, every bootstrap, and the disjointness prober, interleaving
     // freely.
     let casts = fleet;
-    let done = Arc::new(AtomicBool::new(false));
+    // Set once the writers have settled; a task that finds it set sees
+    // everything they did.
+    let done = Arc::new(SetOnce::new());
     let prober = tokio::spawn(probe_disjointness(casts.clone(), Arc::clone(&done)));
     let observers: Vec<_> = casts
         .iter()
@@ -796,7 +798,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             None => possible_losses += 1,
         }
     }
-    done.store(true, Ordering::Release);
+    done.set(()).expect("the writers settle once");
     prober.await.expect("prober task");
     for observer in observers {
         observer.await.expect("observer task");
