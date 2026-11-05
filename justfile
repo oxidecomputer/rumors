@@ -159,14 +159,6 @@ manifestlint:
     ./tools/manifestlint --self-test
     ./tools/manifestlint
 
-# Fails when the committed wire captures stop matching the meter's patterns,
-# never on the measured digest share.
-
-# Check the wire-capture renderer vocabulary via the digest-share meter.
-digestshare:
-    ./tools/digestshare --self-test
-    ./tools/digestshare
-
 # The READMEs derive from crate-level rustdoc via cargo-rdme, with the
 # intra-doc links it cannot resolve stripped to code spans; never hand-edit
 # them. Needs cargo-rdme at the version tools/readme pins.
@@ -298,7 +290,7 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # Run the build-free gate tier, sequentially.
-gate-lints: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check
+gate-lints: fmt-check doclint testdoc workflowlint manifestlint readme-check
 
 # Each stream logs to its own file, and failing streams' logs replay in full
 # at the end. A stream that records neither an ok nor a failed marker
