@@ -9,7 +9,12 @@
 //! every run, and a failure that depends on it cannot be replayed. Tests and
 //! fixtures therefore create networks only through a [`NetworkSeed`], which
 //! derives the secret from a ChaCha stream whose output for a given seed is
-//! fixed across platforms and `rand` releases.
+//! the same on every platform.
+//!
+//! One draw stays outside every seed: a bootstrap, in tests as everywhere,
+//! draws the ephemeral P-256 key of its key exchange from the operating
+//! system. A failure that depends on the value of that key cannot be
+//! replayed from a seed, and the tests accept that.
 //!
 //! A test takes its seed in one of two ways, by what it asserts:
 //!
@@ -143,26 +148,31 @@ pub fn divided_cases(configured: u32, divisor: u32) -> u32 {
 }
 
 /// Runs `test` on [`divided_cases`] of the configured case count, drawing
-/// each case from `strategy`.
+/// each case from `strategy`, under `config`, or under the default
+/// configuration if `config` is `None`.
 ///
 /// The run is the one `proptest!` performs, but for the case count:
 /// persisted failures replay first, and a new failure shrinks and persists.
-/// `test_name` and `source_file` play their `proptest!` roles. Pass the
-/// test's `module_path!()`-qualified name and its own `file!()`, which
-/// locates the persisted failures, as [`divided_proptest!`] does.
+/// `config`'s case count is divided, so build a configuration from
+/// `Config::default()`, which has read `PROPTEST_CASES`, and set only the
+/// fields the test needs. `test_name` and `source_file` play their
+/// `proptest!` roles. Pass the test's `module_path!()`-qualified name and its
+/// own `file!()`, which locates the persisted failures, as
+/// [`divided_proptest!`] does.
 ///
 /// # Panics
 ///
 /// Panics with proptest's report when a case fails, and if `divisor` is
 /// zero.
 pub fn run<S: Strategy>(
+    config: Option<Config>,
     divisor: u32,
     test_name: &'static str,
     source_file: &'static str,
     strategy: S,
     test: impl Fn(S::Value) -> Result<(), TestCaseError>,
 ) {
-    let mut config = Config::default();
+    let mut config = config.unwrap_or_default();
     config.cases = divided_cases(config.cases, divisor);
     config.test_name = Some(test_name);
     config.source_file = Some(source_file);
@@ -176,6 +186,10 @@ pub fn run<S: Strategy>(
 /// [`divided_cases`](crate::testing::property::divided_cases) of the
 /// configured case count, in `proptest!`'s syntax with `#![divisor(...)]` in
 /// place of `#![proptest_config(...)]`.
+///
+/// A `#![proptest_config(...)]` may follow the divisor, for a test that
+/// needs other settings, such as a shrink time; its case count is divided
+/// like the default's ([`run`](crate::testing::property::run)).
 ///
 /// A test draws its arguments as one tuple strategy, which consumes the
 /// random stream exactly as `proptest!`'s argument list does, so seeds
@@ -191,6 +205,25 @@ pub fn run<S: Strategy>(
 macro_rules! divided_proptest {
     (
         #![divisor($divisor:expr)]
+        #![proptest_config($config:expr)]
+        $($tests:tt)+
+    ) => {
+        $crate::divided_proptest! {
+            @tests ($divisor) (::core::option::Option::Some($config))
+            $($tests)+
+        }
+    };
+    (
+        #![divisor($divisor:expr)]
+        $($tests:tt)+
+    ) => {
+        $crate::divided_proptest! {
+            @tests ($divisor) (::core::option::Option::None)
+            $($tests)+
+        }
+    };
+    (
+        @tests ($divisor:expr) ($config:expr)
         $(
             $(#[$meta:meta])*
             fn $name:ident($($parm:pat in $strategy:expr),+ $(,)?) $body:block
@@ -200,6 +233,7 @@ macro_rules! divided_proptest {
             $(#[$meta])*
             fn $name() {
                 $crate::testing::property::run(
+                    $config,
                     $divisor,
                     ::core::concat!(::core::module_path!(), "::", ::core::stringify!($name)),
                     ::core::file!(),

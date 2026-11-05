@@ -16,9 +16,13 @@ use rumors::{EncodeError, TryTick, Version};
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::wire::bootstrap_fork;
+use rumors_testkit::common::property::{FLEET_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
-proptest! {
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
     /// A redaction issued by *any* peer propagates contagiously to
     /// every peer after sufficient gossip — no peer retains the
     /// message and no peer re-introduces it.
@@ -58,6 +62,10 @@ proptest! {
             );
         }
     }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
     /// Two peers each insert several values, then each redacts one of
     /// its own messages. The converged content is the same regardless of
@@ -145,7 +153,9 @@ enum Redacting {
     Batch,
 }
 
-proptest! {
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
     /// Redaction reports exactly what it removed, through every entry
     /// point: the distinct requested versions the replica held live.
     ///

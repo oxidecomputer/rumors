@@ -59,7 +59,8 @@ fn mt_runtime() -> tokio::runtime::Runtime {
 
 // ---- the property -----------------------------------------------------------
 
-proptest! {
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
     #![proptest_config(ProptestConfig {
         max_shrink_time: MAX_SHRINK_TIME,
         ..ProptestConfig::default()
