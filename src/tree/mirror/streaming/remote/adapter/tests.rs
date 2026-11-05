@@ -41,6 +41,7 @@ mod malformed;
 mod opening;
 mod parking;
 mod properties;
+mod room;
 mod runs;
 
 /// Build a visibly synthetic Merkle hash for scope fixtures.

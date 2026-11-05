@@ -365,8 +365,8 @@ impl Ledger {
         self.account.held.load(Ordering::Relaxed)
     }
 
-    /// Bytes items have needed beyond the grants they were built out of,
-    /// over the ledger's life ([`Charge::take`]).
+    /// Bytes items have needed beyond the grants and rooms they were built
+    /// out of, over the ledger's life ([`Charge::take`]).
     #[cfg(test)]
     pub(crate) fn short(&self) -> u64 {
         self.account.short.load(Ordering::Relaxed)
