@@ -12,6 +12,7 @@ use proptest::prelude::*;
 
 use super::super::{Ingress, Outstanding, queues};
 use super::reject_extra;
+use crate::Version;
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::{
@@ -25,7 +26,7 @@ use crate::tree::mirror::streaming::{
     message::{Grandchildren, Listed, listed},
     remote::{
         LANE_CAPACITY,
-        adapter::{ReplyLevel, Scope},
+        adapter::{ReplyLevel, Scope, SupplyBounds},
         codec::{End, Flow, Frame, Reaction as WireReaction},
         pipe::{Inbound, WirePermit},
         proxy::Error,
@@ -194,7 +195,7 @@ proptest! {
 
         let ingress = Ingress::new(
             Local,
-            u64::MAX,
+            SupplyBounds::new(u64::MAX, Version::new()),
             u64::MAX,
             Grandchildren::MAX,
             PayloadCodec::new::<u64>(PayloadDepthLimit::default()),

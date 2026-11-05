@@ -50,7 +50,9 @@
 //! run flushes when the next record would overflow the budget, always holds
 //! at least one record, and never spans reactions. Decoding is
 //! batching-agnostic — it walks records, not frames: it recomputes every
-//! leaf's full path from its version and serialized message, rejects paths
+//! leaf's full path from its version and serialized message, rejects a leaf
+//! whose version breaks the session's [`SupplyBounds`] (one this side has
+//! already seen, or one over the peer's declared size), rejects paths
 //! outside the retained scope, and groups consecutive leaves by their
 //! prefix at the scope's children height. Strict path and run ordering make
 //! those group
@@ -87,7 +89,7 @@ mod scope;
 pub(crate) use decode::decode_ahead_bytes;
 #[cfg(test)]
 pub use decode::decode_whole_reply;
-pub use decode::{LeafEdge, decode_reply, opening_reply};
+pub use decode::{LeafEdge, SupplyBounds, decode_reply, opening_reply};
 pub use encode::{Encoded, ReplyEncoder, opening_listing};
 #[cfg(test)]
 pub use encode::{encode_leaf_reply, encode_reply};

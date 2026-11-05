@@ -3,9 +3,11 @@ use std::{mem, pin::Pin};
 use futures::{Stream, StreamExt, future::try_join, stream};
 
 use crate::{
+    Version,
     counter::widen,
     message::PayloadCodec,
     tree::{
+        mirror::contained,
         mirror::streaming::{
             Backend, ErasedNode, FAN, Leaf,
             backend::BoxNodeStream,
@@ -221,9 +223,10 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
 /// taken ([`derive_questions`](super::derive_questions)), from the same
 /// record.
 ///
-/// The reply's supplied leaves cross `edge` to assembly while the reply is
-/// read. After an error the edge may hold items of the failed reply, so a
-/// caller decodes nothing further through it.
+/// Each supplied record is checked against `bounds` before it is placed
+/// ([`SupplyBounds`]). The reply's supplied leaves cross `edge` to assembly
+/// while the reply is read. After an error the edge may hold items of the
+/// failed reply, so a caller decodes nothing further through it.
 ///
 /// A supply run's permit from the receive pool ([`IncomingFrame`]) returns
 /// as soon as the run's last record is copied into its leaf, before the
@@ -236,7 +239,7 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
 pub async fn decode_reply<B, F>(
     edge: &mut LeafEdge<B>,
     backend: B,
-    version_bytes: u64,
+    bounds: &SupplyBounds,
     ledger: SupplyLedger,
     level: ReplyLevel,
     scope: &Scope,
@@ -260,15 +263,7 @@ where
         assembled,
     } = edge;
     let read = Reader::<B>::new(
-        version_bytes,
-        &ledger,
-        level,
-        scope,
-        leaves,
-        assembled,
-        codec,
-        path_key,
-        room,
+        bounds, &ledger, level, scope, leaves, assembled, codec, path_key, room,
     )
     .read(frames, deliver);
     let assemble = holding(
@@ -291,7 +286,7 @@ where
 pub async fn decode_whole_reply<B, F>(
     edge: &mut LeafEdge<B>,
     backend: B,
-    version_bytes: u64,
+    bounds: &SupplyBounds,
     ledger: SupplyLedger,
     level: ReplyLevel,
     scope: &Scope,
@@ -307,7 +302,7 @@ where
     decode_reply(
         edge,
         backend,
-        version_bytes,
+        bounds,
         ledger,
         level,
         scope,
@@ -415,7 +410,7 @@ where
     /// The record of the question the reply answers.
     scope: &'a Scope,
     /// Ordering and scope state for supplied leaves.
-    supplies: SupplyRuns,
+    supplies: SupplyRuns<'a>,
     /// The leaves' edge to assembly.
     leaves: &'a mut Sender<DecodedLeaf<B::Node<Z>>>,
     /// The supplies' edge back from assembly.
@@ -444,7 +439,7 @@ where
     // destination, which `read` takes.
     #[allow(clippy::too_many_arguments)]
     fn new(
-        version_bytes: u64,
+        bounds: &'a SupplyBounds,
         ledger: &'a SupplyLedger,
         level: ReplyLevel,
         scope: &'a Scope,
@@ -458,7 +453,7 @@ where
             ledger,
             level,
             scope,
-            supplies: SupplyRuns::new(version_bytes),
+            supplies: SupplyRuns::new(bounds),
             leaves,
             assembled,
             codec,
@@ -640,22 +635,82 @@ fn radix(prefix: &ErasedPrefix) -> u8 {
         .expect("a listed child's prefix extends its parent's by its radix")
 }
 
-/// Validate and group the supplied leaves within one reply.
-struct SupplyRuns {
-    /// The peer's greeting-declared `max_version_bytes`, covering every
-    /// version its tree materializes and so every version it may supply.
+/// What every supplied leaf's version must satisfy, read from the
+/// session's two greetings.
+///
+/// A peer supplies only leaves its own tree holds, and only those this
+/// side's greeting version does not contain: its filter drops every leaf
+/// this side already holds or has redacted. So each supplied version
+///
+/// - encodes within the peer's declared `max_version_bytes`, which covers
+///   every version the peer's tree materializes
+///   ([`DecodeError::OversizedVersion`]); and
+/// - is not contained in this side's greeting version
+///   ([`DecodeError::SeenSupply`]).
+///
+/// A conforming peer never breaks either, so a breach is a conformance
+/// failure, and the decoder fails the session at the offending record,
+/// before its payload takes backend custody. Absorbing a leaf this side's
+/// version contains would bring back a message this side redacted, since
+/// redaction leaves no tombstone and is honored only by that version.
+#[derive(Clone, Debug)]
+pub struct SupplyBounds {
+    /// The peer's greeting-declared `max_version_bytes`.
     version_bytes: u64,
+    /// This side's own greeting version, the one the peer filters its
+    /// supplies against.
+    seen: Version,
+}
+
+impl SupplyBounds {
+    /// Bound the session's supplies by the peer's declared
+    /// `max_version_bytes` and this side's own greeting version.
+    pub fn new(version_bytes: u64, seen: Version) -> Self {
+        Self {
+            version_bytes,
+            seen,
+        }
+    }
+
+    /// Check one supplied leaf's version against the bounds, naming the
+    /// leaf by its keyed `path` when this side has seen it.
+    ///
+    /// The size check comes first, so the comparison reads only a version
+    /// within the declaration. The comparison allocates nothing.
+    fn check<E>(&self, version: &Version, path: Path) -> Result<(), DecodeError<E>> {
+        // The declared aggregate covers every version the peer's tree
+        // materializes, so every version it supplies must encode within
+        // it; one arriving over the declaration shows the declaration
+        // false.
+        let actual = version.as_bytes().len();
+        if widen(actual) > self.version_bytes {
+            return Err(DecodeError::OversizedVersion {
+                declared: self.version_bytes,
+                actual,
+            });
+        }
+        if contained(version, &self.seen) {
+            return Err(DecodeError::SeenSupply { path: path.into() });
+        }
+        Ok(())
+    }
+}
+
+/// Validate and group the supplied leaves within one reply.
+struct SupplyRuns<'a> {
+    /// What every supplied leaf's version must satisfy.
+    bounds: &'a SupplyBounds,
     /// Last leaf path, used to enforce strict wire order.
     previous_leaf: Option<Prefix<Z>>,
     /// Prefix of the supply run currently receiving leaves.
     current: Option<ErasedPrefix>,
 }
 
-impl SupplyRuns {
+impl<'a> SupplyRuns<'a> {
     /// Begin a reply with no observed supply run.
-    fn new(version_bytes: u64) -> Self {
+    fn new(bounds: &'a SupplyBounds) -> Self {
         Self {
-            version_bytes,
+            bounds,
             previous_leaf: None,
             current: None,
         }
@@ -668,30 +723,21 @@ impl SupplyRuns {
 
     /// Validate one supplied leaf and identify the start of a new run.
     ///
-    /// The run boundary sits one level under `expected_parent`: the
-    /// supplied leaf's path must extend the parent prefix, and the byte
-    /// after it is the run's radix.
+    /// The leaf's version must lie within the session's [`SupplyBounds`],
+    /// checked before the leaf is placed. The run boundary sits one level
+    /// under `expected_parent`: the supplied leaf's path must extend the
+    /// parent prefix, and the byte after it is the run's radix.
     fn observe<E>(
         &mut self,
         expected_parent: ErasedPrefix,
-        version: &crate::Version,
+        version: &Version,
         path_key: Option<&PathKey>,
     ) -> Result<(Prefix<Z>, Option<(u8, ErasedPrefix)>), DecodeError<E>> {
-        // The declared aggregate covers every version the peer's tree
-        // materializes, so every version it supplies must encode within
-        // it; one arriving over the declaration shows the declaration
-        // false, and fails the session before the record is admitted.
-        let actual = version.as_bytes().len();
-        if widen(actual) > self.version_bytes {
-            return Err(DecodeError::OversizedVersion {
-                declared: self.version_bytes,
-                actual,
-            });
-        }
         let Some(path_key) = path_key else {
             return Err(DecodeError::UnkeyedSupply);
         };
         let path = Path::for_leaf(path_key, version);
+        self.bounds.check(version, path)?;
         let leaf_prefix = Prefix::<Z>::containing(&path);
         let path_bytes = <[u8; 32]>::from(path);
         let parent_len = expected_parent.as_bytes().len();

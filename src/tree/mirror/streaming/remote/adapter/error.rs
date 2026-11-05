@@ -147,6 +147,22 @@ pub enum DecodeError<E> {
         "supplied version encodes {actual} bytes, over the peer's declared {declared}-byte bound"
     )]
     OversizedVersion { declared: u64, actual: usize },
+    /// A supplied leaf's version is contained in this side's own greeting
+    /// version: the leaf is one this side holds or has redacted.
+    ///
+    /// A peer filters its supplies against that version and ships only
+    /// leaves it does not contain, so a conforming peer never supplies such
+    /// a leaf. Absorbing one would bring back a message this side
+    /// redacted, so the session fails at the offending record, before its
+    /// payload takes backend custody.
+    ///
+    /// The message prints the leaf's keyed path, which reveals no key (see
+    /// [`NetworkSecret`](crate::network::NetworkSecret)).
+    #[error("supplied leaf {path:02x?} is one this side has already seen")]
+    SeenSupply {
+        /// The leaf's keyed path, computed from its version.
+        path: [u8; 32],
+    },
     /// A supplied leaf record past the peer's declared `set_len`.
     ///
     /// An honest peer supplies each leaf at most once and only leaves its

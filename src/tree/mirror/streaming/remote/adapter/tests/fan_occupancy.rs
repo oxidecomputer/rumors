@@ -33,7 +33,7 @@ use super::super::{
     decode::{SUPPLY_RECORDS_PER_STREAM, fan_probe},
     decode_whole_reply,
 };
-use super::{codec, reply_frames, unbounded, uniform_version};
+use super::{codec, nothing_seen, reply_frames, unbounded, uniform_version};
 
 /// Leaf records per supply frame.
 const PER_FRAME: usize = 16;
@@ -74,7 +74,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[]),
@@ -95,7 +95,7 @@ fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usiz
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::one_slot(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[]),
@@ -197,7 +197,7 @@ fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec
             let reply = decode_whole_reply::<Local, _>(
                 edge.as_mut().unwrap_or(&mut fresh),
                 Local,
-                u64::MAX,
+                &nothing_seen(),
                 unbounded(),
                 ReplyLevel::Branch,
                 &Scope::opening_unbounded(&[]),

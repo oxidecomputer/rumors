@@ -37,8 +37,8 @@ use crate::{
 
 use super::{
     super::{LeafEdge, ReplyEncoder, ReplyLevel, Scope, decode_whole_reply, encode_reply},
-    LeafCase, codec, colliding_leaves, leaf_run, reply_frames, runtime, separated_leaves,
-    unbounded,
+    LeafCase, codec, colliding_leaves, leaf_run, nothing_seen, reply_frames, runtime,
+    separated_leaves, unbounded,
 };
 
 /// Inclusive bound on leaves per generated run scenario.
@@ -73,7 +73,7 @@ fn decode_opening(frames: Vec<Frame>) -> Reply<<Local as Backend>::Erased> {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[]),
@@ -377,7 +377,7 @@ fn a_batched_run_round_trips_the_reply() {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[]),

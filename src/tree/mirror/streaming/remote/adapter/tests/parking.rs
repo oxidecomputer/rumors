@@ -46,7 +46,7 @@ use super::{
     super::{
         LeafEdge, Replay, ReplyLevel, Scope, decode_whole_reply, derive_questions, encode_reply,
     },
-    codec, hash, runtime, unbounded,
+    codec, hash, nothing_seen, runtime, unbounded,
 };
 
 /// Leaves committed under the supplied root fan: enough that the fan's
@@ -125,7 +125,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
         .block_on(decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             ReplyLevel::Branch,
             &scope.clone(),
@@ -230,7 +230,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
         .block_on(decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&listing),

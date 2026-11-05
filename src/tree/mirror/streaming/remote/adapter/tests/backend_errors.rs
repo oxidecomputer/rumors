@@ -22,7 +22,7 @@ use super::{
     super::{
         DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, decode_whole_reply, encode_reply,
     },
-    LeafCase, NodeAt, codec, hash, leaf_run, runtime, unbounded,
+    LeafCase, NodeAt, codec, hash, leaf_run, nothing_seen, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::{
     convert::Convert,
@@ -193,7 +193,7 @@ where
                 .block_on(decode_whole_reply::<Failing<Local>, _>(
                     &mut LeafEdge::new(),
                     backend.clone(),
-                    u64::MAX,
+                    &nothing_seen(),
                     unbounded(),
                     ReplyLevel::Branch,
                     &Scope::unbounded(parent.erase(), &[]),

@@ -29,7 +29,7 @@ use super::{
         DecodeError, LeafEdge, Replay, ReplyEncoder, ReplyLevel, Scope, decode_whole_reply,
         derive_questions, encode_leaf_reply, encode_reply,
     },
-    LeafCase, NodeAt, codec, hash, leaf_run, reply_frames, runtime, unbounded,
+    LeafCase, NodeAt, codec, hash, leaf_run, nothing_seen, reply_frames, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, Reaction as WireReaction, RunBudget,
@@ -407,7 +407,7 @@ impl AdapterHeight for Z {
         let reply = decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             level,
             &scope,
@@ -460,7 +460,7 @@ where
         let reply = decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &nothing_seen(),
             unbounded(),
             level,
             &scope,

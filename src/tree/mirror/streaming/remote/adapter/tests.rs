@@ -13,7 +13,10 @@ use crate::{
         mirror::streaming::{
             convert::Convert,
             materialized::SupplyLedger,
-            remote::codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget},
+            remote::{
+                adapter::SupplyBounds,
+                codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget},
+            },
         },
         typed::{
             self, Hash, Path,
@@ -53,6 +56,16 @@ fn hash(byte: u8) -> Hash {
 /// subject is not the ingress supply charge.
 fn unbounded() -> SupplyLedger {
     SupplyLedger::new(u64::MAX)
+}
+
+/// Supply bounds no fixture leaf here breaks, for tests whose subject is
+/// not a supplied version: a peer that declares no limit on version size,
+/// supplying a side that has seen nothing.
+///
+/// Every version contains the empty version, so a side at it has still
+/// seen a leaf at that version; [`LeafCase`] never builds one.
+fn nothing_seen() -> SupplyBounds {
+    SupplyBounds::new(u64::MAX, Version::new())
 }
 
 /// Construct the payload codec shared by adapter fixtures.
@@ -155,10 +168,17 @@ struct LeafCase {
 
 impl LeafCase {
     /// Construct a leaf whose low 56 value bits and ticks select its version.
+    ///
+    /// The version holds one tick beyond those the two select, so it is
+    /// never the empty version: every inserted leaf's version holds its
+    /// insert's tick, and a decoder rejects a leaf at the empty version as
+    /// one every side has seen.
     fn new(value: u64, ticks: u8) -> Self {
+        let mut version = uniform_version(value.wrapping_shl(8) | u64::from(ticks));
+        Party::seed().tick(&mut version);
         Self {
             value,
-            version: uniform_version(value.wrapping_shl(8) | u64::from(ticks)),
+            version,
             message: Message::new(value),
         }
     }

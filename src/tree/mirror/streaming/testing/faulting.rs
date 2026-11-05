@@ -169,6 +169,13 @@ impl<P> Faulting<P> {
 
 /// One tick of the canonical test party: contained in any fixture ceiling
 /// whose tree ticked that party at least once.
+///
+/// The receiver's ceiling is such a ceiling, so a node at this version is
+/// one the receiver has already seen. The wire decoder rejects such a
+/// supply (`DecodeError::SeenSupply`), but the in-process walk these
+/// corruptions drive never compares a supply with the receiver's own
+/// version, so a supply at this version commits only the structural
+/// violation it is placed to commit.
 fn contained_version() -> Version {
     let mut version = Version::new();
     version.tick(&nth_party(0));
@@ -343,7 +350,9 @@ where
                 // does): at the opening, where no honest reaction precedes
                 // the corruption to place it out of order, a held radix
                 // would be rejected as `UnexpectedSupply` instead. The
-                // first copy is absorbed before the duplicate fires, so
+                // first copy is absorbed before the duplicate fires (the
+                // in-process walk does not check that the receiver has
+                // seen its version; see `contained_version`), so
                 // the receiver's ledger must have one leaf of slack under
                 // the corrupting side's declared set length: every fixture
                 // declares its true length, and the receiver absorbs at

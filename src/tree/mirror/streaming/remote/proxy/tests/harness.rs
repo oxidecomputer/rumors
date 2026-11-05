@@ -19,7 +19,6 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, Re
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::default;
 use crate::message::{Message, PayloadCodec, PayloadDepthLimit};
 use crate::testing::{
     IoFault, IoPlan, IoReportHandle, IoSide, MemoryEnd, memory_connection, wrap_io,
@@ -43,6 +42,7 @@ use crate::tree::{
         },
     },
 };
+use crate::{Version, default};
 
 /// Bytes buffered by each direction of the pipe before backpressure applies.
 pub const TRANSPORT_CAPACITY: usize = 37;
@@ -491,68 +491,81 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
 /// Rewriting the *received* greeting simulates a non-conforming peer whose
 /// declaration disagrees with the traffic it then sends: the receiving side
 /// negotiates against the rewritten value while the sender behaves per its
-/// unchanged tree. The greeting is the first item at this layer, so the
-/// rewriter buffers the one item, encodes it again with the field
-/// replaced, and passes everything after it through untouched.
+/// unchanged tree. Rewriting the received *version* instead makes the
+/// receiving side the non-conforming one: it filters what it supplies
+/// against a version its peer never declared. The greeting is the first
+/// item at this layer, so the rewriter buffers the one item, encodes it
+/// again with the field replaced, and passes everything after it through
+/// untouched.
 #[derive(Clone)]
 pub struct GreetingRewrite {
     /// Whether this rewrite reached a complete greeting.
     fired: Arc<AtomicBool>,
-    /// Which declaration to replace.
+    /// Which declaration to replace, and what the receiving side decodes
+    /// instead of the encoded one.
     field: GreetingField,
-    /// The declaration the receiving side decodes instead of the encoded one.
-    value: u64,
 }
 
-#[derive(Clone, Copy)]
-/// The size declaration replaced in a received greeting.
+/// A declaration replaced in a received greeting, with its replacement.
+#[derive(Clone)]
 enum GreetingField {
     /// The peer's message count.
-    SetLen,
+    SetLen(u64),
     /// The largest encoded version the peer may send.
-    MaxVersionBytes,
+    MaxVersionBytes(u64),
     /// The peer's target encoded message size.
-    TargetMessageSize,
+    TargetMessageSize(u64),
     /// The peer's grandchild count of its root.
-    Grandchildren,
+    Grandchildren(u64),
     /// Every grandchild count in the peer's root listing.
-    ListingGrandchildren,
+    ListingGrandchildren(u64),
+    /// The peer's causal version.
+    Version(Version),
 }
 
 impl GreetingRewrite {
     /// Configure one declaration rewrite with a shared observation flag.
-    fn new(field: GreetingField, value: u64) -> Self {
+    fn new(field: GreetingField) -> Self {
         Self {
             fired: Arc::new(AtomicBool::new(false)),
             field,
-            value,
         }
     }
 
     /// Rewrite the received greeting's `set_len` entry.
     pub fn set_len(value: u64) -> Self {
-        Self::new(GreetingField::SetLen, value)
+        Self::new(GreetingField::SetLen(value))
     }
 
     /// Rewrite the received greeting's `max_version_bytes` entry.
     pub fn max_version_bytes(value: u64) -> Self {
-        Self::new(GreetingField::MaxVersionBytes, value)
+        Self::new(GreetingField::MaxVersionBytes(value))
     }
 
     /// Rewrite the received greeting's `target_message_size` entry.
     pub fn target_message_size(value: u64) -> Self {
-        Self::new(GreetingField::TargetMessageSize, value)
+        Self::new(GreetingField::TargetMessageSize(value))
     }
 
     /// Rewrite the received greeting's root grandchild count.
     pub fn grandchild_count(value: u64) -> Self {
-        Self::new(GreetingField::Grandchildren, value)
+        Self::new(GreetingField::Grandchildren(value))
     }
 
     /// Rewrite every grandchild count in the received greeting's root
     /// listing to `value`, which must lie in 1..=65,536.
     pub fn listing_grandchildren(value: u64) -> Self {
-        Self::new(GreetingField::ListingGrandchildren, value)
+        Self::new(GreetingField::ListingGrandchildren(value))
+    }
+
+    /// Rewrite the received greeting's causal version, against which the
+    /// receiving side filters what it supplies.
+    ///
+    /// The role election breaks a tie in set lengths by version, so a test
+    /// that rewrites the version keeps the two lengths apart, or the sides
+    /// may elect differently.
+    pub fn version(version: Version) -> Self {
+        Self::new(GreetingField::Version(version))
     }
 
     /// Return whether a complete greeting was rewritten.
@@ -569,13 +582,14 @@ impl GreetingRewrite {
         cbor::read_head(&mut input).expect("a complete greeting item has its tag head");
         cbor::read_head(&mut input).expect("a complete greeting item has its string head");
         let mut greeting = parse_greeting(input).expect("the harness rewrites a valid greeting");
-        match self.field {
-            GreetingField::SetLen => greeting.set_len = self.value,
-            GreetingField::MaxVersionBytes => greeting.max_version_bytes = self.value,
-            GreetingField::TargetMessageSize => greeting.target_message_size = self.value,
-            GreetingField::Grandchildren => greeting.grandchildren = self.value,
-            GreetingField::ListingGrandchildren => {
-                let count = usize::try_from(self.value)
+        match &self.field {
+            GreetingField::SetLen(value) => greeting.set_len = *value,
+            GreetingField::MaxVersionBytes(value) => greeting.max_version_bytes = *value,
+            GreetingField::TargetMessageSize(value) => greeting.target_message_size = *value,
+            GreetingField::Grandchildren(value) => greeting.grandchildren = *value,
+            GreetingField::Version(version) => greeting.version = version.clone(),
+            GreetingField::ListingGrandchildren(value) => {
+                let count = usize::try_from(*value)
                     .ok()
                     .and_then(Grandchildren::new)
                     .expect("a listing count lies in 1..=65,536");

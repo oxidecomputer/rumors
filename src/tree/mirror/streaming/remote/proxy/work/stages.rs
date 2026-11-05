@@ -113,7 +113,7 @@ where
             decode_reply(
                 &mut edge,
                 self.backend.clone(),
-                self.version_bytes,
+                &self.bounds,
                 self.ledger.clone(),
                 level,
                 &answered,

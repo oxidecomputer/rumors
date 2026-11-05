@@ -15,6 +15,7 @@ use crate::{
             message::Greeting,
             protocol::{self, Accept, CompleteConnect, Connect},
             remote::{
+                adapter::SupplyBounds,
                 codec::{RunBudget, greeting as greeting_codec},
                 pipe::{PipeRead, WIRE_POOL_RUNS, WirePools, WriteBatch},
                 proxy::{Connected, Error, work::Ingress},
@@ -175,6 +176,9 @@ where
         // them aside ([`WirePools::new`]).
         let target = usize::try_from(local.target_message_size).unwrap_or(usize::MAX);
         let pools = WirePools::new(target, self.pool_runs);
+        // The peer filters its supplies against the version this side
+        // greeted it with, so that version bounds what it may supply.
+        let seen = local.version;
         let Greeting {
             max_version_bytes: remote_version_bytes,
             set_len: remote_set_len,
@@ -185,7 +189,7 @@ where
         Ok(Connected {
             ingress: Ingress::new(
                 self.backend,
-                remote_version_bytes,
+                SupplyBounds::new(remote_version_bytes, seen),
                 remote_set_len,
                 // An empty tree counts none; a bound of one reaction above
                 // that costs nothing a conforming reply can exceed.

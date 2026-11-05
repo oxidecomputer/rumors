@@ -14,7 +14,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream,
 use tokio::sync::oneshot;
 
 use super::{Ingress, Outstanding, Physical, Work, progress::Progress};
-use crate::default;
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::{MemoryEnd, memory_connection, run_to_quiescence};
 use crate::tree::mirror::cbor;
@@ -23,7 +22,7 @@ use crate::tree::mirror::streaming::{
     channel::{QueueKind, QueueRole, channel},
     message::listed,
     remote::{
-        adapter::{DecodeError, EncodeError, Scope, ScopeError},
+        adapter::{DecodeError, EncodeError, Scope, ScopeError, SupplyBounds},
         codec::{
             self, DecodeErrorKind, EncodeErrorKind, End, Flow, Frame, FramePart, Origin, Reaction,
             RunBudget, Speaker, Stream,
@@ -37,6 +36,7 @@ use crate::tree::typed::{
     Hash,
     height::{Height, UnderRoot},
 };
+use crate::{Version, default};
 
 /// Pending tasks placed before the injected failure to exercise aggregation.
 const PARKED_PUMPS: usize = 3;
@@ -68,7 +68,7 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
     Work::new(
         Ingress::new(
             Failing::after(Local, usize::MAX),
-            u64::MAX,
+            SupplyBounds::new(u64::MAX, Version::new()),
             u64::MAX,
             Grandchildren::MAX,
             PayloadCodec::new::<u64>(PayloadDepthLimit::default()),

@@ -27,7 +27,7 @@ use crate::{
             materialized::{SupplyLedger, derived_bytes},
             protocol::BoxResponses,
             remote::{
-                adapter::{Replay, ReplyLevel, Scope, derive_questions},
+                adapter::{Replay, ReplyLevel, Scope, SupplyBounds, derive_questions},
                 codec::{RunBudget, Speaker, Stream as LogicalStream},
                 pipe::{self, Demultiplexer, Inbound, Multiplexer, Outgoing, PipeRead, WirePools},
                 proxy::{Error, send_or_cancel},
@@ -55,8 +55,8 @@ where
 {
     /// The store used to reconstruct supplied nodes.
     backend: B,
-    /// The peer's declared maximum encoded version size.
-    version_bytes: u64,
+    /// What every supplied leaf's version must satisfy.
+    bounds: SupplyBounds,
     /// The peer's remaining declared supply allowance.
     ledger: SupplyLedger,
     /// The peer's declared grandchild count of its root, which bounds its
@@ -77,10 +77,11 @@ impl<B> Ingress<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Combine the backend with the peer's greeting-derived decode limits.
+    /// Combine the backend with the decode limits derived from the two
+    /// greetings.
     pub(super) fn new(
         backend: B,
-        version_bytes: u64,
+        bounds: SupplyBounds,
         set_len: u64,
         root_grandchildren: Grandchildren,
         codec: PayloadCodec,
@@ -88,7 +89,7 @@ where
     ) -> Self {
         Self {
             backend,
-            version_bytes,
+            bounds,
             ledger: SupplyLedger::new(set_len),
             root_grandchildren,
             codec,
