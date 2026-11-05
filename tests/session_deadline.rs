@@ -11,6 +11,9 @@ use rumors::{Error, Gossip, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::AsyncWriteExt;
 
 use common::wire::{block_on, bootstrap_fork_async};
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
 /// Hand-controlled deadlines, retained by generation to detect accidental resets.
 #[derive(Clone, Default)]
@@ -56,11 +59,12 @@ proptest! {
         bytes in 1usize..30,
         idle_polls in 0usize..8,
         cancel in any::<bool>(),
+        network in network_seed(),
     ) {
         block_on(async {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let a: Rumors<u64> = Peer::seed().sync_memory_budget(0)
+            let a: Rumors<u64> = network.peer().sync_memory_budget(0)
                 .gossip_when(|_| stream::pending::<()>())
                 .session_deadline(move || factory.start()).into_rumors();
             a.send(7).unwrap();
@@ -95,11 +99,14 @@ proptest! {
     /// initial notification. A learned change reaches the other connection but
     /// never echoes.
     #[test]
-    fn changes_factories_are_independent_and_suppression_stays_per_connection(rounds in 1u64..8) {
+    fn changes_factories_are_independent_and_suppression_stays_per_connection(
+        rounds in 1u64..8,
+        network in network_seed(),
+    ) {
         block_on(async {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
+            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
             let b = bootstrap_fork_async(&a).await;
             let c = bootstrap_fork_async(&a).await;
             let a = a.try_into_peer().await.unwrap()
@@ -137,38 +144,46 @@ proptest! {
     }
 }
 
-/// A one-shot forces initiation under a passive policy and uses its deadline.
-#[test]
-fn one_shot_uses_deadline_but_ignores_initiation_policy() {
-    let deadlines = Deadlines::default();
-    let factory = deadlines.clone();
-    let a: Rumors<()> = Peer::seed()
-        .gossip_when(|_| stream::pending::<()>())
-        .session_deadline(move || factory.start())
-        .into_rumors();
-    let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
-    assert!(session.as_mut().now_or_never().is_none());
-    assert_eq!(deadlines.count(), 1);
-    deadlines.expire(0);
-    assert!(matches!(
-        run_to_quiescence(session).unwrap(),
-        Err(Error::DeadlineExceeded)
-    ));
-}
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-/// A ready transport failure takes precedence over an equally ready deadline.
-#[test]
-fn an_available_session_result_wins_the_deadline_race() {
-    let a: Rumors<()> = Peer::seed()
-        .session_deadline(|| std::future::ready(()))
-        .into_rumors();
-    let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    drop(remote);
-    assert!(matches!(
-        block_on(a.gossip_once(&mut end.read, &mut end.write)),
-        Err(Error::Transport(_))
-    ));
+    /// A one-shot forces initiation under a passive policy and uses its deadline.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn one_shot_uses_deadline_but_ignores_initiation_policy(network in network_seed()) {
+        let deadlines = Deadlines::default();
+        let factory = deadlines.clone();
+        let a: Rumors<()> = network.peer()
+            .gossip_when(|_| stream::pending::<()>())
+            .session_deadline(move || factory.start())
+            .into_rumors();
+        let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
+        assert!(session.as_mut().now_or_never().is_none());
+        assert_eq!(deadlines.count(), 1);
+        deadlines.expire(0);
+        assert!(matches!(
+            run_to_quiescence(session).unwrap(),
+            Err(Error::DeadlineExceeded)
+        ));
+    }
+
+    /// A ready transport failure takes precedence over an equally ready deadline.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn an_available_session_result_wins_the_deadline_race(network in network_seed()) {
+        let a: Rumors<()> = network.peer()
+            .session_deadline(|| std::future::ready(()))
+            .into_rumors();
+        let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        drop(remote);
+        assert!(matches!(
+            block_on(a.gossip_once(&mut end.read, &mut end.write)),
+            Err(Error::Transport(_))
+        ));
+    }
 }
 
 /// A configured timer is fresh on each session, measured from initiation rather
@@ -203,12 +218,12 @@ proptest! {
     /// Each expired join returns an untouched bookmark and retryable policy.
     /// Successful joining preserves that policy for the peer's later sessions.
     #[test]
-    fn bootstrap_retries_preserve_policy(attempts in 1usize..5) {
+    fn bootstrap_retries_preserve_policy(attempts in 1usize..5, network in network_seed()) {
         use common::flaky::{FaultFeed, FlakyInMemoryBookmark};
         use rumors::Joined;
 
         block_on(async {
-            let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
+            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
             a.send(42).unwrap();
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
@@ -252,39 +267,45 @@ proptest! {
     }
 }
 
-/// Failed bookmark attachment returns a peer with both gossip factories intact.
-#[test]
-fn failed_bookmark_attachment_preserves_policy() {
-    use common::flaky::{FaultFeed, FlakyInMemoryBookmark};
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    block_on(async {
-        let deadlines = Deadlines::default();
-        let factory = deadlines.clone();
-        let a: Rumors<u64> = Peer::seed()
-            .sync_memory_budget(0)
-            .gossip_when(|_| stream::pending::<()>())
-            .session_deadline(move || factory.start())
-            .into_rumors();
-        a.send(42).unwrap();
-        let peer = a.try_into_peer().await.unwrap();
-        let failure = peer
-            .bookmark(FlakyInMemoryBookmark::new(
-                Arc::new(Mutex::new(None)),
-                Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true]))),
-                0,
-            ))
-            .await
-            .expect_err("attachment's write fails");
-        let a = failure.peer.into_rumors();
-        let (mut end, _remote) =
-            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-        let mut sessions = a.gossip(&mut end.read, &mut end.write);
-        assert!(sessions.next().now_or_never().is_none());
-        assert_eq!(deadlines.count(), 0);
-        drop(sessions);
-        let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
-        assert!(session.as_mut().now_or_never().is_none());
-        deadlines.expire(0);
-        assert!(matches!(session.await, Err(Error::DeadlineExceeded)));
-    });
+    /// Failed bookmark attachment returns a peer with both gossip factories intact.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn failed_bookmark_attachment_preserves_policy(network in network_seed()) {
+        use common::flaky::{FaultFeed, FlakyInMemoryBookmark};
+
+        block_on(async {
+            let deadlines = Deadlines::default();
+            let factory = deadlines.clone();
+            let a: Rumors<u64> = network.peer()
+                .sync_memory_budget(0)
+                .gossip_when(|_| stream::pending::<()>())
+                .session_deadline(move || factory.start())
+                .into_rumors();
+            a.send(42).unwrap();
+            let peer = a.try_into_peer().await.unwrap();
+            let failure = peer
+                .bookmark(FlakyInMemoryBookmark::new(
+                    Arc::new(Mutex::new(None)),
+                    Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true]))),
+                    0,
+                ))
+                .await
+                .expect_err("attachment's write fails");
+            let a = failure.peer.into_rumors();
+            let (mut end, _remote) =
+                rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let mut sessions = a.gossip(&mut end.read, &mut end.write);
+            assert!(sessions.next().now_or_never().is_none());
+            assert_eq!(deadlines.count(), 0);
+            drop(sessions);
+            let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
+            assert!(session.as_mut().now_or_never().is_none());
+            deadlines.expire(0);
+            assert!(matches!(session.await, Err(Error::DeadlineExceeded)));
+        });
+    }
 }

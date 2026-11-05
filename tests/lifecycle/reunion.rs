@@ -5,8 +5,8 @@ use std::task::Poll;
 
 use futures::future::join_all;
 use proptest::prelude::*;
-use rumors::Peer;
 use rumors::testing::run_to_quiescence;
+use rumors_testkit::common::seed::network_seed;
 
 proptest! {
     /// Competing reuniters wait for ordinary handles, survive cancelled
@@ -18,8 +18,9 @@ proptest! {
         cancel in prop::collection::vec(any::<bool>(), 8),
         reverse in any::<bool>(),
         generations in 1usize..4,
+        network in network_seed(),
     ) {
-        let mut peer = Peer::<u64>::seed();
+        let mut peer = network.peer::<u64>();
         let identity = peer.dangerously_alias_party();
         for generation in 0..generations {
             peer = run_to_quiescence(async {

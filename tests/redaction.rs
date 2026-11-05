@@ -11,11 +11,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{EncodeError, Peer as RumorsPeer, TryTick, Version};
+use rumors::{EncodeError, TryTick, Version};
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::wire::bootstrap_fork;
+use rumors_testkit::common::seed::network_seed;
 
 proptest! {
     /// A redaction issued by *any* peer propagates contagiously to
@@ -31,8 +32,9 @@ proptest! {
         (n_peers, redactor) in (2usize..=6)
             .prop_flat_map(|n_peers| (Just(n_peers), 0..n_peers)),
         value in any::<u64>(),
+        network in network_seed(),
     ) {
-        let seed = rumors::Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
             .map(|_| Peer::new(bootstrap_fork(&seed)))
             .collect();
@@ -65,9 +67,10 @@ proptest! {
     fn concurrent_redactions_order_independent(
         a_values in vec(any::<u64>(), 1..=4),
         b_values in vec(any::<u64>(), 1..=4),
+        network in network_seed(),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let seed = rumors::Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             let mut a = Peer::new(bootstrap_fork(&seed));
             let mut b = Peer::new(bootstrap_fork(&seed));
             let mut a_versions: Vec<rumors::Version> = Vec::new();
@@ -99,10 +102,10 @@ proptest! {
     /// Each generated payload exhausts both absent-version states. Empty roots
     /// and roots retaining unrelated content must both remain unchanged.
     #[test]
-    fn absent_redactions_are_noops(value in any::<u64>()) {
+    fn absent_redactions_are_noops(value in any::<u64>(), network in network_seed()) {
         for already_redacted in [false, true] {
             for retain_unrelated in [false, true] {
-                let seed = RumorsPeer::<u64>::seed().sync_memory_budget(0).into_rumors();
+                let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
                 let subject = bootstrap_fork(&seed);
                 let absent = if already_redacted {
                     let version = subject.send(value).unwrap();
@@ -163,8 +166,9 @@ proptest! {
             Just(Redacting::All),
             Just(Redacting::Batch),
         ],
+        network in network_seed(),
     ) {
-        let seed = RumorsPeer::<u64>::seed().sync_memory_budget(0).into_rumors();
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let subject = bootstrap_fork(&seed);
         let held: Vec<Version> = (0..held as u64).map(|i| subject.send(i).unwrap()).collect();
         let already_redacted: Vec<Version> = (0..already_redacted as u64)

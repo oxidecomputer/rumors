@@ -48,6 +48,7 @@ use rumors::{Peer, Retire, Rumors};
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
+use rumors_testkit::common::seed::network_seed;
 
 /// The largest fleet [`fleet_scale_retirement_preserves_content_and_party`]
 /// builds and retires.
@@ -242,8 +243,8 @@ proptest! {
     ///
     /// No other identity moved, none was created, none was lost.
     #[test]
-    fn bootstrap_donates_exactly_once(actions in arb_local_actions()) {
-        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+    fn bootstrap_donates_exactly_once(actions in arb_local_actions(), network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         // A provider holding a proper sub-share (not the whole seed), with
         // arbitrary content: the general donation case.
         let provider = build_local(bootstrap_fork(&seed), &actions);
@@ -277,8 +278,9 @@ proptest! {
     fn retire_donates_exactly_once(
         retiree_actions in arb_local_actions(),
         absorber_actions in arb_local_actions(),
+        network in network_seed(),
     ) {
-        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let absorber = build_local(bootstrap_fork(&seed), &absorber_actions);
         let retiree = build_local(bootstrap_fork(&seed), &retiree_actions);
 
@@ -311,8 +313,11 @@ proptest! {
     /// is the shape bound: a design whose speculative forks leave
     /// non-contiguous shards grows this measure permanently and fails here.
     #[test]
-    fn party_returns_to_baseline_under_sequential_cycles(k in 1usize..=12) {
-        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+    fn party_returns_to_baseline_under_sequential_cycles(
+        k in 1usize..=12,
+        network in network_seed(),
+    ) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         // The provider under test holds a proper sub-share, the general
         // case; the seed handle stays live holding the complement.
         let p = bootstrap_fork(&seed);
@@ -354,8 +359,9 @@ proptest! {
     fn party_returns_to_baseline_under_interleaved_cycles(
         order in (2usize..=4)
             .prop_flat_map(|m| Just((0..m).collect::<Vec<usize>>()).prop_shuffle()),
+        network in network_seed(),
     ) {
-        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let p = bootstrap_fork(&seed);
         let baseline = alias(&p);
 
@@ -400,11 +406,12 @@ proptest! {
             proptest::collection::vec(any::<usize>(), n - 1),
             proptest::collection::vec((any::<usize>(), any::<usize>()), n - 1),
         )),
+        network in network_seed(),
     ) {
         // Each newcomer sends a distinct value. Remember its version so the
         // final check catches missing messages, duplicates, or rewritten versions.
         let mut expected = BTreeMap::new();
-        let mut fleet = vec![Peer::<u64>::seed().sync_memory_budget(0).into_rumors()];
+        let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
         for (i, &provider) in providers.iter().enumerate() {
             apply(&mut fleet, Op::Bootstrap { provider });
             let newest = fleet.len() - 1;

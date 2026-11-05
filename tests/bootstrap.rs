@@ -13,6 +13,9 @@ use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persi
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
 
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -78,8 +81,8 @@ proptest! {
     /// A first message from the newcomer then survives reconciliation,
     /// showing that its inherited floor covers the provider's history.
     #[test]
-    fn bootstrap_reproduces_a_fork(actions in arb_local_actions()) {
-        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+    fn bootstrap_reproduces_a_fork(actions in arb_local_actions(), network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
         let control = readout(&provider.snapshot());
 
@@ -106,8 +109,11 @@ proptest! {
 
     /// Bootstrap preserves the same content and floor invariants for strings.
     #[test]
-    fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
-        let seed = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
+    fn bootstrap_reproduces_a_fork_string(
+        actions in arb_string_actions(),
+        network in network_seed(),
+    ) {
+        let seed = network.peer::<String>().sync_memory_budget(0).into_rumors();
         let provider = build_local(bootstrap_fork(&seed), &actions);
         let control = readout(&provider.snapshot());
 
@@ -134,34 +140,40 @@ proptest! {
     }
 }
 
-/// A newcomer does not relearn content redacted before it joined.
-#[test]
-fn bootstrap_floor_rejects_stale_redacted_content() {
-    let provider = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let version = provider.send(1).unwrap();
-    let stale = bootstrap_fork(&provider);
-    provider.redact(&version);
-    let redacted_frontier = provider.snapshot().latest().clone();
-    let newcomer = bootstrap_fork(&provider);
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    assert_eq!(
-        newcomer.snapshot().latest(),
-        &redacted_frontier,
-        "bootstrap must inherit the provider's complete frontier",
-    );
+    /// A newcomer does not relearn content redacted before it joined.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn bootstrap_floor_rejects_stale_redacted_content(network in network_seed()) {
+        let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let version = provider.send(1).unwrap();
+        let stale = bootstrap_fork(&provider);
+        provider.redact(&version);
+        let redacted_frontier = provider.snapshot().latest().clone();
+        let newcomer = bootstrap_fork(&provider);
 
-    wire_gossip(&newcomer, &stale);
+        assert_eq!(
+            newcomer.snapshot().latest(),
+            &redacted_frontier,
+            "bootstrap must inherit the provider's complete frontier",
+        );
 
-    for peer in [&newcomer, &stale] {
+        wire_gossip(&newcomer, &stale);
+
+        for peer in [&newcomer, &stale] {
+            assert!(
+                !peer.snapshot().contains(&version),
+                "the stale copy must remain redacted after gossip",
+            );
+        }
         assert!(
-            !peer.snapshot().contains(&version),
-            "the stale copy must remain redacted after gossip",
+            newcomer.snapshot().latest() >= version,
+            "the newcomer must inherit a frontier that covers the redacted version",
         );
     }
-    assert!(
-        newcomer.snapshot().latest() >= version,
-        "the newcomer must inherit a frontier that covers the redacted version",
-    );
 }
 
 /// Two bootstrappers return their builders without stalling or leaving unread bytes.
@@ -190,54 +202,60 @@ fn both_bootstrapping_return_their_builders() {
     );
 }
 
-/// A zero sync memory budget selected at bootstrap can add latency, never
-/// break the session.
-///
-/// The join completes, delivers the provider's whole
-/// set, and the joined peer — retaining the zero budget for its own
-/// sessions — still reconciles a fresh origination back into the provider.
-///
-/// The budget's any-value safety therefore holds at the one entry point
-/// that runs before the peer exists, and the retained setting survives
-/// into the first session where it can bind.
-#[test]
-fn zero_budget_bootstrap_converges() {
-    let provider = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    provider.send_all([1, 2, 3]).unwrap();
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let bootstrapped = block_on(async {
-        let (mut provider_end, mut newcomer_end) =
-            rumors::testing::memory_connection(ROOMY_CAPACITY);
-        let (served, joined) = tokio::join!(
-            provider.gossip_once(&mut provider_end.read, &mut provider_end.write),
-            Peer::<u64>::bootstrap()
-                .sync_memory_budget(0)
-                .join(&mut newcomer_end.read, &mut newcomer_end.write),
+    /// A zero sync memory budget selected at bootstrap can add latency, never
+    /// break the session.
+    ///
+    /// The join completes, delivers the provider's whole
+    /// set, and the joined peer — retaining the zero budget for its own
+    /// sessions — still reconciles a fresh origination back into the provider.
+    ///
+    /// The budget's any-value safety therefore holds at the one entry point
+    /// that runs before the peer exists, and the retained setting survives
+    /// into the first session where it can bind.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn zero_budget_bootstrap_converges(network in network_seed()) {
+        let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        provider.send_all([1, 2, 3]).unwrap();
+
+        let bootstrapped = block_on(async {
+            let (mut provider_end, mut newcomer_end) =
+                rumors::testing::memory_connection(ROOMY_CAPACITY);
+            let (served, joined) = tokio::join!(
+                provider.gossip_once(&mut provider_end.read, &mut provider_end.write),
+                Peer::<u64>::bootstrap()
+                    .sync_memory_budget(0)
+                    .join(&mut newcomer_end.read, &mut newcomer_end.write),
+            );
+            served.expect("the provider serves the zero-budget bootstrap");
+            let newcomer = (match joined {
+                rumors::Joined::Joined { peer, .. } => peer,
+                _ => panic!("the provider is established"),
+            })
+            .into_rumors();
+            assert_connection_drained(provider_end, newcomer_end);
+            newcomer
+        });
+
+        assert_eq!(
+            readout(&bootstrapped.snapshot()),
+            readout(&provider.snapshot()),
+            "the zero-budget join must still deliver the provider's whole set",
         );
-        served.expect("the provider serves the zero-budget bootstrap");
-        let newcomer = (match joined {
-            rumors::Joined::Joined { peer, .. } => peer,
-            _ => panic!("the provider is established"),
-        })
-        .into_rumors();
-        assert_connection_drained(provider_end, newcomer_end);
-        newcomer
-    });
 
-    assert_eq!(
-        readout(&bootstrapped.snapshot()),
-        readout(&provider.snapshot()),
-        "the zero-budget join must still deliver the provider's whole set",
-    );
-
-    // The joined peer gossips under its retained zero budget, asking one
-    // question at a time, and the session still converges.
-    bootstrapped.send(u64::MAX).unwrap();
-    wire_gossip(&provider, &bootstrapped);
-    assert!(
-        provider.snapshot().iter().any(|(_, m)| *m == u64::MAX),
-        "the newcomer's origination must survive its zero-budget gossip",
-    );
+        // The joined peer gossips under its retained zero budget, asking one
+        // question at a time, and the session still converges.
+        bootstrapped.send(u64::MAX).unwrap();
+        wire_gossip(&provider, &bootstrapped);
+        assert!(
+            provider.snapshot().iter().any(|(_, m)| *m == u64::MAX),
+            "the newcomer's origination must survive its zero-budget gossip",
+        );
+    }
 }
 
 /// A fresh durable store and a bookmark over it whose writes fail on

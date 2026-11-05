@@ -30,6 +30,9 @@ use crate::common::observer::{Step, drain, step};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
 use rumors::testing::run_to_quiescence;
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// Send a fixed fixture's messages and return the same handle.
 fn with_messages(peer: Rumors<u64>, messages: &[u64]) -> Rumors<u64> {
@@ -55,12 +58,14 @@ fn fingerprint(peer: &Rumors<u64>) -> Fingerprint {
     }
 }
 
-/// Fingerprint plain gossip for comparison with an equivalent retirement.
+/// Fingerprint plain gossip in the network `network` founds, for comparison
+/// with an equivalent retirement in the same network.
 fn plain_gossip_fingerprint(
+    network: NetworkSeed,
     a_actions: &[LocalAction<u64>],
     b_actions: &[LocalAction<u64>],
 ) -> Fingerprint {
-    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+    let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
     let a = build_local(bootstrap_fork(&seed), a_actions);
     let b = build_local(seed, b_actions);
     wire_gossip(&a, &b);
@@ -159,205 +164,223 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Outcome<u64>, Rumors<u64>) {
     })
 }
 
-/// A fresh, empty bootstrap fork can retire into its provider without prior
-/// gossip because their content and causal frontiers already agree.
-#[test]
-fn empty_equal_version_retire_succeeds() {
-    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let a = bootstrap_fork(&seed);
-    let b = seed;
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let outcome = retire_into_gossip(a, &b);
-    assert!(
-        matches!(outcome, Retire::Retired { .. }),
-        "equal versions dominate reflexively, so retire commits; got {outcome:?}"
-    );
-}
+    /// A fresh, empty bootstrap fork can retire into its provider without prior
+    /// gossip because their content and causal frontiers already agree.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn empty_equal_version_retire_succeeds(network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = bootstrap_fork(&seed);
+        let b = seed;
 
-/// A redaction the retiree performed locally propagates through retirement's
-/// gossip round: the absorber evicts the message before absorbing the party,
-/// exactly as a plain gossip session would have spread it.
-#[test]
-fn retiree_redaction_propagates_through_retire() {
-    // Both peers hold 1 and 2 (inserted before the fork, so the messages
-    // and their versions are shared); the retiree then redacts 1 while the
-    // peer inserts 3.
-    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    seed.send_all([1, 2]).unwrap();
-    let version_of_1 = seed
-        .snapshot()
-        .iter()
-        .find_map(|(v, m)| (*m == 1).then_some(v.clone()))
-        .expect("version recorded for 1");
+        let outcome = retire_into_gossip(a, &b);
+        assert!(
+            matches!(outcome, Retire::Retired { .. }),
+            "equal versions dominate reflexively, so retire commits; got {outcome:?}"
+        );
+    }
 
-    let a = bootstrap_fork(&seed);
-    let b = with_messages(seed, &[3]);
+    /// A redaction the retiree performed locally propagates through retirement's
+    /// gossip round: the absorber evicts the message before absorbing the party,
+    /// exactly as a plain gossip session would have spread it.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn retiree_redaction_propagates_through_retire(network in network_seed()) {
+        // Both peers hold 1 and 2 (inserted before the fork, so the messages
+        // and their versions are shared); the retiree then redacts 1 while the
+        // peer inserts 3.
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        seed.send_all([1, 2]).unwrap();
+        let version_of_1 = seed
+            .snapshot()
+            .iter()
+            .find_map(|(v, m)| (*m == 1).then_some(v.clone()))
+            .expect("version recorded for 1");
 
-    a.redact(&version_of_1);
+        let a = bootstrap_fork(&seed);
+        let b = with_messages(seed, &[3]);
 
-    let outcome = retire_into_gossip(a, &b);
-    assert!(
-        matches!(outcome, Retire::Retired { .. }),
-        "the reconciled peer absorbs the retiree, got {outcome:?}"
-    );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| *m).collect();
-    live.sort_unstable();
-    assert_eq!(
-        live,
-        vec![2, 3],
-        "the retiree's redaction evicts 1 from the absorber"
-    );
-}
+        a.redact(&version_of_1);
 
-/// A retiree's later redaction of a message it originated and previously
-/// shared reaches the absorber during retirement.
-///
-/// Unlike the shared-before-fork case above, the absorber learned this version
-/// directly from the retiree. Retirement must carry the newer causal frontier
-/// that makes the now-absent message stay absent.
-#[test]
-fn retiree_redaction_of_previously_shared_message_propagates() {
-    let seed = Peer::<String>::seed().sync_memory_budget(0).into_rumors();
-    let retiree = bootstrap_fork(&seed);
-    let absorber = seed;
-    let version = retiree.send("presence".to_owned()).unwrap();
+        let outcome = retire_into_gossip(a, &b);
+        assert!(
+            matches!(outcome, Retire::Retired { .. }),
+            "the reconciled peer absorbs the retiree, got {outcome:?}"
+        );
+        let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| *m).collect();
+        live.sort_unstable();
+        assert_eq!(
+            live,
+            vec![2, 3],
+            "the retiree's redaction evicts 1 from the absorber"
+        );
+    }
 
-    wire_gossip(&retiree, &absorber);
-    assert!(absorber.snapshot().contains(&version));
-    retiree.redact(&version);
+    /// A retiree's later redaction of a message it originated and previously
+    /// shared reaches the absorber during retirement.
+    ///
+    /// Unlike the shared-before-fork case above, the absorber learned this version
+    /// directly from the retiree. Retirement must carry the newer causal frontier
+    /// that makes the now-absent message stay absent.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn retiree_redaction_of_previously_shared_message_propagates(network in network_seed()) {
+        let seed = network.peer::<String>().sync_memory_budget(0).into_rumors();
+        let retiree = bootstrap_fork(&seed);
+        let absorber = seed;
+        let version = retiree.send("presence".to_owned()).unwrap();
 
-    let outcome = retire_into_gossip(retiree, &absorber);
-    assert!(matches!(outcome, Retire::Retired { .. }), "{outcome:?}");
-    assert!(
-        !absorber.snapshot().contains(&version),
-        "the retiree's later frontier must preserve the redaction"
-    );
-}
+        wire_gossip(&retiree, &absorber);
+        assert!(absorber.snapshot().contains(&version));
+        retiree.redact(&version);
 
-/// Two peers that both try to retire into each other both decline: each sees
-/// the other's retire-intent in the preamble and refuses to absorb a peer
-/// that is itself leaving. Both are handed back intact.
-#[test]
-fn mutual_retire_declines() {
-    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
-    let b = with_messages(seed, &[3, 4]);
+        let outcome = retire_into_gossip(retiree, &absorber);
+        assert!(matches!(outcome, Retire::Retired { .. }), "{outcome:?}");
+        assert!(
+            !absorber.snapshot().contains(&version),
+            "the retiree's later frontier must preserve the redaction"
+        );
+    }
 
-    let a_hash = a.snapshot().hash();
-    let b_hash = b.snapshot().hash();
-    let (ra, rb) = retire_into_retire(a, b);
-    let (Retire::Declined { peer: a, .. }, Retire::Declined { peer: b, .. }) = (ra, rb) else {
-        panic!("mutual retirement must decline both sides intact");
-    };
-    let (a, b) = (a.into_rumors(), b.into_rumors());
-    assert_eq!(
-        a.snapshot().hash(),
-        a_hash,
-        "declined retiree A is handed back intact"
-    );
-    assert_eq!(
-        b.snapshot().hash(),
-        b_hash,
-        "declined retiree B is handed back intact"
-    );
+    /// Two peers that both try to retire into each other both decline: each sees
+    /// the other's retire-intent in the preamble and refuses to absorb a peer
+    /// that is itself leaving. Both are handed back intact.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn mutual_retire_declines(network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
+        let b = with_messages(seed, &[3, 4]);
 
-    // Both parties are still live and disjoint: a clean retire of one into
-    // the other commits.
-    let outcome = retire_into_gossip(a, &b);
-    assert!(
-        matches!(outcome, Retire::Retired { .. }),
-        "a declined retire leaves both parties whole, got {outcome:?}"
-    );
-}
+        let a_hash = a.snapshot().hash();
+        let b_hash = b.snapshot().hash();
+        let (ra, rb) = retire_into_retire(a, b);
+        let (Retire::Declined { peer: a, .. }, Retire::Declined { peer: b, .. }) = (ra, rb) else {
+            panic!("mutual retirement must decline both sides intact");
+        };
+        let (a, b) = (a.into_rumors(), b.into_rumors());
+        assert_eq!(
+            a.snapshot().hash(),
+            a_hash,
+            "declined retiree A is handed back intact"
+        );
+        assert_eq!(
+            b.snapshot().hash(),
+            b_hash,
+            "declined retiree B is handed back intact"
+        );
 
-/// A bootstrapper succeeds a retiree without duplicating or losing its party.
-///
-/// The successor receives the retiree's complete content and party. Together
-/// with the untouched seed peer, its party therefore remains disjoint and the
-/// two parties reconstruct the network's complete identity space.
-#[test]
-fn retire_into_bootstrapper_hands_off_the_identity() {
-    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let retiree = with_messages(bootstrap_fork(&seed), &[1, 2]);
-    let network = retiree.network();
-    let content = readout(&retiree.snapshot());
+        // Both parties are still live and disjoint: a clean retire of one into
+        // the other commits.
+        let outcome = retire_into_gossip(a, &b);
+        assert!(
+            matches!(outcome, Retire::Retired { .. }),
+            "a declined retire leaves both parties whole, got {outcome:?}"
+        );
+    }
 
-    let (outcome, successor) = retire_into_bootstrap(retiree);
-    assert!(
-        matches!(outcome, Retire::Retired { .. }),
-        "a bootstrapper absorbs the retiree, got {outcome:?}"
-    );
-    assert_eq!(
-        successor.network(),
-        network,
-        "the successor joins the universe"
-    );
-    assert_eq!(
-        readout(&successor.snapshot()),
-        content,
-        "the successor holds the retiree's content"
-    );
-    crate::common::sim::assert_party_invariants(&[seed.clone(), successor.clone()], 0);
+    /// A bootstrapper succeeds a retiree without duplicating or losing its party.
+    ///
+    /// The successor receives the retiree's complete content and party. Together
+    /// with the untouched seed peer, its party therefore remains disjoint and the
+    /// two parties reconstruct the network's complete identity space.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn retire_into_bootstrapper_hands_off_the_identity(network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let retiree = with_messages(bootstrap_fork(&seed), &[1, 2]);
+        let network = retiree.network();
+        let content = readout(&retiree.snapshot());
 
-    // Exercise the transferred party through the public behavior as well.
-    successor.send(99).unwrap();
-    wire_gossip(&successor, &seed);
-    assert!(
-        seed.snapshot().iter().any(|(_, m)| *m == 99),
-        "the successor's origination survives gossip"
-    );
-}
+        let (outcome, successor) = retire_into_bootstrap(retiree);
+        assert!(
+            matches!(outcome, Retire::Retired { .. }),
+            "a bootstrapper absorbs the retiree, got {outcome:?}"
+        );
+        assert_eq!(
+            successor.network(),
+            network,
+            "the successor joins the universe"
+        );
+        assert_eq!(
+            readout(&successor.snapshot()),
+            content,
+            "the successor holds the retiree's content"
+        );
+        crate::common::sim::assert_party_invariants(&[seed.clone(), successor.clone()], 0);
 
-/// Ordinary `gossip` learns a divergent retiree's novel content through the
-/// session's gossip round — the messages land above the absorber's
-/// pre-session frontier, observable to any checkpoint — before absorbing the
-/// party.
-#[test]
-fn gossip_learns_content_from_divergent_retiree() {
-    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
-    let b = with_messages(seed, &[3]);
+        // Exercise the transferred party through the public behavior as well.
+        successor.send(99).unwrap();
+        wire_gossip(&successor, &seed);
+        assert!(
+            seed.snapshot().iter().any(|(_, m)| *m == 99),
+            "the successor's origination survives gossip"
+        );
+    }
 
-    let (outcome, novel) = retire_into_counting_gossip(a, &b);
-    assert!(
-        matches!(outcome, Retire::Retired { .. }),
-        "the reconciled peer absorbs the retiree, got {outcome:?}"
-    );
-    assert_eq!(
-        novel, 2,
-        "the absorber observes each of the retiree's novel messages"
-    );
-    let mut live: Vec<_> = b.snapshot().iter().map(|(_, message)| *message).collect();
-    live.sort_unstable();
-    assert_eq!(live, [1, 2, 3], "the absorber holds the exact union");
-}
+    /// Ordinary `gossip` learns a divergent retiree's novel content through the
+    /// session's gossip round — the messages land above the absorber's
+    /// pre-session frontier, observable to any checkpoint — before absorbing the
+    /// party.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_learns_content_from_divergent_retiree(network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
+        let b = with_messages(seed, &[3]);
 
-/// Ordinary `gossip` transparently absorbs an already-converged retiree: the
-/// gossiping peer ends `Ok(())`, observes *zero* novel messages (no content
-/// moves when it already dominates), and its tree and version are unchanged.
-#[test]
-fn gossip_absorbs_retiree_without_observations() {
-    let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
-    let b = with_messages(seed, &[3, 4]);
+        let (outcome, novel) = retire_into_counting_gossip(a, &b);
+        assert!(
+            matches!(outcome, Retire::Retired { .. }),
+            "the reconciled peer absorbs the retiree, got {outcome:?}"
+        );
+        assert_eq!(
+            novel, 2,
+            "the absorber observes each of the retiree's novel messages"
+        );
+        let mut live: Vec<_> = b.snapshot().iter().map(|(_, message)| *message).collect();
+        live.sort_unstable();
+        assert_eq!(live, [1, 2, 3], "the absorber holds the exact union");
+    }
 
-    wire_gossip(&a, &b);
-    let pre = b.snapshot();
-    let (hash, version) = (pre.hash(), pre.latest().clone());
+    /// Ordinary `gossip` transparently absorbs an already-converged retiree: the
+    /// gossiping peer ends `Ok(())`, observes *zero* novel messages (no content
+    /// moves when it already dominates), and its tree and version are unchanged.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_absorbs_retiree_without_observations(network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = with_messages(bootstrap_fork(&seed), &[1, 2]);
+        let b = with_messages(seed, &[3, 4]);
 
-    let (outcome, novel) = retire_into_counting_gossip(a, &b);
-    assert!(
-        matches!(outcome, Retire::Retired { .. }),
-        "the gossiping peer absorbs the retiree, got {outcome:?}"
-    );
-    assert_eq!(novel, 0, "absorbing a retiree delivers no messages");
-    let post = b.snapshot();
-    assert_eq!(post.hash(), hash, "absorbing a retiree moves no content");
-    assert_eq!(
-        post.latest(),
-        &version,
-        "absorbing a retiree is a version no-op"
-    );
+        wire_gossip(&a, &b);
+        let pre = b.snapshot();
+        let (hash, version) = (pre.hash(), pre.latest().clone());
+
+        let (outcome, novel) = retire_into_counting_gossip(a, &b);
+        assert!(
+            matches!(outcome, Retire::Retired { .. }),
+            "the gossiping peer absorbs the retiree, got {outcome:?}"
+        );
+        assert_eq!(novel, 0, "absorbing a retiree delivers no messages");
+        let post = b.snapshot();
+        assert_eq!(post.hash(), hash, "absorbing a retiree moves no content");
+        assert_eq!(
+            post.latest(),
+            &version,
+            "absorbing a retiree is a version no-op"
+        );
+    }
 }
 
 proptest! {
@@ -371,8 +394,9 @@ proptest! {
         retiree_sends in prop::collection::vec(any::<u64>(), 0..8),
         survivor_sends in prop::collection::vec(any::<u64>(), 1..8),
         redactions in prop::collection::vec((any::<bool>(), any::<prop::sample::Index>()), 0..10),
+        network in network_seed(),
     ) {
-        let survivor = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+        let survivor = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         survivor.send_all(shared).unwrap();
         let retiree = bootstrap_fork(&survivor);
         let shared_versions: Vec<_> = survivor.snapshot().versions().cloned().collect();
@@ -436,10 +460,11 @@ proptest! {
     fn retire_matches_plain_gossip(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
+        network in network_seed(),
     ) {
         // Wire path: converge, then retire A into B.
         let actual = {
-            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
@@ -451,7 +476,7 @@ proptest! {
             fingerprint(&b)
         };
 
-        let expected = plain_gossip_fingerprint(&a_actions, &b_actions);
+        let expected = plain_gossip_fingerprint(network, &a_actions, &b_actions);
         prop_assert_eq!(
             actual, expected,
             "retire-over-wire must match plain gossip",
@@ -465,10 +490,11 @@ proptest! {
     fn unsynchronized_retire_matches_plain_gossip(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
+        network in network_seed(),
     ) {
         // Wire path: retire A into B directly, while they may still diverge.
         let actual = {
-            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             let a = build_local(bootstrap_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             let outcome = retire_into_gossip(a, &b);
@@ -479,7 +505,7 @@ proptest! {
             fingerprint(&b)
         };
 
-        let expected = plain_gossip_fingerprint(&a_actions, &b_actions);
+        let expected = plain_gossip_fingerprint(network, &a_actions, &b_actions);
         prop_assert_eq!(
             actual, expected,
             "unsynchronized retire must match plain gossip",
@@ -487,10 +513,11 @@ proptest! {
     }
 }
 
-/// Run one converged retirement, measuring a clean send or severing it at
-/// `cut`. Any returned peer must remain usable and disjoint from the absorber.
-fn retirement_cut(cut: Option<usize>, initial: usize) -> usize {
-    let absorber = Peer::<u64>::seed().into_rumors();
+/// Run one converged retirement in the network `network` founds, measuring a
+/// clean send or severing it at `cut`. Any returned peer must remain usable
+/// and disjoint from the absorber.
+fn retirement_cut(network: NetworkSeed, cut: Option<usize>, initial: usize) -> usize {
+    let absorber = network.peer::<u64>().into_rumors();
     absorber.send_all(0..initial as u64).unwrap();
     let retiree = bootstrap_fork(&absorber);
     let original = retiree.dangerously_alias_party();
@@ -553,8 +580,9 @@ proptest! {
     fn retirement_write_cuts_preserve_exclusive_identity(
         initial in 0usize..6,
         offset in any::<proptest::sample::Index>(),
+        network in network_seed(),
     ) {
-        let extent = retirement_cut(None, initial);
-        retirement_cut(Some(offset.index(extent + 1)), initial);
+        let extent = retirement_cut(network, None, initial);
+        retirement_cut(network, Some(offset.index(extent + 1)), initial);
     }
 }

@@ -39,6 +39,9 @@ use crate::common::schedule::{
     EventIdx, arb_membership_schedule_with_shadow, arb_schedule_with_shadow, execute_membership,
     execute_with,
 };
+use rumors_testkit::common::property::LOCAL_DIVISOR;
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
@@ -48,23 +51,29 @@ const MAX_EVENTS: usize = 50;
 const OVERLAP_N_PEERS: std::ops::RangeInclusive<usize> = 2..=4;
 const OVERLAP_MAX_EVENTS: usize = 24;
 
-/// A full-mesh quiesce is inert for fleets with fewer than two peers.
-#[test]
-fn quiesce_handles_degenerate_fleets() {
-    let mut empty: Vec<Peer<u64>> = Vec::new();
-    quiesce(&mut empty);
-    assert!(empty.is_empty());
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-    let mut peer = Peer::new(rumors::Peer::seed().sync_memory_budget(0).into_rumors());
-    peer.insert_one(42);
-    let snapshot = peer.local.snapshot();
-    let observations = peer.observations();
-    let mut singleton = [peer];
+    /// A full-mesh quiesce is inert for fleets with fewer than two peers.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn quiesce_handles_degenerate_fleets(network in network_seed()) {
+        let mut empty: Vec<Peer<u64>> = Vec::new();
+        quiesce(&mut empty);
+        assert!(empty.is_empty());
 
-    quiesce(&mut singleton);
+        let mut peer = Peer::new(network.peer().sync_memory_budget(0).into_rumors());
+        peer.insert_one(42);
+        let snapshot = peer.local.snapshot();
+        let observations = peer.observations();
+        let mut singleton = [peer];
 
-    assert_eq!(singleton[0].local.snapshot(), snapshot);
-    assert_eq!(singleton[0].observations(), observations);
+        quiesce(&mut singleton);
+
+        assert_eq!(singleton[0].local.snapshot(), snapshot);
+        assert_eq!(singleton[0].observations(), observations);
+    }
 }
 
 proptest! {

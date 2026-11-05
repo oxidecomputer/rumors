@@ -19,36 +19,44 @@
 //! would break: messages sent by a newcomer bootstrapped from a peer that
 //! ticked heavily beforehand must survive reconciliation in both directions.
 
-use rumors::Peer;
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
+use rumors_testkit::divided_proptest;
 
-/// A message sent by a freshly-bootstrapped peer survives gossip, no
-/// matter how far the provider had ticked before serving the bootstrap:
-/// the served floor and the forked party region are paired atomically.
-#[test]
-fn message_sent_after_bootstrap_survives_gossip() {
-    block_on(async {
-        let f = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-        // F ticks well past genesis before serving anyone.
-        {
-            f.send_all(0..16u64).unwrap();
-        }
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-        // B bootstraps from F and sends a brand-new message: its version
-        // must come out above (or concurrent to) everything F published
-        // before the fork, never dominated.
-        let b = bootstrap_fork_async(&f).await;
-        b.send(100).unwrap();
+    /// A message sent by a freshly-bootstrapped peer survives gossip, no
+    /// matter how far the provider had ticked before serving the bootstrap:
+    /// the served floor and the forked party region are paired atomically.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn message_sent_after_bootstrap_survives_gossip(network in network_seed()) {
+        block_on(async {
+            let f = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            // F ticks well past genesis before serving anyone.
+            {
+                f.send_all(0..16u64).unwrap();
+            }
 
-        // Sync the two: a dominated version would read as "already
-        // forgotten" and evict the fresh message from both sides.
-        wire_gossip_async(&f, &b).await;
+            // B bootstraps from F and sends a brand-new message: its version
+            // must come out above (or concurrent to) everything F published
+            // before the fork, never dominated.
+            let b = bootstrap_fork_async(&f).await;
+            b.send(100).unwrap();
 
-        let f_has = f.snapshot().iter().any(|(_, m)| *m == 100);
-        let b_has = b.snapshot().iter().any(|(_, m)| *m == 100);
-        assert!(
-            f_has && b_has,
-            "message 100 must survive the sync: f_has={f_has} b_has={b_has}"
-        );
-    });
+            // Sync the two: a dominated version would read as "already
+            // forgotten" and evict the fresh message from both sides.
+            wire_gossip_async(&f, &b).await;
+
+            let f_has = f.snapshot().iter().any(|(_, m)| *m == 100);
+            let b_has = b.snapshot().iter().any(|(_, m)| *m == 100);
+            assert!(
+                f_has && b_has,
+                "message 100 must survive the sync: f_has={f_has} b_has={b_has}"
+            );
+        });
+    }
 }

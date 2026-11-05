@@ -4,127 +4,138 @@ use proptest::prelude::*;
 
 use super::{Peer, Probe, absorb_retire, block_on, bootstrap_fork_peer, plain_gossip};
 use crate::common::flaky::persisted_record;
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
-/// A checkpoint during bootstrap must not leave an older overlapping entry
-/// that lets a restarted peer reuse versions of writes it has not recovered.
-#[test]
-fn concurrent_bootstrap_checkpoint_protects_writes_after_restart() {
-    block_on(async {
-        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-        let witness = bootstrap_fork_peer(&seed).await.into_rumors();
-        let bookmark = Probe::default();
-        let owner = bootstrap_fork_peer(&seed)
-            .await
-            .bookmark(bookmark.clone())
-            .await
-            .unwrap()
-            .into_rumors();
-        plain_gossip(&owner, &seed).await;
-        let before = owner.dangerously_alias_party();
-        let writer;
-        {
-            let (mut near, mut far) =
-                rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut joining =
-                Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
-            let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
-            // Let the newcomer send its preamble, then let the provider reserve
-            // a fork. Neither future runs again while a second session proceeds.
-            assert!(futures::poll!(joining.as_mut()).is_pending());
-            assert!(futures::poll!(serving.as_mut()).is_pending());
-            writer = owner.dangerously_alias_party();
-            assert_ne!(writer, before, "the provider must have reserved a fork");
-            owner.send(42).unwrap();
-            plain_gossip(&owner, &witness).await;
-        }
-        // Cancelling the bootstrap returns its reserved fork without another
-        // store. The ensuing crash preserves only the two overlapping entries.
-        drop(owner);
-        let restarted = bootstrap_fork_peer(&seed)
-            .await
-            .bookmark(bookmark.clone())
-            .await
-            .unwrap()
-            .into_rumors();
-        plain_gossip(&restarted, &seed).await;
-        assert!(restarted.snapshot().is_empty());
-        assert!(
-            restarted.dangerously_alias_party().is_disjoint(&writer),
-            "an older overlapping entry must not authorize reuse of unseen writes"
-        );
-    });
-}
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-/// A restart reclaims both of two identities that overlap without either
-/// containing the other, rather than only the one it joins first.
-///
-/// The first identity is recorded before a fork is reserved for a bootstrap.
-/// The second is recorded after absorbing a retiree while that fork is still
-/// reserved, so it contains the retiree's region but not the fork. Whichever
-/// identity the restart joins first, the part of the other outside it must be
-/// reclaimed too, and the record must end up holding only the live party.
-#[test]
-fn restart_reclaims_identities_that_overlap_without_nesting() {
-    block_on(async {
-        let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-        let witness = bootstrap_fork_peer(&seed).await.into_rumors();
-        let bookmark = Probe::default();
-        let owner = bootstrap_fork_peer(&seed)
-            .await
-            .bookmark(bookmark.clone())
-            .await
-            .unwrap()
-            .into_rumors();
-        owner.send(1).unwrap();
-        plain_gossip(&owner, &witness).await;
-        let whole = owner.dangerously_alias_party();
-        let retiree = bootstrap_fork_peer(&seed).await;
-        let absorbed = retiree.dangerously_alias_party();
-        {
-            let (mut near, mut far) =
-                rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut joining =
-                Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
-            let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
-            assert!(futures::poll!(joining.as_mut()).is_pending());
-            assert!(futures::poll!(serving.as_mut()).is_pending());
-            assert_ne!(
-                owner.dangerously_alias_party(),
-                whole,
-                "the provider must have reserved a fork"
+    /// A checkpoint during bootstrap must not leave an older overlapping entry
+    /// that lets a restarted peer reuse versions of writes it has not recovered.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn concurrent_bootstrap_checkpoint_protects_writes_after_restart(network in network_seed()) {
+        block_on(async {
+            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let witness = bootstrap_fork_peer(&seed).await.into_rumors();
+            let bookmark = Probe::default();
+            let owner = bootstrap_fork_peer(&seed)
+                .await
+                .bookmark(bookmark.clone())
+                .await
+                .unwrap()
+                .into_rumors();
+            plain_gossip(&owner, &seed).await;
+            let before = owner.dangerously_alias_party();
+            let writer;
+            {
+                let (mut near, mut far) =
+                    rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+                let mut joining =
+                    Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
+                let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
+                // Let the newcomer send its preamble, then let the provider reserve
+                // a fork. Neither future runs again while a second session proceeds.
+                assert!(futures::poll!(joining.as_mut()).is_pending());
+                assert!(futures::poll!(serving.as_mut()).is_pending());
+                writer = owner.dangerously_alias_party();
+                assert_ne!(writer, before, "the provider must have reserved a fork");
+                owner.send(42).unwrap();
+                plain_gossip(&owner, &witness).await;
+            }
+            // Cancelling the bootstrap returns its reserved fork without another
+            // store. The ensuing crash preserves only the two overlapping entries.
+            drop(owner);
+            let restarted = bootstrap_fork_peer(&seed)
+                .await
+                .bookmark(bookmark.clone())
+                .await
+                .unwrap()
+                .into_rumors();
+            plain_gossip(&restarted, &seed).await;
+            assert!(restarted.snapshot().is_empty());
+            assert!(
+                restarted.dangerously_alias_party().is_disjoint(&writer),
+                "an older overlapping entry must not authorize reuse of unseen writes"
             );
-            // Absorbing while the fork is reserved records the enlarged party
-            // beside the whole one, because reclamation waits for the fork.
-            absorb_retire(&owner, retiree.into_rumors()).await;
-        }
-        // Cancelling returns the fork; the crash follows before any checkpoint.
-        drop(owner);
+        });
+    }
 
-        let restarted = bootstrap_fork_peer(&witness)
-            .await
-            .bookmark(bookmark.clone())
-            .await
-            .unwrap()
-            .into_rumors();
-        plain_gossip(&restarted, &witness).await;
-        let party = restarted.dangerously_alias_party();
-        assert!(
-            party.covers(&whole),
-            "the identity recorded before the reservation is reclaimed"
-        );
-        assert!(
-            party.covers(&absorbed),
-            "the region absorbed under the reservation is reclaimed too"
-        );
-        let record = persisted_record(&bookmark.store);
-        let clocks = &record[&restarted.network()];
-        assert_eq!(
-            clocks.len(),
-            1,
-            "every identity collapses into the live party"
-        );
-        assert_eq!(clocks[0].party(), &party);
-    });
+    /// A restart reclaims both of two identities that overlap without either
+    /// containing the other, rather than only the one it joins first.
+    ///
+    /// The first identity is recorded before a fork is reserved for a bootstrap.
+    /// The second is recorded after absorbing a retiree while that fork is still
+    /// reserved, so it contains the retiree's region but not the fork. Whichever
+    /// identity the restart joins first, the part of the other outside it must be
+    /// reclaimed too, and the record must end up holding only the live party.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn restart_reclaims_identities_that_overlap_without_nesting(network in network_seed()) {
+        block_on(async {
+            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let witness = bootstrap_fork_peer(&seed).await.into_rumors();
+            let bookmark = Probe::default();
+            let owner = bootstrap_fork_peer(&seed)
+                .await
+                .bookmark(bookmark.clone())
+                .await
+                .unwrap()
+                .into_rumors();
+            owner.send(1).unwrap();
+            plain_gossip(&owner, &witness).await;
+            let whole = owner.dangerously_alias_party();
+            let retiree = bootstrap_fork_peer(&seed).await;
+            let absorbed = retiree.dangerously_alias_party();
+            {
+                let (mut near, mut far) =
+                    rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+                let mut joining =
+                    Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
+                let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
+                assert!(futures::poll!(joining.as_mut()).is_pending());
+                assert!(futures::poll!(serving.as_mut()).is_pending());
+                assert_ne!(
+                    owner.dangerously_alias_party(),
+                    whole,
+                    "the provider must have reserved a fork"
+                );
+                // Absorbing while the fork is reserved records the enlarged party
+                // beside the whole one, because reclamation waits for the fork.
+                absorb_retire(&owner, retiree.into_rumors()).await;
+            }
+            // Cancelling returns the fork; the crash follows before any checkpoint.
+            drop(owner);
+
+            let restarted = bootstrap_fork_peer(&witness)
+                .await
+                .bookmark(bookmark.clone())
+                .await
+                .unwrap()
+                .into_rumors();
+            plain_gossip(&restarted, &witness).await;
+            let party = restarted.dangerously_alias_party();
+            assert!(
+                party.covers(&whole),
+                "the identity recorded before the reservation is reclaimed"
+            );
+            assert!(
+                party.covers(&absorbed),
+                "the region absorbed under the reservation is reclaimed too"
+            );
+            let record = persisted_record(&bookmark.store);
+            let clocks = &record[&restarted.network()];
+            assert_eq!(
+                clocks.len(),
+                1,
+                "every identity collapses into the live party"
+            );
+            assert_eq!(clocks[0].party(), &party);
+        });
+    }
 }
 
 proptest! {
@@ -133,9 +144,10 @@ proptest! {
     #[test]
     fn pending_bootstraps_defer_reclamation_but_not_checkpoints(
         releases in proptest::collection::vec((any::<bool>(), any::<usize>()), 1..5),
+        network in network_seed(),
     ) {
         block_on(async {
-            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             let witness = bootstrap_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
             let departed = bootstrap_fork_peer(&seed).await
@@ -215,11 +227,12 @@ proptest! {
         edit_before_catching_up in any::<bool>(),
         remote_rounds in 0u64..5,
         redact in any::<bool>(),
+        network in network_seed(),
     ) {
         block_on(async {
             // All peers descend from this seed. Only the witness learns the
             // departing peer's writes, so the seed can serve an incomplete restart.
-            let seed = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             let witness = bootstrap_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
             let departed = bootstrap_fork_peer(&seed).await
