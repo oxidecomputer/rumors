@@ -92,7 +92,7 @@ hmac = "0.13"
 # `aes-gcm`: the bootstrap's sealed exchange.
 hpke = { version = "0.15", default-features = false }
 indicatif = "0.18"
-insta = "1.47"
+insta = "1.49"
 itertools = "0.14"
 libm = "0.2"
 mimalloc = "0.1"
@@ -132,7 +132,7 @@ serde = { version = "1", default-features = false }
 serde_bytes = "0.11"
 serde_json = "1"
 serde_test = "1"
-smallvec = { version = "1.15", features = ["union"] }
+smallvec = { version = "1.16", features = ["union"] }
 spin = { version = "0.12", default-features = false, features = ["spin_mutex"] }
 static_assertions = "1.1"
 strum_macros = "0.28.0"
@@ -140,7 +140,7 @@ suanpan = { path = "crates/suanpan" }
 suanpan-fuel-protocol = { path = "crates/suanpan/fuel/protocol" }
 tempfile = "3.27"
 thiserror = "2"
-tinyvec = { version = "1.11", features = ["alloc"] }
+tinyvec = { version = "1.13", features = ["alloc"] }
 tokio = { version = "1", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 toml = "1"
