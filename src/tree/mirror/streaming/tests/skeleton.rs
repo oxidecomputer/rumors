@@ -667,18 +667,18 @@ pub(super) fn transcript_streams(
     streams
 }
 
-// ------------------------------------------------------------------ the wedge
+// ---------------------------------------- one dispute ahead of six supplies
 
-/// The wedge witness shape at a chosen root height: the Rust mirror of the
-/// Lean literal's generator.
+/// One dispute ahead of six whole-subtree supplies, at a chosen root height:
+/// the Rust mirror of the Lean witness `Mux.wedge`.
 ///
-/// The shape (the Lean witness `Mux.wedge`): root fan 7 — the FIRST radix child
-/// deep-disputed, a single-child chain descending every level to a height-1
-/// scope carrying one leaf request, with six whole-subtree provisions behind
-/// it. At `root_h = 6` this is exactly the Lean literal
-/// (`wedge_generator_matches_the_lean_literal`); at `root_h = 32` it is the
-/// same shape at the protocol's real depth, which is what a session realizes.
-pub(super) fn wedge(root_h: usize) -> Skel {
+/// The shape: root fan 7 — the first radix child deep-disputed, a
+/// single-child chain descending every level to a height-1 scope carrying one
+/// leaf request, with six whole-subtree provisions behind it. At
+/// `root_h = 6` this is exactly the Lean literal
+/// (`generator_matches_the_lean_literal`); at `root_h = 32` it is the same
+/// shape at the protocol's real depth, which is what a session realizes.
+pub(super) fn dispute_before_supplies(root_h: usize) -> Skel {
     assert!(root_h >= 3, "the chain needs depth of at least 2");
     let mut scopes = vec![
         Scope {

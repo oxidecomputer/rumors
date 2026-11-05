@@ -49,7 +49,7 @@ so the un-muxed `.impl` system is inside the kernel-proven
 Realizability bridge (stage-2 track D, corrected provenance): the
 committed proptest seeds realize the wedge's *jam mechanism* on the old
 transport, NOT its byte-exact shape. The bridge of record is
-`src/tree/mirror/streaming/tests/wedge.rs`, which constructs a
+`src/tree/mirror/streaming/tests/dispute_before_supplies.rs`, which constructs a
 deterministic tree pair and pins the decoded skeleton to this literal —
 generator against the rootH-6 literal, session against the generator at
 the protocol's real root height 32. -/

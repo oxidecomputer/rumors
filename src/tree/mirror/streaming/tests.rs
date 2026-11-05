@@ -36,12 +36,12 @@ use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
 mod announced;
 mod capacity;
+mod dispute_before_supplies;
 mod faults;
 mod fixtures;
 mod local_eq;
 mod skeleton;
 mod stats;
-mod wedge;
 
 /// Whether the left tree wins the session's role election.
 fn left_initiates(left: &Root, right: &Root) -> bool {

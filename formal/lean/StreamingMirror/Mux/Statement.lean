@@ -106,7 +106,7 @@ the witnesses' proofs).
 
 # The chain to the Rust implementation
 
-- **The wedge is real**: `src/tree/mirror/streaming/tests/wedge.rs`
+- **The wedge is real**: `src/tree/mirror/streaming/tests/dispute_before_supplies.rs`
   pins a deterministic tree pair whose trace-decoded skeleton equals
   the `wedge` literal at rootH 6 and matches the generator at the
   protocol's real height 32; the committed proptest seeds realize the
@@ -122,7 +122,7 @@ the witnesses' proofs).
 - **Height gap, honestly**: the executable tier tops at rootH 8 and
   the kernel literals at rootH 6, against the protocol's 32; the
   height-transfer argument (the jam mechanism is height-independent)
-  is [derived], with wedge.rs pinning both ends.
+  is [derived], with dispute_before_supplies.rs pinning both ends.
 
 # Assumed, not proven
 

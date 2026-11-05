@@ -556,7 +556,7 @@ when idling is allowed). The un-muxed `wedge` session is inside the
 kernel-proven `Sched.deadlock_free` class (`wedge_wellFormed`,
 `wedge_margin0`), so the stuck state indicts the mux transport alone;
 the Rust corollary rides the deterministic bridge pair of
-`src/tree/mirror/streaming/tests/wedge.rs` (the committed proptest
+`src/tree/mirror/streaming/tests/dispute_before_supplies.rs` (the committed proptest
 seeds realize the jam mechanism, not the byte-exact shape; the bridge
 pins the decoded skeleton to the `wedge` literal, heights 6 and 32).
 
