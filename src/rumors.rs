@@ -14,8 +14,7 @@ use crate::{
 };
 use futures::Stream;
 use std::borrow::Borrow;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use tokio::{
     io::{AsyncBufRead, AsyncWrite},
     sync::watch,
@@ -46,9 +45,9 @@ struct Reunion {
     /// One sender per live handle; channel closure signals quiescence.
     alive: watch::Sender<()>,
     /// The exactly-once claim on the reclaimed [`Peer`]: among reuniters
-    /// that observe quiescence concurrently, the one that wins this flag is
-    /// handed the `Peer`; the rest resolve `None`.
-    claimed: Arc<AtomicBool>,
+    /// that observe quiescence concurrently, the one whose `set` fills this
+    /// cell is handed the `Peer`; the rest resolve `None`.
+    claimed: Arc<OnceLock<()>>,
 }
 
 /// Share the replica, configuration, and storage while retaining a handle claim.
@@ -80,7 +79,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
             peer,
             reunion: Reunion {
                 alive: watch::Sender::new(()),
-                claimed: Arc::new(AtomicBool::new(false)),
+                claimed: Arc::new(OnceLock::new()),
             },
         }
     }
@@ -101,12 +100,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         // gone, and no new sender can be cloned after that point.
         while alive.changed().await.is_ok() {}
 
-        // Concurrent reuniters observe closure together; exactly one restores
-        // the Peer/Rumors XOR, while the others discard their Peer values.
-        claimed
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-            .then_some(peer)
+        // Concurrent reuniters observe closure together. Only the first `set`
+        // fills the cell, so exactly one restores the Peer/Rumors XOR, while
+        // the others discard their Peer values.
+        claimed.set(()).is_ok().then_some(peer)
     }
 
     /// Send a message, committing it immediately.
