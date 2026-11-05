@@ -75,12 +75,12 @@ mod encode;
 mod error;
 mod scope;
 
-pub use decode::{Decoded, decode_leaf_reply, decode_reply, opening_reply};
+pub use decode::{Decoded, decode_reply, opening_reply};
 pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_listing};
 #[cfg(test)]
 use error::ScopeError;
 pub use error::{DecodeError, EncodeError, OpeningError};
-pub use scope::Scope;
+pub use scope::{ReplyLevel, Scope};
 
 #[cfg(test)]
 mod tests;

@@ -68,12 +68,18 @@ pub fn opening_reply<E>(listing: Vec<(u8, Hash)>) -> (Reply<E>, Scope) {
     )
 }
 
-/// Decode one non-leaf reply and derive the lower questions it asks.
+/// Decode one reply at `level` and derive the questions it asks,
+/// validating each question's position against `scope`, the record of the
+/// question the reply answers.
+///
+/// At [`ReplyLevel::Leaf`] only an empty request for the leaf is a valid
+/// query.
 pub async fn decode_reply<B, F>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
-    scope: Scope,
+    level: ReplyLevel,
+    scope: &Scope,
     frames: &mut F,
     codec: PayloadCodec,
 ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
@@ -81,41 +87,7 @@ where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
 {
-    decode::<FAN, _, _>(
-        backend,
-        version_bytes,
-        ledger,
-        scope,
-        frames,
-        ReplyLevel::Branch,
-        codec,
-    )
-    .await
-}
-
-/// Decode one leaf-height reply, where only an empty request for the leaf is valid.
-pub async fn decode_leaf_reply<B, F>(
-    backend: B,
-    version_bytes: u64,
-    ledger: SupplyLedger,
-    scope: Scope,
-    frames: &mut F,
-    codec: PayloadCodec,
-) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
-where
-    B: Backend<Node<Z>: Leaf>,
-    F: Stream<Item = Frame> + Unpin,
-{
-    decode::<FAN, _, _>(
-        backend,
-        version_bytes,
-        ledger,
-        scope,
-        frames,
-        ReplyLevel::Leaf,
-        codec,
-    )
-    .await
+    decode::<FAN, _, _>(backend, version_bytes, ledger, level, scope, frames, codec).await
 }
 
 /// Decode one non-leaf reply through a one-slot leaf channel.
@@ -128,7 +100,7 @@ pub(super) async fn decode_reply_one_slot<B, F>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
-    scope: Scope,
+    scope: &Scope,
     frames: &mut F,
     codec: PayloadCodec,
 ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
@@ -140,9 +112,9 @@ where
         backend,
         version_bytes,
         ledger,
+        ReplyLevel::Branch,
         scope,
         frames,
-        ReplyLevel::Branch,
         codec,
     )
     .await
@@ -153,9 +125,9 @@ async fn decode<const LEAF_CAPACITY: usize, B, F>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
-    scope: Scope,
-    frames: &mut F,
     level: ReplyLevel,
+    scope: &Scope,
+    frames: &mut F,
     codec: PayloadCodec,
 ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
 where
@@ -171,7 +143,7 @@ where
     // production fan is therefore a throughput choice whose maximum residency
     // the window charges, not a liveness requirement.
     let (tx, rx) = leaf_channel::<B>(LEAF_CAPACITY);
-    let read = ReadReply::read::<B, _>(version_bytes, &ledger, scope, frames, level, tx, codec);
+    let read = ReadReply::read::<B, _>(version_bytes, &ledger, level, scope, frames, tx, codec);
     let assemble = assemble_supplies::<B>(backend, children_height, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
     let Some(read) = read? else {
@@ -246,9 +218,9 @@ impl ReadReply {
     async fn read<B, F>(
         version_bytes: u64,
         ledger: &SupplyLedger,
-        mut scope: Scope,
-        frames: &mut F,
         level: ReplyLevel,
+        scope: &Scope,
+        frames: &mut F,
         mut leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
         codec: PayloadCodec,
     ) -> Result<Option<Self>, DecodeError<B::Error>>
@@ -256,6 +228,7 @@ impl ReadReply {
         B: Backend<Node<Z>: Leaf>,
         F: Stream<Item = Frame> + Unpin,
     {
+        let mut positions = scope.positions();
         let mut read = Self {
             skeleton: Vec::new(),
             questions: Vec::new(),
@@ -277,12 +250,12 @@ impl ReadReply {
                     read.supplies.interrupt();
                     // Reject the overrun at its frame rather than retaining an
                     // unbounded reply skeleton for later walk validation.
-                    scope.next().ok_or(ScopeError::UnpositionedMatch)?;
+                    positions.next().ok_or(ScopeError::UnpositionedMatch)?;
                     read.skeleton.push(Skeleton::Match);
                 }
                 WireReaction::Query(listing) => {
                     read.supplies.interrupt();
-                    read.questions.push(level.derive(&mut scope, &listing)?);
+                    read.questions.push(level.derive(&mut positions, &listing)?);
                     read.skeleton.push(Skeleton::Query(listing));
                 }
                 WireReaction::Supply(records) => {

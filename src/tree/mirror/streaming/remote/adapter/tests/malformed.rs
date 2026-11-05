@@ -16,8 +16,8 @@ use crate::tree::{
 
 use super::{
     super::{
-        DecodeError, EncodeError, Scope, ScopeError, decode_leaf_reply, decode_reply,
-        encode_leaf_reply, encode_reply,
+        DecodeError, EncodeError, ReplyLevel, Scope, ScopeError, decode_reply, encode_leaf_reply,
+        encode_reply,
     },
     LeafCase, ascending_leaves, codec, colliding_leaves, hash, leaf_run, runtime, unbounded,
 };
@@ -38,11 +38,12 @@ fn bare_end_cannot_follow_reactions() {
 
     let error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_leaf_reply(
+        decode_reply(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::new(parent.erase(), &[(0, hash(0))]),
+            ReplyLevel::Leaf,
+            &Scope::new(parent.erase(), &[(0, hash(0))]),
             &mut frames,
             codec(),
         )
@@ -64,11 +65,12 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
     let mut frames = stream::iter([Frame::Reaction(WireReaction::Match, Flow::Continue)]);
 
     let error = runtime().block_on(async {
-        decode_leaf_reply(
+        decode_reply(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::new(parent.erase(), &[(0, hash(0))]),
+            ReplyLevel::Leaf,
+            &Scope::new(parent.erase(), &[(0, hash(0))]),
             &mut frames,
             codec(),
         )
@@ -105,7 +107,8 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::new(parent.erase(), &[(1, hash(1))]),
+            ReplyLevel::Branch,
+            &Scope::new(parent.erase(), &[(1, hash(1))]),
             &mut frames,
             codec(),
         )
@@ -156,7 +159,8 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::new(parent.erase(), &[]),
+            ReplyLevel::Branch,
+            &Scope::new(parent.erase(), &[]),
             &mut frames,
             codec(),
         )
@@ -252,11 +256,12 @@ fn leaf_query_matrix_is_exhaustive() {
 
             let decoded = runtime().block_on(async {
                 let mut frames = stream::iter([expected_frame]);
-                decode_leaf_reply(
+                decode_reply(
                     Local,
                     u64::MAX,
                     unbounded(),
-                    Scope::new(parent.erase(), &scope_listing),
+                    ReplyLevel::Leaf,
+                    &Scope::new(parent.erase(), &scope_listing),
                     &mut frames,
                     codec(),
                 )
@@ -293,11 +298,12 @@ fn stream_end_is_not_a_protocol_reply() {
     let mut frames = stream::iter([Frame::End(End::Stream)]);
 
     let error = runtime()
-        .block_on(decode_leaf_reply(
+        .block_on(decode_reply(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::new(parent.erase(), &[]),
+            ReplyLevel::Leaf,
+            &Scope::new(parent.erase(), &[]),
             &mut frames,
             codec(),
         ))
@@ -349,7 +355,8 @@ fn leaf_order_is_enforced_within_one_run() {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening(&[]),
             &mut input,
             codec(),
         )
@@ -387,11 +394,12 @@ fn leaf_scope_is_enforced_within_one_run() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_leaf_reply(
+        decode_reply(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::new(parent.erase(), &[]),
+            ReplyLevel::Leaf,
+            &Scope::new(parent.erase(), &[]),
             &mut input,
             codec(),
         )
@@ -430,7 +438,8 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening(&[]),
             &mut input,
             codec(),
         )
@@ -472,11 +481,12 @@ fn a_version_over_the_declared_bound_is_rejected() {
 
     runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_leaf_reply(
+        decode_reply(
             Local,
             declared,
             unbounded(),
-            Scope::new(parent.erase(), &[]),
+            ReplyLevel::Leaf,
+            &Scope::new(parent.erase(), &[]),
             &mut input,
             codec(),
         )
@@ -486,11 +496,12 @@ fn a_version_over_the_declared_bound_is_rejected() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_leaf_reply(
+        decode_reply(
             Local,
             declared - 1,
             unbounded(),
-            Scope::new(parent.erase(), &[]),
+            ReplyLevel::Leaf,
+            &Scope::new(parent.erase(), &[]),
             &mut input,
             codec(),
         )
@@ -533,7 +544,8 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
             Local,
             u64::MAX,
             SupplyLedger::new(declared),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening(&[]),
             &mut input,
             codec(),
         )
@@ -586,7 +598,8 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&[(1, hash(1))]),
+            ReplyLevel::Branch,
+            &Scope::opening(&[(1, hash(1))]),
             &mut input,
             codec(),
         )

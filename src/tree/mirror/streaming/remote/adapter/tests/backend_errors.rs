@@ -16,7 +16,7 @@ use crate::tree::{
 };
 
 use super::{
-    super::{DecodeError, EncodeError, Scope, decode_reply, encode_reply},
+    super::{DecodeError, EncodeError, ReplyLevel, Scope, decode_reply, encode_reply},
     LeafCase, NodeAt, codec, hash, leaf_run, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::{
@@ -166,7 +166,8 @@ where
                     backend.clone(),
                     u64::MAX,
                     unbounded(),
-                    Scope::new(parent.erase(), &[]),
+                    ReplyLevel::Branch,
+                    &Scope::new(parent.erase(), &[]),
                     &mut frames,
                     codec(),
                 ))

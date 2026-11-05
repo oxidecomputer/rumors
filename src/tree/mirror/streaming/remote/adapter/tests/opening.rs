@@ -75,13 +75,17 @@ fn opening_listing_agrees_with_greeting_replay() {
 /// scope holding no positional children.
 #[test]
 fn empty_listing_replays_the_empty_opening() {
-    let (replayed, mut scope) = opening_reply::<<Local as Backend>::Erased>(Vec::new());
+    let (replayed, scope) = opening_reply::<<Local as Backend>::Erased>(Vec::new());
     let [Reaction::Query(listing)] = replayed.reactions.as_slice() else {
         panic!("the replayed opening must be one query")
     };
     assert!(listing.is_empty());
     assert_eq!(scope, Scope::opening(&[]));
-    assert_eq!(scope.next(), None, "an empty root scope positions nothing");
+    assert_eq!(
+        scope.positions().next(),
+        None,
+        "an empty root scope positions nothing"
+    );
 }
 
 /// One reaction kind in an opening word.

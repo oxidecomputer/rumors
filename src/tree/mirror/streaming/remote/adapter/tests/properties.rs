@@ -21,7 +21,7 @@ use crate::tree::{
 type Erased = <Local as Backend>::Erased;
 
 use super::{
-    super::{DecodeError, Scope, decode_leaf_reply, decode_reply, encode_leaf_reply, encode_reply},
+    super::{DecodeError, ReplyLevel, Scope, decode_reply, encode_leaf_reply, encode_reply},
     LeafCase, NodeAt, codec, hash, leaf_run, reply_frames, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::remote::codec::{
@@ -283,7 +283,16 @@ impl AdapterHeight for Z {
     where
         F: futures::Stream<Item = Frame> + Unpin,
     {
-        decode_leaf_reply(Local, u64::MAX, unbounded(), scope, frames, codec()).await
+        decode_reply(
+            Local,
+            u64::MAX,
+            unbounded(),
+            ReplyLevel::Leaf,
+            &scope,
+            frames,
+            codec(),
+        )
+        .await
     }
 
     fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible> {
@@ -313,7 +322,16 @@ where
     where
         F: futures::Stream<Item = Frame> + Unpin,
     {
-        decode_reply(Local, u64::MAX, unbounded(), scope, frames, codec()).await
+        decode_reply(
+            Local,
+            u64::MAX,
+            unbounded(),
+            ReplyLevel::Branch,
+            &scope,
+            frames,
+            codec(),
+        )
+        .await
     }
 
     fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible> {

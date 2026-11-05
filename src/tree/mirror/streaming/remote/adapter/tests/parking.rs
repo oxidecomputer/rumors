@@ -36,7 +36,7 @@ use crate::{
 };
 
 use super::{
-    super::{Scope, decode_reply, encode_reply},
+    super::{ReplyLevel, Scope, decode_reply, encode_reply},
     codec, hash, runtime, unbounded,
 };
 
@@ -120,7 +120,8 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             Local,
             u64::MAX,
             unbounded(),
-            scope,
+            ReplyLevel::Branch,
+            &scope,
             &mut frames,
             codec(),
         ))
@@ -208,7 +209,8 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&listing),
+            ReplyLevel::Branch,
+            &Scope::opening(&listing),
             &mut frames,
             codec(),
         ))

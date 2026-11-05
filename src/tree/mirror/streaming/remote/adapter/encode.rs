@@ -101,7 +101,7 @@ impl Encoded {
     fn render<B>(
         backend: B,
         budget: RunBudget,
-        mut scope: Scope,
+        scope: Scope,
         reply: Reply<B::Erased>,
         level: ReplyLevel,
     ) -> Frames<B::Error>
@@ -109,15 +109,16 @@ impl Encoded {
         B: Backend<Node<Z>: Leaf>,
     {
         Box::pin(try_stream! {
+            let mut positions = scope.positions();
             let mut pending = None;
             for reaction in reply.reactions {
                 let (wire, question) = match reaction {
                     ProtocolReaction::Match => {
-                        scope.next().ok_or(ScopeError::UnpositionedMatch)?;
+                        positions.next().ok_or(ScopeError::UnpositionedMatch)?;
                         (WireReaction::Match, None)
                     }
                     ProtocolReaction::Query(listing) => {
-                        let question = level.derive(&mut scope, &listing)?;
+                        let question = level.derive(&mut positions, &listing)?;
                         (WireReaction::Query(listing), Some(question))
                     }
                     ProtocolReaction::Supply(radix, node) => {

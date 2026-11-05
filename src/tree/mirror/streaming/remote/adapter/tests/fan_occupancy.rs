@@ -23,7 +23,7 @@ use crate::{
 };
 
 use super::super::{
-    Scope,
+    ReplyLevel, Scope,
     decode::{decode_reply_one_slot, fan_probe},
     decode_reply,
 };
@@ -67,7 +67,8 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening(&[]),
             &mut input,
             codec(),
         )
@@ -85,7 +86,7 @@ fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usiz
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&[]),
+            &Scope::opening(&[]),
             &mut input,
             codec(),
         )

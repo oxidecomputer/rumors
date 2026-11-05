@@ -5,7 +5,7 @@
 //! receiver-side stream or next-phase scope queue fed by that task. The
 //! typestates in [`state`](super::super::state) never hold an internal sender.
 //!
-//! Like the walk, the decode loops run on the erased vocabulary — one
+//! Like the walk, the decode loop runs on the erased vocabulary — one
 //! instantiation per backend and transport — behind thin typed methods
 //! that erase the stage's local reply stream on the way in and re-tag the
 //! decoded responses at the typed exit (`Work::respond`).
@@ -39,9 +39,7 @@ use crate::{
             erased::Reply,
             protocol::{BoxResponses, Requests},
             remote::{
-                adapter::{
-                    DecodeError, Decoded, Scope, decode_leaf_reply, decode_reply, opening_reply,
-                },
+                adapter::{DecodeError, Decoded, ReplyLevel, Scope, decode_reply, opening_reply},
                 proxy::Error,
                 streams::{ReceiverFinish, StreamReceiver, StreamSender},
             },
@@ -55,33 +53,18 @@ impl<B> Ingress<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Decode one branch reply and its lower questions.
+    /// Decode one reply at `level` and the questions it asks.
     async fn decode(
         &self,
-        scope: Scope,
+        level: ReplyLevel,
+        scope: &Scope,
         incoming: &mut StreamReceiver,
     ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>> {
         decode_reply(
             self.backend.clone(),
             self.version_bytes,
             self.ledger.clone(),
-            scope,
-            incoming,
-            self.codec,
-        )
-        .await
-    }
-
-    /// Decode one leaf reply and its terminal questions.
-    async fn decode_leaf(
-        &self,
-        scope: Scope,
-        incoming: &mut StreamReceiver,
-    ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>> {
-        decode_leaf_reply(
-            self.backend.clone(),
-            self.version_bytes,
-            self.ledger.clone(),
+            level,
             scope,
             incoming,
             self.codec,
@@ -141,7 +124,8 @@ where
             UnderUnderRoot::HEIGHT,
             self.window.capacity(UnderUnderRoot::HEIGHT),
         );
-        let responses = self.decode_pump(questions, incoming, next_scopes, UnderUnderRoot::HEIGHT);
+        let responses =
+            self.decode_pump::<UnderRoot>(questions, incoming, Some(next_scopes), self.progress);
         (self.respond::<UnderRoot>(responses), scopes)
     }
 
@@ -175,33 +159,44 @@ where
             <S<H>>::HEIGHT,
         ));
         let (next_scopes, scopes) = queues::next_scopes(H::HEIGHT, self.window.capacity(H::HEIGHT));
-        let responses = self.decode_pump(questions, incoming, next_scopes, H::HEIGHT);
+        let responses =
+            self.decode_pump::<S<H>>(questions, incoming, Some(next_scopes), self.progress);
         (self.respond::<S<H>>(responses), scopes)
     }
 
-    /// The decode loop shared by the responder opening and every internal
-    /// transition: pair each flushed local question with its decoded wire
-    /// reply, publishing the reply before the lower scopes derived from it.
+    /// The decode loop of every stage that reads replies: pair each flushed
+    /// local question with its decoded wire reply at height `H`, publishing
+    /// the reply before the lower scopes derived from it.
     ///
-    /// `height` is the derived scopes' height.
-    fn decode_pump(
+    /// The reply level follows from `H` ([`ReplyLevel::at`]), so a stage
+    /// cannot decode leaf replies as branch replies or the reverse. The
+    /// responder's terminal stream passes no scope sender; the wire grammar
+    /// excludes query reactions there.
+    fn decode_pump<H: Height>(
         &mut self,
         mut questions: Receiver<Scope>,
         mut incoming: StreamReceiver,
-        mut next_scopes: Sender<Scope>,
-        height: usize,
-    ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
-    {
-        let progress = self.progress;
+        mut next_scopes: Option<Sender<Scope>>,
+        progress: super::progress::Progress,
+    ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>>
+    + Send
+    + 'static
+    + use<B, R, W, A, H> {
         let ingress = self.ingress();
         try_stream! {
             while let Some(scope) = questions.recv().await {
-                let Decoded { reply, questions } = ingress.decode(scope, &mut incoming).await?;
-                yield_reply_scopes!(
-                    progress, height + 1, questions.len();
+                let Decoded { reply, questions } =
+                    ingress.decode(ReplyLevel::at::<H>(), &scope, &mut incoming).await?;
+                if let Some(next_scopes) = &mut next_scopes {
+                    yield_reply_scopes!(
+                        progress, H::HEIGHT, questions.len();
+                        yield reply;
+                        *next_scopes => questions;
+                    );
+                } else {
+                    progress.decoded_reply(H::HEIGHT, 0);
                     yield reply;
-                    next_scopes => questions;
-                );
+                }
             }
             reject_extra(&mut incoming).await?;
         }
@@ -230,39 +225,8 @@ where
         ));
         let (next_scopes, scopes) = queues::next_scopes(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
         let responses =
-            self.leaf_decode_pump(questions, incoming, Some(next_scopes), self.progress);
+            self.decode_pump::<Z>(questions, incoming, Some(next_scopes), self.progress);
         (self.respond::<Z>(responses), scopes)
-    }
-
-    /// Decode leaf replies, optionally publishing their dependent scopes.
-    ///
-    /// Ordinary leaf replies pass a scope sender. The responder's terminal
-    /// stream passes `None`; the wire grammar excludes query reactions there.
-    fn leaf_decode_pump(
-        &mut self,
-        mut questions: Receiver<Scope>,
-        mut incoming: StreamReceiver,
-        mut next_scopes: Option<Sender<Scope>>,
-        progress: super::progress::Progress,
-    ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
-    {
-        let ingress = self.ingress();
-        try_stream! {
-            while let Some(scope) = questions.recv().await {
-                let Decoded { reply, questions } = ingress.decode_leaf(scope, &mut incoming).await?;
-                if let Some(next_scopes) = &mut next_scopes {
-                    yield_reply_scopes!(
-                        progress, Z::HEIGHT, questions.len();
-                        yield reply;
-                        *next_scopes => questions;
-                    );
-                } else {
-                    progress.decoded_reply(Z::HEIGHT, 0);
-                    yield reply;
-                }
-            }
-            reject_extra(&mut incoming).await?;
-        }
     }
 
     /// Drive the final local answers for a remote initiator to completion.
@@ -317,7 +281,7 @@ where
             Some(local_questions),
             self.progress.terminal(),
         ));
-        let responses = self.leaf_decode_pump(questions, incoming, None, self.progress.terminal());
+        let responses = self.decode_pump::<Z>(questions, incoming, None, self.progress.terminal());
         let responses = self.respond::<Z>(responses);
         let completion = async move {
             let ((), read, write) = self.execute(async { Ok(()) }).await?;

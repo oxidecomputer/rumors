@@ -29,7 +29,7 @@ use crate::{
 };
 
 use super::{
-    super::{Scope, decode_reply, encode_reply},
+    super::{ReplyLevel, Scope, decode_reply, encode_reply},
     LeafCase, codec, colliding_leaves, leaf_run, reply_frames, runtime, separated_leaves,
     unbounded,
 };
@@ -69,7 +69,8 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening(&[]),
             &mut input,
             codec(),
         )
@@ -235,7 +236,8 @@ fn a_batched_run_round_trips_the_reply() {
             Local,
             u64::MAX,
             unbounded(),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening(&[]),
             &mut input,
             codec(),
         )
