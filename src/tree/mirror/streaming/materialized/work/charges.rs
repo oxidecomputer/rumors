@@ -608,7 +608,7 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
 /// - An answer explores its scope, at most a fan of children either side
 ///   holds, or supplies at most a fan of them; an answer about a leaf
 ///   supplies that one leaf.
-const fn slot_bound<E, Err>(unit: Unit, depth: usize) -> usize {
+pub(crate) const fn slot_bound<E, Err>(unit: Unit, depth: usize) -> usize {
     let leading = Held::LEADING_MAX;
     let height = height::Root::HEIGHT - depth;
     match unit {

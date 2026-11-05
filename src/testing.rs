@@ -22,14 +22,16 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, Local,
+            ledger::Unit,
             materialized::{
-                Allowances, fixed_allowance, floor_allowance, largest_grant, session_allowance,
+                self, Allowances, fixed_allowance, floor_allowance, largest_grant,
+                session_allowance,
             },
             remote::{self, RunBudget, codec::LeafRun},
         },
         typed::{
             hash::{HMAC_KEY_LEN, Hash, HashKey, MERKLE_HASH_LEN as TREE_HASH_LEN},
-            height::{Root, Z},
+            height::{Height, Root, Z},
             untyped::{
                 self, census,
                 memo_census::{self, Work},
@@ -156,6 +158,34 @@ pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
 /// own grants are usually far smaller.
 pub const LARGEST_GRANT: usize =
     largest_grant::<<Local as Backend>::Erased, <Local as Backend>::Error>();
+
+/// The most the grant of a unit of `unit`'s kind and depth can hold in a
+/// session over the in-memory replica: a bound on what that kind and
+/// depth's floor slot holds, its own unit's grant or what it carries.
+///
+/// The floor allowance ([`FLOOR_ALLOWANCE`]) is the larger of two sums of
+/// these bounds, one per side of a session: the initiator asks about scopes
+/// at even depths and answers at odd ones, and the responder the reverse.
+/// A ledger's floor slots stay within it while every grant is within its
+/// bound and the ledger admits only one side's kinds and depths.
+///
+/// # Panics
+///
+/// Panics if `unit.depth` exceeds 32, the depth of a leaf.
+pub const fn slot_bound(unit: ChargeUnit) -> usize {
+    assert!(
+        unit.depth <= Root::HEIGHT,
+        "a scope sits at most 32 bytes deep"
+    );
+    let kind = if unit.question {
+        Unit::Question
+    } else {
+        Unit::Answer
+    };
+    materialized::slot_bound::<<Local as Backend>::Erased, <Local as Backend>::Error>(
+        kind, unit.depth,
+    )
+}
 
 /// The completion marker each side writes in a session's closing exchange,
 /// after all of its session work: the CBOR text item `"."`.

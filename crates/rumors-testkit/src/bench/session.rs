@@ -41,7 +41,7 @@ use std::thread;
 use rumors::Rumors;
 use rumors::testing::{
     Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, memory_budget_admitting,
-    observe_admissions, observe_ledgers,
+    observe_admissions, observe_ledgers, slot_bound,
 };
 
 use crate::bench::link::{Link, LinkConfig, Report, SEGMENT_BYTES, Side, drive};
@@ -1008,6 +1008,10 @@ fn start_reading(link: &Link) {
 /// granted, with what its items needed beyond their grants, differ from
 /// the rises in what it holds: two computations of one quantity must
 /// agree.
+///
+/// If a ledger granted a unit more than its kind and depth's slot bound
+/// ([`slot_bound`]), or admitted units of both sides' kinds and depths: the
+/// floor allowance a session sets aside rests on neither happening.
 fn admitted() -> Admitted {
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
@@ -1042,6 +1046,30 @@ fn admitted() -> Admitted {
                 ledger.charged,
                 "the bytes admission granted, with any shortfall, must be the rises in what the \
                  ledger holds",
+            );
+            for admission in &ledger.dated {
+                let unit = ChargeUnit {
+                    question: admission.question,
+                    depth: admission.depth,
+                };
+                assert!(
+                    admission.bytes <= slot_bound(unit),
+                    "a grant of {} B to {unit:?} exceeds its slot bound of {} B",
+                    admission.bytes,
+                    slot_bound(unit),
+                );
+            }
+            // A side asks about scopes at the depths of one parity and
+            // answers at the other, so every unit one side admits has the
+            // same parity of depth, counting a question one deeper.
+            let sides: BTreeSet<usize> = ledger
+                .dated
+                .iter()
+                .map(|admission| (admission.depth + usize::from(admission.question)) % 2)
+                .collect();
+            assert!(
+                sides.len() <= 1,
+                "a ledger admitted units of both sides' kinds and depths",
             );
         }
         Admitted {

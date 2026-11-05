@@ -146,14 +146,14 @@ pub(crate) use fixed::session_allowance;
 #[cfg(doc)]
 pub(crate) use work::covered_set_price;
 pub(crate) use work::largest_grant;
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) use work::scratch;
 pub(crate) use work::{
     Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, derived_bytes, floor_allowance, parked_bytes,
 };
 use work::{LeafRequest, OpeningAdvance, Resolver, Work};
 #[cfg(test)]
 pub(crate) use work::{Left, Ready, parked_price, parked_room};
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use work::{scratch, slot_bound};
 
 pub use error::{Error, Violation};
 
