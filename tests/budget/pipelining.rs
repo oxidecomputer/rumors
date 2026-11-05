@@ -9,10 +9,13 @@ use std::time::Duration;
 
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors};
+use rumors::Rumors;
 use rumors_testkit::bench::latency;
 use rumors_testkit::common::budget::BudgetChoice;
+use rumors_testkit::common::property::FLEET_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::common::wire::bootstrap_fork_with_budget;
+use rumors_testkit::divided_proptest;
 
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
@@ -38,26 +41,32 @@ const HOP_CEILING: u32 = 24;
 /// only round-trip structure is measured (see the module docs).
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
-/// The default budget completes this fixture's session within
-/// [`HOP_CEILING`] one-way hops.
-#[test]
-fn default_budget_pipelines_disputed_scopes() {
-    let pipelined =
-        latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(BudgetChoice::Default));
-    let one_at_a_time =
-        latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(BudgetChoice::Zero));
-    eprintln!("default budget: {pipelined} hops; budget zero: {one_at_a_time} hops");
-    assert!(
-        (2..HOP_CEILING).contains(&pipelined),
-        "the default budget took {pipelined} hops, expected a completed exchange below \
-         {HOP_CEILING}",
-    );
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// The default budget completes this fixture's session within
+    /// [`HOP_CEILING`] one-way hops.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn default_budget_pipelines_disputed_scopes(network in network_seed()) {
+        let pipelined =
+            latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(network, BudgetChoice::Default));
+        let one_at_a_time =
+            latency::session_hops(LINK_CAPACITY, DELAY, diverged_pair(network, BudgetChoice::Zero));
+        eprintln!("default budget: {pipelined} hops; budget zero: {one_at_a_time} hops");
+        assert!(
+            (2..HOP_CEILING).contains(&pipelined),
+            "the default budget took {pipelined} hops, expected a completed exchange below \
+             {HOP_CEILING}",
+        );
+    }
 }
 
-/// Two peers with shared history and concurrent additions, both on
-/// `budget`.
-fn diverged_pair(budget: BudgetChoice) -> (Rumors<u64>, Rumors<u64>) {
-    let left = budget.apply(Peer::seed()).into_rumors();
+/// Two peers of the network `network` names, with shared history and
+/// concurrent additions, both on `budget`.
+fn diverged_pair(network: NetworkSeed, budget: BudgetChoice) -> (Rumors<u64>, Rumors<u64>) {
+    let left = budget.apply(network.peer()).into_rumors();
     // Fixed, so the hop ceiling is judged on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);

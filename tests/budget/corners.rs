@@ -19,6 +19,9 @@ use rand_chacha::ChaChaRng;
 use rumors::testing::run_to_quiescence;
 use rumors::{Peer, Rumors};
 use rumors_testkit::bench::latency;
+use rumors_testkit::common::property::FLEET_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// One-way delay for the virtual-time measurements (the timer grain).
 const DELAY: Duration = Duration::from_millis(10);
@@ -32,15 +35,22 @@ const COMMON: usize = 2_048;
 /// Messages each peer adds alone in the two-sided fixtures below.
 const EXTRA: usize = 2_000;
 
-/// Build a bootstrapped pair, then commit `left_extra`/`right_extra`
-/// further messages on the respective sides, all under `budget`.
+/// The divisor of the case count of a property here that reconciles
+/// thousands of messages: one case costs seconds in a debug build, so the
+/// default count runs one case.
+const CORNER_DIVISOR: u32 = 256;
+
+/// Build a bootstrapped pair of the network `network` names, then commit
+/// `left_extra`/`right_extra` further messages on the respective sides, both
+/// under `budget`.
 fn pair(
+    network: NetworkSeed,
     budget: usize,
     common: usize,
     left_extra: usize,
     right_extra: usize,
 ) -> (Rumors<u64>, Rumors<u64>) {
-    let left = Peer::seed().sync_memory_budget(budget).into_rumors();
+    let left = network.peer().sync_memory_budget(budget).into_rumors();
     // Fixed, so every run reconciles the same corpus.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0003);
     send_random(&left, common.max(1), &mut rng);
@@ -93,139 +103,163 @@ fn assert_converges(label: &str, pair: (Rumors<u64>, Rumors<u64>)) {
     );
 }
 
-/// A nearly empty replica catches up on twenty thousand messages at budget
-/// zero: the session completes and both sides then hold the same messages.
-#[test]
-fn asymmetric_catch_up_converges_at_budget_zero() {
-    assert_converges("asymmetric catch-up at budget 0", pair(0, 1, 20_000, 0));
-}
+divided_proptest! {
+    #![divisor(CORNER_DIVISOR)]
 
-/// The same catch-up converges when the large side is the initiator.
-#[test]
-fn reverse_asymmetric_catch_up_converges_at_budget_zero() {
-    assert_converges(
-        "reverse asymmetric catch-up at budget 0",
-        pair(0, 1, 0, 20_000),
-    );
-}
+    /// A nearly empty replica catches up on twenty thousand messages at budget
+    /// zero: the session completes and both sides then hold the same messages.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn asymmetric_catch_up_converges_at_budget_zero(network in network_seed()) {
+        assert_converges("asymmetric catch-up at budget 0", pair(network, 0, 1, 20_000, 0));
+    }
 
-/// Two replicas sharing 2,048 messages, each holding 2,000 the other lacks,
-/// converge in one session at budget zero.
-#[test]
-fn wide_divergence_converges_at_budget_zero() {
-    assert_converges(
-        "2,000 messages a side of divergence at budget 0",
-        pair(0, 2_048, 2_000, 2_000),
-    );
-}
-
-/// Compounded backpressure cannot deadlock: one-byte pipe buffers with
-/// both budgets at zero, every buffer in the system at its minimum, still
-/// complete.
-///
-/// Witnessed deterministically: a `Pending`
-/// with no wake arranged would fail the run, not hang it.
-#[test]
-fn one_byte_pipes_at_budget_zero_stay_live() {
-    let (left, right) = pair(0, 64, 64, 64);
-    run_to_quiescence(async {
-        let (mut a, mut b) = rumors::testing::memory_connection(1);
-        let (left_result, right_result) = tokio::join!(
-            left.gossip_once(&mut a.read, &mut a.write),
-            right.gossip_once(&mut b.read, &mut b.write)
+    /// The same catch-up converges when the large side is the initiator.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn reverse_asymmetric_catch_up_converges_at_budget_zero(network in network_seed()) {
+        assert_converges(
+            "reverse asymmetric catch-up at budget 0",
+            pair(network, 0, 1, 0, 20_000),
         );
-        left_result.expect("gossip left");
-        right_result.expect("gossip right");
-    })
-    .expect("every buffer at its floor stays live");
+    }
+
+    /// Two replicas sharing 2,048 messages, each holding 2,000 the other lacks,
+    /// converge in one session at budget zero.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn wide_divergence_converges_at_budget_zero(network in network_seed()) {
+        assert_converges(
+            "2,000 messages a side of divergence at budget 0",
+            pair(network, 0, 2_048, 2_000, 2_000),
+        );
+    }
 }
 
-/// A set that grows mid-session cannot break the session it grows under.
-///
-/// Commits racing the session make the sizes its greeting exchanged stale.
-/// The racing session completes, at least one racing commit is witnessed
-/// to have landed after the greeting's snapshot (the left replica has
-/// grown past what the session gave the right one), and the next session
-/// converges whatever it missed.
-#[test]
-fn growth_during_a_session_completes_and_the_next_converges() {
-    let (left, right) = pair(rumors::DEFAULT_SYNC_MEMORY_BUDGET, COMMON, EXTRA, EXTRA);
-    let racer = left.clone();
-    pollster::block_on(async {
-        let (mut a, mut b) = rumors::testing::memory_connection(LINK_CAPACITY);
-        // Fixed, so every run races the same commits.
-        let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0004);
-        let race = async {
-            for _ in 0..64 {
-                racer.send_all((0..32).map(|_| rng.next_u64())).unwrap();
-                tokio::task::yield_now().await;
-            }
-        };
-        let (left_result, right_result, ()) = tokio::join!(
-            left.gossip_once(&mut a.read, &mut a.write),
-            right.gossip_once(&mut b.read, &mut b.write),
-            race
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// Compounded backpressure cannot deadlock: one-byte pipe buffers with
+    /// both budgets at zero, every buffer in the system at its minimum, still
+    /// complete.
+    ///
+    /// Witnessed deterministically: a `Pending`
+    /// with no wake arranged would fail the run, not hang it.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn one_byte_pipes_at_budget_zero_stay_live(network in network_seed()) {
+        let (left, right) = pair(network, 0, 64, 64, 64);
+        run_to_quiescence(async {
+            let (mut a, mut b) = rumors::testing::memory_connection(1);
+            let (left_result, right_result) = tokio::join!(
+                left.gossip_once(&mut a.read, &mut a.write),
+                right.gossip_once(&mut b.read, &mut b.write)
+            );
+            left_result.expect("gossip left");
+            right_result.expect("gossip right");
+        })
+        .expect("every buffer at its floor stays live");
+    }
+}
+
+divided_proptest! {
+    #![divisor(CORNER_DIVISOR)]
+
+    /// A set that grows mid-session cannot break the session it grows under.
+    ///
+    /// Commits racing the session make the sizes its greeting exchanged stale.
+    /// The racing session completes, at least one racing commit is witnessed
+    /// to have landed after the greeting's snapshot (the left replica has
+    /// grown past what the session gave the right one), and the next session
+    /// converges whatever it missed.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn growth_during_a_session_completes_and_the_next_converges(network in network_seed()) {
+        let (left, right) = pair(network, rumors::DEFAULT_SYNC_MEMORY_BUDGET, COMMON, EXTRA, EXTRA);
+        let racer = left.clone();
+        pollster::block_on(async {
+            let (mut a, mut b) = rumors::testing::memory_connection(LINK_CAPACITY);
+            // Fixed, so every run races the same commits.
+            let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0004);
+            let race = async {
+                for _ in 0..64 {
+                    racer.send_all((0..32).map(|_| rng.next_u64())).unwrap();
+                    tokio::task::yield_now().await;
+                }
+            };
+            let (left_result, right_result, ()) = tokio::join!(
+                left.gossip_once(&mut a.read, &mut a.write),
+                right.gossip_once(&mut b.read, &mut b.write),
+                race
+            );
+            left_result.expect("gossip left under concurrent growth");
+            right_result.expect("gossip right");
+            // The mid-session-growth witness: a commit that landed after the
+            // greeting's snapshot is on the left replica and was never
+            // offered to the right one, so the left has grown past the right.
+            assert!(
+                left.snapshot().len() > right.snapshot().len(),
+                "no racing commit landed after the greeting: the left replica holds {} \
+                 messages and the right {}, so the session raced nothing",
+                left.snapshot().len(),
+                right.snapshot().len(),
+            );
+
+            let (mut a, mut b) = rumors::testing::memory_connection(LINK_CAPACITY);
+            let (left_result, right_result) = tokio::join!(
+                left.gossip_once(&mut a.read, &mut a.write),
+                right.gossip_once(&mut b.read, &mut b.write)
+            );
+            left_result.expect("follow-up gossip left");
+            right_result.expect("follow-up gossip right");
+        });
+        assert_eq!(
+            left.snapshot(),
+            right.snapshot(),
+            "the follow-up session converges everything the race added",
         );
-        left_result.expect("gossip left under concurrent growth");
-        right_result.expect("gossip right");
-        // The mid-session-growth witness: a commit that landed after the
-        // greeting's snapshot is on the left replica and was never
-        // offered to the right one, so the left has grown past the right.
+    }
+
+    /// Sessions on a real clock pay real delay and stay live.
+    ///
+    /// A catch-up depends on a reply to a delivered message, so at least two
+    /// causally chained one-way hops of real delay elapse before it completes.
+    /// A wide divergence at budget zero, with every pipe delay burning wall
+    /// time, completes and converges as on the paused clock. Only floors are
+    /// asserted on elapsed time, because machine load inflates real elapsed
+    /// time and can never compress it, so the assertions read the same under
+    /// any suite parallelism.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn real_clock_sessions_pay_real_delay_and_stay_live(network in network_seed()) {
+        let delay = Duration::from_millis(2);
+
+        let (left, right) = pair(network, 0, 1, 10_000, 0);
+        let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
+        let start = std::time::Instant::now();
+        let _ = wire.round_trip(left, right);
+        let catch_up = start.elapsed();
+        eprintln!("real-clock catch-up: {catch_up:?}");
         assert!(
-            left.snapshot().len() > right.snapshot().len(),
-            "no racing commit landed after the greeting: the left replica holds {} \
-             messages and the right {}, so the session raced nothing",
-            left.snapshot().len(),
-            right.snapshot().len(),
+            catch_up >= 2 * delay,
+            "a catch-up session must pay the wire's real round trip: {catch_up:?}",
         );
 
-        let (mut a, mut b) = rumors::testing::memory_connection(LINK_CAPACITY);
-        let (left_result, right_result) = tokio::join!(
-            left.gossip_once(&mut a.read, &mut a.write),
-            right.gossip_once(&mut b.read, &mut b.write)
+        let divergence = 512;
+        let (left, right) = pair(network, 0, 2_048, divergence, divergence);
+        let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
+        let ((left, right), elapsed) = wire.round_trip(left, right);
+        eprintln!("real-clock session at budget 0 over {divergence} messages a side: {elapsed:?}");
+        assert_eq!(
+            left.snapshot(),
+            right.snapshot(),
+            "a session at budget 0 on a real clock converges",
         );
-        left_result.expect("follow-up gossip left");
-        right_result.expect("follow-up gossip right");
-    });
-    assert_eq!(
-        left.snapshot(),
-        right.snapshot(),
-        "the follow-up session converges everything the race added",
-    );
-}
-
-/// Sessions on a real clock pay real delay and stay live.
-///
-/// A catch-up depends on a reply to a delivered message, so at least two
-/// causally chained one-way hops of real delay elapse before it completes.
-/// A wide divergence at budget zero, with every pipe delay burning wall
-/// time, completes and converges as on the paused clock. Only floors are
-/// asserted on elapsed time, because machine load inflates real elapsed
-/// time and can never compress it, so the assertions read the same under
-/// any suite parallelism.
-#[test]
-fn real_clock_sessions_pay_real_delay_and_stay_live() {
-    let delay = Duration::from_millis(2);
-
-    let (left, right) = pair(0, 1, 10_000, 0);
-    let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
-    let start = std::time::Instant::now();
-    let _ = wire.round_trip(left, right);
-    let catch_up = start.elapsed();
-    eprintln!("real-clock catch-up: {catch_up:?}");
-    assert!(
-        catch_up >= 2 * delay,
-        "a catch-up session must pay the wire's real round trip: {catch_up:?}",
-    );
-
-    let divergence = 512;
-    let (left, right) = pair(0, 2_048, divergence, divergence);
-    let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
-    let ((left, right), elapsed) = wire.round_trip(left, right);
-    eprintln!("real-clock session at budget 0 over {divergence} messages a side: {elapsed:?}");
-    assert_eq!(
-        left.snapshot(),
-        right.snapshot(),
-        "a session at budget 0 on a real clock converges",
-    );
+    }
 }

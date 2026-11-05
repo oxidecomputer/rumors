@@ -17,12 +17,14 @@ use rumors_testkit::common;
 use bytes::Bytes;
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
+use rumors::Rumors;
 use rumors::testing::{dispute_overhead_bytes, reference_wire_bytes};
-use rumors::{Peer, Rumors};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::common::budget::BudgetChoice;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// Shared history in the smaller calibration fixtures.
 const COMMON: usize = 2_048;
@@ -58,8 +60,19 @@ const MINIMAL_CELL_RESIDUAL: usize = 2;
 /// the reference fixture's estimate.
 const TABLE_CORPUS_TOLERANCE: f64 = 3.0;
 
-/// Fork one network after shared history, then add distinct messages on each side.
+/// The network every pinned calibration fixture forks: a pinned mean holds
+/// for one tree shape, and so for one network secret.
+const CALIBRATION_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xd15b_0a1e_c0a5_0001);
+
+/// The divisor of the case count of a property that builds a calibration
+/// fixture: one case builds and gossips tens of thousands of messages,
+/// seconds of work in a debug build, so the default count runs one case.
+const CALIBRATION_FIXTURE_DIVISOR: u32 = 256;
+
+/// Fork the network `network` names after shared history, then add distinct
+/// messages on each side.
 fn diverged<T>(
+    network: NetworkSeed,
     common: usize,
     divergent: usize,
     budget: BudgetChoice,
@@ -68,7 +81,7 @@ fn diverged<T>(
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let left = budget.apply(Peer::seed()).into_rumors();
+    let left = budget.apply(network.peer()).into_rumors();
     // Fixed, so the pinned byte counts are measured on the same corpus every
     // run.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_d15b_073e);
@@ -93,13 +106,20 @@ where
     a_to_b + b_to_a
 }
 
-/// The smaller fixture's mean bytes per differing message, rounded down.
+/// The smaller fixture's mean bytes per differing message, rounded down,
+/// on the network [`CALIBRATION_NETWORK_SEED`] names.
 /// Both directions contribute writes; each new message crosses once.
 fn implied_bytes_per_message<T>(make: impl FnMut(&mut ChaChaRng) -> T) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (left, right) = diverged(COMMON, DIVERGENT, BudgetChoice::Zero, make);
+    let (left, right) = diverged(
+        CALIBRATION_NETWORK_SEED,
+        COMMON,
+        DIVERGENT,
+        BudgetChoice::Zero,
+        make,
+    );
     let total = session_wire_bytes(&left, &right);
     assert_eq!(
         left.snapshot().hash(),
@@ -175,16 +195,24 @@ fn mid_size_records_match_the_reference_estimate() {
 /// from the dispute-heavier reference fixture, whose listings, each entry
 /// carrying a grandchild count, weigh more per message than this
 /// supply-dominated corpus's, so this corpus measures somewhat below it.
+/// Like the pinned means, the measurement holds for one tree shape, so the
+/// corpus forks the network [`CALIBRATION_NETWORK_SEED`] names.
 /// Check the unrounded mean: truncation would hide a material part of this
 /// error.
 #[test]
 fn table_corpus_has_similar_protocol_overhead() {
     let messages = 75_000;
-    let (left, right) = diverged(0, messages, BudgetChoice::Default, |rng| {
-        let mut payload = vec![0u8; REFERENCE_PAYLOAD_LEN];
-        rng.fill_bytes(&mut payload);
-        Bytes::from(payload)
-    });
+    let (left, right) = diverged(
+        CALIBRATION_NETWORK_SEED,
+        0,
+        messages,
+        BudgetChoice::Default,
+        |rng| {
+            let mut payload = vec![0u8; REFERENCE_PAYLOAD_LEN];
+            rng.fill_bytes(&mut payload);
+            Bytes::from(payload)
+        },
+    );
     let total = session_wire_bytes(&left, &right);
     assert_eq!(left.snapshot().hash(), right.snapshot().hash());
     assert_eq!(left.snapshot().len(), 2 * messages);
@@ -197,23 +225,31 @@ fn table_corpus_has_similar_protocol_overhead() {
     );
 }
 
-/// Even an already converged pair has nonzero session overhead.
-/// This confirms that the counter includes more than transferred payloads.
-#[test]
-fn counting_connection_sees_a_converged_sessions_greeting() {
-    let (left, right) = diverged(COMMON, DIVERGENT, BudgetChoice::Zero, |rng| rng.next_u64());
-    // Converge first over an uncounted connection, then count a session that
-    // disputes nothing.
-    common::wire::wire_gossip(&left, &right);
-    let total = session_wire_bytes(&left, &right);
-    eprintln!("converged-session control: {total} B fixed overhead");
-    assert!(
-        total > 0,
-        "a converged session still exchanges greetings: a zero count is a dead instrument",
-    );
-    assert!(
-        total < 2 * DIVERGENT,
-        "converged-session overhead ({total} bytes) exceeds one byte per transferred \
-         message at calibration scale",
-    );
+divided_proptest! {
+    #![divisor(CALIBRATION_FIXTURE_DIVISOR)]
+
+    /// Even an already converged pair has nonzero session overhead.
+    /// This confirms that the counter includes more than transferred payloads.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn counting_connection_sees_a_converged_sessions_greeting(network in network_seed()) {
+        let (left, right) = diverged(network, COMMON, DIVERGENT, BudgetChoice::Zero, |rng| {
+            rng.next_u64()
+        });
+        // Converge first over an uncounted connection, then count a session that
+        // disputes nothing.
+        common::wire::wire_gossip(&left, &right);
+        let total = session_wire_bytes(&left, &right);
+        eprintln!("converged-session control: {total} B fixed overhead");
+        assert!(
+            total > 0,
+            "a converged session still exchanges greetings: a zero count is a dead instrument",
+        );
+        assert!(
+            total < 2 * DIVERGENT,
+            "converged-session overhead ({total} bytes) exceeds one byte per transferred \
+             message at calibration scale",
+        );
+    }
 }
