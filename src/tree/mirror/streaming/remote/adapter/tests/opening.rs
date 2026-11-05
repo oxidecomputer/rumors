@@ -57,6 +57,7 @@ fn opening_listing_agrees_with_greeting_replay() {
     let listing = vec![listed(3, hash(1)), listed(9, hash(2))];
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: vec![Reaction::Query(listing.clone())],
+        charge: Default::default(),
     };
 
     let local = opening_listing(reply).expect("canonical opening");
@@ -114,6 +115,7 @@ fn opening_accepts_exactly_one_query() {
                     Symbol::Supply => Reaction::Supply(5, <Local as Backend>::erase(node.clone())),
                 })
                 .collect(),
+            charge: Default::default(),
         }
     }
 

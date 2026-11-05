@@ -14,21 +14,24 @@ use before::Version;
 use futures::{Stream, StreamExt, future::BoxFuture};
 
 use super::{
-    Work, answer,
+    LeafRequest, Work, answer,
     assembly::assemble,
+    charges,
     queues::*,
     resolver::{Dispute, Resolver},
 };
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, Root,
+        Backend, ErasedNode, Leaf, Root,
         channel::{Receiver, Sender},
         erased::{self, Reaction, Reply},
         holding::{Holding, held_by, holding, holding_stream},
+        ledger::ReplyBound,
         materialized::{
             Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
             unknown::unknown_providing, violation,
         },
+        message::Grandchildren,
         protocol::{BoxRequests, BoxResponses, Requests},
         tasks::next_or_cancelled,
     },
@@ -102,6 +105,8 @@ where
         &mut self,
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
+        copies: usize,
+        responder: Grandchildren,
     ) -> (
         BoxResponses<B, UnderRoot, Error<B::Error>>,
         Receiver<Query<B::Erased>>,
@@ -111,18 +116,17 @@ where
         let (mut queries, queries_rx) = initiator_root_query::<B>();
         let (returns, mut returns_rx) = initiator_root_return::<B>();
         let progress = self.progress;
+        let account = self.ledger();
 
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
             progress.wire(root_scope);
             progress.asked(root_scope, UnderRoot::HEIGHT, 1);
-            yield held_by(Holding::OutgoingReplies, || Reply {
-                reactions: vec![Reaction::Query(fan_listing(&fan))],
+            yield held_by(Holding::OutgoingReplies, || {
+                charges::reply::<B>(&account, vec![Reaction::Query(fan_listing(&fan))])
             });
-            let query = Query {
-                prefix: root_scope,
-                ours: fan,
-            };
+            let bound = ReplyBound::of(root_scope.height(), fan.len(), responder);
+            let query = charges::query(&account, root_scope, fan, bound, copies);
             progress.initial_query(&query);
             if queries.send(query).await.is_err() {
                 return;
@@ -160,6 +164,7 @@ where
         their_version: Version,
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
+        copies: usize,
         requests: impl Requests<B, UnderRoot>,
     ) -> (
         BoxResponses<B, UnderRoot, Error<B::Error>>,
@@ -175,11 +180,12 @@ where
         let (mut resolution, resolution_rx) = responder_root_resolution::<B>();
         let assembling = backend.clone();
         let progress = self.progress;
+        let account = self.ledger();
 
         let responses = try_stream! {
             let mut requests = requests;
             let root_scope = Prefix::new().erase();
-            let Some(Reply { reactions }) = requests.next().await else {
+            let Some(Reply { reactions, charge: received }) = requests.next().await else {
                 return violation(Violation::UnansweredQuery)?;
             };
             // The opening reply is not paired positionally against the
@@ -208,17 +214,27 @@ where
             let Some(theirs) = theirs else {
                 return violation(Violation::UnfinishedReply)?;
             };
+            drop(received);
             let ours = fan;
-            let (reactions, next_queries, resolved) =
-                answer::internal(&backend, &their_version, root_scope, ours, theirs, &stats)
-                    .await?;
+            let (reactions, next_queries, resolved) = answer::internal(
+                &backend,
+                &account,
+                &their_version,
+                root_scope,
+                ours,
+                theirs,
+                &stats,
+            )
+            .await?;
             yield_resolve_query!(
                 progress, root_scope;
-                yield Reply { reactions };
-                resolution => Resolution {
-                    prefix: root_scope,
+                yield charges::reply::<B>(&account, reactions);
+                resolution => charges::resolution(
+                    &account,
+                    root_scope,
                     resolved,
-                };
+                    account.charge(Holding::ExplodedNodes, copies),
+                );
                 asked => next_queries, at height UnderUnderRoot::HEIGHT;
             );
 
@@ -318,11 +334,12 @@ where
             &stats,
         );
         let progress = self.progress;
+        let account = self.ledger();
 
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { reactions }) = requests.next().await else {
+                let Some(Reply { reactions, charge: received }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
                 progress.take(asked_height + 2, &query);
@@ -340,6 +357,7 @@ where
                     };
 
                     if listing.is_empty() {
+                        let copies = node.explosion_bytes();
                         let (node, children) = holding(
                             Holding::OutgoingReplies,
                             unknown_providing(&backend, &their_version, child_prefix, node, &stats),
@@ -351,17 +369,21 @@ where
                                 .map(|(radix, child)| Reaction::Supply(radix, child))
                                 .collect()
                         });
+                        let mut reply = charges::reply::<B>(&account, reactions);
+                        reply.charge.absorb(account.charge(Holding::OutgoingReplies, copies));
                         yield_resolve_query!(
                             progress, child_prefix;
-                            yield Reply { reactions };
+                            yield reply;
                             resolver.ready(radix, node);
                         );
                         continue;
                     }
 
+                    let copies = node.explosion_bytes();
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (reactions, next_queries, resolved) = answer::internal(
                         &backend,
+                        &account,
                         &their_version,
                         child_prefix,
                         children,
@@ -371,16 +393,20 @@ where
                     .await?;
                     yield_resolve_query!(
                         progress, child_prefix;
-                        yield Reply { reactions };
-                        lower => Resolution {
-                            prefix: child_prefix,
+                        yield charges::reply::<B>(&account, reactions);
+                        lower => charges::resolution(
+                            &account,
+                            child_prefix,
                             resolved,
-                        };
+                            account.charge(Holding::ExplodedNodes, copies),
+                        );
                         asked => next_queries, at height asked_height;
                     );
                     resolver.pending(radix);
                 }
 
+                // The reply's reactions are used up, so its charge returns.
+                drop(received);
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
@@ -407,7 +433,7 @@ where
         queries: Receiver<Query<B::Erased>>,
     ) -> (
         BoxResponses<B, Z, Error<B::Error>>,
-        Receiver<Prefix<Z>>,
+        Receiver<LeafRequest>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     ) {
@@ -426,7 +452,7 @@ where
         mut queries: Receiver<Query<B::Erased>>,
     ) -> (
         impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
-        Receiver<Prefix<Z>>,
+        Receiver<LeafRequest>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     ) {
@@ -438,11 +464,12 @@ where
         let (mut lower, lower_rx) =
             leaf_child_resolutions::<B>(self.window.capacity(Z::HEIGHT), &stats);
         let progress = self.progress;
+        let account = self.ledger();
 
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { reactions }) = requests.next().await else {
+                let Some(Reply { reactions, charge: received }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
                 progress.take(<S<Z>>::HEIGHT, &query);
@@ -460,6 +487,7 @@ where
                     };
 
                     if listing.is_empty() {
+                        let copies = node.explosion_bytes();
                         let (node, leaves) = holding(
                             Holding::OutgoingReplies,
                             unknown_providing(&backend, &their_version, child_prefix, node, &stats),
@@ -471,29 +499,42 @@ where
                                 .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
                                 .collect()
                         });
+                        let mut reply = charges::reply::<B>(&account, reactions);
+                        reply.charge.absorb(account.charge(Holding::OutgoingReplies, copies));
                         yield_resolve_query!(
                             progress, child_prefix;
-                            yield Reply { reactions };
+                            yield reply;
                             resolver.ready(radix, node);
                         );
                         continue;
                     }
 
+                    let copies = node.explosion_bytes();
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
-                    let (reactions, next_queries, resolved) =
-                        answer::leaf_parent(&their_version, child_prefix, leaves, listing, &stats);
+                    let (reactions, next_queries, resolved) = answer::leaf_parent(
+                        &account,
+                        &their_version,
+                        child_prefix,
+                        leaves,
+                        listing,
+                        &stats,
+                    );
                     yield_resolve_query!(
                         progress, child_prefix;
-                        yield Reply { reactions };
-                        lower => Resolution {
-                            prefix: child_prefix,
+                        yield charges::reply::<B>(&account, reactions);
+                        lower => charges::resolution(
+                            &account,
+                            child_prefix,
                             resolved,
-                        };
+                            account.charge(Holding::ExplodedNodes, copies),
+                        );
                         asked => next_queries, at height Z::HEIGHT;
                     );
                     resolver.pending(radix);
                 }
 
+                // The reply's reactions are used up, so its charge returns.
+                drop(received);
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
@@ -541,11 +582,12 @@ where
         let (mut upper, upper_rx) = terminal_leaf_resolutions::<B>();
         let stats = self.stats.clone();
         let progress = self.progress;
+        let account = self.ledger();
 
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { reactions }) = requests.next().await else {
+                let Some(Reply { reactions, charge: received }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
                 progress.take(Z::HEIGHT, &query);
@@ -567,11 +609,12 @@ where
                             .map_err(Error::Violation)?;
                     yield_resolve_query!(
                         progress, child_prefix;
-                        yield Reply { reactions };
+                        yield charges::reply::<B>(&account, reactions);
                         resolver.ready(radix, node);
                     );
                 }
 
+                drop(received);
                 let resolution = resolver.finish()?;
                 progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {

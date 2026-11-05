@@ -48,6 +48,7 @@ pub(crate) mod convert;
 mod driver;
 mod erased;
 pub mod holding;
+pub(crate) mod ledger;
 pub mod materialized;
 pub(crate) mod message;
 mod protocol;
@@ -209,6 +210,13 @@ where
     }
     if let Some(window) = remote.resolve_window() {
         local.adopt_window(window);
+    }
+    // Each endpoint's walk and proxy charge one ledger, the walk's.
+    if let Some(ledger) = local.share_ledger() {
+        remote.adopt_ledger(ledger);
+    }
+    if let Some(ledger) = remote.share_ledger() {
+        local.adopt_ledger(ledger);
     }
     if local_key.initiates(&remote_key) {
         mirror_connected(local, remote).await

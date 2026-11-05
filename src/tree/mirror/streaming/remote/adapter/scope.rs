@@ -1,5 +1,5 @@
+use crate::tree::mirror::streaming::ledger::{ReplyBound, buffer};
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
-use crate::tree::mirror::streaming::window::FAN;
 use std::slice;
 
 use crate::tree::{
@@ -120,25 +120,6 @@ pub struct Scope {
     bound: Grandchildren,
 }
 
-/// The most a reply can hold of the two things that grow with it: its
-/// reactions, and the listing entries its queries carry.
-///
-/// A reply about a node holds one reaction per child either side holds:
-/// at most the asker's listed children and the replier's children, which
-/// are no more than the replier's grandchild count of the node, and never
-/// more than a fan. Its queries list the replier's children of children it
-/// shares with the asker, which together are at most that same count. A
-/// reply to an empty question supplies the replier's children and lists
-/// nothing; a reply about a leaf's parent lists nothing, since a question
-/// about a leaf is empty; a reply about a leaf supplies one leaf.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ReplyBound {
-    /// The most reactions the reply can hold.
-    pub reactions: usize,
-    /// The most listing entries its queries can carry together.
-    pub listing: usize,
-}
-
 impl Scope {
     /// Record the question represented by `listing` at `parent`, whose
     /// replier's grandchild count of `parent` is `bound`.
@@ -169,27 +150,14 @@ impl Scope {
         Self::opening(listing, Grandchildren::MAX)
     }
 
+    /// The bytes the record's listed children hold beside it.
+    pub fn children_bytes(&self) -> usize {
+        buffer(&self.children)
+    }
+
     /// The bound on the reply this record awaits.
     pub fn reply_bound(&self) -> ReplyBound {
-        if self.parent.height() == 1 {
-            // A leaf's parent: its children are leaves, so its questions
-            // are empty and its listings carry nothing; a leaf request
-            // supplies its one leaf.
-            ReplyBound {
-                reactions: (self.children.len() + self.bound.get()).min(FAN),
-                listing: 0,
-            }
-        } else if self.children.is_empty() {
-            ReplyBound {
-                reactions: self.bound.get().min(FAN),
-                listing: 0,
-            }
-        } else {
-            ReplyBound {
-                reactions: (self.children.len() + self.bound.get()).min(FAN),
-                listing: self.bound.get(),
-            }
-        }
+        ReplyBound::of(self.parent.height(), self.children.len(), self.bound)
     }
 
     /// The parent prefix against which keyed supplies are validated.

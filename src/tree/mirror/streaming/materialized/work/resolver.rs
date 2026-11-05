@@ -11,6 +11,9 @@ use crate::{
         mirror::streaming::{
             Backend, ErasedNode, Leaf,
             erased::Reaction,
+            holding::Holding,
+            ledger::{self, Charge, ReplyBound},
+            materialized::work::parent_resolution,
             materialized::{Error, Query, Resolution, Resolve, SupplyLedger, Violation, violation},
             stats::Recorder,
         },
@@ -46,6 +49,17 @@ where
     /// exact live-leaf count as
     /// [`messages_gained`](crate::SessionStats::messages_gained).
     stats: &'session Recorder,
+    /// The bound on the reply, which sized the resolution's slots.
+    bound: ReplyBound,
+    /// The question's charge for its children, which the resolution keeps
+    /// until assembly.
+    kept: Charge,
+    /// The room the question set aside for the reply; the resolution takes
+    /// its part, and the rest returns when the resolver is done.
+    reservation: Charge,
+    /// What the reply has held so far: its reactions and the listing
+    /// entries its queries carried.
+    held: ReplyBound,
 }
 
 /// A held child that the peer reports as different.
@@ -66,7 +80,13 @@ where
 {
     /// Begin resolving one outstanding query.
     pub fn new(
-        Query { prefix, ours }: Query<B::Erased>,
+        Query {
+            prefix,
+            ours,
+            bound,
+            charge,
+            reservation,
+        }: Query<B::Erased>,
         their_version: &'session Version,
         ledger: &'session SupplyLedger,
         stats: &'session Recorder,
@@ -74,10 +94,16 @@ where
         Self {
             prefix,
             fan: ours.into_iter().peekable(),
-            resolved: Vec::new(),
+            // Sized at the reservation's slots, so the resolution holds
+            // exactly what its part of the reservation prices.
+            resolved: Vec::with_capacity(bound.reactions),
             their_version,
             ledger,
             stats,
+            bound,
+            kept: charge,
+            reservation,
+            held: ReplyBound::default(),
         }
     }
 
@@ -91,6 +117,7 @@ where
         &mut self,
         reaction: Reaction<B::Erased>,
     ) -> Result<Option<Dispute<B::Erased>>, Error<B::Error>> {
+        self.held.reactions += 1;
         match reaction {
             Reaction::Match => {
                 let Some((radix, node)) = self.fan.next() else {
@@ -127,6 +154,7 @@ where
                 }
             }
             Reaction::Query(listing) => {
+                self.held.listing += listing.len();
                 let Some((radix, node)) = self.fan.next() else {
                     return violation(Violation::UnexpectedQuery);
                 };
@@ -157,9 +185,16 @@ where
         if self.fan.next().is_some() {
             violation(Violation::UnfinishedReply)
         } else {
+            ledger::fitted(self.bound, self.held);
+            let charge = self.reservation.split(
+                Holding::Resolutions,
+                parent_resolution::<B::Erased>(self.bound),
+            );
             Ok(Resolution {
                 prefix: self.prefix,
                 resolved: self.resolved,
+                charge,
+                kept: self.kept,
             })
         }
     }

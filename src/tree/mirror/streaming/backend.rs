@@ -226,8 +226,11 @@ pub trait Node {
     /// [`Backend::children`] lists them: over its children, each one's own
     /// child count, a child at the leaves counting one. A leaf has none.
     ///
-    /// It bounds the reply this side gives to a question about the node.
-    /// Like [`len`](Self::len), maintain it wherever a node is built; it depends
+    /// It bounds the reply this side gives to a question about the node: a
+    /// session sends this count beside each child it lists, and its peer
+    /// sizes the memory that reply can need from it before asking, so an
+    /// undercount fails the session when the reply arrives. Like
+    /// [`len`](Self::len), maintain it wherever a node is built; it depends
     /// only on the node's children, and on whether each child is itself a
     /// leaf or has one child or many.
     fn grandchildren(&self) -> usize;
@@ -270,9 +273,10 @@ pub trait ErasedNode {
     /// Those are the nodes a backend builds to explode this one, such as the
     /// in-memory backend's copy of a shared compressed node.
     ///
-    /// In test builds, a session reports this before it explodes the node,
-    /// for a meter to hold against what the listing allocates. It must not
-    /// fall short of what the listing allocates.
+    /// A session reads this before it explodes the node, to charge the
+    /// memory the explosion will hold, and in test builds reports it for a
+    /// meter to hold against what the listing allocates. It must not fall
+    /// short of what the listing allocates.
     fn explosion_bytes(&self) -> usize;
 }
 

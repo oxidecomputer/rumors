@@ -113,7 +113,10 @@ impl Encoded {
         Box::pin(try_stream! {
             let mut positions = scope.positions();
             let mut pending = None;
-            for reaction in reply.reactions {
+            // The reply's charge returns once every frame is out, when the
+            // stream ends; its reactions are consumed as they are encoded.
+            let Reply { reactions, charge: _charge } = reply;
+            for reaction in reactions {
                 let (wire, question) = match reaction {
                     ProtocolReaction::Match => {
                         positions.next().ok_or(ScopeError::UnpositionedMatch)?;

@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 use crate::{
     Version,
     tree::{
-        mirror::streaming::{Backend, ErasedNode, Leaf},
+        mirror::streaming::{Backend, ErasedNode, Leaf, ledger::Charge},
         typed::{
             Hash,
             height::{Height, Z},
@@ -122,8 +122,9 @@ pub struct Greeting {
     /// leaves counting one; zero for an empty tree.
     ///
     /// It bounds the elected responder's reply to the opening question,
-    /// which lists the responder's children of its root children, as a
-    /// listing's counts bound every later reply.
+    /// which lists the responder's children of its root children. The
+    /// initiator sizes its memory for that reply from the responder's
+    /// greeting, as it sizes every later reply from a listing's counts.
     pub grandchildren: u64,
 }
 
@@ -142,7 +143,8 @@ pub struct Listed {
     /// The lister's grandchild count of the child.
     ///
     /// It bounds the reply the lister will give to a question about the
-    /// child, and a reply over it fails the session.
+    /// child. A peer that asks one sizes its memory for that reply from this
+    /// count before asking, and a reply over it fails the session.
     pub grandchildren: Grandchildren,
 }
 
@@ -267,6 +269,9 @@ impl Greeting {
 pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The reactions to a single previous query.
     pub reactions: Vec<Reaction<B, H>>,
+    /// What the reply holds, charged to the endpoint that built it and
+    /// returned when its consumer has used it.
+    pub(crate) charge: Charge,
 }
 
 /// Reactions are positionally keyed against the corresponding

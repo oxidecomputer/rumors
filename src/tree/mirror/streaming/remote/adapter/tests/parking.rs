@@ -104,6 +104,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             .into_iter()
             .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend>::erase(node)))
             .collect(),
+        charge: Default::default(),
     };
     let runtime = runtime();
     let scope = Scope::opening_unbounded(&[]);
@@ -168,6 +169,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
         .collect();
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
+        charge: Default::default(),
     };
 
     let runtime = runtime();

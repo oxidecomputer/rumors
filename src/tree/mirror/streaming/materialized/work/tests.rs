@@ -87,13 +87,13 @@ proptest! {
         dropped in any::<bool>(),
         terminal_ready in any::<bool>(),
     ) {
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(Local, Window::FLOOR, Recorder::default(), Default::default());
         // A closed consumer may stop a pump before later items are read.
         // Put the error first in that case so it is actually detected.
         let buffered = buffered && !dropped;
         let messages = stream::iter(
             buffered.then_some(Ok(Reply {
-                reactions: Vec::new(),
+                reactions: Vec::new(), charge: Default::default(),
             })).into_iter().chain([Err(Error::Violation(Violation::UnaskedReply))]),
         );
         let responses = work.respond::<Z>(messages);
@@ -118,6 +118,7 @@ fn work_failure_preempts_parked_tasks() {
         Failing::after(Local, usize::MAX),
         Window::FLOOR,
         Recorder::default(),
+        Default::default(),
     );
     for _ in 0..31 {
         work.tasks.push(Box::pin(future::pending()));
@@ -164,6 +165,8 @@ fn fills_pendings_in_order() {
             (2, Resolve::Ready(Some(erased(b.clone())))),
             (5, Resolve::Pending),
         ],
+        charge: Default::default(),
+        kept: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],
@@ -196,6 +199,8 @@ fn ready_none_is_deletion() {
             (1, Resolve::Ready(Some(erased(a.clone())))),
             (2, Resolve::Ready(None)),
         ],
+        charge: Default::default(),
+        kept: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
 
@@ -216,6 +221,8 @@ fn empty_resolution_assembles_to_none() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![],
+        charge: Default::default(),
+        kept: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -228,6 +235,8 @@ fn all_deleted_resolution_assembles_to_none() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Ready(None)), (2, Resolve::Ready(None))],
+        charge: Default::default(),
+        kept: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -246,10 +255,14 @@ fn chains_two_instances() {
             (1, Resolve::Ready(Some(erased(a.clone())))),
             (7, Resolve::Ready(Some(erased(b.clone())))),
         ],
+        charge: Default::default(),
+        kept: Default::default(),
     })];
     let upper: Vec<Item> = vec![Ok(Resolution {
         prefix: parent_prefix(3).pop().0.erase(),
         resolved: vec![(3, Resolve::Pending)],
+        charge: Default::default(),
+        kept: Default::default(),
     })];
 
     let chained = assemble::<Local>(
@@ -295,6 +308,8 @@ fn level_error_passes_through() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Pending)],
+        charge: Default::default(),
+        kept: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],

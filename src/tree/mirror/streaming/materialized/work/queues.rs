@@ -6,8 +6,8 @@
 //! payload vocabulary — one channel-machinery instantiation per backend —
 //! and keeps its height as the runtime [`QueueRole`] label the walk
 //! threads through (the instrumented diagnostics and capacity tests key
-//! on it). The one typed exception is [`leaf_requests`], whose item is
-//! already the single-height [`Prefix<Z>`].
+//! on it). The one typed exception is [`leaf_requests`], whose item is a
+//! leaf's single-height path with its charge ([`LeafRequest`]).
 //!
 //! Recursive query and resolution queues rely on two halves of the walk's
 //! progress invariant: publish a scope's resolution before sending the work
@@ -23,6 +23,7 @@
 
 use futures::{StreamExt as _, stream};
 
+use super::LeafRequest;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -32,10 +33,7 @@ use crate::tree::{
         stats::Recorder,
         window::FAN,
     },
-    typed::{
-        Prefix,
-        height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
-    },
+    typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
 /// A channel receiver stream whose items are wrapped in `Ok`.
@@ -271,7 +269,7 @@ where
 pub(super) fn leaf_requests(
     capacity: usize,
     stats: &Recorder,
-) -> (WindowSender<Prefix<Z>>, Receiver<Prefix<Z>>) {
+) -> (WindowSender<LeafRequest>, Receiver<LeafRequest>) {
     let (send, receive) = channel(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), capacity);
     (WindowSender::new(send, stats), receive)
 }

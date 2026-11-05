@@ -6,6 +6,7 @@
 //! capacities. The terminal operation drives these tasks together with the
 //! pipe's multiplexer and demultiplexer.
 
+use crate::tree::mirror::streaming::ledger::{Charge, Ledger};
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::pin::{Pin, pin};
 use std::task::Poll;
@@ -106,6 +107,9 @@ where
     /// [`initiator`](Self::initiator) replays as the remote's opening
     /// question when the remote initiates.
     remote_listing: Vec<Listed>,
+    /// The endpoint's ledger, which the records of the questions this side
+    /// sends are charged to.
+    ledger: Ledger,
     /// The pipe and the tasks that connect logical streams to it.
     physical: Physical<R, W>,
     /// Tasks driven concurrently when the protocol reaches its terminal step.
@@ -142,11 +146,15 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     /// Begin accumulating work around an elected physical session.
+    // Each argument is one part of the elected session's state, handed over
+    // once; bundling them would only rename the arity.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ingress: Ingress<B>,
         window: Window,
         budget: RunBudget,
         remote_listing: Vec<Listed>,
+        ledger: Ledger,
         physical: Physical<R, W>,
         stats: Recorder,
         observe: SessionHandle,
@@ -156,6 +164,7 @@ where
             window,
             budget,
             remote_listing,
+            ledger,
             physical,
             tasks: Vec::new(),
             stats,
@@ -205,7 +214,7 @@ where
     /// and the take's derivation cannot disagree on it.
     fn respond<H>(
         &mut self,
-        questions: Receiver<Scope>,
+        questions: Receiver<(Scope, Charge)>,
         publish: Option<Sender<Scope>>,
         progress: Progress,
     ) -> BoxResponses<B, H, Error<B::Error>>
@@ -251,7 +260,12 @@ where
         Box::pin(holding_stream(
             Holding::QuestionRecords,
             async_stream::stream! {
-                while let Some(Parked { reply, answered }) = parked.recv().await {
+                while let Some(Parked {
+                    reply,
+                    answered,
+                    record: _record,
+                }) = parked.recv().await
+                {
                     let Some(scopes) = &mut publish else {
                         progress.taken_reply(H::HEIGHT, 0);
                         yield Ok(erased::assume_reply::<B, H>(reply));
@@ -306,6 +320,7 @@ where
             window: _,
             budget,
             remote_listing: _,
+            ledger: _,
             physical,
             tasks,
             stats,
@@ -377,12 +392,14 @@ fn stream_at<H: Height>(speaker: Speaker) -> LogicalStream {
 }
 
 /// A decoded reply parked until its stage takes it.
-pub(super) struct Parked<E> {
+pub(crate) struct Parked<E> {
     /// The decoded reply.
     reply: erased::Reply<E>,
     /// The record of the local question the reply answers, from which the
     /// take derives the scopes the reply's own questions create.
     answered: Scope,
+    /// The record's charge, which returns once the take has read it.
+    record: Charge,
 }
 
 /// One parking queue: its height and derived capacity, and in test builds
@@ -422,6 +439,9 @@ impl Lane {
 
     /// Send `parked` into `parking` without waiting, and in test builds
     /// record the queue in the parking census once a reply is parked.
+    // The error hands the parked reply back, as every channel's does; the
+    // caller only reads which arm it took, so nothing copies it far.
+    #[allow(clippy::result_large_err)]
     fn try_park<E>(
         self,
         parking: &mut Sender<Parked<E>>,

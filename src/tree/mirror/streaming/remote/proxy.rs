@@ -28,6 +28,7 @@ mod work;
 pub use error::Error;
 pub use start::Handshaking;
 pub use state::Connected;
+pub(crate) use work::Parked;
 #[cfg(test)]
 pub(crate) use work::parking_census;
 

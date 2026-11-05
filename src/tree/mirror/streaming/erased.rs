@@ -46,6 +46,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{QueueRole, Receiver, Sender, channel},
+        ledger::Charge,
         message,
     },
     typed::height::{Height, Z},
@@ -56,6 +57,9 @@ use crate::tree::{
 pub(crate) struct Reply<E> {
     /// The ordered reactions to one earlier query.
     pub reactions: Vec<Reaction<E>>,
+    /// What the reply holds, charged to the endpoint that built it and
+    /// returned when its consumer has used it.
+    pub charge: Charge,
 }
 
 /// [`message::Reaction`] with its height forgotten.
@@ -85,6 +89,7 @@ where
                 message::Reaction::Query(listing) => Reaction::Query(listing),
             })
             .collect(),
+        charge: reply.charge,
     }
 }
 
@@ -104,6 +109,7 @@ where
                 Reaction::Query(listing) => message::Reaction::Query(listing),
             })
             .collect(),
+        charge: reply.charge,
     }
 }
 

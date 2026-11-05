@@ -111,9 +111,11 @@ pub enum DecodeError<E> {
     OverdrawnSupply { declared: u64 },
     /// A reply holds more reactions, or carries more listing entries, than
     /// the grandchild count the replier gave the node it is about allows
-    /// ([`ReplyBound`](super::scope::ReplyBound)).
+    /// ([`ReplyBound`](crate::tree::mirror::streaming::ledger::ReplyBound)).
     ///
-    /// A reply over it fails the session at the frame that overruns.
+    /// The asker reserved memory for the reply from that count before it
+    /// asked, so a reply over it fails the session at the frame that
+    /// overruns.
     #[error("a reply exceeds its bound of {bound} {part}")]
     ExceedsBound { part: BoundedPart, bound: usize },
     /// A positional wire reaction cannot be scoped without another child.

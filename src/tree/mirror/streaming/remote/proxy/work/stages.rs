@@ -24,6 +24,7 @@
 //! publish. Each edge's capacity rationale lives at its constructor in
 //! [`queues`].
 
+use crate::tree::mirror::streaming::ledger::Charge;
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -61,13 +62,13 @@ where
     pub(super) fn decode_pump(
         self,
         level: ReplyLevel,
-        mut questions: Receiver<Scope>,
+        mut questions: Receiver<(Scope, Charge)>,
         mut incoming: Receiver<Frame>,
     ) -> impl Stream<Item = Result<Parked<B::Erased>, Error<B::Error>>> + Send + 'static {
         try_stream! {
             let mut asked = false;
             let mut edge = LeafEdge::new();
-            while let Some(answered) = questions.recv().await {
+            while let Some((answered, record)) = questions.recv().await {
                 asked = true;
                 let reply = decode_reply(
                     &mut edge,
@@ -80,7 +81,7 @@ where
                     self.codec,
                 )
                 .await?;
-                yield Parked { reply, answered };
+                yield Parked { reply, answered, record };
             }
             reject_extra(asked, &mut incoming).await?;
         }
@@ -132,7 +133,7 @@ where
             Holding::Wire,
             encode::opening::<B>(
                 requests,
-                local_questions,
+                encode::Records::new(local_questions, self.ledger.clone()),
                 self.ingress.root_grandchildren,
                 self.progress,
             ),
@@ -168,7 +169,7 @@ where
                 requests,
                 scopes,
                 outgoing,
-                local_questions,
+                encode::Records::new(local_questions, self.ledger.clone()),
                 self.progress,
                 <S<H>>::HEIGHT,
             ),
@@ -196,7 +197,7 @@ where
                 requests,
                 scopes,
                 outgoing,
-                local_questions,
+                encode::Records::new(local_questions, self.ledger.clone()),
                 self.progress,
                 Z::HEIGHT,
             ),
@@ -259,7 +260,7 @@ where
                 requests,
                 scopes,
                 outgoing,
-                Some(local_questions),
+                Some(encode::Records::new(local_questions, self.ledger.clone())),
                 self.progress.terminal(),
             ),
         ));

@@ -68,7 +68,13 @@ where
     try_stream! {
         let mut level = pin!(level.fuse());
         for await resolved in resolutions {
-            let Resolution { prefix, resolved } = resolved?;
+            // The resolution's charges return once its parent is built.
+            let Resolution {
+                prefix,
+                resolved,
+                charge: _charge,
+                kept: _kept,
+            } = resolved?;
             let mut children = Vec::with_capacity(resolved.len());
             for (radix, slot) in resolved {
                 children.push((radix, match slot {

@@ -263,7 +263,7 @@ where
             while let Some(item) = responses.next().await {
                 yield item;
             }
-            yield Ok(message::Reply { reactions: Vec::new() });
+            yield Ok(message::Reply { reactions: Vec::new(), charge: Default::default() });
             return;
         }
 
@@ -478,6 +478,16 @@ where
     /// Hand the counterpart's window to the wrapped state.
     fn adopt_window(&mut self, window: Window) {
         self.inner.adopt_window(window);
+    }
+
+    /// Share the wrapped state's ledger.
+    fn share_ledger(&self) -> Option<crate::tree::mirror::streaming::ledger::Ledger> {
+        self.inner.share_ledger()
+    }
+
+    /// Hand the counterpart's ledger to the wrapped state.
+    fn adopt_ledger(&mut self, ledger: crate::tree::mirror::streaming::ledger::Ledger) {
+        self.inner.adopt_ledger(ledger);
     }
 }
 

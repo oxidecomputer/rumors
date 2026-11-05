@@ -7,6 +7,7 @@
 //! walk; each take publishes the scopes its reply's questions create before
 //! the stage receives the reply.
 
+use crate::tree::mirror::streaming::ledger::Ledger;
 use crate::tree::mirror::streaming::message::Listed;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -51,6 +52,8 @@ where
     pub(super) window: Option<Window>,
     /// Supply-run size accepted by both peers.
     pub(super) budget: RunBudget,
+    /// The endpoint's ledger, adopted from the local walk.
+    pub(super) ledger: Ledger,
     /// Counts bytes crossing the codec boundary.
     pub(super) stats: Recorder,
     /// Observes the elected role and wire traffic.
@@ -76,6 +79,7 @@ where
             remote_listing,
             window,
             budget,
+            ledger,
             stats,
             observe,
         } = self;
@@ -90,6 +94,7 @@ where
             window,
             budget,
             remote_listing,
+            ledger,
             Physical {
                 read,
                 write,
@@ -119,6 +124,11 @@ where
     /// Adopt the walk's window for every queue and parking lane.
     fn adopt_window(&mut self, window: Window) {
         self.window = Some(window);
+    }
+
+    /// Adopt the walk's ledger, which the proxy's records are charged to.
+    fn adopt_ledger(&mut self, ledger: Ledger) {
+        self.ledger = ledger;
     }
 }
 

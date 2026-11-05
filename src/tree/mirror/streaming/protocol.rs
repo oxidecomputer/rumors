@@ -12,7 +12,7 @@ use std::pin::Pin;
 use futures::{Stream, StreamExt};
 
 use crate::tree::{
-    mirror::streaming::{Backend, Leaf, erased, message, window::Window},
+    mirror::streaming::{Backend, Leaf, erased, ledger::Ledger, message, window::Window},
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
@@ -147,6 +147,16 @@ pub trait ShareWindow: Phase<Height = Root> + Sized {
     /// Adopt the window the counterpart resolved; a participant that
     /// resolves its own ignores it.
     fn adopt_window(&mut self, window: Window);
+
+    /// The endpoint ledger this participant keeps, or `None` if it adopts
+    /// its counterpart's ([`ledger`](super::ledger)).
+    fn share_ledger(&self) -> Option<Ledger> {
+        None
+    }
+
+    /// Adopt the endpoint ledger the counterpart keeps; a participant that
+    /// keeps its own ignores it.
+    fn adopt_ledger(&mut self, _ledger: Ledger) {}
 }
 
 /// The opening burst: the initiator speaks first, and unprompted.

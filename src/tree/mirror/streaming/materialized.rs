@@ -99,6 +99,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Node as _, Root,
         erased::{self, Reaction, Reply},
+        ledger::{Charge, Ledger, ReplyBound},
         message::{Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
@@ -122,7 +123,7 @@ pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
 use progress::Progress;
-use work::{Resolver, Work};
+use work::{LeafRequest, Resolver, Work};
 
 pub use error::{Error, Violation};
 
@@ -196,6 +197,18 @@ pub struct Query<E> {
     pub(crate) prefix: ErasedPrefix,
     /// Our children of the node (empty if we don't have it at all).
     pub(crate) ours: Vec<(u8, E)>,
+    /// The bound on the peer's reply, from the grandchild count the peer
+    /// gave the node.
+    pub(crate) bound: ReplyBound,
+    /// What the question holds: its queue slot, its children, and the node
+    /// copies listing them made. It moves into the parent resolution the
+    /// reply becomes, which keeps those children, and returns at its
+    /// assembly.
+    pub(crate) charge: Charge,
+    /// The room set aside for what the peer's reply becomes ([`ledger`]).
+    ///
+    /// [`ledger`]: super::ledger
+    pub(crate) reservation: Charge,
 }
 
 /// One scope's resolution: its children in radix order, each resolved
@@ -205,6 +218,11 @@ pub struct Resolution<E> {
     pub(crate) prefix: ErasedPrefix,
     /// The possibly-resolved children of the node.
     pub(crate) resolved: Vec<(u8, Resolve<E>)>,
+    /// What the resolution holds: its queue slot and its slots.
+    pub(crate) charge: Charge,
+    /// What its slots keep until assembly beyond their handles: the node
+    /// copies and children that exploding the node made.
+    pub(crate) kept: Charge,
 }
 
 /// One child's slot in a [`Resolution`].
@@ -241,6 +259,9 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
     /// The session's stats recorder; the walk and the window solve write
     /// through it, and the session driver snapshots it after completion.
     stats: Recorder,
+    /// The endpoint's ledger, which its walk charges and its proxy adopts
+    /// ([`ShareWindow`](protocol::ShareWindow)).
+    ledger: Ledger,
 }
 
 /// A stage that has been opened but has not yet sent its greeting.
@@ -256,6 +277,8 @@ pub struct Connecting<B: Backend<Node<Z>: Leaf>> {
     /// greeting — the descent's workers included — speaks the erased
     /// representation.
     fan: Vec<(u8, B::Erased)>,
+    /// The bytes exploding the root to build the fan copied.
+    copies: usize,
 }
 
 /// A stage that has exchanged greetings and can proceed with reconciliation.
@@ -266,6 +289,8 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     peer: PeerSummary,
     /// The root fan, erased at greeting time ([`Connecting`]).
     fan: Vec<(u8, B::Erased)>,
+    /// The bytes exploding the root to build the fan copied.
+    copies: usize,
     /// The session's window, once resolved from both greetings: by the
     /// driver's [`ShareWindow::resolve_window`](protocol::ShareWindow::resolve_window),
     /// or at the latest when the descent opens. Equal versions never
@@ -279,6 +304,9 @@ struct PeerSummary {
     version: Version,
     /// The peer's declared message count and maximum encoded version size.
     size: ReplicaSize,
+    /// The peer's grandchild count of its root, which bounds its reply to
+    /// the opening question.
+    grandchildren: Grandchildren,
 }
 
 impl PeerSummary {
@@ -287,6 +315,12 @@ impl PeerSummary {
         Self {
             version: greeting.version,
             size: ReplicaSize::new(greeting.set_len, greeting.max_version_bytes),
+            // An empty tree counts none; one reaction more costs a
+            // conforming reply nothing.
+            grandchildren: usize::try_from(greeting.grandchildren)
+                .ok()
+                .and_then(Grandchildren::new)
+                .unwrap_or(Grandchildren::ONE),
         }
     }
 }
@@ -301,6 +335,10 @@ struct Opening<B: Backend<Node<Z>: Leaf>> {
     ceiling: Version,
     /// The local root fan computed for the greeting.
     fan: Vec<(u8, B::Erased)>,
+    /// The bytes exploding the root to build the fan copied.
+    copies: usize,
+    /// The peer's grandchild count of its root.
+    peer_grandchildren: Grandchildren,
     /// The work accumulator configured from both greetings.
     work: Work<B>,
 }
@@ -352,7 +390,7 @@ pub struct Completing<B: Backend<Node<Z>: Leaf>> {
     /// absorbed supply ([`SupplyLedger`]).
     ledger: SupplyLedger,
     /// Where each requested leaf will sit, one per request, in order.
-    queries: Receiver<Prefix<Z>>,
+    queries: Receiver<LeafRequest>,
     /// The requested leaves' resolutions, in request order.
     returns: Sender<Option<B::Erased>>,
     /// The accumulated work to drive the pipeline.
@@ -371,6 +409,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             window: WindowConfig::default(),
             target_message_size,
             stats: Recorder::default(),
+            ledger: Ledger::new(),
         }
     }
 
@@ -405,15 +444,21 @@ impl<B: Backend<Node<Z>: Leaf>, State: Send> protocol::Phase for Handshaking<B, 
 /// (see [`Greeting`] for the trade). The fan itself is retained through
 /// [`Connecting`]/[`Connected`] so the descent never re-asks the backend for
 /// the root's children.
+///
+/// Returns the fan with the bytes the explosion copied
+/// ([`ErasedNode::explosion_bytes`]).
 pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
     backend: &B,
     root: Option<B::Node<height::Root>>,
-) -> Result<Vec<(u8, B::Erased)>, B::Error> {
+) -> Result<(Vec<(u8, B::Erased)>, usize), B::Error> {
     match root {
         Some(node) => {
-            erased::ops::children_of(backend, Prefix::new().erase(), B::erase(node)).await
+            let node = B::erase(node);
+            let copies = node.explosion_bytes();
+            let fan = erased::ops::children_of(backend, Prefix::new().erase(), node).await?;
+            Ok((fan, copies))
         }
-        None => Ok(Vec::new()),
+        None => Ok((Vec::new(), 0)),
     }
 }
 
@@ -437,7 +482,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
 
     /// Build and send this participant's greeting.
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let fan = greeting_fan(&self.backend, self.root.root.clone())
+        let (fan, copies) = greeting_fan(&self.backend, self.root.root.clone())
             .await
             .map_err(Error::Backend)?;
         let greeting = Greeting {
@@ -460,11 +505,12 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
         };
         let next = Handshaking {
             backend: self.backend,
-            state: Connecting { fan },
+            state: Connecting { fan, copies },
             root: self.root,
             window: self.window,
             target_message_size: self.target_message_size,
             stats: self.stats,
+            ledger: self.ledger,
         };
         Ok((greeting, next))
     }
@@ -480,12 +526,14 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
             state: Connected {
                 peer: PeerSummary::from_greeting(theirs),
                 fan: self.state.fan,
+                copies: self.state.copies,
                 resolved: None,
             },
             root: self.root,
             window: self.window,
             target_message_size: self.target_message_size,
             stats: self.stats,
+            ledger: self.ledger,
         })
     }
 }
@@ -518,6 +566,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
             window,
             target_message_size: _,
             stats,
+            ledger: _,
         } = self;
         *state.resolved.get_or_insert_with(|| {
             let local_size = ReplicaSize::new(root.len(), root.max_version_bytes());
@@ -531,15 +580,19 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
     /// by the session's window.
     fn open(mut self) -> Opening<B> {
         let window = self.window();
-        let Connected { peer, fan, .. } = self.state;
+        let Connected {
+            peer, fan, copies, ..
+        } = self.state;
         let ceiling = self.root.ceiling | &peer.version;
         let ledger = SupplyLedger::new(peer.size.messages());
-        let work = Work::new(self.backend, window, self.stats);
+        let work = Work::new(self.backend, window, self.stats, self.ledger);
         Opening {
             peer_version: peer.version,
             ledger,
             ceiling,
             fan,
+            copies,
+            peer_grandchildren: peer.grandchildren,
             work,
         }
     }
@@ -562,6 +615,11 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::ShareWindow for Handshaking<B, Connect
 
     /// Ignore the counterpart's window: this side sizes its work by its own.
     fn adopt_window(&mut self, _window: Window) {}
+
+    /// Share the endpoint's ledger, which the walk keeps.
+    fn share_ledger(&self) -> Option<Ledger> {
+        Some(self.ledger.clone())
+    }
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connected<B>> {
@@ -574,9 +632,12 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
             ledger,
             ceiling,
             fan,
+            copies,
+            peer_grandchildren,
             mut work,
         } = self.open();
-        let (responses, queries, returns, finish) = work.initiator_level(ceiling, fan);
+        let (responses, queries, returns, finish) =
+            work.initiator_level(ceiling, fan, copies, peer_grandchildren);
 
         (
             responses,
@@ -606,10 +667,12 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connec
             ledger,
             ceiling,
             fan,
+            copies,
+            peer_grandchildren: _,
             mut work,
         } = self.open();
         let (responses, queries, returns, finish) =
-            work.responder_level(peer_version.clone(), ceiling, fan, requests);
+            work.responder_level(peer_version.clone(), ceiling, fan, copies, requests);
 
         (
             responses,
@@ -781,7 +844,7 @@ async fn absorb<B>(
     their_version: Version,
     ledger: SupplyLedger,
     requests: impl Stream<Item = Reply<B::Erased>> + Send,
-    mut queries: Receiver<Prefix<Z>>,
+    mut queries: Receiver<LeafRequest>,
     mut returns: Sender<Option<B::Erased>>,
     stats: Recorder,
     progress: Progress,
@@ -790,8 +853,12 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut requests = pin!(requests);
-    while let Some(prefix) = queries.recv().await {
-        let Some(Reply { reactions }) = requests.next().await else {
+    while let Some((prefix, reservation)) = queries.recv().await {
+        let Some(Reply {
+            reactions,
+            charge: _received,
+        }) = requests.next().await
+        else {
             return violation(Violation::UnansweredQuery);
         };
         progress.take(Z::HEIGHT, &prefix);
@@ -802,6 +869,9 @@ where
         let request = Query {
             prefix: scope.erase(),
             ours: Vec::new(),
+            bound: ReplyBound::LEAF,
+            charge: Charge::default(),
+            reservation,
         };
         let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, &stats);
         for reaction in reactions {

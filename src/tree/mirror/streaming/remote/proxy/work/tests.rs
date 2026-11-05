@@ -71,6 +71,7 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
         Window::FLOOR,
         RunBudget::default(),
         Vec::new(),
+        Default::default(),
         Physical {
             read,
             write,
@@ -222,8 +223,8 @@ proptest! {
         let buffered = buffered && !dropped;
         let messages = futures::stream::iter(
             buffered.then_some(Ok(Parked {
-                reply: Reply { reactions: Vec::new() },
-                answered: Scope::opening_unbounded(&[]),
+                reply: Reply { reactions: Vec::new(), charge: Default::default() },
+                answered: Scope::opening_unbounded(&[]), record: Default::default(),
             })).into_iter().chain([Err(Error::Decode(DecodeError::OversizedVersion { declared, actual }))]),
         );
         let responses = work.park_and_take::<Z>(messages, None, Progress::new());
@@ -371,8 +372,10 @@ fn parking_past_its_capacity_fails_instead_of_waiting() {
             Ok::<_, Error<()>>(Parked {
                 reply: Reply {
                     reactions: Vec::new(),
+                    charge: Default::default(),
                 },
                 answered: Scope::opening_unbounded(&[]),
+                record: Default::default(),
             })
         }));
         let lane = super::Lane::new(HEIGHT, CAPACITY, Speaker::Initiator);

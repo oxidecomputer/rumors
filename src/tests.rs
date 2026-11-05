@@ -209,7 +209,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized, message::Greeting};
 
     let root: streaming::Root<Local> = retiree.inner.borrow().tree.clone().root.into();
-    let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root.clone()))
+    let (fan, _) = pollster::block_on(materialized::greeting_fan(&Local, root.root.clone()))
         .unwrap_or_else(|never| match never {});
     // Reassemble the greeting from the same fields as the session, then
     // measure its single wire item.

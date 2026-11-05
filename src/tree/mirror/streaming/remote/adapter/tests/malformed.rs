@@ -127,6 +127,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
 
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: vec![Reaction::Match, Reaction::Match],
+        charge: Default::default(),
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -180,6 +181,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
 
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: vec![Reaction::Query(listing)],
+        charge: Default::default(),
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -231,6 +233,7 @@ fn leaf_query_matrix_is_exhaustive() {
 
             let reply = Reply::<<Local as Backend>::Erased> {
                 reactions: vec![Reaction::Query(query_listing.clone())],
+                charge: Default::default(),
             };
             let encoded = runtime().block_on(async {
                 encode_leaf_reply(

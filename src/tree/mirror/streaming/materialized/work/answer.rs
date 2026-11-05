@@ -2,6 +2,8 @@
 
 use itertools::{EitherOrBoth, Itertools};
 
+use super::{LeafRequest, charges};
+
 use crate::{
     Version,
     tree::{
@@ -9,6 +11,7 @@ use crate::{
             Backend, ErasedNode, Leaf,
             erased::{Reaction, ops},
             holding::{Holding, held_by, holding},
+            ledger::{Ledger, ReplyBound, queued},
             materialized::{
                 Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
@@ -16,7 +19,7 @@ use crate::{
             message::Listed,
             stats::Recorder,
         },
-        typed::{ErasedPrefix, Prefix, height::Z},
+        typed::{ErasedPrefix, height::Z},
     },
 };
 
@@ -38,6 +41,7 @@ use crate::{
 /// request.
 pub(super) async fn internal<B>(
     backend: &B,
+    ledger: &Ledger,
     their_version: &Version,
     prefix: ErasedPrefix,
     ours: Vec<(u8, B::Erased)>,
@@ -69,15 +73,19 @@ where
                 held_by(Holding::OutgoingReplies, || reactions.push(Reaction::Match));
                 resolved.push((radix, Resolve::Ready(Some(node))));
             }
-            EitherOrBoth::Both((radix, node), _) => {
+            EitherOrBoth::Both((radix, node), theirs) => {
                 differed = true;
                 let prefix = prefix.push(radix);
+                let copies = node.explosion_bytes();
                 let ours =
                     holding(Holding::Questions, ops::children_of(backend, prefix, node)).await?;
                 held_by(Holding::OutgoingReplies, || {
                     reactions.push(Reaction::Query(fan_listing(&ours)));
                 });
-                held_by(Holding::Questions, || asked.push(Query { prefix, ours }));
+                let bound = ReplyBound::of(prefix.height(), ours.len(), theirs.grandchildren);
+                held_by(Holding::Questions, || {
+                    asked.push(charges::query(ledger, prefix, ours, bound, copies));
+                });
                 resolved.push((radix, Resolve::Pending));
             }
             EitherOrBoth::Left((radix, node)) => {
@@ -95,16 +103,19 @@ where
                 }
                 resolved.push((radix, Resolve::Ready(survivor)));
             }
-            EitherOrBoth::Right(Listed { radix, .. }) => {
+            EitherOrBoth::Right(Listed {
+                radix,
+                grandchildren,
+                ..
+            }) => {
                 differed = true;
                 held_by(Holding::OutgoingReplies, || {
                     reactions.push(Reaction::Query(Vec::new()));
                 });
+                let prefix = prefix.push(radix);
+                let bound = ReplyBound::of(prefix.height(), 0, grandchildren);
                 held_by(Holding::Questions, || {
-                    asked.push(Query {
-                        prefix: prefix.push(radix),
-                        ours: Vec::new(),
-                    });
+                    asked.push(charges::query(ledger, prefix, Vec::new(), bound, 0));
                 });
                 resolved.push((radix, Resolve::Pending));
             }
@@ -127,12 +138,13 @@ where
 /// one deletion honored
 /// ([`messages_shed`](crate::SessionStats::messages_shed)).
 pub(super) fn leaf_parent<E: ErasedNode + Clone>(
+    ledger: &Ledger,
     their_version: &Version,
     prefix: ErasedPrefix,
     ours: Vec<(u8, E)>,
     theirs: Vec<Listed>,
     stats: &Recorder,
-) -> (Vec<Reaction<E>>, Vec<Prefix<Z>>, Vec<(u8, Resolve<E>)>) {
+) -> (Vec<Reaction<E>>, Vec<LeafRequest>, Vec<(u8, Resolve<E>)>) {
     let mut reactions = Vec::new();
     let mut asked = Vec::new();
     let mut resolved = Vec::new();
@@ -169,7 +181,11 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
                 // path: the length witness makes the leaf-height re-tag
                 // exact.
                 held_by(Holding::Questions, || {
-                    asked.push(prefix.push(radix).assume::<Z>());
+                    let request = prefix.push(radix).assume::<Z>();
+                    asked.push((
+                        request,
+                        charges::leaf_request::<E>(ledger, queued::<LeafRequest>()),
+                    ));
                 });
                 resolved.push((radix, Resolve::Pending));
             }

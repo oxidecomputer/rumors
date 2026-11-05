@@ -68,6 +68,7 @@ pub(crate) use codec::{decode_frame_discarded, lone_record_run, supply_frame_hea
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::{prepare_frame, write_prepared_frame};
 
+pub(crate) use adapter::Scope;
 pub(crate) use codec::STREAM_COUNT;
 pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
 pub(crate) use error::streaming_error;
@@ -75,5 +76,6 @@ pub use pipe::PipeRead;
 #[cfg(test)]
 pub use proxy::Error;
 pub use proxy::Handshaking;
+pub(crate) use proxy::Parked;
 #[cfg(test)]
 pub(crate) use proxy::parking_census;

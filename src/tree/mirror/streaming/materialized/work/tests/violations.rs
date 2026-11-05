@@ -148,6 +148,9 @@ where
             .iter()
             .map(|(radix, node)| (*radix, <Local as Backend>::erase(node.clone())))
             .collect(),
+        bound: Default::default(),
+        charge: Default::default(),
+        reservation: Default::default(),
     };
 
     let matches = || {
@@ -160,6 +163,7 @@ where
             None,
             vec![Reply {
                 reactions: Vec::new(),
+                charge: Default::default(),
             }],
         ),
         ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
@@ -169,17 +173,30 @@ where
                 reactions: std::iter::repeat_with(|| Reaction::Match)
                     .take(ours.len() - 1)
                     .collect(),
+                charge: Default::default(),
             }],
         ),
         ScriptedViolation::UnexpectedMatch => {
             let mut reactions = matches();
             reactions.push(Reaction::Match);
-            (Some(query), vec![Reply { reactions }])
+            (
+                Some(query),
+                vec![Reply {
+                    reactions,
+                    charge: Default::default(),
+                }],
+            )
         }
         ScriptedViolation::UnexpectedQuery => {
             let mut reactions = matches();
             reactions.push(Reaction::Query(Vec::new()));
-            (Some(query), vec![Reply { reactions }])
+            (
+                Some(query),
+                vec![Reply {
+                    reactions,
+                    charge: Default::default(),
+                }],
+            )
         }
         ScriptedViolation::UnexpectedSupply => (
             Some(query),
@@ -188,6 +205,7 @@ where
                     *radixes.first().expect("the strategy produces a child"),
                     supplied,
                 )],
+                charge: Default::default(),
             }],
         ),
         ScriptedViolation::InvalidSupply => {
@@ -196,12 +214,16 @@ where
                 Some(Query {
                     prefix: prefix.erase(),
                     ours: Vec::new(),
+                    bound: Default::default(),
+                    charge: Default::default(),
+                    reservation: Default::default(),
                 }),
                 vec![Reply {
                     reactions: vec![
                         Reaction::Supply(radix, supplied.clone()),
                         Reaction::Supply(radix, supplied),
                     ],
+                    charge: Default::default(),
                 }],
             )
         }
@@ -209,9 +231,13 @@ where
             Some(Query {
                 prefix: prefix.erase(),
                 ours: vec![(5, <Local as Backend>::erase(ours[0].1.clone()))],
+                bound: Default::default(),
+                charge: Default::default(),
+                reservation: Default::default(),
             }),
             vec![Reply {
                 reactions: vec![Reaction::Supply(7, supplied)],
+                charge: Default::default(),
             }],
         ),
         ScriptedViolation::UncontainedSupply => {
@@ -222,9 +248,13 @@ where
                 Some(Query {
                     prefix: prefix.erase(),
                     ours: Vec::new(),
+                    bound: Default::default(),
+                    charge: Default::default(),
+                    reservation: Default::default(),
                 }),
                 vec![Reply {
                     reactions: vec![Reaction::Supply(radix, escaped)],
+                    charge: Default::default(),
                 }],
             )
         }
@@ -283,7 +313,12 @@ impl InjectHeight for Z {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(
+            Local,
+            Window::FLOOR,
+            Recorder::default(),
+            Default::default(),
+        );
         let (responses, _resolutions) = work.leaf_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -300,7 +335,12 @@ impl InjectHeight for S<Z> {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(
+            Local,
+            Window::FLOOR,
+            Recorder::default(),
+            Default::default(),
+        );
         let (responses, _asked, _upper, _lower) = work.leaf_parent_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -323,7 +363,12 @@ where
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(
+            Local,
+            Window::FLOOR,
+            Recorder::default(),
+            Default::default(),
+        );
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -483,15 +528,22 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         .find(|radix| !radixes.contains(radix))
         .expect("at most eight radices are held");
     let question = || Reaction::Query(theirs.clone());
-    let one = |reactions: Vec<Reaction<Local, UnderRoot>>| vec![Reply { reactions }];
+    let one = |reactions: Vec<Reaction<Local, UnderRoot>>| {
+        vec![Reply {
+            reactions,
+            charge: Default::default(),
+        }]
+    };
     let requests = match injection {
         OpeningInjection::UnansweredQuery => Vec::new(),
         OpeningInjection::UnaskedReply => vec![
             Reply {
                 reactions: vec![question()],
+                charge: Default::default(),
             },
             Reply {
                 reactions: Vec::new(),
+                charge: Default::default(),
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),
@@ -512,10 +564,15 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         OpeningInjection::TrailingQuery => one(vec![question(), Reaction::Query(Vec::new())]),
     };
 
-    let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+    let mut work = Work::new(
+        Local,
+        Window::FLOOR,
+        Recorder::default(),
+        Default::default(),
+    );
     // The channels the leg publishes into stay open for the run: a closed
     // one ends the leg quietly instead of reporting.
     let (responses, _asked, _returns, _finish) =
-        work.responder_level(declared.clone(), declared, fan, stream::iter(requests));
+        work.responder_level(declared.clone(), declared, fan, 0, stream::iter(requests));
     reported_violation(work, responses)
 }

@@ -1,3 +1,4 @@
+use crate::tree::mirror::streaming::ledger::{Charge, ReplyBound};
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::pin::Pin;
 
@@ -27,7 +28,7 @@ use super::{
     super::codec::{End, Flow, Frame, Reaction as WireReaction},
     error::BoundedPart,
     error::{DecodeError, ScopeError},
-    scope::{ReplyBound, ReplyLevel, Scope},
+    scope::{ReplyLevel, Scope},
 };
 
 /// One item on a [`LeafEdge`]: a decoded leaf on its way to assembly, or
@@ -112,6 +113,7 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
     (
         Reply {
             reactions: vec![ProtocolReaction::Query(listing)],
+            charge: Charge::default(),
         },
         scope,
     )
@@ -332,7 +334,8 @@ impl ReadReply {
     ///
     /// A peer that lists a child with its true grandchild count cannot
     /// exceed the bound its own count sets, so a reply over it reveals a
-    /// miscounting peer at the reaction that overruns.
+    /// miscounting peer at the reaction that overruns, before the reply
+    /// holds more than its question reserved.
     fn within<E>(&self, bound: ReplyBound) -> Result<(), DecodeError<E>> {
         if self.skeleton.len() > bound.reactions {
             return Err(DecodeError::ExceedsBound {
@@ -368,7 +371,12 @@ impl ReadReply {
             nodes.next().is_none(),
             "assembly yields exactly one node per supplied run",
         );
-        Reply { reactions }
+        // A decoded reply is held within the room its question set aside,
+        // which its asker's walk carries; it carries no charge of its own.
+        Reply {
+            reactions,
+            charge: Charge::default(),
+        }
     }
 }
 

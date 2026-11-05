@@ -68,9 +68,12 @@ fn absorb_scripted(
     let mut bytes = [0u8; 32];
     bytes[31] = REQUESTED;
     let path = Path::from(bytes);
-    let (mut queries, queries_rx) =
-        channel::<Prefix<Z>>(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1);
-    pollster::block_on(queries.send(Prefix::containing(&path))).expect("the loop is live");
+    let (mut queries, queries_rx) = channel::<(
+        Prefix<Z>,
+        crate::tree::mirror::streaming::ledger::Charge,
+    )>(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1);
+    pollster::block_on(queries.send((Prefix::containing(&path), Default::default())))
+        .expect("the loop is live");
     drop(queries);
 
     let (returns, mut returns_rx) = channel::<Option<Erased>>(
@@ -96,6 +99,7 @@ fn absorb_scripted(
 fn requested(version: Version) -> Vec<Reply<Erased>> {
     vec![Reply {
         reactions: vec![supply(REQUESTED, version)],
+        charge: Default::default(),
     }]
 }
 
@@ -219,16 +223,21 @@ impl Injection {
                 reactions.push(requested());
             }
             reactions.push(reaction);
-            vec![Reply { reactions }]
+            vec![Reply {
+                reactions,
+                charge: Default::default(),
+            }]
         };
         match self {
             Self::UnansweredQuery => Vec::new(),
             Self::UnaskedReply => vec![
                 Reply {
                     reactions: vec![requested()],
+                    charge: Default::default(),
                 },
                 Reply {
                     reactions: Vec::new(),
+                    charge: Default::default(),
                 },
             ],
             Self::Match { after_supply } => one(after_supply, Reaction::Match),

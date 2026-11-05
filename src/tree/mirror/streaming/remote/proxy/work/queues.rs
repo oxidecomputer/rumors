@@ -15,6 +15,7 @@ use crate::tree::mirror::streaming::{
 };
 
 use super::Parked;
+use crate::tree::mirror::streaming::ledger::Charge;
 
 /// Carry asked-but-unanswered questions, window-wide, labeled at the
 /// questions' height.
@@ -36,7 +37,7 @@ pub fn local_questions(
     height: usize,
     capacity: usize,
     stats: &Recorder,
-) -> (WindowSender<Scope>, Receiver<Scope>) {
+) -> (WindowSender<(Scope, Charge)>, Receiver<(Scope, Charge)>) {
     let (sender, receiver) = channel(
         QueueRole::new(QueueKind::ProxyLocalQuestions, height),
         capacity,

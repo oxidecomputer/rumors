@@ -117,6 +117,7 @@ where
                     }
                 })
                 .collect(),
+            charge: Default::default(),
         };
         let expected_questions = case
             .radixes
@@ -431,7 +432,10 @@ fn mixed_reply<H: Height>(
             });
         }
     }
-    Reply { reactions }
+    Reply {
+        reactions,
+        charge: Default::default(),
+    }
 }
 
 /// Build the canonical frames for a mixed reply independently of the encoder.

@@ -42,6 +42,9 @@ pub use crate::tree::mirror::streaming::remote::codec::{
 pub use crate::tree::mirror::streaming::holding::{
     Holding, Hook, ReportHook, attribute_allocations, report_allocations,
 };
+pub use crate::tree::mirror::streaming::ledger::{
+    FitHook, LedgerChange, LedgerHook, ReplyFit, observe_fits, observe_ledgers,
+};
 
 pub use transport::{
     AdversarialRead, AdversarialWrite, FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan,

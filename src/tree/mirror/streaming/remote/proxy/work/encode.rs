@@ -21,6 +21,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::{Receiver, WindowSender},
         holding::{Holding, held_by},
+        ledger::{Charge, Ledger, queued},
         message::Grandchildren,
         protocol::BoxRequests,
         remote::{
@@ -43,7 +44,7 @@ pub async fn terminal<B>(
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: Outgoing,
-    mut questions: Option<WindowSender<Scope>>,
+    mut questions: Option<Records>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
@@ -82,7 +83,7 @@ pub async fn replies<B>(
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
     mut outgoing: Outgoing,
-    mut questions: WindowSender<Scope>,
+    mut questions: Records,
     progress: Progress,
     question_height: usize,
 ) -> Result<(), Error<B::Error>>
@@ -108,7 +109,7 @@ where
 /// satisfied vacuously, and the question publishes at once.
 pub async fn opening<B>(
     mut requests: BoxRequests<B::Erased>,
-    mut questions: WindowSender<Scope>,
+    mut questions: Records,
     responder: Grandchildren,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
@@ -119,7 +120,7 @@ where
     let listing = opening_listing(request).map_err(Error::OpeningEncode)?;
     progress.wire_reply(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
-    publish_one(&mut questions, Scope::opening(&listing, responder)).await;
+    questions.publish(Scope::opening(&listing, responder)).await;
     if requests.next().await.is_some() {
         return Err(Error::ExtraOpening);
     }
@@ -142,22 +143,37 @@ async fn write_reply<E>(
 }
 
 /// Publish one complete reply's questions in their wire order.
-async fn publish(
-    questions: &mut WindowSender<Scope>,
-    batch: Vec<Scope>,
-    progress: Progress,
-    height: usize,
-) {
+async fn publish(questions: &mut Records, batch: Vec<Scope>, progress: Progress, height: usize) {
     for question in batch {
         progress.local_question(height);
-        publish_one(questions, question).await;
+        questions.publish(question).await;
     }
 }
 
-/// Publish one question, or await cancellation if its consumer has gone.
-async fn publish_one(questions: &mut WindowSender<Scope>, question: Scope) {
-    if questions.send(question).await.is_err() {
-        cancelled().await;
+/// Where an encoder publishes the records of the questions its replies
+/// ask, each charged to the endpoint's ledger for what it holds until the
+/// take has read it.
+pub struct Records {
+    /// The decoder's queue of records.
+    sender: WindowSender<(Scope, Charge)>,
+    /// The endpoint's ledger.
+    ledger: Ledger,
+}
+
+impl Records {
+    /// Publish records through `sender`, charging them to `ledger`.
+    pub fn new(sender: WindowSender<(Scope, Charge)>, ledger: Ledger) -> Self {
+        Self { sender, ledger }
+    }
+
+    /// Publish one question's record, or await cancellation if its consumer
+    /// has gone.
+    async fn publish(&mut self, question: Scope) {
+        let bytes = queued::<(Scope, Charge)>() + question.children_bytes();
+        let charge = self.ledger.charge(Holding::QuestionRecords, bytes);
+        if self.sender.send((question, charge)).await.is_err() {
+            cancelled().await;
+        }
     }
 }
 

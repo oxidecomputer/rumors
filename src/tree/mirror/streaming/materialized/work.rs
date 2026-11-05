@@ -17,11 +17,17 @@ use futures::{Stream, StreamExt, future::BoxFuture};
 
 mod answer;
 mod assembly;
+mod charges;
 mod levels;
 mod queues;
 mod resolver;
 
+pub(crate) use charges::parent_resolution;
 pub(super) use resolver::Resolver;
+
+/// One leaf request in its queue: the leaf's path, with the charge for the
+/// request and the room its reply sets aside.
+pub(crate) type LeafRequest = (Prefix<Z>, Charge);
 
 use super::progress::Progress;
 use crate::tree::{
@@ -30,13 +36,17 @@ use crate::tree::{
         channel::Sender,
         erased,
         holding::{Holding, holding_stream},
+        ledger::{Charge, Ledger},
         materialized::Error,
         protocol::BoxResponses,
         stats::Recorder,
         tasks::complete,
         window::Window,
     },
-    typed::height::{Height, Z},
+    typed::{
+        Prefix,
+        height::{Height, Z},
+    },
 };
 
 use self::queues::outgoing_responses;
@@ -56,6 +66,9 @@ where
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     /// Records progress-critical publications for tests.
     progress: Progress,
+    /// The endpoint's ledger, which every item the walk builds is charged
+    /// to.
+    ledger: Ledger,
 }
 
 /// Accumulate phase work and drive its pumps to completion.
@@ -65,7 +78,7 @@ where
 {
     /// Construct a new work context with the session's pipeline window and
     /// stats recorder.
-    pub fn new(backend: B, window: Window, stats: Recorder) -> Self {
+    pub fn new(backend: B, window: Window, stats: Recorder, ledger: Ledger) -> Self {
         let progress = Progress::new();
         progress.window(&window);
         Self {
@@ -74,7 +87,13 @@ where
             stats,
             tasks: Vec::new(),
             progress,
+            ledger,
         }
+    }
+
+    /// Clone the endpoint's ledger for one independently driven task.
+    fn ledger(&self) -> Ledger {
+        self.ledger.clone()
     }
 
     /// Clone the backend for one independently driven task.
