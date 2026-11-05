@@ -123,3 +123,66 @@ proptest! {
         );
     }
 }
+
+/// Every row of the calibration section's table has a cell for each
+/// header column, and each cell holds its column's quantity.
+///
+/// The columns are the job count, the readings taken, a time, a goodput in
+/// Mbit/s, a time, a busy share in percent, and the two verdicts. The
+/// calibration has a solo level and two concurrent levels of
+/// different reading counts, one failing on fidelity.
+#[test]
+fn calibration_table_cells_follow_their_header() {
+    let (_, point) = crate::grid::Grid::parse("[[group]]\nname = \"g\"\n")
+        .unwrap()
+        .points()
+        .unwrap()
+        .remove(0);
+    let level = |jobs: usize, readings: usize, fidelity_passed: bool| crate::calibrate::Level {
+        jobs,
+        session_seconds: vec![2.5; readings],
+        goodput: vec![1.25e8; readings],
+        rtt: vec![0.25; readings],
+        busy_share: 0.5,
+        noise_passed: true,
+        fidelity_passed,
+    };
+    let calibration = Calibration {
+        fingerprint: String::new(),
+        noise_point: point,
+        fidelity_point: point,
+        solo: level(1, 11, true),
+        levels: vec![level(2, 8, true), level(16, 16, false)],
+        jobs: 2,
+        max_jobs: 16,
+        verdict: "a fixture".into(),
+        preparation: crate::calibrate::PreparationProbe::default(),
+        costs: crate::predict::CostModel::default(),
+        memory: crate::predict::MemoryModel::default(),
+    };
+    let mut md = String::new();
+    write_calibration(&mut md, &calibration).unwrap();
+    let cells = |line: &str| -> Vec<String> {
+        line.trim_matches('|')
+            .split('|')
+            .map(|cell| cell.trim().to_string())
+            .collect()
+    };
+    let mut table = md.lines().filter(|line| line.starts_with('|'));
+    let header = cells(table.next().unwrap());
+    assert_eq!(header[1], "readings");
+    let rows: Vec<Vec<String>> = table.skip(1).map(cells).collect();
+    let expected = [(1, 11, "pass"), (2, 8, "pass"), (16, 16, "fail")];
+    assert_eq!(rows.len(), expected.len(), "{md}");
+    for (row, (jobs, readings, fidelity)) in rows.iter().zip(expected) {
+        assert_eq!(row.len(), header.len(), "{md}");
+        assert_eq!(row[0], jobs.to_string(), "{md}");
+        assert_eq!(row[1], readings.to_string(), "{md}");
+        assert_eq!(row[2], human_seconds(2.5), "{md}");
+        assert_eq!(row[3], "1000.0 Mbit/s", "{md}");
+        assert_eq!(row[4], human_seconds(0.25), "{md}");
+        assert_eq!(row[5], "50%", "{md}");
+        assert_eq!(row[6], "pass", "{md}");
+        assert_eq!(row[7], fidelity, "{md}");
+    }
+}

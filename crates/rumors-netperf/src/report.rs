@@ -971,21 +971,23 @@ fn write_calibration(md: &mut String, calibration: &Calibration) -> Result<()> {
         md,
         "The run used {} jobs. A job count passes when, for the noise probe's wall time (the heaviest pair on \
          an uncapped link) and for the fidelity probe's goodput and round trip (raw TCP on the fastest shaped \
-         link), the median of the concurrent readings lies within one solo range of the median of {} solo \
-         readings. Verdict: {}.\n",
+         link), the median of its readings lies within the solo spread of the median of {} solo readings: \
+         their range once the most extreme reading at each end is set aside. Verdict: {}.\n",
         calibration.jobs,
         calibration.solo.session_seconds.len(),
         calibration.verdict
     )?;
     writeln!(
         md,
-        "| jobs | noise T median | goodput median | round trip median | busy CPU | noise | fidelity |\n|---|---|---|---|---|---|---|"
+        "| jobs | readings | noise T median | goodput median | round trip median | busy CPU | noise | fidelity |\n\
+         |---|---|---|---|---|---|---|---|"
     )?;
     for level in std::iter::once(&calibration.solo).chain(&calibration.levels) {
         writeln!(
             md,
-            "| {} | {} | {:.1} Mbit/s | {} | {:.0}% | {} | {} |",
+            "| {} | {} | {} | {:.1} Mbit/s | {} | {:.0}% | {} | {} |",
             level.jobs,
+            level.session_seconds.len(),
             human_seconds(median(level.session_seconds.iter().copied())),
             median(level.goodput.iter().copied()) * 8e-6,
             human_seconds(median(level.rtt.iter().copied())),

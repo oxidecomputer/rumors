@@ -25,18 +25,27 @@
 //! # The criterion
 //!
 //! First each probe runs [`SOLO_RUNS`] times alone, which measures its own
-//! spread: the range from its smallest to its largest reading. Then, at 2,
-//! 4, 8, … jobs, as many copies of each probe run at once, all starting
-//! their measured part together. A level *passes* when, for the noise
-//! probe's wall time and for the fidelity probe's goodput and round trip
-//! alike, the concurrent median lies within one solo range of the solo
-//! median. That is: concurrency may move a reading by no more than the
-//! host already varies it, a criterion relative to measured noise rather
-//! than a fixed percentage. With five solo readings the range is about
-//! 2.3 standard deviations of a normal reading, so a level with no effect
-//! fails rarely, and a level that shifts readings by more than the solo
-//! spread fails. The ladder stops at the first level that fails, and the
-//! run uses the last level that passed.
+//! *spread*: the range of those readings once the most extreme reading at
+//! each end is set aside. Then, at 2, 4, 8, … jobs, as many copies of each
+//! probe run at once, all starting their measured part together, in as
+//! many rounds as give the level at least [`LEVEL_READINGS`] readings. A
+//! level *passes* when, for the noise probe's wall time and for the
+//! fidelity probe's goodput and round trip alike, the median of the level's
+//! readings lies within one spread of the solo median. That is: concurrency
+//! may move a reading by no more than the host already varies it, a
+//! criterion relative to measured noise rather than a fixed percentage.
+//! The ladder stops at the first level that fails, and the run uses the
+//! last level that passed.
+//!
+//! The sample counts keep any one reading from deciding the verdict. A host
+//! now and then gives a reading far from the rest, alone as at any job
+//! count: a slow session, or a transfer whose goodput dips. Such a solo
+//! reading lands at an end of the solo readings, where the spread sets it
+//! aside, so it cannot widen the band. A median of three or more readings,
+//! with every other reading inside the band, stays inside it however far
+//! the one reading strays, and a level's median leaves the band only when
+//! at least half its readings do. The constants' docs give the reason for
+//! each count.
 //!
 //! When a level fails on fidelity while at least one job's worth of
 //! processors sat idle, the shaping, not the processors, is the limit: the
@@ -97,8 +106,35 @@ use crate::probe::ProbeResult;
 use crate::stats::summarize;
 use crate::units::{LinkRate, Rate, Rtt};
 
-/// Sessions of each probe run alone to measure its spread.
-pub const SOLO_RUNS: usize = 5;
+/// Readings of each probe taken alone, whose spread sets the band, as
+/// [the module docs](self#the-criterion) explain.
+///
+/// With eleven readings, the spread (the second largest less the second
+/// smallest) averages about 2.1 standard deviations of a normally
+/// distributed reading: twice the expected second largest of eleven
+/// standard normal draws, 1.06. So a level with no effect seldom fails on
+/// its sampling alone, and a level that moves readings by more than about
+/// two of the host's own standard deviations fails. Each solo noise
+/// reading costs one preparation and session of the run's heaviest pair.
+pub const SOLO_RUNS: usize = 11;
+
+/// The fewest readings of each probe a concurrent level takes: it runs
+/// rounds of its job count until it has at least this many.
+///
+/// A level's median leaves the band only when at least half its readings
+/// do, so with eight a verdict that a level fails rests on four or more
+/// readings, never on one slow session or one dipped transfer. A level of
+/// at least that many jobs takes one round.
+pub const LEVEL_READINGS: usize = 8;
+
+// A median of at least three readings stays within the range of all but
+// one of them, whatever the one reading is; with two, one reading moves
+// the median halfway to itself.
+const _: () = assert!(LEVEL_READINGS >= 3);
+
+/// Preparations of an empty pair alone, whose median is the overhead every
+/// preparation pays.
+const EMPTY_PREPARATIONS: usize = 5;
 
 /// Round trips in each fidelity probe's ping-pong.
 const PINGS: u32 = 20;
@@ -120,7 +156,8 @@ pub struct Level {
     pub goodput: Vec<f64>,
     /// The fidelity probe's round trips, in seconds.
     pub rtt: Vec<f64>,
-    /// The host's busy share of processor time during the fidelity probes.
+    /// The host's busy share of processor time during the fidelity probes:
+    /// the largest of its rounds'.
     pub busy_share: f64,
     /// Whether concurrency stayed within the solo spread for the noise
     /// probe.
@@ -424,9 +461,9 @@ fn probe_preparation(
     };
     let window = emulate::window(&empty_point, setup.window, setup.payload_share);
     let mut probe = PreparationProbe::default();
-    for run in 0..SOLO_RUNS {
+    for run in 0..EMPTY_PREPARATIONS {
         progress(&format!(
-            "empty pair prepared alone, {}/{SOLO_RUNS}",
+            "empty pair prepared alone, {}/{EMPTY_PREPARATIONS}",
             run + 1
         ));
         let began = Instant::now();
@@ -482,31 +519,45 @@ fn session_seconds(measured: &[Measured]) -> Result<Vec<f64>> {
         .collect()
 }
 
-/// A probe's solo readings: their median and their range.
+/// A probe's solo readings: their median and their spread.
 #[derive(Clone, Copy, Debug)]
 struct Band {
     /// The solo median.
     median: f64,
-    /// The largest solo reading less the smallest.
-    range: f64,
+    /// The solo readings' range once the most extreme at each end is set
+    /// aside: the second largest less the second smallest. With fewer than
+    /// three readings nothing can be set aside, and it is the full range.
+    spread: f64,
 }
 
 impl Band {
-    /// The band of `solo` readings.
+    /// The band of `solo` readings; readings that are not finite are left
+    /// out.
     fn of(solo: &[f64]) -> Self {
-        let low = solo.iter().copied().fold(f64::INFINITY, f64::min);
-        let high = solo.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let mut sorted: Vec<f64> = solo.iter().copied().filter(|x| x.is_finite()).collect();
+        sorted.sort_by(f64::total_cmp);
+        let spread = match sorted.as_slice() {
+            [] | [_] => 0.0,
+            [low, high] => high - low,
+            [_, inner @ .., _] => inner[inner.len() - 1] - inner[0],
+        };
         Self {
-            median: median(solo),
-            range: (high - low).max(0.0),
+            median: median(&sorted),
+            spread,
         }
     }
 
-    /// Whether the median of `concurrent` readings lies within one range of
-    /// the solo median.
+    /// Whether the median of `concurrent` readings lies within one spread
+    /// of the solo median.
     fn admits(&self, concurrent: &[f64]) -> bool {
-        (median(concurrent) - self.median).abs() <= self.range
+        (median(concurrent) - self.median).abs() <= self.spread
     }
+}
+
+/// Rounds a level of `jobs` runs: the fewest whose readings, `jobs` a
+/// round, number at least [`LEVEL_READINGS`].
+fn rounds(jobs: usize) -> usize {
+    LEVEL_READINGS.div_ceil(jobs.max(1))
 }
 
 /// The median of `values`.
@@ -575,13 +626,30 @@ pub fn calibrate(
     );
     let mut level_jobs = 2;
     while level_jobs <= setup.max_jobs {
-        progress(&format!("{level_jobs} noise probes at once"));
-        let measured = noise_level(setup, noise_point, level_jobs)?;
-        let session = session_seconds(&measured)?;
-        progress(&format!("{level_jobs} fidelity probes at once"));
-        let (results, busy_share) = fidelity_level(setup, fidelity_point, level_jobs)?;
-        let goodput: Vec<f64> = results.iter().map(|r| r.goodput_bytes_per_second).collect();
-        let rtt: Vec<f64> = results.iter().map(|r| r.rtt_seconds).collect();
+        let rounds = rounds(level_jobs);
+        let mut session = Vec::new();
+        for round in 0..rounds {
+            progress(&format!(
+                "{level_jobs} noise probes at once, {}/{rounds}",
+                round + 1
+            ));
+            session.extend(session_seconds(&noise_level(
+                setup,
+                noise_point,
+                level_jobs,
+            )?)?);
+        }
+        let (mut goodput, mut rtt, mut busy_share) = (Vec::new(), Vec::new(), 0.0f64);
+        for round in 0..rounds {
+            progress(&format!(
+                "{level_jobs} fidelity probes at once, {}/{rounds}",
+                round + 1
+            ));
+            let (results, busy) = fidelity_level(setup, fidelity_point, level_jobs)?;
+            goodput.extend(results.iter().map(|r| r.goodput_bytes_per_second));
+            rtt.extend(results.iter().map(|r| r.rtt_seconds));
+            busy_share = busy_share.max(busy);
+        }
         let level = Level {
             jobs: level_jobs,
             noise_passed: session_band.admits(&session),
@@ -596,10 +664,10 @@ pub fn calibrate(
             let idle_cpus = environment.logical_cpus as f64 * (1.0 - level.busy_share);
             verdict = match (level.noise_passed, level.fidelity_passed) {
                 (false, true) => format!(
-                    "at {level_jobs} jobs the median session took {:.4} s, more than one solo range ({:.4} s) from the solo median ({:.4} s): \
+                    "at {level_jobs} jobs the median session took {:.4} s, more than the solo spread ({:.4} s) from the solo median ({:.4} s): \
                      sessions slow each other's computation",
                     median(&level.session_seconds),
-                    session_band.range,
+                    session_band.spread,
                     session_band.median
                 ),
                 (_, false) if idle_cpus >= 2.0 => format!(
@@ -612,10 +680,10 @@ pub fn calibrate(
                      (median goodput {:.2} Mbit/s against {:.2} ± {:.2} alone; median round trip {:.3} ms against {:.3} ± {:.3} alone)",
                     median(&level.goodput) * 8e-6,
                     goodput_band.median * 8e-6,
-                    goodput_band.range * 8e-6,
+                    goodput_band.spread * 8e-6,
                     median(&level.rtt) * 1e3,
                     rtt_band.median * 1e3,
-                    rtt_band.range * 1e3
+                    rtt_band.spread * 1e3
                 ),
             };
             levels.push(level);
