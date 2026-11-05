@@ -171,23 +171,23 @@ pub(crate) enum Overdraft {
 
 /// What a reply has taken that no delivered chunk holds yet.
 #[derive(Clone, Copy, Debug)]
-struct Ready {
+pub(crate) struct Ready {
     /// Their reaction slots: one per reaction, and one per child their
     /// match covers.
-    slots: usize,
+    pub(crate) slots: usize,
     /// The queries among them.
-    questions: usize,
+    pub(crate) questions: usize,
     /// The listing entries those queries carry together.
-    listing: usize,
+    pub(crate) listing: usize,
     /// The children their match covers: none unless the match is among
     /// them and carries a covered set.
-    covered: usize,
+    pub(crate) covered: usize,
 }
 
 impl Ready {
     /// Nothing ready: the state before a reply's first frame and after
     /// each chunk.
-    const NONE: Self = Self {
+    pub(crate) const NONE: Self = Self {
         slots: 0,
         questions: 0,
         listing: 0,
@@ -198,18 +198,18 @@ impl Ready {
 /// What a reply's later frames can still use of the limits its room is
 /// priced on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Left {
+pub(crate) struct Left {
     /// The reaction slots later reactions can take: what the bound leaves,
     /// and at most one per radix above the floor that the match does not
     /// cover.
-    reactions: usize,
+    pub(crate) reactions: usize,
     /// The positions later matches and queries can take.
-    positions: usize,
+    pub(crate) positions: usize,
     /// The listing entries later queries can carry: what the peer's
     /// grandchild count of the scope leaves.
-    listing: usize,
+    pub(crate) listing: usize,
     /// Whether the reply's one match can still come.
-    matchable: bool,
+    pub(crate) matchable: bool,
 }
 
 impl Left {
@@ -236,7 +236,7 @@ impl Left {
     /// child it covers ([`covered_sets`]); the slots of the children it
     /// covers are among the later reactions'. The questions are the
     /// queries ready and those to come.
-    const fn deliverable(self, ready: Ready) -> Deliverable {
+    pub(crate) const fn deliverable(self, ready: Ready) -> Deliverable {
         let questions = min(self.positions, self.reactions);
         let sets = if self.matchable {
             covered_sets(self.positions)

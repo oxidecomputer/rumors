@@ -26,7 +26,7 @@ mod resolver;
 
 pub(crate) use allowance::{Allowance, Overdraft};
 #[cfg(test)]
-pub(crate) use allowance::{Deliverable, parked_price, parked_room};
+pub(crate) use allowance::{Left, Ready, parked_price, parked_room};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
 /// Named for the documentation of the ledger, which bounds a charge by the

@@ -146,9 +146,9 @@ pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
 pub(crate) use work::{Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, parked_bytes};
-#[cfg(test)]
-pub(crate) use work::{Deliverable, parked_price, parked_room};
 use work::{LeafRequest, Resolver, Work};
+#[cfg(test)]
+pub(crate) use work::{Left, Ready, parked_price, parked_room};
 
 pub use error::{Error, Violation};
 

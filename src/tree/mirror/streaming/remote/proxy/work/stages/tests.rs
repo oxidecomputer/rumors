@@ -21,7 +21,7 @@ use crate::tree::mirror::streaming::{
     erased::Reaction,
     holding::Holding,
     ledger::{Ledger, buffer},
-    materialized::{Deliverable, parked_bytes, parked_price, parked_room},
+    materialized::{Left, Ready, parked_bytes, parked_price, parked_room},
     message::{Grandchildren, Listed, listed},
     remote::{
         LANE_CAPACITY,
@@ -145,15 +145,15 @@ proptest! {
     /// alone: one per query before the last reaction, and one more. The
     /// pauses only choose where the test looks. At every
     /// pause, the room the chunks have not taken is the price of what the
-    /// reply can still deliver, restated here from the reply so far: later
-    /// reactions at most the slots the bound leaves, a covered child taking
-    /// one beside each frame, and one per radix above the latest that the
-    /// match does not cover, later queries only at positions not yet
-    /// reached and not covered, later listing entries at most what the
-    /// peer's count leaves beside the listings and matched or covered
-    /// shares so far and a fan per later query, chunks at most one per
-    /// query to come and one more, and the covered set its match carries,
-    /// ready, with its covered children's slots, or still to come.
+    /// reply can still deliver: what is decoded but not yet delivered,
+    /// beside what later frames can still use, both restated here from the
+    /// reply so far and priced by the allowance's one formula
+    /// ([`Left::deliverable`]). Later frames can use reaction slots up to
+    /// what the bound leaves, a covered child taking one beside each frame,
+    /// and one per radix above the latest that the match does not cover;
+    /// positions not yet reached and not covered; listing entries up to
+    /// what the peer's count leaves beside the listings and matched or
+    /// covered shares so far; and the match, if it has not come.
     /// That bound must cover what the reply then actually delivers, so no
     /// chunk falls short; each chunk's charge is its price, its vectors at
     /// capacities equal to their lengths; and once decoded, the place holds
@@ -266,29 +266,35 @@ proptest! {
             let ready_questions = ready.iter().flatten().count();
             let ready_listing: usize = ready.iter().flatten().map(|&entries| usize::from(entries)).sum();
             let ready_covered = if ready.contains(&None) { covered.len() } else { 0 };
-            // What can still come: later reactions in the slots the frames
-            // and covered children so far leave, at radices above this
-            // position's that a match received so far does not cover, later
+            // What later frames can still use: reactions in the slots the
+            // frames and covered children so far leave, at radices above
+            // this position's that a match received so far does not cover;
             // queries at the positions left that such a match does not
-            // cover, and a covered set only with the match, which needs two
-            // positions left.
+            // cover; listing entries the peer's count leaves beside the
+            // shares so far; and the match, if it has not come.
             let (slots, covered_above) = if matched {
                 let above = covered.iter().filter(|&radix| usize::from(radix) > position).count();
                 (sent + covered.len(), above)
             } else {
                 (sent, 0)
             };
-            let reactions = (bound.reactions - slots).min(FAN - (position + 1) - covered_above);
-            let left = if matched { framed.len() - sent } else { positions - (position + 1) };
-            let questions = left.min(reactions);
-            let listing = bound.listing.saturating_sub(spent).min(FAN * questions);
-            let still = Deliverable {
-                questions: ready_questions + questions,
-                reactions: ready.len() + ready_covered + reactions,
-                listing: ready_listing + listing,
-                sets: usize::from(ready_covered > 0) + usize::from(!matched && left >= 2),
+            let left = Left {
+                reactions: (bound.reactions - slots).min(FAN - (position + 1) - covered_above),
+                positions: if matched { framed.len() - sent } else { positions - (position + 1) },
+                listing: bound.listing.saturating_sub(spent),
+                matchable: !matched,
             };
-            prop_assert_eq!(room, parked_price::<E>(still), "the room is the price of what can still come");
+            let undelivered = Ready {
+                slots: ready.len() + ready_covered,
+                questions: ready_questions,
+                listing: ready_listing,
+                covered: ready_covered,
+            };
+            prop_assert_eq!(
+                room,
+                parked_price::<E>(left.deliverable(undelivered)),
+                "the room is the price of what can still come",
+            );
             boundaries.push((chunks.len(), room));
         }
 
