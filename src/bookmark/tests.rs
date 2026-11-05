@@ -364,4 +364,24 @@ proptest! {
             assert!(bookmark.persist.bytes.borrow().as_ref().unwrap().len() <= bookmark.size_limit());
         }).unwrap();
     }
+
+    /// Configuring the size limit and attaching storage never wait on or panic
+    /// at the bookmark lock, even while a forgotten guard holds it forever.
+    ///
+    /// A leaked session future's guard holds the lock that way. The limit
+    /// still reaches the attached storage.
+    #[test]
+    fn configuration_ignores_a_held_lock(limit in 0usize..300, network in network_seed()) {
+        run_to_quiescence(async {
+            let rumors = network.peer::<u64>().into_rumors();
+            rumors.send(7).unwrap();
+            let peer = rumors.try_into_peer().await.unwrap();
+            std::mem::forget(peer.bookmark.lock().await);
+            let peer = peer.bookmark_size_limit(limit);
+            let peer = peer.bookmark(Memory::default()).await.unwrap();
+            let bookmark = peer.bookmark.lock().await;
+            assert_eq!(bookmark.size_limit(), limit.max(format::record_size(0, 0)));
+            assert!(bookmark.persist.bytes.borrow().as_ref().unwrap().len() <= bookmark.size_limit());
+        }).expect("configuration must not wait on the held lock");
+    }
 }
