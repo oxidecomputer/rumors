@@ -26,7 +26,7 @@ use crate::tree::mirror::streaming::{
 use crate::tree::typed::Hash;
 
 use super::{
-    super::{BoundedPart, DecodeError, LeafEdge, ReplyLevel, Scope, decode_reply},
+    super::{BoundedPart, DecodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_reply},
     LeafCase, codec, leaf_run, runtime, unbounded,
 };
 
@@ -298,7 +298,13 @@ fn a_position_below_a_supply_fails() {
         ]),
     );
     assert!(
-        matches!(decoded.result, Err(DecodeError::Scope(_))),
+        matches!(
+            decoded.result,
+            Err(DecodeError::Scope(ScopeError::Unordered {
+                after: u8::MAX,
+                radix: 10
+            }))
+        ),
         "unexpected result: {:?}",
         decoded.result,
     );

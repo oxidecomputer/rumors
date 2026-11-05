@@ -41,6 +41,16 @@ pub enum ScopeError {
         /// The radix supplied.
         radix: u8,
     },
+    /// A reaction sits at or below the radix of the reaction before it: a
+    /// reply's reactions ascend by radix, its supplies among its positional
+    /// reactions.
+    #[error("a reaction at radix {radix:#04x} does not follow one at radix {after:#04x}")]
+    Unordered {
+        /// The radix of the reaction before it.
+        after: u8,
+        /// The radix of the reaction out of order.
+        radix: u8,
+    },
 }
 
 /// The initiator's distinguished opening reply violated its canonical

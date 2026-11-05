@@ -956,9 +956,13 @@ proptest! {
 #[test]
 fn a_supply_run_cannot_resume_after_another_reaction() {
     let leaves = colliding_leaves(2);
-    // The interrupting Match consumes the scope's one listed child, so it
-    // is positionally valid and the failure isolates the supply
-    // resumption itself.
+    let expected = <[u8; 32]>::from(leaves[0].path())[0];
+    // The interrupting Match consumes the scope's one listed child, just
+    // above the run's radix, so it is positionally valid and in radix
+    // order, and the failure isolates the supply resumption itself.
+    let interrupting = expected
+        .checked_add(1)
+        .expect("the colliding leaves' radix is below the top one");
     let frames = vec![
         Frame::Reaction(
             WireReaction::Supply(leaf_run(&[(&leaves[0].version, &leaves[0].message)])),
@@ -979,7 +983,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening_unbounded(&[listed(1, hash(1))]),
+            &Scope::opening_unbounded(&[listed(interrupting, hash(1))]),
             &mut input,
             codec(),
             Some(&crate::tree::typed::PathKey::fixture()),
@@ -988,7 +992,6 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
         .err()
         .expect("a keyed supply may occupy only one ascending run")
     });
-    let expected = <[u8; 32]>::from(leaves[0].path())[0];
     match error {
         DecodeError::SupplyOrder { previous, radix } => {
             assert_eq!(previous, expected);

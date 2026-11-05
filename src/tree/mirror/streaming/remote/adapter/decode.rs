@@ -516,7 +516,7 @@ where
                     // rather than retaining a reply for later walk
                     // validation.
                     let matched = positions.matched(&later)?;
-                    self.reach(&matched.prefix, &positions);
+                    self.reach(&matched.prefix, &positions)?;
                     self.matched = true;
                     self.matched_children += matched.children;
                     let covered = later.set().len();
@@ -529,7 +529,7 @@ where
                     // Validate the question's position now, at its frame;
                     // the scope it creates is derived at the take.
                     let (prefix, _) = self.level.check(&mut positions, &listing)?;
-                    self.reach(&prefix, &positions);
+                    self.reach(&prefix, &positions)?;
                     if listing.len() > self.listing_left() {
                         return Err(DecodeError::ExceedsBound {
                             part: BoundedPart::Listing,
@@ -572,7 +572,7 @@ where
                             if positions.covers(run.0) {
                                 return Err(ScopeError::CoveredSupply { radix: run.0 }.into());
                             }
-                            self.after = Some(run.0);
+                            self.advance(run.0)?;
                             self.group.push(run);
                             self.count(1)?;
                         }
@@ -688,10 +688,40 @@ where
     }
 
     /// Note that the reply has reached the record's position at `prefix`,
-    /// leaving `positions` to take.
-    fn reach(&mut self, prefix: &ErasedPrefix, positions: &Positions<'_>) {
+    /// leaving `positions` to take, failing unless the position follows
+    /// the reply's latest reaction ([`advance`](Self::advance)).
+    fn reach(
+        &mut self,
+        prefix: &ErasedPrefix,
+        positions: &Positions<'_>,
+    ) -> Result<(), ScopeError> {
         self.positions_left = positions.remaining();
-        self.after = prefix.as_bytes().last().copied();
+        let radix = *prefix
+            .as_bytes()
+            .last()
+            .expect("a listed child's prefix extends its parent's by its radix");
+        self.advance(radix)
+    }
+
+    /// Note a reaction at `radix`, failing unless it sits above the reply's
+    /// latest one.
+    ///
+    /// A reply's reactions ascend by radix, its supplies among its
+    /// positional reactions, and the room is priced on that order: the
+    /// reactions still to come number at most one per radix above the
+    /// latest ([`deliverable`](Self::deliverable)). Positions ascend by
+    /// construction, so only a supply can break the order, by preceding a
+    /// position below it or following one above it. Failing it here, at
+    /// the frame, keeps the room it returned on that order from being
+    /// needed; the walk would reject the same reply only after it parked.
+    fn advance(&mut self, radix: u8) -> Result<(), ScopeError> {
+        if let Some(after) = self.after
+            && radix <= after
+        {
+            return Err(ScopeError::Unordered { after, radix });
+        }
+        self.after = Some(radix);
+        Ok(())
     }
 
     /// The most the reply can still deliver to parked chunks, its ready
@@ -722,7 +752,12 @@ where
     /// itself and for each child it covers, whose radixes leave what can
     /// come as they join what is ready; each chunk delivered takes its
     /// reactions and covered children out of what is ready and its own
-    /// price out of the room.
+    /// price out of the room. That holds for any reply the reader accepts,
+    /// because it checks every limit here at the frame that would pass it:
+    /// the slots ([`count`](Self::count)), the listing
+    /// ([`listing_left`](Self::listing_left)), the radix order
+    /// ([`advance`](Self::advance)), and the positions, which the record's
+    /// cursor checks.
     fn deliverable(&self, positions: &Positions<'_>) -> Deliverable {
         let radices = FAN
             - self.after.map_or(0, |radix| usize::from(radix) + 1)
