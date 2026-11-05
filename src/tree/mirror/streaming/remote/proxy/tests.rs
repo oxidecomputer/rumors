@@ -389,8 +389,8 @@ proptest! {
 
     /// For arbitrary valid divergence and scheduling, wire reconciliation
     /// matches the in-process result, takes one answer per published
-    /// question under matching labels, and keeps every proxy queue within
-    /// its bound.
+    /// question under matching labels, and gives every proxy queue its
+    /// documented capacity.
     #[test]
     fn wire_reconciliation_matches_local(
         (a, b) in arb_divergent_pair(),
@@ -589,8 +589,8 @@ fn early_first_child_dispute_is_live() {
     assert_eq!((left, right), expected);
 }
 
-/// Every proxy queue kind is exercised and stays within its documented
-/// capacity at the floor window.
+/// Every proxy queue kind is exercised and has its documented capacity at
+/// the floor window.
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
     let (a, b) = disjoint_pair(1, 1);
@@ -628,7 +628,11 @@ fn instrumented_reconcile(
 }
 
 /// Every observed proxy queue has its documented capacity at the floor
-/// window, holds no more than that, and drains.
+/// window and drains, and no take waits to publish a scope.
+///
+/// That a queue never holds more than its capacity is the bounded channel's
+/// own contract, which `channel::bounded`'s tests check directly
+/// (`try_send_is_full_exactly_at_capacity`), so it is not repeated here.
 ///
 /// The question queue takes the window's one slot, the scope queue a fan
 /// plus one, parking every reply the floor window can invite at its
@@ -656,10 +660,6 @@ fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
         assert_eq!(
             stats.effective_capacity, expected,
             "unexpected capacity for {role:?}"
-        );
-        assert!(
-            stats.high_water <= expected,
-            "queue {role:?} exceeded its capacity"
         );
         assert_eq!(
             stats.sends, stats.receives,

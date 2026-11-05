@@ -132,10 +132,6 @@ impl Divergence {
                 .roles()
                 .filter(|(role, _)| QueueKind::PROXY.contains(&role.kind))
             {
-                assert!(
-                    stats.high_water <= stats.effective_capacity,
-                    "queue {role:?} exceeded its capacity"
-                );
                 assert_eq!(stats.sends, stats.receives, "queue {role:?} did not drain");
             }
             for root in actual {
@@ -599,7 +595,8 @@ fn every_branching_depth_matches_join() {
     }
 }
 
-/// Multiple disputes at deep heights use more than one queue slot.
+/// Deep question queues take the window's width, and multiple disputes at
+/// deep heights use more than one of its slots.
 #[test]
 fn deep_queues_use_the_wider_window() {
     let mut pair = Divergence::new((0..16).map(|child| root_prefix(child, 31)), [2, 3]);
@@ -616,16 +613,24 @@ fn deep_queues_use_the_wider_window() {
             };
             let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
             observed.assert_reach(31);
-            let peak = observed
+            // The question queue is the window-governed edge; the scope
+            // queue holds a fan plus one whatever the window.
+            let deep: Vec<_> = observed
                 .queues
                 .roles()
-                // The question queue is the window-governed edge; the scope
-                // queue holds a fan plus one whatever the window.
                 .filter(|(role, _)| role.height <= 4 && role.kind == QueueKind::ProxyLocalQuestions)
+                .collect();
+            for (role, stats) in &deep {
+                assert_eq!(
+                    stats.effective_capacity, width,
+                    "{role:?} is sized by the window"
+                );
+            }
+            let peak = deep
+                .iter()
                 .map(|(_, stats)| stats.high_water)
                 .max()
-                .unwrap();
-            assert!(peak <= width);
+                .expect("the session asks deep questions");
             if width == 1 {
                 assert_eq!(peak, 1);
             } else {
