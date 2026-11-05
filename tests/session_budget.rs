@@ -273,10 +273,9 @@
 #[path = "session_budget/link.rs"]
 mod link;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::{self, ScopedJoinHandle};
 
 use alloc_meter::{
@@ -723,9 +722,21 @@ fn ledger_reports(
     })
 }
 
-/// Each side's running sum of the explosion bytes its backend reports, in
-/// [`Side::BOTH`] order, for the session being run.
-static REPORTED_EXPLOSIONS: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
+// Clippy's `missing_const_for_thread_local` can reject const-block
+// initializers on targets that lower `thread_local!` through fallback TLS.
+// The allow keeps `-D warnings` clean on those targets.
+thread_local! {
+    /// Each side's running sum of the explosion bytes its backend reports,
+    /// in [`Side::BOTH`] order, for the session being run on this thread.
+    ///
+    /// A report counts only while the driver polls a side, and the driver
+    /// polls on the thread that runs the session, so every report a session
+    /// makes lands in that thread's sums. Keeping them per thread stops
+    /// sessions that run at once in one process, as tests do under
+    /// `cargo test`, from adding to each other's sums.
+    #[allow(clippy::missing_const_for_thread_local)]
+    static REPORTED_EXPLOSIONS: Cell<[usize; 2]> = const { Cell::new([0; 2]) };
+}
 
 /// Adds a report the session makes while the driver polls a side to that
 /// side's sum; a report outside a poll belongs to no session.
@@ -733,7 +744,9 @@ fn report(holding: Holding, bytes: usize) {
     if holding == Holding::ExplodedNodes
         && let Some(side) = polling()
     {
-        REPORTED_EXPLOSIONS[side.index()].fetch_add(bytes, Ordering::Relaxed);
+        let mut sums = REPORTED_EXPLOSIONS.get();
+        sums[side.index()] += bytes;
+        REPORTED_EXPLOSIONS.set(sums);
     }
 }
 
@@ -801,9 +814,7 @@ fn run_fixture(
     } = build();
     let link = Link::new();
     prepare_pacing();
-    for sum in &REPORTED_EXPLOSIONS {
-        sum.store(0, Ordering::Relaxed);
-    }
+    REPORTED_EXPLOSIONS.set([0; 2]);
     let (mut a_read, mut a_write) = (link.reader(Side::A), link.writer(Side::A));
     let (mut b_read, mut b_write) = (link.reader(Side::B), link.writer(Side::B));
     let moved = usize::try_from(messages[0] + messages[1]).expect("the fixture size fits usize");
@@ -894,9 +905,7 @@ fn run_fixture(
         sends,
         join,
         drive,
-        reported_explosions: REPORTED_EXPLOSIONS
-            .each_ref()
-            .map(|sum| sum.load(Ordering::Relaxed)),
+        reported_explosions: REPORTED_EXPLOSIONS.get(),
         ledgers,
         fits,
     }
@@ -1667,25 +1676,38 @@ fn placed_path(value: u64) -> [u8; 32] {
     path
 }
 
-/// Leaf requests each side's ledger admitted, in [`Side::BOTH`] order of
-/// the ledgers' first admissions, for the session the placed test runs.
-static LEAF_REQUESTS: std::sync::Mutex<Vec<(usize, usize)>> = std::sync::Mutex::new(Vec::new());
+// Clippy's `missing_const_for_thread_local` can reject const-block
+// initializers on targets that lower `thread_local!` through fallback TLS.
+// The allow keeps `-D warnings` clean on those targets.
+thread_local! {
+    /// Leaf requests each side's ledger admitted, in [`Side::BOTH`] order of
+    /// the ledgers' first admissions, for the session the placed test runs
+    /// on this thread.
+    ///
+    /// A ledger admits while the driver polls the session, on the thread
+    /// that runs it, so every admission the placed session makes lands in
+    /// that thread's counts. Keeping them per thread stops another test's
+    /// session, running at once in the same process under `cargo test`,
+    /// from adding leaf requests that would meet the placed test's floor
+    /// for it.
+    #[allow(clippy::missing_const_for_thread_local)]
+    static LEAF_REQUESTS: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+}
 
 /// Counts one admitted leaf request, a question about a scope at depth 32,
 /// against its ledger, outside the trace.
 fn count_leaf_request(admission: Admission) {
     if admission.question && admission.depth == 32 && !admission.leftover {
         untraced(|| {
-            let mut counts = LEAF_REQUESTS
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match counts
-                .iter_mut()
-                .find(|(ledger, _)| *ledger == admission.ledger)
-            {
-                Some((_, count)) => *count += 1,
-                None => counts.push((admission.ledger, 1)),
-            }
+            LEAF_REQUESTS.with_borrow_mut(|counts| {
+                match counts
+                    .iter_mut()
+                    .find(|(ledger, _)| *ledger == admission.ledger)
+                {
+                    Some((_, count)) => *count += 1,
+                    None => counts.push((admission.ledger, 1)),
+                }
+            });
         });
     }
 }
@@ -1745,10 +1767,7 @@ fn leaf_requests_keep_the_bound() {
         )
     });
     let measured = Measured::of(messages[0], 0, PLACED_BUDGET, run);
-    let leaf_requests = LEAF_REQUESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone();
+    let leaf_requests = LEAF_REQUESTS.with_borrow(Vec::clone);
     println!(
         "{}; leaf requests per ledger {leaf_requests:?}",
         measured.report()
