@@ -242,6 +242,16 @@ panic = "abort"
 inherits = "release"
 overflow-checks = false
 
+# The release-profile test run's profile: `release` codegen, so properties
+# run at CI's case count in reasonable time, with the runtime checks the dev
+# profile grants. Overflow traps and `debug_assert!`s then run in every
+# release-profile test run, not only in the gate's dev-profile `test-all`,
+# so arithmetic that wraps silently in release fails a test instead.
+[profile.release-checked]
+inherits = "release"
+overflow-checks = true
+debug-assertions = true
+
 # Profiling the benches needs symbolicated stacks; line tables are enough
 # for samply/Instruments without the compile-time cost of full debug info.
 [profile.bench]

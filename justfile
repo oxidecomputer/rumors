@@ -91,9 +91,9 @@ test-all *args:
 
 # Package-scoped: before's operation meters pin the dev profile.
 
-# Run rumors' tests at CI's property-case count, in the release profile.
+# Run the tests at CI's property-case count, in release codegen with overflow and debug assertions.
 test-release *args:
-    PROPTEST_CASES={{ proptest_ci_cases }} cargo nextest run --all-features --locked --cargo-profile release --profile high-count --no-fail-fast {{ args }}
+    PROPTEST_CASES={{ proptest_ci_cases }} cargo nextest run --all-features --locked --cargo-profile release-checked --profile high-count --no-fail-fast {{ args }}
 
 # Nightly's merged mode compiles one doctest harness per crate rather than
 # one binary per example, whose link time dominated the gate. A separate
