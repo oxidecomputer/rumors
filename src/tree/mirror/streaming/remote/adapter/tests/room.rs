@@ -27,7 +27,7 @@ use crate::tree::typed::{Hash, Prefix, height::Z};
 
 use super::{
     super::{BoundedPart, DecodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_reply},
-    LeafCase, codec, leaf_run, nothing_seen, runtime, unbounded,
+    LeafCase, codec, fixture_bounds, leaf_run, runtime, unbounded,
 };
 
 type E = <Local as Backend>::Erased;
@@ -59,7 +59,7 @@ fn decode_in_room(asked: &[Listed], count: usize, frames: Vec<Frame>) -> Decoded
         decode_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Branch,
             &scope,
@@ -343,7 +343,7 @@ fn a_leaf_request_reply_takes_no_position() {
             decode_reply::<Local, _>(
                 &mut LeafEdge::new(),
                 Local,
-                &nothing_seen(),
+                &fixture_bounds(),
                 unbounded(),
                 ReplyLevel::Leaf,
                 &scope,

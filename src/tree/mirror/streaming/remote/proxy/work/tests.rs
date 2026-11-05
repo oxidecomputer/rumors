@@ -68,7 +68,8 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
     Work::new(
         Ingress::new(
             Failing::after(Local, usize::MAX),
-            SupplyBounds::new(u64::MAX, Version::new()),
+            // No reply here supplies a leaf, so the bounds are never read.
+            SupplyBounds::new(Version::new(), u64::MAX, Version::new()),
             u64::MAX,
             Grandchildren::MAX,
             PayloadCodec::new::<u64>(PayloadDepthLimit::default()),

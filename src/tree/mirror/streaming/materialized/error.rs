@@ -63,10 +63,6 @@ pub enum Violation {
     /// A supplied child did not fit the question's radix order.
     #[error("reply attempted to supply a child out of order")]
     InvalidSupply,
-    /// A supplied subtree carrying a version not in the causal past or present
-    /// of the sender's declared version.
-    #[error("reply supplied a subtree with a version outside the sender's declared version")]
-    UncontainedSupply,
     /// The total number of leaves supplied was more than the sender's declared
     /// set length, counted across the whole session.
     #[error("reply supplied more leaves than the sender's declared set length")]

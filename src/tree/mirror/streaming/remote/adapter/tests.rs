@@ -59,13 +59,20 @@ fn unbounded() -> SupplyLedger {
 }
 
 /// Supply bounds no fixture leaf here breaks, for tests whose subject is
-/// not a supplied version: a peer that declares no limit on version size,
-/// supplying a side that has seen nothing.
+/// not a supplied version.
+///
+/// The peer's version holds every tick a [`LeafCase`] can place, and it
+/// declares no limit on version size; the side it supplies has seen
+/// nothing.
 ///
 /// Every version contains the empty version, so a side at it has still
 /// seen a leaf at that version; [`LeafCase`] never builds one.
-fn nothing_seen() -> SupplyBounds {
-    SupplyBounds::new(u64::MAX, Version::new())
+fn fixture_bounds() -> SupplyBounds {
+    // A `LeafCase` ticks the seed party at most `u64::MAX` times and once
+    // more, so one tick past `u64::MAX` contains every one.
+    let mut declared = uniform_version(u64::MAX);
+    Party::seed().tick(&mut declared);
+    SupplyBounds::new(declared, u64::MAX, Version::new())
 }
 
 /// Construct the payload codec shared by adapter fixtures.

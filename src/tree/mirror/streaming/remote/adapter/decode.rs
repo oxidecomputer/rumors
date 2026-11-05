@@ -644,17 +644,24 @@ fn radix(prefix: &ErasedPrefix) -> u8 {
 ///
 /// - encodes within the peer's declared `max_version_bytes`, which covers
 ///   every version the peer's tree materializes
-///   ([`DecodeError::OversizedVersion`]); and
+///   ([`DecodeError::OversizedVersion`]);
+/// - is contained in the peer's own greeting version, which joins every
+///   version its tree holds ([`DecodeError::UncontainedSupply`]); and
 /// - is not contained in this side's greeting version
 ///   ([`DecodeError::SeenSupply`]).
 ///
-/// A conforming peer never breaks either, so a breach is a conformance
-/// failure, and the decoder fails the session at the offending record,
-/// before its payload takes backend custody. Absorbing a leaf this side's
-/// version contains would bring back a message this side redacted, since
-/// redaction leaves no tombstone and is honored only by that version.
+/// A conforming peer never breaks any of these, so a breach is a
+/// conformance failure, and the decoder fails the session at the offending
+/// record, before its payload takes backend custody. Absorbing either kind
+/// of version breach would make a redaction fail to hold. A leaf outside
+/// the peer's version lies outside the ceiling this side adopts for the
+/// session, so no later redaction this side makes can cover it. A leaf
+/// inside this side's version is one this side holds or redacted, and
+/// redaction leaves no tombstone: it is honored only by that version.
 #[derive(Clone, Debug)]
 pub struct SupplyBounds {
+    /// The peer's greeting version.
+    declared: Version,
     /// The peer's greeting-declared `max_version_bytes`.
     version_bytes: u64,
     /// This side's own greeting version, the one the peer filters its
@@ -663,20 +670,24 @@ pub struct SupplyBounds {
 }
 
 impl SupplyBounds {
-    /// Bound the session's supplies by the peer's declared
-    /// `max_version_bytes` and this side's own greeting version.
-    pub fn new(version_bytes: u64, seen: Version) -> Self {
+    /// Bound the session's supplies by the peer's greeting version and
+    /// declared `max_version_bytes`, and by this side's own greeting
+    /// version, `seen`.
+    pub fn new(declared: Version, version_bytes: u64, seen: Version) -> Self {
         Self {
+            declared,
             version_bytes,
             seen,
         }
     }
 
     /// Check one supplied leaf's version against the bounds, naming the
-    /// leaf by its keyed `path` when this side has seen it.
+    /// leaf by its keyed `path` when its version breaks one.
     ///
-    /// The size check comes first, so the comparison reads only a version
-    /// within the declaration. The comparison allocates nothing.
+    /// The size check comes first, so the comparisons read only a version
+    /// within the declaration. Neither comparison allocates. Containment is
+    /// a partial order, so a version incomparable with the peer's is as
+    /// uncontained as one above it.
     fn check<E>(&self, version: &Version, path: Path) -> Result<(), DecodeError<E>> {
         // The declared aggregate covers every version the peer's tree
         // materializes, so every version it supplies must encode within
@@ -688,6 +699,9 @@ impl SupplyBounds {
                 declared: self.version_bytes,
                 actual,
             });
+        }
+        if !contained(version, &self.declared) {
+            return Err(DecodeError::UncontainedSupply { path: path.into() });
         }
         if contained(version, &self.seen) {
             return Err(DecodeError::SeenSupply { path: path.into() });

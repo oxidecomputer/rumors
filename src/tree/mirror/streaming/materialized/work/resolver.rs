@@ -3,10 +3,8 @@
 use crate::tree::mirror::streaming::message::Listed;
 
 use crate::{
-    Version,
     counter::widen,
     tree::{
-        mirror::contained,
         mirror::streaming::{
             Backend, ErasedNode, Leaf,
             byte_set::ByteSet,
@@ -29,6 +27,10 @@ use super::charges;
 /// accumulates the scope's [`Resolution`], and reports each semantic fault as
 /// its exact [`Violation`]. A query reaction returns a [`Dispute`] for the
 /// caller to resolve at the next level; matches and supplies resolve locally.
+///
+/// The resolver judges where a supply sits, not the versions it carries:
+/// the wire decoder checks each supplied leaf's version against both
+/// greetings as it reads the record (the remote adapter's `SupplyBounds`).
 ///
 /// The reply's one match names the later held children that also match,
 /// which take no reaction. The resolver resolves each of them as matched
@@ -53,10 +55,6 @@ where
     original: Option<B::Erased>,
     /// Child resolutions accumulated in radix order.
     resolved: Vec<(u8, Resolve<B::Erased>)>,
-    /// The peer's declared greeting version: every supplied subtree's
-    /// ceiling must be contained in it
-    /// ([`Violation::UncontainedSupply`]).
-    their_version: &'session Version,
     /// The peer's declared-set-length ledger: every absorbed supply
     /// charges its exact live-leaf count
     /// ([`Violation::OverdrawnSupply`]).
@@ -115,7 +113,6 @@ where
             charge,
             reservation,
         }: Query<B::Erased>,
-        their_version: &'session Version,
         ledger: &'session SupplyLedger,
         stats: &'session Recorder,
     ) -> Self {
@@ -129,7 +126,6 @@ where
             // Sized at the reservation's slots, so the resolution holds
             // exactly what its part of the reservation prices.
             resolved: Vec::with_capacity(bound.reactions),
-            their_version,
             ledger,
             stats,
             bound,
@@ -188,13 +184,6 @@ where
                     }
                     Some((next, _)) if radix > *next => {
                         return violation(Violation::InvalidSupply);
-                    }
-                    // A structurally valid supply still owes the content
-                    // check: its ceiling is a memoized bound, so the cost
-                    // is one read per supplied subtree — at worst the
-                    // memo's first forcing, linear in the nodes received.
-                    _ if !contained(node.span().hi(), self.their_version) => {
-                        return violation(Violation::UncontainedSupply);
                     }
                     _ => {
                         let leaves = widen(node.len());

@@ -32,8 +32,8 @@ pub(crate) mod preamble;
 pub(crate) mod secret;
 
 /// Whether `bound` is causally contained in `declared`: the version-
-/// containment predicate the protocol enforces on supplied subtrees at
-/// ingestion.
+/// containment predicate the protocol enforces on every supplied leaf at
+/// ingestion, against both greetings.
 ///
 /// Named because version order is partial and the callers branch on the
 /// *negation*: a bound that is incomparable with the declared version is

@@ -52,8 +52,8 @@ struct Boxed {
 
 /// The measured sizes, in a 64-bit test build.
 const MEASURED: Boxed = Boxed {
-    session: 1_968,
-    descent: 4_280,
+    session: 2_000,
+    descent: 4_296,
 };
 
 /// A session's two boxed futures hold exactly their measured bytes.

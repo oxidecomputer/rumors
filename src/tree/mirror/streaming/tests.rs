@@ -17,7 +17,6 @@ use crate::testing::{
 };
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
-    uncontained_supply_pair,
 };
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::channel::{
@@ -607,37 +606,6 @@ fn honors_redaction_under_leaf_parent_dispute() {
             );
         }
     }
-}
-
-/// A supplied leaf whose version escapes the sender's declared greeting
-/// version fails the streaming session with a typed violation instead of
-/// being absorbed.
-///
-/// The declared version of an honest replica contains every version it
-/// transmits, so this shape marks a nonconforming implementation. Absorbed,
-/// the escaped leaf would sit above every replica's session ceiling —
-/// unredactable and re-shipped forever (the mechanism is pinned at the
-/// tree tier by `escaped_version_defeats_redaction_in_a_poisoned_store`).
-/// The wire twin (`uncontained_supply_is_rejected_at_the_wire`) drives the
-/// same rejection through the frame codec and supply decoder.
-#[test]
-fn uncontained_supply_is_rejected_by_streaming() {
-    use crate::tree::mirror::streaming::materialized::{Error, Violation};
-
-    let (receiver, poisoned, _, _) = uncontained_supply_pair();
-    let result = LocalSession::new(receiver, poisoned)
-        .run()
-        .verdict
-        .expect("the rejecting session becomes quiescent");
-    assert!(
-        matches!(
-            result,
-            Err(MirrorError::Client(Error::Violation(
-                Violation::UncontainedSupply
-            ))),
-        ),
-        "the receiving side rejects the escaped leaf",
-    );
 }
 
 proptest! {

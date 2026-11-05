@@ -1325,19 +1325,23 @@ divided_proptest! {
     /// An uncontained supply crossing a real peer session surfaces through
     /// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
     ///
-    /// The error is [`Error::Protocol`] carrying `UncontainedSupply`, and the
+    /// The error is [`Error::Protocol`] carrying the wire decoder's
+    /// `UncontainedSupply`, naming the escaped leaf's keyed path, and the
     /// replica's content is untouched.
     ///
     /// This observes through [`Rumors::gossip`](crate::Rumors::gossip) the same
-    /// rejection the mirror tests exercise directly. A local [`Tree::join`]
+    /// rejection the wire tests exercise directly. A local [`Tree::join`]
     /// builds the invalid store because session validation cannot guard an
     /// in-process join.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn uncontained_supply_fails_gossip(network in network_seed()) {
+        use std::convert::Infallible;
+
         use crate::message::Message;
-        use crate::tree::mirror::streaming::materialized::Violation as MaterializedViolation;
+        use crate::tree::mirror::streaming::remote::{DecodeError, Error as ProxyError};
+        use crate::tree::typed::Path;
 
         let survivor = network.peer::<u64>();
         let (survivor, child) = bootstrap_from(survivor);
@@ -1366,12 +1370,17 @@ divided_proptest! {
             !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),
             "the planted leaf's version escapes the declared ceiling",
         );
+        // Both peers share the network, so either one's path key places the
+        // escaped leaf where the receiver's decoder names it.
+        let path = <[u8; 32]>::from(Path::for_leaf(
+            poisoned.inner.borrow().tree.path_key(),
+            &escaped,
+        ));
 
         let receiver = receiver.into_rumors();
         let before = receiver.snapshot().hash();
 
-        // The receiving side's own materialized participant diagnoses the
-        // violation mid-session, so the poisoned counterparty never reaches a
+        // The receiving side's decoder diagnoses the violation mid-session, so the poisoned counterparty never reaches a
         // session boundary; racing the two sides lets the receiver's typed
         // error surface without waiting on the abandoned peer.
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
@@ -1388,7 +1397,11 @@ divided_proptest! {
             matches!(
                 receiver_out,
                 Err(Error::Protocol(ref error))
-                    if matches!(error.source.downcast_ref::<MaterializedViolation>(), Some(MaterializedViolation::UncontainedSupply)),
+                    if matches!(
+                        error.source.downcast_ref::<ProxyError<Infallible>>(),
+                        Some(ProxyError::Decode(DecodeError::UncontainedSupply { path: actual }))
+                            if *actual == path
+                    ),
             ),
             "the receiving peer rejects the escaped leaf with its typed violation, got {receiver_out:?}",
         );

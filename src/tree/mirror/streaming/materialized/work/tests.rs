@@ -554,7 +554,7 @@ fn finished_resolution_keeps_no_charge_for_its_question() {
 
     let supplies = SupplyLedger::new(u64::MAX);
     let stats = Recorder::default();
-    let mut resolver = Resolver::<Local>::new(query, &version, &supplies, &stats);
+    let mut resolver = Resolver::<Local>::new(query, &supplies, &stats);
     // One match at the first child, covering the rest.
     let dispute = resolver
         .react(Reaction::Match(LaterMatches::new((2..=3).collect())))

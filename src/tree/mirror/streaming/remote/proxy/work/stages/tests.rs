@@ -195,7 +195,8 @@ proptest! {
 
         let ingress = Ingress::new(
             Local,
-            SupplyBounds::new(u64::MAX, Version::new()),
+            // No reply here supplies a leaf, so the bounds are never read.
+            SupplyBounds::new(Version::new(), u64::MAX, Version::new()),
             u64::MAX,
             Grandchildren::MAX,
             PayloadCodec::new::<u64>(PayloadDepthLimit::default()),

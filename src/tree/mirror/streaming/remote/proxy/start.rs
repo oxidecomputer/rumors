@@ -180,6 +180,7 @@ where
         // greeted it with, so that version bounds what it may supply.
         let seen = local.version;
         let Greeting {
+            version: remote_version,
             max_version_bytes: remote_version_bytes,
             set_len: remote_set_len,
             listing: remote_listing,
@@ -189,7 +190,7 @@ where
         Ok(Connected {
             ingress: Ingress::new(
                 self.backend,
-                SupplyBounds::new(remote_version_bytes, seen),
+                SupplyBounds::new(remote_version, remote_version_bytes, seen),
                 remote_set_len,
                 // An empty tree counts none; a bound of one reaction above
                 // that costs nothing a conforming reply can exceed.

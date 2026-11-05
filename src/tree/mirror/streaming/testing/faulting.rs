@@ -59,8 +59,6 @@ pub enum ReplyCorruption {
     UnexpectedSupply,
     /// Supply children out of radix order.
     InvalidSupply,
-    /// Supply a subtree outside the version declared in the greeting.
-    UncontainedSupply,
 }
 
 impl ReplyCorruption {
@@ -73,7 +71,6 @@ impl ReplyCorruption {
         Self::UnexpectedQuery,
         Self::UnexpectedSupply,
         Self::InvalidSupply,
-        Self::UncontainedSupply,
     ];
 
     /// The violation a receiver should report for this corruption.
@@ -86,7 +83,6 @@ impl ReplyCorruption {
             Self::UnexpectedQuery => Violation::UnexpectedQuery,
             Self::UnexpectedSupply => Violation::UnexpectedSupply,
             Self::InvalidSupply => Violation::InvalidSupply,
-            Self::UncontainedSupply => Violation::UncontainedSupply,
         }
     }
 }
@@ -98,6 +94,10 @@ impl ReplyCorruption {
 /// the named violation. The inflated directions are tolerated: a
 /// declaration is an upper premise, so the session must complete cleanly
 /// — the no-false-positive half of each guard.
+///
+/// A shrunken *version* is caught only where supplies are decoded from the
+/// wire, against both greetings, so its case lives in the wire suite; the
+/// in-process walk these lies drive never reads a supply's versions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GreetingLie {
     /// Declare an empty set: the first absorbed honest supply overruns
@@ -114,9 +114,6 @@ pub enum GreetingLie {
     /// Declare more leaves than the tree holds; the session must
     /// complete cleanly.
     InflatedSetLen,
-    /// Declare the empty version: every honest supply escapes it
-    /// ([`Violation::UncontainedSupply`]).
-    ShrunkenVersion,
     /// Declare a version above the tree's truth (a tick on a party no
     /// fixture uses); the deceived side absorbs it into its ceiling by
     /// definition (`ours | declared`), and the reconciled content must
@@ -130,7 +127,6 @@ impl GreetingLie {
         Self::ShrunkenSetLen,
         Self::UnderdeclaredSetLen,
         Self::InflatedSetLen,
-        Self::ShrunkenVersion,
         Self::InflatedVersion,
     ];
 }
@@ -141,7 +137,6 @@ fn tell(greeting: &mut message::Greeting, lie: GreetingLie) {
         GreetingLie::ShrunkenSetLen => greeting.set_len = 0,
         GreetingLie::UnderdeclaredSetLen => greeting.set_len = 1,
         GreetingLie::InflatedSetLen => greeting.set_len = greeting.set_len * 2 + 1,
-        GreetingLie::ShrunkenVersion => greeting.version = Version::new(),
         GreetingLie::InflatedVersion => {
             greeting.version = greeting.version.clone() | &escaped_version();
         }
@@ -173,17 +168,16 @@ impl<P> Faulting<P> {
 /// The receiver's ceiling is such a ceiling, so a node at this version is
 /// one the receiver has already seen. The wire decoder rejects such a
 /// supply (`DecodeError::SeenSupply`), but the in-process walk these
-/// corruptions drive never compares a supply with the receiver's own
-/// version, so a supply at this version commits only the structural
-/// violation it is placed to commit.
+/// corruptions drive never reads a supply's versions, so a supply at this
+/// version commits only the structural violation it is placed to commit.
 fn contained_version() -> Version {
     let mut version = Version::new();
     version.tick(&nth_party(0));
     version
 }
 
-/// A version outside any fixture's declared ceiling: one tick on a party
-/// index no fixture ticks, so disjointness alone defeats containment.
+/// A version outside any fixture's ceiling: one tick on a party index no
+/// fixture ticks, so disjointness alone defeats containment.
 fn escaped_version() -> Version {
     let mut version = Version::new();
     version.tick(&nth_party(31));
@@ -204,28 +198,17 @@ trait FaultHeight: height::Height + Sized {
 /// A backend whose test node handles can wrap the canonical local fixture.
 trait FaultBackend: Backend<Node<Z>: Leaf> {
     fn node<H: FaultHeight>() -> Self::Node<H>;
-
-    /// A node whose version no fixture's declared ceiling contains.
-    fn escaped<H: FaultHeight>() -> Self::Node<H>;
 }
 
 impl FaultBackend for Local {
     fn node<H: FaultHeight>() -> Self::Node<H> {
         H::node().into()
     }
-
-    fn escaped<H: FaultHeight>() -> Self::Node<H> {
-        H::node_at(escaped_version()).into()
-    }
 }
 
 impl<B: FaultBackend> FaultBackend for Failing<B> {
     fn node<H: FaultHeight>() -> Self::Node<H> {
         FailingNode::new(B::node::<H>())
-    }
-
-    fn escaped<H: FaultHeight>() -> Self::Node<H> {
-        FailingNode::new(B::escaped::<H>())
     }
 }
 
@@ -312,10 +295,7 @@ where
             }
         }
 
-        if matches!(
-            corruption,
-            ReplyCorruption::InvalidSupply | ReplyCorruption::UncontainedSupply
-        ) {
+        if corruption == ReplyCorruption::InvalidSupply {
             debug_assert!(
                 !reply.reactions.iter().any(
                     |reaction| matches!(reaction, message::Reaction::Supply(0xff, _))
@@ -346,13 +326,13 @@ where
             }
             ReplyCorruption::InvalidSupply => {
                 // A duplicated radix, past the honest reply. Radix 0xff
-                // assumes no fixture holds that child (as the escape below
-                // does): at the opening, where no honest reaction precedes
+                // assumes no fixture holds that child, which the assertion
+                // above keeps attached to the injection: at the opening, where no honest reaction precedes
                 // the corruption to place it out of order, a held radix
                 // would be rejected as `UnexpectedSupply` instead. The
                 // first copy is absorbed before the duplicate fires (the
-                // in-process walk does not check that the receiver has
-                // seen its version; see `contained_version`), so
+                // in-process walk never reads a supply's versions; see
+                // `contained_version`), so
                 // the receiver's ledger must have one leaf of slack under
                 // the corrupting side's declared set length: every fixture
                 // declares its true length, and the receiver absorbs at
@@ -360,19 +340,6 @@ where
                 let node = B::erase(B::node::<H>());
                 reply.reactions.push(message::Reaction::Supply(0xff, node.clone()));
                 reply.reactions.push(message::Reaction::Supply(0xff, node));
-            }
-            ReplyCorruption::UncontainedSupply => {
-                // Appended past the honest reply, which covers the whole
-                // held fan, so the supply is structurally valid and only
-                // its escaped version is at fault. The initiator's opening
-                // is the exception: it admits no supply at all, so there
-                // the supply is out of place (`InvalidSupply`) before its
-                // version is examined. Radix 0xff assumes no
-                // fixture holds that child; the assertion above keeps that
-                // premise attached to the injection.
-                reply
-                    .reactions
-                    .push(message::Reaction::Supply(0xff, B::erase(B::escaped::<H>())));
             }
             ReplyCorruption::UnaskedReply | ReplyCorruption::UnansweredQuery => {
                 unreachable!("stream-wide corruptions return before editing the first reply")

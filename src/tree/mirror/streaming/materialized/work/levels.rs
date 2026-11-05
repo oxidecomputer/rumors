@@ -694,7 +694,7 @@ where
                     charges::processing_need::<B::Erased, B::Error>(query.bound),
                 );
 
-                let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
+                let mut resolver = Resolver::<B>::new(query, &ledger, &stats);
                 loop {
                 let Reply { reactions, charge: received, last, carried } = chunk;
                 for reaction in reactions {
@@ -867,7 +867,7 @@ where
                 // predicted to need nothing processed, and the invitation
                 // share's pace has nothing to learn from it.
 
-                let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
+                let mut resolver = Resolver::<B>::new(query, &ledger, &stats);
                 loop {
                 let Reply { reactions, charge: received, last, carried } = chunk;
                 for reaction in reactions {

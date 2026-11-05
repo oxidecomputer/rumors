@@ -574,10 +574,6 @@ where
 /// themselves (height `Z`), not an assembled scope one height up, because
 /// nothing exists below a leaf to assemble from.
 pub struct Completing<B: Backend<Node<Z>: Leaf>> {
-    /// The peer's declared greeting version: the containment bound every
-    /// supplied leaf is checked against
-    /// ([`Violation::UncontainedSupply`]).
-    their_version: Version,
     /// The counterparty's declared-set-length ledger, charged by every
     /// absorbed supply ([`SupplyLedger`]).
     ledger: SupplyLedger,
@@ -972,7 +968,7 @@ where
         requests: impl Requests<B, S<Z>>,
     ) -> (BoxResponses<B, Z, Self::Error>, Self::Next) {
         let (responses, queries, upper, lower) = self.work.leaf_parent_level(
-            self.their_version.clone(),
+            self.their_version,
             self.ledger.clone(),
             requests,
             self.queries,
@@ -983,7 +979,6 @@ where
         (
             responses,
             Completing {
-                their_version: self.their_version,
                 ledger: self.ledger,
                 queries,
                 returns,
@@ -1032,7 +1027,6 @@ where
     ) -> Result<Root<B>, Self::Error> {
         let stats = self.work.stats();
         let absorb = absorb::<B>(
-            self.their_version,
             self.ledger,
             requests.erase(),
             self.queries,
@@ -1062,7 +1056,6 @@ where
 /// [`messages_gained`](crate::SessionStats::messages_gained) by the
 /// resolver's supply arm.
 async fn absorb<B>(
-    their_version: Version,
     ledger: SupplyLedger,
     requests: impl Stream<Item = Reply<B::Erased>> + Send,
     mut queries: Receiver<LeafRequest>,
@@ -1091,7 +1084,7 @@ where
             charge: Charge::default(),
             reservation,
         };
-        let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, &stats);
+        let mut resolver = Resolver::<B>::new(request, &ledger, &stats);
         loop {
             let Reply {
                 reactions,

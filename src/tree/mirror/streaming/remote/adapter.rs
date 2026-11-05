@@ -51,8 +51,9 @@
 //! at least one record, and never spans reactions. Decoding is
 //! batching-agnostic — it walks records, not frames: it recomputes every
 //! leaf's full path from its version and serialized message, rejects a leaf
-//! whose version breaks the session's [`SupplyBounds`] (one this side has
-//! already seen, or one over the peer's declared size), rejects paths
+//! whose version breaks the session's [`SupplyBounds`] (one outside the
+//! peer's declared version or size, or one this side has already seen),
+//! rejects paths
 //! outside the retained scope, and groups consecutive leaves by their
 //! prefix at the scope's children height. Strict path and run ordering make
 //! those group

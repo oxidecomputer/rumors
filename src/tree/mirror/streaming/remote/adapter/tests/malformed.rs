@@ -24,7 +24,7 @@ use super::{
         BoundedPart, DecodeError, EncodeError, LeafEdge, Replay, ReplyLevel, Scope, ScopeError,
         SupplyBounds, decode_whole_reply, derive_questions, encode_leaf_reply, encode_reply,
     },
-    LeafCase, ascending_leaves, codec, colliding_leaves, hash, leaf_run, nothing_seen, runtime,
+    LeafCase, ascending_leaves, codec, colliding_leaves, fixture_bounds, hash, leaf_run, runtime,
     unbounded,
 };
 use crate::tree::mirror::streaming::erased::{Reaction, Reply};
@@ -47,7 +47,7 @@ fn bare_end_cannot_follow_reactions() {
         decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Leaf,
             &Scope::unbounded(parent.erase(), &[listed(0, hash(0))]),
@@ -79,7 +79,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
         decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Leaf,
             &Scope::unbounded(parent.erase(), &[listed(0, hash(0))]),
@@ -120,7 +120,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::unbounded(parent.erase(), &[listed(1, hash(1))]),
@@ -190,7 +190,7 @@ fn decode_frames(
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             level,
             scope,
@@ -474,7 +474,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::unbounded(parent.erase(), &[]),
@@ -583,7 +583,7 @@ fn leaf_query_matrix_is_exhaustive() {
                 decode_whole_reply(
                     &mut LeafEdge::new(),
                     Local,
-                    &nothing_seen(),
+                    &fixture_bounds(),
                     unbounded(),
                     ReplyLevel::Leaf,
                     &Scope::unbounded(parent.erase(), &scope_listing),
@@ -631,7 +631,7 @@ fn stream_end_is_not_a_protocol_reply() {
         .block_on(decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Leaf,
             &Scope::unbounded(parent.erase(), &[]),
@@ -686,7 +686,7 @@ fn leaf_order_is_enforced_within_one_run() {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[]),
@@ -731,7 +731,7 @@ fn leaf_scope_is_enforced_within_one_run() {
         decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Leaf,
             &Scope::unbounded(parent.erase(), &[]),
@@ -773,7 +773,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[]),
@@ -822,7 +822,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
         decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            &SupplyBounds::new(declared, Version::new()),
+            &SupplyBounds::new(leaf.version.clone(), declared, Version::new()),
             unbounded(),
             ReplyLevel::Leaf,
             &Scope::unbounded(parent.erase(), &[]),
@@ -839,7 +839,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
         decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
-            &SupplyBounds::new(declared - 1, Version::new()),
+            &SupplyBounds::new(leaf.version.clone(), declared - 1, Version::new()),
             unbounded(),
             ReplyLevel::Leaf,
             &Scope::unbounded(parent.erase(), &[]),
@@ -863,41 +863,51 @@ fn a_version_over_the_declared_bound_is_rejected() {
 }
 
 proptest! {
-    /// A supply is rejected as `SeenSupply` exactly when this side's
-    /// greeting version contains one of its leaves' versions, naming the
-    /// first such leaf in wire order, and decodes whole otherwise.
+    /// A supply decodes whole exactly when every leaf's version lies within
+    /// the peer's greeting version and outside this side's.
+    ///
+    /// Otherwise the first leaf in wire order that breaks either bound fails
+    /// the reply, as `UncontainedSupply` if the peer's version does not
+    /// contain it and as `SeenSupply` if it does and this side's version
+    /// contains it too.
     ///
     /// The leaves' versions tick one party `1..=count` times, all distinct.
-    /// This side's version ticks that party `seen` times, beside one tick
-    /// on a second party when `concurrent` holds, which takes it off the
-    /// leaves' chain without changing which of them it contains. So this
-    /// side has seen a leaf exactly when the leaf's tick count is at most
-    /// `seen`, an answer that needs no version comparison, and the test
-    /// holds `contained` to it as well. `seen` runs from no leaf seen to
-    /// every leaf seen, and the path order puts the first seen leaf
-    /// anywhere in the run.
+    /// The peer's version ticks that party `declared` times and this side's
+    /// `seen` times, each beside one tick on a second party when its
+    /// `concurrent` flag holds, which takes it off the leaves' chain without
+    /// changing which of them it contains. So a leaf at `ticks` lies within
+    /// the peer's version exactly when `ticks <= declared`, and within this
+    /// side's exactly when `ticks <= seen`: answers that need no version
+    /// comparison, to which the test also holds `contained`. A leaf above
+    /// a concurrent peer version is incomparable with it rather than above
+    /// it, so both forms of escape occur. The ranges reach from no leaf in
+    /// a bound to every leaf in it, and the path order puts the first
+    /// breaking leaf anywhere in the run.
     #[test]
-    fn a_supply_this_side_has_seen_is_rejected(
+    fn a_supply_outside_its_bounds_is_rejected(
         count in 1u64..=8,
+        declared in 0u64..=9,
         seen in 0u64..=9,
-        concurrent in any::<bool>(),
+        concurrent in any::<(bool, bool)>(),
     ) {
         let mut party = Party::seed();
         let other = party.fork();
-        let ticked = |ticks: u64| {
+        let ticked = |ticks: u64, off_chain: bool| {
             let mut version = Version::new();
             party.ticks(&mut version, ticks);
+            if off_chain {
+                other.tick(&mut version);
+            }
             version
         };
-        let mut ours = ticked(seen);
-        if concurrent {
-            other.tick(&mut ours);
-        }
+        let theirs = ticked(declared, concurrent.0);
+        let ours = ticked(seen, concurrent.1);
         let mut leaves: Vec<(u64, Version, Message)> = (1..=count)
-            .map(|ticks| (ticks, ticked(ticks), Message::new(ticks)))
+            .map(|ticks| (ticks, ticked(ticks, false), Message::new(ticks)))
             .collect();
         leaves.sort_by_cached_key(|(_, version, _)| Path::for_fixture_leaf(version));
         for (ticks, version, _) in &leaves {
+            prop_assert_eq!(contained(version, &theirs), *ticks <= declared);
             prop_assert_eq!(contained(version, &ours), *ticks <= seen);
         }
         let records: Vec<_> = leaves
@@ -914,7 +924,7 @@ proptest! {
             decode_whole_reply(
                 &mut LeafEdge::new(),
                 Local,
-                &SupplyBounds::new(u64::MAX, ours),
+                &SupplyBounds::new(theirs, u64::MAX, ours),
                 unbounded(),
                 ReplyLevel::Branch,
                 &Scope::opening_unbounded(&[]),
@@ -925,16 +935,29 @@ proptest! {
             .await
             .map(|_| ())
         });
-        let first_seen = leaves.iter().find(|(ticks, _, _)| *ticks <= seen);
-        match (first_seen, result) {
+        let breaking = leaves
+            .iter()
+            .find(|(ticks, _, _)| *ticks > declared || *ticks <= seen);
+        match (breaking, result) {
             (None, Ok(())) => {}
-            (Some((_, version, _)), Err(DecodeError::SeenSupply { path })) => {
-                prop_assert_eq!(path, <[u8; 32]>::from(Path::for_fixture_leaf(version)));
+            (Some((ticks, version, _)), Err(error)) => {
+                let path = <[u8; 32]>::from(Path::for_fixture_leaf(version));
+                if *ticks > declared {
+                    prop_assert!(
+                        matches!(error, DecodeError::UncontainedSupply { path: actual } if actual == path),
+                        "leaf at {} ticks outside the peer's {}: {:?}", ticks, declared, error,
+                    );
+                } else {
+                    prop_assert!(
+                        matches!(error, DecodeError::SeenSupply { path: actual } if actual == path),
+                        "leaf at {} ticks within this side's {}: {:?}", ticks, seen, error,
+                    );
+                }
             }
-            (first_seen, result) => prop_assert!(
+            (breaking, result) => prop_assert!(
                 false,
-                "first seen leaf at {:?} ticks, decode {:?}",
-                first_seen.map(|(ticks, _, _)| ticks),
+                "first breaking leaf at {:?} ticks, decode {:?}",
+                breaking.map(|(ticks, _, _)| ticks),
                 result,
             ),
         }
@@ -958,7 +981,7 @@ fn a_supply_without_a_key_is_rejected() {
             decode_whole_reply(
                 &mut LeafEdge::new(),
                 Local,
-                &nothing_seen(),
+                &fixture_bounds(),
                 unbounded(),
                 ReplyLevel::Leaf,
                 &Scope::unbounded(parent.erase(), &[]),
@@ -1002,7 +1025,7 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             SupplyLedger::new(declared),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[]),
@@ -1065,7 +1088,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
         decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
-            &nothing_seen(),
+            &fixture_bounds(),
             unbounded(),
             ReplyLevel::Branch,
             &Scope::opening_unbounded(&[listed(interrupting, hash(1))]),

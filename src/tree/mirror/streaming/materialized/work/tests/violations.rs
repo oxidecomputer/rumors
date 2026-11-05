@@ -63,8 +63,6 @@ enum ScriptedViolation {
     InvalidSupply,
     /// Supply past a held child without resolving it.
     InvalidSupplySkipsHeld,
-    /// Supply content beyond the declared version.
-    UncontainedSupply,
 }
 
 /// Convert a scripted case to the violation it must report.
@@ -82,7 +80,6 @@ impl From<ScriptedViolation> for Violation {
             ScriptedViolation::UnexpectedSupply => Violation::UnexpectedSupply,
             ScriptedViolation::InvalidSupply => Violation::InvalidSupply,
             ScriptedViolation::InvalidSupplySkipsHeld => Violation::InvalidSupply,
-            ScriptedViolation::UncontainedSupply => Violation::UncontainedSupply,
         }
     }
 }
@@ -100,7 +97,6 @@ fn arb_scripted_violation() -> impl Strategy<Value = ScriptedViolation> {
         Just(ScriptedViolation::UnexpectedSupply),
         Just(ScriptedViolation::InvalidSupply),
         Just(ScriptedViolation::InvalidSupplySkipsHeld),
-        Just(ScriptedViolation::UncontainedSupply),
     ]
 }
 
@@ -126,11 +122,8 @@ where
 }
 
 /// Build one malformed reply script at query height `H`, with the version
-/// the scripted counterparty is taken to have declared.
-///
-/// The declared version is snapshotted after every honest node is built,
-/// so containment never preempts the structural fault under injection; the
-/// `UncontainedSupply` script alone ticks past the snapshot.
+/// the scripted counterparty is taken to have declared: the join of every
+/// node the script builds, snapshotted after the last.
 fn violation_script<H>(
     injection: ScriptedViolation,
     parent: u8,
@@ -147,7 +140,6 @@ where
         .collect::<Vec<_>>();
     let supplied = <Local as Backend>::erase(H::node(&mut version));
     let declared = version.clone();
-    let escaped = <Local as Backend>::erase(H::node(&mut version));
     let mut path = [0; 32];
     path[0] = parent;
     let prefix = Prefix::<S<H>>::containing(&Path::from(path));
@@ -301,28 +293,6 @@ where
                 height: PhantomData,
             }],
         ),
-        ScriptedViolation::UncontainedSupply => {
-            // Structurally a legal supply — the query holds nothing, the
-            // radix is fresh — so only the version escape is at fault.
-            let radix = *radixes.first().expect("the strategy produces a child");
-            (
-                Some(Query {
-                    prefix: prefix.erase(),
-                    ours: Vec::new(),
-                    original: None,
-                    bound: Default::default(),
-                    charge: Default::default(),
-                    reservation: Default::default(),
-                }),
-                vec![Reply {
-                    reactions: vec![Reaction::Supply(radix, escaped)],
-                    charge: Default::default(),
-                    last: true,
-                    carried: Default::default(),
-                    height: PhantomData,
-                }],
-            )
-        }
     };
     (query, replies, declared)
 }

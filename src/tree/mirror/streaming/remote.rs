@@ -77,9 +77,9 @@ pub(crate) use codec::{decode_frame_discarded, lone_record_run, supply_frame_hea
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::{prepare_frame, write_prepared_frame};
 
-pub(crate) use adapter::{RecordedChild, Scope, decode_ahead_bytes};
 #[cfg(test)]
-pub(crate) use adapter::{Replay, ReplyLevel, derive_questions};
+pub(crate) use adapter::{DecodeError, Replay, ReplyLevel, derive_questions};
+pub(crate) use adapter::{RecordedChild, Scope, decode_ahead_bytes};
 pub(crate) use codec::STREAM_COUNT;
 pub use codec::{MAX_RUN_BUDGET_BYTES, RunBudget};
 pub(crate) use error::streaming_error;

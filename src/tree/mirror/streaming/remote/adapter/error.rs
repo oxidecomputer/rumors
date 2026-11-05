@@ -147,6 +147,24 @@ pub enum DecodeError<E> {
         "supplied version encodes {actual} bytes, over the peer's declared {declared}-byte bound"
     )]
     OversizedVersion { declared: u64, actual: usize },
+    /// A supplied leaf's version is not contained in the peer's own
+    /// greeting version, which joins every version the peer's tree holds.
+    ///
+    /// A conforming peer supplies only leaves its tree holds, so it never
+    /// supplies such a leaf. Absorbed, the leaf would lie outside the
+    /// ceiling this side adopts for the session, where no later redaction
+    /// this side makes can cover it, so the session fails at the offending
+    /// record, before its payload takes backend custody. Containment is a
+    /// partial order: a version incomparable with the peer's is as
+    /// uncontained as one above it.
+    ///
+    /// The message prints the leaf's keyed path, which reveals no key (see
+    /// [`NetworkSecret`](crate::network::NetworkSecret)).
+    #[error("supplied leaf {path:02x?} lies outside the peer's declared version")]
+    UncontainedSupply {
+        /// The leaf's keyed path, computed from its version.
+        path: [u8; 32],
+    },
     /// A supplied leaf's version is contained in this side's own greeting
     /// version: the leaf is one this side holds or has redacted.
     ///
