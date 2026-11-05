@@ -10,8 +10,9 @@
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, one assembled node per supplied prefix run,
 //!   child counts and child radices equal to the children listing a node
-//!   yields, and listings that allocate nothing beyond the rows they
-//!   yield, by the allocation meter.
+//!   yields, children listed at strictly ascending radices, and listings
+//!   that allocate nothing beyond the rows they yield, by the allocation
+//!   meter.
 //! - **Reconciliation:** both replicas converge to a set of the expected union
 //!   size, and any measured peak increase over the zero-budget run must fit
 //!   within the larger budget.
@@ -443,6 +444,7 @@ where
             let mut counted = 0_u64;
             let mut listed = 0_u64;
             let mut radices = ByteSet::EMPTY;
+            let mut previous: Option<u8> = None;
             let mut failed = false;
             let (mut allocated, children) = allocated_by(|| self.inner.children(prefix, parent));
             let mut rows = 0_u64;
@@ -458,6 +460,18 @@ where
                     listed += 1;
                     if let Some(&radix) = child_prefix.erase().as_bytes().last() {
                         radices.insert(radix);
+                        // The order contract: radices ascend strictly, so
+                        // a listing neither repeats nor reorders a child.
+                        // The count and the radix set cannot see order,
+                        // and the set absorbs a repeat.
+                        if let Some(before) = previous.replace(radix)
+                            && before >= radix
+                        {
+                            ledger::violation(format!(
+                                "unordered children: the node at {prefix:?} listed radix \
+                                 {radix:#04x} after radix {before:#04x}",
+                            ));
+                        }
                     }
                 }
                 match &child {
@@ -711,6 +725,7 @@ const DIVERGENT: usize = 1_024;
 ///   with one;
 /// - a node listed a different number of children than its child count
 ///   reports, or children at other radices than its child radices report;
+/// - a node listed a child at a radix no greater than the one before it;
 /// - listing a node's children allocated beyond the rows they keep
 ///   resident;
 /// - the measured peak increase exceeds the budget; or

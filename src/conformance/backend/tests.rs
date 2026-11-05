@@ -210,6 +210,18 @@ static CHILDREN_SKEW: Knob = Knob::new(0);
 /// at zero, an answer of no radices for a node with children above it.
 static RADICES_DROP: Knob = Knob::new(0);
 
+/// Whether listing a node's children yields its first two in swapped
+/// order: honest at zero, out of radix order above it.
+static CHILDREN_SWAP: Knob = Knob::new(0);
+
+/// Whether listing the root's children yields its first child twice:
+/// honest at zero, a repeated radix above it.
+///
+/// Confined to the root because a repeat at every level compounds: the
+/// bulk walk explodes through this listing, so a leaf under a chain of
+/// single-child nodes would be walked once for every doubling along it.
+static CHILDREN_REPEAT: Knob = Knob::new(0);
+
 /// Bytes listing each child allocates and frees, beyond the row it
 /// yields: honest at zero, scratch the listing never reports above it.
 static LISTING_SCRATCH: Knob = Knob::new(0);
@@ -435,7 +447,11 @@ impl Backend for Materializing {
         H: Height,
         S<H>: Height,
     {
-        stream! {
+        // The reference listing: the in-memory backend's, behind knobs that
+        // repeat the root's first child ([`CHILDREN_REPEAT`]) and swap any
+        // node's first two ([`CHILDREN_SWAP`]), honest at rest.
+        let repeat = CHILDREN_REPEAT.get() != 0 && prefix.as_bytes().is_empty();
+        let listed = stream! {
             let mut children = pin!(<Local as Backend>::children(Local, prefix, parent.inner));
             while let Some(child) = children.next().await {
                 // Scratch the listing fills and frees, held nowhere.
@@ -447,7 +463,8 @@ impl Backend for Materializing {
                     (prefix, MaterializedNode::wrap(node, row))
                 });
             }
-        }
+        };
+        swapped_head(CHILDREN_SWAP.get() != 0, repeated_head(repeat, listed))
     }
 
     fn leaves<H: Convert>(
@@ -520,7 +537,8 @@ impl Measure for Materializing {
 }
 
 /// `inner` with its first two items in swapped order when `swap` holds:
-/// the order-lying adaptor behind the walk's and the assembly's controls.
+/// the order-lying adaptor behind the walk's, the assembly's, and the
+/// listing's order controls.
 fn swapped_head<T>(swap: bool, inner: impl Stream<Item = T>) -> impl Stream<Item = T> {
     stream! {
         let mut inner = pin!(inner);
@@ -530,6 +548,21 @@ fn swapped_head<T>(swap: bool, inner: impl Stream<Item = T>) -> impl Stream<Item
             for item in [second, first].into_iter().flatten() {
                 yield item;
             }
+        }
+        while let Some(item) = inner.next().await {
+            yield item;
+        }
+    }
+}
+
+/// `inner` with its first item yielded twice when `repeat` holds: the
+/// duplicating adaptor behind the listing's repeat control.
+fn repeated_head<T: Clone>(repeat: bool, inner: impl Stream<Item = T>) -> impl Stream<Item = T> {
+    stream! {
+        let mut inner = pin!(inner);
+        if repeat && let Some(first) = inner.next().await {
+            yield first.clone();
+            yield first;
         }
         while let Some(item) = inner.next().await {
             yield item;
@@ -886,6 +919,26 @@ fn miscounted_children_fail_the_listing_check() {
 #[should_panic(expected = "misreported child radices")]
 fn misreported_radices_fail_the_listing_check() {
     let _dishonest = RADICES_DROP.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A listing that yields two children out of radix order is convicted by
+/// name at the listing's order check: the count and the radix set are
+/// unchanged, so neither of their checks would notice.
+#[test]
+#[should_panic(expected = "unordered children")]
+fn a_swapped_listing_fails_the_order_check() {
+    let _dishonest = CHILDREN_SWAP.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A listing that yields one child twice is convicted by name at the
+/// listing's order check, as a radix listed after an equal one: the radix
+/// set absorbs the repeat.
+#[test]
+#[should_panic(expected = "unordered children")]
+fn a_repeating_listing_fails_the_order_check() {
+    let _dishonest = CHILDREN_REPEAT.set(1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 

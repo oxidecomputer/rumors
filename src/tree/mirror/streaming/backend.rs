@@ -140,7 +140,10 @@ where
     /// Explode one parent node at `prefix` into its children, one height down.
     ///
     /// The children are produced in strictly increasing prefix order, each
-    /// keyed by the parent's prefix extended with the child's radix.
+    /// keyed by the parent's prefix extended with the child's radix, so a
+    /// listing never repeats a child. The session sizes its plans and
+    /// grants at one entry per child on the strength of this order, and
+    /// the backend conformance suite checks it on every listing.
     ///
     /// Listing allocates nothing beyond the handles it yields: the session
     /// charges each listing's handles to the place that holds them, and
