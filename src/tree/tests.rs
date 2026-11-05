@@ -893,8 +893,8 @@ proptest! {
         end_sel in any::<prop::sample::Index>(),
         form in 0usize..12,
     ) {
-        let tree = Tree::from_root(crate::network::NetworkSecret::FIXTURE, a);
-        let other = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, b);
+        let tree = Tree::from_root(crate::network::NetworkKeys::fixture(), a);
+        let other = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), b);
 
         // Bound candidates spanning the partial order's relationships to the
         // walked tree: its own leaf versions and ceiling (dominated/equal),
@@ -972,7 +972,7 @@ proptest! {
         root in crate::tree::arb::arb_tree_root(0, 0..24),
         flip in any::<prop::sample::Index>(),
     ) {
-        let tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, root);
+        let tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), root);
 
         let forward: Vec<_> = tree.iter().map(owned).collect();
         prop_assert_eq!(tree.iter().len(), forward.len());
@@ -1184,9 +1184,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
     ) {
-        let mut tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, a);
+        let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
         let before = tree.hash();
-        let changed = tree.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, b));
+        let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1197,9 +1197,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash_at_depth(
         (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
     ) {
-        let mut tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, a);
+        let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
         let before = tree.hash();
-        let changed = tree.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, b));
+        let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
         prop_assert_eq!(changed, tree.hash() != before);
     }
 }
@@ -1216,10 +1216,10 @@ fn deep_divergent_join_changed_flag_is_exact() {
     // Gain in both directions.
     let (a, b, expected) = crate::tree::arb::leaf_parent_dispute_pair();
     for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
-        let mut tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, receiver);
+        let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), receiver);
         let before = tree.hash();
         let changed = tree.join(Tree::from_root(
-            crate::network::NetworkSecret::FIXTURE,
+            crate::network::NetworkKeys::fixture(),
             counter,
         ));
         assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
@@ -1228,9 +1228,9 @@ fn deep_divergent_join_changed_flag_is_exact() {
 
     // The deep no-op: the receiver already holds everything the
     // counterparty has, so the full-depth divergent descent nets nothing.
-    let mut tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, expected);
+    let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), expected);
     let before = tree.hash();
-    let changed = tree.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, a));
+    let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), a));
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1240,9 +1240,9 @@ fn deep_divergent_join_changed_flag_is_exact() {
 
     // Deletion honoring at depth.
     let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
-    let mut tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, a);
+    let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
     let before = tree.hash();
-    let changed = tree.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, b));
+    let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1311,10 +1311,10 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
     let (receiver, poisoned, _, escaped) = super::arb::uncontained_supply_pair();
     let receiver_party = super::arb::nth_party(0);
 
-    let mut tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, receiver);
+    let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), receiver);
     assert!(
         tree.join(Tree::from_root(
-            crate::network::NetworkSecret::FIXTURE,
+            crate::network::NetworkKeys::fixture(),
             poisoned
         )),
         "planting the escaped leaf is a real change",
@@ -1363,9 +1363,9 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
-    let mut tree = Tree::from_root(crate::network::NetworkSecret::FIXTURE, receiver);
+    let mut tree = Tree::from_root(crate::network::NetworkKeys::fixture(), receiver);
     tree.join(Tree::from_root(
-        crate::network::NetworkSecret::FIXTURE,
+        crate::network::NetworkKeys::fixture(),
         poisoned,
     ));
     assert!(
@@ -1837,8 +1837,8 @@ proptest! {
     fn edited_and_joined_trees_count_grandchildren_exactly(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
     ) {
-        let mut joined = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, a.clone());
-        joined.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, b.clone()));
+        let mut joined = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a.clone());
+        joined.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b.clone()));
         for root in [a, b, joined.root] {
             if let Some(node) = root.node {
                 let miscounted = node.into_untyped().miscounted_grandchildren();

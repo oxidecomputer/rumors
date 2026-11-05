@@ -99,12 +99,12 @@ divided_proptest! {
         let forged = Peer::<u64> {
             codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             gossip_policy: Default::default(),
-            secret: survivor.secret.clone(),
+            keys: survivor.keys.clone(),
             sync_memory_budget: survivor.sync_memory_budget,
             run_budget: survivor.run_budget,
             inner: watch::Sender::new(Inner::new(
                 party_of(&survivor),
-                Tree::from_root(survivor.secret.clone(), Root::default()),
+                Tree::from_root(survivor.keys.clone(), Root::default()),
             )),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             observe: Attachment::default(),
@@ -1198,7 +1198,7 @@ divided_proptest! {
             }
         });
         assert!(
-            joiner.secret == provider.secret,
+            joiner.keys == provider.keys,
             "the joiner holds the network's secret"
         );
 
@@ -1257,7 +1257,7 @@ divided_proptest! {
         ] {
             for (stream, direction, bytes) in items {
                 assert!(
-                    !contains_run(bytes, provider.secret.as_bytes()),
+                    !contains_run(bytes, provider.keys.secret().as_bytes()),
                     "the {side}'s {direction:?} {stream:?} observation carries the secret",
                 );
             }
@@ -1279,7 +1279,7 @@ divided_proptest! {
     ) {
         let left = with_messages(network.peer::<u64>(), &[1]);
         let right = other_network.peer::<u64>();
-        let secrets = [left.secret.clone(), right.secret.clone()];
+        let keys = [left.keys.clone(), right.keys.clone()];
         let error = pollster::block_on(async {
             let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
             let (left_out, _) = tokio::join!(
@@ -1300,11 +1300,11 @@ divided_proptest! {
             left.snapshot(),
             left.network(),
             left.network(),
-            left.secret,
-            right.secret,
+            left.keys,
+            right.keys,
         );
-        for secret in &secrets {
-            for rendering in renderings(secret) {
+        for keys in &keys {
+            for rendering in renderings(keys.secret()) {
                 assert!(
                     !rendered.contains(&rendering),
                     "a rendering carries a secret: {rendered}"
@@ -1347,7 +1347,7 @@ divided_proptest! {
         // store a nonconforming implementation would serve.
         let base = poisoned.inner.borrow().tree.latest().clone();
         let (escaped_root, _, escaped) = crate::tree::arb::poisoned_root(
-            &poisoned.inner.borrow().tree.path_key(),
+            poisoned.inner.borrow().tree.path_key(),
             &party_of(&poisoned),
             &base,
             Message::new(0u64),
@@ -1355,7 +1355,7 @@ divided_proptest! {
         poisoned.inner.send_modify(|inner| {
             inner
                 .tree
-                .join(Tree::from_root(poisoned.secret.clone(), escaped_root));
+                .join(Tree::from_root(poisoned.keys.clone(), escaped_root));
         });
         assert!(
             !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),

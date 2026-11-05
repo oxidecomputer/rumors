@@ -275,14 +275,14 @@ async fn reconcile_with_failing_walk(
         a_end.read,
         a_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
-        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+        Some(crate::network::NetworkKeys::fixture()),
     );
     let remote_a = RemoteHandshaking::start(
         whole(),
         b_end.read,
         b_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
-        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+        Some(crate::network::NetworkKeys::fixture()),
     );
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));

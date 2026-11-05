@@ -18,14 +18,14 @@ use crate::tree::{Action, Root, Tree};
 
 /// Merge two roots through the public tree operation.
 fn join_tree(a: Root, b: Root) -> Root {
-    let mut a = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, a);
-    a.join(Tree::from_root(crate::network::NetworkSecret::FIXTURE, b));
+    let mut a = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
+    a.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
     a.root
 }
 
 /// Read the concrete version set, independently of the root's hash and memos.
 fn leaves(root: &Root) -> BTreeSet<Vec<u8>> {
-    let tree = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, root.clone());
+    let tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), root.clone());
     let leaves: BTreeSet<_> = tree.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
     assert_eq!(
         leaves.len(),
@@ -44,7 +44,7 @@ fn survivors<const N: usize>(roots: &[Root; N]) -> BTreeSet<Vec<u8>> {
     let live = roots.each_ref().map(leaves);
     let trees = roots
         .each_ref()
-        .map(|root| Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, root.clone()));
+        .map(|root| Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), root.clone()));
     let candidates: BTreeMap<_, _> = trees
         .iter()
         .flat_map(|tree| tree.iter().map(|(v, _)| (v.as_bytes().to_vec(), v.clone())))
@@ -89,12 +89,12 @@ fn joining_own_causal_past_preserves_clone_derived_fans() {
 
     for version in versions {
         let mut current =
-            Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, past.root.clone());
+            Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), past.root.clone());
         current.act(&nth_party(1), [Action::Forget(version.clone())]);
         let expected = current.root.clone();
 
         current.join(Tree::from_root(
-            crate::network::NetworkSecret::FIXTURE,
+            crate::network::NetworkKeys::fixture(),
             past.root.clone(),
         ));
         assert_eq!(

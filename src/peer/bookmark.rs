@@ -103,7 +103,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut bookmark = Bookmarked::new(persist);
         bookmark.set_size_limit(size_limit);
         let Peer {
-            secret,
+            keys,
             sync_memory_budget,
             run_budget,
             gossip_policy,
@@ -113,7 +113,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             observe,
         } = self;
         Peer {
-            secret,
+            keys,
             sync_memory_budget,
             run_budget,
             gossip_policy,

@@ -17,7 +17,7 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{Bookmarked, NoBookmark, Reservation, Reservations};
 pub use crate::message::DEFAULT_PAYLOAD_DEPTH_LIMIT;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
-use crate::network::NetworkSecret;
+use crate::network::{NetworkKeys, NetworkSecret};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::ledger::DEFAULT_SYNC_MEMORY_BUDGET;
@@ -151,12 +151,13 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// peers joins exclusively with one another and spends a long time
 /// partitioned before reuniting with the rest of the network.
 pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
-    /// The secret of the network this replica belongs to, drawn at seed or
-    /// received at join. Its public identifier is [`network`](Self::network).
+    /// The keys of the network this replica belongs to, derived from the
+    /// secret drawn at seed or received at join. Its public identifier is
+    /// [`network`](Self::network).
     ///
-    /// It is the same allocation as the secret of every tree `inner`
-    /// publishes, which keys that tree's leaf paths.
-    pub(crate) secret: Arc<NetworkSecret>,
+    /// It is the same allocation as the keys of every tree `inner`
+    /// publishes, whose path key places that tree's leaves.
+    pub(crate) keys: Arc<NetworkKeys>,
     /// The memory budget selected by
     /// [`sync_memory_budget`](Self::sync_memory_budget), which each session's
     /// ledger admits its work against.
@@ -461,13 +462,13 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
 
     /// Create a new network using `rng` for its secret.
     fn seed_from_rng<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
-        let secret = Arc::new(NetworkSecret::from_rng(rng));
+        let keys = Arc::new(NetworkKeys::new(NetworkSecret::from_rng(rng)));
         Self {
-            secret: Arc::clone(&secret),
+            keys: Arc::clone(&keys),
             sync_memory_budget: DEFAULT_SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
             gossip_policy: policy::Policy::default(),
-            inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(secret))),
+            inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(keys))),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
             observe: Attachment::default(),
@@ -494,7 +495,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// remains uniquely owned.
     pub(crate) fn share(&self) -> Self {
         Self {
-            secret: Arc::clone(&self.secret),
+            keys: Arc::clone(&self.keys),
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             gossip_policy: self.gossip_policy.clone(),
@@ -536,7 +537,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Return the gossip network this replica belongs to.
     pub fn network(&self) -> Network {
-        self.secret.network()
+        self.keys.network()
     }
 
     /// Return the local settings used to configure synchronization sessions.

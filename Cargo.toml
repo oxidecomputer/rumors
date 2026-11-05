@@ -182,7 +182,7 @@ hpke = { workspace = true, features = ["nistp", "aes", "getrandom"] }
 # and enabling it here makes the AES key schedule inside each HPKE
 # context clear when the context drops.
 aes-gcm = { workspace = true, features = ["zeroize"] }
-# The network secret's key schedule, which derives the network identifier.
+# The network secret's key schedule (`NetworkKeys`).
 hkdf.workspace = true
 itertools.workspace = true
 serde = { workspace = true, default-features = true, features = ["derive"] }

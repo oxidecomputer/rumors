@@ -16,6 +16,7 @@ use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use crate::{
     message::PayloadCodec,
+    network::NetworkKeys,
     observe::SessionHandle,
     tree::{
         mirror::streaming::{
@@ -34,10 +35,7 @@ use crate::{
             stats::Recorder,
             tasks::TaskRole,
         },
-        typed::{
-            PathKey,
-            height::{Height, Z},
-        },
+        typed::height::{Height, Z},
     },
 };
 
@@ -66,11 +64,13 @@ where
     root_grandchildren: Grandchildren,
     /// The codec used to decode supplied messages.
     codec: PayloadCodec,
-    /// The keyed hash that places supplied leaves; `None` admits no supply.
+    /// The network's keys, whose path key places supplied leaves; `None`
+    /// admits no supply.
     ///
-    /// Shared, because the keyed hash state is a few hundred bytes and this
-    /// handle moves through every greeting state into the session's future.
-    path_key: Option<Arc<PathKey>>,
+    /// Shared, because the keyed hash states are a few hundred bytes and
+    /// this handle moves through every greeting state into the session's
+    /// future.
+    keys: Option<Arc<NetworkKeys>>,
 }
 
 impl<B> Ingress<B>
@@ -84,7 +84,7 @@ where
         set_len: u64,
         root_grandchildren: Grandchildren,
         codec: PayloadCodec,
-        path_key: Option<Arc<PathKey>>,
+        keys: Option<Arc<NetworkKeys>>,
     ) -> Self {
         Self {
             backend,
@@ -92,7 +92,7 @@ where
             ledger: SupplyLedger::new(set_len),
             root_grandchildren,
             codec,
-            path_key,
+            keys,
         }
     }
 }

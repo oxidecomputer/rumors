@@ -7,6 +7,7 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 use crate::{
     message::PayloadCodec,
+    network::NetworkKeys,
     observe::{CaptureRead, SessionHandle},
     tree::{
         mirror::streaming::{
@@ -20,10 +21,7 @@ use crate::{
             },
             stats::Recorder,
         },
-        typed::{
-            PathKey,
-            height::{Root, Z},
-        },
+        typed::height::{Root, Z},
     },
 };
 
@@ -49,8 +47,9 @@ where
     stats: Recorder,
     /// This replica's payload codec for supplied messages.
     codec: PayloadCodec,
-    /// The keyed hash that places supplied leaves; `None` admits no supply.
-    path_key: Option<Arc<PathKey>>,
+    /// The network's keys, whose path key places supplied leaves; `None`
+    /// admits no supply.
+    keys: Option<Arc<NetworkKeys>>,
     /// The session's observation handle: every wire item this session
     /// moves is delivered through it (inert unless a handler attached).
     observe: SessionHandle,
@@ -63,14 +62,15 @@ where
     /// Bind one session's pipe halves before exchanging causal versions.
     ///
     /// `codec` reconstructs every supplied message received in this session,
-    /// and `path_key` places each one at its path. A session without a key,
-    /// a bootstrapper's meeting another bootstrapper, rejects every supply.
+    /// and the path key of `keys` places each one at its path. A session
+    /// without keys, a bootstrapper's meeting another bootstrapper, rejects
+    /// every supply.
     pub fn start(
         backend: B,
         read: R,
         write: W,
         codec: PayloadCodec,
-        path_key: Option<Arc<PathKey>>,
+        keys: Option<Arc<NetworkKeys>>,
     ) -> Self {
         Self {
             backend,
@@ -79,7 +79,7 @@ where
             versions: Start,
             stats: Recorder::default(),
             codec,
-            path_key,
+            keys,
             observe: SessionHandle::default(),
         }
     }
@@ -163,7 +163,7 @@ where
                     .and_then(Grandchildren::new)
                     .unwrap_or(Grandchildren::ONE),
                 self.codec,
-                self.path_key,
+                self.keys,
             ),
             read: self.read,
             write: self.write,
@@ -197,7 +197,7 @@ where
             versions: Connecting { remote },
             stats: self.stats,
             codec: self.codec,
-            path_key: self.path_key,
+            keys: self.keys,
             observe: self.observe,
         };
         Ok((greeting, next))

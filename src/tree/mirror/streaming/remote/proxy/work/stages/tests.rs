@@ -188,7 +188,7 @@ proptest! {
             u64::MAX,
             Grandchildren::MAX,
             PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
-            Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+            Some(crate::network::NetworkKeys::fixture()),
         );
         let height = UnderRoot::HEIGHT;
         let (mut publish, questions) = channel(QueueRole::new(QueueKind::ProxyLocalQuestions, height), 1);

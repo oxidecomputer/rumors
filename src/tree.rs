@@ -66,7 +66,7 @@ use std::sync::Arc;
 pub(crate) mod traverse;
 pub(crate) mod typed;
 
-use crate::{Version, causally, message::Message, network::NetworkSecret, tree::typed::Node};
+use crate::{Version, causally, message::Message, network::NetworkKeys, tree::typed::Node};
 
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use typed::hash::MERKLE_HASH_LEN;
@@ -92,13 +92,13 @@ pub use typed::{Leaf, RangeOwned};
 pub struct Tree<T> {
     /// The live nodes and the causal history used to honor redactions.
     pub(crate) root: Root,
-    /// The secret of the network this tree belongs to, which keys every leaf
-    /// path in it.
+    /// The keys of the network this tree belongs to, whose path key places
+    /// every leaf in it.
     ///
     /// Two trees' paths agree only under one secret, so only trees with
-    /// equal secrets may be joined. Shared, so every clone of a tree, and
-    /// the peer it belongs to, hold one copy of the secret.
-    secret: Arc<NetworkSecret>,
+    /// equal keys may be joined. Shared, so every clone of a tree, and the
+    /// peer it belongs to, hold one copy of the keys.
+    keys: Arc<NetworkKeys>,
     /// The payload type this tree's typed faces read leaves at.
     ///
     /// Storage is erased ([`Message`] holds `dyn Any`); the facade's `T`
@@ -144,7 +144,7 @@ impl<T> Clone for Tree<T> {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
-            secret: Arc::clone(&self.secret),
+            keys: Arc::clone(&self.keys),
             payload: PhantomData,
         }
     }
@@ -171,7 +171,7 @@ impl<T> PartialEq for Tree<T> {
     /// Returns whether both trees represent the same replica state of one
     /// network.
     fn eq(&self, other: &Self) -> bool {
-        self.secret == other.secret && self.root == other.root
+        self.keys == other.keys && self.root == other.root
     }
 }
 
@@ -191,7 +191,7 @@ impl<T> fmt::Debug for Tree<T> {
 #[cfg(any(test, feature = "test-internals"))]
 impl<T> Default for Tree<T> {
     fn default() -> Self {
-        Self::new(NetworkSecret::FIXTURE)
+        Self::new(NetworkKeys::fixture())
     }
 }
 
@@ -266,38 +266,37 @@ impl<'a, T: Send + Sync + 'static> ExactSizeIterator for Iter<'a, T> {}
 impl<'a, T: Send + Sync + 'static> std::iter::FusedIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {
-    /// Creates a new, empty tree of the network keyed by `secret`, carrying
-    /// the empty [`Version`].
+    /// Creates a new, empty tree of the network with `keys`, carrying the
+    /// empty [`Version`].
     ///
     /// A tree owns no party identity: advancing the version is driven by a
     /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller (the
     /// [`Peer`](crate::Peer) that owns the party). Forking a tree is a
     /// plain [`clone`](Clone); any party split happens on the owning
     /// [`Peer`](crate::Peer).
-    pub fn new(secret: impl Into<Arc<NetworkSecret>>) -> Self {
-        Self::from_root(secret, Root::default())
+    pub fn new(keys: impl Into<Arc<NetworkKeys>>) -> Self {
+        Self::from_root(keys, Root::default())
     }
 
     /// Wrap an already-built root pair as a typed tree facade of the network
-    /// keyed by `secret`: the caller asserts that the root's leaves sit at
-    /// paths under that secret, and the payload type they were constructed
-    /// with.
-    pub(crate) fn from_root(secret: impl Into<Arc<NetworkSecret>>, root: Root) -> Self {
+    /// with `keys`: the caller asserts that the root's leaves sit at paths
+    /// under those keys, and the payload type they were constructed with.
+    pub(crate) fn from_root(keys: impl Into<Arc<NetworkKeys>>, root: Root) -> Self {
         Tree {
             root,
-            secret: secret.into(),
+            keys: keys.into(),
             payload: PhantomData,
         }
     }
 
-    /// The secret of the network this tree belongs to.
-    pub(crate) fn secret(&self) -> &NetworkSecret {
-        &self.secret
+    /// The keys of the network this tree belongs to.
+    pub(crate) fn keys(&self) -> &Arc<NetworkKeys> {
+        &self.keys
     }
 
     /// The keyed hash that places this tree's leaves.
-    pub(crate) fn path_key(&self) -> typed::PathKey {
-        self.secret.path_key()
+    pub(crate) fn path_key(&self) -> &typed::PathKey {
+        self.keys.path()
     }
 
     /// Returns the tree's causal history, including redacted messages.
@@ -366,7 +365,7 @@ impl<T> Tree<T> {
 
     /// Finds the live message whose path and stored version match `version`.
     fn message(&self, version: &Version) -> Option<&Message> {
-        let path = <[u8; 32]>::from(typed::Path::for_leaf(&self.path_key(), version));
+        let path = <[u8; 32]>::from(typed::Path::for_leaf(self.path_key(), version));
         let (stored, message) = self.root.node.as_ref()?.get(&path)?;
         (stored == version).then_some(message)
     }
@@ -492,7 +491,10 @@ impl<T> Tree<T> {
     {
         // Tick in specification order, before sorting by path. This gives
         // every insert a unique address and each forget a later timestamp.
-        let key = self.path_key();
+        // A clone of the shared keys, so that borrowing the path key does
+        // not hold `self` across the traversal that mutates it.
+        let keys = Arc::clone(&self.keys);
+        let key = keys.path();
         let mut new_version = self.latest().clone();
         self.react(actions.into_iter().map(|action| {
             new_version.tick(party);
@@ -500,11 +502,11 @@ impl<T> Tree<T> {
 
             let (path, edit) = match action {
                 Action::Forget(forgotten) => (
-                    typed::Path::for_leaf(&key, &forgotten),
+                    typed::Path::for_leaf(key, &forgotten),
                     traverse::Action::Forget,
                 ),
                 Action::Insert(value) => (
-                    typed::Path::for_leaf(&key, &version),
+                    typed::Path::for_leaf(key, &version),
                     traverse::Action::Insert(value),
                 ),
             };
@@ -571,7 +573,7 @@ impl<T> Tree<T> {
     /// caller joins trees of one replica's network.
     pub fn join(&mut self, other: Tree<T>) -> bool {
         assert!(
-            self.secret == other.secret,
+            self.keys == other.keys,
             "only trees of one network can be joined"
         );
         let Root {

@@ -276,7 +276,8 @@ impl PathHash {
 pub(crate) const HMAC_KEY_LEN: usize = size_of::<Output<Sha256>>();
 
 /// The keyed hash that derives a network's leaf paths: HMAC-SHA-256 under the
-/// path key, which the network's key schedule derives from its secret.
+/// path key, which the network's key schedule derives from its secret
+/// ([`NetworkKeys`](crate::network::NetworkKeys)).
 ///
 /// Keying the paths keeps them, and every digest computed from them,
 /// unpredictable to anyone without the secret; [`struct@Hash`]'s width
@@ -295,7 +296,10 @@ pub struct PathKey(Hmac<Sha256>);
 /// Derive leaf paths under one network's secret.
 impl PathKey {
     /// Key the path hash with `key`, the path key the network's key
-    /// schedule derives (`NetworkSecret::path_key`).
+    /// schedule derives.
+    ///
+    /// [`NetworkKeys`](crate::network::NetworkKeys) derives each network's
+    /// key once; everything else borrows it from there.
     pub(crate) fn new(key: &[u8; HMAC_KEY_LEN]) -> Self {
         Self(Hmac::new_from_slice(key).expect("HMAC accepts a key of any length"))
     }
@@ -305,7 +309,7 @@ impl PathKey {
     /// which `Tree::default` uses.
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn fixture() -> Self {
-        crate::network::NetworkSecret::FIXTURE.path_key()
+        crate::network::NetworkKeys::fixture().path().clone()
     }
 
     /// The keyed full-width hash of `bytes`.

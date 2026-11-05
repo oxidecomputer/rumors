@@ -18,7 +18,7 @@ pub use crate::tree::Iter;
 /// changes never show through. Hold it as long as you like; it keeps its
 /// messages alive, not the [`Peer`](crate::Peer).
 pub struct Snapshot<T: Send + Sync + 'static> {
-    /// The immutable live set and causal frontier, with its network's secret.
+    /// The immutable live set and causal frontier, with its network's keys.
     tree: Tree<T>,
 }
 
@@ -36,7 +36,7 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
 
     /// Return the gossip network this snapshot belongs to.
     pub fn network(&self) -> Network {
-        self.tree.secret().network()
+        self.tree.keys().network()
     }
 
     /// The causal frontier of everything this set has ever done.

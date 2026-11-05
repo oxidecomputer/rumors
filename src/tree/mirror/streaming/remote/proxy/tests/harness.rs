@@ -161,9 +161,9 @@ where
 
 /// Return the complete root produced by the in-memory join oracle.
 pub fn join_oracle(left: &TreeRoot, right: &TreeRoot) -> TreeRoot {
-    let mut joined = Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, left.clone());
+    let mut joined = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), left.clone());
     joined.join(Tree::from_root(
-        crate::network::NetworkSecret::FIXTURE,
+        crate::network::NetworkKeys::fixture(),
         right.clone(),
     ));
     joined.root
@@ -900,14 +900,14 @@ where
         left_read,
         left_write,
         codec,
-        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+        Some(crate::network::NetworkKeys::fixture()),
     );
     let remote_left = RemoteHandshaking::start(
         right_proxy,
         right_read,
         right_write,
         codec,
-        Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+        Some(crate::network::NetworkKeys::fixture()),
     );
 
     // The left endpoint's materialized participant is the client of its

@@ -77,7 +77,7 @@ where
             a_end.read,
             a_end.write,
             codec,
-            Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+            Some(crate::network::NetworkKeys::fixture()),
         )
         .observe(a_observe);
         let b_proxy = RemoteHandshaking::start(
@@ -85,7 +85,7 @@ where
             b_end.read,
             b_end.write,
             codec,
-            Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+            Some(crate::network::NetworkKeys::fixture()),
         )
         .observe(b_observe);
         // Each endpoint's walk and proxy run inside its own future, so the

@@ -35,7 +35,6 @@ use crate::tree::mirror::streaming::{
     remote::Handshaking as RemoteHandshaking,
 };
 use crate::tree::typed::Path;
-use crate::tree::typed::PathKey;
 use crate::tree::typed::height::{Height, Root as RootHeight};
 use crate::tree::{Action, Root as TreeRoot, Tree, arb::nth_party};
 use crate::{DEFAULT_TARGET_MESSAGE_SIZE, Version};
@@ -146,7 +145,7 @@ impl Divergence {
                 assert_eq!(stats.sends, stats.receives, "queue {role:?} did not drain");
             }
             for root in actual {
-                let tree = Tree::<Vec<u8>>::from_root(crate::network::NetworkSecret::FIXTURE, root);
+                let tree = Tree::<Vec<u8>>::from_root(crate::network::NetworkKeys::fixture(), root);
                 assert_eq!(tree.root, expected.root);
                 // Merkle equality identifies versions; inspect payloads too.
                 for (version, payload) in expected.iter() {
@@ -510,7 +509,7 @@ impl Session {
                     left_read,
                     left_write,
                     codec::<Vec<u8>>(),
-                    Some(std::sync::Arc::new(PathKey::fixture())),
+                    Some(crate::network::NetworkKeys::fixture()),
                 )
                 .observe(sent[0].handle());
                 let right_proxy = RemoteHandshaking::start(
@@ -518,7 +517,7 @@ impl Session {
                     right_read,
                     right_write,
                     codec::<Vec<u8>>(),
-                    Some(std::sync::Arc::new(PathKey::fixture())),
+                    Some(crate::network::NetworkKeys::fixture()),
                 )
                 .observe(sent[1].handle());
                 let (left, right) = join!(

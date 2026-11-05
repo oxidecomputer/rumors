@@ -71,7 +71,7 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
             u64::MAX,
             Grandchildren::MAX,
             PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
-            Some(std::sync::Arc::new(crate::tree::typed::PathKey::fixture())),
+            Some(crate::network::NetworkKeys::fixture()),
         ),
         RunBudget::default(),
         Vec::new(),

@@ -9,7 +9,7 @@ use proptest::collection::{SizeRange, vec};
 use proptest::prelude::*;
 use proptest::sample::subsequence;
 
-use crate::network::NetworkSecret;
+use crate::network::NetworkKeys;
 use crate::tree::traverse::{Action, act};
 use crate::tree::typed::height::Root;
 use crate::tree::typed::{Node, Path};
@@ -224,7 +224,7 @@ pub fn roots_at_depth<const N: usize>(
     roots: [crate::tree::Root; N],
     depth: usize,
 ) -> [crate::tree::Root; N] {
-    let trees = roots.map(|root| crate::tree::Tree::<()>::from_root(NetworkSecret::FIXTURE, root));
+    let trees = roots.map(|root| crate::tree::Tree::<()>::from_root(NetworkKeys::fixture(), root));
     let mut paths: BTreeMap<_, _> = trees
         .iter()
         .flat_map(|tree| {

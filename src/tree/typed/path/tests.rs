@@ -4,7 +4,7 @@ use crate::tree::arb::arb_version;
 
 use super::super::{HMAC_KEY_LEN, Prefix, height};
 use super::*;
-use crate::network::NetworkSecret;
+use crate::network::{NetworkKeys, NetworkSecret};
 use hmac::{Hmac, KeyInit, Mac};
 
 proptest! {
@@ -49,7 +49,9 @@ proptest! {
     ) {
         difference[at] = forced;
         let b: [u8; 16] = std::array::from_fn(|i| a[i] ^ difference[i]);
-        let path = |secret| Path::for_leaf(&NetworkSecret::from_bytes(secret).path_key(), &version);
+        let path = |secret| {
+            Path::for_leaf(NetworkKeys::new(NetworkSecret::from_bytes(secret)).path(), &version)
+        };
         prop_assert_ne!(path(a), path(b));
     }
 

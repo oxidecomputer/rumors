@@ -1,11 +1,11 @@
 //! Tests for network secrets and for the key schedule that derives their
-//! path keys and public identifiers.
+//! keys and public identifiers.
 
 use hmac::{Hmac, KeyInit, Mac};
 use proptest::prelude::*;
 use sha2::Sha256;
 
-use super::{NETWORK_BYTES, NetworkSecret};
+use super::{NETWORK_BYTES, NetworkKeys, NetworkSecret};
 
 /// HMAC-SHA-256 of `message` under `key`, through the `hmac` crate's
 /// one-shot interface.
@@ -52,9 +52,10 @@ proptest! {
         let (path_key, id) = transcribed_schedule(&secret);
         prop_assert_ne!(&path_key[..NETWORK_BYTES], &id[..]);
 
-        let secret = NetworkSecret::from_bytes(secret);
-        prop_assert_eq!(secret.network().to_bytes(), id);
-        let path: [u8; 32] = secret.path_key().hash(&message).into();
+        let keys = NetworkKeys::new(NetworkSecret::from_bytes(secret));
+        prop_assert_eq!(keys.network().to_bytes(), id);
+        prop_assert_eq!(NetworkSecret::from_bytes(secret).network(), keys.network());
+        let path: [u8; 32] = keys.path().hash(&message).into();
         prop_assert_eq!(path, hmac(&path_key, &message));
     }
 
@@ -77,6 +78,36 @@ proptest! {
     fn secret_debug_reveals_nothing(bytes in any::<[u8; NETWORK_BYTES]>()) {
         let rendered = format!("{:?} {:#?}", NetworkSecret::from_bytes(bytes), NetworkSecret::from_bytes(bytes));
         prop_assert_eq!(rendered, "NetworkSecret(..) NetworkSecret(..)");
+    }
+
+    /// The derived keys' `Debug` outputs carry nothing computed from the
+    /// secret but the public identifier.
+    ///
+    /// The path key renders as `PathKey(..)`, and the key set as
+    /// `NetworkKeys` around its identifier, in plain and alternate form.
+    ///
+    /// Each rendering is also searched for the secret and the path key, in
+    /// hex of either case and in Rust's array form, so the claim holds
+    /// whatever the identifier's own rendering looks like.
+    #[test]
+    fn key_debug_reveals_only_the_identifier(secret in any::<[u8; NETWORK_BYTES]>()) {
+        let (path_key, _) = transcribed_schedule(&secret);
+        let keys = NetworkKeys::new(NetworkSecret::from_bytes(secret));
+        let renderings = [
+            (format!("{:?}", keys.path()), "PathKey(..)".to_owned()),
+            (format!("{:#?}", keys.path()), "PathKey(..)".to_owned()),
+            (format!("{keys:?}"), format!("NetworkKeys({:?})", keys.network())),
+            (format!("{keys:#?}"), format!("NetworkKeys(\n    {:?},\n)", keys.network())),
+        ];
+        let derived: [&[u8]; 2] = [&secret, &path_key];
+        for (rendered, expected) in renderings {
+            prop_assert_eq!(&rendered, &expected);
+            for bytes in derived {
+                for form in [hex::encode(bytes), hex::encode_upper(bytes), format!("{bytes:?}")] {
+                    prop_assert!(!rendered.contains(&form), "{} carries {}", rendered, form);
+                }
+            }
+        }
     }
 }
 

@@ -91,7 +91,7 @@ fn empty_carried_listing_asks_for_everything() {
     assert_eq!(left, expected.root);
     assert_eq!(right, expected.root);
     assert_eq!(
-        Tree::<()>::from_root(crate::network::NetworkSecret::FIXTURE, left).hash(),
+        Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), left).hash(),
         populated.hash(),
         "the populated side's content survives; nothing was redacted away"
     );

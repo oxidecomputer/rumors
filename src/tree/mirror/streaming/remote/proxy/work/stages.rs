@@ -31,6 +31,7 @@ use futures::StreamExt;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use super::{Ingress, Outstanding, Parked, Work, encode, queues};
+use crate::network::NetworkKeys;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -118,7 +119,7 @@ where
                 &answered,
                 &mut incoming,
                 self.codec,
-                self.path_key.as_deref(),
+                self.keys.as_deref().map(NetworkKeys::path),
                 room,
                 &mut deliver,
             )

@@ -145,7 +145,7 @@ pub fn leaf_path<T: Send + Sync + 'static>(
     snapshot: &Snapshot<T>,
     version: &crate::Version,
 ) -> [u8; 32] {
-    crate::tree::typed::Path::for_leaf(&snapshot.tree().path_key(), version).into()
+    crate::tree::typed::Path::for_leaf(snapshot.tree().path_key(), version).into()
 }
 
 /// Join snapshots from one network in memory, preparing the result for readers.

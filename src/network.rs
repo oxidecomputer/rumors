@@ -2,27 +2,29 @@
 //!
 //! Every network has a 128-bit secret, drawn when it is
 //! [`seed`](crate::Peer::seed)ed and held by each of its peers. One key
-//! schedule ([`KeySchedule`]) derives two values from the secret: the key
-//! of the hash that places every message in the network's content tree (the
-//! tree's `PathKey`), so that nobody outside the network can compute where a
-//! message sits or what any subtree's digest is, and the network's public
-//! identifier. It leaves a
-//! peer only sealed, in the item a provider sends a bootstrapping peer (the
-//! mirror's `secret` module), and it is never printed: [`NetworkSecret`]'s
-//! `Debug` redacts it, and it has no `Display`.
+//! schedule ([`NetworkKeys`]) derives two values from the secret: the network's
+//! public identifier, and the key of the hash that places every message in the
+//! network's content tree (the tree's `PathKey`). This latter key ensures that
+//! a party who hasn't joined the network canot predict where a future message
+//! will sit in the tree or what any subtree's digest will be. A peer only sends
+//! it out encrypted, to an authenticated peer, in the item a provider sends a
+//! bootstrapping peer (the mirror's `secret` module). It is never printed:
+//! [`NetworkSecret`]'s `Debug` redacts it, and it has no `Display`.
 //!
-//! Everything public speaks the [`Network`] identifier instead, which
-//! reveals nothing about the secret or the path key derived beside it.
-//! Preambles carry it, compatibility checks and
-//! [`Mismatch::Network`](crate::error::Mismatch::Network) compare it,
-//! bookmarks key their records by it, and the API reports it.
+//! Everything publicly accessible from the API speaks in terms of the
+//! [`Network`] identifier instead, which reveals nothing about the secret or
+//! the path key derived beside it. Preambles carry it, compatibility checks and
+//! [`Mismatch::Network`](crate::error::Mismatch::Network) compare it, bookmarks
+//! key their records by it.
 //!
 //! # Cryptographic primitives
 //!
-//! Every primitive the crate uses is aligned with a FIPS algorithm standard,
-//! so that a fully FIPS deployment means swapping in validated
-//! implementations and an approved random source, never changing the
-//! protocol:
+//! Every primitive the crate uses is aligned with a FIPS algorithm standard, so
+//! that in principle, rumors might plausibly one day be deployed in a
+//! FIPS-validated setting. Actually achieving this goal would mean swapping in
+//! validated implementations and an approved random source, but not changing
+//! the choice of algorithms. The choice of cryptography is intentionally
+//! bog-standard:
 //!
 //! - SHA-256 (FIPS 180-4), truncated to 16 bytes (SP 800-107), for the
 //!   comparison digests;
@@ -36,11 +38,12 @@
 //! - SHA3-256 (FIPS 202) for the bookmark's integrity checksum.
 //!
 //! Randomness (the secret, the bootstrap's key pairs) comes from the operating
-//! system's generator, read through `getrandom` on every draw; a validated
-//! deployment would supply an approved DRBG there, a change of source, not of
-//! protocol.
+//! system's generator, read through `getrandom` on every draw; a FIPS validated
+//! deployment would supply an approved DRBG there.
 
 use std::fmt;
+#[cfg(any(test, feature = "test-internals"))]
+use std::sync::{Arc, LazyLock};
 
 use hkdf::Hkdf;
 use rand::CryptoRng;
@@ -57,11 +60,11 @@ use crate::tree::typed::{HMAC_KEY_LEN, PathKey};
 /// Bytes in one network identifier, and in one network secret.
 pub(crate) const NETWORK_BYTES: usize = 16;
 
-/// The key schedule's info label for the leaf-path key ([`KeySchedule`]).
+/// The key schedule's info label for the leaf-path key ([`NetworkKeys`]).
 const PATH_KEY_LABEL: &[u8] = b"rumors path key";
 
 /// The key schedule's info label for the network identifier
-/// ([`KeySchedule`]).
+/// ([`NetworkKeys`]).
 const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 
 /// The identifier shared by every [`Rumors`](crate::Rumors) that descends
@@ -79,7 +82,7 @@ const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 /// create one except through [`seed`](crate::Peer::seed).
 //
 // Internally, the identifier is expanded from the network's secret by its
-// key schedule (`KeySchedule`), so publishing it reveals nothing about the
+// key schedule (`NetworkKeys`), so publishing it reveals nothing about the
 // secret or the path key derived beside it. Each network's secret
 // also keys where its messages sit in the content tree, which strengthens
 // the separation of independently seeded networks: they place even
@@ -146,7 +149,7 @@ impl fmt::Display for Network {
 }
 
 /// A network's 128-bit secret: the input from which its key schedule
-/// ([`KeySchedule`]) derives the key of its leaf paths and its public
+/// ([`NetworkKeys`]) derives the key of its leaf paths and its public
 /// [`Network`] identifier.
 ///
 /// Leaf paths are keyed because versions are predictable. A version is a
@@ -227,15 +230,9 @@ impl NetworkSecret {
     }
 
     /// The public identifier of this secret's network, as its key schedule
-    /// derives it ([`KeySchedule`]).
+    /// derives it ([`NetworkKeys`]).
     pub(crate) fn network(&self) -> Network {
         KeySchedule::extract(self).network()
-    }
-
-    /// The keyed hash that places this secret's network's leaves, under the
-    /// path key its key schedule derives ([`KeySchedule`]).
-    pub(crate) fn path_key(&self) -> PathKey {
-        PathKey::new(&KeySchedule::extract(self).expand::<HMAC_KEY_LEN>(PATH_KEY_LABEL))
     }
 
     /// The raw secret bytes, to seal into the bootstrap's secret item.
@@ -257,22 +254,33 @@ impl fmt::Debug for NetworkSecret {
     }
 }
 
-/// A network secret's key schedule after its extract step: HKDF-SHA-256's
-/// pseudorandom key, from which [`expand`](Self::expand) derives each value
-/// under its label.
+/// A network's secret together with everything derived from it: the keyed
+/// hash that places leaves ([`PathKey`]) and the public [`Network`]
+/// identifier.
 ///
-/// HKDF is the extract-then-expand key derivation of RFC 5869, which NIST
-/// SP 800-56C approves as its two-step key derivation. The extract step
-/// turns the secret into one pseudorandom key, and the expand step derives
-/// each value from that key under its own info label:
+/// The keys are derived once, when a peer draws or receives the secret, and
+/// shared through `Arc` by everything that needs them: the peer, every clone
+/// of its tree, and each session it runs. Constructing a [`PathKey`]
+/// absorbs its key into HMAC's padded key blocks, so deriving it once also
+/// spares every path lookup that work.
+///
+/// # Key schedule
+///
+/// One HKDF-SHA-256 key schedule derives every value from the secret: the
+/// extract-then-expand key derivation of RFC 5869, which NIST SP 800-56C
+/// approves as its two-step key derivation. The extract step turns the
+/// secret into one pseudorandom key, and the expand step derives each value
+/// from that key under its own info label:
 ///
 /// | Value | Info label | Bytes |
 /// |---|---|---|
-/// | the leaf-path key (the tree's `PathKey`) | `"rumors path key"` | 32 |
+/// | the leaf-path key ([`PathKey`]) | `"rumors path key"` | 32 |
 /// | the network identifier ([`Network`]) | `"rumors network id"` | 16 |
 ///
-/// The path key is one SHA-256 output, HMAC-SHA-256's full-strength key,
-/// and the identifier is as wide as the secret.
+/// The path key is one SHA-256 output, the shortest key RFC 2104 recommends
+/// for HMAC-SHA-256. Its strength is still the secret's 128 bits, not its
+/// own 256: whoever finds the secret derives the key from it. The
+/// identifier is as wide as the secret.
 ///
 /// The extract step takes no salt, which RFC 5869 defines as a salt of 32
 /// zero bytes. A salt strengthens extraction from input that is not
@@ -285,6 +293,75 @@ impl fmt::Debug for NetworkSecret {
 /// nothing about the secret or the path key. That is: whoever reads the
 /// identifier off a preamble is no closer to computing a path than one who
 /// never saw it.
+pub(crate) struct NetworkKeys {
+    /// The secret every other field is derived from.
+    secret: NetworkSecret,
+    /// The keyed hash that places the network's leaves.
+    path: PathKey,
+    /// The network's public identifier.
+    network: Network,
+}
+
+impl NetworkKeys {
+    /// Derives a network's keys and identifier from its secret, by the key
+    /// schedule the type's docs give.
+    pub(crate) fn new(secret: NetworkSecret) -> Self {
+        let schedule = KeySchedule::extract(&secret);
+        Self {
+            path: PathKey::new(&schedule.expand::<HMAC_KEY_LEN>(PATH_KEY_LABEL)),
+            network: schedule.network(),
+            secret,
+        }
+    }
+
+    /// The keys of trees that tests build directly, outside any seeded
+    /// peer: those of [`NetworkSecret::FIXTURE`], derived once and shared.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn fixture() -> Arc<Self> {
+        /// The fixture keys, derived on first use.
+        static FIXTURE: LazyLock<Arc<NetworkKeys>> =
+            LazyLock::new(|| Arc::new(NetworkKeys::new(NetworkSecret::FIXTURE)));
+        Arc::clone(&FIXTURE)
+    }
+
+    /// The network's secret, to seal for a bootstrapping peer.
+    pub(crate) fn secret(&self) -> &NetworkSecret {
+        &self.secret
+    }
+
+    /// The keyed hash that places the network's leaves.
+    pub(crate) fn path(&self) -> &PathKey {
+        &self.path
+    }
+
+    /// The network's public identifier.
+    pub(crate) fn network(&self) -> Network {
+        self.network
+    }
+}
+
+/// Keys are equal exactly when their secrets are, since every other field
+/// is a function of the secret.
+impl PartialEq for NetworkKeys {
+    fn eq(&self, other: &Self) -> bool {
+        self.secret == other.secret
+    }
+}
+
+/// Key equality is secret equality, an equivalence relation.
+impl Eq for NetworkKeys {}
+
+/// Redacts the keys: every field but the identifier is a function of the
+/// secret, so only the identifier is shown.
+impl fmt::Debug for NetworkKeys {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("NetworkKeys").field(&self.network).finish()
+    }
+}
+
+/// A network secret's key schedule after its extract step: HKDF-SHA-256's
+/// pseudorandom key, from which [`expand`](Self::expand) derives each value
+/// under its label ([`NetworkKeys`] gives the schedule).
 ///
 /// The pseudorandom key is a function of the secret, so its HMAC state is
 /// cleared when the schedule drops, through the `zeroize` support of the
