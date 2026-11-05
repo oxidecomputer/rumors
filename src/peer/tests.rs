@@ -18,11 +18,13 @@ use super::{
 };
 use crate::default;
 use crate::message::Message;
-use crate::testing::property::{LOCAL_DIVISOR, divided_proptest, network_seed};
+use crate::testing::property::{LOCAL_DIVISOR, SESSION_DIVISOR, divided_proptest, network_seed};
+use crate::testing::{MEMORY_CAPACITY, memory_connection};
 use crate::tree::mirror::streaming::Local;
 use crate::tree::mirror::streaming::materialized::Allowances;
 use crate::tree::mirror::streaming::remote::{RunBudget, WRITE_BUFFER_BYTES};
 use crate::tree::{Action, Tree};
+use crate::{Joined, Version};
 
 /// Add one event to a tree using its owner's current identity.
 fn insert(tree: &mut Tree<u64>, party: &Party, value: u64) {
@@ -770,5 +772,144 @@ proptest! {
             assert!(inherited.latest() > committed);
             assert_eq!(inherited.len(), events + 1);
         });
+    }
+}
+
+/// Join `provider`'s network over an in-memory connection, returning the
+/// joined peer.
+fn joined(provider: &Peer<u64>) -> Peer<u64> {
+    pollster::block_on(async {
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+        let (served, joined) = futures::join!(
+            provider.gossip_once(&mut a_end.read, &mut a_end.write),
+            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+        );
+        served.expect("the provider serves the bootstrap");
+        match joined {
+            Joined::Joined { peer, .. } => peer,
+            _ => panic!("the provider serves the bootstrap"),
+        }
+    })
+}
+
+/// Gossip `a` and `b` over an in-memory connection until both complete.
+fn gossiped(a: &Peer<u64>, b: &Peer<u64>) {
+    pollster::block_on(async {
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+        let (a_out, b_out) = futures::join!(
+            a.gossip_once(&mut a_end.read, &mut a_end.write),
+            b.gossip_once(&mut b_end.read, &mut b_end.write),
+        );
+        a_out.expect("gossip completes on a");
+        b_out.expect("gossip completes on b");
+    });
+}
+
+/// The payloads a replica holds live, sorted.
+fn live_values(peer: &Peer<u64>) -> Vec<u64> {
+    let mut values: Vec<u64> = peer.snapshot().iter().map(|(_, value)| *value).collect();
+    values.sort_unstable();
+    values
+}
+
+/// Messages each side holds before the racing session: the ones both
+/// hold, and the ones each originated since the join.
+const RACED_MESSAGES: u64 = 24;
+
+/// The chunks of `a`'s messages the racing threads redact, one per call of
+/// the publication hook, and the messages one thread sends at each call.
+const RACED_CHUNK: usize = 8;
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// Redactions from two threads and sends from a third, racing a gossip
+    /// session's publication, all survive it: no redacted message is live
+    /// afterwards, and every sent message is.
+    ///
+    /// The racing commits land while the session's result waits to
+    /// publish; the other side honors the redactions once the two gossip
+    /// again.
+    ///
+    /// Each side holds messages both hold and messages only it holds. The
+    /// publication hook runs before every optimistic swap of a session's
+    /// result, on this thread, which publishes both sides' results. At
+    /// each of its first `OPTIMISTIC_ATTEMPTS + 1` calls it runs two
+    /// threads that each redact half of the next chunk of `a`'s messages,
+    /// held before the session, and a third that sends, all on `a`, and
+    /// joins them. Nothing moves `b`'s tree, so `b` publishes at its first
+    /// attempt, and whichever side publishes first, each of `a`'s
+    /// optimistic swaps finds its tree moved, and `a` publishes through the
+    /// exclusive path. The hook's call count shows it: `a`'s two optimistic
+    /// attempts and `b`'s one. A redacted message that `a` also supplies to
+    /// `b` in the session is live on `b` until the next gossip honors the
+    /// redaction.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn redactions_racing_publication_from_two_threads_are_honored(network in network_seed()) {
+        let a = network.peer::<u64>();
+        a.send_all(0..RACED_MESSAGES).unwrap();
+        let b = joined(&a);
+        a.send_all(1_000..1_000 + RACED_MESSAGES).unwrap();
+        b.send_all(2_000..2_000 + RACED_MESSAGES).unwrap();
+        let held: Vec<Version> = a.snapshot().versions().cloned().collect();
+        let chunks: Vec<Vec<Version>> = held
+            .iter()
+            .step_by(2)
+            .cloned()
+            .collect::<Vec<_>>()
+            .chunks(RACED_CHUNK)
+            .take(OPTIMISTIC_ATTEMPTS + 1)
+            .map(<[_]>::to_vec)
+            .collect();
+        prop_assert_eq!(chunks.len(), OPTIMISTIC_ATTEMPTS + 1);
+        let redacted: Vec<Version> = chunks.iter().flatten().cloned().collect();
+        let calls = Rc::new(Cell::new(0usize));
+        let sent = Rc::new(RefCell::new(Vec::new()));
+        BEFORE_SWAP.with_borrow_mut(|hook| {
+            let racer = a.share();
+            let calls = calls.clone();
+            let sent = sent.clone();
+            let mut chunks = chunks.into_iter();
+            *hook = Some(Box::new(move || {
+                let call = calls.get();
+                calls.set(call + 1);
+                let Some(chunk) = chunks.next() else { return };
+                let (left, right) = chunk.split_at(chunk.len() / 2);
+                let first = 3_000 + 100 * call as u64;
+                let sends: Vec<u64> = (first..first + RACED_CHUNK as u64).collect();
+                let racer = &racer;
+                thread::scope(|scope| {
+                    for part in [left, right] {
+                        scope.spawn(move || {
+                            for version in part {
+                                racer.redact(version);
+                            }
+                        });
+                    }
+                    let sends = &sends;
+                    scope.spawn(move || racer.send_all(sends.iter().copied()).unwrap());
+                });
+                sent.borrow_mut().extend(sends);
+            }));
+        });
+        gossiped(&a, &b);
+        BEFORE_SWAP.with_borrow_mut(|hook| *hook = None);
+        prop_assert_eq!(calls.get(), OPTIMISTIC_ATTEMPTS + 1);
+        let sent = sent.borrow().clone();
+        let a_live = live_values(&a);
+        for version in &redacted {
+            prop_assert!(!a.snapshot().contains(version), "a redacted message is live on a");
+        }
+        for value in sent.iter().copied().chain(2_000..2_000 + RACED_MESSAGES) {
+            prop_assert!(a_live.binary_search(&value).is_ok(), "message {} is missing on a", value);
+        }
+
+        gossiped(&a, &b);
+        prop_assert_eq!(live_values(&a), live_values(&b));
+        for version in &redacted {
+            prop_assert!(!b.snapshot().contains(version), "a redacted message is live on b");
+        }
     }
 }
