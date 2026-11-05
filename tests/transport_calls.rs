@@ -37,7 +37,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
-use rumors::testing::{MemoryEnd, memory_connection};
+use rumors::testing::{LANE_CAPACITY, MemoryEnd, memory_connection};
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Rumors};
 use rumors_testkit::bench::session::{Shape, pair};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, ReadBuf};
@@ -296,8 +296,14 @@ fn fixtures() -> [(&'static str, Shape); 4] {
             },
         ),
         ("catch-up", Shape::catch_up(10_000)),
-        ("disjoint", Shape::symmetric(5_000)),
+        ("disjoint", disjoint()),
     ]
+}
+
+/// The fixture with the most frames, nearly all of them small: two
+/// disjoint sets of 5,000 messages, which the sides exchange in full.
+fn disjoint() -> Shape {
+    Shape::symmetric(5_000)
 }
 
 /// The control items each side writes outside the frames, each with its
@@ -420,4 +426,58 @@ fn calls_match_the_baseline() {
         );
         assert_eq!(session(shape, false), sliced, "{name}, first slices only");
     }
+}
+
+/// Hundredths in one: frames per flush are compared in hundredths, so the
+/// band's edges are exact integers.
+const HUNDREDTHS: u64 = 100;
+
+/// The fewest frames per flush, in hundredths, that the multiplexers'
+/// flushes carry in the disjoint session: one, since every flush there
+/// follows a frame.
+const FRAMES_PER_FLUSH_FLOOR: u64 = HUNDREDTHS;
+
+/// The most frames per flush, in hundredths, that the multiplexers'
+/// flushes carry in the disjoint session: [`LANE_CAPACITY`], the frames
+/// one lane's channel holds.
+const FRAMES_PER_FLUSH_CEILING: u64 = LANE_CAPACITY as u64 * HUNDREDTHS;
+
+/// In the disjoint session, the multiplexers' flushes carry between one
+/// frame and [`LANE_CAPACITY`] frames each, on average.
+///
+/// Each flush writes the session's buffer out as one plain write, which a
+/// raw socket pays a system call for, so frames per flush is the batching
+/// a session achieves on the wire. This session sends many small frames
+/// (about 88 bytes each) across large divergence, as a session
+/// reconciling millions of small differences does.
+///
+/// The figure follows from where the multiplexer flushes. It shares one
+/// task set with the encoders that feed it, and it flushes as soon as it
+/// finds every lane's channel empty, within the poll that emptied them.
+/// Taking a frame from a lane wakes that lane's encoder, but the encoder
+/// runs only once the multiplexer's poll returns, after the flush. So a
+/// flush carries what the lanes held when the poll began: at most
+/// [`LANE_CAPACITY`] frames for each lane that held any. Nearly always one
+/// lane holds frames at a time here, which puts the figure just under the
+/// ceiling: the counts in `calls_match_the_baseline` put it at about 1.9.
+///
+/// A figure below the floor means a flush carried no frame, or the frame
+/// count stopped counting. A figure above the ceiling means frames from
+/// more than one lane's worth of handoffs share a flush, from several
+/// active lanes or from encoders refilling their lanes before the
+/// multiplexer flushes, or that the flush count stopped counting. Flushes
+/// beyond the control items' are required, so a flush count that stopped
+/// counting fails here rather than inflating the figure. The exact counts
+/// are `calls_match_the_baseline`'s; this test states the figure they
+/// imply and the band the mechanism puts it in.
+#[test]
+fn frames_per_flush_lie_in_the_band() {
+    let controls = CONTROL_ITEMS * SIDES;
+    let calls = session(disjoint(), true);
+    assert!(calls.flushes > controls, "{calls:?}");
+    let per_flush = calls.frames * HUNDREDTHS / (calls.flushes - controls);
+    assert!(
+        (FRAMES_PER_FLUSH_FLOOR..=FRAMES_PER_FLUSH_CEILING).contains(&per_flush),
+        "{per_flush} hundredths of a frame per flush: {calls:?}"
+    );
 }
