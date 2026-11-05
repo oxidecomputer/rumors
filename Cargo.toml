@@ -93,7 +93,7 @@ hmac = "0.13"
 hpke = { version = "0.15", default-features = false }
 indicatif = "0.18"
 insta = "1.49"
-itertools = "0.14"
+itertools = "0.15"
 libm = "0.2"
 mimalloc = "0.1"
 nix = { version = "0.31", default-features = false }
