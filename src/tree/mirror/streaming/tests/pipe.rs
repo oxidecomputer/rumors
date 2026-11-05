@@ -91,7 +91,7 @@ fn leaf_paths(pair: &(Root, Root)) -> Vec<(Version, Path)> {
 
 /// [`over_pipe`] for a pair whose leaves sit at chosen paths, with leaf-path
 /// derivation following that placement for the session.
-fn placed_over_pipe(
+pub(super) fn placed_over_pipe(
     pair: (Root, Root),
     windows: [WindowConfig; 2],
     buffer: usize,

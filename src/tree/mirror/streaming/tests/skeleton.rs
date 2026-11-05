@@ -95,7 +95,7 @@ impl Skel {
 // -------------------------------------------------------------------- roles
 
 /// A session role: initiator or responder.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum Party {
     /// The initiator: asks about even-height scopes.
     I,
