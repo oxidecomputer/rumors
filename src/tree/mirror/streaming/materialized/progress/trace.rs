@@ -91,12 +91,20 @@ impl Trace {
     ///   unsent, any disputed child's resolution is unsent, or any
     ///   resolved child's dependent-work quota is unfilled.
     ///
-    /// Sibling and wire contiguity prevent a stage from filling one bounded
-    /// edge while withholding the work that drains another. The Lean theorem
-    /// `Control.jam_not_deadlockFree` gives a deadlocking schedule when wire
-    /// contiguity is omitted. Radix order preserves positional pairing because
-    /// protocol items do not carry their scope keys. Parent-last placement is
-    /// the remaining schedule premise used by `Sched.deadlock_free`.
+    /// Sibling and wire contiguity keep a stage from handing on one scope's
+    /// work while it withholds work a resolved sibling still owes; wire
+    /// contiguity is also the premise of the in-flight count
+    /// ([`Self::assert_outstanding_within_count`]) that parking is sized by.
+    /// Radix order preserves positional pairing because protocol items do not
+    /// carry their scope keys. Parent-last placement keeps a parent summary
+    /// behind everything its scope publishes.
+    ///
+    /// These are the invariants the walk's progress relies on. Every completed
+    /// session in the suites passes this validator, which is empirical
+    /// evidence that the walk keeps them, not a proof that it cannot
+    /// deadlock; the [`remote::pipe`](crate::tree::mirror::streaming::remote::pipe)
+    /// module docs give the argument that one shared pipe cannot deadlock the
+    /// walk.
     ///
     /// It also checks the in-flight count ([`Self::assert_outstanding_within_count`]).
     pub fn assert_valid(&self) {
@@ -118,8 +126,8 @@ impl Trace {
     /// of one reply's questions before handing on another. Wire contiguity
     /// in [`Self::assert_valid`] checks that premise among sibling scopes;
     /// this check fails on any violation, sibling or not, that exceeds the
-    /// count. The count also bounds the replies a receiver can have invited
-    /// at a level, since each reply answers one of its questions.
+    /// count. Parking sizes each level's queue of decoded replies by this
+    /// count.
     pub fn assert_outstanding_within_count(&self) {
         self.outstanding_high_water();
     }
@@ -180,7 +188,7 @@ impl Trace {
 
     /// Check that each parent summary follows all work needed to assemble it.
     ///
-    /// This is the parent-last premise of `Sched.deadlock_free`: every wire,
+    /// This is the parent-last invariant: every wire,
     /// disputed-child resolution, and dependent work item owned by a scope
     /// must precede that scope's parent resolution.
     pub(super) fn assert_parent_last(&self) {

@@ -279,22 +279,20 @@ fn probe_classifier_rejects_a_violation() {
     );
 }
 
-/// A lone parent scope stalls the walk when its disputed fan exceeds the
-/// return capacity plus two.
+/// A lone parent scope stalls the walk once its disputed fan exceeds the
+/// return capacity plus two, and completes at that fan.
 ///
-/// The formal model's `Control.pdelay` deadlocks a parent-delaying publisher
-/// at disputed fan = capacity + 2. The walk also publishes a parent resolution
-/// after the final child's dependent queries, yet at fan = capacity + 2 it
-/// completes under every probed poll order: the model's committed adversary
-/// explores interleavings the sequential reaction loop cannot produce. The
-/// walk's stall boundary is the capacity-tightness law's (fan ≤ cap + 2),
-/// pinned here from both sides at cap 1.
+/// The walk publishes a parent resolution after the final child's dependent
+/// queries. At return capacity one, a fan of three (capacity + 2) completes
+/// under every probed poll order and a fan of four stalls under some; at
+/// capacity two, a fan of four completes. That pins the walk's stall
+/// boundary, the capacity-tightness law fan ≤ capacity + 2, from both sides
+/// at capacity one and from below at capacity two.
 #[test]
 fn parent_delay_single_parent_boundary() {
     assert!(
         completes_under_every_schedule(&internal_fan(3), 1),
-        "fan = cap + 2 must complete: the model's tighter pdelay boundary \
-         is not realizable in the sequential walk"
+        "fan = cap + 2 must complete: the tightness law's boundary has moved"
     );
     assert!(
         stalls_under_any_schedule(&internal_fan(4), 1),

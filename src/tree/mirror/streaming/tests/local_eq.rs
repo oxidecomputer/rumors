@@ -1,10 +1,10 @@
-//! `Mux.LocalEq` agrees with what each real tree holds.
+//! [`local_eq`] agrees with what each real tree holds.
 //!
-//! The Lean locality definition (`Mux.viewEnc`/`Mux.LocalEq`)
+//! The locality definition ([`view_enc`] and [`local_eq`])
 //! projects a skeleton to what party `p` holds: every D child (recursed, in
 //! radix order), R children only where `p` is the scope's asker (a held
 //! cut), nothing where `p` is the answerer (a child `p` lacks, invisible at
-//! session start), `leafReqs` erased from both views. This suite ties that
+//! session start), `leaf_reqs` erased from both views. This suite ties that
 //! projection to actual trees, in both directions:
 //!
 //! - **soundness** ([`assert_view_sound`], `view_projection_is_sound`):
@@ -36,7 +36,7 @@ fn holds(local: &BTreeSet<[u8; 32]>, prefix: &[u8]) -> bool {
     local.iter().any(|path| path.starts_with(prefix))
 }
 
-/// Assert the Lean view projection is sound for one session against the
+/// Assert the view projection is sound for one session against the
 /// local tree's literal leaf-path set.
 ///
 /// Retention: every D scope is held by the local tree (a dispute means both
@@ -91,7 +91,7 @@ proptest! {
     /// The projected view retains exactly the structure held by the local tree.
     ///
     /// For one local tree against two different remotes, each session's
-    /// p-view draws exactly `viewEnc`'s split — asker-side R children
+    /// p-view draws exactly [`view_enc`]'s split — asker-side R children
     /// retained, answerer-side R children and leaf requests erased — with
     /// retention and erasure checked against the local tree's literal leaf
     /// paths. The local role is identical across the two sessions once the
@@ -123,7 +123,7 @@ proptest! {
 /// Each sampled shape contains a disputed chain. The two remote trees add a
 /// subtree at different answerer-side depths, so their full skeletons differ
 /// while both additions remain absent from the local view. Equal remote sizes
-/// and ceilings keep the local role fixed. Every case checks that `LocalEq`
+/// and ceilings keep the local role fixed. Every case checks that [`local_eq`]
 /// holds for the local party and fails for the counterparty.
 #[test]
 fn free_insertions_are_invisible_to_the_local_view() {
@@ -233,12 +233,12 @@ fn free_insertions_are_invisible_to_the_local_view() {
 
     assert_eq!(
         nondegenerate, CASES,
-        "every constructed case realizes a nondegenerate LocalEq pair"
+        "every constructed case realizes a nondegenerate local_eq pair"
     );
 }
 
-/// Omitting `leafReqs` lets leaf-request-only skeleton differences remain
-/// `LocalEq`.
+/// Omitting `leaf_reqs` lets leaf-request-only skeleton differences remain
+/// [`local_eq`].
 ///
 /// Two sessions from the same local tree differ only in a height-1 scope's
 /// leaf request count. Their local views agree while their full skeletons do
@@ -264,7 +264,7 @@ fn leaf_requests_are_erased_from_the_view() {
     /// untunable.
     const TIEBREAK_ATTEMPTS: usize = 8;
 
-    /// Run the two sessions and assert the leafReqs-only difference is
+    /// Run the two sessions and assert the `leaf_reqs`-only difference is
     /// invisible to the local view.
     fn check(
         local: Root,
@@ -297,7 +297,7 @@ fn leaf_requests_are_erased_from_the_view() {
         assert_ne!(decoded_0.skel, decoded_1.skel);
         assert!(
             local_eq(p, &decoded_0.skel, &decoded_1.skel),
-            "leafReqs is erased: the views agree while the skeletons differ"
+            "leaf_reqs is erased: the views agree while the skeletons differ"
         );
     }
 

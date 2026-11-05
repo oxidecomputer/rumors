@@ -48,8 +48,17 @@ fn rejects_parent_before_lower_resolution() {
 
 /// A scope cannot resolve while an already-resolved sibling still owes work.
 ///
-/// Without sibling contiguity, publishing every resolution before any query
-/// satisfies the other checks and deadlocks the cap-1 child-resolution queue.
+/// The other checks pass a stage that publishes every resolution before any
+/// query; sibling contiguity rejects that order. The order deadlocks the walk
+/// only when enough resolutions precede the owed work. The assembler takes
+/// each resolution off the window-wide child-resolution queue before it
+/// waits for that resolution's pending children, so the stage waits for good
+/// only when the assembler holds a resolution whose owed work is still
+/// unpublished and the queue is full behind it. The stage has then published
+/// that resolution and `capacity` more, and it blocks sending the next before
+/// it publishes the work the held resolution waits on. At the one-slot
+/// window, that takes three resolutions, the first owing work. This trace
+/// publishes two, so it would not block a stage; it isolates the rule.
 #[test]
 #[should_panic(expected = "still owes 1 dependent work items")]
 fn rejects_sibling_resolution_before_dependent_work() {
@@ -64,10 +73,10 @@ fn rejects_sibling_resolution_before_dependent_work() {
 
 /// A wire may not depart while a resolved sibling still owes dependent work.
 ///
-/// A wire stream that runs ahead of its siblings' dependent work satisfies the
-/// other checks and deadlocks a three-walk wait cycle at uneven fan. The
-/// kernel-checked witness is the Lean control theorem
-/// `Control.jam_not_deadlockFree`.
+/// Such a wire hands on another reply before the stage has recorded every
+/// question its sibling's reply carries, which voids the premise of the
+/// in-flight count that parking is sized by
+/// ([`Trace::assert_outstanding_within_count`]).
 #[test]
 #[should_panic(expected = "departed while resolved sibling")]
 fn rejects_wire_while_sibling_owes_dependent_work() {
@@ -84,7 +93,11 @@ fn rejects_wire_while_sibling_owes_dependent_work() {
 /// This covers the case where the later sibling's wire departs before the
 /// earlier sibling resolves, so at wire time the earlier sibling owes
 /// nothing yet — only the completed trace reveals it was disputed. Without
-/// this arm the owes-work check alone would pass the deadlocking order.
+/// this arm the owes-work check alone would pass this order. When the
+/// earlier sibling owes work, the order hands on another reply before the
+/// stage has recorded the questions that sibling's reply carries, which
+/// voids the premise of the in-flight count, as in
+/// `rejects_wire_while_sibling_owes_dependent_work`.
 #[test]
 #[should_panic(expected = "preceded disputed sibling")]
 fn rejects_wire_before_earlier_sibling_resolution() {

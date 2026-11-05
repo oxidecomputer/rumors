@@ -1,20 +1,19 @@
-//! The formal model's skeleton vocabulary and its decoders from sessions.
+//! A session's dispute skeleton, its per-party views, and its decoders.
 //!
-//! This module mirrors the Lean model's `Skel`, per-party `viewEnc` projection,
-//! `LocalEq`, and `Mux.wedge` witness. Two independent decoders extract a
+//! This module defines the dispute skeleton ([`Skel`]), each party's view of
+//! it ([`view_enc`] and [`local_eq`]), and the one-dispute-ahead-of-six-supplies
+//! shape ([`dispute_before_supplies`]). Two independent decoders extract a
 //! skeleton from a session:
 //!
 //! - [`decode`] reads the materialized progress [`Trace`] (both endpoints'
 //!   internal publications), checking resolution counts and endpoint roles
-//!   against `asks` and `Skel.asmResList`;
+//!   against [`asks`] and the per-scope pending-count laws;
 //! - [`announced`] reads only the payload-erased reply [`Transcript`] and
 //!   reconstructs the same skeleton from choices announced by the protocol.
 //!
-//! The Rust mirror omits model parameters fixed by the implementation: fan is
-//! fixed by `FAN`, and capacity uses the margin-zero discipline. Witness tests
-//! check their values through [`Skel::max_fan`] and [`Skel::max_d_count`]. It
-//! also omits `viewEnc`'s fuel because decoded skeletons are finite trees and
-//! the recursion is structural.
+//! A skeleton records topology only: fan is fixed by `FAN`, and witness tests
+//! check a skeleton's widest fan and largest per-scope dispute count through
+//! [`Skel::max_fan`] and [`Skel::max_d_count`].
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -31,8 +30,8 @@ pub(super) const ROOT_H: usize = RootHeight::HEIGHT;
 
 // ------------------------------------------------------------------ skeleton
 
-/// A skeleton scope's kind (the Lean `Kind`): two-sided dispute or
-/// one-sided whole-subtree request. Matches (`M`) are dropped entirely.
+/// A skeleton scope's kind: two-sided dispute or one-sided whole-subtree
+/// request. Matches (`M`) are dropped entirely.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Kind {
     /// Two-sided dispute: both parties hold the scope with differing hashes.
@@ -42,8 +41,7 @@ pub(super) enum Kind {
     R,
 }
 
-/// One scope of a dispute skeleton, in the flattened BFS encoding
-/// (the Lean `Scope`).
+/// One scope of a dispute skeleton, in the flattened BFS encoding.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Scope {
     /// Two-sided dispute or one-sided request.
@@ -56,7 +54,7 @@ pub(super) struct Scope {
     pub leaf_reqs: usize,
 }
 
-/// A dispute skeleton (the Lean `Skel`, with fixed configuration omitted).
+/// A session's dispute skeleton: its disputed and requested scopes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct Skel {
     /// The scopes; index 0 is the root, ids BFS order.
@@ -66,8 +64,7 @@ pub(super) struct Skel {
 }
 
 impl Skel {
-    /// The widest fan any scope exhibits: the witness's `Skel.fan`, bounded
-    /// by the protocol's `FAN`.
+    /// The widest fan any scope exhibits, bounded by the protocol's `FAN`.
     pub fn max_fan(&self) -> usize {
         self.scopes
             .iter()
@@ -76,7 +73,7 @@ impl Skel {
             .unwrap_or(0)
     }
 
-    /// The number of disputed children of scope `i` (the Lean `Skel.dCount`).
+    /// The number of disputed children of scope `i`.
     pub fn d_count(&self, i: usize) -> usize {
         self.scopes[i]
             .kids
@@ -85,8 +82,8 @@ impl Skel {
             .count()
     }
 
-    /// The largest per-scope dispute count: the tight per-witness value of
-    /// the Lean `Skel.capLevel` field under margin-0 (`wedge_margin0`).
+    /// The largest per-scope dispute count: the most disputed children any
+    /// one scope has.
     pub fn max_d_count(&self) -> usize {
         (0..self.scopes.len())
             .map(|i| self.d_count(i))
@@ -97,7 +94,7 @@ impl Skel {
 
 // -------------------------------------------------------------------- roles
 
-/// A session role (the Lean `Party`): initiator or responder.
+/// A session role: initiator or responder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Party {
     /// The initiator: asks about even-height scopes.
@@ -118,8 +115,8 @@ impl Party {
 
 /// Does party `p` ask (pair reply with query) for scopes at this height?
 ///
-/// Initiator asks even heights, responder odd (the Lean `asks`; the
-/// schedule obeys it by the kernel theorem `Sched.walkKeys_parity`).
+/// Initiator asks even heights, responder odd. [`decode`] checks that every
+/// publication in a session's trace lands on the endpoint this parity assigns.
 pub(super) fn asks(p: Party, height: usize) -> bool {
     match p {
         Party::I => height.is_multiple_of(2),
@@ -145,22 +142,21 @@ pub(super) fn client_role(client: &TreeRoot, server: &TreeRoot) -> Party {
 
 // ------------------------------------------------------------ the projection
 
-/// `viewEnc`'s open-bracket token for a D child (Lean literal `2`).
+/// [`view_enc`]'s open-bracket token for a D child.
 const TOKEN_OPEN: u8 = 2;
-/// `viewEnc`'s close-bracket token for a D child (Lean literal `3`).
+/// [`view_enc`]'s close-bracket token for a D child.
 const TOKEN_CLOSE: u8 = 3;
-/// `viewEnc`'s cut token for an asker-held R child (Lean literal `4`).
+/// [`view_enc`]'s cut token for an asker-held R child.
 const TOKEN_CUT: u8 = 4;
 
-/// Preorder token serialization of party `p`'s view of the skeleton: the
-/// Rust mirror of the Lean `Mux.viewEnc`.
+/// Preorder token serialization of party `p`'s view of the skeleton.
 ///
 /// Per child of each scope, in radix order: a D child emits an open bracket,
 /// its own serialization, and a close bracket — held by `p` in both roles,
 /// content recursed; an R child emits the cut token when `p` is the scope's
 /// asker (a held cut: p's tree has the subtree, the skeleton does not) and
 /// NOTHING when `p` is the answerer (a child the answerer lacks — invisible
-/// at session start). `leafReqs` is never emitted (erased from both views).
+/// at session start). `leaf_reqs` is never emitted (erased from both views).
 pub(super) fn view_enc(p: Party, sk: &Skel) -> Vec<u8> {
     fn go(p: Party, sk: &Skel, i: usize, out: &mut Vec<u8>) {
         let scope = &sk.scopes[i];
@@ -187,9 +183,8 @@ pub(super) fn view_enc(p: Party, sk: &Skel) -> Vec<u8> {
 
 /// Are two skeletons indistinguishable to party `p` at session start?
 ///
-/// The Rust mirror of the Lean `Mux.LocalEq`: equal root heights and
-/// equal p-views. The Lean's `fan`/`capLevel` conjuncts are vacuous in Rust
-/// (single fixed values — module doc), so they do not appear.
+/// They are when their root heights are equal and their p-views
+/// ([`view_enc`]) are equal.
 pub(super) fn local_eq(p: Party, a: &Skel, b: &Skel) -> bool {
     a.root_h == b.root_h && view_enc(p, a) == view_enc(p, b)
 }
@@ -199,21 +194,17 @@ pub(super) fn local_eq(p: Party, a: &Skel, b: &Skel) -> bool {
 /// Assemble a [`Skel`] from classified scope prefixes, returning it with the
 /// BFS id → byte-prefix table.
 ///
-/// Validates the structural laws the Lean `wellFormed` demands of the
-/// encoding: the root exists and is disputed, every scope's parent is a
-/// disputed scope (R scopes are childless), and leaf requests sit under
-/// height-1 disputed scopes only. BFS ids follow from sorting by (depth,
-/// prefix bytes): within a level, lexicographic prefix order is exactly
-/// (parent BFS order, radix order).
+/// Validates the encoding's structural laws: the root exists and is
+/// disputed, every scope's parent is a disputed scope (R scopes are
+/// childless), and leaf requests sit under height-1 disputed scopes only.
+/// BFS ids follow from sorting by (depth, prefix bytes): within a level,
+/// lexicographic prefix order is exactly (parent BFS order, radix order).
 fn assemble(
     d: &BTreeSet<Vec<u8>>,
     r: &BTreeSet<Vec<u8>>,
     leaf_requests: &BTreeSet<Vec<u8>>,
 ) -> (Skel, Vec<Vec<u8>>) {
-    assert!(
-        d.contains(&Vec::new()),
-        "the root scope is always disputed (a conjunct of the Lean `Skel.wellFormed`)"
-    );
+    assert!(d.contains(&Vec::new()), "the root scope is always disputed");
     assert!(
         d.intersection(r).next().is_none(),
         "a scope cannot be both disputed and requested"
@@ -289,25 +280,24 @@ pub(super) struct Decoded {
     pub skel: Skel,
     /// BFS id → scope byte prefix.
     pub prefixes: Vec<Vec<u8>>,
-    /// The requested leaves' full paths (the `leafReqs` witnesses).
+    /// The requested leaves' full paths (the leaves each `leaf_reqs` counts).
     pub leaf_requests: BTreeSet<Vec<u8>>,
     /// The initiator endpoint's work identity.
     pub initiator: usize,
 }
 
 /// Decode a completed two-endpoint session's dispute skeleton from its
-/// progress trace, cross-checking the model's count and parity laws.
+/// progress trace, cross-checking the skeleton's count and parity laws.
 ///
 /// Classification: a scope is `D` iff its answerer published a `Resolution`
 /// for it; `R` iff its supplier published a `Ready` at an internal prefix;
 /// a `Ready` at a full 32-byte path is a supplied leaf request. On the way
-/// out, every event is audited against the model's count and parity laws:
-/// `Resolution` pending counts are `d + r` (height ≥ 2) or `leafReqs`
+/// out, every event is audited against these count and parity laws:
+/// `Resolution` pending counts are `d + r` (height ≥ 2) or `leaf_reqs`
 /// (height 1) and come from the scope's answerer; `ParentResolution` pending
-/// counts are `d` and come from the asker (the two arms of the Lean
-/// `Skel.asmResList`); suppliers, requesters, and dependent-work issuers
-/// land on the endpoint the height parity (the Lean `asks`, kernel-pinned by
-/// `Sched.walkKeys_parity`) assigns them.
+/// counts are `d` and come from the asker; suppliers, requesters, and
+/// dependent-work issuers land on the endpoint the height parity ([`asks`])
+/// assigns them.
 pub(super) fn decode(trace: &Trace) -> Decoded {
     let events = trace.events();
     let works: BTreeSet<usize> = events.iter().map(|event| event.work).collect();
@@ -324,7 +314,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
     let initiator = initial.work;
     let responder = *works.iter().find(|&&work| work != initiator).unwrap();
 
-    // Translate the model's role predicate into the trace's work identities.
+    // Translate the height-parity role predicate into work identities.
     let asker_at = |height| {
         if asks(Party::I, height) {
             initiator
@@ -375,7 +365,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
         .collect();
     let (skel, prefixes) = assemble(&d, &r, &leaf_requests);
 
-    // Audit every publication against the model's laws.
+    // Audit every publication against the count and parity laws.
     for (i, prefix) in prefixes.iter().enumerate() {
         let scope = &skel.scopes[i];
         let h = scope.height;
@@ -392,7 +382,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
                     resolutions[prefix],
                     (answerer_at(h), expected),
                     "answerer-side resolution of {prefix:02x?} (h={h}): pending = d + r, \
-                     or leafReqs at height 1 (the answerer arm of the Lean Skel.asmResList)"
+                     or leaf_reqs at height 1"
                 );
                 assert_eq!(
                     parents[prefix],
@@ -431,7 +421,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
     );
     for leaf in &leaf_requests {
         // Height-1 scopes are answered by the initiator (height 1 is odd,
-        // and the Lean `asks` gives odd heights to the responder to ask): it
+        // and `asks` gives odd heights to the responder to ask): it
         // issues the leaf requests, and the responder supplies them.
         assert_eq!(
             dependents.get(leaf).map(|&(work, _)| work),
@@ -621,10 +611,11 @@ pub(super) enum Channel {
     ParentResolution,
 }
 
-/// Group publications by model channel: endpoint, event kind, and scope depth.
+/// Group publications by channel: endpoint, event kind, and scope depth.
 ///
 /// Preserve order within each channel. The payload-independence comparison
-/// permits different interleavings between channels, as the model does.
+/// permits different interleavings between channels, which remain scheduler
+/// freedom.
 pub(super) fn trace_channels(
     trace: &Trace,
 ) -> BTreeMap<(usize, Channel, usize), Vec<(Vec<u8>, usize)>> {
@@ -637,7 +628,7 @@ pub(super) fn trace_channels(
             EventKind::DependentWork => (Channel::DependentWork, 0),
             EventKind::Ready => (Channel::Ready, 0),
             EventKind::ParentResolution { pending } => (Channel::ParentResolution, pending),
-            // The in-flight count's meter publishes nothing the model orders.
+            // The in-flight count's meter events belong to no channel.
             EventKind::Window(_) | EventKind::Asked { .. } | EventKind::Take { .. } => continue,
         };
         channels
@@ -668,15 +659,14 @@ pub(super) fn transcript_streams(
 
 // ---------------------------------------- one dispute ahead of six supplies
 
-/// One dispute ahead of six whole-subtree supplies, at a chosen root height:
-/// the Rust mirror of the Lean witness `Mux.wedge`.
+/// One dispute ahead of six whole-subtree supplies, at a chosen root height.
 ///
 /// The shape: root fan 7 — the first radix child deep-disputed, a
 /// single-child chain descending every level to a height-1 scope carrying one
 /// leaf request, with six whole-subtree provisions behind it. At
-/// `root_h = 6` this is exactly the Lean literal
-/// (`generator_matches_the_lean_literal`); at `root_h = 32` it is the same
-/// shape at the protocol's real depth, which is what a session realizes.
+/// `root_h = 6` this equals a hand-written literal
+/// (`generator_matches_the_literal_at_height_six`); at `root_h = 32` it is the
+/// same shape at the protocol's real depth, which is what a session realizes.
 pub(super) fn dispute_before_supplies(root_h: usize) -> Skel {
     assert!(root_h >= 3, "the chain needs depth of at least 2");
     let mut scopes = vec![

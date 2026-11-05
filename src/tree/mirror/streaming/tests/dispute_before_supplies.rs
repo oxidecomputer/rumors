@@ -1,18 +1,27 @@
 //! Real trees can produce one dispute ahead of six whole-subtree supplies.
 //!
-//! The Lean witness `Mux.wedge`, which the theorem `wc_impossibility` uses,
-//! has this shape: a root fan of seven, with the first child disputed down to
-//! a leaf request and six whole-subtree supplies behind it. It is the smallest
-//! schedule in which one shared socket deadlocks. These tests establish that
-//! a session between real trees can produce that shape.
+//! The shape has a root fan of seven, with the first child disputed down to
+//! a leaf request and six whole-subtree supplies behind it. At the one-slot
+//! window, the requesting side's stage cannot take the later supplies until
+//! the disputed chain resolves, every level down to the leaf, while the
+//! supplier writes the supplies as soon as it encodes them, long before the
+//! chain's deeper replies, each of which waits on a round trip. So the
+//! receiving side must hold supplies its stage has not taken: the `pipe`
+//! tests show parking capped at one slot overflowing on this shape. A reader
+//! that waited for each frame's stage to accept it would stop reading at
+//! those supplies, ahead of the replies the chain needs; the `remote::pipe`
+//! module docs explain that hazard and why this design's reader never waits
+//! on the walk. No test runs such a reader, so the stall it would meet is
+//! argued from the code, not observed. These tests establish that a session
+//! between real trees can produce the shape.
 //!
 //! The pair is hand-placed because a structural equality check needs exact
 //! paths, which content-addressed generators cannot supply.
 //!
-//! The Lean literal lives at `rootH = 6`; the protocol's real root is at
-//! height 32, where the same construction yields the same shape with the
+//! The hand-written literal lives at root height 6; the protocol's real root
+//! is at height 32, where the same construction yields the same shape with the
 //! disputed chain descending every level. Both are pinned: the generator
-//! against the transcribed literal, and the session against the generator.
+//! against the literal, and the session against the generator.
 
 use super::fixtures::{grown, leaf_sibling_path, path_at, rooted};
 use super::skeleton::{
@@ -21,20 +30,18 @@ use super::skeleton::{
 use super::transcribed_mirror_sides;
 use crate::tree::Root;
 
-/// The Lean witness's `fan` field: the tight fan bound of the witness
-/// (`Mux.wedge`: `fan := 7`).
-const LEAN_WITNESS_FAN: usize = 7;
+/// The shape's widest fan: the root's seven children.
+const SHAPE_FAN: usize = 7;
 
-/// The Lean witness's `capLevel` field: the margin-0 dispute bound the witness
-/// satisfies (`Mux.wedge`: `capLevel := 1`; the theorem `Mux.wedge_margin0`).
-const LEAN_WITNESS_CAP_LEVEL: usize = 1;
+/// The shape's largest per-scope dispute count: no scope has more than one
+/// disputed child.
+const SHAPE_MAX_D_COUNT: usize = 1;
 
-/// Transcribes the Lean definition `Mux.wedge`, the source of truth, scope
-/// for scope.
+/// Writes out the shape at root height 6, scope for scope, independently of
+/// the generator.
 ///
-/// Review this transcription against `Mux.wedge` whenever either changes.
 /// The generator and session checks below hold the Rust side to this shape.
-fn lean_witness_literal() -> Skel {
+fn height_six_literal() -> Skel {
     let sc = |kind, height, kids: &[usize], leaf_reqs| Scope {
         kind,
         height,
@@ -60,18 +67,14 @@ fn lean_witness_literal() -> Skel {
     }
 }
 
-/// The generator reproduces the Lean literal at the literal's root height,
-/// so pinning a session to `dispute_before_supplies(ROOT_H)` is pinning it to
-/// the same
-/// shape the kernel-checked theorems quantify over.
+/// The generator reproduces the hand-written literal at the literal's root
+/// height, with the shape's fan and dispute count, so pinning a session to
+/// `dispute_before_supplies(ROOT_H)` pins it to the same shape.
 #[test]
-fn generator_matches_the_lean_literal() {
-    assert_eq!(dispute_before_supplies(6), lean_witness_literal());
-    assert_eq!(dispute_before_supplies(6).max_fan(), LEAN_WITNESS_FAN);
-    assert_eq!(
-        dispute_before_supplies(6).max_d_count(),
-        LEAN_WITNESS_CAP_LEVEL
-    );
+fn generator_matches_the_literal_at_height_six() {
+    assert_eq!(dispute_before_supplies(6), height_six_literal());
+    assert_eq!(dispute_before_supplies(6).max_fan(), SHAPE_FAN);
+    assert_eq!(dispute_before_supplies(6).max_d_count(), SHAPE_MAX_D_COUNT);
 }
 
 /// A concrete tree pair whose session dispute skeleton is one dispute ahead
@@ -111,14 +114,12 @@ pub(super) fn dispute_before_supplies_trees() -> (Root, Root) {
 ///
 /// The shape has a root fan of seven: its first child is disputed down to one
 /// leaf request, followed by six whole-subtree supplies. The construction uses
-/// the protocol's real root height while preserving the model's fan and
-/// capacity values.
+/// the protocol's real root height while preserving the shape's fan and
+/// per-scope dispute count.
 ///
-/// This establishes that the witness used by `wc_impossibility` can arise from
-/// real trees. The session still converges, here in process and in the
-/// `pipe` tests over one pipe: the theorem concerns a shared pipe whose
-/// reader waits for each frame's stage, which this design's reader never
-/// does.
+/// This establishes that the shape can arise from real trees. The session
+/// still converges, here in process and in the `pipe` tests over one pipe,
+/// where the reader never waits for a frame's stage to accept it.
 #[test]
 fn session_realizes_one_dispute_before_six_supplies() {
     let (supplier, chain) = dispute_before_supplies_trees();
@@ -137,9 +138,9 @@ fn session_realizes_one_dispute_before_six_supplies() {
     assert_eq!(
         decoded.skel,
         dispute_before_supplies(ROOT_H),
-        "the session's dispute skeleton is the modeled shape at the protocol's \
+        "the session's dispute skeleton is the generated shape at the protocol's \
          root height"
     );
-    assert_eq!(decoded.skel.max_fan(), LEAN_WITNESS_FAN);
-    assert_eq!(decoded.skel.max_d_count(), LEAN_WITNESS_CAP_LEVEL);
+    assert_eq!(decoded.skel.max_fan(), SHAPE_FAN);
+    assert_eq!(decoded.skel.max_d_count(), SHAPE_MAX_D_COUNT);
 }
