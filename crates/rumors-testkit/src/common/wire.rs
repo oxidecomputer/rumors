@@ -17,7 +17,6 @@ use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
 use crate::common::budget::BudgetChoice;
-use crate::common::seed::NetworkSeed;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -176,26 +175,6 @@ pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
     a.send_all(0..values_per_side).unwrap();
     b.send_all((0..values_per_side).map(|v| 1_000_000 + v))
         .unwrap();
-}
-
-/// Two party-disjoint forks of the network `network` founds, fully divergent by
-/// [`diverge`], each at its own budget choice.
-///
-/// The shared fixture for session-effect measurements: the fault engine's
-/// envelope calibration builds its richer variant on [`diverge`].
-pub async fn divergent_pair(
-    network: NetworkSeed,
-    values_per_side: u64,
-    budget_a: BudgetChoice,
-    budget_b: BudgetChoice,
-) -> (Rumors<u64>, Rumors<u64>) {
-    let seed = BudgetChoice::Default
-        .apply(network.peer::<u64>())
-        .into_rumors();
-    let a = bootstrap_fork_with_budget_async(&seed, budget_a).await;
-    let b = bootstrap_fork_with_budget_async(&seed, budget_b).await;
-    diverge(&a, &b, values_per_side);
-    (a, b)
 }
 
 /// Join the parent's network with an independent peer holding its messages.
