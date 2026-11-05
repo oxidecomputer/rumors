@@ -952,14 +952,17 @@ proptest! {
     }
 }
 
-/// Interrupting a supply run finalizes its radix, so later resumption is rejected as reordering.
+/// A supply run cannot resume after a positional reaction interrupts it:
+/// the resumed run's radix does not sit above the interrupting reaction's.
+///
+/// Two leaves share the radix of one run. The interrupting match takes the
+/// scope's one listed child, just above the run's radix, so it is
+/// positionally valid and in radix order, and the failure isolates the
+/// resumption itself.
 #[test]
 fn a_supply_run_cannot_resume_after_another_reaction() {
     let leaves = colliding_leaves(2);
     let expected = <[u8; 32]>::from(leaves[0].path())[0];
-    // The interrupting Match consumes the scope's one listed child, just
-    // above the run's radix, so it is positionally valid and in radix
-    // order, and the failure isolates the supply resumption itself.
     let interrupting = expected
         .checked_add(1)
         .expect("the colliding leaves' radix is below the top one");
@@ -992,11 +995,11 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
         .err()
         .expect("a keyed supply may occupy only one ascending run")
     });
-    match error {
-        DecodeError::SupplyOrder { previous, radix } => {
-            assert_eq!(previous, expected);
-            assert_eq!(radix, expected);
-        }
-        other => panic!("expected SupplyOrder, got {other:?}"),
-    }
+    assert_eq!(
+        decode_scope_error(error),
+        ScopeError::Unordered {
+            after: interrupting,
+            radix: expected,
+        },
+    );
 }

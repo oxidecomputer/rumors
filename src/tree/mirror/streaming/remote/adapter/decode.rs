@@ -611,8 +611,6 @@ struct SupplyRuns {
     previous_leaf: Option<Prefix<Z>>,
     /// Prefix of the supply run currently receiving leaves.
     current: Option<ErasedPrefix>,
-    /// Last run radix, retained across positional reactions.
-    previous_radix: Option<u8>,
 }
 
 impl SupplyRuns {
@@ -622,7 +620,6 @@ impl SupplyRuns {
             version_bytes,
             previous_leaf: None,
             current: None,
-            previous_radix: None,
         }
     }
 
@@ -679,12 +676,11 @@ impl SupplyRuns {
         }
         self.previous_leaf = Some(leaf_prefix);
 
+        // A run that resumes after a positional reaction starts anew here,
+        // and the reply's allowance refuses it: its radix does not sit above
+        // the reaction that interrupted it.
         let run = if self.current != Some(node_prefix) {
-            if let Some(previous) = self.previous_radix.filter(|previous| *previous == radix) {
-                return Err(DecodeError::SupplyOrder { previous, radix });
-            }
             self.current = Some(node_prefix);
-            self.previous_radix = Some(radix);
             Some((radix, node_prefix))
         } else {
             None

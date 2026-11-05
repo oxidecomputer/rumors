@@ -119,9 +119,6 @@ pub enum DecodeError<E> {
         previous: [u8; 32],
         current: [u8; 32],
     },
-    /// A supplied run resumed after another reaction interrupted it.
-    #[error("supplied radix {radix:#04x} repeats earlier run {previous:#04x}")]
-    SupplyOrder { previous: u8, radix: u8 },
     /// A supplied version's encoding exceeds the peer's declared `max_version_bytes`.
     ///
     /// Every leaf version a peer supplies is one its own tree
