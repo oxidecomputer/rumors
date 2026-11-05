@@ -48,22 +48,27 @@ use crate::tree::{
 /// The yield must remain inside this macro so `async_stream` can lower it.
 /// Keeping the wire action, resolution, and dependent queries together also
 /// prevents their required publication order from drifting between walks.
+/// With the wire action, test builds record how many questions the reply
+/// carries and the typed height of the children they list, for the trace's
+/// in-flight count.
 macro_rules! yield_resolve_query {
     (
         $progress:expr, $scope:expr;
         $yielded:expr;
         $resolutions:expr => $resolution:expr;
-        $queries:expr => $next_queries:expr;
+        $queries:expr => $next_queries:expr, at height $height:expr;
     ) => {{
         let scope = $scope;
+        let next_queries = $next_queries;
         $progress.wire(scope);
+        $progress.asked(scope, $height, next_queries.len());
         $yielded;
         let resolution = $resolution;
         $progress.resolution(&resolution);
         if $resolutions.send(resolution).await.is_err() {
             return;
         }
-        for query in $next_queries {
+        for query in next_queries {
             $progress.dependent(&query);
             if $queries.send(query).await.is_err() {
                 return;
@@ -151,6 +156,7 @@ where
             // never waits: its first query cannot arrive earlier.
             let _ = early_tx.send(early);
             progress.wire(root_scope);
+            progress.asked(root_scope, UnderRoot::HEIGHT, 1);
             yield Reply {
                 reactions: std::iter::once(Reaction::Query(fan_listing(&fan)))
                     .chain(supplies)
@@ -294,7 +300,7 @@ where
                     prefix: root_scope,
                     resolved,
                 };
-                asked => next_queries;
+                asked => next_queries, at height UnderUnderRoot::HEIGHT;
             );
 
             if requests.next().await.is_some() {
@@ -435,6 +441,7 @@ where
                 let Some(Reply { reactions }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
+                progress.take(asked_height + 2, &query);
 
                 // A root-level request whose reply arrived empty resolves
                 // from the opening's early supplies: the content crossed at
@@ -527,7 +534,7 @@ where
                             prefix: child_prefix,
                             resolved,
                         };
-                        asked => next_queries;
+                        asked => next_queries, at height asked_height;
                     );
                     resolver.pending(radix);
                 }
@@ -596,6 +603,7 @@ where
                 let Some(Reply { reactions }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
+                progress.take(<S<Z>>::HEIGHT, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 for reaction in reactions {
@@ -635,7 +643,7 @@ where
                             prefix: child_prefix,
                             resolved,
                         };
-                        asked => next_queries;
+                        asked => next_queries, at height Z::HEIGHT;
                     );
                     resolver.pending(radix);
                 }
@@ -694,6 +702,7 @@ where
                 let Some(Reply { reactions }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
+                progress.take(Z::HEIGHT, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 for reaction in reactions {

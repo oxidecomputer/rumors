@@ -120,6 +120,7 @@ pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
+use progress::Progress;
 use work::{Resolver, Work};
 
 pub use error::{Error, Violation};
@@ -730,6 +731,7 @@ where
             self.queries,
             self.returns,
             stats,
+            self.work.progress(),
         );
         // Both operations must succeed. Either error cancels the other,
         // which may be waiting on a peer that cannot finish the session.
@@ -760,6 +762,7 @@ async fn absorb<B>(
     mut queries: Receiver<Prefix<Z>>,
     mut returns: Sender<Option<B::Erased>>,
     stats: Recorder,
+    progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -769,6 +772,7 @@ where
         let Some(Reply { reactions }) = requests.next().await else {
             return violation(Violation::UnansweredQuery);
         };
+        progress.take(Z::HEIGHT, &prefix);
 
         // The request names one leaf: its scope is the parent, and the
         // radix it asks for is the path's last byte.

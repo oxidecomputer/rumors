@@ -354,7 +354,11 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
             EventKind::ParentResolution { pending } => unique(&mut parents, event, pending),
             EventKind::Ready => unique(&mut readies, event, 0),
             EventKind::DependentWork => unique(&mut dependents, event, 0),
-            EventKind::Wire | EventKind::InitialQuery => {}
+            EventKind::Wire
+            | EventKind::InitialQuery
+            | EventKind::Window(_)
+            | EventKind::Asked { .. }
+            | EventKind::Take { .. } => {}
         }
     }
 
@@ -640,6 +644,8 @@ pub(super) fn trace_channels(
             EventKind::DependentWork => (Channel::DependentWork, 0),
             EventKind::Ready => (Channel::Ready, 0),
             EventKind::ParentResolution { pending } => (Channel::ParentResolution, pending),
+            // The in-flight count's meter publishes nothing the model orders.
+            EventKind::Window(_) | EventKind::Asked { .. } | EventKind::Take { .. } => continue,
         };
         channels
             .entry((event.work, kind, event.scope.len()))

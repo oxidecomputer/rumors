@@ -1,4 +1,8 @@
 use super::{Event, Kind, Trace};
+use crate::tree::{
+    mirror::streaming::window::{FAN, Window},
+    typed::height::{Height, UnderRoot},
+};
 
 /// Build one trace event for the test endpoint.
 fn event(scope: &[u8], kind: Kind) -> Event {
@@ -170,4 +174,73 @@ fn rejects_out_of_order_dependent_work() {
         event(&[1, 1], Kind::DependentWork),
     ])
     .assert_valid();
+}
+
+/// One question past the in-flight count fails the count check: at the floor
+/// window, `1 + FAN + 1` questions may be outstanding at an internal height,
+/// and one more may not.
+#[test]
+#[should_panic(expected = "over the count's bound of 258")]
+fn rejects_questions_past_the_count() {
+    Trace(vec![
+        event(&[], Kind::Window(Box::new(Window::FLOOR))),
+        event(
+            &[1],
+            Kind::Asked {
+                height: 29,
+                questions: 2,
+            },
+        ),
+        event(
+            &[2],
+            Kind::Asked {
+                height: 29,
+                questions: FAN,
+            },
+        ),
+        event(
+            &[3],
+            Kind::Asked {
+                height: 29,
+                questions: 1,
+            },
+        ),
+    ])
+    .assert_outstanding_within_count();
+}
+
+/// The root level admits one outstanding question, whatever the window.
+#[test]
+#[should_panic(expected = "over the count's bound of 1")]
+fn rejects_a_second_root_question() {
+    Trace(vec![
+        event(&[], Kind::Window(Box::new(Window::uniform(FAN)))),
+        event(
+            &[],
+            Kind::Asked {
+                height: UnderRoot::HEIGHT,
+                questions: 2,
+            },
+        ),
+    ])
+    .assert_outstanding_within_count();
+}
+
+/// A take must answer an outstanding question at its height; one that does
+/// not means the meter's event boundaries are wrong.
+#[test]
+#[should_panic(expected = "answered no outstanding question")]
+fn rejects_a_take_without_a_question() {
+    Trace(vec![
+        event(&[], Kind::Window(Box::new(Window::FLOOR))),
+        event(
+            &[1],
+            Kind::Asked {
+                height: 29,
+                questions: 1,
+            },
+        ),
+        event(&[1, 0], Kind::Take { height: 28 }),
+    ])
+    .assert_outstanding_within_count();
 }

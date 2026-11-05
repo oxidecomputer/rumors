@@ -525,6 +525,130 @@ pub fn poisoned_root(
     (root, path, escaped)
 }
 
+/// Versions on `party`'s chain whose leaf paths open with each of
+/// `prefixes`, one per prefix, in prefix order, at the tick counts in `hint`.
+///
+/// Leaf paths are hashes of versions, so a fixture that needs leaves under
+/// chosen prefixes takes versions a search of the chain found. Skipped
+/// versions read as content the side sent and redacted, which is invisible
+/// to a peer on another party. `None` means the hint is stale: some tick
+/// count no longer lands under its prefix.
+fn hinted_versions(party: &Party, prefixes: &[[u8; 2]], hint: &[usize]) -> Option<Vec<Version>> {
+    if hint.len() != prefixes.len() {
+        return None;
+    }
+    prefixes
+        .iter()
+        .zip(hint)
+        .map(|(prefix, &ticks)| {
+            let mut version = Version::new();
+            version.ticks(party, ticks);
+            let path = <[u8; 32]>::from(Path::for_leaf(&version));
+            (path[..2] == prefix[..]).then_some(version)
+        })
+        .collect()
+}
+
+/// The prefixes the full-fan fixture's initiator needs: `[0, 1]` and
+/// `[1, 0]`.
+const FULL_FAN_INITIATOR_PREFIXES: [[u8; 2]; 2] = [[0, 1], [1, 0]];
+
+/// Tick counts on party 2 reaching [`FULL_FAN_INITIATOR_PREFIXES`], found by
+/// searching the chain under the current leaf-path derivation.
+///
+/// `full_fan_hints_match_current_paths` checks them and finds replacements
+/// when they go stale.
+const FULL_FAN_INITIATOR_HINT: [usize; 2] = [270_853, 92_282];
+
+/// The prefixes the full-fan fixture's responder needs: `[0, 1]`, `[0, 2]`,
+/// then every `[1, r]`.
+fn full_fan_responder_prefixes() -> Vec<[u8; 2]> {
+    let mut prefixes = vec![[0, 1], [0, 2]];
+    prefixes.extend((0..=u8::MAX).map(|radix| [1, radix]));
+    prefixes
+}
+
+/// Tick counts on party 1 reaching [`full_fan_responder_prefixes`], in
+/// order, found and checked as [`FULL_FAN_INITIATOR_HINT`] is.
+const FULL_FAN_RESPONDER_HINT: [usize; 258] = [
+    18_962, 40_889, 27_010, 211_195, 19_706, 21_881, 54_897, 55_213, 91_092, 75_487, 57_922,
+    129_646, 15_956, 27_269, 60_276, 17_875, 44_432, 49_027, 30_845, 3_003, 405_306, 37_697,
+    150_288, 38_082, 9_090, 85_199, 14_547, 79_298, 88_036, 118_193, 3_878, 3_005, 38_951, 10_080,
+    21_753, 25_463, 37_665, 120_058, 23_585, 44_734, 49_102, 42_329, 28_201, 35_296, 40_202, 9_881,
+    67_895, 10_711, 21_660, 99_856, 34_287, 151_910, 175_144, 158_745, 29_865, 133_456, 174_699,
+    394_982, 92_380, 18_423, 22_932, 122_219, 37_966, 261_661, 47_842, 73_358, 5_490, 46_419,
+    62_156, 55_349, 40_167, 107_696, 66_983, 10_676, 226_499, 60_887, 42_377, 118_255, 19_114,
+    303_080, 1_038, 146_243, 91_154, 26_758, 33_518, 45_628, 100_442, 83_696, 180_232, 31_670,
+    154_879, 1_194, 3_119, 26_306, 16_718, 36_013, 134_275, 151_686, 50_440, 73_298, 28_965,
+    29_618, 99_641, 364_846, 62_856, 12_155, 16_577, 2_731, 38_127, 18_244, 200_081, 260_589,
+    28_444, 9_631, 2_855, 22_326, 13_440, 27_726, 37_431, 141_724, 41_248, 76_252, 98_193, 28_471,
+    25_352, 24_260, 43_762, 12_425, 47_058, 45_448, 57_467, 31_305, 143_926, 5_071, 44_988, 4_614,
+    61_435, 85_772, 48_061, 149_746, 44_429, 9_220, 50_876, 64_035, 89_815, 204, 43_723, 156_127,
+    22_613, 73_180, 53_383, 6_827, 16_120, 10_914, 145_119, 13_858, 137_502, 25_531, 13_703, 4_397,
+    33_800, 337, 33_988, 95_744, 24_857, 28_689, 1_966, 43_780, 279_251, 76_977, 67_769, 27_449,
+    68_687, 334_321, 113_384, 30_723, 69_038, 32_355, 86_042, 4_252, 20_776, 36_887, 135_491,
+    34_397, 56_106, 13_311, 39_133, 55_802, 18_862, 338_089, 10_285, 290, 214_053, 73_912, 32_726,
+    19_295, 68_478, 88_647, 3_088, 4_157, 161_888, 1_122, 11_853, 61_201, 22_685, 66_469, 31_505,
+    18_419, 94_173, 135_178, 44_166, 66_219, 184_354, 119_889, 136_451, 41_295, 113_098, 91_976,
+    167_469, 13_683, 112_244, 32_009, 38_600, 164_002, 29_115, 205_799, 54_478, 100_289, 40_263,
+    51_499, 22_475, 47_221, 32_067, 46_502, 8_394, 154_828, 115_101, 52_546, 40_361, 36_721,
+    21_202, 27_640, 6_466, 26_522, 10_211, 17_638, 69_377, 34_709, 48_817, 75_447, 74_875, 24_664,
+    104_612, 48_401, 14_869, 15_017, 89_664, 102_183,
+];
+
+/// A tree holding one leaf at each version, at the version's own path.
+fn tree_of(versions: Vec<Version>) -> crate::tree::Root {
+    let ceiling = versions
+        .iter()
+        .fold(Version::new(), |ceiling, version| ceiling | version.clone());
+    let actions = versions
+        .into_iter()
+        .map(|version| {
+            (
+                Path::for_leaf(&version),
+                version,
+                Action::Insert(Message::new(())),
+            )
+        })
+        .collect();
+    root_with_ceiling(act(None, actions, &mut |_| ()), ceiling)
+}
+
+/// Two trees, initiator first, whose initiator answers one disputed root
+/// child with a reply carrying two level-3 questions and the next with a
+/// reply carrying a full fan of them.
+///
+/// Both sides hold root children 0 and 1, on concurrent parties, so every
+/// prefix both hold differs. Under 0 the responder lists `[0, 1]`, which the
+/// initiator also holds, and `[0, 2]`, which it lacks: two questions. Under 1
+/// the responder lists all 256 depth-2 prefixes, of which the initiator
+/// holds only `[1, 0]`: 256 questions. The initiator holds two leaves
+/// against the responder's 258, so it wins the smaller-set election. Paths
+/// are version hashes, at versions hinted from a search of each party's
+/// chain, so the pair crosses a real wire.
+///
+/// At a one-slot window the initiator's level-3 questions reach the
+/// in-flight count exactly: one dequeued and awaiting its answer, one
+/// recorded, and the full fan handed on behind them.
+pub fn full_fan_behind_two_pair() -> (crate::tree::Root, crate::tree::Root) {
+    const STALE: &str =
+        "a full-fan hint is stale; `full_fan_hints_match_current_paths` finds a fresh one";
+    let initiator = hinted_versions(
+        &nth_party(2),
+        &FULL_FAN_INITIATOR_PREFIXES,
+        &FULL_FAN_INITIATOR_HINT,
+    )
+    .expect(STALE);
+    let responder = hinted_versions(
+        &nth_party(1),
+        &full_fan_responder_prefixes(),
+        &FULL_FAN_RESPONDER_HINT,
+    )
+    .expect(STALE);
+    let (initiator, responder) = (tree_of(initiator), tree_of(responder));
+    (initiator, responder)
+}
+
 /// A pair of trees sharing one leaf and each holding one more, all under the
 /// same leaf-parent (`S<Z>`) prefix, plus the union both sides must converge
 /// to.

@@ -40,6 +40,7 @@ mod dispute_before_supplies;
 mod faults;
 mod fixtures;
 mod local_eq;
+mod outstanding;
 mod skeleton;
 mod stats;
 
