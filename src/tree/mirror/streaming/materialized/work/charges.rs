@@ -35,10 +35,10 @@ use crate::tree::mirror::streaming::{
 use crate::tree::typed::{
     ErasedPrefix,
     height::{self, Height, Z},
+    untyped,
 };
 
 use super::LeafRequest;
-#[cfg(any(test, feature = "test-internals"))]
 use super::answer::{Planned, Question};
 
 /// The bytes an outgoing reply holds while it waits for its consumer: its
@@ -283,11 +283,14 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 /// The most an answer's own unit holds, before its scope is explored.
 ///
 /// That is the copies exploding its scope makes, `copies`, its resolution,
-/// with a slot for each child either side holds, and its reactions that ask
-/// nothing, one per such child at most. This side holds `ours` children of
-/// the scope and the peer listed `theirs`; their union is at most their sum
-/// and, since each sits at its own radix, at most a fan
-/// ([`answer_children`]).
+/// with a slot for each child either side holds, its plan, with an entry
+/// for each such child at most, and its reactions that ask nothing, one per
+/// such child at most. This side holds `ours` children of the scope and the
+/// peer listed `theirs`; their union is at most their sum and, since each
+/// sits at its own radix, at most a fan ([`answer_children`]).
+///
+/// A plan entry is priced at an internal answer's: a leaf parent's, which
+/// plans each question by its radix alone, is no larger.
 pub(crate) const fn answer_bound<E, Err>(ours: usize, theirs: usize, copies: usize) -> usize {
     let children = answer_children(ours, theirs);
     // A chunk's reactions keep one slot spare for a question
@@ -295,8 +298,17 @@ pub(crate) const fn answer_bound<E, Err>(ours: usize, theirs: usize, copies: usi
     copies
         + queued::<Resolution<E>>()
         + children * size_of::<(u8, Resolve<E>)>()
+        + children * size_of::<Planned<E, Question<E>>>()
         + chunk_bound::<E, Err>(children + 1, 0)
 }
+
+/// A leaf parent's plan entry is no larger than an internal answer's, at
+/// which [`answer_bound`] prices both, for the in-memory backend's nodes.
+const _: () = assert!(
+    size_of::<Planned<untyped::Node, u8>>()
+        <= size_of::<Planned<untyped::Node, Question<untyped::Node>>>(),
+    "a leaf parent's plan entry must fit an internal answer's price",
+);
 
 /// The most children an answer's scope can hold when this side holds
 /// `ours` of them and the peer listed `theirs`: their sum, at most a fan.
@@ -494,8 +506,6 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 ///   A stream's questions travel one channel; its resolutions two, the
 ///   child and the parent ones; its outgoing replies one; its parked chunks
 ///   one; its records two, the decoder's queue and the take's scopes.
-/// - [`Holding::Resolutions`]: an answer's plan, one entry per child either
-///   side holds, at most two fans, in a vector at most twice its length.
 /// - [`Holding::OutgoingReplies`]: a chunk's reactions, allocated before
 ///   its question is admitted with one slot spare, at most two fans and
 ///   one; and a question's listing, a fan of entries, built before the
@@ -514,9 +524,7 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 pub(crate) fn scratch<E, Err>(place: Holding) -> usize {
     match place {
         Holding::Questions => queued::<Query<E>>().max(queued::<LeafRequest>()),
-        Holding::Resolutions => {
-            2 * queued::<Resolution<E>>() + 2 * 2 * FAN * size_of::<Planned<E, Question<E>>>()
-        }
+        Holding::Resolutions => 2 * queued::<Resolution<E>>(),
         Holding::OutgoingReplies => {
             queued::<Result<Reply<E>, Error<Err>>>()
                 + (2 * FAN + 1) * size_of::<Reaction<E>>()

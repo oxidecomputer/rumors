@@ -12,7 +12,7 @@ use crate::{
             Backend, ErasedNode, FAN, Leaf,
             erased::{Reaction, ops},
             holding::{Holding, held_by, holding},
-            ledger::{Charge, ReplyBound},
+            ledger::{Charge, ReplyBound, buffer},
             materialized::{
                 Error, Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
@@ -61,6 +61,8 @@ pub(super) enum Question<E> {
 pub(super) struct Answer<E, Q> {
     /// The reactions, questions unbuilt.
     planned: Vec<Planned<E, Q>>,
+    /// The charge for the plan's buffer, built out of the answer's grant.
+    plan: Charge,
     /// The scope's child resolutions.
     pub(super) resolved: Vec<(u8, Resolve<E>)>,
 }
@@ -71,11 +73,25 @@ impl<E, Q> Answer<E, Q> {
         (
             Chunks {
                 planned: self.planned.into_iter(),
+                plan: self.plan,
                 done: false,
             },
             self.resolved,
         )
     }
+}
+
+/// An empty plan, its buffer sized for every child of a scope that holds
+/// `ours` children on this side and `theirs` on the peer's, and its charge
+/// built out of `grant`.
+///
+/// Each child takes at most one entry, so the plan never grows past this
+/// buffer, which its charge covers from before the first entry until the
+/// plan's chunks are dropped.
+fn plan<E, Q>(grant: &mut Charge, ours: usize, theirs: usize) -> (Vec<Planned<E, Q>>, Charge) {
+    let planned = Vec::with_capacity(charges::answer_children(ours, theirs));
+    let charge = grant.take(Holding::Resolutions, buffer(&planned));
+    (planned, charge)
 }
 
 /// An answer's reactions in chunks: each chunk ends at a question, and the
@@ -88,6 +104,10 @@ impl<E, Q> Answer<E, Q> {
 pub(super) struct Chunks<E, Q> {
     /// The planned reactions not yet handed out.
     planned: std::vec::IntoIter<Planned<E, Q>>,
+    /// The charge for the plan's buffer, which the iterator keeps until the
+    /// chunks are dropped.
+    #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
+    plan: Charge,
     /// Whether the last chunk has been handed out.
     done: bool,
 }
@@ -158,6 +178,8 @@ impl<E, Q> Chunks<E, Q> {
 /// dispute exactly when both replicas held the subtree and some child failed
 /// to match. An all-match join is a confirmation; a one-sided join serves a
 /// request.
+///
+/// The plan is charged out of `grant`, the answer's own.
 pub(super) async fn internal<B>(
     backend: &B,
     their_version: &Version,
@@ -165,11 +187,12 @@ pub(super) async fn internal<B>(
     ours: Vec<(u8, B::Erased)>,
     theirs: Vec<Listed>,
     stats: &Recorder,
+    grant: &mut Charge,
 ) -> Result<Answer<B::Erased, Question<B::Erased>>, B::Error>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let mut planned = Vec::new();
+    let (mut planned, plan) = plan(grant, ours.len(), theirs.len());
     // Every child either side holds takes one slot: sized now, the
     // resolution holds no more than its unit's bound prices.
     let mut resolved = Vec::with_capacity(charges::answer_children(ours.len(), theirs.len()));
@@ -226,7 +249,11 @@ where
         stats.disputed_scope();
     }
 
-    Ok(Answer { planned, resolved })
+    Ok(Answer {
+        planned,
+        plan,
+        resolved,
+    })
 }
 
 impl<E: ErasedNode> Question<E> {
@@ -307,13 +334,16 @@ where
 /// one deletion honored
 /// ([`messages_shed`](crate::SessionStats::messages_shed)). Every question
 /// is a request for a leaf only the peer holds, planned by its radix.
+///
+/// The plan is charged out of `grant`, the answer's own.
 pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     their_version: &Version,
     ours: Vec<(u8, E)>,
     theirs: Vec<Listed>,
     stats: &Recorder,
+    grant: &mut Charge,
 ) -> Answer<E, u8> {
-    let mut planned = Vec::new();
+    let (mut planned, plan) = plan(grant, ours.len(), theirs.len());
     // Every child either side holds takes one slot: sized now, the
     // resolution holds no more than its unit's bound prices.
     let mut resolved = Vec::with_capacity(charges::answer_children(ours.len(), theirs.len()));
@@ -351,7 +381,11 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
         stats.disputed_scope();
     }
 
-    Answer { planned, resolved }
+    Answer {
+        planned,
+        plan,
+        resolved,
+    }
 }
 
 /// Build the request a leaf-parent answer makes for the leaf at `radix`

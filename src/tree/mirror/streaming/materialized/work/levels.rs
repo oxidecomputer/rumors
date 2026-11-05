@@ -288,10 +288,17 @@ where
             let bytes = charges::answer_bound::<B::Erased, B::Error>(ours.len(), theirs.len(), copies);
             let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
             let kept = answer_grant.take(Holding::ExplodedNodes, copies);
-            let (mut chunks, resolved) =
-                answer::internal(&backend, &their_version, root_scope, ours, theirs, &stats)
-                    .await?
-                    .into_parts();
+            let (mut chunks, resolved) = answer::internal(
+                &backend,
+                &their_version,
+                root_scope,
+                ours,
+                theirs,
+                &stats,
+                &mut answer_grant,
+            )
+            .await?
+            .into_parts();
             let mut unpublished =
                 Some(charges::resolution(&mut answer_grant, root_scope, resolved, kept));
             while let Some(Part { leading, ask, last }) = chunks.next_part() {
@@ -474,6 +481,7 @@ where
                         children,
                         listing,
                         &stats,
+                        &mut answer_grant,
                     )
                     .await?
                     .into_parts();
@@ -635,8 +643,14 @@ where
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
-                    let (mut chunks, resolved) =
-                        answer::leaf_parent(&their_version, leaves, listing, &stats).into_parts();
+                    let (mut chunks, resolved) = answer::leaf_parent(
+                        &their_version,
+                        leaves,
+                        listing,
+                        &stats,
+                        &mut answer_grant,
+                    )
+                    .into_parts();
                     let mut unpublished =
                         Some(charges::resolution(&mut answer_grant, child_prefix, resolved, kept));
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {

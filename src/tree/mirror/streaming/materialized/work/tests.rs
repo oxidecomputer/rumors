@@ -26,7 +26,7 @@ use crate::{
             Backend, FAN, Failing, Failure, Local, Operation,
             erased::{Reaction, Reply},
             holding::Holding,
-            ledger::{Ledger, ReplyBound},
+            ledger::{Charge, Ledger, ReplyBound},
             materialized::{Error, Resolution, Resolve, SupplyLedger, Violation},
             message::{Grandchildren, Listed},
         },
@@ -424,6 +424,7 @@ proptest! {
             ours_nodes.clone(),
             theirs_listing.clone(),
             &stats,
+            &mut Charge::default(),
         )
         .into_parts();
         prop_assert_eq!(resolved.len(), children);
@@ -438,6 +439,7 @@ proptest! {
             ours_nodes,
             theirs_listing,
             &stats,
+            &mut Charge::default(),
         ))
         .unwrap_or_else(|never| match never {});
         let (_, resolved) = internal.into_parts();
