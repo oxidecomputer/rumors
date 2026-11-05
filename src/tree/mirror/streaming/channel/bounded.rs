@@ -359,10 +359,11 @@ impl<T> Stream for Receiver<T> {
 /// the protocol's edges) already limits those items.
 pub const UNBOUNDED: usize = usize::MAX >> 2;
 
-/// The capacity of every edge whose progress needs only one slot: two.
+/// The capacity of an edge that hands one item at a time from its producer
+/// to its consumer: two.
 ///
-/// Such an edge's argument asks for one slot and holds at any larger
-/// capacity, so the second slot is for speed alone. `futures-channel`
+/// Such an edge's progress argument asks for one slot and holds at any
+/// larger capacity, so the second slot is for speed alone. `futures-channel`
 /// parks a sender on the send that *fills* its channel: it boxes a second
 /// node holding the sender's task, takes the task's lock, and the
 /// receiver's next take wakes the task. A send into a one-slot edge always
@@ -372,7 +373,7 @@ pub const UNBOUNDED: usize = usize::MAX >> 2;
 ///
 /// An edge built with it can hold a second item, so every count of what
 /// such an edge holds counts two.
-pub const UNPARKED_CAPACITY: usize = 2;
+pub const HANDOFF_CAPACITY: usize = 2;
 
 /// Create a protocol edge that holds at most `capacity` items.
 ///

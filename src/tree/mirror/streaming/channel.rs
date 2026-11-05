@@ -11,7 +11,7 @@
 use bounded::SendError;
 #[cfg(any(test, feature = "test-internals"))]
 pub use bounded::{EdgeSend, EdgeSendHook, observe_edge_sends};
-pub use bounded::{TrySendError, UNBOUNDED, UNPARKED_CAPACITY};
+pub use bounded::{HANDOFF_CAPACITY, TrySendError, UNBOUNDED};
 
 use super::holding::Holding;
 

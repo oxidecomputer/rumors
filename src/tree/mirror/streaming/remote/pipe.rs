@@ -131,7 +131,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufWriter,
 use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
-    channel::{QueueKind, QueueRole, Receiver, Sender, UNPARKED_CAPACITY, channel},
+    channel::{HANDOFF_CAPACITY, QueueKind, QueueRole, Receiver, Sender, channel},
     stats::{CountedRead, CountedWrite, Recorder},
     tasks::cancelled,
 };
@@ -142,8 +142,8 @@ use super::codec::{
     RunBudget, Speaker, Stream,
 };
 
-/// Frames each logical stream's channel holds between the pipe and a stage's
-/// encoder or decoder: [`UNPARKED_CAPACITY`].
+/// Frames each logical stream's channel holds between the pipe and a
+/// stage's encoder or decoder: [`HANDOFF_CAPACITY`].
 ///
 /// Nothing in this module's argument needs more than one slot. The second
 /// keeps a frame handed into an empty lane, by an encoder or by the
@@ -152,7 +152,7 @@ use super::codec::{
 /// written, and copies the frames smaller than [`WRITE_BUFFER_BYTES`] into a
 /// buffer of that size; the demultiplexer holds at most one frame for the
 /// whole direction, while it waits for a full channel.
-pub(crate) const LANE_CAPACITY: usize = UNPARKED_CAPACITY;
+pub(crate) const LANE_CAPACITY: usize = HANDOFF_CAPACITY;
 
 /// The bits of a CBOR initial byte that hold its major type.
 const MAJOR_TYPE_SHIFT: u32 = 5;

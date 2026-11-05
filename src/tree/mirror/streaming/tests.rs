@@ -21,7 +21,7 @@ use crate::tree::arb::{
 };
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 #[cfg(doc)]
-use crate::tree::mirror::streaming::channel::UNPARKED_CAPACITY;
+use crate::tree::mirror::streaming::channel::HANDOFF_CAPACITY;
 use crate::tree::mirror::streaming::channel::{
     QueueKind, with_kind_capacity, with_observation, with_schedule,
 };
@@ -47,7 +47,7 @@ mod skeleton;
 mod stats;
 
 /// Every edge whose progress needs only one slot, each built with
-/// [`UNPARKED_CAPACITY`] slots so that a send into it while empty does not
+/// [`HANDOFF_CAPACITY`] slots so that a send into it while empty does not
 /// park.
 const ONE_SLOT_KINDS: [QueueKind; 7] = [
     QueueKind::OutgoingResponses,

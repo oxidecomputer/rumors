@@ -18,7 +18,7 @@ use crate::tree::{
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
         FAN, Fault, Faulting, ReplyCorruption,
-        channel::{QueueKind, UNBOUNDED, UNPARKED_CAPACITY, with_kind_capacity, with_observation},
+        channel::{HANDOFF_CAPACITY, QueueKind, UNBOUNDED, with_kind_capacity, with_observation},
         mirror as drive_streaming,
     },
 };
@@ -217,7 +217,7 @@ fn capacity_stress_covers_every_queue_role() {
             | QueueKind::LeafRequests
             | QueueKind::LeafParentResolutions
             | QueueKind::LeafChildResolutions => UNBOUNDED,
-            kind if ONE_SLOT_KINDS.contains(&kind) => UNPARKED_CAPACITY,
+            kind if ONE_SLOT_KINDS.contains(&kind) => HANDOFF_CAPACITY,
             kind => unreachable!("{kind:?} is not a materialized queue role"),
         };
         assert_eq!(

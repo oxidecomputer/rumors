@@ -19,7 +19,7 @@
 //! ([`ledger`](crate::tree::mirror::streaming::ledger)), so they are
 //! [`UNBOUNDED`]. The constructors below document the separate cardinality
 //! or flow argument for every remaining edge that one slot would serve;
-//! each has [`UNPARKED_CAPACITY`] slots, so that a send into an empty edge
+//! each has [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge
 //! does not park its producer. Only the inter-level return boundary needs a
 //! fan.
 
@@ -29,7 +29,7 @@ use super::LeafRequest;
 use crate::tree::{
     mirror::streaming::{
         Backend, FAN, Leaf,
-        channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, UNPARKED_CAPACITY, channel},
+        channel::{HANDOFF_CAPACITY, QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, channel},
         erased::{self, Reply, ReplyResultStream},
         materialized::{Error, Query, Resolution},
     },
@@ -52,7 +52,7 @@ fn ok_channel<T, E>(role: QueueRole, capacity: usize) -> (Sender<T>, OkReceiverS
 /// dequeues a reply's scope before it takes the reply's chunks from this
 /// edge, so each chunk queued here can stand for one scope not yet
 /// dequeued.
-pub(crate) const OUTGOING_REPLY_CHUNKS: usize = UNPARKED_CAPACITY;
+pub(crate) const OUTGOING_REPLY_CHUNKS: usize = HANDOFF_CAPACITY;
 
 /// Buffer outgoing protocol replies, [`OUTGOING_REPLY_CHUNKS`] chunks deep.
 ///
@@ -114,7 +114,7 @@ where
 /// Carry the initiator's single root query.
 ///
 /// The opening emits exactly one query for the root scope, so the edge
-/// never holds a second item; its [`UNPARKED_CAPACITY`] slots leave room
+/// never holds a second item; its [`HANDOFF_CAPACITY`] slots leave room
 /// behind that one send, which therefore does not park.
 pub(super) fn initiator_root_query<B>() -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
@@ -122,14 +122,14 @@ where
 {
     channel(
         QueueRole::new(QueueKind::InitiatorRootQuery, UnderRoot::HEIGHT),
-        UNPARKED_CAPACITY,
+        HANDOFF_CAPACITY,
     )
 }
 
 /// Carry the initiator's single completed root.
 ///
 /// Reconciliation produces exactly one root node and the terminal future
-/// consumes it directly; the edge's [`UNPARKED_CAPACITY`] slots leave room
+/// consumes it directly; the edge's [`HANDOFF_CAPACITY`] slots leave room
 /// behind that one send, which therefore does not park.
 pub(super) fn initiator_root_return<B>() -> (Sender<Option<B::Erased>>, Receiver<Option<B::Erased>>)
 where
@@ -137,7 +137,7 @@ where
 {
     channel(
         QueueRole::new(QueueKind::InitiatorRootReturn, Root::HEIGHT),
-        UNPARKED_CAPACITY,
+        HANDOFF_CAPACITY,
     )
 }
 
@@ -160,7 +160,7 @@ where
 ///
 /// The responder processes exactly one opening request and therefore
 /// publishes exactly one resolution for the root scope; the edge's
-/// [`UNPARKED_CAPACITY`] slots leave room behind that one send, which
+/// [`HANDOFF_CAPACITY`] slots leave room behind that one send, which
 /// therefore does not park.
 pub(super) fn responder_root_resolution<B>() -> (
     Sender<Resolution<B::Erased>>,
@@ -171,7 +171,7 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::ResponderRootResolution, UnderRoot::HEIGHT),
-        UNPARKED_CAPACITY,
+        HANDOFF_CAPACITY,
     )
 }
 
@@ -180,7 +180,7 @@ where
 /// The root resolution is visible before its child queries are sent, so its
 /// assembler can consume each return as it arrives. No later return is needed
 /// to unlock the consumer of the buffered one, so one slot is the liveness
-/// floor; with [`UNPARKED_CAPACITY`] slots, a return sent while the
+/// floor; with [`HANDOFF_CAPACITY`] slots, a return sent while the
 /// assembler keeps up does not park.
 pub(super) fn responder_root_returns<B>() -> (
     Sender<Option<B::Erased>>,
@@ -191,7 +191,7 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::ResponderRootReturns, UnderRoot::HEIGHT),
-        UNPARKED_CAPACITY,
+        HANDOFF_CAPACITY,
     )
 }
 
