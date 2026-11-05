@@ -428,6 +428,9 @@ struct Readings {
     joint_held: usize,
     /// The most `joint_held` has been.
     joint_held_peak: usize,
+    /// Whether a root answer has returned what its grant left over, which
+    /// it does once it has admitted its last question.
+    root_answered: bool,
 }
 
 impl Readings {
@@ -505,6 +508,9 @@ fn record_admission(admission: Admission) {
         let Some(now) = readings.link.as_ref().map(Link::now) else {
             return;
         };
+        if admission.depth == 0 && !admission.question && admission.leftover {
+            readings.root_answered = true;
+        }
         let reading = &mut readings.ledger(admission.ledger).reading;
         if admission.depth <= DATED_DEPTH && !admission.leftover {
             reading.dated.push(DatedAdmission {
@@ -685,6 +691,53 @@ pub fn run_within<T>(case: Case, within: impl FnOnce(&mut dyn FnMut()) -> T) -> 
         },
         observed,
     )
+}
+
+/// The grants of the depth-1 questions the responder's root answer asks,
+/// in the order it asks them, when the pair `shape` names reconciles at an
+/// unlimited budget over a LAN.
+///
+/// Their total is the budget a session needs to open every top-level
+/// subtree at once. They are all admitted in the session's first round
+/// trip, so the session stops as soon as the root answer has admitted its
+/// last question, which it shows by returning what its grant left over:
+/// the count costs the pair's construction and one round trip, not a
+/// whole session, and reaches replica sizes a whole session cannot.
+pub fn root_question_grants(shape: Shape) -> Vec<usize> {
+    let (a, b) = pair(shape, usize::MAX);
+    let link = Link::new(LinkConfig::with_bdp(LAN_BDP));
+    let (mut a_end, mut b_end) = (link.end(Side::A), link.end(Side::B));
+    start_reading(&link);
+    let answered = || READINGS.with(|readings| readings.borrow().root_answered);
+    let until_answered = |session| async move {
+        let session = std::pin::pin!(session);
+        let stop = std::pin::pin!(std::future::poll_fn(|_| {
+            if answered() {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        }));
+        drop(futures::future::select(session, stop).await);
+    };
+    drive(
+        &link,
+        until_answered(a.gossip_once(&mut a_end.read, &mut a_end.write)),
+        until_answered(b.gossip_once(&mut b_end.read, &mut b_end.write)),
+    );
+    admitted()
+        .ledgers
+        .iter()
+        .map(|ledger| {
+            ledger
+                .dated
+                .iter()
+                .filter(|admission| admission.question && admission.depth == 1)
+                .map(|admission| admission.bytes)
+                .collect::<Vec<_>>()
+        })
+        .max_by_key(Vec::len)
+        .unwrap_or_default()
 }
 
 /// Runs every case, each on a thread of its own, returning the sessions in
