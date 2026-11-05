@@ -93,6 +93,10 @@ use std::mem::size_of;
 #[cfg(test)]
 mod tests;
 
+pub mod trace;
+
+pub use trace::{Event, EventKind, Label, Trace, labelled, trace, untraced};
+
 /// The largest alignment that is not *over-aligned*: two machine words, which
 /// is 16 bytes on 64-bit targets.
 ///
@@ -261,9 +265,12 @@ static ALLOCATOR: MeteredSystem = MeteredSystem;
 // SAFETY: Each method forwards its request unchanged to `System` and returns
 // `System`'s result unchanged, so `System` upholds every guarantee
 // `GlobalAlloc` requires of the returned memory. The bookkeeping touches only
-// the calling thread's `Cell` through `record`, which never re-enters this
-// allocator (see `LEDGER` for why reaching the ledger cannot) and never
-// unwinds, as a global allocator must not.
+// the calling thread's state: its `Cell` through `record`, which never
+// re-enters this allocator (see `LEDGER` for why reaching the ledger cannot),
+// and its trace through the `trace` module's recorders, which reach the event
+// buffer only after a trace has initialized it and push only into spare
+// capacity, so they never allocate either. Neither unwinds, as a global
+// allocator must not.
 unsafe impl GlobalAlloc for MeteredSystem {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // SAFETY: The caller upholds `alloc`'s contract for `layout`, which
@@ -271,6 +278,7 @@ unsafe impl GlobalAlloc for MeteredSystem {
         let block = unsafe { System.alloc(layout) };
         if !block.is_null() {
             record(|stats| stats.record_allocation(layout));
+            trace::allocated(block.addr(), layout.size());
         }
         block
     }
@@ -281,6 +289,7 @@ unsafe impl GlobalAlloc for MeteredSystem {
         let block = unsafe { System.alloc_zeroed(layout) };
         if !block.is_null() {
             record(|stats| stats.record_allocation(layout));
+            trace::allocated(block.addr(), layout.size());
         }
         block
     }
@@ -291,6 +300,7 @@ unsafe impl GlobalAlloc for MeteredSystem {
         // forwarding to `System` frees it as allocated.
         unsafe { System.dealloc(ptr, layout) };
         record(|stats| stats.record_free(layout.size()));
+        trace::freed(ptr.addr(), layout.size());
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
@@ -300,6 +310,7 @@ unsafe impl GlobalAlloc for MeteredSystem {
         // A failed reallocation leaves the old block live and unchanged.
         if !block.is_null() {
             record(|stats| stats.record_reallocation(layout, new_size));
+            trace::reallocated(ptr.addr(), layout.size(), block.addr(), new_size);
         }
         block
     }

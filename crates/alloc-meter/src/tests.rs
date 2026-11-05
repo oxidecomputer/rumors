@@ -20,7 +20,7 @@ use proptest::sample::Index;
 use super::{OVER_ALIGNED_ABOVE, Stats, measure, reading, reset};
 
 /// A heap block requested from the global allocator with an exact size and
-/// alignment.
+/// alignment, shared with the trace tests.
 ///
 /// Every pointer the allocator returns passes through [`black_box`] before the
 /// block keeps it. The optimizer may delete an allocation whose block nothing
@@ -29,11 +29,11 @@ use super::{OVER_ALIGNED_ABOVE, Stats, measure, reading, reset};
 /// then count a request the allocator never saw. `black_box` is best-effort by
 /// its own contract, but it is the standard library's tool for hiding a value
 /// from the optimizer.
-struct Block {
+pub(crate) struct Block {
     /// The block's start, as the allocator returned it.
-    ptr: NonNull<u8>,
+    pub(crate) ptr: NonNull<u8>,
     /// The layout the block currently has.
-    layout: Layout,
+    pub(crate) layout: Layout,
 }
 
 impl Block {
@@ -44,7 +44,7 @@ impl Block {
     ///
     /// Panics if `size` is zero, which the allocator's contract forbids, or
     /// if `align` is not a power of two.
-    fn new(size: usize, align: usize, zeroed: bool) -> Self {
+    pub(crate) fn new(size: usize, align: usize, zeroed: bool) -> Self {
         assert!(size > 0, "a block has at least one byte");
         let layout = Layout::from_size_align(size, align)
             .expect("a small size at a power-of-two alignment is a valid layout");
@@ -65,7 +65,7 @@ impl Block {
     /// # Panics
     ///
     /// Panics if `size` is zero, which the allocator's contract forbids.
-    fn resize(&mut self, size: usize) {
+    pub(crate) fn resize(&mut self, size: usize) {
         assert!(size > 0, "a block has at least one byte");
         let layout = Layout::from_size_align(size, self.layout.align())
             .expect("a small size at the block's alignment is a valid layout");
