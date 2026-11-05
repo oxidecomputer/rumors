@@ -212,6 +212,12 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tre
 /// same history can exercise deletion filtering at any tree height without
 /// searching for a cryptographic hash collision. At most 256 distinct versions
 /// may be present, and `depth` must be less than the path length.
+///
+/// The roots serve in-memory reconciliation only. They place leaves at
+/// addresses other than their versions' hashes, and a wire session's decoder
+/// recomputes each supplied leaf's path from its version (`Path::for_leaf`)
+/// and rejects such a leaf as `LeafOutsideScope`: a session between these
+/// roots violates the protocol by construction.
 pub fn roots_at_depth<const N: usize>(
     roots: [crate::tree::Root; N],
     depth: usize,
@@ -248,6 +254,8 @@ pub fn roots_at_depth<const N: usize>(
 ///
 /// Every version still names exactly one leaf. Only placement changes, to
 /// exercise deep traversal that version hashing would almost never produce.
+/// The pair serves in-memory reconciliation only, for the reason
+/// [`roots_at_depth`] gives: a wire session rejects its placed leaves.
 pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
     (arb_divergent_pair(), 0usize..32)
         .prop_map(|((a, b), depth)| {
@@ -264,16 +272,18 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tre
 /// behind the dispute, exercising progress when descent and supplies share a
 /// reply stream.
 ///
-/// The search varies each side's starting version until the hashed paths have
-/// this geometry. A checked hint avoids repeating the search while a full scan
-/// preserves the fixture if path hashing changes. The selected geometry is
-/// checked against the constructed trees.
+/// Each side's starting version is chosen so the hashed paths have this
+/// geometry: [`EARLY_DISPUTE_HINT`] names the candidate, and the built trees
+/// are checked against it.
 pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root) {
     use crate::tree::{Action, Tree};
 
     let path_of = |version: &Version| <[u8; 32]>::from(Path::for_leaf(version));
-    let attempt = early_dispute_attempt(&path_of, EARLY_DISPUTE_HINT)
-        .expect("the deterministic geometry search exhausted its candidate budget");
+    let attempt = EARLY_DISPUTE_HINT;
+    assert!(
+        early_dispute_matches(attempt, &path_of),
+        "EARLY_DISPUTE_HINT is stale; `early_dispute_hint_matches_current_paths` finds a fresh one"
+    );
     let at = attempt * EARLY_DISPUTE_STRIDE;
     let [left_firsts, right_firsts] = early_dispute_radices(attempt, &path_of);
 
@@ -322,10 +332,9 @@ const EARLY_DISPUTE_RIGHT_LEAVES: usize = 8;
 /// Tick distance between candidate windows, larger than either window.
 const EARLY_DISPUTE_STRIDE: usize = 64;
 
-/// Maximum number of candidates in the fallback search.
-const EARLY_DISPUTE_ATTEMPTS: usize = 2048;
-
-/// Candidate found by the full search under the current leaf-path derivation.
+/// Candidate chosen by searching for the geometry under the current leaf-path
+/// derivation; `early_dispute_hint_matches_current_paths` checks it and
+/// finds a replacement when it goes stale.
 const EARLY_DISPUTE_HINT: usize = 285;
 
 /// Derive the first radix of `leaves` successive paths after `skip` ticks.
@@ -376,17 +385,10 @@ fn is_early_dispute([left, right]: [&[u8]; 2]) -> bool {
     left_under.min(right_under) >= 1 && left_under.max(right_under) >= 2 && provisions.len() >= 6
 }
 
-/// Try `hint` first, then search every candidate if it no longer qualifies.
-fn early_dispute_attempt(path_of: &impl Fn(&Version) -> [u8; 32], hint: usize) -> Option<usize> {
-    let matches = |attempt| {
-        let [left, right] = early_dispute_radices(attempt, path_of);
-        is_early_dispute([&left, &right])
-    };
-    if hint < EARLY_DISPUTE_ATTEMPTS && matches(hint) {
-        Some(hint)
-    } else {
-        (0..EARLY_DISPUTE_ATTEMPTS).find(|&attempt| matches(attempt))
-    }
+/// Whether candidate `attempt` has the early-dispute geometry.
+fn early_dispute_matches(attempt: usize, path_of: &impl Fn(&Version) -> [u8; 32]) -> bool {
+    let [left, right] = early_dispute_radices(attempt, path_of);
+    is_early_dispute([&left, &right])
 }
 
 /// Extra ticks that keep malformed fixture versions beyond later test traffic.

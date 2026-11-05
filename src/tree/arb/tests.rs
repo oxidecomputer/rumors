@@ -1,6 +1,4 @@
-use super::{
-    EARLY_DISPUTE_HINT, early_dispute_attempt, early_dispute_radices, is_early_dispute, nth_party,
-};
+use super::{EARLY_DISPUTE_HINT, early_dispute_matches, nth_party};
 use crate::{Version, tree::typed::Path};
 
 /// Distinct fixture indices yield mutually disjoint parties.
@@ -18,26 +16,19 @@ fn distinct_indices_are_pairwise_disjoint() {
     }
 }
 
-/// The checked hint has the geometry required by its consumers.
+/// Candidates the early-dispute search tries before giving up.
+const EARLY_DISPUTE_ATTEMPTS: usize = 2048;
+
+/// The early-dispute hint has the geometry its consumers need.
+///
+/// When path derivation changes, the hint goes stale; this test then
+/// searches for the first qualifying candidate and reports it.
 #[test]
 fn early_dispute_hint_matches_current_paths() {
     let path_of = |version: &Version| <[u8; 32]>::from(Path::for_leaf(version));
-    let [left, right] = early_dispute_radices(EARLY_DISPUTE_HINT, &path_of);
-    assert!(is_early_dispute([&left, &right]));
-}
-
-/// A stale hint falls back to the full deterministic search.
-#[test]
-fn early_dispute_search_recovers_from_a_stale_hint() {
-    const STALE_HINT: usize = 0;
-    let path_of = |version: &Version| <[u8; 32]>::from(Path::for_leaf(version));
-    let [left, right] = early_dispute_radices(STALE_HINT, &path_of);
-    assert!(
-        !is_early_dispute([&left, &right]),
-        "the negative control must not satisfy the geometry",
-    );
-    assert_eq!(
-        early_dispute_attempt(&path_of, STALE_HINT),
-        Some(EARLY_DISPUTE_HINT),
-    );
+    if !early_dispute_matches(EARLY_DISPUTE_HINT, &path_of) {
+        let fresh =
+            (0..EARLY_DISPUTE_ATTEMPTS).find(|&attempt| early_dispute_matches(attempt, &path_of));
+        panic!("EARLY_DISPUTE_HINT is stale; replace it with {fresh:?}");
+    }
 }
