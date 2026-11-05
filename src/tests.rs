@@ -14,9 +14,9 @@ use crate::bookmark::{BookmarkHandle, NoBookmark};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::network::NetworkSecret;
 use crate::observe::{
-    Attachment, Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo,
-    StreamObserver,
+    Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
+use crate::peer::SessionSettings;
 use crate::testing::property::{
     FLEET_DIVISOR, LOCAL_DIVISOR, NetworkSeed, SESSION_DIVISOR, distinct_network_seeds,
     divided_proptest, network_seed,
@@ -98,17 +98,16 @@ divided_proptest! {
         // survivor's and the survivor takes the absorb branch.
         let forged = Peer::<u64> {
             codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
-            gossip_policy: Default::default(),
             keys: survivor.keys.clone(),
-            sync_memory_budget: survivor.sync_memory_budget,
-            run_budget: survivor.run_budget,
-            write_batch: survivor.write_batch,
+            settings: SessionSettings {
+                sizing: survivor.settings.sizing,
+                ..SessionSettings::default()
+            },
             inner: watch::Sender::new(Inner::new(
                 party_of(&survivor),
                 Tree::from_root(survivor.keys.clone(), Root::default()),
             )),
             bookmark: BookmarkHandle::new(NoBookmark),
-            observe: Attachment::default(),
         };
 
         // Each side's future owns its halves: the absorber rejects the overlap
@@ -244,7 +243,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
             .map_or(0, |node| node.grandchild_count() as u64),
         max_version_bytes: root.max_version_bytes(),
         payload_depth_limit: retiree.codec.limit().get(),
-        target_message_size: retiree.run_budget.bytes() as u64,
+        target_message_size: retiree.settings.sizing.run_budget.bytes() as u64,
         listing: materialized::fan_listing(
             Prefix::new().erase(),
             &fan,

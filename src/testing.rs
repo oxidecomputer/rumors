@@ -150,7 +150,7 @@ pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
     bytes: usize,
 ) -> crate::Peer<T, B> {
-    peer.sync_memory_budget = MemoryBudget::Ledger(bytes);
+    peer.settings.sizing.sync_memory_budget = MemoryBudget::Ledger(bytes);
     peer
 }
 
@@ -166,7 +166,7 @@ pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
 pub fn serial_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
 ) -> crate::Peer<T, B> {
-    peer.sync_memory_budget = MemoryBudget::Serial;
+    peer.settings.sizing.sync_memory_budget = MemoryBudget::Serial;
     peer
 }
 

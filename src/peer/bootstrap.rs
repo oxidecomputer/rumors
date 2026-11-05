@@ -7,13 +7,13 @@ use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use crate::bookmark::{Bookmark, NoBookmark};
 use crate::message::PayloadDepthLimit;
-use crate::observe::{Attachment, Observer};
+use crate::observe::Observer;
 use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
 use crate::{Error, Peer};
 
-use super::MemoryBudget;
 use super::bookmark::Unbookmarked;
 use super::gossip::Bootstrapped;
+use super::{MemoryBudget, SessionSettings};
 
 /// Configuration for joining a gossip network through [`Peer::bootstrap`].
 ///
@@ -35,20 +35,11 @@ use super::gossip::Bootstrapped;
 /// [`gossip`](crate::Rumors::gossip); no special invocation is required.
 #[must_use = "a Bootstrap does nothing until join runs it over a connection"]
 pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
-    /// Memory budget inherited by the joined peer, as given; sessions clamp
-    /// `run_budget` to what it affords and raise it to the minimum for the
-    /// clamped target ([`MemoryBudget::session`]).
-    pub(crate) sync_memory_budget: MemoryBudget,
-    /// Supply-run size target used during and after the join, as given.
-    pub(crate) run_budget: RunBudget,
-    /// Write batch range used during and after the join.
-    pub(crate) write_batch: WriteBatch,
-    /// Initiation policy and session deadline, both inherited by the joined peer.
-    pub(crate) gossip_policy: super::policy::Policy<T>,
+    /// The session settings used during the join and inherited whole by the
+    /// joined peer.
+    pub(crate) settings: SessionSettings<T>,
     /// Payload nesting limit used during and after the join.
     pub(crate) payload_depth_limit: PayloadDepthLimit,
-    /// Observation handlers retained by the joined peer.
-    pub(crate) observe: Attachment,
     /// Storage owned by this attempt, returned if no peer arrives.
     bookmark: B,
     /// Maximum bookmark size inherited by the joined peer.
@@ -69,13 +60,14 @@ impl<T: Send + Sync + 'static> Clone for Bootstrap<T> {
 impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> {
     /// Describe the settings without reading the bookmark.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let limits = self.sync_memory_budget.session(self.run_budget);
+        let sizing = self.settings.sizing;
+        let limits = sizing.limits();
         f.debug_struct("Bootstrap")
             .field("sync_memory_budget", &limits.budget.memory)
             .field("run_budget", &limits.target)
-            .field("write_batch", &self.write_batch)
+            .field("write_batch", &sizing.write_batch)
             .field("payload_depth_limit", &self.payload_depth_limit)
-            .field("observe", &self.observe)
+            .field("observe", &self.settings.observe)
             .field("bookmark", &std::any::type_name::<B>())
             .field("bookmark_size_limit", &self.bookmark_size_limit)
             .finish()
@@ -87,12 +79,8 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// Use the default session settings without a bookmark.
     pub(crate) fn new() -> Self {
         Self {
-            sync_memory_budget: MemoryBudget::default(),
-            run_budget: RunBudget::default(),
-            write_batch: WriteBatch::default(),
-            gossip_policy: super::policy::Policy::default(),
+            settings: SessionSettings::default(),
             payload_depth_limit: PayloadDepthLimit::default(),
-            observe: Attachment::default(),
             bookmark: NoBookmark,
             bookmark_size_limit: crate::default::BOOKMARK_SIZE_LIMIT,
             marker: PhantomData,
@@ -111,12 +99,8 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// bookmark and can retry.
     pub fn bookmark<B: Bookmark>(self, bookmark: B) -> Bootstrap<T, B> {
         Bootstrap {
-            sync_memory_budget: self.sync_memory_budget,
-            run_budget: self.run_budget,
-            write_batch: self.write_batch,
-            gossip_policy: self.gossip_policy,
+            settings: self.settings,
             payload_depth_limit: self.payload_depth_limit,
-            observe: self.observe,
             bookmark,
             bookmark_size_limit: self.bookmark_size_limit,
             marker: PhantomData,
@@ -129,12 +113,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Copy only session settings; storage stays with the retryable builder.
     fn session_config(&self) -> Bootstrap<T> {
         Bootstrap {
-            sync_memory_budget: self.sync_memory_budget,
-            run_budget: self.run_budget,
-            write_batch: self.write_batch,
-            gossip_policy: self.gossip_policy.clone(),
+            settings: self.settings.clone(),
             payload_depth_limit: self.payload_depth_limit,
-            observe: self.observe.clone(),
             bookmark: NoBookmark,
             bookmark_size_limit: self.bookmark_size_limit,
             marker: PhantomData,
@@ -154,7 +134,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         S: futures::Stream + Send + 'static,
         S::Item: Into<crate::Gossip>,
     {
-        self.gossip_policy.set_when(when);
+        self.settings.gossip_policy.set_when(when);
         self
     }
 
@@ -166,7 +146,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         D: Fn() -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.gossip_policy.set_deadline(deadline);
+        self.settings.gossip_policy.set_deadline(deadline);
         self
     }
 
@@ -186,7 +166,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// See [`Peer::sync_memory_budget`] for the contract and
     /// [the sizing guide](crate::sizing) for tuning guidance.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
-        self.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
+        self.settings.sizing.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
         self
     }
 
@@ -197,7 +177,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Zero sends one leaf per message. See [`Peer::target_message_size`]
     /// for defaults and what the target accounts for.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
-        self.run_budget = RunBudget::from_bytes(bytes);
+        self.settings.sizing.run_budget = RunBudget::from_bytes(bytes);
         self
     }
 
@@ -206,7 +186,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// See [`Peer::write_batch_range`] for the default, how the bounds
     /// convert, and how to choose a range.
     pub fn write_batch_range(mut self, range: impl RangeBounds<usize>) -> Self {
-        self.write_batch = WriteBatch::from_range(range);
+        self.settings.sizing.write_batch = WriteBatch::from_range(range);
         self
     }
 
@@ -225,7 +205,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// returned builder.
     /// See [`observe`](crate::observe) for the observation contract.
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
-        self.observe.attach(observer);
+        self.settings.observe.attach(observer);
         self
     }
 }

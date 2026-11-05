@@ -16,17 +16,18 @@ use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::sync::watch;
 
 use crate::bookmark::{BookmarkHandle, NoBookmark, Reservation, Reservations};
+use crate::counter::widen;
 use crate::default;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
 use crate::network::{NetworkKeys, NetworkSecret};
 use crate::observe::{Attachment, Observer};
-use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::MAX_RUN_BUDGET_BYTES;
 use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
 use crate::tree::mirror::streaming::{
     Local,
     materialized::{self, SessionBudget},
 };
+use crate::tree::{self, Tree};
 use crate::{
     Batch, Bookmark, CausalMessages, Changes, Committed, Network, Rumors, Snapshot,
     UnorderedMessages, Version,
@@ -157,24 +158,6 @@ impl MemoryBudget {
             }
         }
     }
-
-    /// Give `walk`, a session's local participant, the ledger this setting
-    /// gives it when its peer's own message-size target is `target`.
-    ///
-    /// That is the session's ledger budget ([`session`](Self::session))
-    /// beside the walk's bounds, or the serial configuration for
-    /// [`Serial`](Self::Serial).
-    pub(crate) fn apply(
-        self,
-        target: RunBudget,
-        walk: materialized::Handshaking<Local, materialized::Start>,
-    ) -> materialized::Handshaking<Local, materialized::Start> {
-        #[cfg(any(test, feature = "test-internals"))]
-        if self == Self::Serial {
-            return walk.serial();
-        }
-        walk.budget(self.session(target).budget.ledger)
-    }
 }
 
 /// The message-size target a session runs at and the budgets it runs on,
@@ -191,6 +174,107 @@ pub(crate) struct SessionLimits {
     /// The most the session holds in all, and what its ledger admits, at
     /// [`target`](Self::target).
     pub(crate) budget: SessionBudget,
+}
+
+/// How a peer's sessions size their memory and their writes, as its setters
+/// stored them.
+///
+/// It carries no payload type, so it crosses whole into the sessions'
+/// transport-erased bodies, which compile once for every payload type. The
+/// memory budget travels beside the target it clamps, so a session derives
+/// its limits from the pair its peer stored ([`limits`](Self::limits)).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SessionSizing {
+    /// The memory budget selected by
+    /// [`Peer::sync_memory_budget`] or [`Bootstrap::sync_memory_budget`],
+    /// as given.
+    pub(crate) sync_memory_budget: MemoryBudget,
+    /// The supply-run byte budget selected by
+    /// [`Peer::target_message_size`] or [`Bootstrap::target_message_size`],
+    /// as given.
+    pub(crate) run_budget: RunBudget,
+    /// The write batch range selected by [`Peer::write_batch_range`] or
+    /// [`Bootstrap::write_batch_range`].
+    pub(crate) write_batch: WriteBatch,
+}
+
+impl SessionSizing {
+    /// The message-size target a session advertises and the budgets it runs
+    /// on: the memory budget's, at the stored target
+    /// ([`MemoryBudget::session`]).
+    pub(crate) fn limits(self) -> SessionLimits {
+        self.sync_memory_budget.session(self.run_budget)
+    }
+
+    /// Start a session's local participant over `root`, listing and
+    /// comparing under `keys`, at the limits the stored settings give
+    /// ([`limits`](Self::limits)).
+    ///
+    /// The participant advertises the clamped target in its greeting, the
+    /// pipe sizes its wire pools at the target the greeting advertises, and
+    /// the ledger's budget is what the memory budget leaves beside those
+    /// pools at that same target, so all three come from one
+    /// [`SessionLimits`] here. The serial configuration replaces the ledger
+    /// budget with one unit of each kind and depth at a time.
+    pub(crate) fn start(
+        self,
+        root: tree::Root,
+        keys: Option<Arc<NetworkKeys>>,
+    ) -> materialized::Handshaking<Local, materialized::Start> {
+        let limits = self.limits();
+        let walk = materialized::Handshaking::start(
+            Local,
+            root.into(),
+            keys,
+            widen(limits.target.bytes()),
+        );
+        #[cfg(any(test, feature = "test-internals"))]
+        if self.sync_memory_budget == MemoryBudget::Serial {
+            return walk.serial();
+        }
+        walk.budget(limits.budget.ledger)
+    }
+}
+
+/// The settings a peer's sessions run under, which a [`Bootstrap`] builder
+/// selects and the peer it joins inherits whole.
+///
+/// The payload nesting limit is not among them: a peer holds it inside its
+/// payload codec, which only a peer's construction can build, while a
+/// builder holds the limit alone.
+pub(crate) struct SessionSettings<T: Send + Sync + 'static> {
+    /// How the sessions size their memory and their writes.
+    pub(crate) sizing: SessionSizing,
+    /// Initiation and deadline factories inherited by every gossip handle.
+    pub(crate) gossip_policy: policy::Policy<T>,
+    /// The wire observers added through [`Peer::observe`] or
+    /// [`Bootstrap::observe`].
+    pub(crate) observe: Attachment,
+}
+
+/// The library's defaults: no observer, push-on-change with no deadline,
+/// and the default sizing.
+impl<T: Send + Sync + 'static> Default for SessionSettings<T> {
+    /// Use every setting's default.
+    fn default() -> Self {
+        Self {
+            sizing: SessionSizing::default(),
+            gossip_policy: policy::Policy::default(),
+            observe: Attachment::default(),
+        }
+    }
+}
+
+/// Share the settings without imposing `Clone` on the payload.
+impl<T: Send + Sync + 'static> Clone for SessionSettings<T> {
+    /// Copy the sizing and share the policy's factories and the observers.
+    fn clone(&self) -> Self {
+        Self {
+            sizing: self.sizing,
+            gossip_policy: self.gossip_policy.clone(),
+            observe: self.observe.clone(),
+        }
+    }
 }
 
 /// The library's default budget, raised like any requested budget.
@@ -327,21 +411,9 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// It is the same allocation as the keys of every tree `inner`
     /// publishes, whose path key places that tree's leaves.
     pub(crate) keys: Arc<NetworkKeys>,
-    /// The memory budget selected by
-    /// [`sync_memory_budget`](Self::sync_memory_budget), as given.
-    ///
-    /// Each session clamps `run_budget` to what it affords, and runs on it
-    /// raised to the minimum for the clamped target
-    /// ([`MemoryBudget::session`]).
-    pub(crate) sync_memory_budget: MemoryBudget,
-    /// The supply-run byte budget selected by
-    /// [`target_message_size`](Self::target_message_size), as given.
-    pub(crate) run_budget: RunBudget,
-    /// The write batch range selected by
-    /// [`write_batch_range`](Self::write_batch_range).
-    pub(crate) write_batch: WriteBatch,
-    /// Initiation and deadline factories inherited by every gossip handle.
-    pub(crate) gossip_policy: policy::Policy<T>,
+    /// The settings this peer's sessions run under, shared with every
+    /// gossip handle.
+    pub(crate) settings: SessionSettings<T>,
     /// Shared replica state and change notifications for handles and drivers.
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
@@ -358,8 +430,6 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Carries the [`payload_depth_limit`](Self::payload_depth_limit)
     /// beside the codec's fn pointers (see [`PayloadCodec`]).
     pub(crate) codec: PayloadCodec,
-    /// The wire observers added through [`observe`](Self::observe).
-    pub(crate) observe: Attachment,
 }
 
 /// The local settings that govern a peer's synchronization sessions.
@@ -660,14 +730,10 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
         let keys = Arc::new(NetworkKeys::new(NetworkSecret::from_rng(rng)));
         Self {
             keys: Arc::clone(&keys),
-            sync_memory_budget: MemoryBudget::default(),
-            run_budget: RunBudget::default(),
-            write_batch: WriteBatch::default(),
-            gossip_policy: policy::Policy::default(),
+            settings: SessionSettings::default(),
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(keys))),
             bookmark: BookmarkHandle::new(NoBookmark),
             codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
-            observe: Attachment::default(),
         }
     }
 }
@@ -692,14 +758,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     pub(crate) fn share(&self) -> Self {
         Self {
             keys: Arc::clone(&self.keys),
-            sync_memory_budget: self.sync_memory_budget,
-            run_budget: self.run_budget,
-            write_batch: self.write_batch,
-            gossip_policy: self.gossip_policy.clone(),
+            settings: self.settings.clone(),
             inner: self.inner.clone(),
             bookmark: self.bookmark.share(),
             codec: self.codec,
-            observe: self.observe.clone(),
         }
     }
 }
@@ -745,11 +807,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// budget affords, matching the value advertised to peers, and the
     /// budget raised to the minimum for that target.
     pub fn synchronization_settings(&self) -> SynchronizationSettings {
-        let limits = self.sync_memory_budget.session(self.run_budget);
+        let sizing = self.settings.sizing;
+        let limits = sizing.limits();
         SynchronizationSettings {
             sync_memory_budget: limits.budget.memory,
             target_message_size: limits.target.bytes(),
-            write_batch_range: self.write_batch.range(),
+            write_batch_range: sizing.write_batch.range(),
             payload_depth_limit: self.codec.limit().get(),
         }
     }
@@ -842,7 +905,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         S: futures::Stream + Send + 'static,
         S::Item: Into<crate::Gossip>,
     {
-        self.gossip_policy.set_when(when);
+        self.settings.gossip_policy.set_when(when);
         self
     }
 
@@ -870,7 +933,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         D: Fn() -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.gossip_policy.set_deadline(deadline);
+        self.settings.gossip_policy.set_deadline(deadline);
         self
     }
 
@@ -1103,7 +1166,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// which an item's in-memory size does not include.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
-        self.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
+        self.settings.sizing.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
         self
     }
 
@@ -1125,7 +1188,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// instead ([`Bootstrap::observe`]).
     #[must_use]
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
-        self.observe.attach(observer);
+        self.settings.observe.attach(observer);
         self
     }
 
@@ -1190,7 +1253,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// bookmarking, and retirement.
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
-        self.run_budget = RunBudget::from_bytes(bytes);
+        self.settings.sizing.run_budget = RunBudget::from_bytes(bytes);
         self
     }
 
@@ -1275,7 +1338,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// bookmarking, and retirement.
     #[must_use]
     pub fn write_batch_range(mut self, range: impl RangeBounds<usize>) -> Self {
-        self.write_batch = WriteBatch::from_range(range);
+        self.settings.sizing.write_batch = WriteBatch::from_range(range);
         self
     }
 

@@ -80,8 +80,8 @@ fn retry_then_join<B: Bookmark>(
     expected: (MemoryBudget, RunBudget, crate::message::PayloadDepthLimit),
 ) {
     let (budget, target, depth) = expected;
-    assert_eq!(bootstrap.sync_memory_budget, budget);
-    assert_eq!(bootstrap.run_budget, target);
+    assert_eq!(bootstrap.settings.sizing.sync_memory_budget, budget);
+    assert_eq!(bootstrap.settings.sizing.run_budget, target);
     assert_eq!(bootstrap.payload_depth_limit, depth);
     run_to_quiescence(async {
         for (attempt, &fail) in fail.iter().enumerate() {
@@ -108,8 +108,8 @@ fn retry_then_join<B: Bookmark>(
                 };
                 bootstrap
             };
-            assert_eq!(bootstrap.sync_memory_budget, budget);
-            assert_eq!(bootstrap.run_budget, target);
+            assert_eq!(bootstrap.settings.sizing.sync_memory_budget, budget);
+            assert_eq!(bootstrap.settings.sizing.run_budget, target);
             assert_eq!(bootstrap.payload_depth_limit, depth);
             assert_eq!(sessions.0.load(Ordering::Relaxed), attempt + 1);
             if let Some(stored) = stored {
@@ -133,8 +133,8 @@ fn retry_then_join<B: Bookmark>(
         let Joined::Joined { peer, .. } = joined else {
             panic!("the returned builder must remain usable with an established provider");
         };
-        assert_eq!(peer.sync_memory_budget, budget);
-        assert_eq!(peer.run_budget, target);
+        assert_eq!(peer.settings.sizing.sync_memory_budget, budget);
+        assert_eq!(peer.settings.sizing.run_budget, target);
         assert_eq!(peer.codec.limit(), depth);
         assert_eq!(sessions.0.load(Ordering::Relaxed), fail.len() + 1);
         if let Some(stored) = stored {
@@ -224,10 +224,10 @@ divided_proptest! {
     fn configuration_defaults_and_saturation(network in network_seed()) {
         let config = Peer::<u64>::bootstrap();
         assert_eq!(
-            config.sync_memory_budget,
+            config.settings.sizing.sync_memory_budget,
             MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET)
         );
-        assert_eq!(config.run_budget, RunBudget::default());
+        assert_eq!(config.settings.sizing.run_budget, RunBudget::default());
         assert_eq!(
             config.payload_depth_limit,
             crate::message::PayloadDepthLimit::default()
@@ -246,7 +246,7 @@ divided_proptest! {
             ),
         );
         let saturated = Peer::<u64>::bootstrap().target_message_size(usize::MAX);
-        assert_eq!(saturated.run_budget, RunBudget::from_bytes(usize::MAX));
-        assert_ne!(saturated.run_budget.bytes(), usize::MAX);
+        assert_eq!(saturated.settings.sizing.run_budget, RunBudget::from_bytes(usize::MAX));
+        assert_ne!(saturated.settings.sizing.run_budget.bytes(), usize::MAX);
     }
 }

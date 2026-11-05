@@ -96,25 +96,17 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     fn with_bookmark<N: Bookmark>(self, persist: N) -> Peer<T, N> {
         let Peer {
             keys,
-            sync_memory_budget,
-            run_budget,
-            write_batch,
-            gossip_policy,
+            settings,
             inner,
             bookmark,
             codec,
-            observe,
         } = self;
         Peer {
             keys,
-            sync_memory_budget,
-            run_budget,
-            write_batch,
-            gossip_policy,
+            settings,
             inner,
             bookmark: bookmark.replace(persist),
             codec,
-            observe,
         }
     }
 

@@ -319,7 +319,7 @@ proptest! {
             Setting::Budget(bytes) => builder.sync_memory_budget(bytes),
             Setting::Target(bytes) => builder.target_message_size(bytes),
         });
-        let limits = bootstrap.sync_memory_budget.session(bootstrap.run_budget);
+        let limits = bootstrap.settings.sizing.limits();
         prop_assert_eq!((limits.budget.memory, limits.target.bytes()), expected);
     }
 

@@ -16,7 +16,6 @@ use tokio::{
     sync::watch,
 };
 
-use crate::counter::widen;
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use crate::message::PayloadCodec;
 use crate::network::NetworkKeys;
@@ -31,13 +30,13 @@ use crate::{
         secret,
         streaming::{
             self, Local, materialized,
-            remote::{self as streaming_remote, PipeRead, RunBudget, WriteBatch},
+            remote::{self as streaming_remote, PipeRead},
             stats::{Recorder, SessionStats},
         },
     },
 };
 
-use super::{Inner, MemoryBudget, Peer, bootstrap::Bootstrap};
+use super::{Inner, Peer, SessionSizing, bootstrap::Bootstrap};
 
 /// The completion marker each side writes after all of its session work,
 /// in the closing exchange: the CBOR text item `"."`.
@@ -263,9 +262,10 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         W: AsyncWrite + Unpin + Send,
     {
         Box::pin(async move {
-            let policy = config.gossip_policy.clone();
+            let policy = config.settings.gossip_policy.clone();
             let started = Instant::now();
-            let completion = SessionCompletion::new(config.observe.begin(SessionKind::Bootstrap));
+            let completion =
+                SessionCompletion::new(config.settings.observe.begin(SessionKind::Bootstrap));
             let observe = completion.handle();
             let stats = Recorder::default();
             // The peer-to-be's payload codec, built before it exists:
@@ -278,9 +278,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             let mut received = None;
             let result = policy
                 .run(Self::bootstrap_erased(
-                    config.sync_memory_budget,
-                    config.run_budget,
-                    config.write_batch,
+                    config.settings.sizing,
                     codec,
                     &mut received,
                     read as DynRead<'_>,
@@ -333,14 +331,10 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         let Received { keys, party, root } = received;
         Self {
             keys: Arc::clone(&keys),
-            sync_memory_budget: config.sync_memory_budget,
-            run_budget: config.run_budget,
-            write_batch: config.write_batch,
-            gossip_policy: config.gossip_policy,
+            settings: config.settings,
             inner: watch::Sender::new(Inner::new(party, Tree::from_root(keys, root))),
             bookmark: BookmarkHandle::new(NoBookmark),
             codec,
-            observe: config.observe,
         }
     }
 
@@ -351,13 +345,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// nothing received means the counterparty was bootstrapping too.
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
-    // The arguments are the session's inputs, one per concern; bundling them
-    // into a struct would only rename the arity.
-    #[allow(clippy::too_many_arguments)]
     fn bootstrap_erased<'a>(
-        sync_memory_budget: MemoryBudget,
-        run_budget: RunBudget,
-        write_batch: WriteBatch,
+        sizing: SessionSizing,
         codec: PayloadCodec,
         received: &'a mut Option<Received>,
         read: DynRead<'a>,
@@ -415,9 +404,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 write,
                 codec,
                 keys: received_keys.clone(),
-                sync_memory_budget,
-                run_budget,
-                write_batch,
+                sizing,
                 remote_role,
                 stats,
                 observe: observe.clone(),
@@ -521,10 +508,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             Intent::Retire => SessionKind::Retire,
         };
         let started = Instant::now();
-        let completion = SessionCompletion::new(self.observe.begin(kind));
+        let completion = SessionCompletion::new(self.settings.observe.begin(kind));
         let observe = completion.handle();
         let stats = Recorder::default();
         let mut result = self
+            .settings
             .gossip_policy
             .run(self.gossip_inner(intent, &mut outcome, staged, read, write, observe, stats))
             .await;
@@ -675,9 +663,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             write,
             codec,
             keys: Some(Arc::clone(prior_tree.keys())),
-            sync_memory_budget: self.sync_memory_budget,
-            run_budget: self.run_budget,
-            write_batch: self.write_batch,
+            sizing: self.settings.sizing,
             stats: stats.clone(),
             observe: observe.clone(),
             remote_role: match counterparty {
@@ -804,6 +790,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             read: Box::new(read),
             write: Box::new(write),
             when: self
+                .settings
                 .gossip_policy
                 .when(crate::Changes::subscribe(&self.inner)),
             staged: preamble::Staged::new(),
@@ -930,16 +917,12 @@ struct Reconciliation<'a> {
     /// compares. A bootstrapper meeting a bootstrapper holds no network
     /// secret, lists nothing, and can be supplied nothing.
     keys: Option<Arc<NetworkKeys>>,
-    /// The peer's memory budget as set, from which and `run_budget` the
-    /// session derives the target it advertises and the budget its ledger
-    /// admits work against ([`MemoryBudget::session`]).
-    sync_memory_budget: MemoryBudget,
-    /// The supply-run sizing budget as set; the greeting carries it clamped
-    /// to what `sync_memory_budget` affords.
-    run_budget: RunBudget,
-    /// How many bytes of frames one flush of the session's multiplexer may
+    /// The peer's sizing as set, from which the session starts its local
+    /// participant ([`SessionSizing::start`]).
+    ///
+    /// It also gives the bytes of frames one flush of the multiplexer may
     /// carry.
-    write_batch: WriteBatch,
+    sizing: SessionSizing,
     /// The session's stats recorder, shared by both protocol participants.
     stats: Recorder,
     /// The session's observation handle: inert unless a handler is
@@ -1010,33 +993,17 @@ impl<'a> Reconciliation<'a> {
             write,
             codec,
             keys,
-            sync_memory_budget,
-            run_budget,
-            write_batch,
+            sizing,
             stats,
             observe,
             remote_role,
         } = self;
-        // The greeting advertises the target the budget affords, and the
-        // pipe sizes its wire pools at what the greeting advertises, so the
-        // ledger's budget must be the one at that same target.
-        let limits = sync_memory_budget.session(run_budget);
-        let local: LocalParticipant = sync_memory_budget
-            .apply(
-                run_budget,
-                materialized::Handshaking::start(
-                    Local,
-                    root.into(),
-                    keys.clone(),
-                    widen(limits.target.bytes()),
-                ),
-            )
-            .stats(stats.clone());
+        let local: LocalParticipant = sizing.start(root, keys.clone()).stats(stats.clone());
         let proxy: RemoteParticipant<'a> =
             streaming_remote::Handshaking::start(Local, read, write, codec, keys)
                 .stats(stats)
                 .observe(observe)
-                .write_batch(write_batch);
+                .write_batch(sizing.write_batch);
         let handshaken = streaming::handshake(local, proxy)
             .await
             .map_err(streaming_remote::streaming_error(Phase::Greeting))?;
