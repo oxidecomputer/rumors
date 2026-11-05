@@ -269,7 +269,7 @@ dependencies = [
  "hex",
  "indicatif",
  "insta",
- "num-bigint",
+ "num-bigint 0.5.1",
  "peak_alloc",
  "postcard",
  "proptest",
@@ -298,12 +298,12 @@ dependencies = [
  "indicatif",
  "libm",
  "mimalloc",
- "num-bigint",
+ "num-bigint 0.5.1",
  "num-traits",
  "plotters",
  "proptest",
- "rand 0.8.8",
- "rand_chacha 0.3.1",
+ "rand 0.10.3",
+ "rand_chacha 0.10.0",
  "rayon",
  "serde",
  "serde_json",
@@ -494,7 +494,7 @@ dependencies = [
  "data-encoding",
  "half",
  "nom",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-rational",
  "num-traits",
  "separator",
@@ -1067,7 +1067,7 @@ dependencies = [
  "asn1-rs",
  "displaydoc",
  "nom",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-traits",
  "rusticata-macros",
 ]
@@ -1141,7 +1141,7 @@ checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1210,7 +1210,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1265,7 +1265,7 @@ dependencies = [
  "before",
  "dlmalloc",
  "focused-fuel-protocol",
- "num-bigint",
+ "num-bigint 0.5.1",
  "spin",
 ]
 
@@ -1855,7 +1855,18 @@ checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
 dependencies = [
  "num-integer",
  "num-traits",
- "rand 0.8.8",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
+dependencies = [
+ "num-integer",
+ "num-traits",
+ "rand 0.10.3",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -1885,7 +1896,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
 dependencies = [
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-integer",
  "num-traits",
 ]
@@ -2578,7 +2589,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2888,7 +2899,7 @@ dependencies = [
 name = "suanpan"
 version = "0.1.0"
 dependencies = [
- "num-bigint",
+ "num-bigint 0.5.1",
  "proptest",
 ]
 
@@ -2907,7 +2918,7 @@ name = "suanpan-fuel-harness"
 version = "0.0.0"
 dependencies = [
  "board-fuel-harness",
- "num-bigint",
+ "num-bigint 0.5.1",
  "proptest",
  "suanpan-fuel-protocol",
  "wasmtime",
@@ -2992,7 +3003,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3686,7 +3697,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

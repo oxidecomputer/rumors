@@ -25,10 +25,10 @@
 //! Uniformity, membership, and counts are pinned in `tests.rs` against
 //! exhaustive enumeration and the real decoders.
 
-use num_bigint::{BigUint, RandBigInt};
+use num_bigint::{BigRng010, BigUint};
 use num_traits::Zero;
-use rand08::SeedableRng;
-use rand_chacha03::ChaChaRng;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
 
 use crate::count::{
     bit_window, version_leaf_count, PartyCounts, VersionCounts, MIN_PARTY_BITS, MIN_VERSION_BITS,
@@ -221,7 +221,7 @@ impl VersionSampler {
             // sibling-rule family counts; the rejection below restricts
             // the joint (length, member) draw to the real family, which
             // reweights the lengths to exactly their canonical share.
-            let mut u = rng.gen_biguint_below(&total);
+            let mut u = rng.random_biguint_below(&total);
             let mut bits = 0;
             for m in window.clone() {
                 let w = self.counts.whole(m);
@@ -267,7 +267,7 @@ impl VersionSampler {
             }
         };
         debug_assert!(!total.is_zero(), "sampled a size with no members");
-        let mut u = rng.gen_biguint_below(&total);
+        let mut u = rng.random_biguint_below(&total);
 
         // Option 1: a bare leaf (one flag bit plus one whole gamma bucket;
         // the drawn index's low bits are the uniform mantissa).
@@ -407,7 +407,7 @@ impl PartySampler {
         if total.is_zero() {
             return None;
         }
-        let mut u = rng.gen_biguint_below(&total);
+        let mut u = rng.random_biguint_below(&total);
         let mut bits = 0;
         for m in window {
             let w = self.counts.whole(m);
@@ -443,7 +443,7 @@ impl PartySampler {
             self.counts.subtree(bits).clone()
         };
         assert!(!total.is_zero(), "sampled a size with no members");
-        let mut u = rng.gen_biguint_below(&total);
+        let mut u = rng.random_biguint_below(&total);
 
         // Option 1: the terminal, tag `00`.
         if u < terminal_w {

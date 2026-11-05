@@ -99,7 +99,7 @@ itertools = "0.15"
 libm = "0.2"
 mimalloc = "0.1"
 nix = { version = "0.31", default-features = false }
-num-bigint = "0.4"
+num-bigint = "0.5"
 num-traits = "0.2"
 peak_alloc = "0.3"
 plotters = { version = "0.3", default-features = false }
