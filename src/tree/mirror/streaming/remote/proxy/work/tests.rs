@@ -319,55 +319,70 @@ impl Future for YieldOnce {
     }
 }
 
-/// The peer's departure, reported while the terminal step still has work
-/// within the session, does not fail the session: the walk completes, and
-/// the closing exchange reports the departure in its own phase.
+/// A walk error the terminal step raises from work within the session fails
+/// the session, although the peer departed first: a departure waits for the
+/// walk to stop, and a walk error found meanwhile is the session's cause.
 #[test]
-fn departure_before_the_walk_completes_waits_for_it() {
+fn a_walk_error_after_departure_is_the_cause() {
+    let ParkedSession { work, peer } = parked_session();
+    drop(peer);
+    let finish = async {
+        YieldOnce(false).await;
+        Err::<(), _>(Error::Encode(EncodeError::Backend(Failure::Injected(
+            Operation::Children { height: 1 },
+        ))))
+    };
+    let error = run_to_quiescence(work.execute(finish))
+        .expect("the session resolves")
+        .expect_err("the session must fail");
+    assert!(
+        matches!(
+            error,
+            Error::Encode(EncodeError::Backend(Failure::Injected(
+                Operation::Children { height: 1 }
+            )))
+        ),
+        "the departure outranked the walk error: {error:?}"
+    );
+}
+
+/// The peer's departure, reported while the terminal step still has work
+/// within the session, fails the session although that work then completes
+/// the walk.
+#[test]
+fn departure_fails_a_walk_that_completes_after_it() {
     let ParkedSession { work, peer } = parked_session();
     drop(peer);
     let finish = async {
         YieldOnce(false).await;
         Ok(())
     };
-    let result = run_to_quiescence(work.execute(finish)).expect("the session resolves");
-    assert!(result.is_ok(), "{:?}", result.err());
+    let error = run_to_quiescence(work.execute(finish))
+        .expect("the session resolves")
+        .expect_err("the departure must fail the session");
+    assert!(
+        matches!(&error, Error::Pipe(PipeError::Departed(source)) if source.kind() == ErrorKind::UnexpectedEof),
+        "{error:?}"
+    );
 }
 
-/// A completed protocol succeeds although the peer has since departed: the
-/// closing exchange, which reads next, reports the departure in its own
-/// phase.
+/// A read error the demultiplexer has ready when the protocol completes
+/// fails the session as the peer's departure, carrying the transport's own
+/// error, although the transport would report only end of stream if read
+/// again.
 #[test]
-fn completed_work_defers_departure_to_the_closing_exchange() {
-    let ParkedSession { work, peer } = parked_session();
-    drop(peer);
-    let result =
-        run_to_quiescence(work.execute(async { Ok(()) })).expect("completed work resolves");
-    assert!(result.is_ok(), "{:?}", result.err());
-}
-
-/// A read error the demultiplexer meets after the protocol completes
-/// reaches the closing exchange as itself.
-///
-/// The returned read half reports it on its next read, although the
-/// transport would report only end of stream if read again.
-#[test]
-fn completed_work_keeps_a_read_error_for_the_closing_exchange() {
+fn a_ready_read_error_fails_completed_work() {
     let work = session_over(
         BufReader::new(FailsOnce(Some(ErrorKind::ConnectionReset))),
         tokio::io::sink(),
     );
-    let error = run_to_quiescence(async {
-        let ((), mut read, _) = work
-            .execute(async { Ok(()) })
-            .await
-            .expect("completed work succeeds");
-        read.read(&mut [0; 1])
-            .await
-            .expect_err("the next read reports the kept error")
-    })
-    .expect("completed work resolves");
-    assert_eq!(error.kind(), ErrorKind::ConnectionReset);
+    let error = run_to_quiescence(work.execute(async { Ok(()) }))
+        .expect("completed work resolves")
+        .expect_err("the read error must fail the session");
+    assert!(
+        matches!(&error, Error::Pipe(PipeError::Departed(source)) if source.kind() == ErrorKind::ConnectionReset),
+        "{error:?}"
+    );
 }
 
 /// A whole frame waiting on the pipe when the protocol completes answers no

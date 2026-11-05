@@ -1,13 +1,26 @@
 //! The task set's failure routing, checked against a model of its rules.
 //!
 //! Each scripted member completes at a scripted *step*, with a scripted
-//! exit. The harness advances to the next step only once the session is at
-//! rest, polled without being woken, so a step stands for the work the
-//! session finds within itself before an outside event arrives. Members
-//! completing at one step complete in an order the model leaves open.
+//! exit. Members completing at one step complete in an order the model
+//! leaves open. Each step is reached in one of two ways, also scripted:
+//!
+//! - *within* the session: the last member to complete at the step before
+//!   advances the clock while the set polls it, so the set notices the
+//!   wakes, as it notices a member handing work to another;
+//! - from *outside*: the harness advances the clock only once the session
+//!   is at rest, polled without being woken, as an event arriving from the
+//!   peer would.
+//!
+//! In a session, the local participant's walk runs beside the set, so work
+//! that follows within the session can look to the set like work that waits
+//! for an outside event. The rules let that difference change which failure
+//! a failed session reports, never whether a session succeeds once a pipe
+//! failure has been reported, and the harness checks both by scripting each
+//! step either way.
 
 use std::{
-    io,
+    collections::BTreeMap,
+    io, mem,
     pin::{Pin, pin},
     sync::{
         Arc, Mutex,
@@ -19,7 +32,7 @@ use std::{
 use futures::future::BoxFuture;
 use proptest::prelude::*;
 
-use super::{Completed, drive};
+use super::drive;
 use crate::tree::mirror::streaming::remote::{
     adapter::EncodeError,
     codec::{self, DecodeError, DecodeErrorKind, EncodeErrorKind, FramePart, Origin, Speaker},
@@ -74,12 +87,18 @@ struct Scripted<X> {
 }
 
 /// A scripted session: its walk tasks, terminal future, multiplexer and
-/// demultiplexer.
+/// demultiplexer, and how each step is reached.
 ///
 /// A walk member's errors name the member: walk task `i` is member `i`,
 /// the terminal future follows the tasks, and the multiplexer follows it.
 #[derive(Clone, Debug)]
 struct Script {
+    /// Whether each step, by number, follows within the session from the
+    /// scripted step before it, rather than from outside.
+    ///
+    /// The first scripted step follows no other, so the session starts at
+    /// step 0 and the harness reaches a later first step from outside.
+    within: [bool; LAST_STEP + 1],
     /// The walk tasks.
     tasks: Vec<Scripted<Exit>>,
     /// The terminal future.
@@ -101,17 +120,45 @@ impl Script {
             .enumerate()
             .map(|(member, scripted)| (u8::try_from(member).expect("few members"), scripted))
     }
+
+    /// The scripted steps at which some member completes, in order.
+    fn steps(&self) -> Vec<usize> {
+        let mut steps: Vec<usize> = self
+            .walk()
+            .map(|(_, scripted)| scripted.step)
+            .chain([self.receive.step])
+            .filter(|&step| step != NEVER)
+            .collect();
+        steps.sort_unstable();
+        steps.dedup();
+        steps
+    }
+
+    /// The step at which the walk completes, if every walk member succeeds.
+    fn completion(&self) -> Option<usize> {
+        self.walk()
+            .map(|(_, scripted)| {
+                (scripted.exit == Exit::Ok && scripted.step != NEVER).then_some(scripted.step)
+            })
+            .try_fold(0, |last, step| Some(last.max(step?)))
+    }
+
+    /// The first step at which a pipe member reports a failure, if any does.
+    fn first_pipe_failure(&self) -> Option<usize> {
+        self.walk()
+            .filter(|(_, scripted)| scripted.exit == Exit::Write)
+            .map(|(_, scripted)| scripted.step)
+            .chain([self.receive.step])
+            .filter(|&step| step != NEVER)
+            .min()
+    }
 }
 
 /// How a session ended, comparable across the driver and the model.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Seen {
-    /// It succeeded; `departed` is whether a departure was kept for the
-    /// closing exchange.
-    Completed {
-        /// Whether the outcome carries the peer's departure.
-        departed: bool,
-    },
+    /// It succeeded.
+    Completed,
     /// It failed with member `0`'s walk error.
     Walk(u8),
     /// It failed with member `0`'s write failure.
@@ -124,24 +171,23 @@ enum Seen {
 
 /// The outcomes the rules allow for `script`.
 ///
-/// Steps run in order. At each, a walk error fails the session (rule 1);
-/// otherwise a completed walk decides it (rule 3); otherwise, once a pipe
-/// failure is known, the session comes to rest at the end of the step and
-/// fails with the highest-ranked pipe failure (rule 2). Where several
-/// members could decide within one step, each is allowed.
+/// Steps run in order. At each, a walk error fails the session (rule 1).
+/// Otherwise a completed walk decides it (rule 3): it succeeds unless the
+/// demultiplexer has failed, at this step or at the next, if the step's last
+/// completion reaches the next from within. Otherwise, once a pipe failure
+/// is known, the session continues into a next step that follows within
+/// the session, and comes to rest before one that follows from outside, or
+/// after the last; at rest it fails with the highest-ranked pipe failure
+/// (rule 2). Where several members could decide within one step, each is
+/// allowed.
 fn model(script: &Script) -> Vec<Seen> {
-    let mut steps: Vec<usize> = script
-        .walk()
-        .map(|(_, scripted)| scripted.step)
-        .chain([script.receive.step])
-        .filter(|&step| step != NEVER)
-        .collect();
-    steps.sort_unstable();
-    steps.dedup();
+    let steps = script.steps();
     let mut walking = script.tasks.len() + 2;
     let mut written: Option<Vec<u8>> = None;
     let mut received = None;
-    for step in steps {
+    for (index, &step) in steps.iter().enumerate() {
+        let next = steps.get(index + 1).copied();
+        let next_within = next.is_some_and(|next| script.within[next]);
         let at_step = || script.walk().filter(move |(_, s)| s.step == step);
         let walk_errors: Vec<Seen> = at_step()
             .filter(|(_, s)| s.exit == Exit::Walk)
@@ -162,11 +208,18 @@ fn model(script: &Script) -> Vec<Seen> {
             received = Some(script.receive.exit);
         }
         if walking == 0 {
-            return vec![match received {
-                None => Seen::Completed { departed: false },
-                Some(Receive::Departed) => Seen::Completed { departed: true },
+            // Only the demultiplexer can still complete, so the step's last
+            // completion is the walk's, and it wakes the demultiplexer if
+            // the next step is the demultiplexer's and follows within.
+            let woken =
+                (next_within && next == Some(script.receive.step)).then_some(script.receive.exit);
+            return vec![match received.or(woken) {
+                None => Seen::Completed,
                 Some(failure) => Seen::Received(failure),
             }];
+        }
+        if next_within {
+            continue;
         }
         match (received, &written) {
             (Some(Receive::Violation), _) => return vec![Seen::Received(Receive::Violation)],
@@ -178,14 +231,68 @@ fn model(script: &Script) -> Vec<Seen> {
     vec![Seen::Pending]
 }
 
-/// The scripted session's current step, and the members waiting for later
-/// ones.
-#[derive(Default)]
+/// The scripted session's current step, the members waiting for later
+/// ones, and how each step is reached.
 struct Clock {
     /// The current step.
     step: usize,
     /// Each waiting member's step and waker.
     waiting: Vec<(usize, Waker)>,
+    /// How many members scripted for each step have yet to complete.
+    remaining: BTreeMap<usize, usize>,
+    /// Whether each step follows within the session ([`Script::within`]).
+    within: [bool; LAST_STEP + 1],
+}
+
+impl Clock {
+    /// A clock at step 0 for `script`'s members.
+    fn new(script: &Script) -> Self {
+        let mut remaining = BTreeMap::new();
+        let members = script.walk().map(|(_, scripted)| scripted.step);
+        for step in members
+            .chain([script.receive.step])
+            .filter(|&step| step != NEVER)
+        {
+            *remaining.entry(step).or_default() += 1;
+        }
+        Self {
+            step: 0,
+            waiting: Vec::new(),
+            remaining,
+            within: script.within,
+        }
+    }
+
+    /// Note that a member scripted for `step` completed. If it was the
+    /// step's last and the next scripted step follows within the session,
+    /// advance to that step, returning the wakers of the members it makes
+    /// ready.
+    fn complete(&mut self, step: usize) -> Vec<Waker> {
+        let left = self
+            .remaining
+            .get_mut(&step)
+            .expect("a completing member is counted at its step");
+        *left -= 1;
+        if *left > 0 {
+            return Vec::new();
+        }
+        self.remaining.remove(&step);
+        match self.remaining.range(step + 1..).next() {
+            Some((&next, _)) if self.within[next] => self.advance(next),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Advance to step `next`, returning the wakers of the members due by
+    /// then.
+    fn advance(&mut self, next: usize) -> Vec<Waker> {
+        self.step = next;
+        let (due, waiting) = mem::take(&mut self.waiting)
+            .into_iter()
+            .partition(|&(step, _)| step <= next);
+        self.waiting = waiting;
+        due.into_iter().map(|(_, waker)| waker).collect()
+    }
 }
 
 /// A future that completes with its output once the clock reaches its
@@ -203,23 +310,29 @@ struct At<T> {
 impl<T: Unpin> Future for At<T> {
     type Output = T;
 
-    /// Completes if the clock has reached the step; otherwise waits for it.
+    /// Completes if the clock has reached the step, waking the next step's
+    /// members if this completion reaches it within the session; otherwise
+    /// waits for the step.
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
         let this = self.get_mut();
         let mut clock = this
             .clock
             .lock()
             .expect("no test thread panics holding the clock");
-        if clock.step >= this.step {
-            Poll::Ready(
-                this.output
-                    .take()
-                    .expect("a completed member is not polled again"),
-            )
-        } else {
+        if clock.step < this.step {
             clock.waiting.push((this.step, cx.waker().clone()));
-            Poll::Pending
+            return Poll::Pending;
         }
+        let woken = clock.complete(this.step);
+        // Wake outside the lock: a waker may poll nothing, but the clock
+        // need not rely on that.
+        drop(clock);
+        woken.into_iter().for_each(Waker::wake);
+        Poll::Ready(
+            this.output
+                .take()
+                .expect("a completed member is not polled again"),
+        )
     }
 }
 
@@ -292,16 +405,14 @@ fn receive_failure(receive: Receive) -> PipeError {
 }
 
 /// Classify the driver's outcome.
-fn seen(outcome: Result<Completed<u32>, Error<Injected>>) -> Seen {
+fn seen(outcome: Result<u32, Error<Injected>>) -> Seen {
     match outcome {
-        Ok((output, departure)) => {
+        Ok(output) => {
             assert_eq!(
                 output, FINISHED,
                 "the session's output is the terminal future's"
             );
-            Seen::Completed {
-                departed: departure.is_some(),
-            }
+            Seen::Completed
         }
         Err(Error::Encode(EncodeError::Backend(Injected(member)))) => Seen::Walk(member),
         Err(Error::Pipe(PipeError::Encode(codec::EncodeError {
@@ -320,10 +431,11 @@ fn seen(outcome: Result<Completed<u32>, Error<Injected>>) -> Seen {
     }
 }
 
-/// Run `script` through the driver, advancing the clock each time the
-/// session comes to rest.
+/// Run `script` through the driver: members advance the clock to steps
+/// that follow within the session, and the harness advances it to the next
+/// step each time the session comes to rest.
 fn run(script: &Script) -> Seen {
-    let clock = Arc::new(Mutex::new(Clock::default()));
+    let clock = Arc::new(Mutex::new(Clock::new(script)));
     let members: Vec<(u8, Scripted<Exit>)> = script.walk().collect();
     let (tasks, rest) = members.split_at(script.tasks.len());
     let [(finish_member, finish), (send_member, send)] = rest else {
@@ -362,14 +474,7 @@ fn run(script: &Script) -> Seen {
                 .expect("no test thread panics holding the clock");
             match clock.waiting.iter().map(|&(step, _)| step).min() {
                 None | Some(NEVER) => return Seen::Pending,
-                Some(next) => {
-                    clock.step = next;
-                    let (due, waiting) = std::mem::take(&mut clock.waiting)
-                        .into_iter()
-                        .partition(|&(step, _)| step <= next);
-                    clock.waiting = waiting;
-                    due.into_iter().map(|(_, waker)| waker).collect()
-                }
+                Some(next) => clock.advance(next),
             }
         };
         woken.into_iter().for_each(Waker::wake);
@@ -397,6 +502,7 @@ fn scripted<X: std::fmt::Debug>(
 /// A scripted session.
 fn script() -> impl Strategy<Value = Script> {
     (
+        any::<[bool; LAST_STEP + 1]>(),
         proptest::collection::vec(scripted(walk_exit()), 0..=MAX_TASKS),
         scripted(walk_exit()),
         scripted(prop_oneof![3 => Just(Exit::Ok), 1 => Just(Exit::Write)]),
@@ -406,7 +512,8 @@ fn script() -> impl Strategy<Value = Script> {
             Just(Receive::Truncated),
         ]),
     )
-        .prop_map(|(tasks, finish, send, receive)| Script {
+        .prop_map(|(within, tasks, finish, send, receive)| Script {
+            within,
             tasks,
             finish,
             send,
@@ -415,18 +522,32 @@ fn script() -> impl Strategy<Value = Script> {
 }
 
 proptest! {
-    /// Whatever its members do, and whenever, a session ends as the routing
+    /// Whatever its members do, whenever, and whether each step follows
+    /// within the session or from outside, a session ends as the routing
     /// rules say.
     ///
-    /// A walk error ends it at once; a completed walk ends it in success,
-    /// keeping a departure, unless the demultiplexer reported anything
-    /// else; otherwise, once a pipe failure leaves the session at rest, it
-    /// fails with a violation over a write failure over the
-    /// demultiplexer's other failures.
+    /// A walk error ends it at once; a completed walk ends it in success
+    /// unless the demultiplexer failed; otherwise, once a pipe failure is
+    /// known and the session comes to rest, it fails with a violation over
+    /// a write failure over the demultiplexer's other failures. Apart from
+    /// the model, a pipe failure reported at or before the step at which
+    /// the walk completes never lets the session succeed, however its
+    /// steps are reached.
     #[test]
     fn sessions_end_as_the_routing_rules_say(script in script()) {
         let allowed = model(&script);
         let actual = run(&script);
         prop_assert!(allowed.contains(&actual), "{actual:?} is not among {allowed:?}");
+        if let (Some(completion), Some(failure)) = (script.completion(), script.first_pipe_failure())
+            && failure <= completion
+        {
+            prop_assert_ne!(
+                actual,
+                Seen::Completed,
+                "a pipe failure at step {} let a walk completing at step {} succeed",
+                failure,
+                completion
+            );
+        }
     }
 }

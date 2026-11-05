@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f78ae4a577f42f7649dd7aa8e2a7e6d37194986798f2d43e7bf6d05fccbaf156 # shrinks to script = Script { within: [false, false, false, false], tasks: [], finish: Scripted { step: 3, exit: Ok }, send: Scripted { step: 0, exit: Ok }, receive: Scripted { step: 3, exit: Departed } }
+cc 28e05d9787d8a17b4641cca60b07c80d539029b1c554217340907b80a467ddc3 # shrinks to script = Script { within: [false, false, true, true], tasks: [Scripted { step: 2, exit: Ok }], finish: Scripted { step: 0, exit: Ok }, send: Scripted { step: 0, exit: Ok }, receive: Scripted { step: 0, exit: Departed } }

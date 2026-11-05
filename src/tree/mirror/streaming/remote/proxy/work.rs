@@ -294,11 +294,9 @@ where
     /// The demultiplexer reports only failures; it runs until the protocol
     /// completes and is then dropped between frames, leaving every byte it
     /// has not consumed in the read half's buffer for the closing exchange.
-    /// A departure it reported
-    /// does not fail a completed reconciliation: a read error stays in the
-    /// returned read half for the closing exchange's first read. A frame
-    /// the demultiplexer had begun but not delivered is a frame no question
-    /// invited, so it fails the session.
+    /// Every failure it reports fails the session, the peer's departure
+    /// included. A frame the demultiplexer had begun but not delivered is a
+    /// frame no question invited, so it fails the session too.
     ///
     /// This boxes `finish` and takes the work apart before building the
     /// future it returns, which therefore holds each part once: an `async
@@ -342,11 +340,7 @@ where
                 Holding::Wire,
                 demultiplexer.run(&mut read, remote, budget, &pools.receiving, stats, &observe),
             );
-            let (output, departure) =
-                drive::drive(tasks, finish, Box::pin(send), Box::pin(receive)).await?;
-            if let Some(source) = departure {
-                read.keep_failure(source);
-            }
+            let output = drive::drive(tasks, finish, Box::pin(send), Box::pin(receive)).await?;
             pipe::check_drained(&read, remote).map_err(Error::Pipe)?;
             Ok((output, read, write))
         }

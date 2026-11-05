@@ -236,8 +236,8 @@ fn opens_frame(byte: u8) -> bool {
     byte >> MAJOR_TYPE_SHIFT == MAJOR_ARRAY
 }
 
-/// The pipe's read half: the session's buffered read half, and what the
-/// demultiplexer has learned at the next item's boundary.
+/// The pipe's read half: the session's buffered read half, and whether the
+/// demultiplexer is part way through a frame.
 ///
 /// The demultiplexer starts each item by looking at its first byte in the
 /// read half's buffer ([`peek`](Self::peek)) without consuming it, to learn
@@ -248,33 +248,22 @@ fn opens_frame(byte: u8) -> bool {
 ///
 /// A peek either finds the next byte in the buffer or consumes nothing, so
 /// the demultiplexer can be dropped between frames without losing a byte
-/// the closing exchange needs. A read error the demultiplexer met there can
-/// be kept ([`keep_failure`](Self::keep_failure)), for the closing exchange
-/// to report.
+/// the closing exchange needs.
 pub struct PipeRead<R> {
     /// The transport's buffered read half.
     read: R,
     /// Whether the demultiplexer has begun a frame it has not yet handed
     /// to its decoder.
     in_frame: bool,
-    /// Whether the transport reported end of stream where the next item
-    /// would begin.
-    ended: bool,
-    /// A read error met ahead of the next item and not yet reported to the
-    /// reader of that item.
-    failure: Option<io::Error>,
 }
 
 /// Summarize the read half's state without requiring the transport to be
 /// debuggable.
 impl<R> std::fmt::Debug for PipeRead<R> {
-    /// Formats whether a frame is under way and how the transport last
-    /// ended a read.
+    /// Formats whether a frame is under way.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PipeRead")
             .field("in_frame", &self.in_frame)
-            .field("ended", &self.ended)
-            .field("failure", &self.failure)
             .finish_non_exhaustive()
     }
 }
@@ -285,8 +274,6 @@ impl<R> PipeRead<R> {
         Self {
             read,
             in_frame: false,
-            ended: false,
-            failure: None,
         }
     }
 
@@ -301,20 +288,6 @@ impl<R> PipeRead<R> {
     fn at_frame_boundary(&self) -> bool {
         !self.in_frame
     }
-
-    /// Report `error`, which a read of the transport returned where the
-    /// next item would begin, from the next read in place of the
-    /// transport.
-    ///
-    /// A transport need not repeat an error: one that reports a reset once
-    /// may report end of stream when read again, so the next item's reader
-    /// would otherwise see a different failure. End of stream needs no
-    /// keeping, since reading again finds it again.
-    pub fn keep_failure(&mut self, error: io::Error) {
-        if !self.ended {
-            self.failure = Some(error);
-        }
-    }
 }
 
 impl<R: AsyncBufRead + Unpin> PipeRead<R> {
@@ -325,27 +298,19 @@ impl<R: AsyncBufRead + Unpin> PipeRead<R> {
     ///
     /// Cancel safe: filling the read half's buffer consumes nothing.
     pub async fn peek(&mut self) -> io::Result<Option<u8>> {
-        if let Some(error) = self.failure.take() {
-            return Err(error);
-        }
-        let first = self.read.fill_buf().await?.first().copied();
-        self.ended = first.is_none();
-        Ok(first)
+        Ok(self.read.fill_buf().await?.first().copied())
     }
 }
 
-/// Report a kept read error first, then read the transport.
+/// Read the transport, for the closing exchange.
 impl<R: AsyncRead + Unpin> AsyncRead for PipeRead<R> {
+    /// Reads from the transport's buffered read half.
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let this = self.get_mut();
-        if let Some(error) = this.failure.take() {
-            return Poll::Ready(Err(error));
-        }
-        Pin::new(&mut this.read).poll_read(cx, buf)
+        Pin::new(&mut self.get_mut().read).poll_read(cx, buf)
     }
 }
 
@@ -353,8 +318,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for PipeRead<R> {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PipeError {
-    /// The pipe ended or failed at a frame boundary while reconciliation
-    /// still needed the peer.
+    /// The pipe ended or failed at a frame boundary, before the peer's
+    /// closing items.
     #[error("peer departed during reconciliation")]
     Departed(#[source] io::Error),
     /// An incoming frame could not be read or decoded.

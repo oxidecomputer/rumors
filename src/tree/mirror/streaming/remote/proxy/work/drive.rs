@@ -1,9 +1,11 @@
 //! One task set for a session's work and its pipe, and how the set's
 //! failures become the session's outcome.
 //!
-//! The proxy's terminal operation polls every member of a session's work
-//! in one [`FuturesUnordered`]: the walk's tasks, the terminal future, the
-//! multiplexer, and the demultiplexer. The set polls a member when it
+//! The proxy's terminal operation polls the proxy's part of a session's
+//! work in one [`FuturesUnordered`], whose *members* are the proxy's walk
+//! tasks, its terminal future, the multiplexer, and the demultiplexer. The
+//! local participant's walk is not a member: it runs beside the set ("What
+//! rest sees", below). The set polls a member when it
 //! wakes, and polls a member woken during one of its polls within that same
 //! poll, as far as its yield policy allows. So handing a frame between an
 //! encoder and the multiplexer, or between the demultiplexer and a
@@ -29,34 +31,53 @@
 //!    its channels when it completes, so an error the closure causes in
 //!    another member can only follow it: the first walk error found is the
 //!    cause.
-//! 2. **A pipe failure waits for the walk to come to rest.** After a write
-//!    or receive failure, the session keeps polling the set, across as many
-//!    polls of the session as that takes, until a poll of the set finds no
-//!    member ready and notices no wake: no member has work left within the
-//!    session. Rule 1 still applies meanwhile, and so does rule 3. At rest,
-//!    the session fails with a receive failure that shows the peer breaking
-//!    the protocol if there is one, since a peer that detected a problem
-//!    may have closed the connection and so caused the write failure;
-//!    otherwise with the write failure; otherwise with the receive failure.
-//!    Neither pipe failure causes a walk error: once the multiplexer has
-//!    gone, encoders handing it frames await cancellation, and the
-//!    demultiplexer's channels to the decoders stay open, because its owner
-//!    outlives the set.
-//! 3. **A completed walk succeeds unless the peer broke the protocol.** Once
-//!    every walk task, the terminal future and the multiplexer have
-//!    completed, one last poll of the set collects a receive failure the
-//!    demultiplexer had ready, without waiting. The session then succeeds,
-//!    unless that failure, or one reported earlier, is anything but the
-//!    peer's departure. A departure fails nothing: the closing exchange
-//!    reads next, and reports it in its own phase.
+//! 2. **A pipe failure fails the session once the walk stops.** After a
+//!    write or receive failure, the session keeps polling the set, across as
+//!    many polls of the session as that takes, until the walk completes or
+//!    comes to *rest*: a poll of the set finds no member ready and notices
+//!    no wake. Rule 1 still applies meanwhile. The session then fails with a
+//!    receive failure that shows the peer breaking the protocol if there is
+//!    one, since a peer that detected a problem may have closed the
+//!    connection and so caused the write failure; otherwise with the write
+//!    failure; otherwise with the receive failure, the peer's departure
+//!    included. Neither pipe failure causes a walk error: once the
+//!    multiplexer has gone, encoders handing it frames await cancellation,
+//!    and the demultiplexer's channels to the decoders stay open, because
+//!    its owner outlives the set.
+//! 3. **A completed walk succeeds unless a pipe member failed.** Once every
+//!    walk task, the terminal future and the multiplexer have completed, one
+//!    last poll of the set collects a receive failure the demultiplexer had
+//!    ready, without waiting. If the demultiplexer has reported a failure,
+//!    rule 2 decides; otherwise the session succeeds. A failure the
+//!    demultiplexer has not met falls to the closing exchange, which reads
+//!    next and reports it in its own phase.
 //!
-//! In particular, a departure the demultiplexer reports before the walk's
-//! last member completes does not fail a session whose walk completes from
-//! work already within the session.
+//! So a failure the pipe reports during the walk fails the session, whatever
+//! the walk could still have completed from work already within the session.
+//!
+//! # What rest sees
+//!
+//! Rest is inferred from the set alone, and the set does not hold all of
+//! the session's work. The local participant's walk runs beside it: the
+//! session's task polls the local walk and this set one after the other,
+//! never one inside the other, and the local walk feeds some members, the
+//! encoders, through channels. A member waiting on the local walk can be
+//! woken only once the local walk runs, so a poll of the set that ends with
+//! that member waiting notices no wake, even when the local walk holds the
+//! work that would wake it. Rest therefore means that no member can make
+//! progress until something outside the set does, and the local walk may
+//! still hold work.
+//!
+//! The rules consult rest only to decide when a session that has already
+//! failed stops. A rest that comes early therefore never changes whether a
+//! session fails, nor whether it publishes: rule 2 fails it either way, and
+//! rule 3 lets only a walk with no pipe failure succeed. It can change which
+//! failure the session reports: a walk error the local walk would still
+//! have raised, or a violation a decoder would have found in a frame it
+//! could not yet hand on, gives way to the pipe failure.
 
 use std::{
     future::poll_fn,
-    io,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     task::{Context, Poll, Wake, Waker},
@@ -65,10 +86,6 @@ use std::{
 use futures::{StreamExt, future::BoxFuture, stream::FuturesUnordered};
 
 use crate::tree::mirror::streaming::remote::{pipe::PipeError, proxy::Error};
-
-/// The terminal future's output, and the peer's departure if the
-/// demultiplexer reported one: the closing exchange reports it.
-pub(super) type Completed<O> = (O, Option<io::Error>);
 
 /// Drive a session's members to its outcome, by the rules in the module
 /// docs.
@@ -81,7 +98,7 @@ pub(super) async fn drive<O, E>(
     finish: BoxFuture<'_, Result<O, Error<E>>>,
     send: BoxFuture<'_, Result<(), Error<E>>>,
     receive: BoxFuture<'_, PipeError>,
-) -> Result<Completed<O>, Error<E>> {
+) -> Result<O, Error<E>> {
     let mut routing = Routing {
         walking: tasks.len() + 2,
         output: None,
@@ -165,7 +182,7 @@ impl<O, E> Routing<O, E> {
         &mut self,
         set: &mut FuturesUnordered<Member<'_, O, E>>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<Completed<O>, Error<E>>> {
+    ) -> Poll<Result<O, Error<E>>> {
         let mut notice = self.failed().then(|| Notice::new(cx.waker()));
         loop {
             let polled = match &notice {
@@ -235,7 +252,7 @@ impl<O, E> Routing<O, E> {
         &mut self,
         set: &mut FuturesUnordered<Member<'_, O, E>>,
         cx: &mut Context<'_>,
-    ) -> Result<Completed<O>, Error<E>> {
+    ) -> Result<O, Error<E>> {
         if self.received.is_none() {
             // Only the demultiplexer is left, so this polls it if it has
             // woken since its last poll, and never waits.
@@ -247,26 +264,24 @@ impl<O, E> Routing<O, E> {
                 Poll::Ready(None) | Poll::Pending => {}
             }
         }
-        let output = self
+        if self.failed() {
+            return Err(self.ranked());
+        }
+        Ok(self
             .output
             .take()
-            .expect("the walk completes only once the terminal future has");
-        match self.received.take() {
-            None => Ok((output, None)),
-            Some(PipeError::Departed(source)) => Ok((output, Some(source))),
-            Some(failure) => Err(Error::Pipe(failure)),
-        }
+            .expect("the walk completes only once the terminal future has"))
     }
 
-    /// The failure of a session whose walk came to rest after a pipe
-    /// failure (rule 2).
+    /// The failure of a session whose walk stopped after a pipe failure
+    /// (rule 2).
     fn ranked(&mut self) -> Error<E> {
         match (self.received.take(), self.written.take()) {
             (Some(received), _) if received.is_violation() => Error::Pipe(received),
             (_, Some(written)) => written,
             (Some(received), None) => Error::Pipe(received),
             (None, None) => {
-                unreachable!("a session comes to rest failed only after a pipe failure")
+                unreachable!("a session fails at rest or completion only after a pipe failure")
             }
         }
     }
