@@ -83,6 +83,7 @@ use rumors::{Error, Gossiped, Peer, Retire, Rumors, Version};
 use crate::common::budget::{BudgetAssignment, BudgetChoice, arb_budget_choice};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::oracle::{readout, version_key};
+use crate::common::seed::{NetworkSeed, network_seed};
 use crate::common::wire::wire_gossip_async;
 
 /// Upper bound on the byte offset at which a cut or a vanish can land.
@@ -138,6 +139,8 @@ pub struct Plan {
     /// Founders draw independently, so the chaos includes sessions
     /// between differently-configured endpoints.
     pub budgets: BudgetAssignment,
+    /// The seed of the network the first founder creates.
+    pub network: NetworkSeed,
 }
 
 /// One local operation in a peer's concurrent activity script.
@@ -368,7 +371,8 @@ fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
 pub fn arb_plan() -> impl Strategy<Value = Plan> {
     // Draw order is part of the seed-compatibility surface: committed
     // regression seeds regenerate each field from a stable prefix of the
-    // RNG stream, so `budgets` draws last.
+    // RNG stream, so `budgets` draws after the plan's other fields, and the
+    // network seed after `budgets`.
     (any::<bool>(), 2usize..=MAX_PLAN_PEERS).prop_flat_map(|(faults, n)| {
         (
             prop::collection::vec(any::<u64>(), 0..=MAX_PLAN_SEED_MESSAGES),
@@ -380,9 +384,18 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
             prop::collection::vec(arb_session(n, faults), 1..16),
             prop::collection::vec(arb_retire(n, faults), 0..=2),
             prop::collection::vec(arb_budget_choice(), n),
+            network_seed(),
         )
             .prop_map(
-                move |(seed_messages, faulty_boots, scripts, sessions, retires, budgets)| Plan {
+                move |(
+                    seed_messages,
+                    faulty_boots,
+                    scripts,
+                    sessions,
+                    retires,
+                    budgets,
+                    network,
+                )| Plan {
                     n_peers: n,
                     seed_messages,
                     faulty_boots,
@@ -390,6 +403,7 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
                     sessions,
                     retires,
                     budgets: BudgetAssignment::new(budgets),
+                    network,
                 },
             )
     })
@@ -713,7 +727,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     let seed = plan
         .budgets
         .choice(0)
-        .apply(Peer::<u64>::seed())
+        .apply(plan.network.peer::<u64>())
         .into_rumors();
     {
         seed.send_all(plan.seed_messages.iter().copied()).unwrap();

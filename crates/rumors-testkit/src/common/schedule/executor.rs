@@ -189,7 +189,10 @@ where
     let mut slots: Vec<Option<Peer<T>>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            budgets.choice(0).apply(rumors::Peer::seed()).into_rumors()
+            budgets
+                .choice(0)
+                .apply(schedule.network.peer())
+                .into_rumors()
         } else {
             let parent = slots[schedule.fork_parents[i]]
                 .as_ref()

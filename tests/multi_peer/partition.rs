@@ -24,9 +24,12 @@ use proptest::prelude::*;
 use rumors_testkit::common::budget::{BudgetAssignment, arb_budget_assignment};
 use rumors_testkit::common::oracle::readout_multiset;
 use rumors_testkit::common::peer::quiesce;
+use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::schedule::events::Event;
 use rumors_testkit::common::schedule::executor::ExecutionResult;
 use rumors_testkit::common::schedule::{Schedule, arb_schedule, execute_with};
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
 /// Fleet sizes exercised by generated partition schedules.
 const N_PEERS: std::ops::RangeInclusive<usize> = 3..=8;
@@ -91,23 +94,30 @@ proptest! {
     }
 }
 
-/// With an empty partitioned prefix, equal payloads inserted by different
-/// peers remain two distinct messages as the fleet reaches quiescence.
-#[test]
-fn partition_boundary_preserves_equal_valued_inserts() {
-    let schedule = Schedule {
-        n_peers: 3,
-        fork_parents: vec![0, 0, 0],
-        events: vec![
-            Event::Insert { peer: 0, value: 0 },
-            Event::Insert { peer: 1, value: 0 },
-        ],
-    };
-    let result = execute_partition_and_heal(&schedule, 1, 0, &BudgetAssignment::zero());
-    let expected = BTreeMap::from([(0, 2)]);
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    assert_eq!(result.oracle.expected_live(), expected);
-    for peer in &result.peers {
-        assert_eq!(readout_multiset(&peer.local.snapshot()), expected);
+    /// With an empty partitioned prefix, equal payloads inserted by different
+    /// peers remain two distinct messages as the fleet reaches quiescence.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn partition_boundary_preserves_equal_valued_inserts(network in network_seed()) {
+        let schedule = Schedule {
+            n_peers: 3,
+            fork_parents: vec![0, 0, 0],
+            events: vec![
+                Event::Insert { peer: 0, value: 0 },
+                Event::Insert { peer: 1, value: 0 },
+            ],
+            network,
+        };
+        let result = execute_partition_and_heal(&schedule, 1, 0, &BudgetAssignment::zero());
+        let expected = BTreeMap::from([(0, 2)]);
+
+        assert_eq!(result.oracle.expected_live(), expected);
+        for peer in &result.peers {
+            assert_eq!(readout_multiset(&peer.local.snapshot()), expected);
+        }
     }
 }

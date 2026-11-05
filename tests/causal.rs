@@ -18,35 +18,44 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Peer, Rumors, Version};
+use rumors::{Rumors, Version};
 
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
 };
 use crate::common::wire::{bootstrap_fork, wire_gossip};
+use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
 /// Number of messages staged by the allocation probe.
 const ALLOCATION_BACKLOG: u64 = 256;
 
-/// Staging a backlog does not allocate a copied key for every version.
-///
-/// Tree traversal and the staging map retain structural allocations, but fewer
-/// than one per staged message. This catches a copied key, or any equivalent
-/// per-version allocation, without pinning the map's internal node size.
-#[test]
-fn causal_staging_has_no_per_version_allocation() {
-    let rumors = Peer::<u64>::seed().into_rumors();
-    rumors.send_all(0..ALLOCATION_BACKLOG).unwrap();
-    let mut messages = rumors.causal_messages();
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-    let (stats, first) = alloc_meter::measure(|| messages.try_next());
+    /// Staging a backlog does not allocate a copied key for every version.
+    ///
+    /// Tree traversal and the staging map retain structural allocations, but fewer
+    /// than one per staged message. This catches a copied key, or any equivalent
+    /// per-version allocation, without pinning the map's internal node size.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn causal_staging_has_no_per_version_allocation(network in network_seed()) {
+        let rumors = network.peer::<u64>().into_rumors();
+        rumors.send_all(0..ALLOCATION_BACKLOG).unwrap();
+        let mut messages = rumors.causal_messages();
 
-    assert!(matches!(first, rumors::TryNext::Message(_)));
-    assert!(
-        stats.allocations < ALLOCATION_BACKLOG as usize,
-        "staging {ALLOCATION_BACKLOG} messages performed {} allocations",
-        stats.allocations,
-    );
+        let (stats, first) = alloc_meter::measure(|| messages.try_next());
+
+        assert!(matches!(first, rumors::TryNext::Message(_)));
+        assert!(
+            stats.allocations < ALLOCATION_BACKLOG as usize,
+            "staging {ALLOCATION_BACKLOG} messages performed {} allocations",
+            stats.allocations,
+        );
+    }
 }
 
 /// Assert the causal-delivery contract on a delivered sequence: no message
@@ -68,243 +77,274 @@ fn assert_causal(items: &[(Version, u64)]) {
     }
 }
 
-/// A single party's sends form a causal chain, so a fresh observer must
-/// deliver the whole backlog in exactly send order — the case path-ordered
-/// delivery scrambles roughly half the time.
-#[test]
-fn single_party_backlog_replays_in_send_order() {
-    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    for v in 0..8u64 {
-        known.send(v).unwrap(); // one commit per send: strictly increasing versions
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
+
+    /// A single party's sends form a causal chain, so a fresh observer must
+    /// deliver the whole backlog in exactly send order — the case path-ordered
+    /// delivery scrambles roughly half the time.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn single_party_backlog_replays_in_send_order(network in network_seed()) {
+        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        for v in 0..8u64 {
+            known.send(v).unwrap(); // one commit per send: strictly increasing versions
+        }
+
+        let mut obs = known.causal_messages();
+        let (items, ended) = drain(&mut obs);
+        assert!(!ended, "the set is live: quiet, not ended");
+        assert_eq!(
+            items.iter().map(|(_, m)| *m).collect::<Vec<_>>(),
+            (0..8).collect::<Vec<_>>(),
+            "a causal chain is delivered in chain order"
+        );
+        assert_causal(&items);
     }
-
-    let mut obs = known.causal_messages();
-    let (items, ended) = drain(&mut obs);
-    assert!(!ended, "the set is live: quiet, not ended");
-    assert_eq!(
-        items.iter().map(|(_, m)| *m).collect::<Vec<_>>(),
-        (0..8).collect::<Vec<_>>(),
-        "a causal chain is delivered in chain order"
-    );
-    assert_causal(&items);
 }
 
-/// One captured backlog follows the staging order: rank, then version bytes.
-/// This checks the internal ordering within a pass; concurrent messages
-/// arriving in later passes need not follow it.
-#[test]
-fn converged_backlog_has_no_inversions() {
-    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let b = bootstrap_fork(&a);
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    for v in 0..4u64 {
-        a.send(v).unwrap();
-    }
-    for v in 10..14u64 {
-        b.send(v).unwrap();
-    }
-    wire_gossip(&a, &b);
+    /// One captured backlog follows the staging order: rank, then version bytes.
+    /// This checks the internal ordering within a pass; concurrent messages
+    /// arriving in later passes need not follow it.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn converged_backlog_has_no_inversions(network in network_seed()) {
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let b = bootstrap_fork(&a);
 
-    let mut obs = a.causal_messages();
-    let (items, _) = drain(&mut obs);
-    assert_eq!(items.len(), 8, "both chains are in the converged backlog");
-    assert_causal(&items);
+        for v in 0..4u64 {
+            a.send(v).unwrap();
+        }
+        for v in 10..14u64 {
+            b.send(v).unwrap();
+        }
+        wire_gossip(&a, &b);
 
-    // The staging map orders one snapshot by rank and breaks concurrent ties
-    // with version bytes.
-    let ranks: Vec<_> = items
-        .iter()
-        .map(|(v, _)| (v.rank(), v.as_bytes().to_vec()))
-        .collect();
-    assert!(
-        ranks.windows(2).all(|w| w[0] < w[1]),
-        "a single backlog drains in strictly increasing (rank, bytes) order"
-    );
-}
+        let mut obs = a.causal_messages();
+        let (items, _) = drain(&mut obs);
+        assert_eq!(items.len(), 8, "both chains are in the converged backlog");
+        assert_causal(&items);
 
-/// Sorting a snapshot by `Version::ranked` places a shared cause before two
-/// concurrent effects and gives those effects a deterministic order.
-#[test]
-fn snapshot_items_sort_by_ranked_version() {
-    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let cause = a.send(0).unwrap();
-    let b = bootstrap_fork(&a);
-    let left = a.send(1).unwrap();
-    let right = b.send(2).unwrap();
-    assert!(
-        left.partial_cmp(&right).is_none(),
-        "the effects are concurrent"
-    );
-    wire_gossip(&a, &b);
-
-    let snapshot = a.snapshot();
-    let mut items: Vec<_> = snapshot.iter().collect();
-    items.sort_by(|a, b| a.0.ranked().cmp(&b.0.ranked()));
-    assert_eq!(items.first().unwrap().0, &cause);
-    assert_causal(
-        &items
-            .into_iter()
-            .map(|(version, value)| (version.clone(), *value))
-            .collect::<Vec<_>>(),
-    );
-}
-
-/// Identical snapshots use the same internal staging order for a single pass.
-/// The public contract allows concurrent messages to arrive in either order.
-#[test]
-fn identical_backlogs_use_the_same_staging_order() {
-    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let b = bootstrap_fork(&a);
-
-    a.send_all([1, 2]).unwrap();
-    b.send_all([3, 4]).unwrap();
-    wire_gossip(&a, &b);
-    a.send(5).unwrap();
-    b.send(6).unwrap();
-    wire_gossip(&a, &b);
-    assert_eq!(a.snapshot(), b.snapshot(), "the replicas converged");
-
-    let (from_a, _) = drain(&mut a.causal_messages());
-    let (from_b, _) = drain(&mut b.causal_messages());
-    assert_eq!(
-        from_a, from_b,
-        "identical snapshots have identical staging order"
-    );
-}
-
-/// Causal order holds *across* passes, not just within one: messages
-/// delivered live (pass by pass, interleaved with sends and gossip) never
-/// invert against earlier deliveries.
-///
-/// Order holds because a later pass can never
-/// contain a causal predecessor of an earlier pass's message.
-#[test]
-fn live_passes_preserve_causal_order_cumulatively() {
-    let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let b = bootstrap_fork(&a);
-
-    let mut obs = a.causal_messages();
-    let mut delivered = Vec::new();
-
-    a.send(1).unwrap();
-    delivered.extend(drain(&mut obs).0);
-
-    b.send_all([2, 3]).unwrap();
-    wire_gossip(&a, &b);
-    delivered.extend(drain(&mut obs).0);
-
-    a.send(4).unwrap();
-    b.send(5).unwrap();
-    wire_gossip(&a, &b);
-    delivered.extend(drain(&mut obs).0);
-
-    assert_eq!(delivered.len(), 5, "every message was delivered live");
-    assert_causal(&delivered);
-}
-
-/// The resume point lags the staged backlog: after delivering part of a
-/// backlog, `checkpoint()` still names the batch's range start.
-///
-/// A resume therefore
-/// re-delivers the partial batch (at-least-once) rather than losing the
-/// undelivered remainder.
-///
-/// Once the backlog drains, the checkpoint catches up
-/// and a resume observes nothing.
-#[test]
-fn checkpoint_lags_until_the_backlog_drains() {
-    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    let genesis = known.snapshot().latest().clone();
-    known.send(1).unwrap();
-    known.send(2).unwrap();
-    known.send(3).unwrap();
-
-    let mut obs = known.causal_messages();
-    let Step::Item(first) = step(&mut obs) else {
-        panic!("a populated set delivers an item");
-    };
-    assert_eq!(
-        obs.checkpoint(),
-        &genesis,
-        "mid-backlog, the checkpoint holds at the batch's range start"
-    );
-
-    // A resume from the lagging checkpoint re-delivers the whole batch,
-    // including the already-delivered first item: re-delivery, never loss.
-    let mut resumed = known.causal_messages_since(obs.checkpoint().clone());
-    let (resumed_items, _) = drain(&mut resumed);
-    assert_eq!(resumed_items.len(), 3, "the partial batch re-delivers");
-    assert!(resumed_items.contains(&first));
-
-    // Drain the original: the checkpoint catches up to the ingest frontier and
-    // a fresh resume from it observes nothing.
-    let (rest, _) = drain(&mut obs);
-    assert_eq!(rest.len(), 2);
-    assert_causal(&[vec![first], rest].concat());
-    let mut from_drained = known.causal_messages_since(obs.checkpoint().clone());
-    let (none, _) = drain(&mut from_drained);
-    assert!(none.is_empty(), "a drained backlog's checkpoint is current");
-}
-
-/// Termination mirrors the plain observer: when every handle drops, the
-/// observer delivers the complete final state — in causal order — then
-/// ends, and ended is terminal.
-#[test]
-fn observer_drains_the_final_state_causally_then_ends() {
-    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    known.send_all([1, 2, 3]).unwrap();
-    let expected = live_map(&known);
-
-    let mut obs = known.causal_messages();
-    drop(known);
-
-    let (items, ended) = drain(&mut obs);
-    assert!(ended, "with every sender gone the observer ends");
-    assert_causal(&items);
-    assert_eq!(
-        items
+        // The staging map orders one snapshot by rank and breaks concurrent ties
+        // with version bytes.
+        let ranks: Vec<_> = items
             .iter()
-            .map(|(v, m)| (v.as_bytes().to_vec(), *m))
-            .collect::<BTreeMap<_, _>>(),
-        expected,
-        "the complete final state is yielded before the end"
-    );
-    assert_eq!(step(&mut obs), Step::Ended, "ended is terminal");
+            .map(|(v, _)| (v.rank(), v.as_bytes().to_vec()))
+            .collect();
+        assert!(
+            ranks.windows(2).all(|w| w[0] < w[1]),
+            "a single backlog drains in strictly increasing (rank, bytes) order"
+        );
+    }
+
+    /// Sorting a snapshot by `Version::ranked` places a shared cause before two
+    /// concurrent effects and gives those effects a deterministic order.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn snapshot_items_sort_by_ranked_version(network in network_seed()) {
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let cause = a.send(0).unwrap();
+        let b = bootstrap_fork(&a);
+        let left = a.send(1).unwrap();
+        let right = b.send(2).unwrap();
+        assert!(
+            left.partial_cmp(&right).is_none(),
+            "the effects are concurrent"
+        );
+        wire_gossip(&a, &b);
+
+        let snapshot = a.snapshot();
+        let mut items: Vec<_> = snapshot.iter().collect();
+        items.sort_by(|a, b| a.0.ranked().cmp(&b.0.ranked()));
+        assert_eq!(items.first().unwrap().0, &cause);
+        assert_causal(
+            &items
+                .into_iter()
+                .map(|(version, value)| (version.clone(), *value))
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    /// Identical snapshots use the same internal staging order for a single pass.
+    /// The public contract allows concurrent messages to arrive in either order.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn identical_backlogs_use_the_same_staging_order(network in network_seed()) {
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let b = bootstrap_fork(&a);
+
+        a.send_all([1, 2]).unwrap();
+        b.send_all([3, 4]).unwrap();
+        wire_gossip(&a, &b);
+        a.send(5).unwrap();
+        b.send(6).unwrap();
+        wire_gossip(&a, &b);
+        assert_eq!(a.snapshot(), b.snapshot(), "the replicas converged");
+
+        let (from_a, _) = drain(&mut a.causal_messages());
+        let (from_b, _) = drain(&mut b.causal_messages());
+        assert_eq!(
+            from_a, from_b,
+            "identical snapshots have identical staging order"
+        );
+    }
+
+    /// Causal order holds *across* passes, not just within one: messages
+    /// delivered live (pass by pass, interleaved with sends and gossip) never
+    /// invert against earlier deliveries.
+    ///
+    /// Order holds because a later pass can never
+    /// contain a causal predecessor of an earlier pass's message.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn live_passes_preserve_causal_order_cumulatively(network in network_seed()) {
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let b = bootstrap_fork(&a);
+
+        let mut obs = a.causal_messages();
+        let mut delivered = Vec::new();
+
+        a.send(1).unwrap();
+        delivered.extend(drain(&mut obs).0);
+
+        b.send_all([2, 3]).unwrap();
+        wire_gossip(&a, &b);
+        delivered.extend(drain(&mut obs).0);
+
+        a.send(4).unwrap();
+        b.send(5).unwrap();
+        wire_gossip(&a, &b);
+        delivered.extend(drain(&mut obs).0);
+
+        assert_eq!(delivered.len(), 5, "every message was delivered live");
+        assert_causal(&delivered);
+    }
 }
 
-/// The `Stream` face delivers in causal order and terminates with `None`
-/// once the set closes.
-#[test]
-fn stream_face_is_causal_and_terminates() {
-    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    for v in 0..6u64 {
-        known.send(v).unwrap();
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
+
+    /// The resume point lags the staged backlog: after delivering part of a
+    /// backlog, `checkpoint()` still names the batch's range start.
+    ///
+    /// A resume therefore
+    /// re-delivers the partial batch (at-least-once) rather than losing the
+    /// undelivered remainder.
+    ///
+    /// Once the backlog drains, the checkpoint catches up
+    /// and a resume observes nothing.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn checkpoint_lags_until_the_backlog_drains(network in network_seed()) {
+        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let genesis = known.snapshot().latest().clone();
+        known.send(1).unwrap();
+        known.send(2).unwrap();
+        known.send(3).unwrap();
+
+        let mut obs = known.causal_messages();
+        let Step::Item(first) = step(&mut obs) else {
+            panic!("a populated set delivers an item");
+        };
+        assert_eq!(
+            obs.checkpoint(),
+            &genesis,
+            "mid-backlog, the checkpoint holds at the batch's range start"
+        );
+
+        // A resume from the lagging checkpoint re-delivers the whole batch,
+        // including the already-delivered first item: re-delivery, never loss.
+        let mut resumed = known.causal_messages_since(obs.checkpoint().clone());
+        let (resumed_items, _) = drain(&mut resumed);
+        assert_eq!(resumed_items.len(), 3, "the partial batch re-delivers");
+        assert!(resumed_items.contains(&first));
+
+        // Drain the original: the checkpoint catches up to the ingest frontier and
+        // a fresh resume from it observes nothing.
+        let (rest, _) = drain(&mut obs);
+        assert_eq!(rest.len(), 2);
+        assert_causal(&[vec![first], rest].concat());
+        let mut from_drained = known.causal_messages_since(obs.checkpoint().clone());
+        let (none, _) = drain(&mut from_drained);
+        assert!(none.is_empty(), "a drained backlog's checkpoint is current");
     }
 
-    let mut obs = known.causal_messages();
-    let mut items = Vec::new();
-    while let Some(Some((v, m))) = obs.next().now_or_never() {
-        items.push((v, *m));
-    }
-    assert_eq!(
-        items.iter().map(|(_, m)| *m).collect::<Vec<_>>(),
-        (0..6).collect::<Vec<_>>(),
-        "the Stream face replays the chain in order"
-    );
+    /// Termination mirrors the plain observer: when every handle drops, the
+    /// observer delivers the complete final state — in causal order — then
+    /// ends, and ended is terminal.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn observer_drains_the_final_state_causally_then_ends(network in network_seed()) {
+        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        known.send_all([1, 2, 3]).unwrap();
+        let expected = live_map(&known);
 
-    drop(known);
-    assert_eq!(
-        obs.next().now_or_never(),
-        Some(None),
-        "the Stream ends once the set closes"
-    );
+        let mut obs = known.causal_messages();
+        drop(known);
+
+        let (items, ended) = drain(&mut obs);
+        assert!(ended, "with every sender gone the observer ends");
+        assert_causal(&items);
+        assert_eq!(
+            items
+                .iter()
+                .map(|(v, m)| (v.as_bytes().to_vec(), *m))
+                .collect::<BTreeMap<_, _>>(),
+            expected,
+            "the complete final state is yielded before the end"
+        );
+        assert_eq!(step(&mut obs), Step::Ended, "ended is terminal");
+    }
+
+    /// The `Stream` face delivers in causal order and terminates with `None`
+    /// once the set closes.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn stream_face_is_causal_and_terminates(network in network_seed()) {
+        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        for v in 0..6u64 {
+            known.send(v).unwrap();
+        }
+
+        let mut obs = known.causal_messages();
+        let mut items = Vec::new();
+        while let Some(Some((v, m))) = obs.next().now_or_never() {
+            items.push((v, *m));
+        }
+        assert_eq!(
+            items.iter().map(|(_, m)| *m).collect::<Vec<_>>(),
+            (0..6).collect::<Vec<_>>(),
+            "the Stream face replays the chain in order"
+        );
+
+        drop(known);
+        assert_eq!(
+            obs.next().now_or_never(),
+            Some(None),
+            "the Stream ends once the set closes"
+        );
+    }
 }
 
 proptest! {
     /// Later passes may deliver lower-ranked concurrent messages without a causal inversion.
     #[test]
-    fn concurrent_later_arrivals_need_not_follow_rank_order(count in 2u64..10) {
-        let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+    fn concurrent_later_arrivals_need_not_follow_rank_order(
+        count in 2u64..10,
+        network in network_seed(),
+    ) {
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork(&a);
         a.send_all(0..count).unwrap();
         b.send(count).unwrap();
@@ -329,16 +369,17 @@ proptest! {
         taken in any::<prop::sample::Index>(),
         redactions in vec(any::<prop::sample::Index>(), 1..10),
         remote in any::<bool>(),
+        network in network_seed(),
     ) {
-        redact_during_pass(values, taken, redactions, remote, Rumors::causal_messages)?;
+        redact_during_pass(network, values, taken, redactions, remote, Rumors::causal_messages)?;
     }
 
     /// Delivery remains duplicate-free and covers the final live set across
     /// sends, local and remote redactions, gossip, and partially drained passes.
     /// Every pair of delivered messages also respects causal order.
     #[test]
-    fn causal_delivery_under_interleaving(ops in arb_ops()) {
-        let delivered = interleave(&ops, Rumors::causal_messages)?;
+    fn causal_delivery_under_interleaving(ops in arb_ops(), network in network_seed()) {
+        let delivered = interleave(network, &ops, Rumors::causal_messages)?;
         assert_causal(&delivered);
     }
 
@@ -350,8 +391,9 @@ proptest! {
         phase_two in vec(any::<u64>(), 0..8),
         taken in any::<prop::sample::Index>(),
         complete_drain in any::<bool>(),
+        network in network_seed(),
     ) {
-        let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         for v in &phase_one {
             known.send(*v).unwrap(); // separate commits: a strict causal chain
         }
@@ -426,6 +468,7 @@ proptest! {
         local in vec(any::<u64>(), 1..8),
         remote in vec(any::<u64>(), 0..4),
         taken in any::<prop::sample::Index>(),
+        network in network_seed(),
     ) {
         // Always test the final delivery too: an empty backlog can still
         // leave an unhandled message in the caller's hands at the crash.
@@ -433,7 +476,7 @@ proptest! {
         for taken in [taken.index(total + 1), total] {
             // Two replicas of one network: `known` is the crashing process,
             // `partner` survives it to seed the rebuild.
-            let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+            let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             let partner = bootstrap_fork(&known);
             for v in &local {
                 known.send(*v).unwrap();
@@ -525,50 +568,56 @@ proptest! {
     }
 }
 
-/// The crash boundary at the final pop: a checkpoint read after the last
-/// staged message is handed over — but before the caller has durably
-/// handled it — still replays that message on resume.
-///
-/// `checkpoint()` promises "resuming from this `Version` will never skip
-/// messages" (at-least-once), the same promise the mid-backlog lag in
-/// `checkpoint_lags_until_the_backlog_drains` pins, here at the
-/// backlog's last item instead of its middle.
-///
-/// Both observers hold this boundary the same way: the checkpoint catches
-/// up only on the call *after* the backlog (or pass) drains, never in the
-/// step that hands over its last message, so a checkpoint persisted while
-/// the caller still holds an unhandled message never covers that message.
-/// This test pins the boundary on both faces.
-#[test]
-fn final_pop_checkpoint_still_replays_the_last_message() {
-    let known = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    known.send(7).unwrap();
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-    // The unordered observer under the probe's protocol — deliver the only
-    // message, persist the checkpoint, crash, resume — replays the message.
-    let mut unordered = known.unordered_messages();
-    assert!(
-        unordered.next().now_or_never().flatten().is_some(),
-        "a populated set delivers an item"
-    );
-    let persisted = unordered.checkpoint().clone();
-    let mut resumed = known.unordered_messages_since(persisted);
-    assert!(
-        matches!(resumed.try_next(), rumors::TryNext::Message(_)),
-        "unordered: the in-flight message replays after a crash-resume"
-    );
+    /// The crash boundary at the final pop: a checkpoint read after the last
+    /// staged message is handed over — but before the caller has durably
+    /// handled it — still replays that message on resume.
+    ///
+    /// `checkpoint()` promises "resuming from this `Version` will never skip
+    /// messages" (at-least-once), the same promise the mid-backlog lag in
+    /// `checkpoint_lags_until_the_backlog_drains` pins, here at the
+    /// backlog's last item instead of its middle.
+    ///
+    /// Both observers hold this boundary the same way: the checkpoint catches
+    /// up only on the call *after* the backlog (or pass) drains, never in the
+    /// step that hands over its last message, so a checkpoint persisted while
+    /// the caller still holds an unhandled message never covers that message.
+    /// This test pins the boundary on both faces.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn final_pop_checkpoint_still_replays_the_last_message(network in network_seed()) {
+        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        known.send(7).unwrap();
 
-    // The causal observer under the identical protocol.
-    let mut causal = known.causal_messages();
-    let Step::Item(item) = step(&mut causal) else {
-        panic!("a populated set delivers an item");
-    };
-    let persisted = causal.checkpoint().clone();
-    let mut resumed = known.causal_messages_since(persisted);
-    let (replayed, _) = drain(&mut resumed);
-    assert_eq!(
-        replayed,
-        vec![item],
-        "causal: the in-flight message must replay after a crash-resume"
-    );
+        // The unordered observer under the probe's protocol — deliver the only
+        // message, persist the checkpoint, crash, resume — replays the message.
+        let mut unordered = known.unordered_messages();
+        assert!(
+            unordered.next().now_or_never().flatten().is_some(),
+            "a populated set delivers an item"
+        );
+        let persisted = unordered.checkpoint().clone();
+        let mut resumed = known.unordered_messages_since(persisted);
+        assert!(
+            matches!(resumed.try_next(), rumors::TryNext::Message(_)),
+            "unordered: the in-flight message replays after a crash-resume"
+        );
+
+        // The causal observer under the identical protocol.
+        let mut causal = known.causal_messages();
+        let Step::Item(item) = step(&mut causal) else {
+            panic!("a populated set delivers an item");
+        };
+        let persisted = causal.checkpoint().clone();
+        let mut resumed = known.causal_messages_since(persisted);
+        let (replayed, _) = drain(&mut resumed);
+        assert_eq!(
+            replayed,
+            vec![item],
+            "causal: the in-flight message must replay after a crash-resume"
+        );
+    }
 }

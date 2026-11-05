@@ -27,6 +27,7 @@ use serde::de::DeserializeOwned;
 use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::schedule::EventIdx;
+use crate::common::seed::{NetworkSeed, network_seed};
 use crate::common::wire::{block_on, bootstrap_fork};
 
 /// Small pipe buffers make greeting and data writes yield between fragments.
@@ -184,6 +185,8 @@ pub struct OverlapSchedule<T> {
     pub fork_parents: Vec<usize>,
     /// Operations to execute in order.
     pub events: Vec<OverlapEvent<T>>,
+    /// The seed of the network peer 0 founds.
+    pub network: NetworkSeed,
 }
 
 /// Run an overlap schedule against a fresh fleet, close every session
@@ -226,7 +229,7 @@ where
     let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            rumors::Peer::seed().sync_memory_budget(0).into_rumors()
+            schedule.network.peer().sync_memory_budget(0).into_rumors()
         } else {
             bootstrap_fork(&peers[schedule.fork_parents[i]].local)
         };
@@ -367,9 +370,12 @@ where
                 SessionPair::arbitrary(value_strategy.clone(), n_peers),
                 1..=2,
             ),
+            // Drawn last, so persisted regression seeds replay the
+            // schedules they recorded before the network seed was drawn.
+            network_seed(),
         )
             .prop_map(
-                move |(raw_parents, preamble_len, preamble_values, mut choices, pairs)| {
+                move |(raw_parents, preamble_len, preamble_values, mut choices, pairs, network)| {
                     let fork_parents = fork_tree(n_peers, &raw_parents);
                     // Insert each pair relative to the sequence built so far.
                     for pair in &pairs {
@@ -381,6 +387,7 @@ where
                         fork_parents,
                         &preamble_values[..preamble_len],
                         choices,
+                        network,
                     )
                 },
             )
@@ -666,6 +673,7 @@ fn build_overlap_schedule<T: Clone>(
     fork_parents: Vec<usize>,
     preamble: &[T],
     choices: Vec<Choice<T>>,
+    network: NetworkSeed,
 ) -> (OverlapSchedule<T>, Knowledge) {
     let mut sim = Knowledge::new(n_peers);
     let mut open: BTreeMap<usize, OpenSession> = BTreeMap::new();
@@ -773,6 +781,7 @@ fn build_overlap_schedule<T: Clone>(
             n_peers,
             fork_parents,
             events,
+            network,
         },
         sim,
     )

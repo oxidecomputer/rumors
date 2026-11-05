@@ -21,10 +21,8 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
+use rumors::Rumors;
 use rumors::testing::{COMPLETION_MARKER, PREAMBLE_LEN, run_to_quiescence};
-use rumors::{Peer, Rumors};
 
 use crate::common::budget::{BudgetAssignment, BudgetChoice};
 use crate::common::fault::{self, FaultPlan, Vanish};
@@ -35,6 +33,9 @@ use crate::common::sim::{
     survivor_readouts,
 };
 use crate::common::wire::bootstrap_fork;
+use rumors_testkit::common::property::{FLEET_DIVISOR, SESSION_DIVISOR};
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// Worker threads in each simulation's runtime.
 ///
@@ -167,11 +168,11 @@ fn vanishes_fire_in_the_generated_population() {
 /// A deterministic pair for the vanish tests: `a` holds the only new
 /// content, and `b` has nothing to send.
 ///
-/// Built from a fixed seed, so every call constructs the same replicas and
-/// a session between them writes the same bytes.
-fn vanish_pair() -> (Rumors<u64>, Rumors<u64>) {
-    let mut rng = ChaChaRng::seed_from_u64(0x7a11_5eed);
-    let a: Rumors<u64> = Peer::seed_rng(&mut rng).sync_memory_budget(0).into_rumors();
+/// Every call with one `network` constructs the same replicas, and a session
+/// between them writes the same bytes, so an offset measured on one pair
+/// lands at the same point in another's session.
+fn vanish_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
+    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     a.send_all(0..8).unwrap();
     let b = bootstrap_fork(&a);
     a.send_all(8..16).unwrap();
@@ -183,8 +184,8 @@ fn vanish_pair() -> (Rumors<u64>, Rumors<u64>) {
 ///
 /// Measured on a clean session: everything `a` writes, less the frame
 /// bytes its statistics count and its completion marker.
-fn bytes_before_first_frame() -> usize {
-    let (a, b) = vanish_pair();
+fn bytes_before_first_frame(network: NetworkSeed) -> usize {
+    let (a, b) = vanish_pair(network);
     let (a_end, mut b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let (mut a_end, meter) = fault::metered(a_end);
     let (a_out, b_out) = run_to_quiescence(async {
@@ -204,9 +205,10 @@ fn bytes_before_first_frame() -> usize {
 /// which `a` vanishes at `point`, and `b` survives with nothing to send:
 /// `b`'s outcome, or the poller's name for `b` parking.
 fn survive_a_vanish(
+    network: NetworkSeed,
     point: Vanish,
 ) -> Result<Result<rumors::Gossiped, rumors::Error>, rumors::testing::Quiescence> {
-    let (a, b) = vanish_pair();
+    let (a, b) = vanish_pair(network);
     let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let vanishing = FaultPlan {
         vanish: Some(point),
@@ -234,80 +236,95 @@ fn survive_a_vanish(
     })
 }
 
-/// A peer whose counterparty vanishes inside a frame ends its session with
-/// an honest error: the vanish fires one byte into the vanisher's first
-/// frame, and the survivor reads end-of-stream inside that frame.
-#[test]
-fn survivor_notices_a_peer_vanished_mid_frame() {
-    let offset = bytes_before_first_frame() + 1;
-    match survive_a_vanish(Vanish { offset }) {
-        Ok(survivor) => assert_survivor(&survivor),
-        Err(quiescence) => {
-            panic!("the survivor parked after its peer vanished mid-frame: {quiescence:?}")
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// A peer whose counterparty vanishes inside a frame ends its session with
+    /// an honest error: the vanish fires one byte into the vanisher's first
+    /// frame, and the survivor reads end-of-stream inside that frame.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn survivor_notices_a_peer_vanished_mid_frame(network in network_seed()) {
+        let offset = bytes_before_first_frame(network) + 1;
+        match survive_a_vanish(network, Vanish { offset }) {
+            Ok(survivor) => assert_survivor(&survivor),
+            Err(quiescence) => {
+                panic!("the survivor parked after its peer vanished mid-frame: {quiescence:?}")
+            }
         }
+    }
+
+    /// End of stream at a frame boundary ends a wait for the departed peer's
+    /// first frame: the vanish fires just as the vanisher would write it, and
+    /// the survivor fails during reconciliation instead of parking.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn survivor_notices_a_peer_vanished_before_its_first_frame(network in network_seed()) {
+        let offset = bytes_before_first_frame(network);
+        let survivor = survive_a_vanish(network, Vanish { offset })
+            .expect("the survivor must not park awaiting a frame after end of stream");
+        assert_survivor(&survivor);
+        assert!(
+            matches!(&survivor, Err(rumors::Error::Transport(error))
+                if error.context.phase == rumors::error::Phase::Reconciliation),
+            "the departure surfaces in reconciliation: {survivor:?}"
+        );
     }
 }
 
-/// End of stream at a frame boundary ends a wait for the departed peer's
-/// first frame: the vanish fires just as the vanisher would write it, and
-/// the survivor fails during reconciliation instead of parking.
-#[test]
-fn survivor_notices_a_peer_vanished_before_its_first_frame() {
-    let offset = bytes_before_first_frame();
-    let survivor = survive_a_vanish(Vanish { offset })
-        .expect("the survivor must not park awaiting a frame after end of stream");
-    assert_survivor(&survivor);
-    assert!(
-        matches!(&survivor, Err(rumors::Error::Transport(error))
-            if error.context.phase == rumors::error::Phase::Reconciliation),
-        "the departure surfaces in reconciliation: {survivor:?}"
-    );
-}
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
 
-/// A retiree that vanishes mid-retirement is a recorded loss: its party
-/// left with it, so the run counts one possible loss, its slot stays
-/// empty, and the relaxed party check holds over the survivor.
-///
-/// The retiree vanishes one byte into its greeting, past its preamble:
-/// every session writes both whole, so the vanish always fires.
-#[test]
-fn vanished_retiree_is_a_recorded_loss() {
-    mt_runtime().block_on(async {
-        let plan = Plan {
-            n_peers: 2,
-            seed_messages: vec![10],
-            faulty_boots: vec![],
-            scripts: vec![vec![], vec![Activity::Send(20), Activity::Send(30)]],
-            sessions: vec![],
-            retires: vec![RetireOp {
-                retiree: 1,
-                absorber: 0,
-                fault: FaultPlan {
-                    vanish: Some(Vanish {
-                        offset: PREAMBLE_LEN + 1,
-                    }),
-                    ..FaultPlan::NONE
-                },
-            }],
-            budgets: BudgetAssignment::zero(),
-        };
-        let outcome = run_plan(plan).await;
-        quiesce(&outcome.peers).await;
-        let readouts = survivor_readouts(&outcome.peers);
-        assert_converged(&outcome.peers, &readouts);
-        // The party check first: an accounting that missed the vanish
-        // would run it sharply and fail on the party that left.
-        assert_party_invariants(&outcome.peers, outcome.possible_losses);
-        assert_eq!(
-            outcome.possible_losses, 1,
-            "a vanished retiree is exactly one possible loss"
-        );
-        assert_eq!(
-            outcome.peers.len(),
-            1,
-            "the vanished retiree's slot is empty"
-        );
-    });
+    /// A retiree that vanishes mid-retirement is a recorded loss: its party
+    /// left with it, so the run counts one possible loss, its slot stays
+    /// empty, and the relaxed party check holds over the survivor.
+    ///
+    /// The retiree vanishes one byte into its greeting, past its preamble:
+    /// every session writes both whole, so the vanish always fires.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn vanished_retiree_is_a_recorded_loss(network in network_seed()) {
+        mt_runtime().block_on(async {
+            let plan = Plan {
+                n_peers: 2,
+                seed_messages: vec![10],
+                faulty_boots: vec![],
+                scripts: vec![vec![], vec![Activity::Send(20), Activity::Send(30)]],
+                sessions: vec![],
+                retires: vec![RetireOp {
+                    retiree: 1,
+                    absorber: 0,
+                    fault: FaultPlan {
+                        vanish: Some(Vanish {
+                            offset: PREAMBLE_LEN + 1,
+                        }),
+                        ..FaultPlan::NONE
+                    },
+                }],
+                budgets: BudgetAssignment::zero(),
+                network,
+            };
+            let outcome = run_plan(plan).await;
+            quiesce(&outcome.peers).await;
+            let readouts = survivor_readouts(&outcome.peers);
+            assert_converged(&outcome.peers, &readouts);
+            // The party check first: an accounting that missed the vanish
+            // would run it sharply and fail on the party that left.
+            assert_party_invariants(&outcome.peers, outcome.possible_losses);
+            assert_eq!(
+                outcome.possible_losses, 1,
+                "a vanished retiree is exactly one possible loss"
+            );
+            assert_eq!(
+                outcome.peers.len(),
+                1,
+                "the vanished retiree's slot is empty"
+            );
+        });
+    }
 }
 
 // ---- value-oracle adequacy tripwires -----------------------------------------
@@ -322,7 +339,7 @@ fn panics(f: impl FnOnce()) -> bool {
 /// Deterministically loss-free by construction (no fault is ever
 /// injected), with enough content that a live message always exists to
 /// corrupt the ledger around.
-fn tripwire_plan() -> Plan {
+fn tripwire_plan(network: NetworkSeed) -> Plan {
     Plan {
         n_peers: 2,
         seed_messages: vec![10, 20, 30],
@@ -342,69 +359,76 @@ fn tripwire_plan() -> Plan {
         // run against a session between different budgets, the sweep's
         // general case.
         budgets: BudgetAssignment::new(vec![BudgetChoice::Zero, BudgetChoice::Default]),
+        network,
     }
 }
 
-/// Adequacy tripwire for the value oracle: the checks must catch the two
-/// known-bad mechanisms they exist for before their green is trusted.
-///
-/// A *suppressed redaction* — the application called `redact()` (so the
-/// ledger holds it) but the mechanism left the leaf live — must fail both
-/// the deletion-honoring check and the multiset check; it is simulated by
-/// appending a ledger entry for a message that is genuinely live in the
-/// converged fleet. A *dropped insert* — a value the plan sent but the
-/// network silently lost — must fail the multiset check; it is simulated
-/// by appending a never-sent value to the insert ledger. The uncorrupted
-/// ledger must pass both checks in the same run, so this test also pins
-/// that the real assertions are green on an honest execution.
-#[test]
-fn value_oracle_tripwires_catch_known_bad_mechanisms() {
-    mt_runtime().block_on(async {
-        let outcome = run_plan(tripwire_plan()).await;
-        assert_eq!(
-            outcome.possible_losses, 0,
-            "a fault-free plan must be loss-free by construction"
-        );
-        quiesce(&outcome.peers).await;
-        let readouts = survivor_readouts(&outcome.peers);
-        assert_converged(&outcome.peers, &readouts);
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
 
-        // Green on the honest run: both checks pass the uncorrupted ledger.
-        assert_deletion_honored(&readouts, &outcome.redactions);
-        assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
+    /// Adequacy tripwire for the value oracle: the checks must catch the two
+    /// known-bad mechanisms they exist for before their green is trusted.
+    ///
+    /// A *suppressed redaction* — the application called `redact()` (so the
+    /// ledger holds it) but the mechanism left the leaf live — must fail both
+    /// the deletion-honoring check and the multiset check; it is simulated by
+    /// appending a ledger entry for a message that is genuinely live in the
+    /// converged fleet. A *dropped insert* — a value the plan sent but the
+    /// network silently lost — must fail the multiset check; it is simulated
+    /// by appending a never-sent value to the insert ledger. The uncorrupted
+    /// ledger must pass both checks in the same run, so this test also pins
+    /// that the real assertions are green on an honest execution.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn value_oracle_tripwires_catch_known_bad_mechanisms(network in network_seed()) {
+        mt_runtime().block_on(async {
+            let outcome = run_plan(tripwire_plan(network)).await;
+            assert_eq!(
+                outcome.possible_losses, 0,
+                "a fault-free plan must be loss-free by construction"
+            );
+            quiesce(&outcome.peers).await;
+            let readouts = survivor_readouts(&outcome.peers);
+            assert_converged(&outcome.peers, &readouts);
 
-        // Known-bad mechanism 1: a suppressed redaction. Its ledger entry
-        // names a message still live in the converged fleet. (Readout keys
-        // are canonical version bytes, so the version decodes back out.)
-        let (key, &value) = readouts[0]
-            .iter()
-            .next()
-            .expect("the tripwire plan leaves live content");
-        let mut suppressed = outcome.redactions.clone();
-        suppressed.push(Redaction {
-            version: rumors::Version::decode(key.as_slice())
-                .expect("readout keys are canonical version bytes"),
-            value,
-            retained: true,
+            // Green on the honest run: both checks pass the uncorrupted ledger.
+            assert_deletion_honored(&readouts, &outcome.redactions);
+            assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
+
+            // Known-bad mechanism 1: a suppressed redaction. Its ledger entry
+            // names a message still live in the converged fleet. (Readout keys
+            // are canonical version bytes, so the version decodes back out.)
+            let (key, &value) = readouts[0]
+                .iter()
+                .next()
+                .expect("the tripwire plan leaves live content");
+            let mut suppressed = outcome.redactions.clone();
+            suppressed.push(Redaction {
+                version: rumors::Version::decode(key.as_slice())
+                    .expect("readout keys are canonical version bytes"),
+                value,
+                retained: true,
+            });
+            assert!(
+                panics(|| assert_deletion_honored(&readouts, &suppressed)),
+                "the deletion-honoring check must catch a suppressed redaction"
+            );
+            assert!(
+                panics(|| assert_value_oracle(&readouts, 0, &outcome.inserted, &suppressed)),
+                "the multiset check must catch a suppressed redaction"
+            );
+
+            // Known-bad mechanism 2: a dropped insert. The ledger holds a value
+            // the converged fleet never received.
+            let mut dropped = outcome.inserted.clone();
+            dropped.push(0xDEAD_BEEF);
+            assert!(
+                panics(|| assert_value_oracle(&readouts, 0, &dropped, &outcome.redactions)),
+                "the multiset check must catch a dropped insert"
+            );
         });
-        assert!(
-            panics(|| assert_deletion_honored(&readouts, &suppressed)),
-            "the deletion-honoring check must catch a suppressed redaction"
-        );
-        assert!(
-            panics(|| assert_value_oracle(&readouts, 0, &outcome.inserted, &suppressed)),
-            "the multiset check must catch a suppressed redaction"
-        );
-
-        // Known-bad mechanism 2: a dropped insert. The ledger holds a value
-        // the converged fleet never received.
-        let mut dropped = outcome.inserted.clone();
-        dropped.push(0xDEAD_BEEF);
-        assert!(
-            panics(|| assert_value_oracle(&readouts, 0, &dropped, &outcome.redactions)),
-            "the multiset check must catch a dropped insert"
-        );
-    });
+    }
 }
 
 // ---- custody regressions -----------------------------------------------------
@@ -454,88 +478,95 @@ fn custody_committed_chain_retains() {
     );
 }
 
-/// End-to-end deterministic run of a committed retire chain over clean
-/// wires.
-///
-/// Founder 1 redacts a seed message, retires into 2, which retires into
-/// 0 — both transfers commit, the run is loss-free, the redaction rides
-/// the chain into the survivor, and both ledger checks hold. The
-/// corruption half then re-proves the checks' liveness in the presence
-/// of retires: a fabricated retained redaction of a live key must fail
-/// deletion honoring and the multiset equality.
-#[test]
-fn value_oracle_survives_committed_retire_chain() {
-    mt_runtime().block_on(async {
-        let plan = Plan {
-            n_peers: 3,
-            seed_messages: vec![10, 20, 30],
-            faulty_boots: vec![],
-            scripts: vec![vec![], vec![Activity::Redact(0)], vec![Activity::Send(40)]],
-            sessions: vec![Session {
-                a: 0,
-                b: 1,
-                fault_a: FaultPlan::NONE,
-                fault_b: FaultPlan::NONE,
-            }],
-            retires: vec![
-                RetireOp {
-                    retiree: 1,
-                    absorber: 2,
-                    fault: FaultPlan::NONE,
-                },
-                RetireOp {
-                    retiree: 2,
-                    absorber: 0,
-                    fault: FaultPlan::NONE,
-                },
-            ],
-            budgets: BudgetAssignment::new(vec![
-                BudgetChoice::Zero,
-                BudgetChoice::Default,
-                BudgetChoice::Zero,
-            ]),
-        };
-        let outcome = run_plan(plan).await;
-        assert_eq!(
-            outcome.possible_losses, 0,
-            "clean wires commit every transfer"
-        );
-        assert!(
-            !outcome.redactions.is_empty(),
-            "founder 1 holds the seed messages, so its redact always executes"
-        );
-        assert!(
-            outcome.redactions.iter().all(|r| r.retained),
-            "a fully committed chain retains every redaction"
-        );
-        quiesce(&outcome.peers).await;
-        let readouts = survivor_readouts(&outcome.peers);
-        assert_converged(&outcome.peers, &readouts);
-        assert_deletion_honored(&readouts, &outcome.redactions);
-        assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
 
-        // Liveness after the custody weakening: fabricating a retained
-        // redaction of a live message must still fire both checks.
-        let (key, &value) = readouts[0]
-            .iter()
-            .next()
-            .expect("live content survives the chain");
-        let mut corrupted = outcome.redactions.clone();
-        corrupted.push(Redaction {
-            version: rumors::Version::decode(key.as_slice())
-                .expect("readout keys are canonical version bytes"),
-            value,
-            retained: true,
+    /// End-to-end deterministic run of a committed retire chain over clean
+    /// wires.
+    ///
+    /// Founder 1 redacts a seed message, retires into 2, which retires into
+    /// 0 — both transfers commit, the run is loss-free, the redaction rides
+    /// the chain into the survivor, and both ledger checks hold. The
+    /// corruption half then re-proves the checks' liveness in the presence
+    /// of retires: a fabricated retained redaction of a live key must fail
+    /// deletion honoring and the multiset equality.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn value_oracle_survives_committed_retire_chain(network in network_seed()) {
+        mt_runtime().block_on(async {
+            let plan = Plan {
+                n_peers: 3,
+                seed_messages: vec![10, 20, 30],
+                faulty_boots: vec![],
+                scripts: vec![vec![], vec![Activity::Redact(0)], vec![Activity::Send(40)]],
+                sessions: vec![Session {
+                    a: 0,
+                    b: 1,
+                    fault_a: FaultPlan::NONE,
+                    fault_b: FaultPlan::NONE,
+                }],
+                retires: vec![
+                    RetireOp {
+                        retiree: 1,
+                        absorber: 2,
+                        fault: FaultPlan::NONE,
+                    },
+                    RetireOp {
+                        retiree: 2,
+                        absorber: 0,
+                        fault: FaultPlan::NONE,
+                    },
+                ],
+                budgets: BudgetAssignment::new(vec![
+                    BudgetChoice::Zero,
+                    BudgetChoice::Default,
+                    BudgetChoice::Zero,
+                ]),
+                network,
+            };
+            let outcome = run_plan(plan).await;
+            assert_eq!(
+                outcome.possible_losses, 0,
+                "clean wires commit every transfer"
+            );
+            assert!(
+                !outcome.redactions.is_empty(),
+                "founder 1 holds the seed messages, so its redact always executes"
+            );
+            assert!(
+                outcome.redactions.iter().all(|r| r.retained),
+                "a fully committed chain retains every redaction"
+            );
+            quiesce(&outcome.peers).await;
+            let readouts = survivor_readouts(&outcome.peers);
+            assert_converged(&outcome.peers, &readouts);
+            assert_deletion_honored(&readouts, &outcome.redactions);
+            assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
+
+            // Liveness after the custody weakening: fabricating a retained
+            // redaction of a live message must still fire both checks.
+            let (key, &value) = readouts[0]
+                .iter()
+                .next()
+                .expect("live content survives the chain");
+            let mut corrupted = outcome.redactions.clone();
+            corrupted.push(Redaction {
+                version: rumors::Version::decode(key.as_slice())
+                    .expect("readout keys are canonical version bytes"),
+                value,
+                retained: true,
+            });
+            assert!(
+                panics(|| assert_deletion_honored(&readouts, &corrupted)),
+                "deletion honoring must still fire through a retire chain"
+            );
+            assert!(
+                panics(|| assert_value_oracle(&readouts, 0, &outcome.inserted, &corrupted)),
+                "the multiset check must still fire through a retire chain"
+            );
         });
-        assert!(
-            panics(|| assert_deletion_honored(&readouts, &corrupted)),
-            "deletion honoring must still fire through a retire chain"
-        );
-        assert!(
-            panics(|| assert_value_oracle(&readouts, 0, &outcome.inserted, &corrupted)),
-            "the multiset check must still fire through a retire chain"
-        );
-    });
+    }
 }
 
 // ---- MAX_CUT derivation pin --------------------------------------------------
@@ -563,9 +594,9 @@ const ENVELOPE_VALUES_PER_SIDE: u64 =
 /// [`max_cut_spans_the_envelope_session`] is what keeps the constant
 /// tracking reality. Metered with the same counters the fault cuts
 /// spend, so the result is directly comparable to cut offsets.
-async fn envelope_session_bytes() -> usize {
+async fn envelope_session_bytes(network: NetworkSeed) -> usize {
     let seed = BudgetChoice::Default
-        .apply(Peer::<u64>::seed())
+        .apply(network.peer::<u64>())
         .into_rumors();
     let mut fleet = vec![seed];
     for _ in 1..MAX_PLAN_PEERS {
@@ -603,30 +634,36 @@ async fn envelope_session_bytes() -> usize {
     meter_a.written().max(meter_b.written())
 }
 
-/// Pins `MAX_CUT` to the envelope session's measured byte extent, from
-/// both sides.
-///
-/// Every byte of the envelope session is a reachable cut or vanish offset
-/// (`measured <= MAX_CUT`), and the range is not vacuously wide
-/// (`MAX_CUT <= 2 * measured`), so generated cuts and vanishes keep landing
-/// inside real sessions rather than past their end. The envelope's dominance
-/// premise (exact on value count, representative on version shapes) is
-/// stated at [`envelope_session_bytes`].
-#[test]
-fn max_cut_spans_the_envelope_session() {
-    let measured = mt_runtime().block_on(envelope_session_bytes());
-    println!("envelope session bytes per endpoint: {measured}");
-    assert!(
-        measured <= crate::common::sim::MAX_CUT,
-        "the envelope session moves {measured} bytes per endpoint, beyond \
-         MAX_CUT ({}): deep-session cut offsets are unreachable",
-        crate::common::sim::MAX_CUT,
-    );
-    assert!(
-        crate::common::sim::MAX_CUT <= 2 * measured,
-        "MAX_CUT ({}) is more than twice the envelope session's {measured} \
-         bytes: most generated cuts would land past the end of every \
-         session and never fire",
-        crate::common::sim::MAX_CUT,
-    );
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// Pins `MAX_CUT` to the envelope session's measured byte extent, from
+    /// both sides.
+    ///
+    /// Every byte of the envelope session is a reachable cut or vanish offset
+    /// (`measured <= MAX_CUT`), and the range is not vacuously wide
+    /// (`MAX_CUT <= 2 * measured`), so generated cuts and vanishes keep landing
+    /// inside real sessions rather than past their end. The envelope's dominance
+    /// premise (exact on value count, representative on version shapes) is
+    /// stated at [`envelope_session_bytes`].
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn max_cut_spans_the_envelope_session(network in network_seed()) {
+        let measured = mt_runtime().block_on(envelope_session_bytes(network));
+        println!("envelope session bytes per endpoint: {measured}");
+        assert!(
+            measured <= crate::common::sim::MAX_CUT,
+            "the envelope session moves {measured} bytes per endpoint, beyond \
+             MAX_CUT ({}): deep-session cut offsets are unreachable",
+            crate::common::sim::MAX_CUT,
+        );
+        assert!(
+            crate::common::sim::MAX_CUT <= 2 * measured,
+            "MAX_CUT ({}) is more than twice the envelope session's {measured} \
+             bytes: most generated cuts would land past the end of every \
+             session and never fire",
+            crate::common::sim::MAX_CUT,
+        );
+    }
 }
