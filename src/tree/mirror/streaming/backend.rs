@@ -216,7 +216,9 @@ pub trait Node {
     ///
     /// Interior bounds matter: joining small concurrent versions can produce
     /// a larger encoding. The root supplies this aggregate to the session's
-    /// memory budget; undercounting can make that budget too small.
+    /// greeting, and the peer fails the session at any supplied version
+    /// that encodes larger, so an undercount fails sessions with conforming
+    /// peers.
     fn version_bytes(&self) -> usize;
 }
 
