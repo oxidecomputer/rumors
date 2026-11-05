@@ -30,7 +30,9 @@ pub struct RoleStats {
     pub receives: usize,
     /// Send polls made while the channel had no available capacity.
     pub blocked_send_polls: usize,
-    /// Largest observed number of queued items.
+    /// Largest observed number of queued items. When a channel's sender
+    /// and receiver run on different threads, it can count one more: the
+    /// item a send had counted but not yet handed over.
     pub high_water: usize,
 }
 
@@ -98,9 +100,18 @@ struct Stats {
     receives: AtomicUsize,
     /// Send polls observed at zero available capacity.
     blocked_send_polls: AtomicUsize,
-    /// Current number of queued items.
+    /// Items counted into the channel and not yet received.
+    ///
+    /// A send counts its item before handing it to the channel
+    /// ([`Stats::sending`]), so the receiver's count of the same item,
+    /// made after it takes the item and on whatever thread it runs, always
+    /// follows it, and the occupancy never falls below zero. It is
+    /// therefore the queued items, and across threads one more while the
+    /// channel's one sender is handing an item over.
     occupancy: AtomicUsize,
-    /// Largest observed occupancy.
+    /// Largest observed occupancy: the most queued items, and across
+    /// threads possibly one more, the item a send had counted but not yet
+    /// handed over.
     high_water: AtomicUsize,
 }
 
@@ -119,11 +130,26 @@ impl Stats {
         }
     }
 
-    /// Record one successful send and its resulting occupancy.
-    fn sent(&self) {
+    /// Count one item into the channel before the send hands it over,
+    /// returning the occupancy that includes it.
+    ///
+    /// The count must come first: once the item is in the channel, a
+    /// receiver on another thread can take it and count it out at once. A
+    /// send that then fails takes its count back ([`unsent`](Self::unsent)).
+    fn sending(&self) -> usize {
+        self.occupancy.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Record one successful send, whose item [`sending`](Self::sending)
+    /// counted at `occupancy`.
+    fn sent(&self, occupancy: usize) {
         self.sends.fetch_add(1, Ordering::Relaxed);
-        let occupancy = self.occupancy.fetch_add(1, Ordering::Relaxed) + 1;
         self.high_water.fetch_max(occupancy, Ordering::Relaxed);
+    }
+
+    /// Take back the count of an item whose send failed.
+    fn unsent(&self) {
+        self.occupancy.fetch_sub(1, Ordering::Relaxed);
     }
 
     /// Record one successful receive and its resulting occupancy.
@@ -162,9 +188,11 @@ impl<T> Sender<T> {
     /// suspends a poll, and this send is never polled. Schedules still reach
     /// its callers through the receivers they wait on.
     pub fn try_send(&mut self, item: T) -> Result<(), TrySendError<T>> {
+        let occupancy = self.stats.sending();
         let result = self.inner.try_send(item);
-        if result.is_ok() {
-            self.stats.sent();
+        match result {
+            Ok(()) => self.stats.sent(occupancy),
+            Err(_) => self.stats.unsent(),
         }
         result
     }
@@ -200,14 +228,18 @@ impl<T> Sender<T> {
             ready
         })
         .await;
-        let result = match ready {
-            Ok(()) => self.inner.start_send(item, waited),
+        match ready {
+            Ok(()) => {
+                let occupancy = self.stats.sending();
+                let result = self.inner.start_send(item, waited);
+                match result {
+                    Ok(()) => self.stats.sent(occupancy),
+                    Err(_) => self.stats.unsent(),
+                }
+                result
+            }
             Err(SendError(())) => Err(SendError(item)),
-        };
-        if result.is_ok() {
-            self.stats.sent();
         }
-        result
     }
 }
 
