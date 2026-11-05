@@ -44,14 +44,14 @@ use crate::{
 type Erased = <Local as Backend>::Erased;
 
 /// Erase one typed leaf the way the walk's payloads carry it.
-fn erased(node: typed::Node<Z>) -> Erased {
+fn erased(node: typed::View<Z>) -> Erased {
     <Local as Backend>::erase(node)
 }
 
 /// A distinct leaf per call: the versions differ so hashes do.
-fn leaf(version: &mut Version) -> typed::Node<Z> {
+fn leaf(version: &mut Version) -> typed::View<Z> {
     version.tick(&nth_party(0));
-    typed::Node::leaf(version.clone(), Message::new(()))
+    typed::View::leaf(version.clone(), Message::new(()))
 }
 
 /// The height-`Z` key with `parent` as its first byte and `radix` as its
@@ -71,8 +71,8 @@ fn parent_prefix(parent: u8) -> Prefix<S<Z>> {
 /// Build the expected parent of a radix group directly through the backend.
 fn parent_of(
     prefix: Prefix<S<Z>>,
-    children: Vec<(u8, Option<typed::Node<Z>>)>,
-) -> Option<typed::Node<S<Z>>> {
+    children: Vec<(u8, Option<typed::View<Z>>)>,
+) -> Option<typed::View<S<Z>>> {
     pollster::block_on(<Local as Backend>::parent(Local, prefix, None, children))
         .unwrap_or_else(|e| match e {})
 }

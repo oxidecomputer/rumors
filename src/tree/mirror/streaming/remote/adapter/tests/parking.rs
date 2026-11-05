@@ -59,13 +59,13 @@ const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_910_000;
 #[test]
 fn parked_supply_reply_holds_handles_not_subtrees() {
     // The handle claim, compiler-checked: a backend node reference is one
-    // shared pointer (an `Arc` bump to clone), so a parked reply holds one
-    // reference per supplied node plus its skeleton, and the subtree each
-    // names stays in backend custody behind the reference rather than being
-    // copied into the reply.
+    // shared pointer (an `Arc` bump to clone) beside the count of path
+    // bytes it hides, so a parked reply holds one reference per supplied
+    // node plus its skeleton, and the subtree each names stays in backend
+    // custody behind the reference rather than being copied into the reply.
     assert_eq!(
-        mem::size_of::<typed::Node<UnderRoot>>(),
-        mem::size_of::<usize>(),
+        mem::size_of::<typed::View<UnderRoot>>(),
+        2 * mem::size_of::<usize>(),
         "a parked supply must be a shared handle, not an owned subtree",
     );
 
@@ -102,7 +102,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     let reply = Reply {
         reactions: children
             .into_iter()
-            .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend>::erase(node)))
+            .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend>::erase(node.into())))
             .collect(),
         charge: Default::default(),
         last: true,

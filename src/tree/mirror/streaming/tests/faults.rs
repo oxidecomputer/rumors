@@ -33,7 +33,7 @@ use crate::tree::{
 fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
     let root = StreamingRoot {
         ceiling: root.ceiling,
-        root: root.node.map(|node| backend.root(node)),
+        root: root.node.map(|node| backend.root(node.into())),
     };
     Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64).budget(0)
 }

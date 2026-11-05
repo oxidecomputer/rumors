@@ -58,7 +58,9 @@ where
                     vec![
                         Reaction::Supply(
                             supply_radix,
-                            <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf))),
+                            <Failing<Local> as Backend>::erase(FailingNode::new(
+                                Self::node(leaf).into(),
+                            )),
                         ),
                         Reaction::Query(Vec::new()),
                     ],
@@ -69,7 +71,9 @@ where
                         Reaction::Query(Vec::new()),
                         Reaction::Supply(
                             supply_radix,
-                            <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf))),
+                            <Failing<Local> as Backend>::erase(FailingNode::new(
+                                Self::node(leaf).into(),
+                            )),
                         ),
                     ],
                 ),
@@ -130,7 +134,9 @@ where
                         Reaction::Query(Vec::new()),
                         Reaction::Supply(
                             supply_radix,
-                            <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf))),
+                            <Failing<Local> as Backend>::erase(FailingNode::new(
+                                Self::node(leaf).into(),
+                            )),
                         ),
                     ],
                     charge: Default::default(),

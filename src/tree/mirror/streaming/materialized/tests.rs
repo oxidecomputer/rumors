@@ -46,7 +46,7 @@ fn ticked(index: usize) -> Version {
 
 /// A leaf supply at `radix` carrying `version`.
 fn supply(radix: u8, version: Version) -> Reaction<Erased> {
-    let leaf = typed::Node::leaf(version, Message::new(()));
+    let leaf = typed::View::leaf(version, Message::new(()));
     Reaction::Supply(radix, <Local as Backend>::erase(leaf))
 }
 
@@ -64,7 +64,7 @@ fn absorb_scripted(
     replies: Vec<Reply<Erased>>,
 ) -> (
     Result<(), Error<Infallible>>,
-    Option<Option<typed::Node<Z>>>,
+    Option<Option<typed::View<Z>>>,
 ) {
     let mut bytes = [0u8; 32];
     bytes[31] = REQUESTED;
@@ -128,7 +128,7 @@ fn terminal_absorb_accepts_a_contained_supply() {
         .expect("the absorbed leaf is passed up")
         .expect("the supplied leaf resolves to a node");
     assert_eq!(
-        leaf.ceiling(),
+        leaf.span().hi(),
         &declared,
         "the absorbed leaf carries the supplied version",
     );

@@ -22,9 +22,9 @@ use crate::{
 
 /// A distinct leaf per call: content is irrelevant to grouping; the versions
 /// only need to differ so the resulting parents' hashes do.
-fn leaf(version: &mut Version) -> typed::Node<Z> {
+fn leaf(version: &mut Version) -> typed::View<Z> {
     version.tick(&nth_party(0));
-    typed::Node::leaf(version.clone(), Message::new(()))
+    typed::View::leaf(version.clone(), Message::new(()))
 }
 
 /// The height-`Z` key with `parent` as its first byte and `radix` as its
@@ -43,7 +43,7 @@ fn parent_prefix(parent: u8) -> Prefix<S<Z>> {
 
 /// Build the expected parent of a radix group directly through the backend,
 /// bypassing the fold under test.
-fn parent_of(prefix: Prefix<S<Z>>, children: Vec<(u8, typed::Node<Z>)>) -> typed::Node<S<Z>> {
+fn parent_of(prefix: Prefix<S<Z>>, children: Vec<(u8, typed::View<Z>)>) -> typed::View<S<Z>> {
     pollster::block_on(<Local as Backend>::parent(
         Local,
         prefix,
@@ -58,7 +58,7 @@ fn parent_of(prefix: Prefix<S<Z>>, children: Vec<(u8, typed::Node<Z>)>) -> typed
 }
 
 /// Drive the fold of an in-memory child stream to completion.
-fn fold(children: Vec<(Prefix<Z>, typed::Node<Z>)>) -> Vec<(Prefix<S<Z>>, Hash)> {
+fn fold(children: Vec<(Prefix<Z>, typed::View<Z>)>) -> Vec<(Prefix<S<Z>>, Hash)> {
     pollster::block_on(
         fold_parents::<Local, Z>(
             Local,
@@ -85,7 +85,7 @@ proptest! {
     ) {
         let mut version = Version::new();
         let mut input = Vec::new();
-        let mut expected_groups: Vec<(u8, Vec<(u8, typed::Node<Z>)>)> = Vec::new();
+        let mut expected_groups: Vec<(u8, Vec<(u8, typed::View<Z>)>)> = Vec::new();
         for (parent, radix) in keys {
             let node = leaf(&mut version);
             input.push((key(parent, radix), node.clone()));

@@ -8,7 +8,7 @@ use crate::tree::arb::{arb_leaf_paths, arb_radixes, arb_version};
 use crate::{Version, message::Message};
 
 use super::{
-    Body, Node, PATH_LEN, SortedLeaves,
+    Body, Node, PATH_LEN, SortedLeaves, View,
     fan::{Fan, heap_slots},
 };
 
@@ -19,7 +19,7 @@ mod reassembly;
 /// Each test samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks
 /// tree height as well as structure when a counterexample is found. Kept
 /// modest to keep generated structures small and shrinking fast.
-const MAX_TEST_DEPTH: usize = 4;
+pub(super) const MAX_TEST_DEPTH: usize = 4;
 
 /// Maximum children per branch in generated trees. Capped at the alphabet
 /// size so that every legal branching factor is reachable (subject to the
@@ -36,7 +36,7 @@ const MAX_BRANCHING: usize = 256;
 /// forced to be single-child and path-compress into a chain. The actual
 /// branching factor at any node is capped at `min(MAX_BRANCHING, budget)`,
 /// so to exercise very wide branches the budget must be at least that wide.
-const TREE_LEAF_BUDGET: usize = 16;
+pub(super) const TREE_LEAF_BUDGET: usize = 16;
 
 /// Generate an arbitrary tree of uniform depth `depth` with at most `budget`
 /// leaves, constructed only via the public smart constructors `Node::leaf` and
@@ -48,7 +48,7 @@ const TREE_LEAF_BUDGET: usize = 16;
 /// child gets at least 1 and the shares sum to the parent's budget). This
 /// guarantees all leaves sit at a common depth, and no more than `budget`
 /// leaves are generated. `budget` must be at least 1.
-fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
+pub(super) fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
     if depth == 0 {
         // The leaf payload is not examined at this abstraction layer, so we
         // stuff in a fixed empty value rather than generating one; only the
@@ -174,38 +174,6 @@ fn bulk_build_rejects_a_branch_as_a_leaf() {
 }
 
 proptest! {
-    /// The owned child cursor matches destructive expansion for every node shape.
-    ///
-    /// The cursor must preserve every radix and subtree while handling both a
-    /// materialized fan and each virtual level of a compressed path. This
-    /// comparison uses the existing inverse of `branch` as its oracle.
-    #[test]
-    fn child_cursor_matches_expansion(
-        node in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| {
-            arb_tree(depth, TREE_LEAF_BUDGET)
-        }),
-    ) {
-        match (node.clone().child_iter(), node.into_children()) {
-            (Err(cursor_leaf), Err(expanded_leaf)) => {
-                prop_assert_eq!(cursor_leaf.hash(), expanded_leaf.hash());
-            }
-            (Ok(cursor), Ok(expanded)) => {
-                let actual: Vec<_> = cursor.collect();
-                let expected: Vec<_> = expanded.into_iter().collect();
-                prop_assert_eq!(actual.len(), expected.len());
-                for ((actual_radix, actual), (expected_radix, expected)) in
-                    actual.into_iter().zip(expected)
-                {
-                    prop_assert_eq!(actual_radix, expected_radix);
-                    prop_assert_eq!(actual.hash(), expected.hash());
-                    prop_assert_eq!(actual.span(), expected.span());
-                    prop_assert_eq!(actual.len(), expected.len());
-                }
-            }
-            _ => prop_assert!(false, "both child walks classify the same node shape"),
-        }
-    }
-
     /// Duplicate and descending paths are rejected before recursive grouping,
     /// at any starting depth. A later panic must not mask a missing order check.
     #[cfg(debug_assertions)]
@@ -875,7 +843,7 @@ fn node_inner_stays_within_budget() {
 /// Leaves at `paths`, sorted and deduplicated, observed from `depth`: every
 /// path takes `base`'s first `depth` bytes. Each leaf carries its own
 /// version, so the trees compared below cannot swap two leaves unseen.
-fn leaves_below(
+pub(super) fn leaves_below(
     base: [u8; PATH_LEN],
     depth: usize,
     paths: BTreeSet<[u8; PATH_LEN]>,
@@ -1006,10 +974,10 @@ proptest! {
     fn child_counts_match_a_direct_listing(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
     ) {
-        let mut stack = vec![tree];
-        while let Some(node) = stack.pop() {
-            let count = node.child_count();
-            let listed = match node.clone().child_iter() {
+        let mut stack = vec![View::from(tree)];
+        while let Some(view) = stack.pop() {
+            let count = view.child_count();
+            let listed = match view.clone().children() {
                 Ok(children) => {
                     let children: Vec<_> = children.map(|(_, child)| child).collect();
                     let listed = children.len();
@@ -1018,7 +986,7 @@ proptest! {
                 }
                 Err(_) => 0,
             };
-            prop_assert_eq!(count, listed, "{:?}", node);
+            prop_assert_eq!(count, listed, "{:?}", view);
         }
     }
 
@@ -1064,6 +1032,6 @@ fn a_full_fan_of_full_fans_counts_every_grandchild() {
         })
         .collect();
     let root = canonical_at(0, &paths);
-    assert_eq!(root.grandchild_count(), 65_536);
+    assert_eq!(super::View::from(root.clone()).grandchild_count(), 65_536);
     assert!(root.miscounted_grandchildren().is_none());
 }

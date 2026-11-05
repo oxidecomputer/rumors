@@ -631,13 +631,15 @@ pub fn assemble_supplied(leaves: SuppliedLeaves) -> AssembledSubtree {
     use crate::tree::typed::height::Z;
     use futures::StreamExt;
     let stream: crate::tree::mirror::streaming::BoxNodeStream<'static, Local, Z> =
-        Box::pin(futures::stream::iter(leaves.0.into_iter().map(Ok)));
+        Box::pin(futures::stream::iter(leaves.0.into_iter().map(
+            |(path, leaf)| Ok((path, crate::tree::typed::View::from(leaf))),
+        )));
     let assembled = Local.assemble::<Root>(stream);
     let (_, root) = run_to_quiescence(async move { std::pin::pin!(assembled).next().await })
         .expect("the in-memory assembler never waits")
         .expect("a nonempty run assembles to one subtree")
         .unwrap_or_else(|never| match never {});
-    AssembledSubtree(root)
+    AssembledSubtree(root.into_node())
 }
 
 /// A subtree [`assemble_supplied`] built, kept alive until it is dropped.

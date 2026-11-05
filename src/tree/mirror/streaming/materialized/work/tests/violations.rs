@@ -103,13 +103,14 @@ fn arb_scripted_violation() -> impl Strategy<Value = ScriptedViolation> {
     ]
 }
 
-/// Build a node at any traversal height from one path-compressed leaf.
+/// Build a node at any traversal height from one path-compressed leaf,
+/// viewed whole.
 trait TestHeight: Height + Sized {
-    fn node(version: &mut Version) -> typed::Node<Self>;
+    fn node(version: &mut Version) -> typed::View<Self>;
 }
 
 impl TestHeight for Z {
-    fn node(version: &mut Version) -> typed::Node<Self> {
+    fn node(version: &mut Version) -> typed::View<Self> {
         leaf(version)
     }
 }
@@ -118,8 +119,8 @@ impl<H: TestHeight> TestHeight for S<H>
 where
     S<H>: Height,
 {
-    fn node(version: &mut Version) -> typed::Node<Self> {
-        typed::Node::beneath(H::node(version), 0)
+    fn node(version: &mut Version) -> typed::View<Self> {
+        typed::Node::beneath(H::node(version).into_node(), 0).into()
     }
 }
 

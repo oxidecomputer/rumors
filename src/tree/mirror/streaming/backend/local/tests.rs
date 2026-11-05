@@ -27,7 +27,7 @@ use crate::{
 use super::Local;
 
 /// An ordered sequence of prefix-keyed leaves.
-type LeafRun = Vec<(Prefix<Z>, typed::Node<Z>)>;
+type LeafRun = Vec<(Prefix<Z>, typed::View<Z>)>;
 
 /// One distinct-version leaf per path, in the (ascending) order given.
 fn leaves_at(paths: impl IntoIterator<Item = [u8; 32]>) -> LeafRun {
@@ -38,7 +38,7 @@ fn leaves_at(paths: impl IntoIterator<Item = [u8; 32]>) -> LeafRun {
             version.tick(&nth_party(0));
             (
                 Path::from(bytes).into(),
-                typed::Node::leaf(version.clone(), Message::new(())),
+                typed::View::leaf(version.clone(), Message::new(())),
             )
         })
         .collect()
@@ -50,19 +50,19 @@ fn boxed(run: LeafRun) -> BoxNodeStream<'static, Local, Z> {
 }
 
 /// Assemble through the level-by-level default, bypassing Local's override.
-fn assemble_default<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<H>)> {
+fn assemble_default<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::View<H>)> {
     pollster::block_on(H::assemble(Local, boxed(run)).try_collect())
         .unwrap_or_else(|error| match error {})
 }
 
 /// Assemble through `Local`'s bulk override.
-fn assemble_local<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<H>)> {
+fn assemble_local<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::View<H>)> {
     pollster::block_on(Local.assemble::<H>(boxed(run)).try_collect())
         .unwrap_or_else(|error| match error {})
 }
 
 /// Explode through the level-by-level default, bypassing Local's override.
-fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun {
+fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::View<H>) -> LeafRun {
     pollster::block_on(
         H::explode::<_>(
             Local,
@@ -74,7 +74,7 @@ fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRu
 }
 
 /// Walk leaves through `Local`'s direct override.
-fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun {
+fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::View<H>) -> LeafRun {
     pollster::block_on(<Local as Backend>::leaves(Local, prefix, node).try_collect())
         .unwrap_or_else(|error| match error {})
 }
@@ -84,7 +84,7 @@ fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun 
 /// path — so equality must compare versions, not hashes).
 fn content(run: &LeafRun) -> Vec<(Prefix<Z>, Version)> {
     run.iter()
-        .map(|(prefix, leaf)| (*prefix, leaf.ceiling().clone()))
+        .map(|(prefix, leaf)| (*prefix, leaf.span().hi().clone()))
         .collect()
 }
 
@@ -112,8 +112,7 @@ proptest! {
         prop_assert_eq!(theirs_prefix, root);
         prop_assert_eq!(ours_node.hash(), theirs_node.hash());
         prop_assert_eq!(ours_node.len(), theirs_node.len());
-        prop_assert_eq!(ours_node.ceiling(), theirs_node.ceiling());
-        prop_assert_eq!(ours_node.floor(), theirs_node.floor());
+        prop_assert_eq!(ours_node.span(), theirs_node.span());
         prop_assert_eq!(ours_node.version_bytes(), theirs_node.version_bytes());
 
         let walked = leaves_local(root, ours_node);

@@ -31,13 +31,13 @@ use super::{
 /// Build a fixed opening node at any type-level height.
 trait OpeningNode: Height {
     /// Build the node for this height.
-    fn node() -> typed::Node<Self>;
+    fn node() -> typed::View<Self>;
 }
 
 /// The opening fixture begins with one unit leaf.
 impl OpeningNode for Z {
-    fn node() -> typed::Node<Self> {
-        typed::Node::leaf(Version::new(), Message::new(()))
+    fn node() -> typed::View<Self> {
+        typed::View::leaf(Version::new(), Message::new(()))
     }
 }
 
@@ -46,8 +46,8 @@ impl<H: OpeningNode> OpeningNode for S<H>
 where
     S<H>: Height,
 {
-    fn node() -> typed::Node<Self> {
-        typed::Node::beneath(H::node(), 0)
+    fn node() -> typed::View<Self> {
+        typed::Node::beneath(H::node().into_node(), 0).into()
     }
 }
 

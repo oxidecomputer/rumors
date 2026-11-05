@@ -12,8 +12,10 @@ use crate::{Version, message::Message, tree::typed::Hash};
 
 pub mod fan;
 mod iter;
+mod view;
 use fan::Fan;
 pub use iter::{Iter, Leaf, Range, RangeOwned};
+pub use view::View;
 
 /// A shared leaf or branch, with its compressed path and cached hash.
 ///
@@ -44,86 +46,11 @@ const RADICES: usize = u8::MAX as usize + 1;
 /// handle.
 pub(crate) const FAN_ENTRY_BYTES: usize = mem::size_of::<(u8, Node)>();
 
-/// The most bytes [`Node::explosion_bytes`] reports: the copy of a shared
-/// branch with a child at every radix, one node allocation beside a full
-/// fan's heap slots, which grow with the fan's length.
+/// The bytes copying a shared branch with a child at every radix
+/// allocates: one node allocation beside a full fan's heap slots, which
+/// grow with the fan's length.
 pub(crate) const MAX_EXPLOSION_BYTES: usize =
     NODE_ALLOCATION_BYTES + fan::heap_slots(u8::MAX as usize + 1) * FAN_ENTRY_BYTES;
-
-/// An owned, ascending walk over one node's immediate children.
-///
-/// An uncompressed branch stays shared while the iterator clones each child
-/// handle as it reaches it. A compressed node has one virtual child and must
-/// shorten its private view of the compressed prefix before yielding it.
-pub(crate) enum ChildIter {
-    /// The single child obtained by peeling one byte from a compressed prefix.
-    Compressed(Option<(u8, Node)>),
-    /// An uncompressed branch and the next radix from which to search its fan.
-    Branch {
-        /// The parent handle that keeps the borrowed fan alive.
-        node: Node,
-        /// The next radix at which to resume the walk.
-        next: Option<u8>,
-    },
-}
-
-/// Yield immediate children without copying an uncompressed branch's fan.
-impl Iterator for ChildIter {
-    /// A radix and a shared handle to its child.
-    type Item = (u8, Node);
-
-    /// Clone only the next child handle, retaining the parent for later calls.
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Self::Compressed(child) => child.take(),
-            Self::Branch { node, next } => {
-                let start = (*next)?;
-                let Body::Branch { children, .. } = &node.inner.body else {
-                    unreachable!("a child iterator retains only an uncompressed branch")
-                };
-                let Some((radix, child)) = children.successor(start) else {
-                    *next = None;
-                    return None;
-                };
-                *next = radix.checked_add(1);
-                Some((radix, child.clone()))
-            }
-        }
-    }
-}
-
-/// One child a node lists, as [`Node::child_iter`] would yield it, read
-/// in place.
-#[derive(Clone, Copy)]
-enum Listed<'a> {
-    /// A bare branch's child, stored in its fan.
-    Stored(&'a Node),
-    /// The one child of a node with a compressed path: the node itself with
-    /// its top path byte peeled. The view shares the node's body, and so
-    /// its bounds and its encoded version size.
-    Peeled(&'a Node),
-}
-
-impl<'a> Listed<'a> {
-    /// The node whose stored memos answer for this child: the child itself,
-    /// or for a peeled view, the node it was peeled from, whose body it
-    /// shares.
-    fn memos(self) -> &'a Node {
-        match self {
-            Listed::Stored(node) | Listed::Peeled(node) => node,
-        }
-    }
-
-    /// Whether `candidate` is this child: the same allocation as a stored
-    /// child, or for a peeled one, the node's remaining path over the same
-    /// body ([`Node::is_peel_of`]).
-    fn is(self, candidate: &Node) -> bool {
-        match self {
-            Listed::Stored(node) => node.ptr_eq(candidate),
-            Listed::Peeled(node) => candidate.is_peel_of(node),
-        }
-    }
-}
 
 /// Share the node and count the new handle in instrumented builds.
 impl Clone for Node {
@@ -205,7 +132,7 @@ pub(crate) mod memo_census {
         /// The subtrees a session receives are built leaf by leaf
         /// ([`SortedLeaves`](super::SortedLeaves)) and not counted.
         Branch,
-        /// A node returned whole by [`Node::rebuild`](super::Node::rebuild)
+        /// A view returned whole by [`View::rebuild`](super::View::rebuild)
         /// because its children came back unchanged.
         Reused,
         /// A hash computed rather than read from its memo.
@@ -371,14 +298,14 @@ enum Body {
         /// its floor is their meet, its ceiling their join.
         ///
         /// It is computed on first read, or at construction when
-        /// [`Node::rebuild`] can derive it exactly from the node it
+        /// [`View::rebuild`] can derive it exactly from the node it
         /// replaces. [`Span`] keeps the pair ordered by construction.
         bounds: OnceLock<Span<'static>>,
         /// The number of leaves below this branch.
         leaves: usize,
         /// This branch's grandchild count as a bare branch, `S`, stored as
         /// `S − 1`: over its children, each one's own child count, a child
-        /// at the leaves counting one ([`Node::grandchild_count`]).
+        /// at the leaves counting one ([`View::grandchild_count`]).
         ///
         /// A branch has two to 256 children, each counting one to 256, so
         /// `S` lies in 2..=65,536 and `S − 1` fits exactly. It depends only
@@ -392,6 +319,76 @@ enum Body {
         /// The children of this branch.
         children: Fan,
     },
+}
+
+/// A body under a compressed path, as one level of the tree sees it: a
+/// stored node's whole path, or the part of it a [`View`] leaves visible.
+///
+/// Everything listing depends on is a function of these two: the children
+/// listed, their count and radices, their own children's count, and the
+/// hash, which commits the path in one preimage. A view and the node a
+/// copy would build for it have the same shape, so they answer alike.
+#[derive(Clone, Copy)]
+struct Shape<'a> {
+    /// The visible path, deepest byte first: its last byte is the top.
+    prefix: &'a [u8],
+    /// The leaf or branch beneath it.
+    body: &'a Body,
+}
+
+impl Shape<'_> {
+    /// The number of children listing yields: a bare branch's fan, one for
+    /// a non-empty path, and none for a bare leaf.
+    fn child_count(self) -> usize {
+        match (self.prefix.is_empty(), self.body) {
+            (true, Body::Leaf { .. }) => 0,
+            (true, Body::Branch { children, .. }) => children.len(),
+            (false, _) => 1,
+        }
+    }
+
+    /// The radices listing yields, ascending: the top path byte, or a bare
+    /// branch's fan, or none for a bare leaf.
+    fn child_radices(self) -> impl Iterator<Item = u8> {
+        let fan = match (self.prefix.last(), self.body) {
+            (None, Body::Branch { children, .. }) => Some(children.iter().map(|(radix, _)| radix)),
+            _ => None,
+        };
+        self.prefix
+            .last()
+            .copied()
+            .into_iter()
+            .chain(fan.into_iter().flatten())
+    }
+
+    /// The number of children the listed children have, a child at the
+    /// leaves counting one ([`View::grandchild_count`]).
+    fn grandchild_count(self) -> usize {
+        match (self.prefix.len(), self.body) {
+            (0, Body::Leaf { .. }) => 0,
+            (0, Body::Branch { spread, .. }) => usize::from(*spread) + 1,
+            (1, Body::Leaf { .. }) => 1,
+            (1, Body::Branch { children, .. }) => children.len(),
+            _ => 1,
+        }
+    }
+
+    /// The subtree's hash, computed rather than read from any memo
+    /// ([`Node::hash`] gives the convention).
+    fn hash(self) -> Hash {
+        memo_census::record(Work::Hash);
+        // The preimage takes the prefix in path order, shallowest byte
+        // first, while storage is shallowest-last, so reverse into a stack
+        // buffer (a compressed span never exceeds the 32-byte path).
+        let prefix: ArrayVec<[u8; PATH_LEN]> = self.prefix.iter().rev().copied().collect();
+        match self.body {
+            Body::Leaf { .. } => Hash::leaf(&prefix),
+            Body::Branch { children, .. } => Hash::branch(
+                &prefix,
+                children.iter().map(|(radix, child)| (radix, child.hash())),
+            ),
+        }
+    }
 }
 
 /// Construct, query, and reshape storage nodes.
@@ -456,110 +453,6 @@ impl Node {
         }))
     }
 
-    /// Assemble children into a subtree as [`branch`](Self::branch) does,
-    /// reusing `original`, the node the children were listed from before
-    /// any of them changed.
-    ///
-    /// When the children are exactly those `original` lists, at the same
-    /// radices, this returns `original` itself, its hash and every other
-    /// memo intact, so reassembling an unchanged scope allocates nothing and
-    /// computes no memo. Otherwise it builds the node `branch` builds; when
-    /// that is a bare branch, it seeds the new node's bounds from
-    /// `original`'s wherever that is exact ([`seeded_bounds`]).
-    ///
-    /// A stored child counts as unchanged only as the same allocation. A
-    /// compressed node lists a peeled view of itself, which the walk's
-    /// explosion builds fresh, so that child counts as unchanged when it has
-    /// the node's remaining path over the same body ([`Self::is_peel_of`]).
-    pub fn rebuild(original: Option<Node>, children: Fan) -> Option<Self> {
-        let Some(original) = original else {
-            return Node::branch(children);
-        };
-        // An empty group deletes the scope, whatever stood there.
-        if children.len() == 0 {
-            return None;
-        }
-        if original.lists_exactly(&children) {
-            memo_census::record(Work::Reused);
-            return Some(original);
-        }
-        if children.len() < 2 {
-            // One child: `branch` extends its path, which keeps its memos.
-            return Node::branch(children);
-        }
-        let bounds = seeded_bounds(&original, &children);
-        Some(Node::bare_branch(children, bounds))
-    }
-
-    /// Whether `children` are exactly the children
-    /// [`child_iter`](Self::child_iter) lists for this node: the same
-    /// radices, each child the one listed there ([`Listed::is`]).
-    fn lists_exactly(&self, children: &Fan) -> bool {
-        let mut listed = self.listed();
-        children.iter().all(|(radix, child)| {
-            listed
-                .next()
-                .is_some_and(|(at, own)| at == radix && own.is(child))
-        }) && listed.next().is_none()
-    }
-
-    /// The children [`child_iter`](Self::child_iter) lists for this node,
-    /// read in place, in radix order: a bare branch's fan, a compressed
-    /// node's one peeled view, and none for a bare leaf.
-    fn listed(&self) -> impl Iterator<Item = (u8, Listed<'_>)> {
-        let peeled = self
-            .inner
-            .prefix
-            .last()
-            .map(|&top| (top, Listed::Peeled(self)));
-        let fan = match (peeled, &self.inner.body) {
-            (None, Body::Branch { children, .. }) => Some(
-                children
-                    .iter()
-                    .map(|(radix, child)| (radix, Listed::Stored(child))),
-            ),
-            _ => None,
-        };
-        peeled.into_iter().chain(fan.into_iter().flatten())
-    }
-
-    /// Whether this node is `parent` with its top path byte peeled: the
-    /// rest of `parent`'s path over the same body, and so the same subtree
-    /// as the child `parent`'s listing yields.
-    ///
-    /// Peeling copies a shared node, so the view is a separate allocation
-    /// whose body copies `parent`'s: the same leaf, or a fan of the same
-    /// child handles. Comparing those decides it, in at most a fan's pointer
-    /// comparisons. A leaf is identified by its version, as everywhere in
-    /// the tree: no two messages share one.
-    fn is_peel_of(&self, parent: &Node) -> bool {
-        let Some((_, below)) = parent.inner.prefix.split_last() else {
-            return false;
-        };
-        self.inner.prefix.as_slice() == below
-            && match (&self.inner.body, &parent.inner.body) {
-                (
-                    Body::Leaf { version: ours, .. },
-                    Body::Leaf {
-                        version: theirs, ..
-                    },
-                ) => ours == theirs,
-                (
-                    Body::Branch { children: ours, .. },
-                    Body::Branch {
-                        children: theirs, ..
-                    },
-                ) => {
-                    ours.len() == theirs.len()
-                        && ours
-                            .iter()
-                            .zip(theirs.iter())
-                            .all(|((a, x), (b, y))| a == b && x.ptr_eq(y))
-                }
-                _ => false,
-            }
-    }
-
     /// This node's bounds if already computed: a leaf's always are, a
     /// branch's once first read.
     fn computed_span(&self) -> Option<Span<'_>> {
@@ -601,29 +494,6 @@ impl Node {
                     Ok(mem::take(branch))
                 }
             }
-        }
-    }
-
-    /// Walk immediate children while keeping an uncompressed branch shared.
-    ///
-    /// Unlike [`into_children`](Self::into_children), this does not copy the
-    /// node and its fan when another handle shares the branch. Each yielded
-    /// child is instead one cheap shared handle. Peeling a compressed prefix
-    /// still needs a distinct node view because its hash and prefix change.
-    pub(crate) fn child_iter(mut self) -> Result<ChildIter, Node> {
-        if !self.inner.prefix.is_empty() {
-            let inner = Arc::make_mut(&mut self.inner);
-            let radix = inner.prefix.pop().expect("non-empty prefix");
-            inner.hash = OnceLock::new();
-            return Ok(ChildIter::Compressed(Some((radix, self))));
-        }
-
-        match &self.inner.body {
-            Body::Leaf { .. } => Err(self),
-            Body::Branch { .. } => Ok(ChildIter::Branch {
-                node: self,
-                next: Some(0),
-            }),
         }
     }
 
@@ -781,117 +651,52 @@ impl Node {
         }
     }
 
-    /// The number of children this node's children have, as
-    /// [`child_iter`](Self::child_iter) would list them.
-    ///
-    /// That is, over its children, each one's own child count, a child at
-    /// the leaves counting one. A bare leaf, which has no children, has
-    /// none.
-    ///
-    /// Exact, and O(1): a node with a compressed path of two bytes or more
-    /// peels to one child that itself peels to one, so it has one; a node
-    /// with one byte of path over a branch has that branch's fan as its
-    /// grandchildren, and over a leaf has the leaf alone; a bare branch
-    /// stores its count.
-    pub fn grandchild_count(&self) -> usize {
-        match (self.inner.prefix.len(), &self.inner.body) {
-            (0, Body::Leaf { .. }) => 0,
-            (0, Body::Branch { spread, .. }) => usize::from(*spread) + 1,
-            (1, Body::Leaf { .. }) => 1,
-            (1, Body::Branch { children, .. }) => children.len(),
-            _ => 1,
-        }
-    }
-
-    /// Check [`grandchild_count`](Self::grandchild_count) against a direct count
-    /// at this node and every node beneath it, returning the first that
+    /// Check [`View::grandchild_count`] against a direct count
+    /// at this node and at every level beneath it, returning the first that
     /// disagrees.
     ///
-    /// Each peeled view of a compressed path counts as a node. A
-    /// disagreement comes back with the stored and the counted values.
+    /// Each level of a compressed path counts, as the view listing yields
+    /// for it. A disagreement comes back with the stored and the counted
+    /// values.
     ///
-    /// The count lists each node's children with
-    /// [`child_iter`](Self::child_iter) and each child's own children the
-    /// same way. The traversal keeps an explicit stack, bounded by the key
-    /// depth times the fan, so it never recurses on the tree's shape.
+    /// The count lists each level's children with [`View::children`] and
+    /// each child's own children the same way. The traversal keeps an
+    /// explicit stack, bounded by the key depth times the fan, so it never
+    /// recurses on the tree's shape.
     #[cfg(test)]
-    pub(crate) fn miscounted_grandchildren(&self) -> Option<(Node, usize, usize)> {
-        let mut stack = vec![self.clone()];
-        while let Some(node) = stack.pop() {
-            let Ok(children) = node.clone().child_iter() else {
-                if node.grandchild_count() != 0 {
-                    return Some((node.clone(), node.grandchild_count(), 0));
+    pub(crate) fn miscounted_grandchildren(&self) -> Option<(View, usize, usize)> {
+        let mut stack = vec![View::from(self.clone())];
+        while let Some(view) = stack.pop() {
+            let Ok(children) = view.clone().children() else {
+                if view.grandchild_count() != 0 {
+                    return Some((view.clone(), view.grandchild_count(), 0));
                 }
                 continue;
             };
             let mut counted = 0;
             for (_, child) in children {
-                counted += child.clone().child_iter().map_or(1, Iterator::count);
+                counted += child.clone().children().map_or(1, Iterator::count);
                 stack.push(child);
             }
-            if node.grandchild_count() != counted {
-                return Some((node.clone(), node.grandchild_count(), counted));
+            if view.grandchild_count() != counted {
+                return Some((view.clone(), view.grandchild_count(), counted));
             }
         }
         None
     }
 
-    /// The bytes [`child_iter`](Self::child_iter) allocates to list this
-    /// node's children, beyond the handles it yields: exact, absent other
-    /// threads releasing handles to the node meanwhile.
-    ///
-    /// Listing a bare branch's children shares their handles and allocates
-    /// nothing. Listing a compressed node's one child peels a byte off its
-    /// path, which changes the node, so a node another handle shares is
-    /// copied first: one node allocation, and for a branch its fan's heap
-    /// slots, which the copy's fan holds at [`fan::heap_slots`] of its
-    /// length. A node no other handle shares is peeled in place. A handle
-    /// released elsewhere between this call and the listing can only turn a
-    /// copy into an in-place peel, so the answer never falls short.
-    pub fn explosion_bytes(&self) -> usize {
-        if self.inner.prefix.is_empty() || Arc::strong_count(&self.inner) == 1 {
-            return 0;
-        }
-        let fan = match &self.inner.body {
-            Body::Leaf { .. } => 0,
-            Body::Branch { children, .. } => fan::heap_slots(children.len()) * FAN_ENTRY_BYTES,
-        };
-        NODE_ALLOCATION_BYTES + fan
-    }
-
-    /// The number of children [`child_iter`](Self::child_iter) would list.
+    /// The number of children listing a whole view of this node yields
+    /// ([`View::children`]).
     ///
     /// Exact, and O(1): a bare branch has its fan, a node with a compressed
     /// path peels to a single child, and a bare leaf has none.
     pub fn child_count(&self) -> usize {
-        match (self.inner.prefix.is_empty(), &self.inner.body) {
-            (true, Body::Leaf { .. }) => 0,
-            (true, Body::Branch { children, .. }) => children.len(),
-            (false, _) => 1,
-        }
+        self.shape().child_count()
     }
 
-    /// The radices [`child_iter`](Self::child_iter) would list, in ascending
-    /// order: a bare branch's fan, a compressed node's one, the last byte
-    /// of its path, and none for a bare leaf.
-    ///
-    /// Reads them in place: no handle is cloned and no node is peeled.
-    pub fn child_radices(&self) -> impl Iterator<Item = u8> + '_ {
-        let fan = match (self.inner.prefix.last(), &self.inner.body) {
-            (None, Body::Branch { children, .. }) => Some(children.iter().map(|(radix, _)| radix)),
-            _ => None,
-        };
-        self.inner
-            .prefix
-            .last()
-            .copied()
-            .into_iter()
-            .chain(fan.into_iter().flatten())
-    }
-
-    /// How many children this node has, as [`child_iter`](Self::child_iter)
-    /// would list them, counting a bare leaf as one: what it contributes to
-    /// its parent's grandchild count.
+    /// How many children listing a whole view of this node yields
+    /// ([`View::children`]), counting a bare leaf as one: what it
+    /// contributes to its parent's grandchild count.
     fn weight(&self) -> usize {
         self.child_count().max(1)
     }
@@ -962,22 +767,15 @@ impl Node {
     /// trees rests on the tree's canonical shape; see [`Hash::branch`]'s
     /// canonicity section.
     pub fn hash(&self) -> Hash {
-        *self.inner.hash.get_or_init(|| {
-            memo_census::record(Work::Hash);
-            // The preimage takes the prefix in path order — shallowest byte
-            // first — while storage is shallowest-last, so reverse into a
-            // stack buffer (a compressed span never exceeds the 32-byte
-            // path).
-            let prefix: ArrayVec<[u8; PATH_LEN]> =
-                self.inner.prefix.iter().rev().copied().collect();
-            match &self.inner.body {
-                Body::Leaf { .. } => Hash::leaf(&prefix),
-                Body::Branch { children, .. } => Hash::branch(
-                    &prefix,
-                    children.iter().map(|(radix, child)| (radix, child.hash())),
-                ),
-            }
-        })
+        *self.inner.hash.get_or_init(|| self.shape().hash())
+    }
+
+    /// This node's whole compressed path over its body.
+    fn shape(&self) -> Shape<'_> {
+        Shape {
+            prefix: &self.inner.prefix,
+            body: &self.inner.body,
+        }
     }
 
     /// Get the ceiling version of this node (the maximal version of all
@@ -987,7 +785,7 @@ impl Node {
     /// memoized: a leaf's is set at construction, and a branch's is the
     /// join endpoint of its memoized bounds span, so reading either bound
     /// computes both, unless reassembly derived them when it built the
-    /// branch ([`rebuild`](Self::rebuild)). The memo is a pure function of the
+    /// branch ([`View::rebuild`]). The memo is a pure function of the
     /// subtree, so it is safe to share across the structurally-shared
     /// clones a forked tree produces.
     pub fn ceiling(&self) -> &Version {
@@ -1006,7 +804,7 @@ impl Node {
     /// memoized: a leaf's is set at construction, and a branch's is the
     /// meet endpoint of its memoized bounds span, so reading either bound
     /// computes both, unless reassembly derived them when it built the
-    /// branch ([`rebuild`](Self::rebuild)). The memo is a pure function of the
+    /// branch ([`View::rebuild`]). The memo is a pure function of the
     /// subtree, so it is safe to share across the structurally-shared
     /// clones a forked tree produces.
     pub fn floor(&self) -> &Version {
@@ -1208,8 +1006,12 @@ impl Node {
 }
 
 /// The bounds of the bare branch over `children`, derived from those of
-/// `original`, the node the children were listed from, wherever that is
+/// `original`, the view the children were listed from, wherever that is
 /// exact.
+///
+/// A view's bounds are its stored node's, since bounds depend on the body
+/// alone; which children are unchanged is decided on the views, as
+/// listing yields them: the same stored node, hiding the same bytes.
 ///
 /// Otherwise the memo is left empty, and warming fills it by computing the
 /// bounds from every child.
@@ -1263,7 +1065,7 @@ impl Node {
 /// endpoint it compares at most once per child of `R` and once per child of
 /// `U`: no more steps than the fold it spares, which joins or meets once per
 /// child, and a comparison allocates nothing.
-fn seeded_bounds(original: &Node, children: &Fan) -> OnceLock<Span<'static>> {
+fn seeded_bounds(original: &View, children: &[(u8, View)]) -> OnceLock<Span<'static>> {
     let declined = || {
         memo_census::record(Work::BoundsDeclined);
         OnceLock::new()
@@ -1272,27 +1074,27 @@ fn seeded_bounds(original: &Node, children: &Fan) -> OnceLock<Span<'static>> {
     if original.child_count() == 0 {
         return declined();
     }
-    let Some(old) = original.computed_span() else {
+    let Some(old) = original.stored().computed_span() else {
         return declined();
     };
     // `D`, `R`, and which of `N`'s radices hold a child of `D`.
     let mut differ: SmallVec<[&Node; 4]> = SmallVec::new();
     let mut gone: SmallVec<[&Node; 4]> = SmallVec::new();
     let mut differs = [false; RADICES];
-    for pair in original
-        .listed()
-        .merge_join_by(children.iter(), |(ours, _), (theirs, _)| ours.cmp(theirs))
-    {
+    for pair in original.listed().merge_join_by(
+        children.iter().map(|(radix, child)| (*radix, child)),
+        |(ours, _), (theirs, _)| ours.cmp(theirs),
+    ) {
         match pair {
             EitherOrBoth::Both((_, listed), (_, child)) if listed.is(child) => {}
             EitherOrBoth::Both((_, listed), (radix, child)) => {
-                differ.push(child);
+                differ.push(child.stored());
                 gone.push(listed.memos());
                 differs[usize::from(radix)] = true;
             }
             EitherOrBoth::Left((_, listed)) => gone.push(listed.memos()),
             EitherOrBoth::Right((radix, child)) => {
-                differ.push(child);
+                differ.push(child.stored());
                 differs[usize::from(radix)] = true;
             }
         }
@@ -1311,7 +1113,7 @@ fn seeded_bounds(original: &Node, children: &Fan) -> OnceLock<Span<'static>> {
         children
             .iter()
             .filter(|(radix, _)| !differs[usize::from(*radix)])
-            .map(|(_, child)| child)
+            .map(|(_, child)| child.stored())
             .collect()
     };
     let mut ceiling = Certifier::default();
@@ -1354,7 +1156,7 @@ fn seeded_bounds(original: &Node, children: &Fan) -> OnceLock<Span<'static>> {
     } else {
         memo_census::record(Work::BoundsHalf);
         let lo = if floor.failed {
-            let mut floors = children.values().map(Node::floor);
+            let mut floors = children.iter().map(|(_, child)| child.stored().floor());
             let first = floors.next().expect("a branch has at least two children");
             first.meet_all(floors)
         } else {
@@ -1363,7 +1165,7 @@ fn seeded_bounds(original: &Node, children: &Fan) -> OnceLock<Span<'static>> {
                 .map_or_else(|| old.lo().clone(), |joined| old.lo().meet(joined.lo()))
         };
         let hi = if ceiling.failed {
-            let mut ceilings = children.values().map(Node::ceiling);
+            let mut ceilings = children.iter().map(|(_, child)| child.stored().ceiling());
             let first = ceilings.next().expect("a branch has at least two children");
             first.join_all(ceilings)
         } else {

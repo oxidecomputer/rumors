@@ -210,9 +210,9 @@ static CHILDREN_SKEW: Knob = Knob::new(0);
 /// at zero, an answer of no radices for a node with children above it.
 static RADICES_DROP: Knob = Knob::new(0);
 
-/// Bytes subtracted from every node's `explosion_bytes` answer: honest at
-/// zero, an undercount of the copies listing its children makes above it.
-static EXPLOSION_DEFLATE: Knob = Knob::new(0);
+/// Bytes listing each child allocates and frees, beyond the row it
+/// yields: honest at zero, scratch the listing never reports above it.
+static LISTING_SCRATCH: Knob = Knob::new(0);
 
 /// Bytes added to every node's `explosion_bytes` answer: honest at zero,
 /// past the backend's `MAX_EXPLOSION_BYTES` once it exceeds that bound.
@@ -258,7 +258,7 @@ impl<N> MaterializedNode<N> {
 }
 
 /// Supply node metadata, with controllable size errors for conformance tests.
-impl<H> Node for MaterializedNode<typed::Node<H>>
+impl<H> Node for MaterializedNode<typed::View<H>>
 where
     H: Height,
 {
@@ -302,7 +302,7 @@ where
     }
 }
 
-impl Leaf for MaterializedNode<typed::Node<Z>> {
+impl Leaf for MaterializedNode<typed::View<Z>> {
     fn message(&self) -> &Message {
         self.inner.message()
     }
@@ -311,15 +311,16 @@ impl Leaf for MaterializedNode<typed::Node<Z>> {
         // Eager persistence at the conversion boundary: the payload is
         // written to the store here, so the resident row keeps only the
         // header and bounds.
-        let node = typed::Node::leaf(version, message);
+        let node = typed::View::leaf(version, message);
         let row = ROW_HEADER + bounds_of(&node);
         Ok(Self::wrap(node, row))
     }
 }
 
 /// The two encoded bounds of a freshly built node, in bytes.
-fn bounds_of<H: Height>(node: &typed::Node<H>) -> usize {
-    node.ceiling().as_bytes().len() + node.floor().as_bytes().len()
+fn bounds_of<H: Height>(node: &typed::View<H>) -> usize {
+    let span = node.span();
+    span.hi().as_bytes().len() + span.lo().as_bytes().len()
 }
 
 // The erased observations pass through the row wrapper; the row itself
@@ -342,13 +343,11 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
         self.inner.grandchild_count()
     }
 
-    /// Read the wrapped node's explosion cost, deflated to exercise an
-    /// undercounting backend or inflated to exercise one that breaks its
-    /// bound.
+    /// Read the wrapped node's explosion cost, inflated to exercise a
+    /// backend that breaks its bound.
     fn explosion_bytes(&self) -> usize {
         self.inner
             .explosion_bytes()
-            .saturating_sub(EXPLOSION_DEFLATE.get())
             .saturating_add(EXPLOSION_INFLATE.get())
     }
 
@@ -372,8 +371,8 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
 }
 
 impl Backend for Materializing {
-    type Node<H: Height> = MaterializedNode<typed::Node<H>>;
-    type Erased = MaterializedNode<typed::untyped::Node>;
+    type Node<H: Height> = MaterializedNode<typed::View<H>>;
+    type Erased = MaterializedNode<typed::untyped::View>;
     type Error = Infallible;
 
     // Erasure re-tags the store's handle; the resident row rides along
@@ -393,7 +392,7 @@ impl Backend for Materializing {
         let MaterializedNode { inner, mut row } = erased;
         row.resize(row.len() + ASSUME_SLACK.get(), 0);
         MaterializedNode {
-            inner: typed::Node::from_untyped(inner),
+            inner: typed::View::from_untyped(inner),
             row,
         }
     }
@@ -419,9 +418,8 @@ impl Backend for Materializing {
         // re-tagged at the parent's height; the tag is phantom, and the
         // check on trial reads only the answer's presence).
         if fan == 0 && PARENT_CONJURES.get() != 0 {
-            let conjured = typed::Node::from_untyped(typed::untyped::Node::leaf(
-                Version::new(),
-                Message::new(0),
+            let conjured = typed::View::from_untyped(typed::untyped::View::from(
+                typed::untyped::Node::leaf(Version::new(), Message::new(0)),
             ));
             return Ok(Some(MaterializedNode::wrap(conjured, ROW_HEADER)));
         }
@@ -445,6 +443,8 @@ impl Backend for Materializing {
         stream! {
             let mut children = pin!(<Local as Backend>::children(Local, prefix, parent.inner));
             while let Some(child) = children.next().await {
+                // Scratch the listing fills and frees, held nowhere.
+                std::hint::black_box(Vec::<u8>::with_capacity(LISTING_SCRATCH.get()));
                 yield child.map(|(prefix, node)| {
                     // A lazily loaded row: header and bounds, its child
                     // table not yet materialized.
@@ -729,16 +729,16 @@ fn a_symmetric_loss_fails_the_completeness_check() {
     pollster::block_on(run(Materializing, 0, 1));
 }
 
-/// An `explosion_bytes` answer below the copies listing a node makes is
-/// convicted by name at the listing's allocation check.
+/// A listing that allocates beyond the rows it yields is convicted by
+/// name at the listing's allocation check.
 ///
-/// The fixture's corpora share compressed nodes between the replica and
-/// the session's handles, so peeling one copies it; deflated to nothing,
-/// the answer misses every such copy.
+/// The census counts each listed child at its handle's inline bytes beside
+/// its row, though listing allocates only the row; so each child listed
+/// allocates scratch one byte wider than a handle, which no report covers.
 #[test]
 #[should_panic(expected = "undercounted explosion")]
-fn an_undercounted_explosion_fails_the_explosion_check() {
-    let _dishonest = EXPLOSION_DEFLATE.set(usize::MAX);
+fn an_allocating_listing_fails_the_listing_check() {
+    let _dishonest = LISTING_SCRATCH.set(size_of::<MaterializedNode<typed::View<Z>>>() + 1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
@@ -840,12 +840,12 @@ fn ledger_settles_over_clone_and_drop() {
     let _serial = serialized();
     ledger::reset_peak();
     let before = ledger::peak();
-    let leaf = pollster::block_on(<super::ChargedNode<typed::Node<Z>> as Leaf>::leaf(
+    let leaf = pollster::block_on(<super::ChargedNode<typed::View<Z>> as Leaf>::leaf(
         Version::new(),
         Message::new(7),
     ))
     .expect("a local leaf constructs infallibly");
-    let handle = std::mem::size_of::<typed::Node<Z>>();
+    let handle = std::mem::size_of::<typed::View<Z>>();
     let clone = leaf.clone();
     assert_eq!(ledger::peak(), before + 2 * handle);
     drop(leaf);

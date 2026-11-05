@@ -80,11 +80,11 @@ fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<type
             &Local,
             known,
             Prefix::new().erase(),
-            <Local as Backend>::erase(node),
+            <Local as Backend>::erase(node.into()),
             &Recorder::default(),
         ))
         .expect("the in-memory backend lists exactly the children it reports")
-        .map(<Local as Backend>::assume::<Root>)
+        .map(|pruned| <Local as Backend>::assume::<Root>(pruned).into_node())
     })
 }
 

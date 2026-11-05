@@ -238,7 +238,7 @@ async fn reconcile_with_stacked_failures(
 fn failing_root(root: TreeRoot) -> Root<Failing<Local>> {
     Root {
         ceiling: root.ceiling,
-        root: root.node.map(FailingNode::new),
+        root: root.node.map(|node| FailingNode::new(node.into())),
     }
 }
 

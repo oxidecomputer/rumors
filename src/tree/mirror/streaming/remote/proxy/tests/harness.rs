@@ -109,7 +109,7 @@ impl TreeBackend for Failing<Local> {
     fn lift(root: TreeRoot) -> Root<Self> {
         Root {
             ceiling: root.ceiling,
-            root: root.node.map(FailingNode::new),
+            root: root.node.map(|node| FailingNode::new(node.into())),
         }
     }
 
@@ -117,7 +117,9 @@ impl TreeBackend for Failing<Local> {
     fn lower(root: Root<Self>) -> TreeRoot {
         TreeRoot {
             ceiling: root.ceiling,
-            node: root.root.map(FailingNode::into_inner),
+            node: root
+                .root
+                .map(|node| FailingNode::into_inner(node).into_node()),
         }
     }
 }

@@ -203,11 +203,11 @@ trait FaultBackend: Backend<Node<Z>: Leaf> {
 
 impl FaultBackend for Local {
     fn node<H: FaultHeight>() -> Self::Node<H> {
-        H::node()
+        H::node().into()
     }
 
     fn escaped<H: FaultHeight>() -> Self::Node<H> {
-        H::node_at(escaped_version())
+        H::node_at(escaped_version()).into()
     }
 }
 

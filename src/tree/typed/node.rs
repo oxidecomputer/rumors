@@ -236,12 +236,6 @@ impl<H: Height> Node<H> {
         self.inner.len()
     }
 
-    /// The number of children this node's children have, a child at the
-    /// leaves counting one ([`untyped::Node::grandchild_count`]).
-    pub fn grandchild_count(&self) -> usize {
-        self.inner.grandchild_count()
-    }
-
     /// The largest encoded version bound stored anywhere in this subtree.
     pub fn version_bytes(&self) -> usize {
         self.inner.version_bytes()
@@ -262,20 +256,6 @@ impl<H: Height> Node<H> {
     pub fn hash(&self) -> Hash {
         self.inner.hash()
     }
-
-    /// Walk every leaf beneath this node, in ascending path order.
-    ///
-    /// `prefix` supplies the preceding path bytes. The owned walk skips
-    /// compressed spans and yields one stored leaf at a time, then
-    /// [`untyped::Leaf::into_node`] gives it the empty prefix required at
-    /// height zero. Descent state is bounded by the tree's depth.
-    pub(crate) fn leaves(
-        self,
-        prefix: &Prefix<H>,
-    ) -> impl Iterator<Item = (Prefix<Z>, Node<Z>)> + Send + use<H> {
-        untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all())
-            .map(|(key, leaf)| (Prefix::from(key), Node::from_untyped(leaf.into_node())))
-    }
 }
 
 /// Assemble branches or descend one level toward their children.
@@ -294,16 +274,6 @@ where
         })
     }
 
-    /// Assemble a subtree from its children, reusing `original`, the node
-    /// they were listed from, when they are exactly its children
-    /// ([`untyped::Node::rebuild`]).
-    pub fn rebuild(original: Option<Self>, children: Children<H>) -> Option<Self> {
-        Some(Node {
-            height: PhantomData,
-            inner: untyped::Node::rebuild(original.map(Node::into_untyped), children.into_fan())?,
-        })
-    }
-
     /// Convert a node into a map from child index to child node (inverse to
     /// [`Node::branch`]).
     pub fn into_children(self) -> Children<H> {
@@ -313,14 +283,6 @@ where
         };
 
         Children::from_fan(children)
-    }
-
-    /// Walk immediate children without copying a shared branch's fan.
-    pub(crate) fn child_iter(self) -> impl Iterator<Item = (u8, Node<H>)> + Send + use<H> {
-        self.inner
-            .child_iter()
-            .unwrap_or_else(|_| unreachable!("a nonzero-height node has a child"))
-            .map(typed_child::<H> as fn((u8, untyped::Node)) -> (u8, Node<H>))
     }
 
     /// Extend a test node's compressed prefix through slot `index`.

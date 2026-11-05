@@ -1,5 +1,5 @@
-//! Reassembling a node from its listed children, given the node they came
-//! from ([`Node::rebuild`]).
+//! Reassembling a view from its listed children, given the view they came
+//! from ([`View::rebuild`]).
 
 use before::Party;
 use proptest::collection::vec;
@@ -10,31 +10,46 @@ use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::{arb_version, nth_party};
 use crate::tree::typed::untyped::{
-    Node,
+    Node, View,
     fan::Fan,
     memo_census::{self, Work},
 };
 
 use super::{MAX_TEST_DEPTH, TREE_LEAF_BUDGET, arb_tree};
 
-/// Every node of `tree` that lists children, and every view those listings
-/// yield, each beside the children [`Node::child_iter`] lists for it.
+/// Children as reassembly takes them: views at ascending radices.
+type Listing = Vec<(u8, View)>;
+
+/// Every level of `tree` that lists children, each as a view beside the
+/// children [`View::children`] lists for it.
 ///
-/// Each node is listed while a second handle to it is held, as the walk
-/// holds the node it explodes, so a compressed node's one child is a
-/// peeled copy, never the node's own allocation.
-fn listings(tree: Node) -> Vec<(Node, Fan)> {
+/// The tree's own handles stay held, as the walk holds the stored tree, so
+/// every view shares its stored node.
+fn listings(tree: Node) -> Vec<(View, Listing)> {
     let mut found = Vec::new();
-    let mut stack = vec![tree];
-    while let Some(node) = stack.pop() {
-        let Ok(children) = node.clone().child_iter() else {
+    let mut stack = vec![View::from(tree)];
+    while let Some(view) = stack.pop() {
+        let Ok(children) = view.clone().children() else {
             continue;
         };
-        let fan: Fan = children.collect();
-        stack.extend(fan.values().cloned());
-        found.push((node, fan));
+        let listing: Listing = children.collect();
+        stack.extend(listing.iter().map(|(_, child)| child.clone()));
+        found.push((view, listing));
     }
     found
+}
+
+/// The fan of the nodes `listing`'s views represent, as `branch` takes it.
+fn nodes(listing: &Listing) -> Fan {
+    listing
+        .iter()
+        .map(|(radix, child)| (*radix, child.clone().into_node()))
+        .collect()
+}
+
+/// The hash of the subtree reassembly returned, if any.
+fn hash_of(view: Option<&View>) -> Option<crate::tree::typed::Hash> {
+    view.map(View::hash)
 }
 
 /// A leaf whose version no generated tree holds: the generators tick the
@@ -66,48 +81,48 @@ fn arb_change() -> impl Strategy<Value = Change> {
     ]
 }
 
-/// `fan`, which is never empty, with `change` applied.
-fn changed(fan: &Fan, change: Change) -> Fan {
-    let mut entries: Vec<(u8, Node)> = fan
-        .iter()
-        .map(|(radix, child)| (radix, child.clone()))
-        .collect();
+/// `listing`, which is never empty, with `change` applied.
+fn changed(listing: &Listing, change: Change) -> Listing {
+    let mut entries = listing.clone();
     match change {
         Change::Remove(at) => {
             entries.remove(at.index(entries.len()));
         }
         Change::Replace(at) => {
             let at = at.index(entries.len());
-            entries[at].1 = foreign_leaf();
+            entries[at].1 = View::from(foreign_leaf());
         }
-        Change::Add(radix) => entries.push((radix, foreign_leaf())),
+        Change::Add(radix) => {
+            entries.retain(|(at, _)| *at != radix);
+            entries.push((radix, View::from(foreign_leaf())));
+            entries.sort_by_key(|(at, _)| *at);
+        }
     }
-    // Collecting keeps the last entry at a repeated radix: the added leaf.
-    entries.into_iter().collect()
+    entries
 }
 
 proptest! {
-    /// Reassembling a node from exactly the children its listing yields
-    /// returns the node itself, at every node of a tree and at every peeled
-    /// view of a compressed path.
+    /// Reassembling a view from exactly the children its listing yields
+    /// returns the view itself, at every level of a tree, peeled levels of
+    /// compressed paths included.
     ///
-    /// A stored child comes back as the same allocation; a compressed
-    /// node's child is a peeled copy, which reassembly must recognize by
-    /// its path and body.
+    /// A stored child comes back as a whole view of the same allocation; a
+    /// compressed level's child as the same stored node with one more byte
+    /// hidden.
     #[test]
     fn reassembling_a_listing_returns_its_node(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        for (node, fan) in listings(tree) {
-            let rebuilt = Node::rebuild(Some(node.clone()), fan)
+        for (view, listing) in listings(tree) {
+            let rebuilt = View::rebuild(Some(view.clone()), listing)
                 .expect("a listing is never empty");
-            prop_assert!(rebuilt.ptr_eq(&node), "a listed node was rebuilt: {node:?}");
+            prop_assert!(rebuilt.same(&view), "a listed view was rebuilt: {view:?}");
         }
     }
 
     /// Reassembling a listing with one child removed, replaced, or added
-    /// builds the subtree `branch` builds from the same children, and never
-    /// returns the original node.
+    /// builds the subtree `branch` builds from the nodes the same children
+    /// represent, and never returns the original view.
     ///
     /// Removing a node's only child deletes it, as `branch` of nothing
     /// does. The trees are at least one level deep, so each lists children.
@@ -118,12 +133,12 @@ proptest! {
         change in arb_change(),
     ) {
         let listings = listings(tree);
-        let (node, fan) = &listings[pick.index(listings.len())];
-        let fan = changed(fan, change);
-        let rebuilt = Node::rebuild(Some(node.clone()), fan.clone());
-        let built = Node::branch(fan);
-        prop_assert_eq!(rebuilt.as_ref().map(Node::hash), built.as_ref().map(Node::hash));
-        prop_assert!(rebuilt.is_none_or(|rebuilt| !rebuilt.ptr_eq(node)));
+        let (view, listing) = &listings[pick.index(listings.len())];
+        let listing = changed(listing, change);
+        let built = Node::branch(nodes(&listing));
+        let rebuilt = View::rebuild(Some(view.clone()), listing);
+        prop_assert_eq!(hash_of(rebuilt.as_ref()), built.as_ref().map(Node::hash));
+        prop_assert!(rebuilt.is_none_or(|rebuilt| !rebuilt.same(view)));
     }
 }
 
@@ -150,13 +165,11 @@ fn arb_edit() -> impl Strategy<Value = Edit> {
     ]
 }
 
-/// `fan` with `edits` applied in turn; a removal from an empty fan does
-/// nothing.
-fn edited(fan: &Fan, edits: &[Edit]) -> Fan {
-    let mut entries: Vec<(u8, Node)> = fan
-        .iter()
-        .map(|(radix, child)| (radix, child.clone()))
-        .collect();
+/// `listing` with `edits` applied in turn; a removal from an empty listing
+/// does nothing.
+fn edited(listing: &Listing, edits: &[Edit]) -> Listing {
+    let mut entries = listing.clone();
+    let leaf = |version: &Version| View::from(Node::leaf(version.clone(), Message::new(())));
     for edit in edits {
         match edit {
             Edit::Remove(at) if !entries.is_empty() => {
@@ -165,16 +178,17 @@ fn edited(fan: &Fan, edits: &[Edit]) -> Fan {
             Edit::Remove(_) => {}
             Edit::Replace(at, version) if !entries.is_empty() => {
                 let at = at.index(entries.len());
-                entries[at].1 = Node::leaf(version.clone(), Message::new(()));
+                entries[at].1 = leaf(version);
             }
             Edit::Replace(..) => {}
             Edit::Place(radix, version) => {
                 entries.retain(|(at, _)| at != radix);
-                entries.push((*radix, Node::leaf(version.clone(), Message::new(()))));
+                entries.push((*radix, leaf(version)));
+                entries.sort_by_key(|(at, _)| *at);
             }
         }
     }
-    entries.into_iter().collect()
+    entries
 }
 
 proptest! {
@@ -183,7 +197,7 @@ proptest! {
     ///
     /// That holds however they were reached: seeded whole, seeded at one
     /// endpoint, or left for the full computation. The node's subtree is
-    /// the one `branch` builds.
+    /// the one `branch` builds from the nodes the children represent.
     ///
     /// Edits remove children, and add or replace them with leaves whose
     /// versions come from several parties, so the changed and removed
@@ -198,10 +212,10 @@ proptest! {
         tree.hash();
         tree.version_bytes();
         let listings = listings(tree);
-        let (node, fan) = &listings[pick.index(listings.len())];
-        let fan = edited(fan, &edits);
-        let rebuilt = Node::rebuild(Some(node.clone()), fan.clone());
-        let built = Node::branch(fan);
+        let (view, listing) = &listings[pick.index(listings.len())];
+        let listing = edited(listing, &edits);
+        let built = Node::branch(nodes(&listing));
+        let rebuilt = View::rebuild(Some(view.clone()), listing).map(View::into_node);
         prop_assert_eq!(rebuilt.as_ref().map(Node::hash), built.as_ref().map(Node::hash));
         if let Some(rebuilt) = rebuilt {
             prop_assert!(rebuilt.mismemoized().is_none(), "memos drifted: {rebuilt:?}");
@@ -246,12 +260,13 @@ fn leaves(versions: &[Version]) -> Fan {
         .collect()
 }
 
-/// The fan `original` stores, its children shared, for editing.
-fn listed(original: &Node) -> Fan {
-    original
-        .stored_fan()
-        .expect("a branch stores a fan")
-        .clone()
+/// The listing of the fan `original` stores, its children shared, for
+/// editing.
+fn listed(original: &Node) -> Listing {
+    View::from(original.clone())
+        .children()
+        .expect("a branch lists its fan")
+        .collect()
 }
 
 /// Rebuild `original`, warmed, from `children`, asserting the rebuilt
@@ -260,7 +275,7 @@ fn listed(original: &Node) -> Fan {
 /// Returns the counts of each seeding outcome the rebuild recorded, in the
 /// order seeded, seeded at one endpoint, seeded with an unchanged child's
 /// help, and declined.
-fn seeding(original: &Node, children: Fan) -> [u64; 4] {
+fn seeding(original: &Node, children: Listing) -> [u64; 4] {
     original.span();
     let outcomes = [
         Work::BoundsSeeded,
@@ -269,7 +284,9 @@ fn seeding(original: &Node, children: Fan) -> [u64; 4] {
         Work::BoundsDeclined,
     ];
     let before = outcomes.map(memo_census::read);
-    let rebuilt = Node::rebuild(Some(original.clone()), children).expect("children remain");
+    let rebuilt = View::rebuild(Some(View::from(original.clone())), children)
+        .expect("children remain")
+        .into_node();
     let after = outcomes.map(memo_census::read);
     assert!(
         rebuilt.mismemoized().is_none(),
@@ -338,6 +355,7 @@ fn a_removal_covered_by_the_changed_children_seeds_without_siblings() {
     .expect("two leaves");
     let children = [(0, kept), (2, leaf(older)), (3, leaf(newer))]
         .into_iter()
+        .map(|(radix, node)| (radix, View::from(node)))
         .collect();
     assert_eq!(seeding(&original, children), [1, 0, 0, 0]);
 }

@@ -510,7 +510,7 @@ fn mixed_reply<H: Height>(
     supply_radix: u8,
     supply: typed::Node<H>,
 ) -> Reply<Erased> {
-    let mut supply = Some(<Local as Backend>::erase(supply));
+    let mut supply = Some(<Local as Backend>::erase(supply.into()));
     let mut reactions = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
@@ -679,7 +679,8 @@ where
         *actual_prefix,
         Prefix::<Z>::containing(&expected_leaf.path())
     );
-    prop_assert_eq!(actual_leaf.ceiling(), &expected_leaf.version);
+    let bounds = actual_leaf.span();
+    prop_assert_eq!(bounds.hi(), &expected_leaf.version);
     prop_assert_eq!(
         actual_leaf.message().as_slice(),
         expected_leaf.message.as_slice()
