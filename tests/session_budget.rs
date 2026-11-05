@@ -267,7 +267,8 @@
 //! every stall, where each release is one hop and the count is exact,
 //! independent of time and load
 //! ([`hops_never_rise_with_the_budget`]). The sweep needs no trace, so it
-//! runs untraced, at the schedule search's size.
+//! runs untraced, at the schedule search's size, and its sessions run at
+//! once, each driven on a thread of its own.
 
 #[path = "session_budget/link.rs"]
 mod link;
@@ -276,6 +277,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread::{self, ScopedJoinHandle};
 
 use alloc_meter::{
     Event, EventKind, Label, LabelLifetimes, Stats, labelled, measure, trace, untraced,
@@ -1899,11 +1901,20 @@ fn sweep_budgets() -> Vec<usize> {
         .collect()
 }
 
+/// The network the hop sweep's fixture forks, from a fixed random source,
+/// so every budget's session runs between the same two replicas.
+fn sweep_seed() -> Rumors<u64> {
+    Peer::<u64>::seed_rng(&mut ChaChaRng::seed_from_u64(0x5ee9_0b0d_6e75_0001)).into_rumors()
+}
+
 /// One session of the hop sweep, untraced: its hops, the releases the held
 /// link made with every byte released at every stall, and the units both
 /// sides report waiting.
+///
+/// Its peers are the sweep's fixed fixture, forked from [`sweep_seed`], on
+/// `budget`.
 fn sweep_session(budget: usize) -> (usize, u64) {
-    let Fixture { peers: [a, b], .. } = fixture([SWEEP_MESSAGES; 2], 0, budget);
+    let Fixture { peers: [a, b], .. } = seeded_fixture(sweep_seed, [SWEEP_MESSAGES; 2], 0, budget);
     let link = Link::new();
     prepare_pacing();
     let (mut a_read, mut a_write) = (link.reader(Side::A), link.writer(Side::A));
@@ -1923,6 +1934,14 @@ fn sweep_session(budget: usize) -> (usize, u64) {
     (drive.releases, waits.iter().sum())
 }
 
+/// The result of a scoped thread, propagating its panic, message and all,
+/// if it panicked.
+fn joined<T>(thread: ScopedJoinHandle<'_, T>) -> T {
+    thread
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
 /// A session never takes more hops at a larger budget.
 ///
 /// On the held link, releasing every byte at every stall, each release is
@@ -1938,16 +1957,28 @@ fn sweep_session(budget: usize) -> (usize, u64) {
 /// with no budget.
 #[test]
 fn hops_never_rise_with_the_budget() {
-    let (unlimited, unlimited_waits) = sweep_session(usize::MAX);
+    // Each session drives its own peers and link on the thread that runs
+    // it, and its hops are exact, so the sessions run at once, one thread
+    // each.
+    let ((unlimited, unlimited_waits), runs) = thread::scope(|scope| {
+        let unlimited = scope.spawn(|| sweep_session(usize::MAX));
+        let sweep: Vec<_> = sweep_budgets()
+            .into_iter()
+            .map(|budget| (budget, scope.spawn(move || sweep_session(budget))))
+            .collect();
+        let runs: Vec<(usize, usize, u64)> = sweep
+            .into_iter()
+            .map(|(budget, session)| {
+                let (hops, waits) = joined(session);
+                (budget, hops, waits)
+            })
+            .collect();
+        (joined(unlimited), runs)
+    });
     assert_eq!(unlimited_waits, 0, "no unit waits with no budget");
-    let runs: Vec<(usize, usize, u64)> = sweep_budgets()
-        .into_iter()
-        .map(|budget| {
-            let (hops, waits) = sweep_session(budget);
-            println!("budget {budget} B: {hops} hops, {waits} units waited");
-            (budget, hops, waits)
-        })
-        .collect();
+    for (budget, hops, waits) in &runs {
+        println!("budget {budget} B: {hops} hops, {waits} units waited");
+    }
     println!("no budget: {unlimited} hops");
     for pair in runs.windows(2) {
         let [(smaller, smaller_hops, _), (larger, larger_hops, _)] = pair else {
