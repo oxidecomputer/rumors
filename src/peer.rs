@@ -8,7 +8,9 @@ use std::{
 };
 
 use before::Party;
-use rand::Rng;
+use rand::CryptoRng;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
@@ -434,8 +436,17 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     /// [`bootstrap`](Self::bootstrap). Independently seeded peers cannot gossip
     /// with each other. The payload type must follow the
     /// [payload contract](crate#choosing-a-payload-type).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the operating system's random source fails.
     pub fn seed() -> Self {
-        Self::seed_from_rng(&mut rand::rng())
+        // The secret comes from the operating system on every call, never
+        // from a generator whose state lives in this process: a forked
+        // child inherits that state, so siblings forked after one shared
+        // draw would seed networks with one secret, one identifier and one
+        // seed party, and gossip as one network.
+        Self::seed_from_rng(&mut UnwrapErr(SysRng))
     }
 
     /// Create a network with a caller-supplied random source.
@@ -444,12 +455,12 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     /// identifiers, reproducible.
     #[doc(hidden)]
     #[cfg(any(test, feature = "test-internals"))]
-    pub fn seed_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
+    pub fn seed_rng<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
         Self::seed_from_rng(rng)
     }
 
     /// Create a new network using `rng` for its secret.
-    fn seed_from_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
+    fn seed_from_rng<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
         let secret = Arc::new(NetworkSecret::from_rng(rng));
         Self {
             secret: Arc::clone(&secret),

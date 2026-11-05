@@ -36,14 +36,14 @@
 //! - SHA3-256 (FIPS 202) for the bookmark's integrity checksum.
 //!
 //! Randomness (the secret, the bootstrap's key pairs) comes from the operating
-//! system's generator through the `rand` and `getrandom` crates; a validated
+//! system's generator, read through `getrandom` on every draw; a validated
 //! deployment would supply an approved DRBG there, a change of source, not of
 //! protocol.
 
 use std::fmt;
 
 use hkdf::Hkdf;
-use rand::Rng;
+use rand::CryptoRng;
 
 use serde::Deserialize;
 use serde::Deserializer;
@@ -204,7 +204,9 @@ impl NetworkSecret {
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) const FIXTURE: NetworkSecret = NetworkSecret([0x5e; NETWORK_BYTES]);
 
-    /// Draws a fresh random secret from `rng`.
+    /// Draws a fresh random secret from `rng`, which must be a cryptographic
+    /// generator: the secret keys every leaf path, so a predictable one
+    /// re-enables the offline search that keying the paths rules out.
     ///
     /// A secret whose identifier would be the bootstrap placeholder
     /// ([`Network::BOOTSTRAP`]) is drawn again, since its network would be
@@ -213,7 +215,7 @@ impl NetworkSecret {
     /// per draw, so the redraw never runs in practice; it makes the
     /// placeholder unreachable by construction, and redrawing is the one
     /// response that keeps `seed` total.
-    pub(crate) fn from_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
+    pub(crate) fn from_rng<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
         loop {
             let mut bytes = Zeroizing::new([0u8; NETWORK_BYTES]);
             rng.fill_bytes(&mut *bytes);
