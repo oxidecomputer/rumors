@@ -14,4 +14,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 ciborium.workspace = true
+# The end-to-end tests draw each test network's seed from the test kit's
+# property-test support, so a failure that depends on the network replays.
+rumors-testkit.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "io-util"] }

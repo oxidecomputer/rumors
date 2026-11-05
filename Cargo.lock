@@ -1809,6 +1809,7 @@ dependencies = [
  "ciborium",
  "hex",
  "rumors",
+ "rumors-testkit",
  "tokio",
  "tracing",
 ]
