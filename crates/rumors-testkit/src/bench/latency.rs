@@ -9,11 +9,11 @@
 //!
 //! # The measurement model
 //!
-//! [`crate::bench::latency::DelayedWire`] drives both session ends on a current-thread Tokio
-//! runtime whose clock is **paused**: pipe arrival deadlines live in
-//! virtual time, which advances only when the runtime's one thread has no
-//! ready task left and parks on its own timer driver. A session's cost
-//! splits into two components:
+//! [`crate::bench::latency::DelayedWire`] drives each session end as its own
+//! task on a current-thread Tokio runtime whose clock is **paused**: pipe
+//! arrival deadlines live in virtual time, which advances only when the
+//! runtime's one thread has no ready task left and parks on its own timer
+//! driver. A session's cost splits into two components:
 //!
 //! - the *virtual* component: time the session spent with every task
 //!   blocked on the wire — `delay` times the length of the session's
@@ -32,6 +32,14 @@
 //! - the *wall* component: real CPU time spent computing — both peers
 //!   serialized on one thread, as in the zero-latency harness. It moves with
 //!   machine load.
+//!
+//! Each peer runs in its own task because an application runs each peer in
+//! its own task, so a wake polls only the peer it is for. Joined into one
+//! task, the two peers would both be polled on every wake of either: each
+//! wake of the busy peer would re-poll the idle one, adding wall time that
+//! belongs to neither peer's work. Separate tasks change the order in which
+//! the work ready at one virtual instant runs, never when the clock moves
+//! on, which waits until no task is ready.
 //!
 //! [`crate::bench::latency::DelayedWire::round_trip`] reports their sum, which approximates
 //! session completion time on a link with the given latency (an
@@ -369,12 +377,14 @@ pub fn delayed_pair(capacity: usize, delay: Duration) -> (DelayedLink, DelayedLi
 /// A persistent latency-injecting connection plus its paused-clock runtime.
 ///
 /// The counterpart of `wire::Wire` for the latency sweeps: one link pair
-/// reused at clean session boundaries, driven on a current-thread runtime
-/// whose clock starts paused so pipe delays cost virtual — not wall — time.
+/// reused at clean session boundaries, each session's peers driven as two
+/// tasks on a current-thread runtime whose clock starts paused so pipe
+/// delays cost virtual — not wall — time.
 pub struct DelayedWire {
     runtime: tokio::runtime::Runtime,
-    a_link: DelayedLink,
-    b_link: DelayedLink,
+    /// The connection's links, A's and then B's, between sessions: a
+    /// session's tasks own them while it runs.
+    links: Option<(DelayedLink, DelayedLink)>,
     /// Whether the runtime's clock started paused.
     ///
     /// [`round_trip`](Self::round_trip) selects its cost model by this:
@@ -408,11 +418,9 @@ impl DelayedWire {
             .start_paused(paused)
             .build()
             .expect("build current-thread runtime");
-        let (a_link, b_link) = delayed_pair(capacity, delay);
         Self {
             runtime,
-            a_link,
-            b_link,
+            links: Some(delayed_pair(capacity, delay)),
             paused,
         }
     }
@@ -480,26 +488,61 @@ impl DelayedWire {
         self.reconcile(a, b)
     }
 
-    /// Drive one gossip session to completion, timing it in virtual time.
+    /// Drive one gossip session to completion, each peer as its own task,
+    /// timing it in virtual time.
+    ///
+    /// # Panics
+    ///
+    /// If either peer's session fails, with that peer's panic; and on a
+    /// wire whose earlier session panicked, which kept the connection's
+    /// links.
     fn reconcile<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> ((Rumors<T>, Rumors<T>), Duration)
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
     {
-        let Self {
-            runtime,
-            a_link,
-            b_link,
-            paused: _,
-        } = self;
-        let virtual_elapsed = runtime.block_on(async {
+        let (a_link, b_link) = self
+            .links
+            .take()
+            .expect("a wire whose session panicked holds no connection");
+        let (a, b, a_link, b_link, virtual_elapsed) = self.runtime.block_on(async {
             let virtual_start = Instant::now();
-            let (a_result, b_result) = tokio::join!(a.gossip_once(a_link), b.gossip_once(b_link));
-            a_result.expect("peer A gossip");
-            b_result.expect("peer B gossip");
-            virtual_start.elapsed()
+            let a_task = tokio::spawn(gossip(a, a_link, "peer A gossip"));
+            let b_task = tokio::spawn(gossip(b, b_link, "peer B gossip"));
+            let (a, a_link) = finished(a_task.await);
+            let (b, b_link) = finished(b_task.await);
+            (a, b, a_link, b_link, virtual_start.elapsed())
         });
+        self.links = Some((a_link, b_link));
         ((a, b), virtual_elapsed)
     }
+}
+
+/// Gossip once over `link`, as one peer's task, handing back the peer and
+/// the link for the wire's next session.
+///
+/// # Panics
+///
+/// If the session fails, with `peer_name` in the message.
+async fn gossip<T>(
+    peer: Rumors<T>,
+    mut link: DelayedLink,
+    peer_name: &'static str,
+) -> (Rumors<T>, DelayedLink)
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
+{
+    peer.gossip_once(&mut link).await.expect(peer_name);
+    (peer, link)
+}
+
+/// The output of a peer's finished task, or its panic, resumed on the
+/// thread that joined it so the session's caller sees the peer's own
+/// message.
+fn finished<O>(joined: Result<O, tokio::task::JoinError>) -> O {
+    joined.unwrap_or_else(|error| match error.try_into_panic() {
+        Ok(panic) => std::panic::resume_unwind(panic),
+        Err(error) => panic!("nothing cancels a peer's task, so it finishes or panics: {error}"),
+    })
 }
 
 /// The window suites' measurement primitive: one session's exact hops.
