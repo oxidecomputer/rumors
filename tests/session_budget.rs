@@ -79,11 +79,13 @@
 //! in ([`Holding`]), and this suite labels each block with the peer and the
 //! place its allocation served, so every place's peak sits beside the bound
 //! that covers it. An allocation counts toward the place whose code made
-//! it: a question's child
-//! listing where the walk explodes the node it asks about, a parked reply
-//! where the decoder assembles it. Places the ledger leaves out are labelled
-//! too: wire buffering, decode fans, and assembly. Blocks no marked region allocated, the session's tasks and
-//! setup, are *unattributed*.
+//! it: a question's child listing where the walk explodes the node it asks
+//! about, a parked reply where the decoder assembles it. The listing
+//! allocates only the vector that holds the children's handles, since the
+//! backend shares each child rather than copying it. Places the ledger
+//! leaves out, such as wire buffering and assembly, are labelled too.
+//! Blocks no marked region allocated, the session's tasks and setup, are
+//! *unattributed*.
 //!
 //! Each label's peak is its own, so the labels' peaks need not occur
 //! together; each side's transient peak is the peak of all its labels at
