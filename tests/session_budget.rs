@@ -171,6 +171,15 @@
 //! - **Fit.** Every reply a stage finishes held no more reactions, and its
 //!   queries no more listing entries, than its question reserved room for.
 //! - **Zero.** Each side's ledger holds nothing once the session ends.
+//! - **Outgoing floor.** Over the session, each side's charges to its
+//!   outgoing replies, the sum of every rise in that place's account, are
+//!   at least half the bytes it allocated for them
+//!   ([`OUTGOING_REPLIES_FLOOR_DIVISOR`] derives the share). Coverage
+//!   alone cannot see a missing charge there: a chunk's charge returns
+//!   once its frames are written, so its items never outlive it by more
+//!   than the place's scratch. The floor's premise is that the deletion
+//!   filter prunes nothing, which holds here, since neither side's version
+//!   knows a leaf of the other's.
 //!
 //! It also holds each ledger to its bound: at most the budget outside its
 //! floor slots, at most the peer's memory budget in all, and every item
@@ -223,9 +232,10 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
 use rumors::testing::{
-    COMPARISON_FRAME_BYTES, Holding, LedgerChange, PLACES, ReplyFit, SESSION_STREAMS,
-    assembly_allowance, attribute_allocations, join_snapshots, ledger_scratch, observe_fits,
-    observe_ledgers, report_allocations, supply_decode_envelope_bytes,
+    COMPARISON_FRAME_BYTES, Holding, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES,
+    ReplyFit, SESSION_STREAMS, assembly_allowance, attribute_allocations, join_snapshots,
+    ledger_scratch, observe_fits, observe_ledgers, report_allocations,
+    supply_decode_envelope_bytes,
 };
 use rumors::{Peer, Rumors, SessionStats};
 use rumors_testkit::bench::session::admitting;
@@ -380,9 +390,9 @@ struct Run {
 struct LedgerReport {
     /// The ledger changes the side made.
     changes: usize,
-    /// Bytes charged to the exploded nodes' place over the session: the
-    /// sum of every rise in its account.
-    exploded_charged: usize,
+    /// For each charged place, in [`CHARGED`] order, the bytes charged to
+    /// it over the session: the sum of every rise in its account.
+    charged: [usize; CHARGED.len()],
     /// The most the ledger held at once.
     peak: usize,
     /// The most the ledger held outside its floor slots at once: what its
@@ -438,6 +448,14 @@ const CHARGED: [Holding; 6] = [
     Holding::OutgoingReplies,
     Holding::ExplodedNodes,
 ];
+
+/// The position of `holding` in [`CHARGED`].
+fn charged_index(holding: Holding) -> usize {
+    CHARGED
+        .iter()
+        .position(|other| *other == holding)
+        .expect("the place is one the ledger charges")
+}
 
 /// One ledger change, where the trace stood when it happened.
 #[derive(Clone, Copy, Debug)]
@@ -572,18 +590,18 @@ fn ledger_reports(
             }
         }
         let last = mine.last();
-        let exploded = Holding::ALL
-            .iter()
-            .position(|other| *other == Holding::ExplodedNodes)
-            .expect("ALL lists every holding");
         // Each event follows one change, so each rise is one charge.
-        let (exploded_charged, _) = mine.iter().fold((0, 0), |(sum, before), event| {
-            let now = event.places[exploded];
-            (sum + now.saturating_sub(before), now)
+        let charged = slots.map(|slot| {
+            mine.iter()
+                .fold((0, 0), |(sum, before), event| {
+                    let now = event.places[slot];
+                    (sum + now.saturating_sub(before), now)
+                })
+                .0
         });
         LedgerReport {
             changes: mine.len(),
-            exploded_charged,
+            charged,
             peak: mine.iter().map(|event| event.held).max().unwrap_or(0),
             normal_peak: mine
                 .iter()
@@ -868,6 +886,13 @@ impl Measured {
         self.run.stats[side.index()]
     }
 
+    /// The bytes `side` allocated as work for `holding` over the session,
+    /// transient and surviving together.
+    fn allocated(&self, side: Side, holding: Holding) -> usize {
+        let lifetimes = self.holding(side, holding);
+        lifetimes.transient_bytes + lifetimes.surviving_bytes
+    }
+
     /// A side's classified blocks allocated as work for `holding`.
     fn holding(&self, side: Side, holding: Holding) -> LabelLifetimes {
         let place = Holding::ALL
@@ -897,10 +922,13 @@ impl Measured {
             line.push_str(&format!("; {side:?} ledger:"));
             for (place, holding) in CHARGED.iter().enumerate() {
                 line.push_str(&format!(
-                    " {holding:?} gap {} B of {} B scratch, tightest {}‰;",
+                    " {holding:?} gap {} B of {} B scratch, tightest {}‰, charged {} B of {} B \
+                     allocated;",
                     ledger.uncovered_by_place[place],
                     ledger_scratch(*holding),
                     ledger.tightest[place],
+                    ledger.charged[place],
+                    self.allocated(side, *holding),
                 ));
             }
             line.push_str(&format!(
@@ -1049,11 +1077,21 @@ fn violation(measured: &Measured) -> Option<String> {
                  {allocated} B: {report}"
             ));
         }
-        let charged = measured.run.ledgers[side.index()].exploded_charged;
+        let charged =
+            measured.run.ledgers[side.index()].charged[charged_index(Holding::ExplodedNodes)];
         if charged != reported {
             return Some(format!(
                 "{side:?}'s ledger was charged {charged} B for explosions its backend reported \
                  as {reported} B: {report}"
+            ));
+        }
+        let outgoing =
+            measured.run.ledgers[side.index()].charged[charged_index(Holding::OutgoingReplies)];
+        let built = measured.allocated(side, Holding::OutgoingReplies);
+        if outgoing * OUTGOING_REPLIES_FLOOR_DIVISOR < built {
+            return Some(format!(
+                "{side:?}'s ledger was charged {outgoing} B for outgoing replies that allocated \
+                 {built} B, less than 1/{OUTGOING_REPLIES_FLOOR_DIVISOR} of it: {report}"
             ));
         }
         let unattributed = measured.run.unattributed[side.index()].transient_peak as u128;

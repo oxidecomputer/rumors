@@ -419,6 +419,27 @@ pub fn ledger_scratch(holding: Holding) -> usize {
     streams + greeting
 }
 
+/// The divisor `d` of the least share of its outgoing replies' allocations
+/// that one side's ledger charges to them over a session.
+///
+/// That is, `charged ≥ allocated / d` for [`Holding::OutgoingReplies`],
+/// wherever the deletion filter prunes no subtree whose leaves the peer
+/// partly knows.
+///
+/// Every allocation a session marks for its outgoing replies is one of
+/// two kinds. A chunk's reactions, and the listing each of its queries
+/// carries, are counted exactly once, at their capacities, by the chunk's
+/// charge. A supply answer's children, which it lists before it builds one
+/// supply reaction per child, are not charged; a child, a radix beside a
+/// node handle, is no larger than a reaction (asserted where the prices
+/// are defined), so those children are at most the reactions charged for
+/// them. The charges therefore cover at least half of what is allocated.
+///
+/// Where the filter prunes a subtree whose leaves the peer partly knows,
+/// it lists every child but charges a reaction only for each that
+/// survives, so no share holds there.
+pub const OUTGOING_REPLIES_FLOOR_DIVISOR: usize = 2;
+
 /// The wire bytes of the largest frame that carries one comparison rather
 /// than supplied records: a query listing a full fan of children.
 ///

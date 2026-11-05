@@ -302,6 +302,16 @@ pub(crate) const fn answer_bound<E, Err>(ours: usize, theirs: usize, copies: usi
         + chunk_bound::<E, Err>(children + 1, 0)
 }
 
+/// A child a supply answer lists is no larger than the supply reaction its
+/// chunk charges for it, for the in-memory backend's nodes.
+///
+/// That is the premise of the session-budget suite's floor on outgoing
+/// replies' charges (`testing::OUTGOING_REPLIES_FLOOR_DIVISOR`).
+const _: () = assert!(
+    size_of::<(u8, untyped::Node)>() <= size_of::<Reaction<untyped::Node>>(),
+    "a listed child must be no larger than its supply reaction",
+);
+
 /// A leaf parent's plan entry is no larger than an internal answer's, at
 /// which [`answer_bound`] prices both, for the in-memory backend's nodes.
 const _: () = assert!(
