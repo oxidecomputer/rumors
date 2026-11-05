@@ -35,7 +35,7 @@
 //! # Scope
 //!
 //! The backend interface is crate-internal, so this suite runs in the crate's
-//! own tests. Caller-built transports use [`conformance::link`](super::link).
+//! own tests.
 
 use std::collections::BTreeMap;
 use std::mem::size_of;

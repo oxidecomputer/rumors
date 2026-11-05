@@ -10,17 +10,18 @@
 //!
 //! A frame begins with its logical stream index and signal state. Both use a
 //! one-byte canonical integer; other values are reserved. The stream index
-//! repeats the transport's label so a mislabeled stream produces a precise
-//! conformance error. The decoder also checks that the speaker, stream, and
-//! state belong together before reading the frame body.
+//! is what the session's pipe routes each frame by. The decoder also checks
+//! that the speaker, stream, and state belong together before reading the
+//! frame body.
 //!
 //! Reply and stream lifetimes are deliberately orthogonal. Every nonempty
 //! reply ends on its final reaction; an empty reply is one bare reply-end
-//! frame. After its final reply, a producer sends a separate bare stream-end
-//! control. The session demultiplexer consumes that control and closes the
-//! logical receiver, so the protocol adapter sees only complete replies. This
-//! lets a lazy reply stream flush each item immediately without looking ahead
-//! to discover whether that item is also the stream's last.
+//! frame. A producer that sent any reply ends its logical stream with a
+//! separate bare stream-end frame after its final reply. The session
+//! demultiplexer consumes that frame and closes the logical receiver, so the
+//! protocol adapter sees only complete replies. This lets a producer hand
+//! each reply to the pipe as soon as it is built, without looking ahead to
+//! discover whether that reply is also the stream's last.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query's
 //! body is a `{radix: hash}` map with one entry per reported child: CBOR
@@ -68,8 +69,7 @@ pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
 pub use crate::tree::mirror::cbor::HeadError;
 #[cfg(any(test, feature = "test-internals"))]
 pub use capture::{
-    HookCapture, HookStream, LinkCapture, assert_items_account_for, render_hook_capture,
-    stream_label,
+    HookCapture, HookStream, PipeCapture, assert_items_account_for, render_hook_capture,
 };
 pub use decode::FrameRead;
 #[cfg(test)]

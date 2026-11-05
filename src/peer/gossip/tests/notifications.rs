@@ -3,10 +3,10 @@
 use proptest::prelude::*;
 
 use super::party_of;
-use crate::link::memory;
 use crate::peer::Inner;
 use crate::peer::gossip::ForkGuard;
 use crate::testing::run_to_quiescence;
+use crate::testing::{MEMORY_CAPACITY, memory_connection};
 use crate::{Peer, Retire};
 
 proptest! {
@@ -23,14 +23,14 @@ proptest! {
         let original_party = party_of(&provider);
         let mut changes = provider.inner.subscribe();
         let (served, joined) = run_to_quiescence(async {
-            let (mut serving, mut joining) = memory();
+            let (serving, joining) = memory_connection(MEMORY_CAPACITY);
             tokio::join!(
-                provider.gossip_once(&mut serving),
-                Peer::<u64>::bootstrap().join(&mut joining),
+                provider.gossip_once(serving.read, serving.write),
+                Peer::<u64>::bootstrap().join(joining.read, joining.write),
             )
         }).expect("bootstrap must complete");
         served.unwrap();
-        let crate::Joined::Joined { peer: newcomer } = joined else {
+        let crate::Joined::Joined { peer: newcomer, .. } = joined else {
             panic!("bootstrap must succeed");
         };
         prop_assert!(!changes.has_changed().unwrap(), "donating a fork changes no content");
@@ -43,11 +43,11 @@ proptest! {
         let before = provider.snapshot();
         changes.borrow_and_update();
         let (served, retired) = run_to_quiescence(async {
-            let (mut serving, mut retiring) = memory();
-            tokio::join!(provider.gossip_once(&mut serving), newcomer.retire(&mut retiring))
+            let (serving, retiring) = memory_connection(MEMORY_CAPACITY);
+            tokio::join!(provider.gossip_once(serving.read, serving.write), newcomer.retire(retiring.read, retiring.write))
         }).expect("retirement must complete");
         served.unwrap();
-        prop_assert!(matches!(retired, Retire::Retired));
+        prop_assert!(matches!(retired, Retire::Retired { .. }), "retirement completes");
         prop_assert_eq!(party_of(&provider), original_party);
         prop_assert_eq!(changes.has_changed().unwrap(), provider.snapshot() != before);
     }

@@ -17,7 +17,7 @@ use crate::tree::mirror::streaming::remote::codec::{Flow, LeafRun};
 const SPEAKER: Speaker = Speaker::Initiator;
 
 /// The completion marker that closes a session: a CBOR text item.
-const MARKER: [u8; 2] = [0x61, b'.'];
+const MARKER: [u8; 2] = crate::testing::COMPLETION_MARKER;
 
 /// The kinds of reply frame the multiplexer distinguishes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,7 +85,8 @@ fn multiplex(lanes: Vec<Vec<ReplyFrame>>) -> Vec<u8> {
         .collect();
     run_to_quiescence(async move {
         let mut written = Vec::new();
-        let run = multiplexer.run(&mut written, SPEAKER, Recorder::default());
+        let observe = SessionHandle::default();
+        let run = multiplexer.run(&mut written, SPEAKER, Recorder::default(), &observe);
         let (result, _) = futures::join!(run, futures::future::join_all(producers));
         result.expect("writing into a vector cannot fail");
         written
@@ -151,8 +152,9 @@ fn a_ready_thin_frame_precedes_a_ready_supply_run() {
         thin.frame(frame(Kind::Match, 2)).await;
         drop((bulk, thin));
         let mut written = Vec::new();
+        let observe = SessionHandle::default();
         multiplexer
-            .run(&mut written, SPEAKER, Recorder::default())
+            .run(&mut written, SPEAKER, Recorder::default(), &observe)
             .await
             .expect("writing into a vector cannot fail");
         written
@@ -261,11 +263,13 @@ fn demultiplex(
         .collect();
     let mut read = PipeRead::new(bytes);
     let (failure, frames) = run_to_quiescence(async {
+        let observe = SessionHandle::default();
         let run = demultiplexer.run(
             &mut read,
             SPEAKER,
             RunBudget::from_bytes(usize::MAX),
             Recorder::default(),
+            &observe,
         );
         let consume = futures::future::join_all(
             receivers

@@ -9,7 +9,9 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use crate::observe::SessionHandle;
-use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_link};
+use crate::testing::{
+    IoPlan, IoReportHandle, IoSide, Quiescence, memory_connection, run_to_quiescence, wrap_io,
+};
 use crate::tree::mirror::preamble::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
@@ -30,7 +32,6 @@ use crate::tree::{
 };
 use crate::{
     DEFAULT_TARGET_MESSAGE_SIZE, Network, Version,
-    link::memory_with_capacity,
     message::{Message, PayloadCodec, PayloadDepthLimit},
     tree::mirror::Error as MirrorError,
 };
@@ -71,14 +72,14 @@ async fn reconcile_symmetric_accepts(
     b: TreeRoot,
     transport_capacity: usize,
 ) -> (TreeRoot, TreeRoot) {
-    let (a_link, b_link) = memory_with_capacity(transport_capacity);
+    let (a_end, b_end) = memory_connection(transport_capacity);
     let (a, b) = drive(
         Topology::Production,
         Backends::local(),
         a,
         b,
-        a_link,
-        b_link,
+        (a_end.read, a_end.write),
+        (b_end.read, b_end.write),
         codec::<()>(),
         WindowConfig::FLOOR,
     )
@@ -95,7 +96,7 @@ async fn reconcile_after_preamble<T>(a: TreeRoot, b: TreeRoot) -> (TreeRoot, Tre
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    let (mut a_link, mut b_link) = memory_with_capacity(PREAMBLE_CAPACITY);
+    let (mut a_end, mut b_end) = memory_connection(PREAMBLE_CAPACITY);
     let network = Network::from_bytes([1; 16]);
     let mut a_staged = preamble::Staged::new();
     let mut b_staged = preamble::Staged::new();
@@ -105,16 +106,16 @@ where
             network,
             Intent::Remain,
             &mut a_staged,
-            &mut a_link.control_read,
-            &mut a_link.control_write,
+            &mut a_end.read,
+            &mut a_end.write,
             &observe
         ),
         preamble::preamble(
             network,
             Intent::Remain,
             &mut b_staged,
-            &mut b_link.control_read,
-            &mut b_link.control_write,
+            &mut b_end.read,
+            &mut b_end.write,
             &observe
         ),
     );
@@ -126,8 +127,8 @@ where
         Backends::local(),
         a,
         b,
-        a_link,
-        b_link,
+        (a_end.read, a_end.write),
+        (b_end.read, b_end.write),
         codec::<T>(),
         WindowConfig::FLOOR,
     )
@@ -187,24 +188,26 @@ async fn reconcile_with_stacked_failures(
     ),
     IoReportHandle,
 ) {
-    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
-    let (a_link, a_io) = wrap_link(
+    let (a_end, b_end) = memory_connection(TRANSPORT_CAPACITY);
+    let (a_read, a_write, a_io) = wrap_io(
         IoSide::Left,
         if fail_left {
             io_plan.clone()
         } else {
             IoPlan::default()
         },
-        a_link,
+        a_end.read,
+        a_end.write,
     );
-    let (b_link, b_io) = wrap_link(
+    let (b_read, b_write, b_io) = wrap_io(
         IoSide::Right,
         if fail_left {
             IoPlan::default()
         } else {
             io_plan
         },
-        b_link,
+        b_end.read,
+        b_end.write,
     );
     let sound = || Failing::after(Local, usize::MAX);
     let backends = Backends {
@@ -218,8 +221,8 @@ async fn reconcile_with_stacked_failures(
         backends,
         a,
         b,
-        a_link,
-        b_link,
+        (a_read, a_write),
+        (b_read, b_write),
         codec::<()>(),
         WindowConfig::FLOOR,
     )
@@ -262,16 +265,18 @@ async fn reconcile_with_failing_walk(
     )
     .window(WindowConfig::FLOOR);
 
-    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let (a_end, b_end) = memory_connection(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(
         whole(),
-        a_link,
+        a_end.read,
+        a_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(
         whole(),
-        b_link,
+        b_end.read,
+        b_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
@@ -312,7 +317,7 @@ fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
     }
 }
 
-/// Equal versions return both roots without opening a data stream.
+/// Equal versions return both roots without sending a frame.
 #[test]
 fn equal_versions_return_both_roots() {
     let root = TreeRoot {
@@ -352,10 +357,11 @@ fn symmetric_accept_handshakes_are_live() {
     assert_eq!(a, b);
 }
 
-/// The preamble and proxy session share control halves without consuming each
-/// other's bytes; distinct payloads also exercise supplied-leaf decoding.
+/// The preamble and proxy session share the connection's halves without
+/// consuming each other's bytes; distinct payloads also exercise
+/// supplied-leaf decoding.
 #[test]
-fn preamble_and_proxy_session_share_control_halves() {
+fn preamble_and_proxy_session_share_the_connections_halves() {
     let a_party = nth_party(0);
     let b_party = nth_party(1);
     let mut a = Tree::<u64>::new();
@@ -412,7 +418,7 @@ proptest! {
     ///
     /// Wide budgets reach the streaming deadlock's trigger geometry — wide
     /// roots mixing disputes and provisions — which the small budget rarely
-    /// does; this drives it at the smallest per-stream buffers.
+    /// does; this drives it over a one-byte pipe.
     #[test]
     fn wide_symmetric_accepts_match_local((a, b) in arb_wide_divergent_pair()) {
         let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
@@ -569,11 +575,11 @@ fn opening_failure_before_the_first_yield_returns_over_the_wire() {
 /// reconcile to the materialized oracle's result under closed-world
 /// polling.
 ///
-/// This pins the wait-cycle trigger geometry at the tier that owns stream
-/// scheduling. Liveness for this shape may not depend on transport buffer
-/// capacity (the link contract admits any positive capacity), so the
-/// standard small capacity here is the demanding case and loses no
-/// coverage.
+/// This pins the wait-cycle trigger geometry at the tier that owns the
+/// pipe's scheduling. Liveness for this shape may not depend on transport
+/// buffer capacity (the transport requirements admit any positive
+/// capacity), so the standard small capacity here is the demanding case
+/// and loses no coverage.
 #[test]
 fn early_first_child_dispute_is_live() {
     let (a, b) = early_first_child_dispute_pair();
@@ -626,9 +632,10 @@ fn instrumented_reconcile(
 /// window, holds no more than that, and drains.
 ///
 /// The question queue takes the window's one slot, the scope queue a fan
-/// plus one, and parking every reply the floor window can invite at its
+/// plus one, parking every reply the floor window can invite at its
 /// height: `1 + FAN + 1`, or the height's whole question population,
-/// `256^(31 − h)`, where that is smaller.
+/// `256^(31 − h)`, where that is smaller, and each logical stream's lane to
+/// or from the pipe one slot.
 fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     for (role, stats) in report
         .roles()
@@ -636,6 +643,7 @@ fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     {
         let expected = match role.kind {
             QueueKind::ProxyLocalQuestions => 1,
+            QueueKind::PipeOutgoing | QueueKind::PipeIncoming => 1,
             QueueKind::ProxyNextScopes => FAN + 1,
             QueueKind::ProxyResponses => {
                 let invited = 1 + FAN + 1;

@@ -169,7 +169,7 @@ fn directional_supply_frames(capture: &str) -> (usize, usize) {
 /// The knob genuinely reaches the wire, which convergence alone cannot show.
 ///
 /// The same seeded divergence is reconciled twice, its wire traffic captured
-/// through the recording link: a zero target forbids batching (every leaf
+/// through the recording end: a zero target forbids batching (every leaf
 /// rides its own supply frame), while the default target batches each
 /// supplied subtree's leaves into runs — so the zero-target session must
 /// emit strictly more supply frames. If the budget silently regressed to a
@@ -200,8 +200,11 @@ fn zero_target_emits_more_supply_frames_than_default() {
 }
 
 /// A small nonzero target that fits one supply record of this corpus but
-/// not two: every multi-record run splits under it, in both supply
-/// directions, so both directions' margin self-checks below have teeth.
+/// not two.
+///
+/// Every multi-record run splits under it, in both supply directions, so
+/// each direction's margin self-check below sees more frames at the small
+/// target than at the default.
 ///
 /// (A nonzero target still batching runs that fit is
 /// [`zero_target_emits_more_supply_frames_than_default`]'s claim, over a
@@ -299,15 +302,18 @@ fn seeded_provider() -> Rumors<u64> {
 /// `gossip` while a newcomer joins under `config`.
 fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
     capture_session(
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let provider = observed(provider, hook).await;
             provider
-                .gossip_once(&mut link)
+                .gossip_once(&mut end.read, &mut end.write)
                 .await
                 .expect("the provider serves the bootstrap");
         },
-        move |mut link, hook| async move {
-            let outcome = config.observe(hook).join(&mut link).await;
+        move |mut end, hook| async move {
+            let outcome = config
+                .observe(hook)
+                .join(&mut end.read, &mut end.write)
+                .await;
             assert!(
                 matches!(outcome, rumors::Joined::Joined { .. }),
                 "the provider serves the bootstrap"

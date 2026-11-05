@@ -89,7 +89,7 @@ proptest! {
     }
 
     /// The converged pair is independent of which peer sits on which end
-    /// of the link: gossiping `(a, b)` and gossiping `(b, a)` from
+    /// of the connection: gossiping `(a, b)` and gossiping `(b, a)` from
     /// identically-built starting points yield the same content on both
     /// sides.
     #[test]

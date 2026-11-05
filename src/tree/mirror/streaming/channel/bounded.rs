@@ -187,6 +187,17 @@ impl<T> Receiver<T> {
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
         self.0.poll_next_unpin(cx)
     }
+
+    /// Refuse every further item, then take one already queued without
+    /// waiting, or `None` when nothing was queued.
+    ///
+    /// After this call each send fails as it would after the receiver is
+    /// dropped, so every item is either returned by a take or refused at
+    /// its sender; none is dropped unseen.
+    pub fn close_and_try_recv(&mut self) -> Option<T> {
+        self.0.close();
+        self.0.try_recv().ok()
+    }
 }
 
 impl<T> Stream for Receiver<T> {

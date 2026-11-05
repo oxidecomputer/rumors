@@ -198,19 +198,6 @@ fn items_accounting_refuses_diverging_items() {
     assert_items_account_for(&[vec![1, 9]], &[1, 2]);
 }
 
-/// The stream label parses to its epoch and index, and reports its
-/// exact byte length.
-#[test]
-fn stream_label_parses_epoch_and_index() {
-    let mut bytes = Vec::new();
-    cbor::write_head(&mut bytes, MAJOR_UINT, 1);
-    cbor::write_head(&mut bytes, MAJOR_UINT, 200);
-    bytes.push(0xee);
-    let ((epoch, index), len) = stream_label(&bytes);
-    assert_eq!((epoch, index), (1, 200));
-    assert_eq!(len, 3, "one short head and one byte-argument head");
-}
-
 /// Control items are named by their shape.
 #[test]
 fn control_items_are_named_by_shape() {

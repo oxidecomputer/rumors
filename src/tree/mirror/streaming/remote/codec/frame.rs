@@ -59,11 +59,12 @@ pub enum Reaction {
 pub enum Frame {
     /// A reaction and whether another follows in its reply.
     Reaction(Reaction, Flow),
-    /// An empty reply or a transport-level stream-end control.
+    /// An empty reply, or the end of a logical stream.
     End(End),
 }
 
-/// A protocol reply frame, excluding the stream-end transport control.
+/// A protocol reply frame: any frame but a logical stream's end, which only
+/// the pipe writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplyFrame(Frame);
 

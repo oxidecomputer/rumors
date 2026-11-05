@@ -6,7 +6,7 @@
 //! A retire opens with an ordinary mirror descent — the same reconciliation a
 //! plain gossip would run — and then the absorbing peer takes the retiree's
 //! party as a trailing frame. Each test stages the pair, drives one retire
-//! through the recording link in
+//! through the recording connection in
 //! [`common::gossip_snapshot::capture_session`], and pins every wire byte.
 //! Traffic is grouped by logical stream while preserving exact order within
 //! each stream. Drift in reconciliation or the hand-off shows up as a diff.
@@ -39,22 +39,22 @@ use crate::common::wire::bootstrap_fork;
 /// ([`Retire::Retired`]).
 fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
     capture_session(
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let absorber = observed(absorber, hook).await;
             absorber
-                .gossip_once(&mut link)
+                .gossip_once(&mut end.read, &mut end.write)
                 .await
                 .expect("absorber gossip");
         },
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
                 .expect("the sole handle reclaims the Peer")
                 .observe(hook);
-            let outcome = retiree.retire(&mut link).await;
+            let outcome = retiree.retire(&mut end.read, &mut end.write).await;
             assert!(
-                matches!(outcome, Retire::Retired),
+                matches!(outcome, Retire::Retired { .. }),
                 "the absorber dominates, so retire must commit; got {outcome:?}",
             );
         },
@@ -104,25 +104,25 @@ fn mutual_retire_declines() {
     b.send_all([3, 4]).unwrap();
 
     let capture = capture_session(
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let a = a
                 .try_into_peer()
                 .await
                 .expect("a's sole handle")
                 .observe(hook);
-            let outcome = a.retire(&mut link).await;
+            let outcome = a.retire(&mut end.read, &mut end.write).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
             );
         },
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let b = b
                 .try_into_peer()
                 .await
                 .expect("b's sole handle")
                 .observe(hook);
-            let outcome = b.retire(&mut link).await;
+            let outcome = b.retire(&mut end.read, &mut end.write).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
@@ -147,21 +147,25 @@ fn retire_into_bootstrapper() {
     retiree.send_all([1, 2]).unwrap();
 
     let capture = capture_session(
-        |mut link, hook| async move {
-            match Peer::<u64>::bootstrap().observe(hook).join(&mut link).await {
-                rumors::Joined::Joined { peer } => peer,
+        |mut end, hook| async move {
+            match Peer::<u64>::bootstrap()
+                .observe(hook)
+                .join(&mut end.read, &mut end.write)
+                .await
+            {
+                rumors::Joined::Joined { peer, .. } => peer,
                 _ => panic!("the retiree served the bootstrap"),
             };
         },
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
                 .expect("the sole handle reclaims the Peer")
                 .observe(hook);
-            let outcome = retiree.retire(&mut link).await;
+            let outcome = retiree.retire(&mut end.read, &mut end.write).await;
             assert!(
-                matches!(outcome, Retire::Retired),
+                matches!(outcome, Retire::Retired { .. }),
                 "a bootstrapper absorbs the retiree; got {outcome:?}",
             );
         },

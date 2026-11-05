@@ -62,12 +62,13 @@
 //!
 //! This argument assumes each edge is *independent*: a full edge stalls only
 //! its own producer, never delivery on another edge. Within one process that
-//! holds by construction because every edge has its own channel. Over a wire it
-//! is a premise the transport must supply, which is why the [link
-//! contract](crate::link) demands independently flow-controlled streams.
-//! Multiplexing every stream through one FIFO can create a wait cycle between
-//! stages even when each stream works in isolation; the conformance suite
-//! exercises this failure mode.
+//! holds by construction because every edge has its own channel. Over a wire,
+//! every level's replies share one connection, so the premise holds only
+//! because the receiving side reads every frame as it arrives and never waits
+//! on the walk to do so; the remote proxy's `pipe` module lists every wait on
+//! that receive path and why each ends without the walk. A reader that
+//! instead waited for each frame's stage to accept it could create a wait
+//! cycle between stages even when each level works in isolation.
 //!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
 //! can launch a full fan of child scopes before their parent resolution is

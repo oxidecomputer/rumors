@@ -76,10 +76,12 @@ impl QueueKind {
 
     /// Every remote-proxy semantic edge, for its coverage assertions.
     #[cfg(test)]
-    pub const PROXY: [Self; 3] = [
+    pub const PROXY: [Self; 5] = [
         Self::ProxyResponses,
         Self::ProxyLocalQuestions,
         Self::ProxyNextScopes,
+        Self::PipeOutgoing,
+        Self::PipeIncoming,
     ];
 }
 

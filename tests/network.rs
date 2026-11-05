@@ -9,10 +9,10 @@ use rumors_testkit::common;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::error::Mismatch;
-use rumors::testing::{IoPlan, IoSide, wrap_link};
+use rumors::testing::{IoPlan, IoSide, wrap_io};
 use rumors::{Error, Peer, Retire};
 
-use crate::common::wire::{assert_control_drained, block_on};
+use crate::common::wire::{assert_connection_drained, block_on};
 
 /// A peer whose network identifier comes from stream `stream`: distinct
 /// streams give distinct networks, and the tests rely on nothing else about
@@ -55,7 +55,11 @@ fn independent_seeds_differ() {
     assert_ne!(a.network(), b.network());
 }
 
-/// Gossip rejects a foreign network before opening a reconciliation stream.
+/// Items each end flushes before its first frame: the preamble and the
+/// greeting, one flush each.
+const HANDSHAKE_FLUSHES: usize = 2;
+
+/// Gossip rejects a foreign network before sending a reconciliation frame.
 ///
 /// Both populated replicas remain unchanged, so the test distinguishes an
 /// early handshake rejection from reconciliation followed by an error.
@@ -69,11 +73,15 @@ fn gossip_rejects_foreign_network() {
     let bob_hash = bob.snapshot().hash();
 
     let (alice_out, bob_out, alice_report, bob_report) = block_on(async {
-        let (a_link, b_link) = rumors::link::memory();
-        let (mut a_link, alice_report) = wrap_link(IoSide::Left, IoPlan::default(), a_link);
-        let (mut b_link, bob_report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
-        let (alice_out, bob_out) =
-            tokio::join!(alice.gossip_once(&mut a_link), bob.gossip_once(&mut b_link));
+        let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let (a_read, a_write, alice_report) =
+            wrap_io(IoSide::Left, IoPlan::default(), a_end.read, a_end.write);
+        let (b_read, b_write, bob_report) =
+            wrap_io(IoSide::Right, IoPlan::default(), b_end.read, b_end.write);
+        let (alice_out, bob_out) = tokio::join!(
+            alice.gossip_once(a_read, a_write),
+            bob.gossip_once(b_read, b_write)
+        );
         (alice_out, bob_out, alice_report, bob_report)
     });
 
@@ -95,10 +103,10 @@ fn gossip_rejects_foreign_network() {
     assert_eq!(alice.snapshot().hash(), alice_hash);
     assert_eq!(bob.snapshot().hash(), bob_hash);
     for report in [alice_report.snapshot(), bob_report.snapshot()] {
-        assert_eq!(
-            report.connects + report.accepts,
-            0,
-            "a network mismatch must fail before reconciliation opens a stream",
+        assert!(
+            report.flushes <= HANDSHAKE_FLUSHES,
+            "a network mismatch must fail before reconciliation flushes a frame: {} flushes",
+            report.flushes,
         );
     }
 }
@@ -117,10 +125,11 @@ fn retire_rejects_foreign_network_without_consuming_the_peer() {
     let absorber_hash = absorber.snapshot().hash();
 
     let (retired, served) = block_on(async {
-        let (mut donor_link, mut absorber_link) = rumors::link::memory();
+        let (donor_end, absorber_end) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         tokio::join!(
-            donor.retire(&mut donor_link),
-            absorber.gossip_once(&mut absorber_link),
+            donor.retire(donor_end.read, donor_end.write),
+            absorber.gossip_once(absorber_end.read, absorber_end.write),
         )
     });
 
@@ -148,17 +157,18 @@ fn bootstrap_adopts_provider_network() {
     let provider_network = provider.network();
 
     let bootstrapped = block_on(async move {
-        let (mut a_link, mut b_link) = rumors::link::memory();
+        let (mut a_end, mut b_end) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let (provider_out, bootstrap_out) = tokio::join!(
-            provider.gossip_once(&mut a_link),
-            Peer::<u64>::bootstrap().join(&mut b_link),
+            provider.gossip_once(&mut a_end.read, &mut a_end.write),
+            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("provider gossip");
         let joined = match bootstrap_out {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider served the bootstrap"),
         };
-        assert_control_drained(a_link, b_link);
+        assert_connection_drained(a_end, b_end);
         joined
     });
 

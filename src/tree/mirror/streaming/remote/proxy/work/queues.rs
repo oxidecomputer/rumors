@@ -16,15 +16,16 @@ use crate::tree::mirror::streaming::{
 
 use super::Parked;
 
-/// Carry flushed-but-unanswered questions, window-wide, labeled at the
+/// Carry asked-but-unanswered questions, window-wide, labeled at the
 /// questions' height.
 ///
-/// This queue's occupancy tracks the questions in flight on the wire at
-/// this height: [`encode`](mod@super::encode) publishes each question once its
-/// complete reply has flushed, and [`stages`](mod@super::stages) removes one per
-/// decoded wire reply — a full round trip later. Occupancy can undercount the
-/// wire slightly: a flushing batch has not been published yet, and the decoder
-/// holds one dequeued question while reading its reply. An upstream queue may
+/// This queue's occupancy tracks the questions in flight at this height:
+/// [`encode`](mod@super::encode) publishes each question once its complete
+/// reply is in the multiplexer's channel, and [`stages`](mod@super::stages)
+/// removes one per decoded wire reply, a full round trip later. Occupancy
+/// can undercount the questions in flight slightly: a batch still reaching
+/// the multiplexer has not been published yet, and the decoder holds one
+/// dequeued question while reading its reply. An upstream queue may
 /// recycle its slots while those replies remain outstanding, so it cannot
 /// bound this edge. Giving this queue the same depth-specific window preserves
 /// the session's population bound.

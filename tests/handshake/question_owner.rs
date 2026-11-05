@@ -136,6 +136,6 @@ fn divergent_root_child_has_one_question_owner() {
     // stream stays unused: pinned from the capture's stream census.
     assert!(
         !capture.contains("Initiator stream 0 (height 31)"),
-        "the initiator never opens its unused stream 0"
+        "the initiator carries no frame on its unused stream 0"
     );
 }

@@ -81,16 +81,16 @@ fn boundaries(initial: usize) -> (usize, usize, usize) {
     let completion = encoded_len(Value::Text(".".into()));
     block_on(async {
         let donor = donor.try_into_peer().await.unwrap();
-        let (a, mut b) = rumors::link::memory();
+        let (a, mut b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let (mut a, meter) = fault::metered(a);
-        let (outcome, accepted) = tokio::join!(donor.retire(&mut a), receiver.gossip_once(&mut b));
-        assert!(matches!(outcome, Retire::Retired));
-        accepted.unwrap();
-        assert_eq!(
-            meter.streams_opened(),
-            0,
-            "converged retirement uses only control"
+        let (outcome, accepted) = tokio::join!(
+            donor.retire(&mut a.read, &mut a.write),
+            receiver.gossip_once(&mut b.read, &mut b.write)
         );
+        assert!(matches!(outcome, Retire::Retired { .. }));
+        accepted.unwrap();
+        // The donation and the completion marker are the donor's last two
+        // items, so the donation starts that far before its last byte.
         (meter.written() - frame - completion, frame, meter.read())
     })
 }
@@ -139,7 +139,7 @@ enum Cancellation {
 
 proptest! {
     /// Wire stalls expire through the public deadline, recovering ownership only
-    /// before donation starts and never leaving the interrupted link reusable.
+    /// before donation starts.
     #[test]
     fn retirement_deadlines_respect_wire_handoff(
         initial in 0usize..6,
@@ -160,17 +160,13 @@ proptest! {
                 _ => unreachable!(),
             };
             let (outcome, accepted) = block_on(async {
-                let (a, mut b) = rumors::link::memory();
-                let (mut a, stalled) = fault::stall_at(a, Vanish::OnControl { offset: cut });
+                let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+                let (a, stalled) = fault::stall_at(a, Vanish { offset: cut });
                 let deadline = std::sync::Mutex::new(Some(stalled));
                 let donor = pair.donor.try_into_peer().await.unwrap()
                     .session_deadline(move || deadline.lock().unwrap().take().unwrap());
-                let outgoing = async move {
-                    let outcome = donor.retire(&mut a).await;
-                    assert!(a.session_state().poisoned());
-                    outcome
-                };
-                tokio::join!(outgoing, pair.receiver.gossip_once(&mut b))
+                let outgoing = async move { donor.retire(a.read, a.write).await };
+                tokio::join!(outgoing, pair.receiver.gossip_once(b.read, b.write))
             });
             if matches!(stage, Failure::Preamble | Failure::Reconciliation) {
                 let Retire::Recovered { peer, error: Error::DeadlineExceeded } = outcome else {
@@ -216,10 +212,10 @@ proptest! {
                         let deadline = deadline.lock().unwrap().take().unwrap();
                         async move { deadline.await.unwrap() }
                     });
-                let (mut a, mut b) = rumors::link::memory();
+                let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let outgoing = async move {
                     let outcome = {
-                        let mut retiring = std::pin::pin!(donor.retire(&mut a));
+                        let mut retiring = std::pin::pin!(donor.retire(a.read, a.write));
                         tokio::select! {
                             biased;
                             () = gate.entered() => {},
@@ -228,13 +224,13 @@ proptest! {
                         expire.send(()).unwrap();
                         retiring.await
                     };
-                    assert!(a.session_state().poisoned());
                     // The recipient may be paused after absorption. Let it
-                    // finish its durable write and observe the closed link.
+                    // finish its durable write and observe the closed
+                    // connection.
                     gate.release();
                     outcome
                 };
-                tokio::join!(outgoing, pair.receiver.gossip_once(&mut b))
+                tokio::join!(outgoing, pair.receiver.gossip_once(b.read, b.write))
             });
             let expected_donor = if stage == Cancellation::BeforeRemoval {
                 Some(identity.dangerously_alias())
@@ -293,16 +289,16 @@ proptest! {
             };
             let (outcome, accepted) = block_on(async {
                 let donor = pair.donor.try_into_peer().await.unwrap();
-                let (a, b) = rumors::link::memory();
+                let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let outgoing = async move {
-                    let mut a = fault::faulty(a, plan);
-                    donor.retire(&mut a).await
+                    let a = fault::faulty(a, plan);
+                    donor.retire(a.read, a.write).await
                 };
-                // Each session owns its link endpoint, so a storage failure
+                // Each session owns its connection end, so a storage failure
                 // closes the wire and wakes a donor awaiting confirmation.
                 let incoming = async {
-                    let mut b = b;
-                    pair.receiver.gossip_once(&mut b).await
+                    let b = b;
+                    pair.receiver.gossip_once(b.read, b.write).await
                 };
                 tokio::join!(outgoing, incoming)
             });
@@ -363,17 +359,17 @@ proptest! {
             let network = pair.donor.network();
             block_on(async {
                 let donor = pair.donor.try_into_peer().await.unwrap();
-                let (mut a, mut b) = rumors::link::memory();
+                let (mut a, mut b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 if stage == Cancellation::DonationPrefix {
                     // Drop the actual retirement future with a strict prefix of
                     // its party frame on the wire, not an injected I/O error.
                     let plan = FaultPlan {
-                        vanish: Some(Vanish::OnControl { offset: start + 1 + offset.index(frame - 1) }),
+                        vanish: Some(Vanish { offset: start + 1 + offset.index(frame - 1) }),
                         ..FaultPlan::NONE
                     };
                     let (driven, received) = tokio::join!(
-                        fault::drive(a, plan, async move |link: &mut fault::FaultyLink| donor.retire(link).await),
-                        pair.receiver.gossip_once(&mut b),
+                        fault::drive(a, plan, async move |end: fault::FaultyEnd| donor.retire(end.read, end.write).await),
+                        pair.receiver.gossip_once(&mut b.read, &mut b.write),
                     );
                     assert!(driven.vanished(), "the retirement future must be cancelled");
                     assert!(received.is_err(), "the recipient cannot accept an incomplete party");
@@ -382,8 +378,8 @@ proptest! {
                     if stage == Cancellation::BeforeRemoval { gate.arm(); } else { gate.arm_after_write(); }
                     // Leaving this scope cancels both futures at the announced
                     // persistence boundary; their memory remains inspectable.
-                    let mut retiring = std::pin::pin!(donor.retire(&mut a));
-                    let mut receiving = std::pin::pin!(pair.receiver.gossip_once(&mut b));
+                    let mut retiring = std::pin::pin!(donor.retire(&mut a.read, &mut a.write));
+                    let mut receiving = std::pin::pin!(pair.receiver.gossip_once(&mut b.read, &mut b.write));
                     tokio::select! {
                         biased;
                         () = gate.entered() => {},

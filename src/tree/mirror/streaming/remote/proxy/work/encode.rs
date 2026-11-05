@@ -1,8 +1,11 @@
 //! Outbound protocol replies rendered as complete wire replies.
 //!
-//! Questions are retained until every frame of their containing reply has
-//! flushed. Publishing them any earlier could block the encoder before the
-//! reply end reaches the remote peer which must answer them.
+//! Questions are retained until every frame of their containing reply is in
+//! the multiplexer's channel. Publishing them any earlier could block the
+//! encoder before the reply's end reaches the remote peer, which must answer
+//! them. Publishing does not wait for the multiplexer to write the frames:
+//! the decoder that consumes a record waits for it only when a reply to it
+//! has arrived, by which time the encoder is past the reply's last frame.
 //!
 //! Every encoder here consumes the erased vocabulary. The [`Work`](super::Work)
 //! method that spawns it erases and boxes its typed request stream, so each
@@ -13,7 +16,6 @@ use std::pin::Pin;
 
 use futures::{Stream, StreamExt};
 
-use crate::link::Connector;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -22,8 +24,8 @@ use crate::tree::{
         remote::{
             adapter::{self, Encoded, Scope, encode_reply, opening_listing},
             codec::{ReplyFrame, RunBudget},
+            pipe::Outgoing,
             proxy::Error,
-            streams::StreamSender,
         },
         tasks::cancelled,
     },
@@ -33,18 +35,17 @@ use crate::tree::{
 use super::progress::Progress;
 
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
-pub async fn terminal<B, C>(
+pub async fn terminal<B>(
     backend: B,
     budget: RunBudget,
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
-    mut outgoing: StreamSender<C>,
+    mut outgoing: Outgoing,
     mut questions: Option<WindowSender<Scope>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
-    C: Connector,
 {
     // Scope-first pairing: dequeuing the scope before awaiting the local
     // reply frees its channel slot one reply earlier, so a K-slot edge
@@ -73,19 +74,18 @@ where
 // The argument list is the stage's dataflow, one edge per argument;
 // bundling edges into a struct would only rename the arity.
 #[allow(clippy::too_many_arguments)]
-pub async fn replies<B, C>(
+pub async fn replies<B>(
     backend: B,
     budget: RunBudget,
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Scope>,
-    mut outgoing: StreamSender<C>,
+    mut outgoing: Outgoing,
     mut questions: WindowSender<Scope>,
     progress: Progress,
     question_height: usize,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
-    C: Connector,
 {
     while let Some(scope) = scopes.recv().await {
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
@@ -122,14 +122,12 @@ where
     Ok(())
 }
 
-/// Flush every frame in one reply and retain its flushed questions.
-async fn write_reply<C, E>(
-    outgoing: &mut StreamSender<C>,
+/// Hand every frame in one reply to the multiplexer and retain the reply's
+/// questions.
+async fn write_reply<E>(
+    outgoing: &mut Outgoing,
     encoded: &mut (impl Stream<Item = Result<Encoded, adapter::EncodeError<E>>> + Unpin),
-) -> Result<Vec<Scope>, Error<E>>
-where
-    C: Connector,
-{
+) -> Result<Vec<Scope>, Error<E>> {
     let mut batch = Vec::new();
     while let Some(frame) = encoded.next().await {
         if let Some(question) = write_encoded(outgoing, frame?).await? {
@@ -160,30 +158,27 @@ async fn publish_one(questions: &mut WindowSender<Scope>, question: Scope) {
 }
 
 /// Reject unclaimed local replies, then close the outgoing logical stream.
-async fn finish<C, R, E>(
-    mut requests: Pin<Box<R>>,
-    outgoing: StreamSender<C>,
-) -> Result<(), Error<E>>
+async fn finish<R, E>(mut requests: Pin<Box<R>>, outgoing: Outgoing) -> Result<(), Error<E>>
 where
-    C: Connector,
     R: Stream + ?Sized,
 {
     if requests.next().await.is_some() {
         return Err(Error::UnaskedLocalReply);
     }
-    outgoing.finish().await?;
+    outgoing.finish().await;
     Ok(())
 }
 
-/// Flush one adapter frame and release its optional question afterward.
-async fn write_encoded<C, E>(
-    outgoing: &mut StreamSender<C>,
+/// Hand one adapter frame to the multiplexer and release its optional
+/// question afterward.
+async fn write_encoded<E>(
+    outgoing: &mut Outgoing,
     encoded: Encoded,
-) -> Result<Option<Scope>, Error<E>>
-where
-    C: Connector,
-{
+) -> Result<Option<Scope>, Error<E>> {
     encoded
-        .write_with(|frame: ReplyFrame| async { outgoing.frame(frame).await.map_err(Error::Send) })
+        .write_with(|frame: ReplyFrame| async {
+            outgoing.frame(frame).await;
+            Ok(())
+        })
         .await
 }

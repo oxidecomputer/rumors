@@ -104,9 +104,9 @@ No gate leg checks these; review does.
   holds write authority over the set. Hostile peers are off-model, so no
   design or cost argument rests on adversary economics, and fail-fast checks
   detect conformance bugs rather than enforce security. Add no machinery to
-  guarantee termination against non-conforming peers or links (applications
-  own deadlines for those waits); preserve progress under conforming traffic
-  and propagate detected failures promptly.
+  guarantee termination against non-conforming peers or connections
+  (applications own deadlines for those waits); preserve progress under
+  conforming traffic and propagate detected failures promptly.
 - Never let two independently `seed`ed universes interact. Within a universe,
   the linearity of parties is the invariant everything rests on (see
   `before`'s `Party` docs).

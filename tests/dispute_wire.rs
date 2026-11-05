@@ -1,6 +1,6 @@
 //! Check the sizing model's wire-cost estimate against complete sessions.
 //!
-//! Count writes on both endpoints' control and data streams, divide by the
+//! Count every byte both endpoints write to their connection, divide by the
 //! messages transferred, and subtract their encoded payload sizes. The
 //! remainder includes hashes, versions, framing, and session setup, but no
 //! underlying transport overhead. Seeded corpora make this reproducible.
@@ -77,8 +77,8 @@ where
     (left, right)
 }
 
-/// The end-to-end wire bytes of one session between `a` and `b`: control
-/// stream plus every data stream, both directions, counted at the write
+/// The end-to-end wire bytes of one session between `a` and `b`: every
+/// item, control and frame alike, both directions, counted at the write
 /// side of each end.
 fn session_wire_bytes<T>(a: &Rumors<T>, b: &Rumors<T>) -> usize
 where
@@ -185,9 +185,9 @@ fn table_corpus_has_similar_protocol_overhead() {
 /// Even an already converged pair has nonzero session overhead.
 /// This confirms that the counter includes more than transferred payloads.
 #[test]
-fn counting_link_sees_a_converged_sessions_greeting() {
+fn counting_connection_sees_a_converged_sessions_greeting() {
     let (left, right) = diverged(COMMON, DIVERGENT, WindowChoice::Floor, |rng| rng.next_u64());
-    // Converge first over an uncounted link, then count a session that
+    // Converge first over an uncounted connection, then count a session that
     // disputes nothing.
     common::wire::wire_gossip(&left, &right);
     let total = session_wire_bytes(&left, &right);

@@ -7,8 +7,8 @@
 //!
 //! These public-API fixtures use ordinary version hashes and reach streams
 //! 0 and 1. The codec's `canonical_frame_atlas_snapshot` pins every stream's
-//! labels and frame forms; the proxy's `tests::deep` fixtures check their
-//! behavior over a link at the remaining tree depths.
+//! frame forms; the proxy's `tests::deep` fixtures check their behavior over
+//! one pipe at the remaining tree depths.
 //!
 //! Most fixtures use small `u64` payloads to keep the captures readable.
 
@@ -233,7 +233,7 @@ fn listing_entries(line: &str) -> usize {
 ///
 /// Returns `None` when the header never appears; the header must be a
 /// prefix of the capture's
-/// `"{Speaker} stream {index} (height {height}), epoch {e}, {n} wire bytes"`
+/// `"{Speaker} stream {index} (height {height}), {n} wire bytes"`
 /// header line. The section ends at the next capture header (the
 /// following stream or direction header, or a control-item label);
 /// within the section each frame contributes exactly one header line,

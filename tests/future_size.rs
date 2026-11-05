@@ -19,11 +19,11 @@ const PUBLIC_FUTURE_BUDGET: usize = 4096;
 /// phase schedule never appears in the caller's layout query.
 #[test]
 fn gossip_future_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
     let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
-    let fut = alice.gossip_once(&mut link);
+    let fut = alice.gossip_once(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
     assert!(
@@ -39,11 +39,11 @@ fn gossip_future_fits_budget() {
 /// boundary must keep it flat.
 #[test]
 fn retire_future_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
     let alice: Peer<()> = Peer::seed().sync_window_floor();
-    let fut = alice.retire(&mut link);
+    let fut = alice.retire(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
     assert!(
@@ -58,10 +58,10 @@ fn retire_future_fits_budget() {
 /// as `Reconciliation::reconcile`.
 #[test]
 fn bootstrap_future_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let fut = Peer::<()>::bootstrap().join(&mut link);
+    let fut = Peer::<()>::bootstrap().join(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
     assert!(
@@ -79,11 +79,11 @@ fn bootstrap_future_fits_budget() {
 /// boundary, which the gossip and retire tests beside it hold.
 #[test]
 fn gossip_stream_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
     let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
-    let sessions = alice.gossip(&mut link);
+    let sessions = alice.gossip(&mut end.read, &mut end.write);
     let size = size_of_val(&sessions);
 
     assert!(

@@ -54,7 +54,8 @@
 //!
 //! Every window queue keeps at least one slot, preserving progress under the
 //! [materialized walk's ordering rules](super::materialized) and the
-//! [link contract](crate::link). This floor may cost more than a tiny budget.
+//! [transport requirements](crate#transport). This floor may cost more than a
+//! tiny budget.
 //! The byte calculation also relies on its fan-size estimates and the backend's
 //! pricing contract; a queue-count limit alone is not a hard resident-memory cap.
 //! Replica storage, transport buffers, and other sessions are separate costs.
@@ -67,14 +68,14 @@
 //! before selecting a window width. These are different queues with different
 //! purposes, although both use the radix as their capacity.
 //!
-//! The [remote proxy](super::remote) also window-sizes its flushed-question
+//! The [remote proxy](super::remote) also window-sizes its local-question
 //! queue; the constructor documents why that edge needs its own capacity.
 
+use super::remote::STREAM_COUNT;
 use super::{
     Backend, Local,
     materialized::{Query, Resolution, Resolve},
 };
-use crate::link::STREAM_COUNT;
 use crate::tree::typed::{
     self, Prefix,
     height::{Height, Root, Z},
@@ -167,8 +168,8 @@ pub(crate) const SUPPLY_RECORDS_PER_STREAM: usize = FAN + 1;
 /// Worst-case bytes the decode fans of one session keep resident, under
 /// the in-memory backend's pricing.
 ///
-/// Derived, term by term: each of the [`STREAM_COUNT`] reply streams a
-/// session decodes owns one fan channel of [`FAN`] slots plus the record
+/// Derived, term by term: each of the [`STREAM_COUNT`] logical reply streams
+/// a session decodes owns one fan channel of [`FAN`] slots plus the record
 /// in the reader's hand, and each occupant is one backend-priced leaf
 /// node in its slot — for the in-memory backend, a pointer-sized handle
 /// (pinned by the `Local` handle assertion) beside [`FAN_SLOT_BYTES`] of

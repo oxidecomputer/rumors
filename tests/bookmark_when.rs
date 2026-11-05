@@ -23,7 +23,8 @@ use std::sync::{Arc, Mutex};
 use proptest::prelude::*;
 use rumors::{Bookmark, Peer, Retire, Rumors, Version};
 
-use crate::common::wire::{LINK_BUF, block_on};
+use crate::common::wire::block_on;
+use rumors::testing::MEMORY_CAPACITY;
 
 /// One observed bookmark I/O, in call order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,10 +75,10 @@ impl Bookmark for Probe {
 
 /// Reconcile the subject with a helper without transferring identity.
 async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
-    let (mut s_link, mut h_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut h_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, h) = tokio::join!(
-        subject.gossip_once(&mut s_link),
-        helper.gossip_once(&mut h_link),
+        subject.gossip_once(&mut s_end.read, &mut s_end.write),
+        helper.gossip_once(&mut h_end.read, &mut h_end.write),
     );
     s.expect("subject plain gossip");
     h.expect("helper plain gossip");
@@ -85,14 +86,14 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
 
 /// Join a new helper through the subject, donating a fork of its identity.
 async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
-    let (mut s_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, n) = tokio::join!(
-        subject.gossip_once(&mut s_link),
-        Peer::<u64>::bootstrap().join(&mut n_link),
+        subject.gossip_once(&mut s_end.read, &mut s_end.write),
+        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
     );
     s.expect("subject serve bootstrap");
     (match n {
-        rumors::Joined::Joined { peer } => peer,
+        rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("subject served the bootstrap"),
     })
     .sync_window_floor()
@@ -101,14 +102,14 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
 
 /// Join through `origin`, returning a peer ready for bookmark attachment.
 async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
-    let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut o_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (o, n) = tokio::join!(
-        origin.gossip_once(&mut o_link),
-        Peer::<u64>::bootstrap().join(&mut n_link),
+        origin.gossip_once(&mut o_end.read, &mut o_end.write),
+        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
     );
     o.expect("origin serves the bootstrap");
     (match n {
-        rumors::Joined::Joined { peer } => peer,
+        rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("origin served the bootstrap"),
     })
     .sync_window_floor()
@@ -120,14 +121,14 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the helper is the sole handle to its set");
-    let (mut s_link, mut r_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut r_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, outcome) = tokio::join!(
-        subject.gossip_once(&mut s_link),
-        retiree.retire(&mut r_link),
+        subject.gossip_once(&mut s_end.read, &mut s_end.write),
+        retiree.retire(&mut r_end.read, &mut r_end.write),
     );
     s.expect("subject absorbs the retiree");
     match outcome {
-        Retire::Retired => {}
+        Retire::Retired { .. } => {}
         other => panic!("a clean retirement must succeed, got {other:?}"),
     }
 }
@@ -138,14 +139,14 @@ async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the subject is the sole handle to its set");
-    let (mut s_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut a_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (outcome, a) = tokio::join!(
-        subject.retire(&mut s_link),
-        absorber.gossip_once(&mut a_link),
+        subject.retire(&mut s_end.read, &mut s_end.write),
+        absorber.gossip_once(&mut a_end.read, &mut a_end.write),
     );
     a.expect("absorber gossip");
     match outcome {
-        Retire::Retired => {}
+        Retire::Retired { .. } => {}
         other => panic!("a clean retirement must succeed, got {other:?}"),
     }
 }

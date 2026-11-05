@@ -1,19 +1,19 @@
 //! The streaming mirror: fixed-memory reconciliation over lazy node streams.
 //!
 //! The streaming mirror reconciles two replicas under a fixed memory bound,
-//! descending the tree over lazily opened per-level streams. Two implementor
-//! roles recur through every layer below: *the walk* is the in-process
-//! participant, the protocol run directly over a backend's tree; *the proxy*
-//! is the wire-bound participant, the same protocol driven by frames on a
-//! link. The layers, each separate for one reason:
+//! descending the tree over lazily populated per-level streams. Two
+//! implementor roles recur through every layer below: *the walk* is the
+//! in-process participant, the protocol run directly over a backend's tree;
+//! *the proxy* is the wire-bound participant, the same protocol driven by
+//! frames on one connection. The layers, each separate for one reason:
 //!
 //! - [`backend`]: materiality — what a node *is* and what holding one costs.
 //! - [`protocol`]: the type-level phase schedule every implementor advances
 //!   through.
 //! - [`materialized`]: the walk, and the home of the deadlock-freedom
 //!   argument.
-//! - [`remote`]: the proxy — codec, proxy state machine, adapter, stream
-//!   binding.
+//! - [`remote`]: the proxy — codec, proxy state machine, adapter, and the
+//!   pipe that carries every logical stream.
 //! - [`window`]: how one byte budget becomes per-height channel capacities.
 //! - [`message`]: the wire vocabulary, the greeting included.
 //! - [`erased`]: the height-erased seam both implementors run on — the

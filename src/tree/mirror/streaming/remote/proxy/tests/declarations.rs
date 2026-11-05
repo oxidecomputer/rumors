@@ -15,7 +15,7 @@ use crate::tree::{
             Error as RemoteError,
             adapter::DecodeError as ReplyDecodeError,
             codec::{DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind},
-            streams::StreamError,
+            pipe::PipeError,
         },
         window::FAN,
     },
@@ -69,8 +69,7 @@ fn batched_uneven_pair() -> (TreeRoot, TreeRoot) {
 /// produce, and ingress rejects it as `OverbatchedRun` before buffering
 /// its body — the greeting-declared budget premise enforced on the remote
 /// decode path, completing the declaration matrix beside `set_len` and
-/// `max_version_bytes`. Both endpoints terminate (link poisoning rides
-/// any session error).
+/// `max_version_bytes`. Both endpoints terminate.
 #[test]
 fn understated_target_message_size_fails_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -90,7 +89,7 @@ fn understated_target_message_size_fails_the_session() {
         assert!(
             matches!(
                 receiver_error,
-                RemoteError::Stream(StreamError::Decode(CodecDecodeError {
+                RemoteError::Pipe(PipeError::Decode(CodecDecodeError {
                     kind: CodecDecodeErrorKind::OverbatchedRun { budget: 0, .. },
                     ..
                 }))
@@ -132,8 +131,7 @@ fn overstated_target_message_size_still_converges() {
 /// The receiving side reports `OversizedVersion` at the first offending
 /// record — the declared aggregate covers every version the peer's tree
 /// materializes, so an arriving version over it voids the premise the
-/// window solve priced the session with — and both endpoints terminate
-/// (link poisoning rides any session error).
+/// window solve priced the session with — and both endpoints terminate.
 #[test]
 fn understated_version_bytes_fail_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -228,11 +226,16 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
     }
 }
 
-/// An overstated `max_version_bytes` costs window width, not convergence.
+/// A peer that declares `max_version_bytes` as `u64::MAX` still converges on
+/// the union.
 ///
-/// The budget solve saturates toward its floor on huge inputs
-/// (`pathological_pricing_saturates_to_the_floor` pins the solve itself), roles
-/// are unaffected, and the session converges on the union.
+/// The declaration is an upper bound, so overstating it rejects no honest
+/// version, and the window solve accepts the extreme value: the version
+/// bound it hands the backend's node price saturates instead of
+/// overflowing. Roles are unaffected. The in-memory backend's node price
+/// ignores the version bound, so this session's window does not move; that
+/// a pricier backend's solve stays total at extreme inputs is
+/// `pathological_pricing_saturates_to_the_floor`.
 #[test]
 fn overstated_version_bytes_still_converge() {
     for receiver in [IoSide::Left, IoSide::Right] {

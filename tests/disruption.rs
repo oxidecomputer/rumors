@@ -21,15 +21,17 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rumors::testing::run_to_quiescence;
+use rand::SeedableRng;
+use rand_chacha::ChaChaRng;
+use rumors::testing::{COMPLETION_MARKER, PREAMBLE_LEN, run_to_quiescence};
 use rumors::{Peer, Rumors};
 
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::sim::{
-    Activity, MAX_PLAN_PEERS, MAX_PLAN_SCRIPT_OPS, MAX_PLAN_SEED_MESSAGES, MAX_SHRINK_TIME,
-    MAX_VANISH_OFFSET, MAX_VANISH_STREAM, Plan, Redaction, RetireOp, Session, Transfer, arb_plan,
-    assert_converged, assert_deletion_honored, assert_party_invariants, assert_survivor,
-    assert_value_oracle, lost_custody, quiesce, run_plan, survivor_readouts,
+    Activity, MAX_PLAN_PEERS, MAX_PLAN_SCRIPT_OPS, MAX_PLAN_SEED_MESSAGES, MAX_SHRINK_TIME, Plan,
+    Redaction, RetireOp, Session, Transfer, arb_plan, assert_converged, assert_deletion_honored,
+    assert_party_invariants, assert_survivor, assert_value_oracle, lost_custody, quiesce, run_plan,
+    survivor_readouts,
 };
 use crate::common::window::{WindowAssignment, WindowChoice};
 use crate::common::wire::bootstrap_fork;
@@ -63,7 +65,7 @@ proptest! {
     })]
 
     /// Under arbitrary concurrent gossip over wires cut at arbitrary byte
-    /// offsets, with peers vanishing mid-stream, the global party
+    /// offsets, with peers vanishing mid-session, the global party
     /// invariants hold:
     ///
     /// 1. every session failure is an injected I/O fault or the honest
@@ -94,7 +96,7 @@ proptest! {
     /// cloned [`Rumors`] handles, concurrent sends and redactions,
     /// bootstraps served mid-chaos against the same shared state,
     /// retirements, and endpoints that vanish mid-protocol (their session
-    /// dropped with its link, promised streams never opened).
+    /// dropped with its connection, its remaining frames never written).
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
         mt_runtime().block_on(check_plan(plan));
@@ -140,7 +142,7 @@ async fn check_plan(plan: Plan) {
 /// a deterministic sample of plans run through the engine, some endpoint
 /// reaches its vanish point.
 ///
-/// A drawn vanish past the end of every stream its endpoint opens never
+/// A drawn vanish past the end of everything its endpoint writes never
 /// trips, so the floor counts vanishes that fired, not plans that carry
 /// one.
 #[test]
@@ -163,29 +165,65 @@ fn vanishes_fire_in_the_generated_population() {
     );
 }
 
-/// Run one session under the closed-world poller in which `a`, holding
-/// the only new content, vanishes at `point`, and `b` survives with
-/// nothing to send: `b`'s outcome, or the poller's name for `b` parking.
-fn survive_a_vanish(
-    point: Vanish,
-) -> Result<Result<rumors::Gossiped, rumors::Error>, rumors::testing::Quiescence> {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+/// A deterministic pair for the vanish tests: `a` holds the only new
+/// content, and `b` has nothing to send.
+///
+/// Built from a fixed seed, so every call constructs the same replicas and
+/// a session between them writes the same bytes.
+fn vanish_pair() -> (Rumors<u64>, Rumors<u64>) {
+    let mut rng = ChaChaRng::seed_from_u64(0x7a11_5eed);
+    let a: Rumors<u64> = Peer::seed_rng(&mut rng).sync_window_floor().into_rumors();
     a.send_all(0..8).unwrap();
     let b = bootstrap_fork(&a);
     a.send_all(8..16).unwrap();
-    let (a_link, b_link) = rumors::link::memory();
+    (a, b)
+}
+
+/// The bytes `a` of [`vanish_pair`] writes before its first frame: its
+/// preamble and greeting.
+///
+/// Measured on a clean session: everything `a` writes, less the frame
+/// bytes its statistics count and its completion marker.
+fn bytes_before_first_frame() -> usize {
+    let (a, b) = vanish_pair();
+    let (a_end, mut b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let (mut a_end, meter) = fault::metered(a_end);
+    let (a_out, b_out) = run_to_quiescence(async {
+        futures::join!(
+            a.gossip_once(&mut a_end.read, &mut a_end.write),
+            b.gossip_once(&mut b_end.read, &mut b_end.write),
+        )
+    })
+    .expect("the clean probe session completes");
+    let (gossiped, ..) = a_out.expect("probe session A");
+    b_out.expect("probe session B");
+    assert!(gossiped.stats.bytes_sent > 0, "the probe sends frames");
+    meter.written() - gossiped.stats.bytes_sent as usize - COMPLETION_MARKER.len()
+}
+
+/// Run one session of [`vanish_pair`] under the closed-world poller in
+/// which `a` vanishes at `point`, and `b` survives with nothing to send:
+/// `b`'s outcome, or the poller's name for `b` parking.
+fn survive_a_vanish(
+    point: Vanish,
+) -> Result<Result<rumors::Gossiped, rumors::Error>, rumors::testing::Quiescence> {
+    let (a, b) = vanish_pair();
+    let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let vanishing = FaultPlan {
         vanish: Some(point),
         ..FaultPlan::NONE
     };
     run_to_quiescence(async {
         let (driven, survivor) = futures::join!(
-            fault::drive(a_link, vanishing, async move |link| a
-                .gossip_once(link)
-                .await),
+            fault::drive(a_end, vanishing, async move |end| a
+                .gossip_once(end.read, end.write)
+                .await
+                .map(|(gossiped, ..)| gossiped)),
             async {
-                let mut link = fault::faulty(b_link, FaultPlan::NONE);
-                b.gossip_once(&mut link).await
+                let mut end = fault::faulty(b_end, FaultPlan::NONE);
+                b.gossip_once(&mut end.read, &mut end.write)
+                    .await
+                    .map(|(gossiped, ..)| gossiped)
             },
         );
         assert!(
@@ -197,36 +235,42 @@ fn survive_a_vanish(
     })
 }
 
-/// A peer whose counterparty vanishes mid-stream ends its session with
-/// an honest error: the vanish fires, and the survivor reads end-of-stream
-/// inside a frame.
+/// A peer whose counterparty vanishes inside a frame ends its session with
+/// an honest error: the vanish fires one byte into the vanisher's first
+/// frame, and the survivor reads end-of-stream inside that frame.
 #[test]
-fn survivor_notices_a_peer_vanished_mid_stream() {
-    match survive_a_vanish(Vanish::OnStream {
-        index: 0,
-        offset: 8,
-    }) {
+fn survivor_notices_a_peer_vanished_mid_frame() {
+    let offset = bytes_before_first_frame() + 1;
+    match survive_a_vanish(Vanish { offset }) {
         Ok(survivor) => assert_survivor(&survivor),
         Err(quiescence) => {
-            panic!("the survivor parked after its peer vanished mid-stream: {quiescence:?}")
+            panic!("the survivor parked after its peer vanished mid-frame: {quiescence:?}")
         }
     }
 }
 
-/// Control EOF ends a wait for the departed peer's first data stream.
+/// End of stream at a frame boundary ends a wait for the departed peer's
+/// first frame: the vanish fires just as the vanisher would write it, and
+/// the survivor fails during reconciliation instead of parking.
 #[test]
-fn survivor_notices_a_peer_vanished_before_its_first_stream() {
-    let survivor = survive_a_vanish(Vanish::AtFirstConnect)
-        .expect("the survivor must not park on an owed stream after control EOF");
+fn survivor_notices_a_peer_vanished_before_its_first_frame() {
+    let offset = bytes_before_first_frame();
+    let survivor = survive_a_vanish(Vanish { offset })
+        .expect("the survivor must not park awaiting a frame after end of stream");
     assert_survivor(&survivor);
+    assert!(
+        matches!(&survivor, Err(rumors::Error::Transport(error))
+            if error.context.phase == rumors::error::Phase::Reconciliation),
+        "the departure surfaces in reconciliation: {survivor:?}"
+    );
 }
 
 /// A retiree that vanishes mid-retirement is a recorded loss: its party
 /// left with it, so the run counts one possible loss, its slot stays
 /// empty, and the relaxed party check holds over the survivor.
 ///
-/// The retiree holds content the absorber lacks, so its retirement opens
-/// a stream and the mid-stream vanish fires.
+/// The retiree vanishes one byte into its greeting, past its preamble:
+/// every session writes both whole, so the vanish always fires.
 #[test]
 fn vanished_retiree_is_a_recorded_loss() {
     mt_runtime().block_on(async {
@@ -240,9 +284,8 @@ fn vanished_retiree_is_a_recorded_loss() {
                 retiree: 1,
                 absorber: 0,
                 fault: FaultPlan {
-                    vanish: Some(Vanish::OnStream {
-                        index: 0,
-                        offset: 0,
+                    vanish: Some(Vanish {
+                        offset: PREAMBLE_LEN + 1,
                     }),
                     ..FaultPlan::NONE
                 },
@@ -266,51 +309,6 @@ fn vanished_retiree_is_a_recorded_loss() {
             "the vanished retiree's slot is empty"
         );
     });
-}
-
-/// Pins the vanish draw's two bounds to the envelope session's measured
-/// stream shape, from both sides.
-///
-/// Every data stream an envelope endpoint opens is a reachable vanish
-/// ordinal (`streams <= MAX_VANISH_STREAM`) and the ordinal range is not
-/// vacuously wide (`MAX_VANISH_STREAM <= 2 * streams`); every byte of the
-/// widest stream is a reachable offset (`widest <= MAX_VANISH_OFFSET`)
-/// and the offset range is not vacuously wide
-/// (`MAX_VANISH_OFFSET <= 2 * widest`), so generated vanishes keep landing
-/// on streams that exist, inside them.
-#[test]
-fn vanish_draw_spans_the_envelope_session() {
-    let extent = mt_runtime().block_on(envelope_session_bytes());
-    println!(
-        "envelope session per endpoint: {} data streams, widest {} bytes",
-        extent.streams, extent.widest_stream
-    );
-    assert!(
-        extent.streams <= MAX_VANISH_STREAM,
-        "the envelope endpoint opens {} data streams, beyond MAX_VANISH_STREAM \
-         ({MAX_VANISH_STREAM}): later streams are unreachable vanish points",
-        extent.streams
-    );
-    assert!(
-        MAX_VANISH_STREAM <= 2 * extent.streams,
-        "MAX_VANISH_STREAM ({MAX_VANISH_STREAM}) is more than twice the envelope \
-         endpoint's {} data streams: most generated vanishes would name a stream \
-         that never opens",
-        extent.streams
-    );
-    assert!(
-        extent.widest_stream <= MAX_VANISH_OFFSET,
-        "the envelope's widest data stream carries {} bytes, beyond \
-         MAX_VANISH_OFFSET ({MAX_VANISH_OFFSET}): deep offsets are unreachable",
-        extent.widest_stream
-    );
-    assert!(
-        MAX_VANISH_OFFSET <= 2 * extent.widest_stream,
-        "MAX_VANISH_OFFSET ({MAX_VANISH_OFFSET}) is more than twice the envelope's \
-         widest stream ({} bytes): most generated vanishes would land past the \
-         end of every stream",
-        extent.widest_stream
-    );
 }
 
 // ---- value-oracle adequacy tripwires -----------------------------------------
@@ -565,7 +563,7 @@ const ENVELOPE_VALUES_PER_SIDE: u64 =
 /// [`max_cut_spans_the_envelope_session`] is what keeps the constant
 /// tracking reality. Metered with the same counters the fault cuts
 /// spend, so the result is directly comparable to cut offsets.
-async fn envelope_session_bytes() -> EnvelopeExtent {
+async fn envelope_session_bytes() -> usize {
     let seed = WindowChoice::Default
         .apply(Peer::<u64>::seed())
         .into_rumors();
@@ -593,40 +591,30 @@ async fn envelope_session_bytes() -> EnvelopeExtent {
     }
     let (a, b) = (&fleet[1], &fleet[2]);
     common::wire::diverge(a, b, ENVELOPE_VALUES_PER_SIDE);
-    let (link_a, link_b) = rumors::link::memory();
-    let (mut link_a, meter_a) = fault::metered(link_a);
-    let (mut link_b, meter_b) = fault::metered(link_b);
-    let (out_a, out_b) = tokio::join!(a.gossip_once(&mut link_a), b.gossip_once(&mut link_b));
+    let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let (mut a_end, meter_a) = fault::metered(a_end);
+    let (mut b_end, meter_b) = fault::metered(b_end);
+    let (out_a, out_b) = tokio::join!(
+        a.gossip_once(&mut a_end.read, &mut a_end.write),
+        b.gossip_once(&mut b_end.read, &mut b_end.write)
+    );
     out_a.expect("envelope session A");
     out_b.expect("envelope session B");
-    EnvelopeExtent {
-        bytes: meter_a.written().max(meter_b.written()),
-        streams: meter_a.streams_opened().max(meter_b.streams_opened()),
-        widest_stream: meter_a.widest_stream().max(meter_b.widest_stream()),
-    }
-}
-
-/// The envelope session's extent per endpoint, each the wider endpoint's:
-/// total bytes written, data streams opened, and bytes on the widest data
-/// stream.
-struct EnvelopeExtent {
-    bytes: usize,
-    streams: usize,
-    widest_stream: usize,
+    meter_a.written().max(meter_b.written())
 }
 
 /// Pins `MAX_CUT` to the envelope session's measured byte extent, from
 /// both sides.
 ///
-/// Every byte of the envelope session is a reachable cut offset
-/// (`measured <= MAX_CUT`), and the cut range is not vacuously wide
-/// (`MAX_CUT <= 2 * measured`), so generated cuts keep landing inside
-/// real sessions rather than past their end. The envelope's dominance
+/// Every byte of the envelope session is a reachable cut or vanish offset
+/// (`measured <= MAX_CUT`), and the range is not vacuously wide
+/// (`MAX_CUT <= 2 * measured`), so generated cuts and vanishes keep landing
+/// inside real sessions rather than past their end. The envelope's dominance
 /// premise (exact on value count, representative on version shapes) is
 /// stated at [`envelope_session_bytes`].
 #[test]
 fn max_cut_spans_the_envelope_session() {
-    let measured = mt_runtime().block_on(envelope_session_bytes()).bytes;
+    let measured = mt_runtime().block_on(envelope_session_bytes());
     println!("envelope session bytes per endpoint: {measured}");
     assert!(
         measured <= crate::common::sim::MAX_CUT,

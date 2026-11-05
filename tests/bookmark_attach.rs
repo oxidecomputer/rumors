@@ -13,25 +13,26 @@ use proptest::prelude::*;
 use rumors::{BookmarkIo, Peer, Rumors, Unbookmarked};
 
 use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, persisted_record};
-use crate::common::wire::{LINK_BUF, block_on};
+use crate::common::wire::block_on;
+use rumors::testing::MEMORY_CAPACITY;
 
 /// Join the server's network without attaching storage to the new peer.
 async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) -> Peer<String> {
     let server = server.clone();
-    let (boot_link, serve_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (boot_end, serve_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (boot_out, serve_out) = tokio::join!(
         async move {
-            let mut link = boot_link;
-            Peer::<String>::bootstrap().join(&mut link).await
+            let end = boot_end;
+            Peer::<String>::bootstrap().join(end.read, end.write).await
         },
         async move {
-            let mut link = serve_link;
-            server.gossip_once(&mut link).await
+            let end = serve_end;
+            server.gossip_once(end.read, end.write).await
         },
     );
     serve_out.expect("serve the bootstrap");
     (match boot_out {
-        rumors::Joined::Joined { peer } => peer,
+        rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("got a peer"),
     })
     .sync_window_floor()

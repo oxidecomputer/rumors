@@ -8,7 +8,6 @@ pub use changes::{Changes, TryTick};
 pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, NoBookmark};
-use crate::link::{Acceptor, Connector, Link};
 use crate::message::EncodeError;
 use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, SynchronizationSettings, Version};
 use futures::Stream;
@@ -376,8 +375,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.try_into_peer_inner().await
     }
 
-    /// Run one reconciliation session with one remote peer over the given
-    /// [`Link`].
+    /// Run one reconciliation session with one remote peer over one
+    /// connection.
+    ///
+    /// `read` and `write` are the two halves of one reliable, ordered duplex
+    /// byte stream to the peer; see the [transport requirements](crate#transport).
+    /// The session takes them by value and returns them on success, so pass
+    /// `&mut read, &mut write` to keep a connection you hold elsewhere.
     ///
     /// `Ok` carries the session's [`Gossiped`]: the converged version and
     /// the session's [`SessionStats`](crate::SessionStats). Its `led` is
@@ -389,40 +393,44 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// On `Ok`, both replicas hold every message either one held when the
     /// session began **and neither had deleted**, and the peer has
     /// confirmed that it completed and committed the session too. The
-    /// link rests exactly at the session boundary, ready to host this
-    /// pair's next session.
+    /// returned halves rest exactly at the session boundary, ready to host
+    /// this pair's next session.
     ///
     /// The configured [`Peer::session_deadline`] applies to this exchange.
     /// The initiation policy does not: this call always starts a session.
     ///
-    /// On failure or cancellation, discard the poisoned link and reconnect.
-    /// No partial reconciliation is published, but a completed local commit
-    /// is not undone: a failure in [`Phase::Completion`](crate::error::Phase::Completion)
-    /// leaves the peer's commit unconfirmed. Accepting a retirement can also
-    /// commit content before a bookmark write fails; [`Error::Bookmark`]
-    /// explains how to recover. See the [session contract](crate::link::Link#what-a-session-promises).
+    /// On failure or cancellation, the connection's position is unknown:
+    /// discard it and reconnect. A later session on it gets no typed
+    /// warning. No partial reconciliation is published, but a completed
+    /// local commit is not undone: a failure in
+    /// [`Phase::Completion`](crate::error::Phase::Completion) leaves the
+    /// peer's commit unconfirmed. Accepting a retirement can also commit
+    /// content before a bookmark write fails; [`Error::Bookmark`] explains
+    /// how to recover. See [what a session promises](crate#what-a-session-promises).
     ///
     /// An established peer automatically serves bootstrappers and accepts
     /// retirements through this same call.
     ///
-    /// Sessions may run concurrently on separate links, through the same or
-    /// different handles. Each publishes its reconciled content atomically.
-    /// The `&mut Link` borrow prevents overlapping sessions on one link.
-    /// A bookmarked peer also serializes storage access; see [`Bookmark`].
-    pub async fn gossip_once<CR, CW, C, A>(
-        &self,
-        link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Gossiped, Error<B>>
+    /// Sessions may run concurrently on separate connections, through the
+    /// same or different handles. Each publishes its reconciled content
+    /// atomically. Ownership of the halves, or the `&mut` borrow of them,
+    /// prevents overlapping sessions on one connection. A bookmarked peer
+    /// also serializes storage access; see [`Bookmark`].
+    pub async fn gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error<B>>
     where
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
-        self.peer.gossip_once(link).await
+        self.peer.gossip_once(read, write).await
     }
 
-    /// Keep one link synchronized, yielding an outcome after each gossip session.
+    /// Keep one connection synchronized, yielding an outcome after each
+    /// gossip session.
+    ///
+    /// `read` and `write` are the two halves of one connection, as for
+    /// [`gossip_once`](Self::gossip_once). The driver owns them for its
+    /// lifetime; to reuse the connection after the policy ends, pass
+    /// `&mut read, &mut write`.
     ///
     /// The driver serves remote initiations and follows the local policy
     /// selected by [`Peer::gossip_when`]. The default policy starts
@@ -440,11 +448,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # Ending the driver
     ///
     /// - An error, including deadline expiry, yields one final `Err` and ends the
-    ///   stream. Discard the poisoned link and reconnect.
+    ///   stream. Discard the connection and reconnect.
     /// - The local policy ending stops the driver after any active session.
-    ///   The link remains usable by another driver. A shared signal can end the
-    ///   policies across all handles; see [`Peer::gossip_when`]'s graceful-shutdown
-    ///   example. Keep polling each driver until it ends.
+    ///   The connection rests at a session boundary and can serve another
+    ///   driver. A shared signal can end the policies across all handles; see
+    ///   [`Peer::gossip_when`]'s graceful-shutdown example. Keep polling each
+    ///   driver until it ends.
     /// - A remote hang-up between sessions ends the stream cleanly. Reconnect
     ///   to reach that peer again.
     ///
@@ -457,28 +466,30 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// Dropping a `next()` future preserves the active session and its deadline
     /// inside the stream. Dropping the stream cancels any active session and
-    /// poisons the link. Dropping it between completed sessions is safe. To stop
-    /// cleanly regardless of timing, end the policy stream and drain the driver.
+    /// leaves the connection at an unknown position: discard it. Dropping it
+    /// between completed sessions is safe. To stop cleanly regardless of
+    /// timing, end the policy stream and drain the driver.
     ///
     /// Failure or cancellation publishes no partial reconciliation, but does not
     /// undo a local commit already made. In particular, expiry while awaiting
     /// completion can leave the remote's commit unconfirmed. Accepting a retirement
     /// can also commit content before a bookmark write fails; [`Error::Bookmark`]
-    /// explains recovery. See the [session contract](crate::link::Link#what-a-session-promises).
+    /// explains recovery. See [what a session promises](crate#what-a-session-promises).
     ///
-    /// Separate links can run concurrently through the same or different handles.
-    /// Each publishes its reconciled content atomically. The mutable link borrow
-    /// prevents concurrent sessions on one link; [`Bookmark`] storage access is
-    /// also serialized.
+    /// Separate connections can run concurrently through the same or different
+    /// handles. Each publishes its reconciled content atomically. A driver owns
+    /// its connection, which prevents concurrent sessions on it; [`Bookmark`]
+    /// storage access is also serialized.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # async fn example(rumors: &rumors::Rumors<String>, link: &mut rumors::link::MemoryLink)
+    /// # async fn example(rumors: &rumors::Rumors<String>, connection: tokio::net::TcpStream)
     /// # -> Result<(), rumors::Error> {
     /// use futures::StreamExt;
     ///
-    /// let mut sessions = rumors.gossip(link);
+    /// let (read, write) = connection.into_split();
+    /// let mut sessions = rumors.gossip(read, write);
     /// while let Some(session) = sessions.next().await {
     ///     let completed = session?;
     ///     // Inspect `completed` or continue driving the connection.
@@ -487,16 +498,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # }
     /// ```
     #[must_use = "the driver does nothing until the returned stream is polled"]
-    pub fn gossip<'a, CR, CW, C, A>(
+    pub fn gossip<'a, R, W>(
         &'a self,
-        link: &'a mut Link<CR, CW, C, A>,
+        read: R,
+        write: W,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send + 'a,
+        W: AsyncWrite + Unpin + Send + 'a,
     {
-        self.peer.gossip_driver(link)
+        self.peer.gossip_driver(read, write)
     }
 }

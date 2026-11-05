@@ -17,6 +17,7 @@
 //! Snapshot and message observers may remain and drain its final state.
 
 use rumors_testkit::common;
+use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::collections::BTreeMap;
 
@@ -27,12 +28,8 @@ use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::fault::{self, FaultPlan};
 use crate::common::observer::{Step, drain, step};
 use crate::common::oracle::readout;
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
 use rumors::testing::run_to_quiescence;
-
-/// Capacity for each in-memory link stream. A divergent retiree's session moves
-/// content through the gossip round, so keep the other wire tests' headroom.
-const LINK_BUF: usize = 64 * 1024;
 
 /// Send a fixed fixture's messages and return the same handle.
 fn with_messages(peer: Rumors<u64>, messages: &[u64]) -> Rumors<u64> {
@@ -70,9 +67,30 @@ fn plain_gossip_fingerprint(
     fingerprint(&b)
 }
 
+/// A retirement outcome with its connection halves released, so it can
+/// outlive the connection the session ran on.
+type Outcome<T> = Retire<T, (), ()>;
+
+/// Release a retirement outcome's connection halves, keeping the outcome.
+fn released<T: Send + Sync + 'static, R, W>(outcome: Retire<T, R, W>) -> Outcome<T> {
+    match outcome {
+        Retire::Retired { .. } => Retire::Retired {
+            read: (),
+            write: (),
+        },
+        Retire::Declined { peer, .. } => Retire::Declined {
+            peer,
+            read: (),
+            write: (),
+        },
+        Retire::Recovered { peer, error } => Retire::Recovered { peer, error },
+        Retire::Uncertain { error } => Retire::Uncertain { error },
+    }
+}
+
 /// Retire the sole handle into a gossiping peer and check the session boundary.
 /// Message observers may outlive the retiring replica.
-fn retire_into_gossip<T>(retiree: Rumors<T>, peer: &Rumors<T>) -> Retire<T>
+fn retire_into_gossip<T>(retiree: Rumors<T>, peer: &Rumors<T>) -> Outcome<T>
 where
     T: Send + Sync + 'static,
 {
@@ -81,11 +99,14 @@ where
             .try_into_peer()
             .await
             .expect("the sole handle reclaims the Peer");
-        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        let (retire_out, gossip_out) =
-            tokio::join!(retiree.retire(&mut a_link), peer.gossip_once(&mut b_link),);
+        let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
+        let (retire_out, gossip_out) = tokio::join!(
+            retiree.retire(&mut a_end.read, &mut a_end.write),
+            peer.gossip_once(&mut b_end.read, &mut b_end.write),
+        );
         gossip_out.expect("gossiping peer");
-        assert_control_drained(a_link, b_link);
+        let retire_out = released(retire_out);
+        assert_connection_drained(a_end, b_end);
         retire_out
     })
 }
@@ -93,7 +114,7 @@ where
 /// Like [`retire_into_gossip`], but also counts the novel messages the
 /// session delivered into the gossiping peer (the live leaves above the
 /// peer's pre-session frontier).
-fn retire_into_counting_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> (Retire<u64>, usize) {
+fn retire_into_counting_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> (Outcome<u64>, usize) {
     let pre = peer.snapshot().latest().clone();
     let outcome = retire_into_gossip(retiree, peer);
     let novel = peer.snapshot().range(causally::since(&pre)).count();
@@ -101,34 +122,39 @@ fn retire_into_counting_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> (Ret
 }
 
 /// Drive `a.retire` against `b.retire` concurrently: a mutual retirement.
-fn retire_into_retire(a: Rumors<u64>, b: Rumors<u64>) -> (Retire<u64>, Retire<u64>) {
+fn retire_into_retire(a: Rumors<u64>, b: Rumors<u64>) -> (Outcome<u64>, Outcome<u64>) {
     block_on(async move {
         let a = a.try_into_peer().await.expect("a's sole handle");
         let b = b.try_into_peer().await.expect("b's sole handle");
-        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        let outcome = tokio::join!(a.retire(&mut a_link), b.retire(&mut b_link));
-        assert_control_drained(a_link, b_link);
+        let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
+        let (a_out, b_out) = tokio::join!(
+            a.retire(&mut a_end.read, &mut a_end.write),
+            b.retire(&mut b_end.read, &mut b_end.write)
+        );
+        let outcome = (released(a_out), released(b_out));
+        assert_connection_drained(a_end, b_end);
         outcome
     })
 }
 
 /// Drive `retiree.retire` against a fresh `bootstrap`. Returns the retiree's
 /// outcome and the bootstrapper's successor (as a data-plane handle).
-fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Rumors<u64>) {
+fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Outcome<u64>, Rumors<u64>) {
     block_on(async move {
         let retiree = retiree
             .try_into_peer()
             .await
             .expect("the sole handle reclaims the Peer");
-        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (retire_out, boot_out) = tokio::join!(
-            retiree.retire(&mut a_link),
-            Peer::<u64>::bootstrap().join(&mut b_link),
+            retiree.retire(&mut a_end.read, &mut a_end.write),
+            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
         );
-        assert_control_drained(a_link, b_link);
-        let rumors::Joined::Joined { peer } = boot_out else {
+        let retire_out = released(retire_out);
+        let rumors::Joined::Joined { peer, .. } = boot_out else {
             panic!("the retiree must serve the bootstrap");
         };
+        assert_connection_drained(a_end, b_end);
         (retire_out, peer.sync_window_floor().into_rumors())
     })
 }
@@ -143,7 +169,7 @@ fn empty_equal_version_retire_succeeds() {
 
     let outcome = retire_into_gossip(a, &b);
     assert!(
-        matches!(outcome, Retire::Retired),
+        matches!(outcome, Retire::Retired { .. }),
         "equal versions dominate reflexively, so retire commits; got {outcome:?}"
     );
 }
@@ -171,7 +197,7 @@ fn retiree_redaction_propagates_through_retire() {
 
     let outcome = retire_into_gossip(a, &b);
     assert!(
-        matches!(outcome, Retire::Retired),
+        matches!(outcome, Retire::Retired { .. }),
         "the reconciled peer absorbs the retiree, got {outcome:?}"
     );
     let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| *m).collect();
@@ -201,7 +227,7 @@ fn retiree_redaction_of_previously_shared_message_propagates() {
     retiree.redact(&version);
 
     let outcome = retire_into_gossip(retiree, &absorber);
-    assert!(matches!(outcome, Retire::Retired), "{outcome:?}");
+    assert!(matches!(outcome, Retire::Retired { .. }), "{outcome:?}");
     assert!(
         !absorber.snapshot().contains(&version),
         "the retiree's later frontier must preserve the redaction"
@@ -220,7 +246,7 @@ fn mutual_retire_declines() {
     let a_hash = a.snapshot().hash();
     let b_hash = b.snapshot().hash();
     let (ra, rb) = retire_into_retire(a, b);
-    let (Retire::Declined { peer: a }, Retire::Declined { peer: b }) = (ra, rb) else {
+    let (Retire::Declined { peer: a, .. }, Retire::Declined { peer: b, .. }) = (ra, rb) else {
         panic!("mutual retirement must decline both sides intact");
     };
     let (a, b) = (a.into_rumors(), b.into_rumors());
@@ -239,7 +265,7 @@ fn mutual_retire_declines() {
     // the other commits.
     let outcome = retire_into_gossip(a, &b);
     assert!(
-        matches!(outcome, Retire::Retired),
+        matches!(outcome, Retire::Retired { .. }),
         "a declined retire leaves both parties whole, got {outcome:?}"
     );
 }
@@ -258,7 +284,7 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
 
     let (outcome, successor) = retire_into_bootstrap(retiree);
     assert!(
-        matches!(outcome, Retire::Retired),
+        matches!(outcome, Retire::Retired { .. }),
         "a bootstrapper absorbs the retiree, got {outcome:?}"
     );
     assert_eq!(
@@ -294,7 +320,7 @@ fn gossip_learns_content_from_divergent_retiree() {
 
     let (outcome, novel) = retire_into_counting_gossip(a, &b);
     assert!(
-        matches!(outcome, Retire::Retired),
+        matches!(outcome, Retire::Retired { .. }),
         "the reconciled peer absorbs the retiree, got {outcome:?}"
     );
     assert_eq!(
@@ -321,7 +347,7 @@ fn gossip_absorbs_retiree_without_observations() {
 
     let (outcome, novel) = retire_into_counting_gossip(a, &b);
     assert!(
-        matches!(outcome, Retire::Retired),
+        matches!(outcome, Retire::Retired { .. }),
         "the gossiping peer absorbs the retiree, got {outcome:?}"
     );
     assert_eq!(novel, 0, "absorbing a retiree delivers no messages");
@@ -374,7 +400,7 @@ proptest! {
         let mut latest = retiree.snapshot().latest().clone();
         latest |= survivor.snapshot().latest();
         let outcome = retire_into_gossip(retiree, &survivor);
-        prop_assert!(matches!(outcome, Retire::Retired), "{outcome:?}");
+        prop_assert!(matches!(outcome, Retire::Retired { .. }), "{outcome:?}");
         prop_assert_eq!(readout(&survivor.snapshot()), expected.clone());
         prop_assert_eq!(survivor.snapshot().latest().clone(), latest.clone());
 
@@ -419,7 +445,7 @@ proptest! {
             wire_gossip(&a, &b);
             let outcome = retire_into_gossip(a, &b);
             prop_assert!(
-                matches!(outcome, Retire::Retired),
+                matches!(outcome, Retire::Retired { .. }),
                 "a converged peer dominates, so retire commits; got {outcome:?}",
             );
             fingerprint(&b)
@@ -447,7 +473,7 @@ proptest! {
             let b = build_local(seed, &b_actions);
             let outcome = retire_into_gossip(a, &b);
             prop_assert!(
-                matches!(outcome, Retire::Retired),
+                matches!(outcome, Retire::Retired { .. }),
                 "the in-session gossip round always brings the peer to dominance; got {outcome:?}",
             );
             fingerprint(&b)
@@ -470,8 +496,9 @@ fn retirement_cut(cut: Option<usize>, initial: usize) -> usize {
     let original = retiree.dangerously_alias_party();
     run_to_quiescence(async {
         let retiree = retiree.try_into_peer().await.unwrap();
-        let (retiring, mut receiving) = rumors::link::memory();
-        let (mut link, meter) = if let Some(cut) = cut {
+        let (retiring, mut receiving) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let (end, meter) = if let Some(cut) = cut {
             (
                 fault::faulty(
                     retiring,
@@ -483,14 +510,17 @@ fn retirement_cut(cut: Option<usize>, initial: usize) -> usize {
                 None,
             )
         } else {
-            let (link, meter) = fault::metered(retiring);
-            (link, Some(meter))
+            let (end, meter) = fault::metered(retiring);
+            (end, Some(meter))
         };
-        let outgoing = async move { retiree.retire(&mut link).await };
-        let (retired, received) = tokio::join!(outgoing, absorber.gossip_once(&mut receiving));
+        let outgoing = async move { retiree.retire(end.read, end.write).await };
+        let (retired, received) = tokio::join!(
+            outgoing,
+            absorber.gossip_once(&mut receiving.read, &mut receiving.write)
+        );
         if cut.is_none() {
             assert!(
-                matches!(retired, Retire::Retired),
+                matches!(retired, Retire::Retired { .. }),
                 "clean retirement: {retired:?}"
             );
         }
@@ -502,7 +532,7 @@ fn retirement_cut(cut: Option<usize>, initial: usize) -> usize {
                 live.send(999).unwrap();
                 assert_eq!(live.snapshot().len(), initial + 1);
             }
-            Retire::Retired => {
+            Retire::Retired { .. } => {
                 if cut.is_none() {
                     received.unwrap();
                 }

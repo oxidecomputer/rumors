@@ -6,9 +6,9 @@ use crate::tree::mirror::streaming::remote::adapter;
 use codec::{
     DecodeError, DecodeErrorKind, EncodeError, EncodeErrorKind, FramePart, Origin, Speaker, Stream,
 };
+use pipe::PipeError;
 use proptest::prelude::*;
 use std::{convert::Infallible, io};
-use streams::{SendError, StreamError};
 
 /// A distinguishable transport source retained through public conversion.
 #[derive(Debug, thiserror::Error)]
@@ -27,13 +27,10 @@ proptest! {
         let origin = Origin::stream(speaker, Stream::new(index).unwrap());
         let source = || io::Error::new(kind, Injected(marker));
         for (error, operation) in [
-            (proxy::Error::Send(SendError::Connect { origin, source: source() }), TransportOperation::Open),
-            (proxy::Error::Send(SendError::Label { origin, source: source() }), TransportOperation::Write),
-            (proxy::Error::Send(SendError::Frame(EncodeError { origin, kind: EncodeErrorKind::Write { part: FramePart::Signal, source: source() } })), TransportOperation::Write),
-            (proxy::Error::Send(SendError::Frame(EncodeError { origin, kind: EncodeErrorKind::Flush(source()) })), TransportOperation::Flush),
-            (proxy::Error::Stream(StreamError::Decode(DecodeError { origin, kind: DecodeErrorKind::Read { part: FramePart::SupplyRun, source: source() } })), TransportOperation::Read),
-            (proxy::Error::Stream(StreamError::Decode(DecodeError { origin, kind: DecodeErrorKind::Truncated { missing: FramePart::SupplyRun, source: source() } })), TransportOperation::Read),
-            (proxy::Error::Stream(StreamError::SupplyClosed { origin, source: Some(source()) }), TransportOperation::Accept),
+            (proxy::Error::Pipe(PipeError::Encode(EncodeError { origin, kind: EncodeErrorKind::Write { part: FramePart::Signal, source: source() } })), TransportOperation::Write),
+            (proxy::Error::Pipe(PipeError::Encode(EncodeError { origin, kind: EncodeErrorKind::Flush(source()) })), TransportOperation::Flush),
+            (proxy::Error::Pipe(PipeError::Decode(DecodeError { origin, kind: DecodeErrorKind::Read { part: FramePart::SupplyRun, source: source() } })), TransportOperation::Read),
+            (proxy::Error::Pipe(PipeError::Decode(DecodeError { origin, kind: DecodeErrorKind::Truncated { missing: FramePart::SupplyRun, source: source() } })), TransportOperation::Read),
         ] {
             let public = Error::from(MirrorError::Remote(error));
             let Error::Transport(error) = public else { prop_assert!(false, "transport was misclassified: {public:?}"); return Ok(()); };
@@ -44,14 +41,15 @@ proptest! {
         }
     }
 
-    /// Control failure keeps its source and is attributed to reconciliation,
-    /// without inventing a data-stream position.
+    /// A pipe that ends or fails between frames keeps its source and is
+    /// attributed to reconciliation, without inventing a data-stream
+    /// position.
     #[test]
     fn departure_keeps_its_transport_source(
         marker in any::<u64>(),
         kind in prop::sample::select(vec![io::ErrorKind::UnexpectedEof, io::ErrorKind::ConnectionReset]),
     ) {
-        let public = Error::from(MirrorError::Remote(proxy::Error::PeerDeparted(io::Error::new(kind, Injected(marker)))));
+        let public = Error::from(MirrorError::Remote(proxy::Error::Pipe(PipeError::Departed(io::Error::new(kind, Injected(marker))))));
         let Error::Transport(error) = public else { panic!("departure must be a transport failure"); };
         prop_assert_eq!(error.context.phase, Phase::Reconciliation);
         prop_assert_eq!(error.context.data_stream, None);
@@ -82,7 +80,7 @@ proptest! {
     fn frame_violations_keep_their_location(index in 0..Stream::COUNT, initiator in any::<bool>()) {
         let speaker = if initiator { Speaker::Initiator } else { Speaker::Responder };
         let origin = Origin::stream(speaker, Stream::new(index).unwrap());
-        let remote = proxy::Error::Stream(StreamError::Decode(DecodeError {
+        let remote = proxy::Error::Pipe(PipeError::Decode(DecodeError {
             origin,
             kind: DecodeErrorKind::FrameType {
                 actual: crate::tree::mirror::cbor::Head { major: 0, value: 0 },

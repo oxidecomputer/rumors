@@ -1,7 +1,7 @@
 //! Canonical CBOR head primitives shared by the hand-written wire codecs.
 //!
 //! The V2 wire and the session surfaces around it (preamble, greeting,
-//! party hand-off, stream labels, epilogue) spell every structure as
+//! party hand-off, completion marker) spell every structure as
 //! deterministic-encoding CBOR: shortest-form heads everywhere, definite
 //! lengths only, one spelling per value. That contract is what keeps the
 //! byte-pinning snapshot discipline meaningful — a value has exactly one

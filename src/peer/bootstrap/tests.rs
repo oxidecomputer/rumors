@@ -89,22 +89,25 @@ fn retry_then_join<B: Bookmark>(
     assert_eq!(bootstrap.payload_depth_limit, depth);
     run_to_quiescence(async {
         for (attempt, &fail) in fail.iter().enumerate() {
-            let (mut near, mut far) = crate::link::memory();
+            let (mut near, mut far) =
+                crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
             bootstrap = if fail {
                 drop(far);
-                let Joined::Failed { bootstrap, .. } = bootstrap.join(&mut near).await else {
+                let Joined::Failed { bootstrap, .. } =
+                    bootstrap.join(&mut near.read, &mut near.write).await
+                else {
                     panic!("a closed provider must fail the attempt");
                 };
                 bootstrap
             } else {
                 let (ours, theirs) = tokio::join!(
-                    bootstrap.join(&mut near),
+                    bootstrap.join(&mut near.read, &mut near.write),
                     Peer::<u64>::bootstrap()
                         .payload_depth_limit(depth.get())
-                        .join(&mut far),
+                        .join(&mut far.read, &mut far.write),
                 );
                 assert!(matches!(theirs, Joined::Bailed { .. }));
-                let Joined::Bailed { bootstrap } = ours else {
+                let Joined::Bailed { bootstrap, .. } = ours else {
                     panic!("two bootstrappers must both return their builders");
                 };
                 bootstrap
@@ -123,11 +126,14 @@ fn retry_then_join<B: Bookmark>(
             .payload_depth_limit(depth.get())
             .into_rumors();
         provider.send(42).unwrap();
-        let (mut near, mut far) = crate::link::memory();
-        let (joined, served) =
-            tokio::join!(bootstrap.join(&mut near), provider.gossip_once(&mut far));
+        let (mut near, mut far) =
+            crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
+        let (joined, served) = tokio::join!(
+            bootstrap.join(&mut near.read, &mut near.write),
+            provider.gossip_once(&mut far.read, &mut far.write)
+        );
         served.unwrap();
-        let Joined::Joined { peer } = joined else {
+        let Joined::Joined { peer, .. } = joined else {
             panic!("the returned builder must remain usable with an established provider");
         };
         assert_eq!(budget_bytes(peer.window), budget);
@@ -148,8 +154,8 @@ fn retry_then_join<B: Bookmark>(
         assert_eq!(joined.snapshot(), provider.snapshot());
         joined.send(7).unwrap();
         let (ours, theirs) = tokio::join!(
-            joined.gossip_once(&mut near),
-            provider.gossip_once(&mut far)
+            joined.gossip_once(&mut near.read, &mut near.write),
+            provider.gossip_once(&mut far.read, &mut far.write)
         );
         assert!(ours.is_ok(), "the joined peer must complete gossip");
         theirs.unwrap();

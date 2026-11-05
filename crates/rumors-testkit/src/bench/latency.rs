@@ -1,10 +1,11 @@
-//! A latency-injecting in-memory link: the wire-delay knob for benchmarks.
+//! A latency-injecting in-memory connection, which gives benchmarks a
+//! configurable one-way wire delay.
 //!
-//! [`crate::bench::latency::delayed_pair`] mirrors the topology of [`rumors::link::memory`] — a
-//! bidirectional control stream plus announced unidirectional data streams —
-//! but builds every stream from a *delayed pipe*: bytes written at instant
+//! [`crate::bench::latency::delayed_pair`] mirrors the topology of
+//! [`rumors::testing::memory_connection`], one pipe per direction, but
+//! builds each direction from a *delayed pipe*: bytes written at instant
 //! `t` become readable at `t + delay`, under a byte-bounded in-flight
-//! window. `delay` is the link's one-way latency, so a blocking
+//! window. `delay` is the connection's one-way latency, so a blocking
 //! request/response exchange pays `2 * delay`.
 //!
 //! # The measurement model
@@ -17,7 +18,7 @@
 //!
 //! - the *virtual* component: time the session spent with every task
 //!   blocked on the wire — `delay` times the length of the session's
-//!   longest serialized chain of stream hops, plus any window stalls.
+//!   longest serialized chain of hops, plus any window stalls.
 //!   Compute costs zero virtual time, no thread outside the runtime
 //!   participates, and the library arms no timers of its own, so the
 //!   figure is a deterministic function of the session shape: OS
@@ -42,7 +43,7 @@
 //! on, which waits until no task is ready.
 //!
 //! [`crate::bench::latency::DelayedWire::round_trip`] reports their sum, which approximates
-//! session completion time on a link with the given latency (an
+//! session completion time on a connection with the given latency (an
 //! overestimate insofar as a real deployment overlaps one peer's compute
 //! with the other's wait). At `delay = 0` the virtual component vanishes
 //! and the sum degenerates to the zero-latency harness's wall measure. A
@@ -54,30 +55,19 @@
 //! the clocks coincide, and [`crate::bench::latency::DelayedWire::round_trip`]'s report is real
 //! elapsed time alone.
 //!
-//! Two deliberate simplifications:
+//! Tokio's timer wheel has millisecond granularity, so arrival deadlines
+//! round up to the next millisecond: choose whole-millisecond delays.
 //!
-//! - Stream *announcement* is instantaneous; only bytes are delayed. A real
-//!   transport delivers a new stream's existence together with its first
-//!   bytes, and the first bytes here already arrive `delay` late, so the
-//!   opening hop is still paid exactly once.
-//! - Tokio's timer wheel has millisecond granularity, so arrival deadlines
-//!   round up to the next millisecond: choose whole-millisecond delays.
+//! The `capacity` argument bounds bytes in flight per direction (written
+//! but not yet read), which models a receive window: sustained throughput
+//! in each direction is capped at `capacity / delay`. Pass a capacity
+//! comfortably above the largest one-direction transfer to isolate
+//! round-trip structure from bandwidth-delay throttling, or a tight one to
+//! study the window.
 //!
-//! The `capacity` argument bounds bytes in flight per stream (written but
-//! not yet read), which models a receive window: sustained per-stream
-//! throughput is capped at `capacity / delay`. Pass a capacity comfortably
-//! above the largest per-stream transfer to isolate round-trip structure
-//! from bandwidth-delay throttling, or a tight one to study the window.
-//!
-//! # Conformance
-//!
-//! The latency-link integration test runs this link through the public
-//! [`rumors::conformance`] suite at zero and nonzero delay. The clauses
-//! the suite cannot observe hold by construction: buffering is bounded by
-//! `capacity` per stream, a stream mid-delivery when an `accept` future is
-//! dropped is redelivered by the next `accept` (the announcement channel
-//! owns it, and `recv` is cancel-safe), and `connect`/`accept` fail only
-//! when the peer's link half is gone.
+//! The two directions are separate pipes, so each progresses independently
+//! and buffers at most `capacity` bytes, as the transport requirements
+//! demand.
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -88,9 +78,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use rumors::Rumors;
-use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::sync::mpsc;
 use tokio::time::{Instant, Sleep};
 
 /// One in-flight write: its bytes and the virtual instant they arrive.
@@ -128,7 +116,7 @@ impl Shared {
     }
 }
 
-/// The write half of a delayed pipe; dropping it half-closes the stream.
+/// The write half of a delayed pipe; dropping it closes the direction.
 pub struct DelayedWriter {
     shared: Arc<Mutex<Shared>>,
     delay: Duration,
@@ -295,96 +283,45 @@ impl AsyncRead for DelayedReader {
     }
 }
 
-/// The delayed-pipe [`Connector`]: each open creates a pipe and announces the
-/// read end to the peer's acceptor.
+/// One end of a delayed in-memory connection: the two halves a session
+/// takes.
+pub struct DelayedEnd {
+    /// The read half: the peer's writes surface here `delay` late.
+    pub read: DelayedReader,
+    /// The write half.
+    pub write: DelayedWriter,
+}
+
+/// Create a connected pair of in-memory connection ends with one-way
+/// latency `delay`.
 ///
-/// The announcement itself is undelayed; see the module docs for why no
-/// hop is lost.
-#[derive(Clone)]
-pub struct DelayedConnector {
-    announce: mpsc::Sender<DelayedReader>,
-    capacity: usize,
-    delay: Duration,
-}
-
-impl Connector for DelayedConnector {
-    type Tx = DelayedWriter;
-
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        let (tx, rx) = delayed_pipe(self.capacity, self.delay);
-        self.announce
-            .send(rx)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "peer link is gone"))?;
-        Ok((tx, Done::discard()))
-    }
-}
-
-/// The delayed-pipe [`Acceptor`]: yields the peer's announced streams in
-/// open order.
-pub struct DelayedAcceptor {
-    streams: mpsc::Receiver<DelayedReader>,
-}
-
-impl Acceptor for DelayedAcceptor {
-    type Rx = DelayedReader;
-
-    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
-        self.streams
-            .recv()
-            .await
-            .map(|rx| (rx, Done::discard()))
-            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "peer link is gone"))
-    }
-}
-
-/// The delayed in-memory [`Link`] type: both ends of [`delayed_pair`].
-pub type DelayedLink = Link<DelayedReader, DelayedWriter, DelayedConnector, DelayedAcceptor>;
-
-/// Create a connected pair of in-memory links with one-way latency `delay`.
-///
-/// Every stream — the control stream's two halves and each data stream —
-/// is a delayed pipe with the given `capacity` and `delay`.
-pub fn delayed_pair(capacity: usize, delay: Duration) -> (DelayedLink, DelayedLink) {
-    let (a_control_write, b_control_read) = delayed_pipe(capacity, delay);
-    let (b_control_write, a_control_read) = delayed_pipe(capacity, delay);
-    let (a_announce, b_streams) = mpsc::channel(STREAM_COUNT);
-    let (b_announce, a_streams) = mpsc::channel(STREAM_COUNT);
+/// Each direction is a delayed pipe with the given `capacity` and `delay`.
+pub fn delayed_pair(capacity: usize, delay: Duration) -> (DelayedEnd, DelayedEnd) {
+    let (a_write, b_read) = delayed_pipe(capacity, delay);
+    let (b_write, a_read) = delayed_pipe(capacity, delay);
     (
-        Link::new(
-            a_control_read,
-            a_control_write,
-            DelayedConnector {
-                announce: a_announce,
-                capacity,
-                delay,
-            },
-            DelayedAcceptor { streams: a_streams },
-        ),
-        Link::new(
-            b_control_read,
-            b_control_write,
-            DelayedConnector {
-                announce: b_announce,
-                capacity,
-                delay,
-            },
-            DelayedAcceptor { streams: b_streams },
-        ),
+        DelayedEnd {
+            read: a_read,
+            write: a_write,
+        },
+        DelayedEnd {
+            read: b_read,
+            write: b_write,
+        },
     )
 }
 
 /// A persistent latency-injecting connection plus its paused-clock runtime.
 ///
-/// The counterpart of `wire::Wire` for the latency sweeps: one link pair
+/// The counterpart of `wire::Wire` for the latency sweeps: one connection
 /// reused at clean session boundaries, each session's peers driven as two
 /// tasks on a current-thread runtime whose clock starts paused so pipe
 /// delays cost virtual — not wall — time.
 pub struct DelayedWire {
     runtime: tokio::runtime::Runtime,
-    /// The connection's links, A's and then B's, between sessions: a
+    /// The connection's ends, A's and then B's, between sessions: a
     /// session's tasks own them while it runs.
-    links: Option<(DelayedLink, DelayedLink)>,
+    ends: Option<(DelayedEnd, DelayedEnd)>,
     /// Whether the runtime's clock started paused.
     ///
     /// [`round_trip`](Self::round_trip) selects its cost model by this:
@@ -395,7 +332,7 @@ pub struct DelayedWire {
 }
 
 impl DelayedWire {
-    /// Allocate the runtime and one delayed link pair, one end per side.
+    /// Allocate the runtime and one delayed connection, one end per side.
     pub fn new(capacity: usize, delay: Duration) -> Self {
         Self::with_clock(capacity, delay, true)
     }
@@ -405,9 +342,6 @@ impl DelayedWire {
     /// The cross-check counterpart of the paused default — a wall-clock
     /// measurement over the same pipes tests whether the virtual model's
     /// figures survive real timer scheduling.
-    // Used only by `window_wallclock`; the module is `#[path]`-included by
-    // several targets, each seeing its own copy's usage.
-    #[allow(dead_code)]
     pub fn new_wall_clock(capacity: usize, delay: Duration) -> Self {
         Self::with_clock(capacity, delay, false)
     }
@@ -420,7 +354,7 @@ impl DelayedWire {
             .expect("build current-thread runtime");
         Self {
             runtime,
-            links: Some(delayed_pair(capacity, delay)),
+            ends: Some(delayed_pair(capacity, delay)),
             paused,
         }
     }
@@ -468,10 +402,6 @@ impl DelayedWire {
     /// virtual clock tracks the real one and the component is wall time
     /// in disguise: load-independence is the figure's contract, so a wire
     /// that cannot honor it must refuse loudly.
-    // Used only by the window measurement suites; the module is
-    // `#[path]`-included by several targets, each seeing its own copy's
-    // usage.
-    #[allow(dead_code)]
     pub fn round_trip_virtual<T>(
         &mut self,
         a: Rumors<T>,
@@ -495,44 +425,46 @@ impl DelayedWire {
     ///
     /// If either peer's session fails, with that peer's panic; and on a
     /// wire whose earlier session panicked, which kept the connection's
-    /// links.
+    /// ends.
     fn reconcile<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> ((Rumors<T>, Rumors<T>), Duration)
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
     {
-        let (a_link, b_link) = self
-            .links
+        let (a_end, b_end) = self
+            .ends
             .take()
             .expect("a wire whose session panicked holds no connection");
-        let (a, b, a_link, b_link, virtual_elapsed) = self.runtime.block_on(async {
+        let (a, b, a_end, b_end, virtual_elapsed) = self.runtime.block_on(async {
             let virtual_start = Instant::now();
-            let a_task = tokio::spawn(gossip(a, a_link, "peer A gossip"));
-            let b_task = tokio::spawn(gossip(b, b_link, "peer B gossip"));
-            let (a, a_link) = finished(a_task.await);
-            let (b, b_link) = finished(b_task.await);
-            (a, b, a_link, b_link, virtual_start.elapsed())
+            let a_task = tokio::spawn(gossip(a, a_end, "peer A gossip"));
+            let b_task = tokio::spawn(gossip(b, b_end, "peer B gossip"));
+            let (a, a_end) = finished(a_task.await);
+            let (b, b_end) = finished(b_task.await);
+            (a, b, a_end, b_end, virtual_start.elapsed())
         });
-        self.links = Some((a_link, b_link));
+        self.ends = Some((a_end, b_end));
         ((a, b), virtual_elapsed)
     }
 }
 
-/// Gossip once over `link`, as one peer's task, handing back the peer and
-/// the link for the wire's next session.
+/// Gossip once over `end`, as one peer's task, handing back the peer and
+/// the end for the wire's next session.
 ///
 /// # Panics
 ///
 /// If the session fails, with `peer_name` in the message.
 async fn gossip<T>(
     peer: Rumors<T>,
-    mut link: DelayedLink,
+    mut end: DelayedEnd,
     peer_name: &'static str,
-) -> (Rumors<T>, DelayedLink)
+) -> (Rumors<T>, DelayedEnd)
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    peer.gossip_once(&mut link).await.expect(peer_name);
-    (peer, link)
+    peer.gossip_once(&mut end.read, &mut end.write)
+        .await
+        .expect(peer_name);
+    (peer, end)
 }
 
 /// The output of a peer's finished task, or its panic, resumed on the
@@ -548,13 +480,9 @@ fn finished<O>(joined: Result<O, tokio::task::JoinError>) -> O {
 /// The window suites' measurement primitive: one session's exact hops.
 ///
 /// Reconciles the pair over a fresh paused-clock wire with the given
-/// per-stream `capacity` and one-way `delay`, and reads the virtual wire
+/// per-direction `capacity` and one-way `delay`, and reads the virtual wire
 /// cost as serialized one-way hops: deterministic and load-independent (see
 /// the [module docs](self) for the argument).
-// Used only by the window measurement suites; the module is
-// `#[path]`-included by several targets, each seeing its own copy's
-// usage.
-#[allow(dead_code)]
 pub fn session_hops<T>(capacity: usize, delay: Duration, (a, b): (Rumors<T>, Rumors<T>)) -> u32
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
@@ -574,10 +502,6 @@ where
 /// invariant the measurement model rests on (see the
 /// [module docs](self)), so drift fails loudly instead of rounding
 /// silently.
-// Used only by the window measurement suites and the harness pins; the
-// module is `#[path]`-included by several targets, each seeing its own
-// copy's usage.
-#[allow(dead_code)]
 pub fn hops_on_lattice(elapsed: Duration, delay: Duration) -> u32 {
     // The timer wheel's grain: a lattice delay is a whole multiple.
     const WHEEL_GRAIN: Duration = Duration::from_millis(1);

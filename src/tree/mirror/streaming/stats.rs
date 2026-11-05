@@ -55,14 +55,15 @@ pub struct SessionStats {
     pub messages_shed: u64,
     /// Encoded bytes sent to compare and transfer messages.
     ///
-    /// This measures the session's outgoing data traffic. It excludes session
-    /// setup and completion, and the labels that identify independent streams.
-    /// On a completed lossless link, one peer's `bytes_sent` equals the other's
+    /// This measures the session's outgoing data frames. It excludes session
+    /// setup and completion, which share the connection with the frames. On a
+    /// completed session, one peer's `bytes_sent` equals the other's
     /// [`bytes_received`](Self::bytes_received).
     pub bytes_sent: u64,
     /// Complete protocol frames sent while comparing and transferring messages.
     ///
-    /// This includes one end marker for each independent stream. Compare it
+    /// This includes one end marker for each logical stream that carried a
+    /// reply. Compare it
     /// with [`bytes_sent`](Self::bytes_sent) to inspect batching and average
     /// frame size under [`target_message_size`](crate::Peer::target_message_size).
     pub frames_sent: u64,
@@ -74,7 +75,7 @@ pub struct SessionStats {
     /// Complete protocol frames received while comparing and transferring messages.
     ///
     /// This is the incoming counterpart to [`frames_sent`](Self::frames_sent),
-    /// including independent-stream end markers.
+    /// including the logical streams' end markers.
     pub frames_received: u64,
     /// Largest comparison window granted during the session.
     ///
@@ -189,9 +190,9 @@ impl Recorder {
 /// A transport write half that adds every accepted byte to
 /// [`SessionStats::bytes_sent`].
 ///
-/// Wraps a stream's write half between the frame codec and the transport,
-/// after the stream's label has been written on the raw half, so the count
-/// is exactly the codec's frame bytes.
+/// Wraps the pipe's write half between the frame codec and the transport,
+/// and only while the multiplexer writes frames, so the count is exactly
+/// the codec's frame bytes.
 pub struct CountedWrite<W> {
     inner: W,
     recorder: Recorder,
@@ -201,11 +202,6 @@ impl<W> CountedWrite<W> {
     /// Wrap `inner`, crediting its accepted bytes to `recorder`.
     pub fn new(inner: W, recorder: Recorder) -> Self {
         Self { inner, recorder }
-    }
-
-    /// Recover the transport half; the counter holds no bytes.
-    pub fn into_inner(self) -> W {
-        self.inner
     }
 }
 
@@ -238,9 +234,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
 /// A transport read half that adds every delivered byte to
 /// [`SessionStats::bytes_received`].
 ///
-/// Wraps a stream's read half between the transport and the frame decoder,
-/// after the accept driver has consumed the stream's label, so the count is
-/// exactly the codec's frame bytes.
+/// Wraps the pipe's read half between the transport and the frame decoder,
+/// and only while the demultiplexer reads frames, so the count is exactly
+/// the codec's frame bytes.
 pub struct CountedRead<R> {
     inner: R,
     recorder: Recorder,
@@ -250,11 +246,6 @@ impl<R> CountedRead<R> {
     /// Wrap `inner`, crediting its delivered bytes to `recorder`.
     pub fn new(inner: R, recorder: Recorder) -> Self {
         Self { inner, recorder }
-    }
-
-    /// Recover the transport half; the counter holds no bytes.
-    pub fn into_inner(self) -> R {
-        self.inner
     }
 
     /// Borrow the transport half; bytes read through the borrow are not

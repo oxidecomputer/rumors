@@ -30,7 +30,7 @@ const DELAY: Duration = Duration::from_millis(10);
 /// comparison below verifies that this ceiling still rejects serialization.
 const HOP_BUDGET: u32 = 24;
 
-/// Per-stream in-flight window: far above this session's transfers, so
+/// Per-direction in-flight window: far above this session's transfers, so
 /// only round-trip structure is measured (see the module docs).
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 

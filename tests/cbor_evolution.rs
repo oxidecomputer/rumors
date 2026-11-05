@@ -3,7 +3,7 @@
 //!
 //! Two struct types with reordered fields, and two enum types with
 //! reordered variants, exchange messages end to end — a `Peer` of one type
-//! gossiping with a `Peer` of the other over an in-memory link, in both
+//! gossiping with a `Peer` of the other over an in-memory connection, in both
 //! directions — so the property is pinned through the crate's own encode
 //! and decode paths, not against a serializer in isolation. A future
 //! payload-encoding change that breaks name-keyed decoding (for example, a
@@ -60,7 +60,7 @@ enum EventV2 {
 }
 
 /// Send `payload` from a fresh `Peer<A>` and receive it on a bootstrapped
-/// `Peer<B>` over an in-memory link: the crate's whole encode/decode path,
+/// `Peer<B>` over an in-memory connection: the crate's whole encode/decode path,
 /// across two payload *types*.
 async fn exchanged<A, B>(payload: A) -> B
 where
@@ -70,11 +70,16 @@ where
     let sender = Peer::<A>::seed().into_rumors();
     sender.send(payload).unwrap();
 
-    let (mut near, mut far) = rumors::link::memory();
+    let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await.unwrap() });
-    let receiver = (match Peer::<B>::bootstrap().join(&mut near).await {
-        rumors::Joined::Joined { peer } => peer,
+    let server = tokio::spawn(async move {
+        serve.gossip_once(far.read, far.write).await.unwrap();
+    });
+    let receiver = (match Peer::<B>::bootstrap()
+        .join(&mut near.read, &mut near.write)
+        .await
+    {
+        rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("the sender is established"),
     })
     .into_rumors();
@@ -154,17 +159,19 @@ async fn undecodable_payload_fails_bootstrap_cleanly() {
     let sender = Peer::<String>::seed().into_rumors();
     sender.send("not a number".to_string()).unwrap();
 
-    let (mut near, mut far) = rumors::link::memory();
+    let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
+    let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
 
-    let joined = Peer::<u64>::bootstrap().join(&mut near).await;
+    let joined = Peer::<u64>::bootstrap()
+        .join(&mut near.read, &mut near.write)
+        .await;
     assert!(
         matches!(joined, rumors::Joined::Failed { .. }),
         "a String payload must not decode as u64"
     );
 
-    // Drop the failed side's link so the donor sees the transport close
+    // Drop the failed side's halves so the donor sees the transport close
     // (a peer that errored out of a session hangs up); its session then
     // fails too — but only ever as an error, never a panic.
     drop(near);
@@ -182,11 +189,14 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
     let sender = Peer::<u64>::seed().into_rumors();
     sender.send(7u64).unwrap();
 
-    let (mut near, mut far) = rumors::link::memory();
+    let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
-    let receiver = (match Peer::<u32>::bootstrap().join(&mut near).await {
-        rumors::Joined::Joined { peer } => peer,
+    let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
+    let receiver = (match Peer::<u32>::bootstrap()
+        .join(&mut near.read, &mut near.write)
+        .await
+    {
+        rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("the sender is established"),
     })
     .into_rumors();
@@ -199,10 +209,10 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
     // receiver's ingress. The sender's half fails too (its counterparty
     // aborted), but only ever as an error.
     sender.send(u64::MAX).unwrap();
-    let (mut near, mut far) = rumors::link::memory();
+    let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
-    let gossiped = receiver.gossip_once(&mut near).await;
+    let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
+    let gossiped = receiver.gossip_once(&mut near.read, &mut near.write).await;
     assert!(gossiped.is_err(), "u64::MAX must not decode as u32");
     // Hang up the failed side so the sender's half sees the transport
     // close rather than blocking on an unread stream.

@@ -1,23 +1,46 @@
 //! Bootstrap transfers content and identity, and returns usable state on failure.
 
 use rumors_testkit::common;
+use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Joined, Peer, Rumors};
+use rumors::{Bookmark, Joined, Peer, Rumors};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::oracle::readout;
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-/// Capacity for each in-memory link stream. Roomy enough that the bootstrap
-/// descent's largest frames fit without the test depending on backpressure
-/// subtleties.
-const LINK_BUF: usize = 64 * 1024;
+
+/// A join outcome with its connection halves released, so it can outlive the
+/// connection the session ran on.
+type Outcome<B> = Joined<u64, (), (), B>;
+
+/// Release a join outcome's connection halves, keeping the outcome.
+fn released<B: Bookmark, R, W>(joined: Joined<u64, R, W, B>) -> Outcome<B> {
+    match joined {
+        Joined::Joined { peer, .. } => Joined::Joined {
+            peer,
+            read: (),
+            write: (),
+        },
+        Joined::Bailed { bootstrap, .. } => Joined::Bailed {
+            bootstrap,
+            read: (),
+            write: (),
+        },
+        Joined::Unbookmarked { unbookmarked, .. } => Joined::Unbookmarked {
+            unbookmarked,
+            read: (),
+            write: (),
+        },
+        Joined::Failed { error, bootstrap } => Joined::Failed { error, bootstrap },
+    }
+}
 
 /// Bootstrap from an established provider and return the joined replica.
 fn wire_bootstrap<T>(provider: &Rumors<T>) -> Rumors<T>
@@ -25,18 +48,18 @@ where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     block_on(async move {
-        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
 
         let (provider_out, bootstrap_out) = tokio::join!(
-            provider.gossip_once(&mut a_link),
-            Peer::<T>::bootstrap().join(&mut b_link),
+            provider.gossip_once(&mut a_end.read, &mut a_end.write),
+            Peer::<T>::bootstrap().join(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("provider gossip");
-        let Joined::Joined { peer } = bootstrap_out else {
+        let Joined::Joined { peer, .. } = bootstrap_out else {
             panic!("an established provider must serve the bootstrap");
         };
         let joined = peer.sync_window_floor().into_rumors();
-        assert_control_drained(a_link, b_link);
+        assert_connection_drained(a_end, b_end);
         joined
     })
 }
@@ -132,17 +155,19 @@ fn bootstrap_floor_rejects_stale_redacted_content() {
     );
 }
 
-/// Two bootstrappers return their builders without stalling or leaving unread control bytes.
+/// Two bootstrappers return their builders without stalling or leaving unread bytes.
 #[test]
 fn both_bootstrapping_return_their_builders() {
     let (a_out, b_out) = block_on(async {
-        let (mut a_link, mut b_link) = rumors::link::memory();
+        let (mut a_end, mut b_end) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
 
-        let outcome = tokio::join!(
-            Peer::<u64>::bootstrap().join(&mut a_link),
-            Peer::<u64>::bootstrap().join(&mut b_link),
+        let (a_out, b_out) = tokio::join!(
+            Peer::<u64>::bootstrap().join(&mut a_end.read, &mut a_end.write),
+            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
         );
-        assert_control_drained(a_link, b_link);
+        let outcome = (released(a_out), released(b_out));
+        assert_connection_drained(a_end, b_end);
         outcome
     });
 
@@ -172,20 +197,21 @@ fn zero_budget_bootstrap_converges() {
     provider.send_all([1, 2, 3]).unwrap();
 
     let bootstrapped = block_on(async {
-        let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (mut provider_end, mut newcomer_end) =
+            rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (served, joined) = tokio::join!(
-            provider.gossip_once(&mut provider_link),
+            provider.gossip_once(&mut provider_end.read, &mut provider_end.write),
             Peer::<u64>::bootstrap()
                 .sync_memory_budget(0)
-                .join(&mut newcomer_link),
+                .join(&mut newcomer_end.read, &mut newcomer_end.write),
         );
         served.expect("the provider serves the zero-budget bootstrap");
         let newcomer = (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("the provider is established"),
         })
         .into_rumors();
-        assert_control_drained(provider_link, newcomer_link);
+        assert_connection_drained(provider_end, newcomer_end);
         newcomer
     });
 
@@ -215,20 +241,22 @@ fn durable_bookmark(writes: Vec<bool>) -> (DurableStore, FlakyInMemoryBookmark) 
 }
 
 /// Drive a provider's `gossip` against a *bookmarked* join over an
-/// in-memory link, returning the newcomer's [`Joined`] outcome.
+/// in-memory connection, returning the newcomer's [`Joined`] outcome.
 fn wire_join(
     provider: &Rumors<u64>,
     bootstrap: rumors::Bootstrap<u64, FlakyInMemoryBookmark>,
-) -> Joined<u64, FlakyInMemoryBookmark> {
+) -> Outcome<FlakyInMemoryBookmark> {
     block_on(async move {
-        let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (mut provider_end, mut newcomer_end) =
+            rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (served, joined) = tokio::join!(
-            provider.gossip_once(&mut provider_link),
-            bootstrap.join(&mut newcomer_link),
+            provider.gossip_once(&mut provider_end.read, &mut provider_end.write),
+            bootstrap.join(&mut newcomer_end.read, &mut newcomer_end.write),
         );
         served.expect("the provider serves the bookmarked bootstrap");
+        let joined = released(joined);
         if !matches!(&joined, Joined::Failed { .. }) {
-            assert_control_drained(provider_link, newcomer_link);
+            assert_connection_drained(provider_end, newcomer_end);
         }
         joined
     })
@@ -260,7 +288,8 @@ fn bookmarked_join_persists_the_arriving_identity() {
         "the store must start empty for the persist to be attributable",
     );
 
-    let Joined::Joined { peer } = wire_join(&provider, Peer::bootstrap().bookmark(bookmark)) else {
+    let Joined::Joined { peer, .. } = wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
+    else {
         panic!("an established provider and healthy storage must produce a joined peer");
     };
 
@@ -286,20 +315,22 @@ fn mutual_bookmarked_bail_returns_the_builder() {
     let (a_store, a_bookmark) = durable_bookmark(Vec::new());
 
     let (a_out, b_out) = block_on(async {
-        let (mut a_link, mut b_link) = rumors::link::memory();
-        let outcome = tokio::join!(
+        let (mut a_end, mut b_end) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let (a_out, b_out) = tokio::join!(
             Peer::<u64>::bootstrap()
                 .bookmark(a_bookmark)
-                .join(&mut a_link),
+                .join(&mut a_end.read, &mut a_end.write),
             Peer::<u64>::bootstrap()
                 .bookmark(bookmark)
-                .join(&mut b_link),
+                .join(&mut b_end.read, &mut b_end.write),
         );
-        assert_control_drained(a_link, b_link);
+        let outcome = (released(a_out), released(b_out));
+        assert_connection_drained(a_end, b_end);
         outcome
     });
 
-    let Joined::Bailed { bootstrap } = b_out else {
+    let Joined::Bailed { bootstrap, .. } = b_out else {
         panic!("a mutually-bootstrapping bookmarked peer must bail");
     };
     assert!(
@@ -313,7 +344,7 @@ fn mutual_bookmarked_bail_returns_the_builder() {
 
     // The retry the bail recommends, with the builder it handed back.
     let provider = populated_provider();
-    let Joined::Joined { peer } = wire_join(&provider, bootstrap) else {
+    let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
         panic!("the returned builder must serve the retry against a provider");
     };
     assert!(
@@ -328,13 +359,13 @@ fn failed_bookmarked_join_returns_the_builder() {
     let (store, bookmark) = durable_bookmark(Vec::new());
 
     let outcome = block_on(async {
-        let (mut near, far) = rumors::link::memory();
+        let (near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         // The counterparty hangs up before the session begins: the join's
         // preamble exchange dies on the closed transport.
         drop(far);
         Peer::<u64>::bootstrap()
             .bookmark(bookmark)
-            .join(&mut near)
+            .join(near.read, near.write)
             .await
     });
 
@@ -348,7 +379,7 @@ fn failed_bookmarked_join_returns_the_builder() {
 
     // The retry the failure permits, with the builder it handed back.
     let provider = populated_provider();
-    let Joined::Joined { peer } = wire_join(&provider, bootstrap) else {
+    let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
         panic!("the returned builder must serve the retry against a provider");
     };
     assert!(
@@ -374,7 +405,7 @@ fn persist_failure_hands_back_the_live_peer() {
 
     // The first (and only) write fails: the eager attach-time persist.
     let (store, bookmark) = durable_bookmark(vec![true]);
-    let Joined::Unbookmarked(unbookmarked) =
+    let Joined::Unbookmarked { unbookmarked, .. } =
         wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
     else {
         panic!("a failed persist must surface the live peer as Unbookmarked");

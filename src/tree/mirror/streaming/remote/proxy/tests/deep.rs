@@ -3,24 +3,20 @@
 use std::{
     future::{Future, poll_fn},
     pin::pin,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex},
     task::Poll,
 };
 
 use futures::join;
 use proptest::prelude::*;
 
-use crate::link::memory_with_capacity;
 use crate::message::Message;
 use crate::observe::{
     Attachment, Direction, Observer, Role, SessionHandle, SessionInfo, SessionKind,
     SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
 use crate::testing::{
-    IoPlan, IoReport, IoSide, node_census, reorder_accepts, run_to_quiescence, wrap_link,
+    IoPlan, IoReport, IoSide, memory_connection, node_census, run_to_quiescence, wrap_io,
 };
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
@@ -210,10 +206,11 @@ proptest! {
                     (false, false) => &mut backends.right,
                     (false, true) => &mut backends.right_proxy,
                 } = failing;
-                let (left_link, right_link) = memory_with_capacity(capacity);
+                let (left_end, right_end) = memory_connection(capacity);
                 with_schedule(schedule.clone(), || run_to_quiescence(harness::drive(
                     Topology::Production, backends, left.root.clone(), right.root.clone(),
-                    left_link, right_link, codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                    (left_end.read, left_end.write), (right_end.read, right_end.write),
+                    codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
                 ))).expect("a backend failure must not leave either endpoint stalled")
             };
             let baseline = Failing::after(Local, usize::MAX);
@@ -259,10 +256,11 @@ proptest! {
         let pair = Divergence::new([vec![0; depth]], [2, 3]);
         pair.with_trees(|[left, right]| {
             let run = |limit| {
-                let (left_link, right_link) = memory_with_capacity(1);
+                let (left_end, right_end) = memory_connection(1);
                 with_schedule(schedule.clone(), || cancel_after(harness::drive(
                     Topology::Production, Backends::local(), left.root.clone(), right.root.clone(),
-                    left_link, right_link, codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                    (left_end.read, left_end.write), (right_end.read, right_end.write),
+                    codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
                 ), limit))
             };
             let mut expected = left.clone();
@@ -309,15 +307,15 @@ proptest! {
 
         let pair = Divergence::new([vec![0; depth]], [2, 2]);
         pair.with_trees(|[left, right]| {
-            let (left_link, right_link) = memory_with_capacity(capacity);
+            let (left_end, right_end) = memory_connection(capacity);
             let rewrite = GreetingRewrite::max_version_bytes(0);
             let (left, right) = run_to_quiescence(harness::drive(
                 Topology::Production,
                 Backends::local(),
                 left.root,
                 right.root,
-                harness::rewritten(left_link, receiver_left.then(|| rewrite.clone())),
-                harness::rewritten(right_link, (!receiver_left).then(|| rewrite.clone())),
+                harness::rewritten(left_end, receiver_left.then(|| rewrite.clone())),
+                harness::rewritten(right_end, (!receiver_left).then(|| rewrite.clone())),
                 codec::<Vec<u8>>(),
                 WindowConfig::Fixed(Window::uniform(window)),
             )).expect("a deep declaration error must terminate both endpoints");
@@ -441,12 +439,10 @@ fn speaker(role: Role) -> Speaker {
 
 /// Transport and queue capacities used by one closed-world session.
 struct Session {
-    /// Bytes buffered independently by each transport stream.
+    /// Bytes buffered by each direction of the pipe.
     capacity: usize,
     /// Per-height protocol queue capacities, shared by all participants.
     window: Window,
-    /// Per-endpoint batch sizes for reversed arrivals; one keeps their order.
-    reorder: [usize; 2],
 }
 
 /// Evidence retained after both endpoints and their trees have been dropped.
@@ -455,8 +451,6 @@ struct Observations {
     sent: [SentFrames; 2],
     /// Completed I/O and injected delays at each endpoint.
     io: [IoReport; 2],
-    /// Genuine arrival inversions at each acceptor.
-    inversions: [usize; 2],
     /// Occupancy of the protocol queues, grouped by kind and height.
     queues: ChannelReport,
 }
@@ -466,13 +460,12 @@ impl Session {
     /// Drive two observed proxies, checking liveness without an external runtime.
     fn run(&self, roots: [TreeRoot; 2], plans: [IoPlan; 2]) -> ([TreeRoot; 2], Observations) {
         let sent = [SentFrames::default(), SentFrames::default()];
-        let inversions = [Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0))];
-        let (left_link, right_link) = memory_with_capacity(self.capacity);
+        let (left_end, right_end) = memory_connection(self.capacity);
         let [left_plan, right_plan] = plans;
-        let (left_link, left_io) = wrap_link(IoSide::Left, left_plan, left_link);
-        let (right_link, right_io) = wrap_link(IoSide::Right, right_plan, right_link);
-        let left_link = reorder_accepts(left_link, self.reorder[0], inversions[0].clone());
-        let right_link = reorder_accepts(right_link, self.reorder[1], inversions[1].clone());
+        let (left_read, left_write, left_io) =
+            wrap_io(IoSide::Left, left_plan, left_end.read, left_end.write);
+        let (right_read, right_write, right_io) =
+            wrap_io(IoSide::Right, right_plan, right_end.read, right_end.write);
         let [left, right] = roots;
         let window = WindowConfig::Fixed(self.window);
         let (roots, queues) = with_observation(|| {
@@ -486,12 +479,14 @@ impl Session {
                     DEFAULT_TARGET_MESSAGE_SIZE as u64,
                 )
                 .window(window);
-                let left_proxy = RemoteHandshaking::start(Local, left_link, codec::<Vec<u8>>())
-                    .window(window)
-                    .observe(sent[0].handle());
-                let right_proxy = RemoteHandshaking::start(Local, right_link, codec::<Vec<u8>>())
-                    .window(window)
-                    .observe(sent[1].handle());
+                let left_proxy =
+                    RemoteHandshaking::start(Local, left_read, left_write, codec::<Vec<u8>>())
+                        .window(window)
+                        .observe(sent[0].handle());
+                let right_proxy =
+                    RemoteHandshaking::start(Local, right_read, right_write, codec::<Vec<u8>>())
+                        .window(window)
+                        .observe(sent[1].handle());
                 let (left, right) = join!(
                     Box::pin(mirror(left, left_proxy)),
                     Box::pin(mirror(right, right_proxy)),
@@ -508,7 +503,6 @@ impl Session {
             Observations {
                 sent,
                 io: [left_io.snapshot(), right_io.snapshot()],
-                inversions: inversions.map(|count| count.load(Ordering::Relaxed)),
                 queues,
             },
         )
@@ -553,7 +547,6 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
         let session = Session {
             capacity: 1,
             window: Window::uniform(width),
-            reorder: [1, 1],
         };
         let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
         observed.assert_reach(31);
@@ -592,7 +585,6 @@ fn every_branching_depth_matches_join() {
                 let session = Session {
                     capacity: 1,
                     window: Window::uniform(width),
-                    reorder: [1, 1],
                 };
                 let observed = pair.check(
                     &session,
@@ -610,11 +602,6 @@ fn every_branching_depth_matches_join() {
 }
 
 /// Multiple disputes at deep heights use more than one queue slot.
-///
-/// A reordering acceptor finds nothing to reverse: each side opens a data
-/// stream only after its peer's previous stream has delivered a frame, so a
-/// conforming session's stream arrivals are causally ordered. The zero
-/// count is a tripwire for any stream that opens without that dependency.
 #[test]
 fn deep_queues_use_the_wider_window() {
     let mut pair = Divergence::new((0..16).map(|child| root_prefix(child, 31)), [2, 3]);
@@ -628,15 +615,9 @@ fn deep_queues_use_the_wider_window() {
             let session = Session {
                 capacity: 4096,
                 window: Window::uniform(width),
-                reorder: if swap { [3, 1] } else { [1, 3] },
             };
             let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
             observed.assert_reach(31);
-            assert_eq!(
-                observed.inversions,
-                [0, 0],
-                "stream arrivals are causally ordered, so none can be reversed"
-            );
             let peak = observed
                 .queues
                 .roles()
@@ -679,7 +660,7 @@ proptest! {
                 pair.redacted[index % 2].push(path);
             }
         }
-        let session = Session { capacity, window: Window::uniform(width), reorder: [1, 1] };
+        let session = Session { capacity, window: Window::uniform(width), };
         let observed = pair.check(&session, delays.map(|delays| IoPlan {
             read_delays: delays.clone(),
             write_delays: delays.clone(),
@@ -694,7 +675,7 @@ proptest! {
     /// complete descent.
     ///
     /// The exclusive root children travel as ordinary supplies, so the
-    /// initiator never writes its unused opening stream.
+    /// initiator never writes a frame on its unused opening stream.
     #[test]
     fn nested_disputes_with_supplies_match_join(
         (outer, inner) in (1usize..31).prop_flat_map(|outer| (Just(outer), outer + 1..32)),
@@ -710,7 +691,7 @@ proptest! {
         let redacted = [leaf_path(&[254], 1), leaf_path(&[254], 2)];
         pair.shared.extend(redacted);
         pair.redacted[usize::from(!redact_left)].extend(redacted);
-        let session = Session { capacity, window: Window::uniform(width), reorder: [1, 3] };
+        let session = Session { capacity, window: Window::uniform(width), };
         let plans = std::array::from_fn(|_| IoPlan { hold_until_flush: true, ..IoPlan::default() });
         let baseline = pair.check(&session, plans.clone());
         let mut delayed = plans;

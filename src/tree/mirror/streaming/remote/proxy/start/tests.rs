@@ -6,8 +6,9 @@
 //! heads, the exact key roster, and the same canonical-order rule the
 //! frame codec applies to a wire query, applied at the greeting ingress.
 //!
-//! The scripted-fault harness wraps only data streams, so this ingress is
-//! exercised here directly: crafted control-stream bytes must surface the
+//! The scripted-fault harness edits only frames and passes the greeting
+//! through untouched, so this ingress is exercised here directly: crafted
+//! control-stream bytes must surface the
 //! typed greeting errors ([`Error::GreetingRead`] for truncation and
 //! declared-length mismatches, [`Error::GreetingListing`] for canonical-order violations,
 //! [`Error::GreetingDecode`] for malformed items), never a panic, and a

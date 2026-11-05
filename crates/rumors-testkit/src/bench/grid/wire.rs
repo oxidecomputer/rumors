@@ -3,7 +3,7 @@
 //! Benchmarks measure what ships: peers created here run at the default
 //! pipeline window, which is the production budget in every build shape.
 
-use rumors::link::MemoryLink;
+use rumors::testing::MemoryEnd;
 use rumors::{Peer, Rumors};
 
 /// Bounded transport capacity; concurrent polling supplies the backpressure.
@@ -11,8 +11,8 @@ const CAPACITY: usize = 64 * 1024;
 
 /// A persistent in-memory connection reusable at clean session boundaries.
 pub struct Wire {
-    a_link: MemoryLink,
-    b_link: MemoryLink,
+    a_end: MemoryEnd,
+    b_end: MemoryEnd,
 }
 
 /// Allocate a fresh in-memory connection.
@@ -24,10 +24,10 @@ impl Default for Wire {
 }
 
 impl Wire {
-    /// Allocate one bounded in-memory link pair, one end per side.
+    /// Allocate one bounded in-memory connection, one end per side.
     pub fn new() -> Self {
-        let (a_link, b_link) = rumors::link::memory_with_capacity(CAPACITY);
-        Self { a_link, b_link }
+        let (a_end, b_end) = rumors::testing::memory_connection(CAPACITY);
+        Self { a_end, b_end }
     }
 
     /// Reconcile one pair while driving both endpoints concurrently.
@@ -37,8 +37,8 @@ impl Wire {
     {
         let (a_result, b_result) = pollster::block_on(async {
             tokio::join!(
-                a.gossip_once(&mut self.a_link),
-                b.gossip_once(&mut self.b_link)
+                a.gossip_once(&mut self.a_end.read, &mut self.a_end.write),
+                b.gossip_once(&mut self.b_end.read, &mut self.b_end.write)
             )
         });
         a_result.expect("peer A gossip");
@@ -47,20 +47,21 @@ impl Wire {
     }
 }
 
-/// Create one disjoint replica by serving a bootstrap over an ephemeral link.
+/// Create one disjoint replica by serving a bootstrap over an ephemeral
+/// connection.
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
     pollster::block_on(async {
-        let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(CAPACITY);
+        let (mut parent_end, mut newcomer_end) = rumors::testing::memory_connection(CAPACITY);
         let (served, newcomer) = tokio::join!(
-            parent.gossip_once(&mut parent_link),
-            Peer::<T>::bootstrap().join(&mut newcomer_link),
+            parent.gossip_once(&mut parent_end.read, &mut parent_end.write),
+            Peer::<T>::bootstrap().join(&mut newcomer_end.read, &mut newcomer_end.write),
         );
         served.expect("serve bootstrap");
         (match newcomer {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
         .into_rumors()

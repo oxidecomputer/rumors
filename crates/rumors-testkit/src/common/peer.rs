@@ -97,7 +97,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
 }
 
 /// Bidirectional wire gossip between two peers: one session over an
-/// in-memory link, after which both sides hold the same live content and
+/// in-memory connection, after which both sides hold the same live content and
 /// version, and both observation logs have caught up.
 pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where

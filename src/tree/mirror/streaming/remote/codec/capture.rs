@@ -25,23 +25,24 @@
 //! excludes float fields (see
 //! [choosing a payload type](crate#choosing-a-payload-type)); a
 //! hand-written `Eq` admitting NaN has declared its NaNs equal. A control
-//! item's or frame's byte count is the observed item's length and a
-//! stream's is the transport's; the totality witness
-//! ([`assert_items_account_for`]) holds the two accounts equal.
+//! item's or frame's byte count is the observed item's length, and a
+//! logical stream's is the sum of its frames'; the totality witness
+//! ([`assert_items_account_for`]) holds the observed items equal to the
+//! pipe's bytes.
 //!
 //! # Where the bytes come from
 //!
 //! Capture enters through the observation hook ([`crate::observe`]):
-//! the harness records each directed stream's items as a
-//! [`HookCapture`]. The transport-level bytes ([`LinkCapture`]) are the
-//! totality oracle: per directed stream, the on-wire open label followed
-//! by the observed items must reproduce the transport bytes exactly
-//! ([`assert_items_account_for`], [`stream_label`]), which is what lets
-//! a rendering of items pin wire bytes. Structural violations of the
-//! capture itself (a control item whose opening head is not canonical,
-//! a frame whose opener is not the codec's or contradicts its stream, a
-//! label that does not parse) are panics: the harness, not the peer, is
-//! broken.
+//! the harness records each direction's items as a [`HookCapture`]. The
+//! pipe's own bytes ([`PipeCapture`]) are the totality oracle: every
+//! item the hook observed, in observation order, must reproduce the pipe's
+//! bytes exactly ([`assert_items_account_for`]), which is what lets a
+//! rendering of items pin wire bytes. Rendering then groups the frames by
+//! logical stream, so the multiplexer's interleaving of logical streams
+//! never changes a rendering. Structural violations of the capture itself
+//! (a control item whose opening head is not canonical, a frame whose
+//! opener is not the codec's or contradicts its stream) are panics: the
+//! harness, not the peer, is broken.
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
@@ -58,22 +59,16 @@ use super::{Speaker, Stream, signal::WireSignal};
 mod tests;
 
 /// Everything one endpoint sent during a captured session, at the
-/// transport level.
+/// transport level: the exact bytes it wrote to the pipe.
 ///
-/// The link keeps logical streams physically separate, so a capture is
-/// already demultiplexed: the control stream's exact bytes, plus each
-/// opened data stream's exact bytes (label included), in open order.
-/// The rendering consumes the hook's [`HookCapture`]; this transport
-/// form is the totality oracle beside it, and the wire-legibility
-/// property's raw material.
+/// The rendering consumes the hook's [`HookCapture`]; this transport form
+/// is the totality oracle beside it, and the wire-legibility property's
+/// raw material.
 #[derive(Debug)]
-pub struct LinkCapture {
-    /// The control stream's outgoing bytes: preamble, the greeting item,
-    /// and any trailing party hand-off and epilogue, in order.
-    pub control: Vec<u8>,
-    /// Each opened data stream's outgoing bytes: its label items, then
-    /// its frames through the explicit end control.
-    pub streams: Vec<Vec<u8>>,
+pub struct PipeCapture {
+    /// The pipe's outgoing bytes: preamble, greeting, every logical
+    /// stream's frames, then the closing items, in write order.
+    pub sent: Vec<u8>,
 }
 
 /// Everything one endpoint sent during a captured session, as the
@@ -82,51 +77,21 @@ pub struct LinkCapture {
 pub struct HookCapture {
     /// The role this side was elected, if the session held an election.
     pub role: Option<Role>,
-    /// The control stream's sent items, in order.
+    /// The sent control items, in order.
     pub control: Vec<Vec<u8>>,
-    /// The sent data streams, in any order; rendering sorts by index.
+    /// The sent logical streams, in any order; rendering sorts by index.
     pub streams: Vec<HookStream>,
 }
 
-/// One sent data stream, as observed through the hook plus the wire
-/// facts the hook deliberately does not carry (the label's epoch and
-/// the exact transport byte count).
+/// One sent logical stream, as observed through the hook.
 #[derive(Debug)]
 pub struct HookStream {
     /// The stream's wire index, from the hook's stream identity.
     pub index: u8,
     /// The elected role that speaks this stream's frames.
     pub speaker: Role,
-    /// The epoch carried by the stream's on-wire open label.
-    pub epoch: u8,
-    /// The stream's exact transport byte count, label included.
-    pub wire_len: usize,
     /// The stream's frames, one CBOR item each, in stream order.
     pub items: Vec<Vec<u8>>,
-}
-
-/// Parse one data stream's on-wire open label: two canonical unsigned
-/// int items, `(epoch, stream index)`.
-///
-/// Returns the label values and the label's byte length. Panics if the
-/// label is not two canonical byte-ranged uints: the capture harness,
-/// not the peer, is broken.
-pub fn stream_label(bytes: &[u8]) -> ((u8, u8), usize) {
-    let mut rest = bytes;
-    let epoch = label_item(&mut rest, "epoch");
-    let index = label_item(&mut rest, "stream index");
-    ((epoch, index), bytes.len() - rest.len())
-}
-
-/// Read one label item: a canonical byte-ranged unsigned int.
-fn label_item(rest: &mut &[u8], what: &str) -> u8 {
-    let head = cbor::read_head(rest)
-        .unwrap_or_else(|e| panic!("captured stream label {what} is canonical: {e}"));
-    assert_eq!(
-        head.major, MAJOR_UINT,
-        "captured label {what} is an unsigned int"
-    );
-    u8::try_from(head.value).unwrap_or_else(|_| panic!("captured label {what} is byte-ranged"))
 }
 
 /// Assert that the concatenation of `items` reproduces `wire` exactly.
@@ -154,9 +119,9 @@ pub fn assert_items_account_for(items: &[Vec<u8>], wire: &[u8]) {
 /// Render both endpoints' hook captures without retaining cross-stream
 /// order.
 ///
-/// Data streams are keyed by their labeled stream index (exact items
+/// Logical streams are keyed by their observed stream index (exact items
 /// and order within each stream, stream groups sorted), discarding the
-/// incidental order in which independent streams were opened.
+/// multiplexer's incidental interleaving of their frames.
 pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
     let mut rendered = String::new();
     render_direction("A -> B", a, &mut rendered);
@@ -165,7 +130,7 @@ pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
     rendered
 }
 
-/// Render one direction: its control items, then its data streams in
+/// Render one direction: its control items, then its logical streams in
 /// stream-index order.
 fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
     writeln!(out, "direction {label}").unwrap();
@@ -193,12 +158,11 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
         let wire_stream = Stream::new(stream.index).expect("hook stream index names a stream");
         writeln!(
             out,
-            "{:?} stream {} (height {}), epoch {}, {} wire bytes",
+            "{:?} stream {} (height {}), {} wire bytes",
             speaker,
             stream.index,
             wire_stream.height(speaker),
-            stream.epoch,
-            stream.wire_len,
+            stream.items.iter().map(Vec::len).sum::<usize>(),
         )
         .unwrap();
         for (index, item) in stream.items.iter().enumerate() {
@@ -217,7 +181,7 @@ fn speaker(role: Role) -> Speaker {
 
 /// Name one control item by its shape.
 ///
-/// The control stream's items are position- and shape-determined: the
+/// The control items are position- and shape-determined: the
 /// self-described tag opens the preamble, the embedded-item tag wraps
 /// the greeting, a tagged party atom is the identity hand-off, and the
 /// dot text item is the epilogue.
@@ -258,7 +222,7 @@ fn render_frame(speaker: Speaker, stream: Stream, index: usize, item: &[u8], out
     let (framed, semantic) = WireSignal::decode(speaker, stream_item.value, state.value)
         .expect("captured frame opener is valid")
         .into_parts();
-    assert_eq!(framed, stream, "captured frame contradicts its label");
+    assert_eq!(framed, stream, "captured frame contradicts its stream");
 
     writeln!(
         out,

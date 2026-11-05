@@ -48,7 +48,7 @@ control item 2 (5 bytes) / party hand-off /
 53845_1(h'48')
 control item 3 (2 bytes) / epilogue /
 "."
-Responder stream 0 (height 31), epoch 0, 36 wire bytes
+Responder stream 0 (height 31), 34 wire bytes
   frame 0 (16 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'72c0'), 2>>)>>)]
   frame 1 (15 bytes) / Supply(End) /

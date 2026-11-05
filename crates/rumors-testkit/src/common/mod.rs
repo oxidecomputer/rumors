@@ -10,17 +10,16 @@
 //!   membership alphabet — mid-schedule bootstraps and retirements) and
 //!   executes them deterministically, one session at a time
 //!   ([`crate::common::schedule::executor`]), against real peers ([`crate::common::peer`]) over
-//!   in-memory links, with [`crate::common::oracle`] computing the expected converged
+//!   in-memory connections, with [`crate::common::oracle`] computing the expected converged
 //!   set for comparison.
 //! - [`crate::common::observer`] shares message-observer read helpers and two-peer schedules.
 //! - [`crate::common::sim`] runs whole plans concurrently instead: overlapping sessions
 //!   on a multi-thread runtime, genuinely nondeterministic.
 //! - [`crate::common::fault`] injects transport adversity; [`crate::common::flaky`] injects
 //!   bookmark-storage adversity.
-//! - [`crate::common::wire`] and [`crate::common::tcp`] carry the same sessions over in-memory links
-//!   and real sockets; [`crate::common::count`] measures each direction of an in-memory
-//!   session; [`crate::common::routed_tcp`] is the socket instantiation of the routed
-//!   adapter's dial/listen seam.
+//! - [`crate::common::wire`] and [`crate::common::tcp`] carry the same sessions over in-memory
+//!   connections and real sockets; [`crate::common::count`] measures each direction of an
+//!   in-memory session.
 //! - [`crate::common::window`] is the window-budget sweep dimension: generated per-peer
 //!   window configurations (floor, tight budget, default) for the suites
 //!   that sweep it.
@@ -36,7 +35,6 @@ pub mod observer;
 pub mod oracle;
 pub mod overlap;
 pub mod peer;
-pub mod routed_tcp;
 pub mod schedule;
 pub mod shape;
 pub mod sim;

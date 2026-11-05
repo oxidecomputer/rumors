@@ -1,7 +1,6 @@
 //! Version-containment enforcement over the full wire stack.
 
-use crate::link::memory_with_capacity;
-use crate::testing::run_to_quiescence;
+use crate::testing::{memory_connection, run_to_quiescence};
 use crate::tree::arb::uncontained_supply_pair;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
@@ -23,14 +22,14 @@ async fn reconcile_results(
     Result<TreeRoot, EndpointFailure>,
     Result<TreeRoot, EndpointFailure>,
 ) {
-    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let (a_end, b_end) = memory_connection(TRANSPORT_CAPACITY);
     drive(
         Topology::RightProxyConnects,
         Backends::local(),
         a,
         b,
-        a_link,
-        b_link,
+        (a_end.read, a_end.write),
+        (b_end.read, b_end.write),
         codec::<()>(),
         WindowConfig::FLOOR,
     )
@@ -39,7 +38,7 @@ async fn reconcile_results(
 
 /// A supplied leaf whose version escapes the sender's declared greeting
 /// version fails the session with a typed violation after crossing a real
-/// link.
+/// pipe.
 ///
 /// The enforcement holds through the frame codec and supply decoder, not
 /// only in process. The receiving endpoint reports the violation from its

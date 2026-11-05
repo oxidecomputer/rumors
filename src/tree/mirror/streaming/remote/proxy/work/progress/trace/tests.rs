@@ -92,9 +92,9 @@ fn minimal_divergent_session_meets_the_floor() {
     trace.assert_covers_divergent_session();
 }
 
-/// A decode following its flushed question satisfies question causality.
+/// A decode following its published question satisfies question causality.
 #[test]
-fn accepts_decode_after_flushed_question() {
+fn accepts_decode_after_published_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
         record(0, Kind::TakenReply { scopes: 0 }, 1);
@@ -102,19 +102,19 @@ fn accepts_decode_after_flushed_question() {
     trace.assert_question_causality();
 }
 
-/// A decode with no flushed question at the scope's height is a causality
-/// violation: the reply arrived before its question was flushed.
+/// A decode with no published question at the scope's height is a causality
+/// violation: the reply arrived before its question was published.
 #[test]
-#[should_panic(expected = "arrived before its question was flushed")]
-fn rejects_decode_before_flushed_question() {
+#[should_panic(expected = "arrived before its question was published")]
+fn rejects_decode_before_published_question() {
     let (_, trace) = with_trace(|| record(0, Kind::TakenReply { scopes: 0 }, 1));
     trace.assert_question_causality();
 }
 
-/// Another endpoint's flushed question cannot scope this endpoint's decode:
+/// Another endpoint's published question cannot scope this endpoint's decode:
 /// the registration FIFO is endpoint-local.
 #[test]
-#[should_panic(expected = "arrived before its question was flushed")]
+#[should_panic(expected = "arrived before its question was published")]
 fn rejects_decode_scoped_by_the_other_endpoint() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
@@ -155,7 +155,7 @@ fn accepts_overlapping_walk_and_terminal_leaf_publications() {
 
 /// An unanswered parent question cannot stand in for a leaf question.
 #[test]
-#[should_panic(expected = "arrived before its question was flushed")]
+#[should_panic(expected = "arrived before its question was published")]
 fn rejects_leaf_decode_scoped_by_parent_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
@@ -166,7 +166,7 @@ fn rejects_leaf_decode_scoped_by_parent_question() {
 
 /// An unanswered leaf question cannot stand in for a parent question.
 #[test]
-#[should_panic(expected = "arrived before its question was flushed")]
+#[should_panic(expected = "arrived before its question was published")]
 fn rejects_parent_decode_scoped_by_leaf_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 0);
@@ -178,7 +178,7 @@ fn rejects_parent_decode_scoped_by_leaf_question() {
 /// Exactly one greeting-seeded opening reply per endpoint is scoped by the
 /// greeting itself; a second root decode has no question to pair with.
 #[test]
-#[should_panic(expected = "arrived before its question was flushed")]
+#[should_panic(expected = "arrived before its question was published")]
 fn rejects_a_second_greeting_seeded_opening() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);

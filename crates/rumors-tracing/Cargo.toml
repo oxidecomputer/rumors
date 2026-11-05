@@ -14,4 +14,4 @@ tracing.workspace = true
 
 [dev-dependencies]
 ciborium.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "io-util"] }

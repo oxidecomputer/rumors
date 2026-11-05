@@ -7,10 +7,19 @@
 //! travels alone; runs never combine separate protocol reactions.
 //!
 //! Each endpoint advertises its target in the greeting, and the session uses
-//! the smaller target in both directions. The encoder buffers one run per
-//! stream. The decoder applies the same limit before buffering a run: a frame
-//! may exceed it only when the frame contains one record. Constructed leaves
-//! are charged separately by the synchronization window.
+//! the smaller target in both directions. The decoder applies the same limit
+//! before buffering a run: a frame may exceed it only when the frame
+//! contains one record. Constructed leaves are charged separately by the
+//! synchronization window.
+//!
+//! Runs are the unit of wire buffering, which the session's pipe bounds
+//! per logical stream. Sending, a logical stream holds at most three
+//! complete runs: one its encoder is waiting to hand over, one in its
+//! channel to the multiplexer, and one the multiplexer has staged or is
+//! writing. Receiving, it holds at most two: one in its channel from the
+//! demultiplexer and one its decoder is decoding; the demultiplexer itself
+//! holds at most one more, for the whole direction, while it waits for a
+//! full channel.
 //! Applications configure the target with
 //! [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!

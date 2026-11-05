@@ -3,7 +3,6 @@
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    link::{Acceptor, Connector, Link},
     message::PayloadCodec,
     observe::{CaptureRead, SessionHandle},
     tree::{
@@ -13,10 +12,8 @@ use crate::{
             protocol::{self, Accept, CompleteConnect, Connect},
             remote::{
                 codec::{RunBudget, greeting as greeting_codec},
-                proxy::{
-                    Connected, Error,
-                    work::{ControlRead, Ingress},
-                },
+                pipe::PipeRead,
+                proxy::{Connected, Error, work::Ingress},
             },
             stats::Recorder,
             window::{ReplicaSize, WindowConfig},
@@ -27,26 +24,27 @@ use crate::{
 
 /// A wire-bound protocol participant ready for the greeting exchange.
 ///
-/// Consumes a [`Link`] carrier for one session: the control halves host the
-/// greeting exchange (and are the session's output), the connector
-/// and acceptor supply the descent's data streams, and the carrier's epoch
-/// labels every stream this session opens.
-pub struct Handshaking<B, R, W, C, A, V = Start>
+/// Consumes the two halves of one duplex byte stream for one session: the
+/// greetings, every logical stream's frames, and the session's closing
+/// items all share it, and the halves are the session's output.
+pub struct Handshaking<B, R, W, V = Start>
 where
     B: Backend<Node<Z>: Leaf>,
 {
     /// The store used to reconstruct supplied nodes.
     backend: B,
-    /// The transport carrier reserved for this session.
-    link: Link<R, W, C, A>,
+    /// The pipe's read half.
+    read: R,
+    /// The pipe's write half.
+    write: W,
     /// State retained by the current greeting phase.
     versions: V,
     /// The session's window choice, resolved against the greeting's
     /// exchanged set sizes; see
     /// [`window`](crate::tree::mirror::streaming::window).
     window: WindowConfig,
-    /// The session's stats recorder: every stream this session binds
-    /// counts its codec bytes through it.
+    /// The session's stats recorder: the pipe counts its codec bytes
+    /// through it.
     stats: Recorder,
     /// This replica's payload codec for supplied messages.
     codec: PayloadCodec,
@@ -55,17 +53,18 @@ where
     observe: SessionHandle,
 }
 
-impl<B, R, W, C, A> Handshaking<B, R, W, C, A>
+impl<B, R, W> Handshaking<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Bind one session's link carrier before exchanging causal versions.
+    /// Bind one session's pipe halves before exchanging causal versions.
     ///
     /// `codec` reconstructs every supplied message received in this session.
-    pub fn start(backend: B, link: Link<R, W, C, A>, codec: PayloadCodec) -> Self {
+    pub fn start(backend: B, read: R, write: W, codec: PayloadCodec) -> Self {
         Self {
             backend,
-            link,
+            read,
+            write,
             versions: Start,
             window: WindowConfig::default(),
             stats: Recorder::default(),
@@ -92,7 +91,8 @@ where
     }
 
     /// Share the session's observation handle, so the greeting exchange
-    /// and every stream this session binds deliver their wire items.
+    /// and every logical stream this session binds deliver their wire
+    /// items.
     ///
     /// Without this call the session runs with the inert default.
     pub fn observe(mut self, observe: SessionHandle) -> Self {
@@ -114,32 +114,28 @@ pub struct Connecting {
 }
 
 /// A wire participant remains at root height through the greeting exchange.
-impl<B, R, W, C, A, V> protocol::Phase for Handshaking<B, R, W, C, A, V>
+impl<B, R, W, V> protocol::Phase for Handshaking<B, R, W, V>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Send,
-    A: Send,
     V: Send,
 {
     type Height = Root;
     type Error = Error<B::Error>;
-    type Output = (ControlRead<R>, W);
+    type Output = (PipeRead<R>, W);
 }
 
-impl<B, R, W, C, A, V> Handshaking<B, R, W, C, A, V>
+impl<B, R, W, V> Handshaking<B, R, W, V>
 where
     B: Backend<Node<Z>: Leaf>,
-    C: Connector,
-    A: Acceptor,
 {
     /// Validate the exchanged premises and retain them for driver dispatch.
     fn connected(
         self,
         local: Greeting,
         remote: Greeting,
-    ) -> Result<Connected<B, R, W, C, A>, Error<B::Error>> {
+    ) -> Result<Connected<B, R, W>, Error<B::Error>> {
         // Check configuration before the driver can take the equal-version
         // shortcut, so agreement on content cannot hide incompatible peers.
         payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
@@ -164,7 +160,8 @@ where
                 remote_set_len,
                 self.codec,
             ),
-            link: self.link,
+            read: self.read,
+            write: self.write,
             remote_listing,
             window,
             budget,
@@ -177,23 +174,22 @@ where
 /// The wire participant in the protocol's client position: this impl and
 /// its [`CompleteConnect`] continuation exist for the test harness's
 /// wire-path arrangement and have no production caller.
-impl<B, R, W, C, A> Connect<B> for Handshaking<B, R, W, C, A>
+impl<B, R, W> Connect<B> for Handshaking<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
 {
-    type Next = Handshaking<B, R, W, C, A, Connecting>;
+    type Next = Handshaking<B, R, W, Connecting>;
 
     /// Receive the remote greeting before asking the local server to answer it.
     async fn connect(mut self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let remote = receive::<B::Error, _>(&mut self.link.control_read, &self.observe).await?;
+        let remote = receive::<B::Error, _>(&mut self.read, &self.observe).await?;
         let greeting = remote.clone();
         let next = Handshaking {
             backend: self.backend,
-            link: self.link,
+            read: self.read,
+            write: self.write,
             versions: Connecting { remote },
             window: self.window,
             stats: self.stats,
@@ -206,44 +202,40 @@ where
 
 /// The client-position continuation of [`Connect`]: for the test
 /// harness's wire-path arrangement, with no production caller.
-impl<B, R, W, C, A> CompleteConnect<B> for Handshaking<B, R, W, C, A, Connecting>
+impl<B, R, W> CompleteConnect<B> for Handshaking<B, R, W, Connecting>
 where
     B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
 {
-    type Next = Connected<B, R, W, C, A>;
+    type Next = Connected<B, R, W>;
 
     /// Send the local participant's greeting and retain the exchanged premises.
     async fn complete_connect(mut self, mut local: Greeting) -> Result<Self::Next, Self::Error> {
         // The wire value of the local limit is the codec's: the one
         // configuration every parse of this session already runs under.
         local.payload_depth_limit = self.codec.limit().get();
-        send::<B::Error, _>(&local, &mut self.link.control_write, &self.observe).await?;
+        send::<B::Error, _>(&local, &mut self.write, &self.observe).await?;
         let remote = self.versions.remote.clone();
         self.connected(local, remote)
     }
 }
 
-impl<B, R, W, C, A> Accept<B> for Handshaking<B, R, W, C, A>
+impl<B, R, W> Accept<B> for Handshaking<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
 {
-    type Next = Connected<B, R, W, C, A>;
+    type Next = Connected<B, R, W>;
 
     /// Exchange greetings concurrently and retain the exchanged premises.
     async fn accept(mut self, mut local: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         // The wire value of the local limit is the codec's: the one
         // configuration every parse of this session already runs under.
         local.payload_depth_limit = self.codec.limit().get();
-        let send = send::<B::Error, _>(&local, &mut self.link.control_write, &self.observe);
-        let receive = receive::<B::Error, _>(&mut self.link.control_read, &self.observe);
+        let send = send::<B::Error, _>(&local, &mut self.write, &self.observe);
+        let receive = receive::<B::Error, _>(&mut self.read, &self.observe);
         let (_, remote) = futures::future::try_join(send, receive).await?;
         let greeting = remote.clone();
         let next = self.connected(local, remote)?;
@@ -283,7 +275,7 @@ fn run_budget(ours: &Greeting, theirs: &Greeting) -> RunBudget {
     RunBudget::from_bytes(usize::try_from(bytes).unwrap_or(usize::MAX))
 }
 
-/// Send one greeting: a single self-delimiting control-stream item,
+/// Send one greeting: a single self-delimiting control item on the pipe,
 /// flushed in one hop.
 ///
 /// The spelling lives in

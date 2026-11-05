@@ -4,7 +4,7 @@
 //!
 //! The companion to `gossip_snapshot.rs` for the *bootstrap* leg of the
 //! protocol. Each test stages a provider, drives one bootstrap through the
-//! recording link in [`common::gossip_snapshot::capture_session`], and pins
+//! recording connection in [`common::gossip_snapshot::capture_session`], and pins
 //! every wire byte. Traffic is grouped by logical stream while preserving
 //! its exact per-stream order. Drift in the preamble, reconciliation, or trailing
 //! party hand-off shows up as a diff. Re-accept only after a deliberate
@@ -36,16 +36,20 @@ where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     capture_session(
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let provider = observed(provider, hook).await;
             provider
-                .gossip_once(&mut link)
+                .gossip_once(&mut end.read, &mut end.write)
                 .await
                 .expect("provider gossip");
         },
-        move |mut link, hook| async move {
-            match Peer::<T>::bootstrap().observe(hook).join(&mut link).await {
-                rumors::Joined::Joined { peer } => peer,
+        move |mut end, hook| async move {
+            match Peer::<T>::bootstrap()
+                .observe(hook)
+                .join(&mut end.read, &mut end.write)
+                .await
+            {
+                rumors::Joined::Joined { peer, .. } => peer,
                 _ => panic!("provider served the bootstrap"),
             };
         },
@@ -98,15 +102,21 @@ fn string_payload() {
 #[test]
 fn mutual_bootstrap_bails() {
     let capture = capture_session(
-        |mut link, hook| async move {
-            let out = Peer::<u64>::bootstrap().observe(hook).join(&mut link).await;
+        |mut end, hook| async move {
+            let out = Peer::<u64>::bootstrap()
+                .observe(hook)
+                .join(&mut end.read, &mut end.write)
+                .await;
             assert!(
                 matches!(out, rumors::Joined::Bailed { .. }),
                 "a mutually-bootstrapping peer must return its builder"
             );
         },
-        |mut link, hook| async move {
-            let out = Peer::<u64>::bootstrap().observe(hook).join(&mut link).await;
+        |mut end, hook| async move {
+            let out = Peer::<u64>::bootstrap()
+                .observe(hook)
+                .join(&mut end.read, &mut end.write)
+                .await;
             assert!(
                 matches!(out, rumors::Joined::Bailed { .. }),
                 "a mutually-bootstrapping peer must return its builder"

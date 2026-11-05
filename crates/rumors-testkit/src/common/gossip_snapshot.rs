@@ -1,22 +1,25 @@
 //! Record protocol traffic for byte-level assertions and wire snapshots.
 //!
-//! Captures retain each control and data stream's bytes independently of the
-//! observation hook. Control reads are also recorded so the driver can check
-//! that both peers consumed all control bytes before returning.
+//! A capture records every byte each side writes to and reads from its end
+//! of an in-memory connection, independently of the observation hook. The
+//! reads let the driver check that both peers consumed every byte before
+//! returning.
 //!
-//! A capture preserves byte order within each stream, but discards read/write
-//! boundaries and ordering between streams. The snapshot renderer groups data
-//! streams by their labeled index, making captures comparable despite differences
-//! in polling order. Re-accept a snapshot only after a deliberate protocol change.
+//! One pipe per direction carries the preamble, the greeting, every logical
+//! stream's frames, and the closing items, so a capture preserves the
+//! multiplexer's interleaving. The snapshot renderer groups frames by the
+//! logical stream the observation hook names, so that interleaving never
+//! changes a snapshot. Re-accept a snapshot only after a deliberate
+//! protocol change.
 //!
-//! Each in-memory link is wrapped at its control halves and connector. The
-//! control wrappers share a `Log`; each opened data stream has its own write
-//! buffer. These transport records can then be compared with observation
+//! Each in-memory connection end is wrapped at both halves, which share a
+//! `Log`. These transport records can then be compared with observation
 //! callbacks or parsed without using the Rumors codec.
 
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -25,15 +28,14 @@ use proptest::prelude::*;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
-use rumors::link::{Connector, Done, Link, MemoryAcceptor, MemoryConnector};
 use rumors::observe::{
     Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
 use rumors::{
     Peer, Rumors,
     testing::{
-        HookCapture, HookStream, LinkCapture, assert_items_account_for, render_hook_capture,
-        stream_label,
+        HookCapture, HookStream, MemoryEnd, PipeCapture, assert_items_account_for,
+        memory_connection, render_hook_capture,
     },
 };
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
@@ -70,8 +72,8 @@ enum Op {
     Recv,
 }
 
-/// One recorded control-stream I/O event: a contiguous run of bytes that a
-/// single peer sent or received in one `poll_write` / `poll_read`.
+/// One recorded I/O event: a contiguous run of bytes that a single peer
+/// sent or received in one `poll_write` / `poll_read`.
 struct Event {
     /// The peer that performed the I/O (`"A"` or `"B"`).
     peer: &'static str,
@@ -98,11 +100,8 @@ impl Log {
     }
 }
 
-/// Re-exported so byte-level suites can hold captures directly.
-pub use rumors::testing::LinkCapture as CapturedLink;
-
-/// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one control half that
-/// records every byte crossing it into a shared `Log`.
+/// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one half that records
+/// every byte crossing it into a shared `Log`.
 pub struct Recorder {
     inner: DuplexStream,
     peer: &'static str,
@@ -153,111 +152,46 @@ impl AsyncWrite for Recorder {
     }
 }
 
-/// One data stream's accumulated outgoing bytes.
-type StreamBuf = Arc<Mutex<Vec<u8>>>;
-
-/// A connector that gives each opened stream a fresh capture buffer,
-/// registered in open order on the side's list.
-#[derive(Clone)]
-pub struct CaptureConnector {
-    inner: MemoryConnector,
-    streams: Arc<Mutex<Vec<StreamBuf>>>,
+/// The recording connection end handed to each session driver.
+pub struct CaptureEnd {
+    /// The recorded read half.
+    pub read: Recorder,
+    /// The recorded write half.
+    pub write: Recorder,
 }
-
-impl Connector for CaptureConnector {
-    type Tx = CaptureWrite;
-
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        let (tx, _) = self.inner.connect().await?;
-        let buffer = StreamBuf::default();
-        self.streams.lock().unwrap().push(buffer.clone());
-        Ok((CaptureWrite { inner: tx, buffer }, Done::discard()))
-    }
-}
-
-/// A data-stream writer that appends every accepted byte to its buffer.
-pub struct CaptureWrite {
-    inner: DuplexStream,
-    buffer: StreamBuf,
-}
-
-impl AsyncWrite for CaptureWrite {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        let poll = Pin::new(&mut this.inner).poll_write(cx, buf);
-        if let Poll::Ready(Ok(n)) = &poll
-            && *n > 0
-        {
-            this.buffer.lock().unwrap().extend_from_slice(&buf[..*n]);
-        }
-        poll
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
-    }
-}
-
-/// The recording link handed to each session driver.
-pub type CaptureLink = Link<Recorder, Recorder, CaptureConnector, MemoryAcceptor>;
 
 /// One side's capture state, harvested after the session completes.
 struct Side {
     log: Log,
     peer: &'static str,
-    streams: Arc<Mutex<Vec<StreamBuf>>>,
 }
 
 impl Side {
-    /// Wrap one memory-link end in recording transport components.
-    fn wrap(link: rumors::link::MemoryLink, peer: &'static str, log: Log) -> (CaptureLink, Self) {
-        let streams = Arc::new(Mutex::new(Vec::new()));
+    /// Wrap one in-memory connection end in recording halves.
+    fn wrap(end: MemoryEnd, peer: &'static str, log: Log) -> (CaptureEnd, Self) {
         let side = Side {
             log: log.clone(),
             peer,
-            streams: streams.clone(),
         };
-        let link = link.map_transport(|control_read, control_write, connector, acceptor| {
-            (
-                Recorder {
-                    inner: control_read,
-                    peer,
-                    log: log.clone(),
-                },
-                Recorder {
-                    inner: control_write,
-                    peer,
-                    log,
-                },
-                CaptureConnector {
-                    inner: connector,
-                    streams,
-                },
-                acceptor,
-            )
-        });
-        (link, side)
+        let end = CaptureEnd {
+            read: Recorder {
+                inner: end.read,
+                peer,
+                log: log.clone(),
+            },
+            write: Recorder {
+                inner: end.write,
+                peer,
+                log,
+            },
+        };
+        (end, side)
     }
 
     /// Harvest this side's complete outgoing capture.
-    fn capture(&self) -> LinkCapture {
-        LinkCapture {
-            control: sent(self.peer, &self.log.0.lock().unwrap()),
-            streams: self
-                .streams
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|buffer| buffer.lock().unwrap().clone())
-                .collect(),
+    fn capture(&self) -> PipeCapture {
+        PipeCapture {
+            sent: sent(self.peer, &self.log.0.lock().unwrap()),
         }
     }
 }
@@ -265,9 +199,10 @@ impl Side {
 /// The hook-side recorder a capture driver attaches to its peer.
 ///
 /// Records one session: its elected role and every *sent* directed
-/// stream's items. The received directions are declined — each side of
-/// a capture renders what it sent, and the two sides together cover
-/// both directions.
+/// stream's items, each stamped from one session-scoped counter so their
+/// observation order survives. The received directions are declined: each
+/// side of a capture renders what it sent, and the two sides together
+/// cover both directions.
 #[derive(Default)]
 pub struct HookRecorder {
     sessions: Mutex<Vec<Arc<RecordedSession>>>,
@@ -278,12 +213,14 @@ pub struct HookRecorder {
 struct RecordedSession {
     role: Mutex<Option<Role>>,
     streams: Mutex<Vec<Arc<RecordedStream>>>,
+    /// The next observation stamp, shared by every stream of the session.
+    next: Arc<AtomicUsize>,
 }
 
-/// One observed sent stream: its identity and its items, in order.
+/// One observed sent stream: its identity and its stamped items, in order.
 struct RecordedStream {
     id: StreamId,
-    items: Mutex<Vec<Vec<u8>>>,
+    items: Mutex<Vec<(usize, Vec<u8>)>>,
 }
 
 impl Observer for HookRecorder {
@@ -310,15 +247,26 @@ impl SessionObserver for RecordSession {
             items: Mutex::new(Vec::new()),
         });
         self.0.streams.lock().unwrap().push(recorded.clone());
-        Some(Box::new(RecordStream(recorded)))
+        Some(Box::new(RecordStream {
+            stream: recorded,
+            next: self.0.next.clone(),
+        }))
     }
 }
 
-struct RecordStream(Arc<RecordedStream>);
+struct RecordStream {
+    stream: Arc<RecordedStream>,
+    next: Arc<AtomicUsize>,
+}
 
 impl StreamObserver for RecordStream {
     fn message(&mut self, bytes: &[u8]) {
-        self.0.items.lock().unwrap().push(bytes.to_vec());
+        let stamp = self.next.fetch_add(1, Ordering::Relaxed);
+        self.stream
+            .items
+            .lock()
+            .unwrap()
+            .push((stamp, bytes.to_vec()));
     }
 }
 
@@ -339,51 +287,47 @@ where
 
 /// Harvest one side's [`HookCapture`], held to the transport oracle.
 ///
-/// The stream label plus the concatenated observed items must
-/// reproduce each directed stream's wire bytes exactly. That assertion
-/// is what licenses rendering hook items as a pin of wire bytes.
-fn hook_capture(recorder: &HookRecorder, transport: &LinkCapture) -> HookCapture {
+/// Every observed item, control and frame alike, taken in observation
+/// order, must reproduce the pipe's sent bytes exactly. That assertion is
+/// what licenses rendering hook items as a pin of wire bytes.
+fn hook_capture(recorder: &HookRecorder, transport: &PipeCapture) -> HookCapture {
     let sessions = recorder.sessions.lock().unwrap();
     assert_eq!(sessions.len(), 1, "one captured session per driver");
     let session = &sessions[0];
     let role = *session.role.lock().unwrap();
     let streams = session.streams.lock().unwrap();
 
-    let control: Vec<Vec<u8>> = streams
+    let mut stamped: Vec<(usize, Vec<u8>)> = streams
+        .iter()
+        .flat_map(|stream| stream.items.lock().unwrap().clone())
+        .collect();
+    stamped.sort_by_key(|(stamp, _)| *stamp);
+    let in_order: Vec<Vec<u8>> = stamped.into_iter().map(|(_, item)| item).collect();
+    assert_items_account_for(&in_order, &transport.sent);
+
+    let items = |stream: &RecordedStream| -> Vec<Vec<u8>> {
+        let items = stream.items.lock().unwrap();
+        items.iter().map(|(_, item)| item.clone()).collect()
+    };
+    let control = streams
         .iter()
         .find(|stream| matches!(stream.id, StreamId::Control))
-        .map(|stream| stream.items.lock().unwrap().clone())
-        .expect("every session observes its sent control stream");
-    assert_items_account_for(&control, &transport.control);
-
-    let mut data = Vec::new();
-    for wire in &transport.streams {
-        let ((epoch, index), label_len) = stream_label(wire);
-        let recorded = streams
-            .iter()
-            .find(|stream| matches!(stream.id, StreamId::Data { index: i, .. } if i == index))
-            .unwrap_or_else(|| panic!("no hook stream observed wire stream {index}"));
-        let StreamId::Data { speaker, .. } = recorded.id else {
-            unreachable!("matched a data stream id");
-        };
-        let items = recorded.items.lock().unwrap().clone();
-        assert_items_account_for(&items, &wire[label_len..]);
-        data.push(HookStream {
-            index,
-            speaker,
-            epoch,
-            wire_len: wire.len(),
-            items,
-        });
-    }
-    let observed_data = streams
+        .map(|stream| items(stream))
+        .expect("every session observes its sent control items");
+    let data = streams
         .iter()
-        .filter(|stream| matches!(stream.id, StreamId::Data { .. }))
-        .count();
-    assert_eq!(
-        observed_data,
-        data.len(),
-        "every observed data stream has transport bytes"
+        .filter_map(|stream| match stream.id {
+            StreamId::Data { speaker, index } => Some(HookStream {
+                index,
+                speaker,
+                items: items(stream),
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        data.iter().all(|stream| !stream.items.is_empty()),
+        "every observed logical stream carried a frame"
     );
 
     HookCapture {
@@ -395,14 +339,14 @@ fn hook_capture(recorder: &HookRecorder, transport: &LinkCapture) -> HookCapture
 
 /// Capture and render an arbitrary pair of V2 protocol sessions.
 ///
-/// Each side is a closure handed its recorded link end and its hook
+/// Each side is a closure handed its recorded connection end and its hook
 /// recorder; it attaches the recorder to its peer (or builder) and
 /// returns the future that drives its role (`gossip`, `bootstrap`,
 /// `retire`, …). Rendering consumes the observation hook's items — the
 /// instrument enters through the public door — while the transport
 /// capture stays as the totality oracle behind the byte-pin claim. The
-/// renderer preserves exact items per stream but keys data streams by
-/// their labeled index, which is the V2 protocol's deterministic
+/// renderer preserves exact items per logical stream but keys the streams
+/// by their observed index, which is the V2 protocol's deterministic
 /// observable ordering. A driver must run its session to completion
 /// and assert its own outcome.
 ///
@@ -410,8 +354,8 @@ fn hook_capture(recorder: &HookRecorder, transport: &LinkCapture) -> HookCapture
 /// retire snapshot suites build the asymmetric pairings on top of this.
 pub fn capture_session<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
 where
-    DriveA: FnOnce(CaptureLink, Arc<HookRecorder>) -> FutA,
-    DriveB: FnOnce(CaptureLink, Arc<HookRecorder>) -> FutB,
+    DriveA: FnOnce(CaptureEnd, Arc<HookRecorder>) -> FutA,
+    DriveB: FnOnce(CaptureEnd, Arc<HookRecorder>) -> FutB,
     FutA: Future<Output = ()>,
     FutB: Future<Output = ()>,
 {
@@ -420,14 +364,15 @@ where
     let (a, b) = {
         let (hook_a, hook_b) = (hook_a.clone(), hook_b.clone());
         capture_sides(
-            move |link| drive_a(link, hook_a),
-            move |link| drive_b(link, hook_b),
+            move |end| drive_a(end, hook_a),
+            move |end| drive_b(end, hook_b),
         )
     };
     render_hook_capture(&hook_capture(&hook_a, &a), &hook_capture(&hook_b, &b))
 }
 
-/// Drive both roles over recording links and return both sides' captures.
+/// Drive both roles over recording connections and return both sides'
+/// captures.
 ///
 /// The raw form of [`capture_session`], for suites that inspect the
 /// captured bytes themselves (the wire-legibility property) rather than
@@ -435,41 +380,43 @@ where
 pub fn capture_sides<DriveA, DriveB, FutA, FutB>(
     drive_a: DriveA,
     drive_b: DriveB,
-) -> (LinkCapture, LinkCapture)
+) -> (PipeCapture, PipeCapture)
 where
-    DriveA: FnOnce(CaptureLink) -> FutA,
-    DriveB: FnOnce(CaptureLink) -> FutB,
+    DriveA: FnOnce(CaptureEnd) -> FutA,
+    DriveB: FnOnce(CaptureEnd) -> FutB,
     FutA: Future<Output = ()>,
     FutB: Future<Output = ()>,
 {
     let log = Log::default();
-    let (a_link, b_link) = rumors::link::memory();
-    let (a_link, a_side) = Side::wrap(a_link, "A", log.clone());
-    let (b_link, b_side) = Side::wrap(b_link, "B", log.clone());
+    let (a_end, b_end) = memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let (a_end, a_side) = Side::wrap(a_end, "A", log.clone());
+    let (b_end, b_side) = Side::wrap(b_end, "B", log.clone());
     block_on(async {
-        tokio::join!(drive_a(a_link), drive_b(b_link));
+        tokio::join!(drive_a(a_end), drive_b(b_end));
     });
-    assert_control_drained(&log.0.lock().unwrap());
+    assert_capture_drained(&log.0.lock().unwrap());
     (a_side.capture(), b_side.capture())
 }
 
-/// Assert the captured session drained the control stream in both
-/// directions: every byte each peer sent, the other received.
+/// Assert the captured session drained the connection in both directions:
+/// every byte each peer sent, the other received.
 ///
-/// The same invariant `wire::assert_control_drained` probes on a bare
-/// memory link, in the form this harness's plumbing affords: the shared
-/// [`Log`] records both peers' control I/O, so per direction the received
+/// The same invariant [`assert_connection_drained`] probes on a bare
+/// memory connection, in the form this harness can check: the
+/// shared [`Log`] records both peers' I/O, so per direction the received
 /// total must equal the sent total (delivery preserves order, so equal
-/// totals mean the streams rest at the session boundary). Every capture
+/// totals mean the halves rest at the session boundary). Every capture
 /// driver asserts a successful outcome, so the drain invariant applies to
 /// every captured session.
-fn assert_control_drained(events: &[Event]) {
+///
+/// [`assert_connection_drained`]: crate::common::wire::assert_connection_drained
+fn assert_capture_drained(events: &[Event]) {
     for (sender, receiver) in [("A", "B"), ("B", "A")] {
         let sent = sent(sender, events);
         let received = received(receiver, events);
         assert!(
             sent.len() == received.len(),
-            "control stream not drained: {sender} sent {} byte(s) that {receiver} never read \
+            "connection not drained: {sender} sent {} byte(s) that {receiver} never read \
              (leftover tail {:02x?})",
             sent.len() - received.len(),
             &sent[received.len()..],
@@ -477,7 +424,7 @@ fn assert_control_drained(events: &[Event]) {
     }
 }
 
-/// Gossip `a` and `b` through recording links (the gossip/gossip
+/// Gossip `a` and `b` through recording connections (the gossip/gossip
 /// specialization of [`capture_session`]). The two sets are expected to
 /// reconcile cleanly; a gossip error panics the helper.
 pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
@@ -505,14 +452,18 @@ where
     let rendered = {
         let (a_out, b_out) = (a_out.clone(), b_out.clone());
         capture_session(
-            move |mut link, hook| async move {
+            move |mut end, hook| async move {
                 let a = observed(a, hook).await;
-                a.gossip_once(&mut link).await.expect("gossip A");
+                a.gossip_once(&mut end.read, &mut end.write)
+                    .await
+                    .expect("gossip A");
                 *a_out.lock().unwrap() = Some(a);
             },
-            move |mut link, hook| async move {
+            move |mut end, hook| async move {
                 let b = observed(b, hook).await;
-                b.gossip_once(&mut link).await.expect("gossip B");
+                b.gossip_once(&mut end.read, &mut end.write)
+                    .await
+                    .expect("gossip B");
                 *b_out.lock().unwrap() = Some(b);
             },
         )
@@ -522,7 +473,7 @@ where
     (rendered, a, b)
 }
 
-/// Concatenate every control byte one party sent, erasing write chunking.
+/// Concatenate every byte one party sent, erasing write chunking.
 fn sent(peer: &str, events: &[Event]) -> Vec<u8> {
     events
         .iter()
@@ -531,7 +482,7 @@ fn sent(peer: &str, events: &[Event]) -> Vec<u8> {
         .collect()
 }
 
-/// Concatenate every control byte one party received, erasing read chunking.
+/// Concatenate every byte one party received, erasing read chunking.
 fn received(peer: &str, events: &[Event]) -> Vec<u8> {
     events
         .iter()

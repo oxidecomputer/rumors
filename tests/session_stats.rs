@@ -2,35 +2,64 @@
 //!
 //! Message counts are checked against recorded sends and redactions, including
 //! both peers shedding messages in one session. Byte counts are checked against
-//! captured data streams, excluding their parsed labels, across reused links.
+//! the frames captured on one reused connection.
 //! Point tests cover catch-up, one-sided redaction, no-op sessions, the minimum
 //! window, and the continuous gossip driver's results.
 
 use rumors_testkit::common;
 
-use std::collections::BTreeMap;
-
 use ciborium::value::Value;
 use futures::StreamExt;
 use proptest::prelude::*;
-use rumors::testing::stream_label;
 use rumors::{Led, Peer, Rumors, SessionStats};
 
-use crate::common::gossip_snapshot::{CaptureLink, capture_sides};
+use crate::common::gossip_snapshot::{CaptureEnd, capture_sides};
 use crate::common::oracle::readout;
 use crate::common::wire::{
-    LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async, gossip_pair_async,
+    assert_connection_drained, block_on, bootstrap_fork_async, gossip_pair_async,
 };
+use rumors::testing::MEMORY_CAPACITY;
 
-/// Count complete CBOR items in one captured data stream after its label.
-fn frame_count(mut bytes: &[u8]) -> u64 {
-    let mut frames = 0;
-    while !bytes.is_empty() {
-        let _: Value = ciborium::de::from_reader(&mut bytes).expect("captured frame is valid CBOR");
-        frames += 1;
-    }
-    frames
+/// One session's frames in a captured direction: their total bytes and
+/// their count, parsed without the Rumors codec.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Frames {
+    /// Bytes of every frame.
+    bytes: u64,
+    /// Number of frames.
+    count: u64,
 }
+
+/// Split one direction's captured bytes into sessions and tally each
+/// session's frames.
+///
+/// Every session opens with its preamble, a tagged item, and a frame is an
+/// untagged array, so a generic CBOR parse finds both without the Rumors
+/// codec.
+fn frames_per_session(bytes: &[u8]) -> Vec<Frames> {
+    let mut sessions = Vec::new();
+    let mut rest = bytes;
+    while !rest.is_empty() {
+        let mut input = rest;
+        let item: Value =
+            ciborium::de::from_reader(&mut input).expect("captured items are valid CBOR");
+        let len = (rest.len() - input.len()) as u64;
+        match item {
+            Value::Tag(PREAMBLE_TAG, _) => sessions.push(Frames::default()),
+            Value::Array(_) => {
+                let session = sessions.last_mut().expect("a preamble opens every session");
+                session.bytes += len;
+                session.count += 1;
+            }
+            _ => {}
+        }
+        rest = input;
+    }
+    sessions
+}
+
+/// The self-described CBOR tag that opens every session's preamble.
+const PREAMBLE_TAG: u64 = 55799;
 
 /// Clear the timing measurement when asserting that a session did no work.
 fn without_elapsed(mut stats: SessionStats) -> SessionStats {
@@ -69,7 +98,7 @@ fn catchup_gains_the_providers_count_without_disputes() {
 
 /// Converged replicas report zero in every field: equal greeting versions
 /// end the session at the greeting, so no window is derived, no data
-/// stream opens, and nothing is counted.
+/// stream carries a frame, and nothing is counted.
 #[test]
 fn converged_replicas_report_zero_stats() {
     block_on(async {
@@ -129,8 +158,8 @@ fn gossip_stream_reports_session_stats() {
         let b = bootstrap_fork_async(&a).await;
         a.send_all([42]).unwrap();
 
-        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        let mut a_drive = a.gossip(&mut a_link);
+        let (mut a_end, mut b_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+        let mut a_drive = a.gossip(&mut a_end.read, &mut a_end.write);
         // The serving side's policy stream stays quiet, so its session is
         // remote-led (a `changes()` stream's first tick would initiate).
         let b = b
@@ -139,7 +168,7 @@ fn gossip_stream_reports_session_stats() {
             .unwrap()
             .gossip_when(|_| futures::stream::pending::<()>())
             .into_rumors();
-        let mut b_drive = b.gossip(&mut b_link);
+        let mut b_drive = b.gossip(&mut b_end.read, &mut b_end.write);
         let (pushed, served) = tokio::join!(a_drive.next(), b_drive.next());
         let pushed = pushed.expect("driver running").expect("push succeeds");
         let served = served.expect("driver running").expect("serve succeeds");
@@ -149,39 +178,37 @@ fn gossip_stream_reports_session_stats() {
         assert_eq!(pushed.stats.messages_gained, 0);
         assert_eq!(pushed.stats.bytes_sent, served.stats.bytes_received);
         drop((a_drive, b_drive));
-        assert_control_drained(a_link, b_link);
+        assert_connection_drained(a_end, b_end);
     });
 }
 
-/// Capture three divergent sessions after advancing an empty link to `initial_epoch`.
+/// Capture three divergent sessions over one reused connection.
 async fn record_sessions(
     peer: &Rumors<Vec<u8>>,
-    mut link: CaptureLink,
-    initial_epoch: u8,
+    mut end: CaptureEnd,
     sends: &[Vec<u8>],
     stats: &mut Vec<SessionStats>,
 ) {
-    // Converged sessions advance the epoch without opening data streams,
-    // so the capture contains only the divergent sessions measured below.
-    for _ in 0..initial_epoch {
-        let result = peer.gossip_once(&mut link).await.expect("empty session");
-        assert_eq!(without_elapsed(result.stats), SessionStats::default());
-    }
     for _ in 0..3 {
         peer.send_all(sends.iter().cloned()).unwrap();
-        stats.push(peer.gossip_once(&mut link).await.expect("gossip").stats);
+        let (gossiped, ..) = peer
+            .gossip_once(&mut end.read, &mut end.write)
+            .await
+            .expect("gossip");
+        stats.push(gossiped.stats);
     }
 }
 
 proptest! {
-    /// Each session counts every data-frame byte exactly once, excluding stream labels.
+    /// Each session counts every frame byte exactly once, and only frame
+    /// bytes: the preamble, greeting, and closing items that share the
+    /// connection are excluded.
     ///
-    /// Reuse the link across consecutive epochs, favoring the CBOR length boundary
-    /// and the epoch wrap. Read label lengths from the capture instead of assuming
-    /// their encoded size. The sender's count must also match its peer's receiver.
+    /// Three sessions reuse one connection; the capture's bytes split into
+    /// sessions at each preamble. The sender's count must also match its
+    /// peer's receiver.
     #[test]
     fn byte_counters_match_the_transport_tally(
-        initial_epoch in prop_oneof![Just(23u8), Just(255u8), any::<u8>()],
         a_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
         b_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
     ) {
@@ -189,26 +216,18 @@ proptest! {
         let b = block_on(bootstrap_fork_async(&a));
         let (mut a_stats, mut b_stats) = (Vec::new(), Vec::new());
         let (a_capture, b_capture) = capture_sides(
-            |link| record_sessions(&a, link, initial_epoch, &a_sends, &mut a_stats),
-            |link| record_sessions(&b, link, initial_epoch, &b_sends, &mut b_stats),
+            |end| record_sessions(&a, end, &a_sends, &mut a_stats),
+            |end| record_sessions(&b, end, &b_sends, &mut b_stats),
         );
 
         for (capture, sessions) in [(a_capture, &a_stats), (b_capture, &b_stats)] {
-            let mut sent = BTreeMap::<u8, u64>::new();
-            let mut frames = BTreeMap::<u8, u64>::new();
-            for stream in capture.streams {
-                let ((epoch, _), label_len) = stream_label(&stream);
-                *sent.entry(epoch).or_default() += (stream.len() - label_len) as u64;
-                *frames.entry(epoch).or_default() += frame_count(&stream[label_len..]);
-            }
-            for (round, stats) in sessions.iter().enumerate() {
-                let epoch = initial_epoch.wrapping_add(round as u8);
+            let captured = frames_per_session(&capture.sent);
+            prop_assert_eq!(captured.len(), sessions.len(), "one preamble per session");
+            for (frames, stats) in captured.iter().zip(sessions.iter()) {
                 prop_assert!(stats.bytes_sent > 0, "each session sends new messages");
-                prop_assert_eq!(sent.remove(&epoch), Some(stats.bytes_sent), "epoch {}", epoch);
-                prop_assert_eq!(frames.remove(&epoch), Some(stats.frames_sent), "epoch {}", epoch);
+                prop_assert_eq!(frames.bytes, stats.bytes_sent);
+                prop_assert_eq!(frames.count, stats.frames_sent);
             }
-            prop_assert!(sent.is_empty(), "every captured stream belongs to a measured session");
-            prop_assert!(frames.is_empty(), "every captured frame belongs to a measured session");
         }
         for (a, b) in a_stats.iter().zip(&b_stats) {
             prop_assert_eq!(a.bytes_sent, b.bytes_received);

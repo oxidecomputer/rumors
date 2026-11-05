@@ -253,6 +253,17 @@ impl<T> Receiver<T> {
         }
         polled
     }
+
+    /// Refuse every further item, then take one already queued without
+    /// waiting, as the production receiver does; no scheduled delay applies,
+    /// since nothing waits.
+    pub fn close_and_try_recv(&mut self) -> Option<T> {
+        let taken = self.inner.close_and_try_recv();
+        if taken.is_some() {
+            self.stats.received();
+        }
+        taken
+    }
 }
 
 /// Expose the receiver as a stream without changing its instrumentation.

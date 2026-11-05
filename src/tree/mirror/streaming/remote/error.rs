@@ -1,8 +1,8 @@
 //! Translate reconciliation failures at the public session boundary.
 
-use std::{convert::Infallible, io};
+use std::convert::Infallible;
 
-use super::{codec, proxy, streams};
+use super::{codec, pipe, proxy};
 use crate::{
     Error,
     error::{Context, Mismatch, Phase, ProtocolViolation, TransportError, TransportOperation},
@@ -45,7 +45,7 @@ impl From<MirrorError> for Error {
     fn from(error: MirrorError) -> Self {
         use TransportOperation as Op;
         use codec::{DecodeErrorKind, EncodeErrorKind};
-        use streams::{SendError, StreamError};
+        use pipe::PipeError;
         let remote = match error {
             MirrorError::Local(error) => {
                 return Self::violation(Phase::Reconciliation, error);
@@ -53,7 +53,7 @@ impl From<MirrorError> for Error {
             MirrorError::Remote(error) => error,
         };
         let (context, operation, source) = match remote {
-            proxy::Error::PeerDeparted(source) => {
+            proxy::Error::Pipe(PipeError::Departed(source)) => {
                 (Context::new(Phase::Reconciliation), Op::Read, source)
             }
             proxy::Error::PayloadDepthMismatch { local, remote } => {
@@ -63,40 +63,16 @@ impl From<MirrorError> for Error {
             proxy::Error::GreetingWrite { operation, source } => {
                 (Context::new(Phase::Greeting), operation, source)
             }
-            proxy::Error::Stream(StreamError::Truncated { origin }) => (
-                Context::at(origin),
-                Op::Read,
-                io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "data stream ended before its completion marker",
-                ),
-            ),
-            proxy::Error::Stream(StreamError::SupplyClosed { origin, source }) => (
-                Context::at(origin),
-                Op::Accept,
-                source.unwrap_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "incoming stream supply closed",
-                    )
-                }),
-            ),
-            proxy::Error::Stream(StreamError::Decode(codec::DecodeError {
+            proxy::Error::Pipe(PipeError::Decode(codec::DecodeError {
                 origin,
                 kind:
                     DecodeErrorKind::Read { source, .. } | DecodeErrorKind::Truncated { source, .. },
             })) => (Context::at(origin), Op::Read, source),
-            proxy::Error::Send(SendError::Connect { origin, source }) => {
-                (Context::at(origin), Op::Open, source)
-            }
-            proxy::Error::Send(SendError::Label { origin, source }) => {
-                (Context::at(origin), Op::Write, source)
-            }
-            proxy::Error::Send(SendError::Frame(codec::EncodeError {
+            proxy::Error::Pipe(PipeError::Encode(codec::EncodeError {
                 origin,
                 kind: EncodeErrorKind::Write { source, .. },
             })) => (Context::at(origin), Op::Write, source),
-            proxy::Error::Send(SendError::Frame(codec::EncodeError {
+            proxy::Error::Pipe(PipeError::Encode(codec::EncodeError {
                 origin,
                 kind: EncodeErrorKind::Flush(source),
             })) => (Context::at(origin), Op::Flush, source),
@@ -118,21 +94,16 @@ impl From<MirrorError> for Error {
 
 /// Locate a violation without exposing the proxy's error hierarchy.
 fn violation_context(error: &proxy::Error<std::convert::Infallible>) -> Context {
-    use streams::{AcceptError, SendError, StreamError};
+    use pipe::PipeError;
     match error {
         proxy::Error::GreetingDecode(_) | proxy::Error::GreetingListing(_) => {
             Context::new(Phase::Greeting)
         }
-        proxy::Error::Stream(StreamError::Mislabeled { origin, .. }) => Context::at(*origin),
-        proxy::Error::Stream(StreamError::Decode(error)) => Context::at(error.origin),
-        proxy::Error::Send(SendError::Frame(error)) => Context::at(error.origin),
-        proxy::Error::Accept(
-            AcceptError::Epoch { origin, .. }
-            | AcceptError::UnknownStream { origin, .. }
-            | AcceptError::Label { origin, .. }
-            | AcceptError::Duplicate { origin }
-            | AcceptError::Unexpected { origin },
-        ) => Context::at(*origin),
+        proxy::Error::Pipe(PipeError::Decode(error)) => Context::at(error.origin),
+        proxy::Error::Pipe(PipeError::Encode(error)) => Context::at(error.origin),
+        proxy::Error::Pipe(PipeError::Unasked { origin } | PipeError::Unfinished { origin }) => {
+            Context::at(*origin)
+        }
         _ => Context::new(Phase::Reconciliation),
     }
 }

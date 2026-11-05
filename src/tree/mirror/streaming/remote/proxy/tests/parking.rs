@@ -2,30 +2,21 @@
 //! in-flight count, and the scopes a reply's questions create publish when
 //! the stage takes it.
 
-use futures::join;
 use proptest::prelude::*;
 
-use super::harness::{codec, join_oracle, left_initiates};
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
-use crate::link::memory_with_capacity;
-use crate::testing::{Quiescence, run_to_quiescence};
+use super::harness::{join_oracle, left_initiates};
+use crate::testing::Quiescence;
 use crate::tree::{
     Root as TreeRoot,
     arb::{arb_divergent_pair, full_fan_behind_two_pair},
     mirror::streaming::{
-        Local, Root,
         channel::{QueueKind, QueueRole, with_kind_capacity, with_observation, with_role_hold},
-        materialized::Handshaking,
-        mirror,
-        remote::{Handshaking as RemoteHandshaking, codec::Speaker, parking_census::with_census},
+        remote::{codec::Speaker, parking_census::with_census},
+        testing::session::{AMPLE, completed, over_pipe},
         window::{FAN, Window, WindowConfig},
     },
     typed::height::{Height, UnderUnderRoot},
 };
-
-/// Bytes each transport stream buffers: enough that transport backpressure
-/// never holds a stage in these sessions.
-const TRANSPORT: usize = 1 << 20;
 
 /// The typed height of level-3 replies, which answer level-3 questions.
 const LEVEL_3: usize = UnderUnderRoot::HEIGHT - 1;
@@ -34,32 +25,15 @@ const LEVEL_3: usize = UnderUnderRoot::HEIGHT - 1;
 /// for every invited reply to arrive and park.
 const HOLD_POLLS: usize = 20_000;
 
-/// Reconcile two replicas over a memory link, each endpoint's walk and proxy
-/// sharing that endpoint's window.
+/// Reconcile two replicas over an ample pipe, each endpoint's walk and
+/// proxy sharing that endpoint's window, and require both to succeed
+/// unless the session stalled.
 fn session(
     left: TreeRoot,
     right: TreeRoot,
     windows: [WindowConfig; 2],
 ) -> Result<(TreeRoot, TreeRoot), Quiescence> {
-    let (left_link, right_link) = memory_with_capacity(TRANSPORT);
-    let [left_window, right_window] = windows;
-    run_to_quiescence(async move {
-        let size = DEFAULT_TARGET_MESSAGE_SIZE as u64;
-        let left_walk = Handshaking::start(Local, Root::from(left), size).window(left_window);
-        let right_walk = Handshaking::start(Local, Root::from(right), size).window(right_window);
-        let left_proxy =
-            RemoteHandshaking::start(Local, left_link, codec::<()>()).window(left_window);
-        let right_proxy =
-            RemoteHandshaking::start(Local, right_link, codec::<()>()).window(right_window);
-        let (left, right) = join!(
-            Box::pin(mirror(left_walk, left_proxy)),
-            Box::pin(mirror(right_walk, right_proxy)),
-        );
-        (
-            left.expect("left session failed").0.into(),
-            right.expect("right session failed").0.into(),
-        )
-    })
+    over_pipe::<()>((left, right), windows, AMPLE).map(completed)
 }
 
 /// Parking holds exactly the in-flight count, so its capacity cannot shrink.
@@ -101,8 +75,7 @@ fn parking_holds_exactly_the_in_flight_count() {
 }
 
 /// The scope queue fed at each take completes this fixture at a fan less
-/// one slot, stalls at a fan less two, and at a fan plus one no publish
-/// waits.
+/// one slot, and at a fan plus one no publish waits.
 ///
 /// The responder takes the initiator's full-fan reply and publishes 256
 /// scopes before its stage receives the reply. The encoder draining them
@@ -110,7 +83,9 @@ fn parking_holds_exactly_the_in_flight_count() {
 /// take's first (the scope queue's constructor, `next_scopes`, gives the
 /// argument). On this fixture the encoder is free to dequeue both, so
 /// `FAN − 1` slots complete, possibly after waits. At `FAN − 2` the take
-/// can never finish, and the session stalls.
+/// can never finish; the pipe suite's stall negative control,
+/// `harness_detects_a_stall_over_one_pipe`, runs this session at that
+/// capacity and requires the stall.
 #[test]
 fn scope_queue_capacity_law() {
     let (initiator, responder) = full_fan_behind_two_pair();
@@ -125,12 +100,6 @@ fn scope_queue_capacity_law() {
             [WindowConfig::FLOOR; 2],
         )
     };
-
-    let short = with_kind_capacity(QueueKind::ProxyNextScopes, FAN - 2, run);
-    assert!(
-        matches!(short, Err(Quiescence::Stalled)),
-        "FAN - 2 scope slots must stall on a full-fan reply: {short:?}"
-    );
 
     let (left, right) = with_kind_capacity(QueueKind::ProxyNextScopes, FAN - 1, run)
         .expect("FAN - 1 scope slots complete");
@@ -169,7 +138,9 @@ proptest! {
     /// parking census reports each queue's derived capacity and the side
     /// that owns it, which the test holds to that side's window: sizing from
     /// the peer's window, or from the smaller or larger of the two, gives a
-    /// different capacity wherever the two windows' counts differ.
+    /// different capacity wherever the two windows' counts differ. That a
+    /// wide side needs its own count is
+    /// `a_wide_peer_parks_past_its_narrow_peers_count`.
     #[test]
     fn mismatched_windows_size_parking_by_each_sides_window(
         (left, right) in arb_divergent_pair(),

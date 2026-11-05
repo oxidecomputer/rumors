@@ -32,7 +32,7 @@ fn nested(depth: u64) -> Arr {
 }
 
 /// A payload at exactly the default depth limit is admitted at send and
-/// round-trips peer-to-peer over an in-memory link: the boundary holds
+/// round-trips peer-to-peer over an in-memory connection: the boundary holds
 /// end to end.
 #[test]
 fn a_payload_at_the_default_depth_round_trips() {
@@ -141,16 +141,17 @@ fn equal_raised_limits_gossip_deep_content_clean() {
     // The fork selects the same raised limit one session early, on the
     // bootstrap builder, exactly as a real fleet member would.
     let b = crate::common::wire::block_on(async {
-        let (mut provider, mut newcomer) = rumors::link::memory();
+        let (mut provider, mut newcomer) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let (served, joined) = tokio::join!(
-            a.gossip_once(&mut provider),
+            a.gossip_once(&mut provider.read, &mut provider.write),
             Peer::<Arr>::bootstrap()
                 .payload_depth_limit(raised)
-                .join(&mut newcomer),
+                .join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("the seed serves the bootstrap");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("the seed is established"),
         })
         .sync_window_floor()
@@ -202,12 +203,12 @@ fn a_lossy_value_is_rejected_at_send() {
 }
 
 /// A recording observer for the mismatch pin: retains whether a session
-/// elected roles and how many *data* streams it opened.
+/// elected roles and how many logical *data* streams carried a frame.
 ///
 /// The control stream's two directions open with the session itself, so
 /// they are not counted; what this makes observable is the abort's
 /// placement — after the greetings, before the election and any data
-/// stream.
+/// frame.
 #[derive(Default)]
 struct SessionShape {
     elected: std::sync::Mutex<bool>,
@@ -237,7 +238,8 @@ impl rumors::observe::SessionObserver for ShapeSession {
         stream: &rumors::observe::StreamInfo,
     ) -> Option<Box<dyn rumors::observe::StreamObserver>> {
         // The control stream's two directions open with the session
-        // itself; only data streams witness the descent starting.
+        // itself; a data stream's handler is created at its first frame,
+        // so only data streams witness the descent starting.
         if matches!(stream.id, rumors::observe::StreamId::Data { .. }) {
             *self.0.streams.lock().unwrap() += 1;
         }
@@ -249,7 +251,7 @@ impl rumors::observe::SessionObserver for ShapeSession {
 /// the typed mismatch, each error naming both limits from its own
 /// vantage.
 ///
-/// The session opens no data stream and elects no role: the check runs
+/// The session carries no data frame and elects no role: the check runs
 /// after the greetings and before anything else.
 ///
 /// The pair is *converged* (freshly forked, no divergence), so the pin
@@ -283,8 +285,12 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
     });
 
     let (a_err, b_err) = crate::common::wire::block_on(async {
-        let (mut a_link, mut b_link) = rumors::link::memory();
-        let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
+        let (mut a_end, mut b_end) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let (a_out, b_out) = tokio::join!(
+            a.gossip_once(&mut a_end.read, &mut a_end.write),
+            b.gossip_once(&mut b_end.read, &mut b_end.write)
+        );
         (
             a_out.expect_err("mismatched limits must abort"),
             b_out.expect_err("mismatched limits must abort"),
@@ -308,17 +314,19 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
         assert_eq!(
             *shape.streams.lock().unwrap(),
             0,
-            "the mismatch opens no data stream"
+            "the mismatch carries no data frame"
         );
     }
 }
 
 /// When a counterparty aborts mid-session on a payload decode failure
-/// and discards its poisoned link, the sender's own `gossip` completes
+/// and discards its connection, the sender's own `gossip` completes
 /// with an error rather than hanging.
 ///
-/// The sender fails in [`rumors::error::Phase::Completion`]: its local work
-/// committed, but the peer's confirmation was lost. It still holds its message.
+/// The sender's error is a transport failure: the departure of its
+/// counterparty, met by whichever of its reads or writes comes first, in
+/// reconciliation or at completion depending on how far the sender got.
+/// It still holds its message.
 ///
 /// The decode failure is injected by pairing ends whose payload types
 /// disagree (the sender's set holds a CBOR integer; the receiver
@@ -329,14 +337,15 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
 fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = crate::common::wire::block_on(async {
-        let (mut provider, mut newcomer) = rumors::link::memory();
+        let (mut provider, mut newcomer) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let (served, joined) = tokio::join!(
-            a.gossip_once(&mut provider),
-            Peer::<String>::bootstrap().join(&mut newcomer),
+            a.gossip_once(&mut provider.read, &mut provider.write),
+            Peer::<String>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("the seed serves the bootstrap (no payloads to decode yet)");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("the seed is established"),
         })
         .sync_window_floor()
@@ -346,17 +355,16 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
     a.send(7u64).expect("a flat integer");
 
     // Production-shaped teardown: each side drives its own end, and the
-    // aborting side discards its link, as every session `Err` instructs.
-    // `block_on` fails on quiescence without completion, so a hung
-    // sender is a test failure here, never a parked process.
+    // aborting side's session owns its halves, so a failure drops them, as
+    // every session `Err` instructs. `block_on` fails on quiescence without
+    // completion, so a hung sender is a test failure here, never a parked
+    // process.
     let (a_out, b_out) = crate::common::wire::block_on(async {
-        let (mut a_link, b_link) = rumors::link::memory();
-        tokio::join!(a.gossip_once(&mut a_link), async move {
-            let mut b_link = b_link;
-            let out = b.gossip_once(&mut b_link).await;
-            drop(b_link);
-            out
-        })
+        let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        tokio::join!(
+            a.gossip_once(a_end.read, a_end.write),
+            b.gossip_once(b_end.read, b_end.write)
+        )
     });
 
     let b_err = b_out.expect_err("the receiver aborts on the payload decode");
@@ -364,10 +372,17 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
         matches!(b_err, rumors::Error::Protocol(_)),
         "the receiver's exit is the typed decode failure: {b_err:?}"
     );
-    let a_err = a_out.expect_err("the sender's session cannot confirm completion");
+    let a_err = a_out.expect_err("the sender's session cannot complete without its counterparty");
     assert!(
-        matches!(a_err, rumors::Error::Transport(ref error) if error.context.phase == rumors::error::Phase::Completion),
-        "the sender committed locally and lost only the confirmation: {a_err:?}"
+        matches!(
+            a_err,
+            rumors::Error::Transport(ref error) if matches!(
+                error.context.phase,
+                rumors::error::Phase::Reconciliation | rumors::error::Phase::Completion
+            )
+        ),
+        "the sender meets its counterparty's departure as a transport failure, \
+         in reconciliation or at completion: {a_err:?}"
     );
     assert_eq!(
         a.snapshot().len(),

@@ -5,7 +5,7 @@
 //! window prices sessions by their *disputes*, not their sizes. These
 //! tests probe the corners where those promises are easiest to break:
 //! asymmetric catch-up, the zero-budget floor, compounded backpressure
-//! (one-byte link windows under floor dispute windows), sets that grow
+//! (one-byte pipe buffers under floor dispute windows), sets that grow
 //! while a session runs, and sessions timed on a real clock rather than
 //! the paused one.
 
@@ -20,7 +20,7 @@ use rumors_testkit::bench::latency;
 /// One-way delay for the virtual-time measurements (the timer grain).
 const DELAY: Duration = Duration::from_millis(10);
 
-/// Roomy per-stream pipe buffering: only round-trip structure is measured.
+/// Roomy per-direction pipe buffering: only round-trip structure is measured.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// A budget under which the greeting's sizes derive a window wider than
@@ -48,14 +48,14 @@ fn pair(
     send_random(&left, common.max(1), &mut rng);
 
     let right = pollster::block_on(async {
-        let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (mut provider, mut newcomer) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip_once(&mut provider),
-            Peer::<u64>::bootstrap().join(&mut newcomer),
+            left.gossip_once(&mut provider.read, &mut provider.write),
+            Peer::<u64>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("serve bootstrap");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
         .sync_memory_budget(budget)
@@ -163,7 +163,7 @@ fn zero_budget_serializes_but_completes() {
     );
 }
 
-/// Compounded backpressure cannot deadlock: one-byte link windows under
+/// Compounded backpressure cannot deadlock: one-byte pipe buffers under
 /// zero-budget dispute windows — every buffer in the system at its
 /// minimum — still complete.
 ///
@@ -173,9 +173,11 @@ fn zero_budget_serializes_but_completes() {
 fn one_byte_pipes_at_the_floor_stay_live() {
     let (left, right) = pair(0, 64, 64, 64);
     run_to_quiescence(async {
-        let (mut a, mut b) = rumors::link::memory_with_capacity(1);
-        let (left_result, right_result) =
-            tokio::join!(left.gossip_once(&mut a), right.gossip_once(&mut b));
+        let (mut a, mut b) = rumors::testing::memory_connection(1);
+        let (left_result, right_result) = tokio::join!(
+            left.gossip_once(&mut a.read, &mut a.write),
+            right.gossip_once(&mut b.read, &mut b.write)
+        );
         left_result.expect("gossip left");
         right_result.expect("gossip right");
     })
@@ -197,7 +199,7 @@ fn growth_during_a_session_only_serializes() {
     let (left, right) = pair(GROWTH_BUDGET, 2_048, 2_000, 2_000);
     let racer = left.clone();
     pollster::block_on(async {
-        let (mut a, mut b) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (mut a, mut b) = rumors::testing::memory_connection(LINK_CAPACITY);
         // Fixed, so the hop bounds are judged on the same corpus every run.
         let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0004);
         let race = async {
@@ -206,9 +208,12 @@ fn growth_during_a_session_only_serializes() {
                 tokio::task::yield_now().await;
             }
         };
-        let (left_result, right_result, ()) =
-            tokio::join!(left.gossip_once(&mut a), right.gossip_once(&mut b), race);
-        let left_result = left_result.expect("gossip left under concurrent growth");
+        let (left_result, right_result, ()) = tokio::join!(
+            left.gossip_once(&mut a.read, &mut a.write),
+            right.gossip_once(&mut b.read, &mut b.write),
+            race
+        );
+        let (left_result, ..) = left_result.expect("gossip left under concurrent growth");
         right_result.expect("gossip right");
         assert!(
             left_result.stats.window_granted > 1,
@@ -227,9 +232,11 @@ fn growth_during_a_session_only_serializes() {
             right.snapshot().len(),
         );
 
-        let (mut a, mut b) = rumors::link::memory_with_capacity(LINK_CAPACITY);
-        let (left_result, right_result) =
-            tokio::join!(left.gossip_once(&mut a), right.gossip_once(&mut b));
+        let (mut a, mut b) = rumors::testing::memory_connection(LINK_CAPACITY);
+        let (left_result, right_result) = tokio::join!(
+            left.gossip_once(&mut a.read, &mut a.write),
+            right.gossip_once(&mut b.read, &mut b.write)
+        );
         left_result.expect("follow-up gossip left");
         right_result.expect("follow-up gossip right");
     });

@@ -1,14 +1,14 @@
-//! Session-shape liveness matrix over a minimal-capacity link.
+//! Session-shape liveness matrix over a minimal-capacity connection.
 //!
 //! Every cell drives one complete session — both peers polled concurrently —
-//! over [`rumors::link::memory_with_capacity`] at its one-byte minimum: the
+//! over [`rumors::testing::memory_connection`] at its one-byte minimum: the
 //! most adversarial transport the in-memory harness supports, where nothing
 //! larger than a single byte is ever absorbed in flight. The protocol's
 //! liveness must not rest on frame-size assumptions: the greeting's version
 //! frame grows with party count, so any phase whose two sides write
 //! symmetrically before reading deadlocks the pair the moment its frame
 //! outgrows the transport's window. That hazard class is invisible over the
-//! roomy links the rest of the suite uses; these cells force every session
+//! roomy connections the rest of the suite uses; these cells force every session
 //! shape through the window that hides nothing.
 //!
 //! The fixtures make the version frames non-trivial on purpose — several
@@ -22,23 +22,20 @@
 //! rather than as a hung gate or a wall-clock guess.
 
 use rumors_testkit::common;
+use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use rumors::{Peer, Retire, Rumors};
 
 use crate::common::{
     window::WindowChoice,
     wire::{
-        assert_control_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_window_async,
+        assert_connection_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_window_async,
     },
 };
 
-/// Per-stream byte capacity of the link every cell's session runs over: the
+/// Per-direction byte capacity of the connection every cell's session runs over: the
 /// harness minimum, so no frame of any phase fits in flight.
 const MIN_CAPACITY: usize = 1;
-
-/// Per-stream capacity for fixture-building sessions, which are scaffolding
-/// rather than subject: roomy, like the rest of the suite's wire tests.
-const FIXTURE_CAPACITY: usize = 64 * 1024;
 
 /// Disjoint originators forked into a seasoned universe, each contributing
 /// its own events.
@@ -55,7 +52,7 @@ const ORIGINATORS: u64 = 6;
 const MESSAGES_PER_ORIGINATOR: u64 = 2;
 
 /// Minimum ratio of a seasoned greeting version's encoded width to the
-/// link window: the fixture self-check that the greeting overflows the
+/// connection's window: the fixture self-check that the greeting overflows the
 /// window many times over, without pinning its layout.
 ///
 /// ITC versions stay compact even across many parties. The one-byte window
@@ -67,18 +64,21 @@ const GREETING_FLOOR: usize = 8;
 /// divergent cell's descent move content in both directions.
 const DIVERGENT_MESSAGES: u64 = 8;
 
-/// Gossip `a` and `b` to completion over a fresh link pair of the given
-/// per-stream capacity, both sides polled concurrently. Every session is
+/// Gossip `a` and `b` to completion over a fresh connection of the given
+/// per-direction capacity, both sides polled concurrently. Every session is
 /// held to the clean-drain invariant at its boundary.
 async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(capacity);
-    let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
+    let (mut a_end, mut b_end) = rumors::testing::memory_connection(capacity);
+    let (a_out, b_out) = tokio::join!(
+        a.gossip_once(&mut a_end.read, &mut a_end.write),
+        b.gossip_once(&mut b_end.read, &mut b_end.write)
+    );
     a_out.expect("gossip completes on side A");
     b_out.expect("gossip completes on side B");
-    assert_control_drained(a_link, b_link);
+    assert_connection_drained(a_end, b_end);
 }
 
-/// Widen `rumors`'s causal version over roomy links: fork [`ORIGINATORS`]
+/// Widen `rumors`'s causal version over roomy connections: fork [`ORIGINATORS`]
 /// disjoint peers with pairwise-distinct commit counts, gossip each back,
 /// and run one bootstrap→retire cycle.
 ///
@@ -101,7 +101,7 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
         // The seed ticks between forks too, so regions interleave.
         rumors.send(payload).unwrap();
         payload += 1;
-        gossip_over(rumors, &fork, FIXTURE_CAPACITY).await;
+        gossip_over(rumors, &fork, ROOMY_CAPACITY).await;
         originators.push(fork);
     }
     // A second, differently uneven round: each originator advances again
@@ -114,7 +114,7 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
         }
     }
     for fork in &originators {
-        gossip_over(rumors, fork, FIXTURE_CAPACITY).await;
+        gossip_over(rumors, fork, ROOMY_CAPACITY).await;
     }
     // One bootstrap→retire cycle: the retiree's region rejoins the seed's,
     // exercising the id-space shape a recycled identity leaves behind.
@@ -124,17 +124,17 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
         .try_into_peer()
         .await
         .expect("cycled fork is the sole handle");
-    let (mut fork_link, mut seed_link) = rumors::link::memory_with_capacity(FIXTURE_CAPACITY);
+    let (mut fork_end, mut seed_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
     let (retired, gossiped) = tokio::join!(
-        cycled.retire(&mut fork_link),
-        rumors.gossip_once(&mut seed_link)
+        cycled.retire(&mut fork_end.read, &mut fork_end.write),
+        rumors.gossip_once(&mut seed_end.read, &mut seed_end.write)
     );
     gossiped.expect("absorbing gossip completes");
     assert!(
-        matches!(retired, Retire::Retired),
+        matches!(retired, Retire::Retired { .. }),
         "fixture fork retires cleanly, got {retired:?}"
     );
-    assert_control_drained(fork_link, seed_link);
+    assert_connection_drained(fork_end, seed_end);
     // Keep the seasoned version wide and branchy. The one-byte window alone
     // guarantees a multi-fill greeting; this check guards the fixture shape.
     let width = rumors.snapshot().latest().as_bytes().len();
@@ -168,14 +168,14 @@ async fn seasoned_pair(
     for payload in 0..MESSAGES_PER_ORIGINATOR {
         b.send(10_000 + payload).unwrap();
     }
-    gossip_over(&a, &b, FIXTURE_CAPACITY).await;
+    gossip_over(&a, &b, ROOMY_CAPACITY).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
     (a, b)
 }
 
 // ---- session shapes -------------------------------------------------------
 //
-// Each shape runs one complete session over the minimal link and asserts
+// Each shape runs one complete session over the minimal connection and asserts
 // only liveness (the session completes) and convergence (the replicas agree)
 // — never wire layout. The test cells below instantiate one shape each.
 
@@ -252,26 +252,26 @@ async fn empty_meets_populated_session() {
 }
 
 /// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and
-/// the trailing party donation cross the minimal link.
+/// the trailing party donation cross the minimal connection.
 async fn bootstrap_session() {
     let provider = seasoned(WindowChoice::Floor).await;
-    let (mut p_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
+    let (mut p_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
-        provider.gossip_once(&mut p_link),
-        Peer::<u64>::bootstrap().join(&mut n_link),
+        provider.gossip_once(&mut p_end.read, &mut p_end.write),
+        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
     );
     served.expect("the serving session completes");
     let newcomer = (match joined {
-        rumors::Joined::Joined { peer } => peer,
+        rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("the provider serves the bootstrap"),
     })
     .into_rumors();
     assert_eq!(newcomer.snapshot().hash(), provider.snapshot().hash());
-    assert_control_drained(p_link, n_link);
+    assert_connection_drained(p_end, n_end);
 }
 
 /// Retire: a seasoned, divergent retiree hands its content and then its
-/// whole party to the absorber, all through the minimal link.
+/// whole party to the absorber, all through the minimal connection.
 async fn retire_session() {
     let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
     let converged_len = b.snapshot().len();
@@ -279,11 +279,14 @@ async fn retire_session() {
         a.send(300_000 + v).unwrap();
     }
     let retiree = a.try_into_peer().await.expect("a is the sole handle");
-    let (mut r_link, mut p_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
-    let (retired, gossiped) = tokio::join!(retiree.retire(&mut r_link), b.gossip_once(&mut p_link));
+    let (mut r_end, mut p_end) = rumors::testing::memory_connection(MIN_CAPACITY);
+    let (retired, gossiped) = tokio::join!(
+        retiree.retire(&mut r_end.read, &mut r_end.write),
+        b.gossip_once(&mut p_end.read, &mut p_end.write)
+    );
     gossiped.expect("the absorbing session completes");
     assert!(
-        matches!(retired, Retire::Retired),
+        matches!(retired, Retire::Retired { .. }),
         "the retiree is absorbed, got {retired:?}"
     );
     assert_eq!(
@@ -291,7 +294,7 @@ async fn retire_session() {
         converged_len + DIVERGENT_MESSAGES as usize,
         "nothing the retiree held is lost"
     );
-    assert_control_drained(r_link, p_link);
+    assert_connection_drained(r_end, p_end);
 }
 
 /// Mutual bootstrap: both sides are identity-less newcomers, so the session
@@ -304,10 +307,10 @@ async fn retire_session() {
 /// bootstrapping peer holds no identity to widen, so the fixed frames are
 /// the whole hazard.
 async fn mutual_bootstrap_session() {
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
+    let (mut a_end, mut b_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (a_out, b_out) = tokio::join!(
-        Peer::<u64>::bootstrap().join(&mut a_link),
-        Peer::<u64>::bootstrap().join(&mut b_link),
+        Peer::<u64>::bootstrap().join(&mut a_end.read, &mut a_end.write),
+        Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
     );
     assert!(
         matches!(a_out, rumors::Joined::Bailed { .. }),
@@ -317,7 +320,7 @@ async fn mutual_bootstrap_session() {
         matches!(b_out, rumors::Joined::Bailed { .. }),
         "a mutually-bootstrapping peer returns its builder"
     );
-    assert_control_drained(a_link, b_link);
+    assert_connection_drained(a_end, b_end);
 }
 
 /// Retire into a bootstrapper: a seasoned retiree hands its whole tree and
@@ -325,7 +328,7 @@ async fn mutual_bootstrap_session() {
 ///
 /// This is the maximally
 /// asymmetric greetings of bootstrap plus the trailing donation of retire,
-/// all through the minimal link.
+/// all through the minimal connection.
 async fn retire_into_bootstrapper_session() {
     let retiree = seasoned(WindowChoice::Floor).await;
     let before = retiree.snapshot();
@@ -333,17 +336,17 @@ async fn retire_into_bootstrapper_session() {
         .try_into_peer()
         .await
         .expect("the seasoned replica is the sole handle");
-    let (mut r_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
+    let (mut r_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (retired, joined) = tokio::join!(
-        retiree.retire(&mut r_link),
-        Peer::<u64>::bootstrap().join(&mut n_link),
+        retiree.retire(&mut r_end.read, &mut r_end.write),
+        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
     );
     assert!(
-        matches!(retired, Retire::Retired),
+        matches!(retired, Retire::Retired { .. }),
         "the bootstrapper absorbs the retiree, got {retired:?}"
     );
     let successor = (match joined {
-        rumors::Joined::Joined { peer } => peer,
+        rumors::Joined::Joined { peer, .. } => peer,
         _ => panic!("the retiree serves the bootstrap"),
     })
     .into_rumors();
@@ -354,7 +357,7 @@ async fn retire_into_bootstrapper_session() {
         before.iter().collect::<Vec<_>>(),
         "the successor holds exactly the retiree's content"
     );
-    assert_control_drained(r_link, n_link);
+    assert_connection_drained(r_end, n_end);
 }
 
 /// Mutual retire: both sides declare `Retire`, so the session early-outs
@@ -363,8 +366,11 @@ async fn mutual_retire_session() {
     let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
     let a = a.try_into_peer().await.expect("a is the sole handle");
     let b = b.try_into_peer().await.expect("b is the sole handle");
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
-    let (a_out, b_out) = tokio::join!(a.retire(&mut a_link), b.retire(&mut b_link));
+    let (mut a_end, mut b_end) = rumors::testing::memory_connection(MIN_CAPACITY);
+    let (a_out, b_out) = tokio::join!(
+        a.retire(&mut a_end.read, &mut a_end.write),
+        b.retire(&mut b_end.read, &mut b_end.write)
+    );
     assert!(
         matches!(a_out, Retire::Declined { .. }),
         "a mutual retire declines side A, got {a_out:?}"
@@ -373,19 +379,19 @@ async fn mutual_retire_session() {
         matches!(b_out, Retire::Declined { .. }),
         "a mutual retire declines side B, got {b_out:?}"
     );
-    assert_control_drained(a_link, b_link);
+    assert_connection_drained(a_end, b_end);
 }
 
 // ---- the matrix -----------------------------------------------------------
 
 /// A V2 session between converged seasoned replicas stays live and
-/// re-converges over a one-byte-window link.
+/// re-converges over a one-byte-window connection.
 #[test]
 fn converged() {
     block_on(converged_session());
 }
 
-/// A divergent V2 gossip session stays live over a one-byte-window link and
+/// A divergent V2 gossip session stays live over a one-byte-window connection and
 /// converges both replicas.
 #[test]
 fn divergent() {
@@ -413,48 +419,48 @@ fn divergent_asymmetric_windows() {
 }
 
 /// A V2 session whose initiator supplies bulk root children stays live
-/// over a one-byte-window link and converges both replicas.
+/// over a one-byte-window connection and converges both replicas.
 #[test]
 fn bulk_initiator() {
     block_on(bulk_initiator_session());
 }
 
 /// A V2 session between an empty replica and a seasoned one — maximally
-/// asymmetric greetings — stays live over a one-byte-window link.
+/// asymmetric greetings — stays live over a one-byte-window connection.
 #[test]
 fn empty_meets_populated() {
     block_on(empty_meets_populated_session());
 }
 
 /// A V2 bootstrap served by a seasoned provider stays live over a
-/// one-byte-window link, tree and party donation included.
+/// one-byte-window connection, tree and party donation included.
 #[test]
 fn bootstrap() {
     block_on(bootstrap_session());
 }
 
 /// A V2 retirement of a divergent seasoned replica stays live over a
-/// one-byte-window link and loses none of the retiree's content.
+/// one-byte-window connection and loses none of the retiree's content.
 #[test]
 fn retire() {
     block_on(retire_session());
 }
 
 /// A mutual V2 bootstrap bails cleanly on both sides over a
-/// one-byte-window link, its fixed-width greeting exchange included.
+/// one-byte-window connection, its fixed-width greeting exchange included.
 #[test]
 fn mutual_bootstrap() {
     block_on(mutual_bootstrap_session());
 }
 
 /// A V2 retirement into a bootstrapper stays live over a one-byte-window
-/// link and hands the newcomer the retiree's exact content.
+/// connection and hands the newcomer the retiree's exact content.
 #[test]
 fn retire_into_bootstrapper() {
     block_on(retire_into_bootstrapper_session());
 }
 
-/// A mutual V2 retirement early-outs cleanly over a one-byte-window link,
+/// A mutual V2 retirement early-outs cleanly over a one-byte-window connection,
 /// declining both sides.
 #[test]
 fn mutual_retire() {

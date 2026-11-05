@@ -102,8 +102,10 @@ fn empty_carried_listing_asks_for_everything() {
 
 /// A converged session (equal versions) ends at the greeting: both carried
 /// listings go unused — the documented cost of carrying them
-/// unconditionally — and no data stream is ever opened or accepted in
-/// either direction.
+/// unconditionally — and no frame crosses in either direction.
+///
+/// Each side flushes exactly one item, its greeting, and reads exactly the
+/// bytes its peer wrote.
 #[test]
 fn converged_session_carries_listings_unused() {
     let build = || {
@@ -128,10 +130,16 @@ fn converged_session_carries_listings_unused() {
     assert_eq!(left, expected);
     assert_eq!(right, expected);
 
-    for (side, io) in [("left", &outcome.left_io), ("right", &outcome.right_io)] {
-        let report = io.snapshot();
-        assert_eq!(report.connects, 0, "{side}: equal versions open no stream");
-        assert_eq!(report.accepts, 0, "{side}: equal versions accept no stream");
+    let (left_io, right_io) = (outcome.left_io.snapshot(), outcome.right_io.snapshot());
+    for (side, io, peer) in [("left", left_io, right_io), ("right", right_io, left_io)] {
+        assert_eq!(
+            io.flushes, 1,
+            "{side}: the greeting is the only item written"
+        );
+        assert_eq!(
+            io.read_bytes, peer.write_bytes,
+            "{side}: reads exactly the peer's greeting"
+        );
     }
 }
 

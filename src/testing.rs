@@ -1,6 +1,5 @@
 //! Executor-agnostic test support shared across protocol and API suites.
 
-mod memnet;
 pub(crate) mod schedule;
 mod transport;
 
@@ -14,7 +13,7 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, DuplexStream};
 
 use crate::{
     Snapshot,
@@ -40,17 +39,67 @@ pub use crate::tree::mirror::streaming::remote::codec::{
     FramePart, HeadError, LeafRunError,
 };
 
-pub use memnet::{MemoryDial, MemoryListen, MemoryName, MemoryNet};
 pub use transport::{
-    AdversarialAcceptor, AdversarialConnector, AdversarialRead, AdversarialWrite,
-    FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan, IoReport, IoReportHandle,
-    Operation as IoOperation, ReorderingAcceptor, Side as IoSide, reorder_accepts, wrap_io,
-    wrap_link,
+    AdversarialRead, AdversarialWrite, FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan,
+    IoReport, IoReportHandle, Operation as IoOperation, Side as IoSide, wrap_io,
 };
 
 pub use crate::tree::mirror::streaming::remote::{
-    FrameShape, HookCapture, HookStream, LinkCapture, PreparedFrame,
+    FrameShape, HookCapture, HookStream, PipeCapture, PreparedFrame,
 };
+
+/// The completion marker each side writes in a session's closing exchange,
+/// after all of its session work: the CBOR text item `"."`.
+pub const COMPLETION_MARKER: [u8; 2] = crate::peer::COMPLETION_MARKER;
+
+/// The fixed width of the preamble that opens every session.
+pub const PREAMBLE_LEN: usize = crate::tree::mirror::preamble::V2_PREAMBLE_LEN;
+
+/// Bytes each direction of a [`memory_connection`] buffers by default
+/// before its writer waits for its reader.
+///
+/// Sessions are live at any positive capacity, so the buffer sets the
+/// pipe's granularity, not its correctness: frames smaller than this cross
+/// without waiting, and larger transfers stream through in refills.
+pub const MEMORY_CAPACITY: usize = 8 * 1024;
+
+/// One end of an in-memory connection: the two halves a session takes.
+///
+/// Pass `&mut end.read, &mut end.write` to a session to keep the end for
+/// later sessions.
+#[derive(Debug)]
+pub struct MemoryEnd {
+    /// The read half: the peer's write half delivers here.
+    pub read: DuplexStream,
+    /// The write half: it delivers to the peer's read half.
+    pub write: DuplexStream,
+}
+
+/// Create the two ends of one in-memory connection, each direction a
+/// [`tokio::io::duplex`] pipe buffering `capacity` bytes.
+///
+/// The directions are separate pipes, so each progresses independently,
+/// as the transport requirements demand: a read proceeds while the same
+/// end's write waits.
+///
+/// # Panics
+///
+/// If `capacity` is zero: a zero-capacity pipe could never carry a byte.
+pub fn memory_connection(capacity: usize) -> (MemoryEnd, MemoryEnd) {
+    assert!(capacity > 0, "a connection must buffer at least one byte");
+    let (a_write, b_read) = tokio::io::duplex(capacity);
+    let (b_write, a_read) = tokio::io::duplex(capacity);
+    (
+        MemoryEnd {
+            read: a_read,
+            write: a_write,
+        },
+        MemoryEnd {
+            read: b_read,
+            write: b_write,
+        },
+    )
+}
 
 /// Width of the subtree digests consumed by [`branch_hash`].
 pub const MERKLE_HASH_LEN: usize = TREE_HASH_LEN;
@@ -88,7 +137,7 @@ pub fn join_snapshots<T: Send + Sync>(ours: &Snapshot<T>, theirs: &Snapshot<T>) 
     Snapshot::new(ours.network(), tree)
 }
 
-/// Render two hook captures grouped by labeled logical streams.
+/// Render two hook captures grouped by logical stream.
 pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
     remote::render_hook_capture(a, b)
 }
@@ -97,12 +146,6 @@ pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
 /// the totality witness behind rendering hook items as a wire-byte pin.
 pub fn assert_items_account_for(items: &[Vec<u8>], wire: &[u8]) {
     remote::assert_items_account_for(items, wire);
-}
-
-/// Parse one data stream's on-wire open label, returning
-/// `((epoch, index), label byte length)`.
-pub fn stream_label(bytes: &[u8]) -> ((u8, u8), usize) {
-    remote::stream_label(bytes)
 }
 
 /// A snapshot of the crate-wide census of live tree-node handles.
@@ -258,7 +301,7 @@ pub fn prepare_frame(shape: FrameShape) -> PreparedFrame {
 }
 
 /// Write a prepared frame through the streaming codec's async frame
-/// writer into `out`, exactly as a session's stream sender writes it.
+/// writer into `out`, exactly as a session's multiplexer writes it.
 ///
 /// The caller pre-reserves `out`, allowing the encoder allocation tests to
 /// exclude growth of the destination buffer.
@@ -352,10 +395,10 @@ impl Wake for WakeFlag {
 /// this detector from within a Tokio task cannot turn a scheduler yield into a
 /// false deadlock report.
 pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> {
-    // More than an order of magnitude above the deepest closed-world run
-    // the suites drive (the whole link conformance suite at one-byte
-    // windows), so a legitimate long session is never misreported as a
-    // runaway. Re-measure that run before lowering this.
+    // Sized for the deepest closed-world runs the suites drive, such as the
+    // capacity stress fixtures over a one-byte pipe, so a legitimate long
+    // session is not misreported as a runaway. Measure those runs before
+    // lowering this.
     const MAX_POLLS: usize = 1_000_000;
 
     let wake = Arc::new(WakeFlag(AtomicBool::new(true)));

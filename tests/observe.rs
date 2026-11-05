@@ -1,8 +1,10 @@
 //! Check the wire-observation contract against independent transport captures.
 //!
-//! Each callback must contain one complete CBOR item. Within each directed
-//! stream, those items must reproduce the transport bytes, excluding the
-//! stream-open label. The handler set must match the streams actually used.
+//! Each callback must contain one complete CBOR item. Grouped by directed
+//! stream, those items must reproduce the connection's bytes: a generic CBOR
+//! parse of each direction separates its control items from its frames, and
+//! its frames by the logical stream index each names. The handler set must
+//! match the streams actually used.
 //!
 //! Generated gossip, bootstrap, and retirement sessions check this contract
 //! alongside session kinds and role elections. A separate property compares
@@ -22,10 +24,10 @@ use rumors::observe::{
     Direction, Observer, Role, SessionErrorKind, SessionInfo, SessionKind, SessionObserver,
     SessionOutcome, StreamId, StreamInfo, StreamObserver,
 };
-use rumors::testing::stream_label;
+use rumors::testing::PipeCapture;
 use rumors::{Peer, Retire, Rumors, SessionStats, Version};
 
-use crate::common::gossip_snapshot::{CapturedLink, capture_sides, corpora, payloads};
+use crate::common::gossip_snapshot::{capture_sides, corpora, payloads};
 use crate::common::window::WindowChoice;
 use crate::common::wire::{block_on, bootstrap_fork_configured};
 
@@ -184,7 +186,7 @@ impl SessionRecord {
     }
 
     /// Require exactly the captured streams and bytes in one direction.
-    fn assert_capture(&self, side: &str, direction: Direction, capture: &CapturedLink) {
+    fn assert_capture(&self, side: &str, direction: Direction, capture: &PipeCapture) {
         // None names the control stream; Some(index) names a data stream.
         // Keeping even empty handlers in the map catches unused handlers, and
         // checking each insertion catches duplicates that concatenation hides.
@@ -208,16 +210,7 @@ impl SessionRecord {
             );
         }
 
-        let mut expected = BTreeMap::from([(None, capture.control.clone())]);
-        for blob in &capture.streams {
-            let ((_, index), label_len) = stream_label(blob);
-            assert!(
-                expected
-                    .insert(Some(index), blob[label_len..].to_vec())
-                    .is_none(),
-                "one transport stream per index in this session"
-            );
-        }
+        let expected = by_stream(&capture.sent);
         assert_eq!(
             observed, expected,
             "{side} {direction:?}: handlers and bytes match the wire"
@@ -236,8 +229,46 @@ fn assert_one_item(bytes: &[u8]) {
     );
 }
 
+/// Split one direction's bytes into its CBOR items, parsed without the
+/// Rumors codec, and concatenate them per directed stream: `None` for the
+/// control items, `Some(index)` for the frames naming logical stream
+/// `index`.
+///
+/// A frame is an untagged array whose first element is its stream index;
+/// every control item is tagged or a text string.
+fn by_stream(bytes: &[u8]) -> BTreeMap<Option<u8>, Vec<u8>> {
+    let mut streams = BTreeMap::from([(None, Vec::new())]);
+    let mut rest = bytes;
+    while !rest.is_empty() {
+        let mut input = rest;
+        let item: Value = ciborium::de::from_reader(&mut input)
+            .unwrap_or_else(|e| panic!("the connection carries whole CBOR items: {e}"));
+        let len = rest.len() - input.len();
+        let stream = match &item {
+            Value::Array(elements) => {
+                let Some(Value::Integer(index)) = elements.first() else {
+                    panic!("a frame opens with its stream index: {item:?}");
+                };
+                Some(u8::try_from(*index).expect("stream indices fit a byte"))
+            }
+            _ => None,
+        };
+        streams
+            .entry(stream)
+            .or_default()
+            .extend_from_slice(&rest[..len]);
+        rest = input;
+    }
+    streams
+}
+
+/// Whether one direction's bytes carry any frame.
+fn carries_frames(bytes: &[u8]) -> bool {
+    by_stream(bytes).keys().any(Option::is_some)
+}
+
 /// Check both peers' sent and received streams, and complementary elections.
-fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &CapturedLink, b_wire: &CapturedLink) {
+fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &PipeCapture, b_wire: &PipeCapture) {
     a.assert_capture("A", Direction::Sent, a_wire);
     a.assert_capture("A", Direction::Received, b_wire);
     b.assert_capture("B", Direction::Sent, b_wire);
@@ -265,7 +296,7 @@ fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &CapturedLink, b_wi
     // observation callback cannot also suppress the election check.
     let a_role = *a.elected.lock().unwrap();
     let b_role = *b.elected.lock().unwrap();
-    if a_wire.streams.is_empty() && b_wire.streams.is_empty() {
+    if !carries_frames(&a_wire.sent) && !carries_frames(&b_wire.sent) {
         assert_eq!(a_role, None, "no election in a control-only session");
         assert_eq!(b_role, None, "no election in a control-only session");
     } else {
@@ -282,10 +313,10 @@ fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &CapturedLink, b_wi
 fn failed_session_reports_its_error_category_once() {
     let observer = Arc::new(Recording::default());
     let peer = Peer::<u64>::seed().observe(observer.clone()).into_rumors();
-    let (mut link, remote) = rumors::link::memory();
+    let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(remote);
 
-    let result = block_on(peer.gossip_once(&mut link));
+    let result = block_on(peer.gossip_once(&mut end.read, &mut end.write));
     assert!(matches!(result, Err(rumors::Error::Transport(_))));
     let session = observer.take_session(SessionKind::Gossip);
     assert_eq!(
@@ -302,10 +333,10 @@ fn deadline_reports_its_error_category_once() {
         .session_deadline(|| std::future::ready(()))
         .observe(observer.clone())
         .into_rumors();
-    let (mut link, _remote) = rumors::link::memory();
+    let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
 
     assert!(matches!(
-        block_on(peer.gossip_once(&mut link)),
+        block_on(peer.gossip_once(&mut end.read, &mut end.write)),
         Err(rumors::Error::DeadlineExceeded)
     ));
     let session = observer.take_session(SessionKind::Gossip);
@@ -320,8 +351,8 @@ fn deadline_reports_its_error_category_once() {
 fn cancelled_session_reports_cancellation_once() {
     let observer = Arc::new(Recording::default());
     let peer = Peer::<u64>::seed().observe(observer.clone()).into_rumors();
-    let (mut link, _remote) = rumors::link::memory();
-    let mut gossip = Box::pin(peer.gossip_once(&mut link));
+    let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let mut gossip = Box::pin(peer.gossip_once(&mut end.read, &mut end.write));
     assert!(gossip.as_mut().now_or_never().is_none());
     drop(gossip);
 
@@ -374,8 +405,8 @@ proptest! {
             b.send_all(only_b).unwrap();
         }
         let (a_capture, b_capture) = capture_sides(
-            |mut link| async move { a.gossip_once(&mut link).await.expect("gossip A"); },
-            |mut link| async move { b.gossip_once(&mut link).await.expect("gossip B"); },
+            |mut end| async move { a.gossip_once(&mut end.read, &mut end.write).await.expect("gossip A"); },
+            |mut end| async move { b.gossip_once(&mut end.read, &mut end.write).await.expect("gossip B"); },
         );
         assert_pair(
             &rec_a.take_session(SessionKind::Gossip),
@@ -401,15 +432,13 @@ proptest! {
                 b.send_all(only_b.iter().cloned()).unwrap();
             }
             capture_sides(
-                |mut link| async move { a.gossip_once(&mut link).await.expect("gossip A"); },
-                |mut link| async move { b.gossip_once(&mut link).await.expect("gossip B"); },
+                |mut end| async move { a.gossip_once(&mut end.read, &mut end.write).await.expect("gossip A"); },
+                |mut end| async move { b.gossip_once(&mut end.read, &mut end.write).await.expect("gossip B"); },
             )
         });
         let [(a_observed, b_observed), (a_plain, b_plain)] = captures;
-        prop_assert_eq!(a_observed.control, a_plain.control);
-        prop_assert_eq!(a_observed.streams, a_plain.streams);
-        prop_assert_eq!(b_observed.control, b_plain.control);
-        prop_assert_eq!(b_observed.streams, b_plain.streams);
+        prop_assert_eq!(a_observed.sent, a_plain.sent);
+        prop_assert_eq!(b_observed.sent, b_plain.sent);
     }
 
     /// Joining observes the full bootstrap and serving sessions, including
@@ -421,11 +450,11 @@ proptest! {
         let provider = seeded(Some(&rec_provider), &payloads);
         let bootstrap = Peer::<Vec<u8>>::bootstrap().observe(rec_newcomer.clone());
         let (provider_capture, newcomer_capture) = capture_sides(
-            |mut link| async move {
-                provider.gossip_once(&mut link).await.expect("provider gossip");
+            |mut end| async move {
+                provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
             },
-            |mut link| async move {
-                assert!(matches!(bootstrap.join(&mut link).await, rumors::Joined::Joined { .. }));
+            |mut end| async move {
+                assert!(matches!(bootstrap.join(&mut end.read, &mut end.write).await, rumors::Joined::Joined { .. }));
             },
         );
         assert_pair(
@@ -455,11 +484,11 @@ proptest! {
         }
         let retiree = block_on(retiree.try_into_peer()).expect("the retiree handle is unique");
         let (absorber_capture, retiree_capture) = capture_sides(
-            |mut link| async move {
-                absorber.gossip_once(&mut link).await.expect("absorber gossip");
+            |mut end| async move {
+                absorber.gossip_once(&mut end.read, &mut end.write).await.expect("absorber gossip");
             },
-            |mut link| async move {
-                assert!(matches!(retiree.retire(&mut link).await, Retire::Retired));
+            |mut end| async move {
+                assert!(matches!(retiree.retire(&mut end.read, &mut end.write).await, Retire::Retired { .. }));
             },
         );
         assert_pair(

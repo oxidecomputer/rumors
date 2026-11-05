@@ -20,17 +20,19 @@ use rumors_testkit::common::{
 /// Values each peer holds that the other lacks before the session.
 const VALUES_PER_SIDE: u64 = 64;
 
-/// The over-aligned allocations one session of this fixture makes.
+/// The over-aligned allocations one session of this fixture makes: none.
 ///
-/// Every over-aligned allocation in a session is the shared state of a Tokio
-/// `mpsc` channel, which embeds cache-padded fields aligned to 128 bytes on
-/// 64-bit targets. The protocol's own edges, created per tree height and per
-/// decoded wire reply, and each reconciliation driver's first-error route use
-/// channels with ordinary alignment, so the count is the session's fixed
-/// Tokio channels: the in-memory link's two stream-announcement channels and
-/// each endpoint's incoming-stream error route. It does not grow with the
-/// divergence.
-const OVER_ALIGNED_ALLOCATIONS: usize = 4;
+/// An allocation is over-aligned when its type demands more than two machine
+/// words of alignment, as the shared state of a Tokio `mpsc` channel does with
+/// its cache-padded fields. Every channel a session creates has ordinary
+/// alignment, so a session makes no over-aligned allocations, however far its
+/// peers diverge.
+///
+/// A reading of zero cannot by itself show that the meter counts over-aligned
+/// allocations at all. The meter's own `readings_follow_the_counting_rules`
+/// proptest, in `crates/alloc-meter/src/tests.rs`, checks that count against
+/// a model.
+const OVER_ALIGNED_ALLOCATIONS: usize = 0;
 
 /// Two forks of one deterministically seeded network, each holding
 /// [`VALUES_PER_SIDE`] values the other lacks.

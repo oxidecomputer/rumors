@@ -1,14 +1,16 @@
 //! Generated fleet operations run while bootstrap sessions hold reserved forks.
 
 use futures::{FutureExt, future::LocalBoxFuture};
+use tokio::io::DuplexStream;
 
 use super::*;
 
 /// A bootstrap paused after the provider reserves its donation.
 struct Attempt {
-    /// The newcomer owns its link until joining completes or is cancelled.
-    joining: LocalBoxFuture<'static, rumors::Joined<Msg>>,
-    /// The provider owns its link and the pending donation guard.
+    /// The newcomer owns its connection end until joining completes or is
+    /// cancelled.
+    joining: LocalBoxFuture<'static, rumors::Joined<Msg, DuplexStream, DuplexStream>>,
+    /// The provider owns its connection end and the pending donation guard.
     serving: LocalBoxFuture<'static, Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>>,
     /// The reserved region, used only to check that live peers cannot reclaim it.
     reserved: Party,
@@ -20,10 +22,16 @@ impl Attempt {
     fn reserve(server: &Rumors<Msg, FlakyInMemoryBookmark>) -> Self {
         let before = server.dangerously_alias_party();
         let serving = server.clone();
-        let (mut near, mut far) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (near, far) = rumors::testing::memory_connection(MEMORY_CAPACITY);
         let mut joining =
-            async move { Peer::<Msg>::bootstrap().join(&mut near).await }.boxed_local();
-        let mut serving = async move { serving.gossip_once(&mut far).await }.boxed_local();
+            async move { Peer::<Msg>::bootstrap().join(near.read, near.write).await }.boxed_local();
+        let mut serving = async move {
+            serving
+                .gossip_once(far.read, far.write)
+                .await
+                .map(|(gossiped, ..)| gossiped)
+        }
+        .boxed_local();
         block_on(async {
             assert!(futures::poll!(joining.as_mut()).is_pending());
             assert!(futures::poll!(serving.as_mut()).is_pending());
@@ -50,7 +58,7 @@ impl Attempt {
             assert_not_codec_bug("interleaved bootstrap provider", &error);
         }
         match joined {
-            rumors::Joined::Joined { peer } => {
+            rumors::Joined::Joined { peer, .. } => {
                 let label = world.n();
                 let store = DurableStore::default();
                 let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));

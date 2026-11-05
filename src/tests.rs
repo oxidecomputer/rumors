@@ -1,29 +1,24 @@
 //! Crate-level tests that need private internals.
 //!
 //! These cover party ownership across joining and leaving, failure at exact
-//! retirement wire boundaries, link poisoning after protocol rejection, and
-//! root-hash metering.
+//! retirement wire boundaries, protocol rejection through a peer session,
+//! and root-hash metering.
 
-use std::{
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::sync::Arc;
 
 use before::Party;
-use tokio::io::AsyncWrite;
+use tokio::io::DuplexStream;
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
-use crate::link::{Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::observe::Attachment;
-use crate::testing::{Quiescence, run_to_quiescence};
+use crate::testing::{
+    AdversarialRead, AdversarialWrite, IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide,
+    MEMORY_CAPACITY, PREAMBLE_LEN, memory_connection, run_to_quiescence, wrap_io,
+};
 use crate::tree::{Root, Tree};
 use crate::{Error, Inner, Peer, Retire};
-
-/// The handshake's fixed preamble width, used to place exact wire cuts.
-const PREAMBLE_LEN: usize = crate::tree::mirror::preamble::V2_PREAMBLE_LEN;
 
 /// Insert each of `vals` into `k` as one committed batch.
 fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
@@ -37,15 +32,17 @@ fn party_of(k: &Peer<u64>) -> Party {
     k.inner.borrow().party.dangerously_alias()
 }
 
-/// Drive `child.retire` against `survivor.gossip` over a memory link, asserting
+/// Drive `child.retire` against `survivor.gossip` over a memory connection, asserting
 /// the child retired, and return the (party-grown) survivor.
 fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
     pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        let (child_out, survivor_out) =
-            tokio::join!(child.retire(&mut a_link), survivor.gossip_once(&mut b_link),);
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+        let (child_out, survivor_out) = tokio::join!(
+            child.retire(&mut a_end.read, &mut a_end.write),
+            survivor.gossip_once(&mut b_end.read, &mut b_end.write),
+        );
         assert!(
-            matches!(child_out, Retire::Retired),
+            matches!(child_out, Retire::Retired { .. }),
             "the survivor absorbs the child",
         );
         survivor_out.expect("survivor gossip");
@@ -57,16 +54,16 @@ fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
 /// post-serve provider and the bootstrapped peer.
 fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
     pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         let (provider_out, boot_out) = tokio::join!(
-            provider.gossip_once(&mut a_link),
-            Peer::<u64>::bootstrap().join(&mut b_link),
+            provider.gossip_once(&mut a_end.read, &mut a_end.write),
+            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("provider gossip");
         (
             provider,
             (match boot_out {
-                crate::Joined::Joined { peer } => peer,
+                crate::Joined::Joined { peer, .. } => peer,
                 _ => panic!("provider served the bootstrap"),
             }),
         )
@@ -100,14 +97,14 @@ fn overlapping_retiree_party_is_rejected() {
         observe: Attachment::default(),
     };
 
-    // Each side's future owns its link: the absorber rejects the overlap
-    // *before* writing its epilogue marker, so only its link drop lets the
+    // Each side's future owns its halves: the absorber rejects the overlap
+    // *before* writing its completion marker, so only its halves' drop lets the
     // forged retiree's marker read observe the abort as EOF.
     let (retire_out, survivor_out) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
+        let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
         tokio::join!(
-            async move { forged.retire(&mut a_link).await },
-            async move { survivor.gossip_once(&mut b_link).await },
+            async move { forged.retire(a_end.read, a_end.write).await },
+            async move { survivor.gossip_once(b_end.read, b_end.write).await },
         )
     });
 
@@ -184,10 +181,14 @@ fn mutual_retire_declines_both() {
     let (survivor, child) = bootstrap_from(survivor);
 
     let (a_out, b_out) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        tokio::join!(survivor.retire(&mut a_link), child.retire(&mut b_link))
+        let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+        tokio::join!(
+            survivor.retire(a_end.read, a_end.write),
+            child.retire(b_end.read, b_end.write)
+        )
     });
-    let (Retire::Declined { peer: survivor }, Retire::Declined { peer: child }) = (a_out, b_out)
+    let (Retire::Declined { peer: survivor, .. }, Retire::Declined { peer: child, .. }) =
+        (a_out, b_out)
     else {
         panic!("mutual retirement must decline both sides intact");
     };
@@ -201,57 +202,6 @@ fn mutual_retire_declines_both() {
 }
 
 // ---- fault injection: severing the wire mid-retire ------------------------
-
-/// An [`AsyncWrite`] wrapper that forwards writes until a byte budget is
-/// exhausted, then fails every write with [`BrokenPipe`]: a deterministic
-/// stand-in for a connection severed at a chosen point in the session.
-///
-/// The budget is shared across every fused writer of one link — the control
-/// half and each data stream — so the cut lands at a chosen point in the
-/// session's total outgoing byte count, wherever that byte travels. Reads
-/// are not budgeted; the counterparty observes the cut as EOF once the
-/// session's link drops.
-///
-/// [`BrokenPipe`]: std::io::ErrorKind::BrokenPipe
-struct Fuse<W> {
-    inner: W,
-    remaining: Arc<std::sync::Mutex<usize>>,
-}
-
-impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let this = self.get_mut();
-        let mut remaining = this.remaining.lock().expect("fuse budget lock");
-        if *remaining == 0 {
-            return Poll::Ready(Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "fuse blown",
-            )));
-        }
-        // Admit at most the remaining budget; the writer's retry of the
-        // unwritten tail then trips the exhausted fuse above.
-        let admitted = buf.len().min(*remaining);
-        match Pin::new(&mut this.inner).poll_write(cx, &buf[..admitted]) {
-            Poll::Ready(Ok(n)) => {
-                *remaining -= n;
-                Poll::Ready(Ok(n))
-            }
-            other => other,
-        }
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
-    }
-}
 
 /// The wire length of `retiree`'s greeting item, used to place an exact cut
 /// after the handshake.
@@ -274,7 +224,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     crate::tree::mirror::streaming::remote::codec::greeting::encode_greeting(&greeting).len()
 }
 
-/// The wire length of `retiree`'s trailing party frame, so a [`Fuse`] budget
+/// The wire length of `retiree`'s trailing party frame, so a write budget
 /// can land on an exact protocol boundary.
 fn party_frame_len(retiree: &Peer<u64>) -> usize {
     // The hand-off is the party-atom tag wrapping a byte string of the
@@ -284,69 +234,44 @@ fn party_frame_len(retiree: &Peer<u64>) -> usize {
     head_len(crate::tags::PARTY_TAG) + head_len(party as u64) + party
 }
 
-/// A connector whose opened streams draw on the link's shared fuse budget.
-#[derive(Clone)]
-struct FusedConnector {
-    inner: MemoryConnector,
-    remaining: Arc<std::sync::Mutex<usize>>,
-}
-
-impl Connector for FusedConnector {
-    type Tx = Fuse<tokio::io::DuplexStream>;
-
-    async fn connect(&self) -> std::io::Result<(Self::Tx, Done<Self::Tx>)> {
-        let (inner, _) = self.inner.connect().await?;
-        Ok((
-            Fuse {
-                inner,
-                remaining: Arc::clone(&self.remaining),
-            },
-            Done::discard(),
-        ))
-    }
-}
-
-/// Fuse one link's whole outgoing side to a shared byte budget.
-fn fused_link(
-    link: MemoryLink,
-    budget: usize,
-) -> Link<tokio::io::DuplexStream, Fuse<tokio::io::DuplexStream>, FusedConnector, MemoryAcceptor> {
-    let remaining = Arc::new(std::sync::Mutex::new(budget));
-    link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            control_read,
-            Fuse {
-                inner: control_write,
-                remaining: Arc::clone(&remaining),
-            },
-            FusedConnector {
-                inner: connector,
-                remaining,
-            },
-            acceptor,
-        )
-    })
-}
-
-/// Drive `retiree.retire` against `peer.gossip` over a link whose
-/// retiree-side outgoing bytes are fused to `budget`.
+/// Drive `retiree.retire` against `peer.gossip` over a connection whose
+/// retiree-side write half takes `budget` bytes, then fails every write.
 ///
-/// Each side's link is owned by its future, so the failing side's drop
-/// surfaces as EOF to the other rather than deadlocking the join. Returns both
-/// outcomes.
+/// That severs the connection at that point of the retiree's outgoing
+/// bytes, whatever item the next byte belongs to.
+///
+/// Each side's halves are owned by its future, so the failing side's drop
+/// surfaces as end-of-stream to the other rather than deadlocking the join.
+/// Returns both outcomes.
+#[allow(clippy::type_complexity)]
 fn severed_retire(
     retiree: Peer<u64>,
     peer: &mut Peer<u64>,
     budget: usize,
-) -> (Retire<u64>, Result<(), Error>) {
+) -> (
+    Retire<u64, AdversarialRead<DuplexStream>, AdversarialWrite<DuplexStream>>,
+    Result<(), Error>,
+) {
     pollster::block_on(async move {
-        let (a_link, mut b_link) = memory();
+        let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         tokio::join!(
             async move {
-                let mut a_link = fused_link(a_link, budget);
-                retiree.retire(&mut a_link).await
+                let plan = IoPlan {
+                    fault: Some(IoFault {
+                        operation: IoOperation::Write,
+                        after: budget,
+                        unit: IoFaultUnit::Bytes,
+                    }),
+                    ..IoPlan::default()
+                };
+                let (read, write, _) = wrap_io(IoSide::Left, plan, a_end.read, a_end.write);
+                retiree.retire(read, write).await
             },
-            async move { peer.gossip_once(&mut b_link).await.map(|_gossiped| ()) },
+            async move {
+                peer.gossip_once(&mut b_end.read, &mut b_end.write)
+                    .await
+                    .map(|_| ())
+            },
         )
     })
 }
@@ -363,7 +288,7 @@ fn severed_descent_recovers_the_retiree() {
     let survivor = Peer::<u64>::seed();
     let (mut survivor, child) = bootstrap_from(survivor);
     // Diverge: the child holds content the survivor lacks, so the retire
-    // session must descend, and its frames overflow the fuse's slack.
+    // session must descend, and its frames overflow the budget's slack.
     let child = with_messages(child, &(0..32).collect::<Vec<u64>>());
     let hash = child.snapshot().hash();
 
@@ -397,7 +322,7 @@ fn severed_descent_recovers_the_retiree() {
     );
 }
 
-/// A session severed as the retiree writes its epilogue marker still consumes
+/// A session severed as the retiree writes its completion marker still consumes
 /// the retiree.
 ///
 /// The party frame was delivered whole, so the absorber may well hold the
@@ -408,17 +333,17 @@ fn severed_descent_recovers_the_retiree() {
 /// Failure at this point must preserve the uncertain retirement outcome;
 /// the donated identity cannot be recovered safely.
 #[test]
-fn severed_epilogue_marker_is_uncertain() {
+fn severed_completion_marker_is_uncertain() {
     let survivor = Peer::<u64>::seed();
     let (mut survivor, child) = bootstrap_from(survivor);
 
     // Both peers are empty and converged. This budget admits the preamble,
-    // greeting, and party item, then fails the write of the epilogue marker.
+    // greeting, and party item, then fails the write of the completion marker.
     let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len(&child);
     let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 
     let Retire::Uncertain { error } = child_out else {
-        panic!("a failure on the epilogue marker must consume the retiree, got {child_out:?}");
+        panic!("a failure on the completion marker must consume the retiree, got {child_out:?}");
     };
     assert!(
         matches!(error, Error::Transport(ref error) if error.context.phase == crate::error::Phase::Completion),
@@ -433,67 +358,6 @@ fn severed_epilogue_marker_is_uncertain() {
     drop(survivor);
 }
 
-/// A gossip session cancelled mid-flight poisons the link: the next session
-/// on it fails fast with [`Error::LinkPoisoned`], before any wire traffic,
-/// instead of misreading the interrupted session's leftover control bytes.
-#[test]
-fn a_cancelled_session_poisons_the_link_for_gossip() {
-    let survivor = Peer::<u64>::seed();
-    let (_survivor, child) = bootstrap_from(survivor);
-    let (mut a_link, _b_link) = memory();
-
-    // Cancel a session mid-flight, deterministically: the counterparty
-    // never drives its end, so the session stalls awaiting the peer's
-    // preamble. The bounded-poll harness reports the stall and drops the
-    // session future.
-    assert_eq!(
-        run_to_quiescence(child.gossip_once(&mut a_link)).err(),
-        Some(Quiescence::Stalled),
-    );
-
-    // The fail-fast needs no counterparty at all: it resolves before any
-    // wire traffic, which the closed-world harness itself proves.
-    let retry = run_to_quiescence(child.gossip_once(&mut a_link)).expect("fail-fast needs no peer");
-    assert!(
-        matches!(retry, Err(Error::LinkPoisoned)),
-        "a poisoned link must fail the next gossip fast, got {retry:?}"
-    );
-}
-
-/// A retire attempted on a poisoned link recovers the peer intact with
-/// [`Error::LinkPoisoned`]: the fail-fast happens before any wire traffic,
-/// so the identity was never at risk and remains free to retire elsewhere.
-#[test]
-fn retire_on_a_poisoned_link_recovers_the_peer() {
-    let survivor = Peer::<u64>::seed();
-    let (survivor, child) = bootstrap_from(survivor);
-    let (mut a_link, _b_link) = memory();
-
-    // Poison the link: cancel a gossip session stalled on its silent peer.
-    assert_eq!(
-        run_to_quiescence(child.gossip_once(&mut a_link)).err(),
-        Some(Quiescence::Stalled),
-    );
-
-    let out = run_to_quiescence(child.retire(&mut a_link)).expect("fail-fast needs no peer");
-    let Retire::Recovered { peer, error } = out else {
-        panic!("retire on a poisoned link must recover the peer, got {out:?}");
-    };
-    assert!(
-        matches!(error, Error::LinkPoisoned),
-        "the fail-fast error is the poison diagnosis, got {error:?}"
-    );
-
-    // The recovered peer remains intact: over a fresh link it retires cleanly,
-    // reconstituting the seed's whole identity space in the survivor.
-    let survivor = retire_child_into(survivor, peer);
-    assert_eq!(
-        party_of(&survivor),
-        Party::seed(),
-        "the recovered peer's clean retire must reconstitute the whole id-space",
-    );
-}
-
 /// A session severed on the trailing party frame itself leaves delivery
 /// irreducibly uncertain.
 ///
@@ -506,7 +370,7 @@ fn severed_party_frame_is_uncertain() {
     let (mut survivor, child) = bootstrap_from(survivor);
 
     // Both empty and converged, so the retiree's outgoing bytes are exactly
-    // preamble + greeting + party frame + epilogue marker. The fuse admits
+    // preamble + greeting + party frame + completion marker. The budget admits
     // the first two to the byte, so the party frame is the write that fails
     // (and the trailing marker is never reached).
     let budget = PREAMBLE_LEN + greeting_frame_len(&child);
@@ -526,16 +390,15 @@ fn severed_party_frame_is_uncertain() {
 /// An uncontained supply crossing a real peer session surfaces through
 /// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
 ///
-/// The error is [`Error::Protocol`] carrying `UncontainedSupply`; the
-/// replica's content is untouched, and the link is poisoned so the next
-/// session on it fails fast with [`Error::LinkPoisoned`].
+/// The error is [`Error::Protocol`] carrying `UncontainedSupply`, and the
+/// replica's content is untouched.
 ///
 /// This observes through [`Rumors::gossip`](crate::Rumors::gossip) the same
 /// rejection the mirror tests exercise directly. A local [`Tree::join`]
 /// builds the invalid store because session validation cannot guard an
 /// in-process join.
 #[test]
-fn uncontained_supply_fails_gossip_and_poisons_the_link() {
+fn uncontained_supply_fails_gossip() {
     use crate::message::Message;
     use crate::tree::mirror::streaming::materialized::Violation as MaterializedViolation;
 
@@ -568,11 +431,11 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     // violation mid-session, so the poisoned counterparty never reaches a
     // session boundary; racing the two sides lets the receiver's typed
     // error surface without waiting on the abandoned peer.
-    let (mut a_link, mut b_link) = memory();
+    let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
     let receiver_out = run_to_quiescence(async {
         tokio::select! {
-            out = receiver.gossip_once(&mut a_link) => out,
-            out = poisoned.gossip_once(&mut b_link) => {
+            out = receiver.gossip_once(&mut a_end.read, &mut a_end.write) => out,
+            out = poisoned.gossip_once(&mut b_end.read, &mut b_end.write) => {
                 panic!("the poisoned side must not complete a session, got {out:?}")
             }
         }
@@ -592,15 +455,6 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
         receiver.snapshot().hash(),
         before,
         "the replica's content is unchanged by the rejected session",
-    );
-
-    // The failed session poisoned the link: the next session on it fails
-    // before any wire traffic; no counterparty is present.
-    let retry =
-        run_to_quiescence(receiver.gossip_once(&mut a_link)).expect("fail-fast needs no peer");
-    assert!(
-        matches!(retry, Err(Error::LinkPoisoned)),
-        "a poisoned link must fail the next gossip fast, got {retry:?}",
     );
 }
 
@@ -663,10 +517,10 @@ fn gossip_session_root_hash_reads() {
 
     let before = crate::tree::meter::root_hash_reads();
     pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         let (provider_out, joiner_out) = tokio::join!(
-            provider.gossip_once(&mut a_link),
-            joiner.gossip_once(&mut b_link)
+            provider.gossip_once(&mut a_end.read, &mut a_end.write),
+            joiner.gossip_once(&mut b_end.read, &mut b_end.write)
         );
         provider_out.expect("provider gossip");
         joiner_out.expect("joiner gossip");

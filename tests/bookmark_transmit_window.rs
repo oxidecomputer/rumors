@@ -21,7 +21,8 @@ use rumors::{Bookmark, Peer, Rumors, Version};
 use tokio::sync::Notify;
 
 use crate::common::flaky::{DurableStore, persisted_record};
-use crate::common::wire::{LINK_BUF, block_on};
+use crate::common::wire::block_on;
+use rumors::testing::MEMORY_CAPACITY;
 
 /// The message payload: a test-unique id.
 type Msg = u64;
@@ -179,7 +180,8 @@ fn attachment_error_after_replacement_can_retry() {
 }
 
 /// Joining drops its wire deadline before attaching the local bookmark, so a
-/// slow attachment cannot turn successful synchronization into a failed join.
+/// slow attachment cannot turn successful synchronization into a failed join,
+/// and the connection rests at the session boundary afterwards.
 #[test]
 fn bootstrap_attachment_is_outside_the_session_deadline() {
     use futures::channel::oneshot;
@@ -198,9 +200,9 @@ fn bootstrap_attachment_is_outside_the_session_deadline() {
                 async move { deadline.await.unwrap() }
             })
             .bookmark(bookmark.clone());
-        let (mut a, mut b) = rumors::link::memory();
+        let (mut a, mut b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let joining = async {
-            let mut joining = std::pin::pin!(bootstrap.join(&mut b));
+            let mut joining = std::pin::pin!(bootstrap.join(&mut b.read, &mut b.write));
             tokio::select! {
                 biased;
                 () = bookmark.entered() => {},
@@ -213,39 +215,43 @@ fn bootstrap_attachment_is_outside_the_session_deadline() {
             bookmark.release();
             joining.await
         };
-        let (served, joined) = tokio::join!(provider.gossip_once(&mut a), joining);
+        let (served, joined) =
+            tokio::join!(provider.gossip_once(&mut a.read, &mut a.write), joining);
         served.unwrap();
-        let Joined::Joined { peer } = joined else {
+        let Joined::Joined { peer, .. } = joined else {
             panic!("attachment succeeds")
         };
         assert_eq!(
             provider.snapshot().hash(),
             peer.into_rumors().snapshot().hash()
         );
-        assert!(!b.session_state().poisoned());
+        crate::common::wire::assert_connection_drained(a, b);
     });
 }
 
 /// Bootstrap a fresh peer with bookmark `bm` from `server` over a clean
-/// in-memory link, returning the booted peer's [`Rumors`].
+/// in-memory connection, returning the booted peer's [`Rumors`].
 async fn boot_from(
     server: &Rumors<Msg, GatedBookmark>,
     bm: GatedBookmark,
 ) -> Rumors<Msg, GatedBookmark> {
     let server = server.clone();
-    let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (boot_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (boot_out, serve_out) = tokio::join!(
         async move {
-            let mut link = boot_side;
-            let peer = match Peer::<Msg>::bootstrap().join(&mut link).await {
-                rumors::Joined::Joined { peer } => peer,
+            let mut end = boot_side;
+            let peer = match Peer::<Msg>::bootstrap()
+                .join(&mut end.read, &mut end.write)
+                .await
+            {
+                rumors::Joined::Joined { peer, .. } => peer,
                 _ => panic!("the server is established"),
             };
             peer.bookmark(bm).await.expect("in-memory persist")
         },
         async move {
-            let mut link = serve_side;
-            server.gossip_once(&mut link).await
+            let end = serve_side;
+            server.gossip_once(end.read, end.write).await
         },
     );
     serve_out.expect("serve bootstrap");
@@ -255,15 +261,15 @@ async fn boot_from(
 /// One clean gossip session between two peers, both sides required to succeed.
 async fn gossip(a: &Rumors<Msg, GatedBookmark>, b: &Rumors<Msg, GatedBookmark>) {
     let (a, b) = (a.clone(), b.clone());
-    let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (side_a, side_b) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (out_a, out_b) = tokio::join!(
         async move {
-            let mut link = side_a;
-            a.gossip_once(&mut link).await
+            let end = side_a;
+            a.gossip_once(end.read, end.write).await
         },
         async move {
-            let mut link = side_b;
-            b.gossip_once(&mut link).await
+            let end = side_b;
+            b.gossip_once(end.read, end.write).await
         },
     );
     out_a.expect("gossip side a");
@@ -319,19 +325,19 @@ async fn transmit_during_persist() -> Scene {
     // the store is paused puts it outside both the checkpoint and that snapshot;
     // only a later session may transmit it.
     bm_a.arm();
-    let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (side_a, side_b) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let ga = {
         let a = a.clone();
         async move {
-            let mut link = side_a;
-            a.gossip_once(&mut link).await
+            let end = side_a;
+            a.gossip_once(end.read, end.write).await
         }
     };
     let gb = {
         let b = b.clone();
         async move {
-            let mut link = side_b;
-            b.gossip_once(&mut link).await
+            let end = side_b;
+            b.gossip_once(end.read, end.write).await
         }
     };
     let (out_a, out_b, ()) = tokio::join!(ga, gb, async {
@@ -421,15 +427,18 @@ fn cancelled_persist_never_suppresses_the_next_update() {
         // futures there cancels the persist mid-flight.
         a.send(M1).unwrap();
         bm_a.arm();
-        let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (side_a, side_b) = rumors::testing::memory_connection(MEMORY_CAPACITY);
         // Drive the session until A's persist parks, then drop both session
         // futures there (the block ends): the cancellation lands inside the
         // durable write.
         {
             let (a, b) = (a.clone(), b.clone());
             let mut session = std::pin::pin!(async move {
-                let (mut side_a, mut side_b) = (side_a, side_b);
-                tokio::join!(a.gossip_once(&mut side_a), b.gossip_once(&mut side_b))
+                let (side_a, side_b) = (side_a, side_b);
+                tokio::join!(
+                    a.gossip_once(side_a.read, side_a.write),
+                    b.gossip_once(side_b.read, side_b.write)
+                )
             });
             tokio::select! {
                 biased;
@@ -440,7 +449,7 @@ fn cancelled_persist_never_suppresses_the_next_update() {
             }
         }
 
-        // The next session runs on a fresh link. It must persist M1's
+        // The next session runs on a fresh connection. It must persist M1's
         // frontier before transmitting M1: a suppression token surviving
         // the cancelled write would skip that persist.
         gossip(&a, &b).await;
@@ -567,18 +576,18 @@ fn donation_persist_failure_aborts_before_the_wire() {
             // update is suppressed (the record is current), so the donation
             // slice's write is the next store call.
             bm_a.fail_at(1, after_write);
-            let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
+            let (boot_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
             let serve = {
                 let a = a.clone();
                 async move {
-                    let mut link = serve_side;
-                    a.gossip_once(&mut link).await
+                    let end = serve_side;
+                    a.gossip_once(end.read, end.write).await
                 }
             };
             let (boot_out, serve_out) = tokio::join!(
                 async move {
-                    let mut link = boot_side;
-                    Peer::<Msg>::bootstrap().join(&mut link).await
+                    let end = boot_side;
+                    Peer::<Msg>::bootstrap().join(end.read, end.write).await
                 },
                 serve,
             );
@@ -643,18 +652,18 @@ fn repeated_donation_aborts_normalize() {
             // session's update re-records (one store call) before the
             // donation slice's write (the second): fail the second.
             bm_a.fail_at(2, false);
-            let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
+            let (boot_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
             let serve = {
                 let a = a.clone();
                 async move {
-                    let mut link = serve_side;
-                    a.gossip_once(&mut link).await
+                    let end = serve_side;
+                    a.gossip_once(end.read, end.write).await
                 }
             };
             let (boot_out, serve_out) = tokio::join!(
                 async move {
-                    let mut link = boot_side;
-                    Peer::<Msg>::bootstrap().join(&mut link).await
+                    let end = boot_side;
+                    Peer::<Msg>::bootstrap().join(end.read, end.write).await
                 },
                 serve,
             );

@@ -19,7 +19,7 @@ use std::task::{Context, Poll, Waker};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::link::memory_with_capacity;
+use rumors::testing::memory_connection;
 use rumors::{Rumors, Version};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -29,15 +29,15 @@ use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::schedule::EventIdx;
 use crate::common::wire::{block_on, bootstrap_fork};
 
-/// Small stream buffers make greeting and data writes yield between fragments.
-const OVERLAP_LINK_BUF: usize = 48;
+/// Small pipe buffers make greeting and data writes yield between fragments.
+const OVERLAP_BUF: usize = 48;
 
 /// One session whose endpoints can be polled separately to choose an interleaving.
 ///
-/// Each endpoint owns its link and a cloned replica handle. Other handles can
-/// mutate either replica while it is parked; dropping it cancels the session.
-/// Each endpoint checks its own result. The closed links are not retained for
-/// a final drain check.
+/// Each endpoint owns its connection end and a cloned replica handle. Other
+/// handles can mutate either replica while it is parked; dropping it cancels
+/// the session. Each endpoint checks its own result. The closed ends are not
+/// retained for a final drain check.
 pub struct Session {
     /// Endpoint futures, polled in A-then-B order.
     sides: [Pin<Box<dyn Future<Output = ()>>>; 2],
@@ -52,18 +52,18 @@ where
 {
     let a = a.clone();
     let b = b.clone();
-    let (a_link, b_link) = memory_with_capacity(OVERLAP_LINK_BUF);
+    let (a_end, b_end) = memory_connection(OVERLAP_BUF);
     Session {
         sides: [
             Box::pin(async move {
-                let mut a_link = a_link;
-                a.gossip_once(&mut a_link)
+                let mut a_end = a_end;
+                a.gossip_once(&mut a_end.read, &mut a_end.write)
                     .await
                     .expect("overlapped session side A");
             }),
             Box::pin(async move {
-                let mut b_link = b_link;
-                b.gossip_once(&mut b_link)
+                let mut b_end = b_end;
+                b.gossip_once(&mut b_end.read, &mut b_end.write)
                     .await
                     .expect("overlapped session side B");
             }),

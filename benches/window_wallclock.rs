@@ -23,7 +23,7 @@ use rumors_testkit::bench::latency;
 /// milliseconds of real time.
 const DELAY: Duration = Duration::from_millis(2);
 
-/// Per-stream pipe buffering: roomy, matching the generator's
+/// Per-direction pipe buffering: roomy, matching the generator's
 /// latency-only regime.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
@@ -68,14 +68,14 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
     send_random(&left, COMMON, &mut rng);
 
     let right = pollster::block_on(async {
-        let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (mut provider, mut newcomer) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip_once(&mut provider),
-            Peer::<u64>::bootstrap().join(&mut newcomer),
+            left.gossip_once(&mut provider.read, &mut provider.write),
+            Peer::<u64>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("serve bootstrap");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
         .sync_memory_budget(budget)

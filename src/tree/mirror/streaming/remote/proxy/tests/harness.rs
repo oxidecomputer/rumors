@@ -1,5 +1,6 @@
-//! Shared two-proxy test support: session drivers, link decorators, greeting
-//! rewrites, frame scripts, fixtures, and role-sensitive result inspection.
+//! Shared two-proxy test support: session drivers, transport decorators,
+//! greeting rewrites, frame scripts, fixtures, and role-sensitive result
+//! inspection.
 
 use std::{
     convert::Infallible,
@@ -17,11 +18,9 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::link::{
-    Acceptor, Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink,
-    memory_with_capacity,
+use crate::testing::{
+    IoFault, IoPlan, IoReportHandle, IoSide, MemoryEnd, memory_connection, wrap_io,
 };
-use crate::testing::{IoFault, IoPlan, IoReportHandle, IoSide, wrap_link};
 use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::typed::height::Z;
@@ -47,7 +46,7 @@ use crate::{
     message::{Message, PayloadCodec, PayloadDepthLimit},
 };
 
-/// Bytes buffered by each per-stream pipe before backpressure applies.
+/// Bytes buffered by each direction of the pipe before backpressure applies.
 pub const TRANSPORT_CAPACITY: usize = 37;
 
 /// One endpoint's session failure, named by the participant that raised
@@ -260,7 +259,7 @@ pub enum FrameMutation {
     UnorderQuery,
 }
 
-/// Mutable state shared by the streams carrying one frame script.
+/// Mutable state of one frame script.
 struct ScriptState {
     /// Which frame should be changed.
     selector: FrameSelector,
@@ -272,9 +271,8 @@ struct ScriptState {
 
 /// Observation handle proving that a configured mutation was reached.
 ///
-/// Shared across every data stream the scripted side opens: the mutation
-/// fires once, on the first frame — in deterministic poll order across
-/// streams — that matches the selector.
+/// The mutation fires once, on the first frame in pipe order that matches
+/// the selector.
 #[derive(Clone)]
 pub struct Script(Arc<Mutex<ScriptState>>);
 
@@ -294,23 +292,17 @@ impl Script {
     }
 }
 
-/// A data-stream writer which edits one complete frame at its flush boundary.
+/// A pipe writer which edits one complete frame at its flush boundary.
 ///
-/// Every flush below the [`StreamSender`] carries exactly one frame, so the
-/// flush boundary is the frame boundary. The stream's first flush carries
-/// the label items ahead of its frame; mutations parse past them and leave
-/// them intact.
-///
-/// [`StreamSender`]: crate::tree::mirror::streaming::remote::streams::StreamSender
+/// Every flush on the pipe's write half carries exactly one item, so the
+/// flush boundary is the item boundary. Items that are not frames (the
+/// preamble, greeting, and closing items) pass through untouched.
 pub struct ScriptedWrite<W> {
-    /// The stream that receives the resulting bytes.
+    /// The write half that receives the resulting bytes.
     inner: W,
-    /// The shared mutation, while it remains unfired.
+    /// The mutation, while it remains unfired.
     script: Option<Script>,
-    /// Whether the next flush still carries the label items ahead of its
-    /// frame.
-    label: bool,
-    /// Bytes buffered for the current frame.
+    /// Bytes buffered for the current item.
     frame: Vec<u8>,
     /// Bytes to write after applying the script.
     output: Vec<u8>,
@@ -318,15 +310,14 @@ pub struct ScriptedWrite<W> {
     sent: usize,
 }
 
-/// Construct and prepare a scripted data-stream writer.
+/// Construct and prepare a scripted pipe writer.
 impl<W> ScriptedWrite<W> {
-    /// Wrap one stream's `inner`, applying `script` once if it reaches its
+    /// Wrap a write half, applying `script` once if it reaches its
     /// selector.
-    fn new(inner: W, script: Option<Script>) -> Self {
+    pub fn new(inner: W, script: Option<Script>) -> Self {
         Self {
             inner,
             script,
-            label: true,
             frame: Vec::new(),
             output: Vec::new(),
             sent: 0,
@@ -346,20 +337,13 @@ impl<W> ScriptedWrite<W> {
         if script.fired {
             return;
         }
-        // Locate the frame behind any leading label items, then parse its
-        // array head, stream item, and state item through the wire's own
-        // head grammar.
+        // Parse the item's array head, stream item, and state item through
+        // the wire's own head grammar; an item that is not an array is not
+        // a frame.
         let mut rest = self.frame.as_slice();
-        if self.label {
-            for _ in 0..2 {
-                if cbor::read_head(&mut rest).is_err() {
-                    return;
-                }
-            }
-        }
-        let frame_at = self.frame.len() - rest.len();
-        if cbor::read_head(&mut rest).is_err() {
-            return;
+        match cbor::read_head(&mut rest) {
+            Ok(head) if head.major == cbor::MAJOR_ARRAY => {}
+            _ => return,
         }
         let Ok(stream) = cbor::read_head(&mut rest) else {
             return;
@@ -394,7 +378,7 @@ impl<W> ScriptedWrite<W> {
                 cbor::write_head(&mut head, cbor::MAJOR_UINT, u64::from(state));
                 self.output.splice(state_at..body_at, head);
             }
-            FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame[frame_at..]),
+            FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame),
             FrameMutation::UnorderQuery => {
                 use crate::tree::mirror::streaming::remote::codec::{
                     parse_listing_map, write_listing,
@@ -446,7 +430,6 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
         }
         match Pin::new(&mut this.inner).poll_flush(cx) {
             Poll::Ready(Ok(())) => {
-                this.label = false;
                 this.frame.clear();
                 this.output.clear();
                 this.sent = 0;
@@ -456,7 +439,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
         }
     }
 
-    /// Flush the pending frame before closing the wrapped stream.
+    /// Flush the pending item before closing the wrapped half.
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.as_mut().poll_flush(cx) {
             Poll::Ready(Ok(())) => Pin::new(&mut self.get_mut().inner).poll_shutdown(cx),
@@ -465,37 +448,13 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
     }
 }
 
-/// A connector wrapping every opened data stream in a [`ScriptedWrite`]
-/// sharing one [`Script`].
-#[derive(Clone)]
-pub struct ScriptedConnector<C> {
-    /// The connector that opens the underlying stream.
-    inner: C,
-    /// The mutation shared by every opened stream.
-    script: Option<Script>,
-}
-
-/// Preserve the underlying connector's completion callback through the wrapper.
-impl<C: Connector> Connector for ScriptedConnector<C> {
-    type Tx = ScriptedWrite<C::Tx>;
-
-    /// Wrap an outgoing stream and return its underlying half on completion.
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        let (tx, done) = self.inner.connect().await?;
-        Ok((
-            ScriptedWrite::new(tx, self.script.clone()),
-            Done::new(move |tx: Self::Tx| done.complete(tx.inner)),
-        ))
-    }
-}
-
 /// One greeting size declaration replaced in the traffic a side receives.
 ///
 /// Rewriting the *received* greeting simulates a non-conforming peer whose
 /// declaration disagrees with the traffic it then sends: the receiving side
 /// negotiates against the rewritten value while the sender behaves per its
-/// unchanged tree. The greeting is the first control traffic at this layer,
-/// so the rewriter buffers the one item, encodes it again with the field
+/// unchanged tree. The greeting is the first item at this layer, so the
+/// rewriter buffers the one item, encodes it again with the field
 /// replaced, and passes everything after it through untouched.
 #[derive(Clone)]
 pub struct GreetingRewrite {
@@ -567,11 +526,11 @@ impl GreetingRewrite {
     }
 }
 
-/// A control-stream reader replacing one greeting declaration, robust to
-/// arbitrary read chunking: it buffers the greeting item, serves the
-/// rewritten bytes, and passes the rest of the stream through.
+/// A pipe reader replacing one greeting declaration, robust to arbitrary
+/// read chunking: it buffers the greeting item, serves the rewritten bytes,
+/// and passes the rest of the stream through.
 pub struct RewriteRead<R> {
-    /// The control stream being read.
+    /// The read half being read.
     inner: R,
     /// The current rewrite phase.
     state: RewriteState,
@@ -598,7 +557,7 @@ enum RewriteState {
 }
 
 impl<R> RewriteRead<R> {
-    /// Wrap a control reader with an optional greeting rewrite.
+    /// Wrap a read half with an optional greeting rewrite.
     fn new(inner: R, rewrite: Option<GreetingRewrite>) -> Self {
         Self {
             inner,
@@ -623,7 +582,7 @@ fn greeting_item_len(pending: &[u8]) -> Option<usize> {
     Some(heads + usize::try_from(body.value).ok()?)
 }
 
-/// Replace the greeting before forwarding subsequent control bytes.
+/// Replace the greeting before forwarding subsequent bytes.
 impl<R: AsyncRead + Unpin> AsyncRead for RewriteRead<R> {
     /// Buffer through the greeting, then serve the rewrite and remaining bytes.
     fn poll_read(
@@ -679,7 +638,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for RewriteRead<R> {
     }
 }
 
-/// Reconcile one pair through two proxies over independently wrapped links.
+/// Reconcile one pair through two proxies over independently wrapped ends.
 pub async fn reconcile(
     left: TreeRoot,
     right: TreeRoot,
@@ -687,17 +646,19 @@ pub async fn reconcile(
     left_plan: IoPlan,
     right_plan: IoPlan,
 ) -> Outcome {
-    let (left_link, right_link) = memory_with_capacity(capacity);
-    let (left_link, left_io) = wrap_link(IoSide::Left, left_plan, left_link);
-    let (right_link, right_io) = wrap_link(IoSide::Right, right_plan, right_link);
+    let (left_end, right_end) = memory_connection(capacity);
+    let (left_read, left_write, left_io) =
+        wrap_io(IoSide::Left, left_plan, left_end.read, left_end.write);
+    let (right_read, right_write, right_io) =
+        wrap_io(IoSide::Right, right_plan, right_end.read, right_end.write);
 
     let (left, right) = drive(
         Topology::Production,
         Backends::local(),
         left,
         right,
-        left_link,
-        right_link,
+        (left_read, left_write),
+        (right_read, right_write),
         codec::<()>(),
         WindowConfig::FLOOR,
     )
@@ -724,14 +685,14 @@ pub async fn reconcile_rewritten_greetings(
     Result<TreeRoot, EndpointFailure>,
     Result<TreeRoot, EndpointFailure>,
 ) {
-    let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let (left_end, right_end) = memory_connection(TRANSPORT_CAPACITY);
     drive(
         Topology::Production,
         Backends::local(),
         left,
         right,
-        rewritten(left_link, left_hears),
-        rewritten(right_link, right_hears),
+        rewritten(left_end, left_hears),
+        rewritten(right_end, right_hears),
         codec::<()>(),
         WindowConfig::default(),
     )
@@ -758,19 +719,12 @@ pub async fn reconcile_rewritten_for(
     }
 }
 
-/// Wrap one link's control-read half in a greeting-word rewriter.
+/// Wrap one connection end's read half in a greeting-word rewriter.
 pub fn rewritten(
-    link: MemoryLink,
+    end: MemoryEnd,
     rewrite: Option<GreetingRewrite>,
-) -> Link<RewriteRead<DuplexStream>, DuplexStream, MemoryConnector, MemoryAcceptor> {
-    link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            RewriteRead::new(control_read, rewrite),
-            control_write,
-            connector,
-            acceptor,
-        )
-    })
+) -> (RewriteRead<DuplexStream>, DuplexStream) {
+    (RewriteRead::new(end.read, rewrite), end.write)
 }
 
 /// Whether the left tree wins the initiator election against the right,
@@ -787,7 +741,7 @@ pub fn left_initiates(left: &TreeRoot, right: &TreeRoot) -> bool {
     key(left).initiates(&key(right))
 }
 
-/// Reconcile while mutating at most one data-stream frame on each side.
+/// Reconcile while mutating at most one frame on each side.
 pub async fn reconcile_scripted(
     left: TreeRoot,
     right: TreeRoot,
@@ -797,60 +751,42 @@ pub async fn reconcile_scripted(
     Result<TreeRoot, EndpointFailure>,
     Result<TreeRoot, EndpointFailure>,
 ) {
-    let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let (left_end, right_end) = memory_connection(TRANSPORT_CAPACITY);
     drive(
         Topology::Production,
         Backends::local(),
         left,
         right,
-        scripted(left_link, left_script),
-        scripted(right_link, right_script),
+        (
+            left_end.read,
+            ScriptedWrite::new(left_end.write, left_script),
+        ),
+        (
+            right_end.read,
+            ScriptedWrite::new(right_end.write, right_script),
+        ),
         codec::<()>(),
         WindowConfig::FLOOR,
     )
     .await
 }
 
-/// Wrap one link's outgoing data streams with a frame script.
-pub fn scripted<R, W, C, A>(
-    link: Link<R, W, C, A>,
-    script: Option<Script>,
-) -> Link<R, W, ScriptedConnector<C>, A>
-where
-    R: AsyncRead + Unpin + Send,
-    W: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
-{
-    link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            control_read,
-            control_write,
-            ScriptedConnector {
-                inner: connector,
-                script,
-            },
-            acceptor,
-        )
-    })
-}
-
-/// Drive two proxy endpoints over already-wrapped links.
+/// Drive two proxy endpoints over already-wrapped connection ends.
 ///
-/// `left_link` carries the left endpoint, whose proxy represents the right
-/// peer; `right_link` the reverse. Every result is the endpoint's
-/// materialized tree or the failure of whichever of its two participants
-/// raised one.
+/// `left_end` carries the left endpoint, whose proxy represents the right
+/// peer; `right_end` the reverse. Each end is its read half and its write
+/// half. Every result is the endpoint's materialized tree or the failure of
+/// whichever of its two participants raised one.
 // One premise per argument: the topology, the four backends, the two
-// roots, the two links, the codec, and the window.
+// roots, the two ends, the codec, and the window.
 #[allow(clippy::too_many_arguments)]
-pub async fn drive<B, LR, LW, LC, LA, RR, RW, RC, RA>(
+pub async fn drive<B, LR, LW, RR, RW>(
     topology: Topology,
     backends: Backends<B>,
     left: TreeRoot,
     right: TreeRoot,
-    left_link: Link<LR, LW, LC, LA>,
-    right_link: Link<RR, RW, RC, RA>,
+    left_end: (LR, LW),
+    right_end: (RR, RW),
     codec: PayloadCodec,
     window: WindowConfig,
 ) -> (
@@ -861,12 +797,8 @@ where
     B: TreeBackend,
     LR: AsyncRead + Unpin + Send,
     LW: AsyncWrite + Unpin + Send,
-    LC: Connector,
-    LA: Acceptor,
     RR: AsyncRead + Unpin + Send,
     RW: AsyncWrite + Unpin + Send,
-    RC: Connector,
-    RA: Acceptor,
 {
     let Backends {
         left: left_backend,
@@ -886,8 +818,12 @@ where
         DEFAULT_TARGET_MESSAGE_SIZE as u64,
     )
     .window(window);
-    let remote_right = RemoteHandshaking::start(left_proxy, left_link, codec).window(window);
-    let remote_left = RemoteHandshaking::start(right_proxy, right_link, codec).window(window);
+    let (left_read, left_write) = left_end;
+    let (right_read, right_write) = right_end;
+    let remote_right =
+        RemoteHandshaking::start(left_proxy, left_read, left_write, codec).window(window);
+    let remote_left =
+        RemoteHandshaking::start(right_proxy, right_read, right_write, codec).window(window);
 
     // The left endpoint's materialized participant is the client of its
     // proxy in both arrangements; the topology decides the right one.
@@ -909,7 +845,7 @@ fn local_client<B: TreeBackend, W>(
     result: Result<(Root<B>, W), MirrorError<MaterializedError<B::Error>, RemoteError<B::Error>>>,
 ) -> Result<TreeRoot, EndpointError<B::Error>> {
     match result {
-        Ok((root, _control)) => Ok(B::lower(root)),
+        Ok((root, _pipe)) => Ok(B::lower(root)),
         Err(MirrorError::Client(error)) => Err(EndpointError::Local(error)),
         Err(MirrorError::Server(error)) => Err(EndpointError::Proxy(error)),
     }
@@ -920,7 +856,7 @@ fn local_server<B: TreeBackend, W>(
     result: Result<(W, Root<B>), MirrorError<RemoteError<B::Error>, MaterializedError<B::Error>>>,
 ) -> Result<TreeRoot, EndpointError<B::Error>> {
     match result {
-        Ok((_control, root)) => Ok(B::lower(root)),
+        Ok((_pipe, root)) => Ok(B::lower(root)),
         Err(MirrorError::Client(error)) => Err(EndpointError::Proxy(error)),
         Err(MirrorError::Server(error)) => Err(EndpointError::Local(error)),
     }

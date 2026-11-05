@@ -5,7 +5,7 @@
 //! reaction [`Label`]s: `Match`, `Supply` with its radix, or `Query` with its
 //! listing's radices. Hashes, nodes, and versions are erased. The capture sits
 //! before the remote proxy frames supplies by byte budget, so it describes the
-//! walk's decisions rather than link-level frames.
+//! walk's decisions rather than wire frames.
 //!
 //! Capture point: [`super::work::Work::respond`], the pump every response
 //! stream funnels through. Entries land when that pump pulls a reply from the

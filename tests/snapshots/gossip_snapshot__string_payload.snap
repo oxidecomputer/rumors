@@ -24,7 +24,7 @@ control item 1 (132 bytes) / greeting /
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Responder stream 0 (height 31), epoch 0, 29 wire bytes
+Responder stream 0 (height 31), 27 wire bytes
   frame 0 (21 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'5540'), "hello">>)>>)]
   frame 1 (3 bytes) / QueryEmpty(End) /
@@ -54,7 +54,7 @@ control item 1 (131 bytes) / greeting /
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Initiator stream 1 (height 30), epoch 0, 25 wire bytes
+Initiator stream 1 (height 30), 23 wire bytes
   frame 0 (20 bytes) / Supply(End) /
 [1, 7, 63_0(<<63_0(<<53846_1(h'77'), "world">>)>>)]
   frame 1 (3 bytes) / End(Stream) /

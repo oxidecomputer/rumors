@@ -12,8 +12,19 @@ use std::sync::{Arc, Mutex};
 use rumors::Peer;
 use rumors::observe::{Observer, Role, SessionInfo, SessionObserver, StreamInfo, StreamObserver};
 use rumors_tracing::TracingObserver;
+use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
+
+/// One in-memory connection, split into each end's read and write halves.
+#[allow(clippy::type_complexity)]
+fn connection() -> (
+    (ReadHalf<DuplexStream>, WriteHalf<DuplexStream>),
+    (ReadHalf<DuplexStream>, WriteHalf<DuplexStream>),
+) {
+    let (near, far) = tokio::io::duplex(64 * 1024);
+    (tokio::io::split(near), tokio::io::split(far))
+}
 
 /// One captured span: its name, recorded fields, and explicit parent.
 #[derive(Debug)]
@@ -176,16 +187,16 @@ fn adapter_bridges_real_sessions() {
 
             // Bob's own bootstrap session is observed through the
             // builder; the attachment then follows the joined peer.
-            let (mut near, mut far) = rumors::link::memory();
+            let ((near_read, near_write), (far_read, far_write)) = connection();
             let (served, joined) = tokio::join!(
-                alice.gossip_once(&mut far),
+                alice.gossip_once(far_read, far_write),
                 Peer::<String>::bootstrap()
                     .observe(counting.clone())
-                    .join(&mut near),
+                    .join(near_read, near_write),
             );
             served.expect("provider session");
             let bob = (match joined {
-                rumors::Joined::Joined { peer } => peer,
+                rumors::Joined::Joined { peer, .. } => peer,
                 _ => panic!("alice is established, not herself bootstrapping"),
             })
             .into_rumors();
@@ -197,8 +208,11 @@ fn adapter_bridges_real_sessions() {
             alice
                 .send("from alice".to_string())
                 .expect("a flat string admits");
-            let (mut near, mut far) = rumors::link::memory();
-            let (a, b) = tokio::join!(alice.gossip_once(&mut far), bob.gossip_once(&mut near));
+            let ((near_read, near_write), (far_read, far_write)) = connection();
+            let (a, b) = tokio::join!(
+                alice.gossip_once(far_read, far_write),
+                bob.gossip_once(near_read, near_write)
+            );
             a.expect("alice's gossip session");
             b.expect("bob's gossip session");
         });
@@ -249,7 +263,7 @@ fn adapter_bridges_real_sessions() {
         gossip_streams
             .iter()
             .any(|s| s.fields["kind"] == "\"data\""),
-        "divergent gossip opens observed data streams"
+        "divergent gossip carries frames on observed data streams"
     );
 
     // The election is reported into the diverged gossip session.
@@ -325,27 +339,27 @@ fn concurrent_sessions_number_cleanly() {
             // adapter to bob only after his join: the two concurrent
             // gossip sessions are then the first sessions the adapter
             // sees.
-            let (mut near, mut far) = rumors::link::memory();
+            let ((near_read, near_write), (far_read, far_write)) = connection();
             let (served, joined) = tokio::join!(
-                alice.gossip_once(&mut far),
-                Peer::<String>::bootstrap().join(&mut near),
+                alice.gossip_once(far_read, far_write),
+                Peer::<String>::bootstrap().join(near_read, near_write),
             );
             served.expect("provider session");
             let bob = (match joined {
-                rumors::Joined::Joined { peer } => peer,
+                rumors::Joined::Joined { peer, .. } => peer,
                 _ => panic!("alice is established, not herself bootstrapping"),
             })
             .observe(Arc::new(TracingObserver::new()))
             .into_rumors();
 
-            let (mut near, mut far) = rumors::link::memory();
+            let ((near_read, near_write), (far_read, far_write)) = connection();
             let (served, joined) = tokio::join!(
-                alice.gossip_once(&mut far),
-                Peer::<String>::bootstrap().join(&mut near),
+                alice.gossip_once(far_read, far_write),
+                Peer::<String>::bootstrap().join(near_read, near_write),
             );
             served.expect("provider session");
             let carol = (match joined {
-                rumors::Joined::Joined { peer } => peer,
+                rumors::Joined::Joined { peer, .. } => peer,
                 _ => panic!("alice is established, not herself bootstrapping"),
             })
             .into_rumors();
@@ -362,15 +376,15 @@ fn concurrent_sessions_number_cleanly() {
                 .expect("a flat string admits");
 
             // Both of bob's sessions run inside one join, through the
-            // one shared observer, over separate links.
+            // one shared observer, over separate connections.
             let bob_too = bob.clone();
-            let (mut near_a, mut far_a) = rumors::link::memory();
-            let (mut near_c, mut far_c) = rumors::link::memory();
+            let ((near_a_read, near_a_write), (far_a_read, far_a_write)) = connection();
+            let ((near_c_read, near_c_write), (far_c_read, far_c_write)) = connection();
             let (a, b1, b2, c) = tokio::join!(
-                alice.gossip_once(&mut far_a),
-                bob.gossip_once(&mut near_a),
-                bob_too.gossip_once(&mut near_c),
-                carol.gossip_once(&mut far_c),
+                alice.gossip_once(far_a_read, far_a_write),
+                bob.gossip_once(near_a_read, near_a_write),
+                bob_too.gossip_once(near_c_read, near_c_write),
+                carol.gossip_once(far_c_read, far_c_write),
             );
             a.expect("alice's session");
             b1.expect("bob's session with alice");

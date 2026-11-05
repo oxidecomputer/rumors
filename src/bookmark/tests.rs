@@ -10,7 +10,8 @@ use futures::{FutureExt, future::LocalBoxFuture};
 use proptest::prelude::*;
 
 use super::*;
-use crate::{Joined, Peer, link, testing::run_to_quiescence};
+use crate::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
+use crate::{Joined, Peer};
 
 /// Whether a store confirms durability or fails on either side of replacement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -106,13 +107,13 @@ fn non_sync_bookmark_can_attach_and_gossip() {
         let peer = rumors.try_into_peer().await.unwrap();
         let peer = sendable(peer.bookmark(Memory::default())).await.unwrap();
         let rumors = peer.into_rumors();
-        let (mut near, mut far) = link::memory();
+        let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
         let (served, joined) = futures::join!(
-            sendable(rumors.gossip_once(&mut near)),
-            sendable(Peer::<u64>::bootstrap().join(&mut far)),
+            sendable(rumors.gossip_once(&mut near.read, &mut near.write)),
+            sendable(Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)),
         );
         served.unwrap();
-        let Joined::Joined { peer } = joined else {
+        let Joined::Joined { peer, .. } = joined else {
             panic!("the peer must join")
         };
         let received = peer.into_rumors().snapshot();
@@ -306,10 +307,10 @@ proptest! {
             } else {
                 Peer::<u64>::bootstrap().bookmark(Memory::default()).bookmark_size_limit(limit)
             };
-            let (mut near, mut far) = link::memory();
-            let (served, joined) = futures::join!(seed.gossip_once(&mut near), bootstrap.join(&mut far));
+            let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
+            let (served, joined) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), bootstrap.join(&mut far.read, &mut far.write));
             served.unwrap();
-            let Joined::Joined { peer } = joined else { panic!("reliable bootstrap must join") };
+            let Joined::Joined { peer, .. } = joined else { panic!("reliable bootstrap must join") };
             {
                 let bookmark = peer.bookmark.lock().await;
                 assert_eq!(bookmark.size_limit(), limit.max(format::record_size(0, 0)));
@@ -319,8 +320,8 @@ proptest! {
             drop(rumors.clone());
             let peer = rumors.try_into_peer().await.unwrap().bookmark_size_limit(0);
             let rumors = peer.into_rumors();
-            let (mut near, mut far) = link::memory();
-            let (a, b) = futures::join!(seed.gossip_once(&mut near), rumors.gossip_once(&mut far));
+            let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
+            let (a, b) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), rumors.gossip_once(&mut far.read, &mut far.write));
             a.unwrap(); b.unwrap();
             let peer = rumors.try_into_peer().await.unwrap();
             let bookmark = peer.bookmark.lock().await;

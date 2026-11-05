@@ -19,12 +19,13 @@ pub enum Stage {
 /// One progress-critical proxy publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
-    /// A complete outgoing reply has flushed its question frames.
+    /// A complete outgoing reply is in the multiplexer's channel.
     WireReply {
-        /// Questions published after the flush.
+        /// Questions published after its last frame.
         questions: usize,
     },
-    /// One question is published after its wire reply flushes.
+    /// One question is published after its reply's last frame reaches the
+    /// multiplexer.
     LocalQuestion,
     /// The walk takes an incoming answer; its derived scopes publish next,
     /// before the stage receives it.
@@ -116,7 +117,7 @@ impl Trace {
         );
     }
 
-    /// Every decoded answer needs a previously flushed question on the same
+    /// Every decoded answer needs a previously published question on the same
     /// endpoint. Questions and answers pair in FIFO order at each height.
     /// The root opening is the sole exception: its scope comes from the greeting.
     pub fn assert_question_causality(&self) {
@@ -145,7 +146,7 @@ impl Trace {
                     assert!(
                         *count <= available,
                         "event {event:?} at trace index {index}: decoded reply {count} \
-                         arrived before its question was flushed ({available} available)",
+                         arrived before its question was published ({available} available)",
                     );
                 }
                 Kind::WireReply { .. } | Kind::NextScope => {}

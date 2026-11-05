@@ -105,7 +105,7 @@ fn unattached_handles_are_inert() {
     handle.control_sent(b"x");
     handle.control_received(b"x");
     handle.elected(Role::Initiator);
-    assert!(handle.data(Role::Initiator, 0, Direction::Sent).is_none());
+    assert!(handle.data(Role::Initiator, Direction::Sent).is_none());
 }
 
 /// Beginning an observed V2 session creates the control stream's two
@@ -172,13 +172,14 @@ proptest! {
         handle.elected(Role::Initiator);
         handle.control_sent(b"sent");
         handle.control_received(b"received");
-        if let Some(mut data) = handle.data(Role::Initiator, 3, Direction::Sent) {
-            data.message(b"data");
+        if let Some(mut data) = handle.data(Role::Initiator, Direction::Sent) {
+            data.message(3, b"data");
         }
 
         // `begin` makes three ordered passes: sessions, then both control
-        // directions. Election, both control messages, opening the data stream,
-        // and its message add five more.
+        // directions. Election, both control messages, the data stream's
+        // first frame creating its handlers, and that frame's message add
+        // five more.
         let expected = std::iter::repeat_n(0..observer_count, 8)
             .flatten()
             .collect::<Vec<_>>();

@@ -6,7 +6,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::bookmark::{Bookmark, NoBookmark};
-use crate::link::{Acceptor, Connector, Link};
 use crate::message::PayloadDepthLimit;
 use crate::observe::{Attachment, Observer};
 use crate::tree::mirror::streaming::remote::RunBudget;
@@ -22,7 +21,7 @@ use super::bookmark::Unbookmarked;
 ///
 /// A failed session or a meeting between two bootstrappers returns this builder
 /// in [`Joined`], including any selected bookmark. Retry by calling `join` on
-/// the returned builder with another link. No configuration or storage clone
+/// the returned builder on another connection. No configuration or storage clone
 /// is needed. Builders without a bookmark also implement [`Clone`].
 ///
 /// Select [`bookmark`](Self::bookmark) to attach restart bookkeeping before
@@ -33,7 +32,7 @@ use super::bookmark::Unbookmarked;
 ///
 /// An established peer automatically serves bootstrappers through ordinary
 /// [`gossip`](crate::Rumors::gossip); no special invocation is required.
-#[must_use = "a Bootstrap does nothing until join runs it against a link"]
+#[must_use = "a Bootstrap does nothing until join runs it over a connection"]
 pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Pipelining policy inherited by the joined peer.
     pub(crate) window: WindowConfig,
@@ -207,42 +206,53 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
 impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Join the connected peer's gossip network, returning a peer or a retryable builder.
     ///
+    /// `read` and `write` are the two halves of one connection to an
+    /// established member; see the [transport requirements](crate#transport).
+    /// Pass `&mut` halves to keep the connection after the session.
+    ///
     /// Success receives the provider's current message set. The provider may
     /// be gossiping or retiring. Two bootstrappers cannot supply each other;
     /// both return [`Joined::Bailed`] with their builders.
     ///
     /// [`Joined::Failed`] returns the builder on session failure, including
     /// [`session_deadline`](Self::session_deadline) expiry. Discard the
-    /// poisoned link and retry on another.
+    /// connection and retry on another.
     ///
     /// If a bookmark was selected, joining then attaches it through
     /// [`Peer::bookmark`]. A failed attachment returns [`Joined::Unbookmarked`],
     /// preserving the joined peer.
     ///
     /// Cancelling drops the builder and any joined peer. Cancellation during
-    /// the session poisons the link; once bookmark attachment begins, the
-    /// session is complete and the link remains usable. See the
-    /// [session contract](crate::link::Link#what-a-session-promises).
-    pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B>
+    /// the session leaves the connection at an unknown position; once
+    /// bookmark attachment begins, the session is complete and the
+    /// connection rests at its boundary. See
+    /// [what a session promises](crate#what-a-session-promises).
+    pub async fn join<R, W>(self, mut read: R, mut write: W) -> Joined<T, R, W, B>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
         // The session needs a copy of the settings, not ownership of storage.
         // Retaining self lets both unsuccessful outcomes return it unchanged.
-        match Peer::bootstrap_inner(self.session_config(), link).await {
+        match Peer::bootstrap_inner(self.session_config(), &mut read, &mut write).await {
             Ok(Some(peer)) => match peer
                 .bookmark_size_limit(self.bookmark_size_limit)
                 .bookmark(self.bookmark)
                 .await
             {
-                Ok(peer) => Joined::Joined { peer },
-                Err(unbookmarked) => Joined::Unbookmarked(unbookmarked),
+                Ok(peer) => Joined::Joined { peer, read, write },
+                Err(unbookmarked) => Joined::Unbookmarked {
+                    unbookmarked,
+                    read,
+                    write,
+                },
             },
-            Ok(None) => Joined::Bailed { bootstrap: self },
+            Ok(None) => Joined::Bailed {
+                bootstrap: self,
+                read,
+                write,
+            },
             Err(error) => Joined::Failed {
                 error,
                 bootstrap: self,
@@ -251,48 +261,69 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     }
 }
 
-/// A bootstrap's outcome, preserving either its new peer or its retry configuration.
+/// A bootstrap's outcome, preserving either its new peer or its retry
+/// configuration.
+///
+/// Every outcome but [`Failed`](Self::Failed) completed the session and
+/// returns the connection's halves, resting at the session boundary.
 #[must_use = "Joined contains a peer or a builder needed for retry"]
-pub enum Joined<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
+pub enum Joined<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
     /// The session succeeded and any selected bookmark was attached and persisted.
-    /// The link remains usable.
     Joined {
         /// The new peer, carrying the selected configuration and storage.
         peer: Peer<T, B>,
+        /// The connection's read half, ready for another session.
+        read: R,
+        /// The connection's write half, ready for another session.
+        write: W,
     },
     /// Both endpoints were bootstrapping; neither could provide a gossip network.
-    /// The link remains usable and storage was not touched.
+    /// Storage was not touched.
     Bailed {
         /// The complete builder, ready to try another provider.
         bootstrap: Bootstrap<T, B>,
+        /// The connection's read half, ready for another session.
+        read: R,
+        /// The connection's write half, ready for another session.
+        write: W,
     },
     /// The session succeeded, but attaching the bookmark failed.
     /// The returned peer is live and unbookmarked; retry its bookmark attachment.
-    /// The link remains usable.
-    Unbookmarked(Unbookmarked<T, B>),
-    /// The session failed and poisoned the link. Storage was not touched.
+    Unbookmarked {
+        /// The joined peer and the attachment's failure.
+        unbookmarked: Unbookmarked<T, B>,
+        /// The connection's read half, ready for another session.
+        read: R,
+        /// The connection's write half, ready for another session.
+        write: W,
+    },
+    /// The session failed. Storage was not touched; discard the connection.
     Failed {
         /// The session error.
         error: Error,
-        /// The complete builder, ready to retry on another link.
+        /// The complete builder, ready to retry on another connection.
         bootstrap: Bootstrap<T, B>,
     },
 }
 
-/// Format join outcomes without requiring debuggable payload or bookmark
-/// types.
-impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Joined<T, B> {
+/// Format join outcomes without requiring debuggable payload, bookmark, or
+/// transport types.
+impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Joined<T, R, W, B> {
     /// Formats the outcome and the peer or retry state it carries.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Joined { peer } => f.debug_struct("Joined").field("peer", peer).finish(),
-            Self::Bailed { bootstrap } => f
+            Self::Joined { peer, .. } => f
+                .debug_struct("Joined")
+                .field("peer", peer)
+                .finish_non_exhaustive(),
+            Self::Bailed { bootstrap, .. } => f
                 .debug_struct("Bailed")
                 .field("bootstrap", bootstrap)
-                .finish(),
-            Self::Unbookmarked(unbookmarked) => {
-                f.debug_tuple("Unbookmarked").field(unbookmarked).finish()
-            }
+                .finish_non_exhaustive(),
+            Self::Unbookmarked { unbookmarked, .. } => f
+                .debug_struct("Unbookmarked")
+                .field("unbookmarked", unbookmarked)
+                .finish_non_exhaustive(),
             Self::Failed { error, bootstrap } => f
                 .debug_struct("Failed")
                 .field("error", error)

@@ -5,7 +5,7 @@ use std::io::ErrorKind;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::counter::widen;
-use crate::observe::{CaptureRead, StreamObserver};
+use crate::observe::{CaptureRead, DataObservers};
 
 use super::super::{
     budget::RunBudget,
@@ -35,7 +35,7 @@ const WIDE_ENTRY_LEN: usize = listing_entry_len(u8::MAX);
 /// The smallest radix whose key head takes two bytes.
 const FIRST_WIDE_RADIX: u8 = 24;
 
-/// Async frame reader over one speaker's transport direction.
+/// Async frame reader over one speaker's direction of the pipe.
 ///
 /// A clean close before a frame's array head returns `None`. A close within a
 /// frame, or an explicit `UnexpectedEof` error at any position, reports the
@@ -64,9 +64,10 @@ pub struct FrameRead<R> {
     /// this direction delivers.
     budget: RunBudget,
     read: R,
-    /// The directed stream's observer, if any: handed each accepted
-    /// frame's exact wire bytes, and costing one branch when absent.
-    observe: Option<Box<dyn StreamObserver>>,
+    /// The direction's per-logical-stream observers, if any: each accepted
+    /// frame's exact wire bytes go to its stream's observer, at the cost of
+    /// one branch when absent.
+    observe: Option<DataObservers>,
     /// Scratch for a listing's bulk reads, retained across frames so a
     /// query frame allocates only when it outgrows every earlier one.
     listing: Vec<u8>,
@@ -85,8 +86,9 @@ impl<R> FrameRead<R> {
         }
     }
 
-    /// Deliver every accepted frame to `observe`, when one is attached.
-    pub fn observed(mut self, observe: Option<Box<dyn StreamObserver>>) -> Self {
+    /// Deliver every accepted frame to its logical stream's observer in
+    /// `observe`, when the session is observed.
+    pub fn observed(mut self, observe: Option<DataObservers>) -> Self {
         self.observe = observe;
         self
     }
@@ -94,6 +96,7 @@ impl<R> FrameRead<R> {
     /// Recover the transport half. The reader holds no transport bytes
     /// between frames (every read is exact), so between frames the half
     /// rests exactly at a frame boundary.
+    #[cfg(test)]
     pub fn into_inner(self) -> R {
         self.read
     }
@@ -127,8 +130,8 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
                 let mut capture = CaptureRead::new(&mut self.read);
                 let result =
                     read_frame(&mut capture, self.speaker, self.budget, &mut self.listing).await;
-                if let Ok(Some(_)) = &result {
-                    observe.message(capture.bytes());
+                if let Ok(Some((stream, _))) = &result {
+                    observe.message(stream.index(), capture.bytes());
                 }
                 result
             }

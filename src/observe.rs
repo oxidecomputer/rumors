@@ -19,8 +19,9 @@
 //!   alike. Repeated attachment adds observers; callbacks visit them
 //!   in attachment order.
 //! - **Session**: a [`SessionObserver`] receives the elected role, is asked
-//!   for a handler as each directed stream opens, and finally receives the
-//!   session's completion, failure category, or cancellation.
+//!   for a handler for each directed stream as it first carries an item,
+//!   and finally receives the session's completion, failure category, or
+//!   cancellation.
 //! - **Stream**: a [`StreamObserver`] receives that one directed
 //!   stream's messages, in stream order, one CBOR item per
 //!   [`message`](StreamObserver::message) call.
@@ -28,20 +29,23 @@
 //! The contract:
 //!
 //! - **Ordering**: within one directed stream, invocations arrive in
-//!   the stream's byte order; across streams there is no ordering at
-//!   all (a session's streams pump concurrently). To recover the
+//!   the stream's order; across streams no ordering is promised (the
+//!   session's two directions progress concurrently). To recover the
 //!   observed interleaving, stamp each message from a session-scoped
 //!   atomic counter shared by the stream handlers.
 //!   [`SessionObserver::finished`] is the final callback for a session, after
-//!   its stream tasks have ended.
+//!   every stream handler's last message.
 //! - **Never block**: handlers run synchronously inside the session's
-//!   own stream tasks. Blocking in
-//!   [`message`](StreamObserver::message) stalls that directed stream,
-//!   and waiting on protocol progress deadlocks; hand bytes off to a
-//!   channel if the consumer is slow.
-//! - **Coverage**: every directed stream of a session, both directions,
-//!   control and data streams alike. The stream-open label is stream
-//!   *addressing*, not an item, and is not delivered. Only complete
+//!   own tasks. Blocking in [`message`](StreamObserver::message) stalls
+//!   the session's connection in that direction, every logical stream of
+//!   it at once, and waiting on protocol
+//!   progress deadlocks; hand bytes off to a channel if the consumer is
+//!   slow.
+//! - **Coverage**: every item of a session, both directions, control
+//!   items and data frames alike. One connection carries them all: the
+//!   control items (the preamble, greeting, and closing items) form the
+//!   [`Control`](StreamId::Control) stream, and each logical stream's
+//!   frames form one [`Data`](StreamId::Data) stream. Only complete
 //!   items are observed: a session that dies mid-frame does not deliver
 //!   the fragment, and an aborted session may have observed fewer items
 //!   than crossed the wire.
@@ -84,17 +88,17 @@ pub trait Observer: Send + Sync {
 }
 
 /// A session-level observation handler: yields one [`StreamObserver`]
-/// per directed stream, as each opens.
+/// per directed stream, as each first carries an item.
 ///
-/// A session's streams open and pump concurrently, so
+/// A session's two directions progress concurrently, so
 /// [`stream`](Self::stream) is called from concurrent tasks.
 pub trait SessionObserver: Send + Sync {
     /// Learn which role this side won in the session's role election.
     ///
     /// Called at most once, when the election is decided — after the
-    /// greetings are exchanged and before any data stream opens. Not
-    /// called when the greetings carried equal versions (no election
-    /// happens: the session ends over the control stream alone). The
+    /// greetings are exchanged and before any data frame. Not called when
+    /// the greetings carried equal versions (no election happens: the
+    /// session ends with its control items alone). The
     /// role is not part of [`SessionInfo`] because it does not exist
     /// yet when the session begins; a consumer that needs it before
     /// data frames arrive records it here. The default does nothing.
@@ -115,11 +119,15 @@ pub trait SessionObserver: Send + Sync {
     /// Begin observing one directed stream, or return `None` to skip
     /// it.
     ///
-    /// Called once per directed stream, when it opens: for the control
-    /// stream's two directions at session start, and for each data
-    /// stream when this side first writes (sent) or first reads
-    /// (received) it. A data stream the session never speaks yields no
-    /// handler. The returned handler's lifetime is the stream's.
+    /// Called once per directed stream: for the control stream's two
+    /// directions at session start, and for each logical data stream when
+    /// this side first writes (sent) or first reads (received) one of its
+    /// frames. A data stream the session never speaks yields no handler.
+    ///
+    /// A control stream's handler lives until the session ends. A data
+    /// stream's handler lives only until this side has written (sent) or
+    /// read (received) the last frame of that direction, which happens
+    /// before the closing items and before [`finished`](Self::finished).
     fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>>;
 }
 
@@ -230,17 +238,19 @@ pub struct StreamInfo {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StreamId {
-    /// Session setup, network joins and departures, and completion confirmation.
+    /// Session setup, network joins and departures, and completion
+    /// confirmation: the items before and after the data frames.
     Control,
-    /// One reconciliation data stream.
+    /// One logical reconciliation data stream: the frames of one level's
+    /// replies in one direction.
     Data {
         /// The elected role that speaks this stream's frames.
         ///
         /// Sent data streams are spoken by this side's elected role;
         /// received ones by the counterparty's.
         speaker: Role,
-        /// The stream's wire index, `0..`[`STREAM_COUNT`](crate::link::STREAM_COUNT):
-        /// the same index the stream's on-wire open label carries.
+        /// The logical stream's wire index: the index every one of its
+        /// frames names.
         index: u8,
     },
 }
@@ -345,12 +355,12 @@ impl Attachment {
 /// handler observes the session.
 ///
 /// The session machinery threads a clone to every layer that emits or
-/// accepts wire items (the pattern the stats recorder set). Data
-/// streams create their own owned [`StreamObserver`]s through
-/// [`data`](Self::data) when they open; the control stream's two
-/// handlers live here, behind mutexes, because the control stream's
-/// items are written from several protocol layers in sequence — the
-/// locks are uncontended by construction (each direction's items are
+/// accepts wire items (the pattern the stats recorder set). The pipe's
+/// frame reader and writer create the data streams' own
+/// [`StreamObserver`]s through [`data`](Self::data); the control stream's
+/// two handlers live here, behind mutexes, because the control items are
+/// written from several protocol layers in sequence — the locks are
+/// uncontended by construction (each direction's items are
 /// protocol-ordered) and absent entirely from the unattached path.
 #[derive(Clone, Default)]
 pub(crate) struct SessionHandle {
@@ -405,9 +415,25 @@ impl SessionHandle {
         }
     }
 
-    /// Create the handlers for one opening data stream, if any session
+    /// Create the observer table for one direction of the session's data
+    /// frames, or `None` when no handler observes the session.
+    ///
+    /// The table asks the session handlers for each logical stream's
+    /// handler when that stream first carries a frame, so a logical stream
+    /// the session never speaks yields no handler.
+    pub(crate) fn data(&self, speaker: Role, direction: Direction) -> Option<DataObservers> {
+        self.inner.as_ref()?;
+        Some(DataObservers {
+            handle: self.clone(),
+            speaker,
+            direction,
+            streams: Vec::new(),
+        })
+    }
+
+    /// Create the handlers for one logical data stream, if any session
     /// observers want it.
-    pub(crate) fn data(
+    fn data_stream(
         &self,
         speaker: Role,
         index: u8,
@@ -425,6 +451,41 @@ impl SessionHandle {
             0 => None,
             1 => handlers.into_iter().next(),
             _ => Some(Box::new(StreamFanout(handlers))),
+        }
+    }
+}
+
+/// The data-stream handlers of one pipe direction, indexed by logical
+/// stream.
+///
+/// The pipe carries every logical stream of a direction, so one frame
+/// reader or writer serves them all. Each logical stream's handler is
+/// created when that stream carries its first frame, and lives as long as
+/// the table.
+pub(crate) struct DataObservers {
+    /// The session whose handlers are asked for each stream's handler.
+    handle: SessionHandle,
+    /// The elected role speaking this direction's frames.
+    speaker: Role,
+    /// Whether this side sent or received the frames.
+    direction: Direction,
+    /// Each logical stream's handler once asked for: the outer `None`
+    /// means not yet asked, the inner `None` that every handler declined.
+    streams: Vec<Option<Option<Box<dyn StreamObserver>>>>,
+}
+
+impl DataObservers {
+    /// Deliver one frame's wire bytes to its logical stream's handler,
+    /// creating the handler on the stream's first frame.
+    pub(crate) fn message(&mut self, index: u8, bytes: &[u8]) {
+        let slot = usize::from(index);
+        if self.streams.len() <= slot {
+            self.streams.resize_with(slot + 1, || None);
+        }
+        let handler = self.streams[slot]
+            .get_or_insert_with(|| self.handle.data_stream(self.speaker, index, self.direction));
+        if let Some(handler) = handler {
+            handler.message(bytes);
         }
     }
 }

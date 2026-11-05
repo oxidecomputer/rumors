@@ -41,7 +41,8 @@ constraint.
   A non-conforming peer can leave synchronization waiting indefinitely.
   Applications choose deadlines when they need to bound those waits.
   Authenticating peers and securing the transport are the application's job;
-  the `link` module lists exactly what the protocol asks of the transport.
+  [what securing the transport means](#what-securing-the-transport-means)
+  lists exactly what the protocol asks of it.
 - **If bandwidth is your scarce resource.** `rumors` buys low latency with
   bandwidth. Small reconciliations can spend several kilobytes of protocol
   traffic per message. Metered, narrow, or high-loss links may call for a
@@ -103,18 +104,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A send commits right here.
     alice.send("the meeting is at noon".to_string())?;
 
-    // A session runs over a `Link`: a control byte stream plus a supply
-    // of independent data streams (see the `link` module); here, the
-    // in-memory pair. Alice serves one gossip session...
-    let (mut near, mut far) = rumors::link::memory();
+    // A session runs over one connection, taken as its two halves (see
+    // Transport below); here, an in-memory pair. Alice serves one gossip
+    // session...
+    let (near, far) = tokio::io::duplex(64 * 1024);
     let serve = alice.clone();
     tokio::spawn(async move {
-        serve.gossip_once(&mut far).await.unwrap();
+        let (read, write) = tokio::io::split(far);
+        serve.gossip_once(read, write).await.unwrap();
     });
 
     // ...and Bob joins the universe through it, arriving as a full replica.
-    let rumors::Joined::Joined { peer: bob } =
-        Peer::<String>::bootstrap().join(&mut near).await
+    let (read, write) = tokio::io::split(near);
+    let rumors::Joined::Joined { peer: bob, .. } =
+        Peer::<String>::bootstrap().join(read, write).await
     else {
         panic!("Alice must serve the bootstrap");
     };
@@ -166,20 +169,105 @@ protocol message of a live session, as raw CBOR items, for debuggers,
 recorders, and tracing adapters — attach a handler from the `observe`
 module (`Peer::observe`).
 
-## Transport: bring a `Link`
+## Transport
 
-A session's transport is a `Link`: one persistent bidirectional
-*control stream* plus a supply of independent, individually
-flow-controlled unidirectional *data streams*, opened lazily as
-reconciliation needs them. The `link` module states what an
-implementation must guarantee, ships the in-memory instantiation
-(`link::memory`), and documents how to bind a real transport (QUIC
-connections map streams one to one; TCP can carry one stream per
-connection behind a routing listener). A conformance suite (the
-`conformance::link` module, unlocked by the `conformance` cargo feature)
-checks those guarantees on a caller-built link. `Link`'s docs state
-what a session promises on `Ok`, `Err`,
-and cancellation.
+A session runs over one connection to its peer, which it takes as two
+halves: a read half implementing
+[`AsyncRead`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncRead.html)
+and a write half implementing
+[`AsyncWrite`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncWrite.html).
+Every session method takes the halves by value. The single-session
+methods (`Rumors::gossip_once`, `Bootstrap::join`, and
+`Peer::retire`) return them when the session completes; the
+`Rumors::gossip` driver owns them for its whole lifetime and drops them
+when it ends. Tokio implements both traits for mutable references, so
+pass `&mut read, &mut write` to keep halves you hold elsewhere, such as a
+connection you mean to reuse after a driver ends.
+
+The connection must be:
+
+- **one reliable, ordered duplex byte stream**: every byte written
+  arrives, once, in the order written;
+- **independent in its two directions**: a read proceeds while the same
+  side's write is blocked, so a carrier that couples them (a half-duplex
+  turn protocol, or a lock held across a read and a write) can deadlock a
+  session;
+- **paced by its receiver**: a writer that runs ahead of its reader
+  waits, and any positive buffer capacity suffices; sessions stay live
+  down to a one-byte buffer;
+- **closed visibly**: when the peer departs, the read half reports end of
+  stream or an error, and every write, pending or later, eventually
+  completes or fails.
+
+A TCP connection split with `TcpStream::into_split` meets every clause,
+as does one bidirectional QUIC stream, or a `tokio::io::duplex` pair for
+an in-process peer. The crate opens no connections itself. Reads take
+exactly the bytes each protocol item needs; on an unbuffered transport,
+wrap the read half in `tokio::io::BufReader`, which may outlive a
+session.
+
+A departed peer that never closes the connection leaves a session
+waiting, and so does a transport whose writes never complete; configure
+`Peer::session_deadline` to bound such waits.
+
+### What a session promises
+
+Sessions synchronize message sets and may also join or retire a peer.
+Their outcomes determine whether the replica and the connection can be
+reused:
+
+- **Success:** both sides confirmed completion. The returned halves rest
+  exactly at the session boundary, ready for another session. Gossip
+  returns `Gossiped`; bootstrap and retirement report their results
+  through `Joined` and `Retire`.
+- **Failure:** the connection's position is unknown: discard it and
+  reconnect. A later session on it gets no typed warning; it can fail in
+  any way, or misread the stale bytes. Failure does not always mean that
+  nothing changed: a failure in
+  `Phase::Completion` can follow a
+  local commit. Accepting a retirement can also commit content before a
+  bookmark write fails; see `Error::Bookmark`.
+- **Cancellation:** dropping an active session future also leaves the
+  connection at an unknown position; discard it. No partial
+  reconciliation is published, but a completed local commit is not
+  undone. Cancelling bootstrap or retirement also drops the builder or
+  peer it consumed; no outcome is returned for retry. See `Bookmark`
+  for the effects on restart bookkeeping.
+
+Bootstrap attaches a selected bookmark after its wire session completes.
+Failing or cancelling that attachment leaves the connection at the
+session boundary; `Joined::Unbookmarked` preserves the joined peer
+after an attachment failure.
+
+Configure `Peer::session_deadline` to bound gossip, bootstrap, and
+retirement exchanges while leaving idle waits untimed. Post-join bookmark
+attachment is outside this deadline. Discard the connection on expiry.
+`Gossip::Unconditionally` can initiate liveness probes on an otherwise
+idle connection.
+
+### What securing the transport means
+
+The application authenticates peers and secures the transport. Protocol
+checks help diagnose incompatible or buggy peers; they do not make a
+completed session's updates trustworthy. An authorized peer can follow
+the protocol while arbitrarily changing the gossip set. A non-conforming
+peer can leave synchronization waiting indefinitely, so applications
+choose deadlines when they need to bound those waits.
+
+The transport has these responsibilities:
+
+- **Authentication is authorization.** Any counterparty that can
+  complete a session holds full write authority over the set; the
+  protocol makes no finer-grained access decision.
+- **Integrity.** The wire decoders detect malformed frames, not
+  tampering: a transport that lets a third party modify bytes in flight
+  has granted that party the session.
+- **Confidentiality.** Session traffic (message bodies, set sizes,
+  version structure, the greeting's metadata) crosses the connection in
+  cleartext; the protocol adds no encryption of its own.
+- **Freshness.** The protocol does not authenticate a connection or a
+  session as new; a transport that could replay recorded traffic into a
+  live connection must rule that out itself.
 
 ## Runtime independence
 
@@ -214,7 +302,7 @@ Each bound guards replication:
   most `Peer::payload_depth_limit` steps (256 by default, ample
   for ordinary types); an over-deep value is rejected at send. The
   limit is held to exact equality fleet-wide at every handshake, so
-  an admitted payload is transferable everywhere; the knob's docs
+  an admitted payload is transferable everywhere; the setting's docs
   carry the full contract.
 
 On compatibility across versions of your own type: because CBOR
@@ -229,8 +317,8 @@ if it starts out only having one variant, `V1`.
 
 Every feature is off by default.
 
-- `conformance`: the public validation suite for caller-built `link`
-  instantiations (the `conformance::link` module). Enable it from a
+- `conformance`: the public validation suite for caller-built bookmark
+  storage (the `conformance::bookmark` module). Enable it from a
   dev-dependency; it is safe, though pointless, in an application.
 - `fs`: `FileBookmark` and its caller-driven blocking-I/O bridge.
 - `test-internals`: this crate's own test scaffolding, enabled through

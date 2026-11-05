@@ -45,7 +45,7 @@ const PIPELINED_HOPS: u32 = 12;
 /// pipelined ladder's shape-to-shape drift is well under it.
 const KNEE_MARGIN: u32 = 12;
 
-/// Per-stream in-flight window: far above this test's transfers, so only
+/// Per-direction in-flight window: far above this test's transfers, so only
 /// round-trip structure is measured.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
@@ -168,7 +168,7 @@ fn hops(divergent_per_side: usize) -> u32 {
     hops_over(divergent_per_side, LINK_CAPACITY)
 }
 
-/// [`hops`], with the pipe's per-stream in-flight window chosen by the
+/// [`hops`], with the pipe's per-direction in-flight window chosen by the
 /// caller.
 ///
 /// Measured in exact virtual time: compute costs zero virtual time on
@@ -188,14 +188,14 @@ fn diverged(divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
     send_random(&left, COMMON, &mut rng);
 
     let right = pollster::block_on(async {
-        let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (mut provider, mut newcomer) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip_once(&mut provider),
-            Peer::<u64>::bootstrap().join(&mut newcomer),
+            left.gossip_once(&mut provider.read, &mut provider.write),
+            Peer::<u64>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("serve bootstrap");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
         .sync_memory_budget(BUDGET)
@@ -308,7 +308,7 @@ fn above_the_knee_cost_is_linear_in_divergence() {
 fn window_stall_hides_under_bandwidth_bound_transfer() {
     let divergence = divergence_at_least(STALL_CELL);
     let capacity = binding_capacity_at(divergence);
-    // 2 KiB in flight at 10 ms one-way models ~200 KB/s per stream: a
+    // 2 KiB in flight at 10 ms one-way models ~200 KB/s per direction: a
     // BDP of ~2 KiB — ~57 messages at this corpus's measured ~36 B each
     // (tests/dispute_wire.rs pins the affine per-message cost) — below
     // the binding capacity, so bandwidth binds before the window does.

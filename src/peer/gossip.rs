@@ -17,10 +17,6 @@ use tokio::{
 };
 
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
-use crate::link::{
-    Acceptor, Connector, Link, SessionState,
-    erased::{DynAcceptor, DynConnector},
-};
 use crate::message::PayloadCodec;
 use crate::observe::{SessionCompletion, SessionHandle, SessionKind, SessionOutcome};
 use crate::tree::{self, Tree};
@@ -32,7 +28,7 @@ use crate::{
         preamble::{self, Intent},
         streaming::{
             self, Local, materialized,
-            remote::{self as streaming_remote, ControlRead, RunBudget},
+            remote::{self as streaming_remote, PipeRead, RunBudget},
             stats::{Recorder, SessionStats},
             window::WindowConfig,
         },
@@ -41,60 +37,64 @@ use crate::{
 
 use super::{Inner, Peer, bootstrap::Bootstrap};
 
-/// The epilogue marker each side writes on the control stream after all
-/// of its session work: the CBOR text item `"."`.
+/// The completion marker each side writes after all of its session work,
+/// in the closing exchange: the CBOR text item `"."`.
 ///
 /// Receiving this marker confirms that the peer also committed. Its first byte
 /// differs from a preamble's, so a premature next session is reported as a
 /// protocol violation rather than mistaken for completion.
-const EPILOGUE_MARKER: [u8; 2] = [0x61, b'.'];
+pub(crate) const COMPLETION_MARKER: [u8; 2] = [0x61, b'.'];
 
-/// A session's control read half with its concrete transport type erased.
+/// A session's read half with its concrete transport type erased.
 ///
-/// Session entry points erase the caller's [`Link`] before reconciliation.
-/// Otherwise each link implementation would instantiate the protocol's deeply
+/// Session entry points erase the caller's halves before reconciliation.
+/// Otherwise each transport type would instantiate the protocol's deeply
 /// generic state machine in every downstream binary. The non-generic,
 /// non-inlined drivers keep one copy in this crate.
 ///
-/// Erasure costs one virtual call per stream open or accept and per read or
-/// write poll beneath the framing buffers.
+/// Erasure costs one virtual call per read or write poll beneath the
+/// framing buffers.
 type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
 
-/// A session's control write half with its concrete transport type erased.
+/// A session's write half with its concrete transport type erased.
 ///
 /// See [`DynRead`] for why the erasure exists and what it costs.
 type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 
-/// One session's transport after erasing its concrete component types, in
-/// [`Link`] field order: control halves, connector, acceptor, and epoch.
-///
-/// The funnels produce this (via [`erase`]) and [`Peer::gossip_inner`]
-/// consumes it. The tuple lets the `gossip` driver reborrow individual
-/// components for each session.
-type SessionTransport<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a>, u8);
-
-/// Reconciled content and control streams ready for identity transfer or completion.
-type Reconciled<'a> = (tree::Root, ControlRead<DynRead<'a>>, DynWrite<'a>);
+/// Reconciled content and the pipe's halves, ready for identity transfer
+/// or completion.
+type Reconciled<'a> = (tree::Root, PipeRead<DynRead<'a>>, DynWrite<'a>);
 
 /// The outcome of [`Peer::retire`].
 ///
-/// [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered) return the
-/// peer so it can keep gossiping or retry retirement. Dropping either result
-/// discards that peer.
+/// [`Retired`](Self::Retired) and [`Declined`](Self::Declined) completed the
+/// session and return the connection's halves, resting at the session
+/// boundary. [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered)
+/// return the peer so it can keep gossiping or retry retirement. Dropping
+/// either result discards that peer.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
-pub enum Retire<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
+pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
     /// Retirement completed and this replica left the network.
-    /// The remote peer confirmed completion; the link remains usable.
-    Retired,
+    /// The remote peer confirmed completion.
+    Retired {
+        /// The connection's read half, ready for another session.
+        read: R,
+        /// The connection's write half, ready for another session.
+        write: W,
+    },
     /// The remote peer was also retiring, so the session changed neither replica.
-    /// The link remains usable; retry retirement with another peer.
+    /// Retry retirement with another peer.
     Declined {
         /// The unchanged peer, still usable.
         peer: Peer<T, B>,
+        /// The connection's read half, ready for another session.
+        read: R,
+        /// The connection's write half, ready for another session.
+        write: W,
     },
     /// Retirement failed before the peer had to be consumed.
-    /// The returned peer can keep gossiping or retry retirement on a fresh link.
-    /// The failed link is poisoned; discard it.
+    /// The returned peer can keep gossiping or retry retirement on a fresh
+    /// connection; discard the failed one.
     Recovered {
         /// The unchanged peer, still usable.
         peer: Peer<T, B>,
@@ -103,7 +103,7 @@ pub enum Retire<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     },
     /// Retirement started but could not be confirmed. This peer was consumed
     /// and cannot resume gossip or retry; the remote peer may have committed.
-    /// The link is poisoned; discard it.
+    /// Discard the connection.
     ///
     /// This includes failures while awaiting [`Phase::Completion`].
     Uncertain {
@@ -112,14 +112,17 @@ pub enum Retire<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     },
 }
 
-/// Format retirement outcomes without requiring debuggable payload or
-/// bookmark types.
-impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Retire<T, B> {
+/// Format retirement outcomes without requiring debuggable payload, bookmark,
+/// or transport types.
+impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W, B> {
     /// Formats the outcome and any returned peer or error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Retired => f.write_str("Retired"),
-            Self::Declined { peer } => f.debug_struct("Declined").field("peer", peer).finish(),
+            Self::Retired { .. } => f.debug_struct("Retired").finish_non_exhaustive(),
+            Self::Declined { peer, .. } => f
+                .debug_struct("Declined")
+                .field("peer", peer)
+                .finish_non_exhaustive(),
             Self::Recovered { peer, error } => f
                 .debug_struct("Recovered")
                 .field("peer", peer)
@@ -201,23 +204,21 @@ impl From<()> for Gossip {
 
 /// Create joined peers and attach bookmark storage.
 impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
-    /// Run bootstrap over any link.
+    /// Run bootstrap over any connection.
     ///
-    /// A thin generic funnel: the only monomorphized-per-link code is the
-    /// erasure to [`SessionTransport`] here.
-    pub(crate) fn bootstrap_inner<'a, CR, CW, C, A>(
+    /// A thin generic funnel: the only monomorphized-per-transport code is
+    /// the erasure of the two halves here.
+    pub(crate) fn bootstrap_inner<'a, R, W>(
         config: Bootstrap<T>,
-        link: &'a mut Link<CR, CW, C, A>,
+        read: &'a mut R,
+        write: &'a mut W,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
         Box::pin(async move {
-            let parts = erase(&mut *link)?;
             let policy = config.gossip_policy.clone();
             let started = Instant::now();
             let completion = SessionCompletion::new(config.observe.begin(SessionKind::Bootstrap));
@@ -226,7 +227,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             let result = policy
                 .run(Self::bootstrap_erased(
                     config,
-                    parts,
+                    read as DynRead<'_>,
+                    write as DynWrite<'_>,
                     observe,
                     stats.clone(),
                 ))
@@ -254,21 +256,17 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                     completion.finish(SessionOutcome::Failed(error.session_error_kind()));
                 }
             }
-            // Both arrival and mutual bootstrap complete the epilogue,
-            // so either outcome leaves the link ready for another session.
-            if result.is_ok() {
-                link.session.finish();
-            }
             result
         })
     }
 
-    /// The link-erased bootstrap body behind [`bootstrap_inner`].
+    /// The transport-erased bootstrap body behind [`bootstrap_inner`].
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
     fn bootstrap_erased<'a>(
         config: Bootstrap<T>,
-        link: SessionTransport<'a>,
+        read: DynRead<'a>,
+        write: DynWrite<'a>,
         observe: SessionHandle,
         stats: Recorder,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
@@ -276,7 +274,6 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
         Box::pin(async move {
-            let (read, write, connector, acceptor, epoch) = link;
             // The peer-to-be's payload codec, built before it exists:
             // the bootstrap session's ingress decodes through it, and the
             // constructed peer inherits it.
@@ -296,12 +293,13 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             .map_err(Error::from)?;
 
             // Reconcile from an empty tree. On arrival, the returned root
-            // holds the provider's content and the next frame carries the
+            // holds the provider's content and the next item carries the
             // donated identity. Two bootstrappers instead finish without one.
             let both_bootstrapping = remote.network.is_bootstrap();
             let reconciliation = Reconciliation {
                 root: tree::Root::default(),
-                link: (read, write, connector, acceptor, epoch),
+                read,
+                write,
                 codec,
                 window: config.window,
                 run_budget: config.run_budget,
@@ -348,72 +346,55 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// Reconciliation publishes on both sides. Surviving message observers
     /// drain the retiring peer's final merged state before they end.
-    pub(crate) async fn retire_inner<CR, CW, C, A>(
-        self,
-        link: &mut Link<CR, CW, C, A>,
-    ) -> Retire<T, B>
+    pub(crate) async fn retire_inner<R, W>(self, mut read: R, mut write: W) -> Retire<T, R, W, B>
     where
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
         let mut staged = preamble::Staged::new();
-        let parts = match erase(link) {
-            Ok(parts) => parts,
-            // The fail-fast happened before any wire traffic: nothing of
-            // ours was ever in flight, so the retiree is recovered intact.
-            Err(error) => {
-                return Retire::Recovered {
-                    peer: self,
-                    error: error.widen(),
-                };
-            }
-        };
-        let (intent, result) = self.session(Intent::Retire, &mut staged, parts).await;
-        // Un-poison on clean completion, before the outcome is shaped: every
-        // `Ok` — retired, or declined by a mutually retiring peer — leaves
-        // the control stream resting at the session boundary.
-        if result.is_ok() {
-            link.session.finish();
-        }
+        let (intent, result) = self
+            .session(Intent::Retire, &mut staged, &mut read, &mut write)
+            .await;
         match (intent, result) {
-            (Intent::Retire, Ok(_)) => Retire::Retired,
+            (Intent::Retire, Ok(_)) => Retire::Retired { read, write },
             (Intent::Retire, Err(error)) => Retire::Uncertain { error },
-            (Intent::Remain, Ok(_)) => Retire::Declined { peer: self },
+            (Intent::Remain, Ok(_)) => Retire::Declined {
+                peer: self,
+                read,
+                write,
+            },
             (Intent::Remain, Err(error)) => Retire::Recovered { peer: self, error },
         }
     }
 
     /// Gossip with a remote peer to synchronize rumor sets.
-    pub(crate) async fn gossip_once<CR, CW, C, A>(
+    pub(crate) async fn gossip_once<R, W>(
         &self,
-        link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Gossiped, Error<B>>
+        mut read: R,
+        mut write: W,
+    ) -> Result<(Gossiped, R, W), Error<B>>
     where
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
         let mut staged = preamble::Staged::new();
-        let parts = erase(link).map_err(Error::widen)?;
-        let (_, result) = self.session(Intent::Remain, &mut staged, parts).await;
-        // Un-poison on clean completion: the session's own `Ok` is
-        // already epilogue-certified, so the control stream rests at the
-        // session boundary.
-        if result.is_ok() {
-            link.session.finish();
-        }
+        let (_, result) = self
+            .session(Intent::Remain, &mut staged, &mut read, &mut write)
+            .await;
         // A one-shot session is always locally led: the call itself is
         // this side's trigger. A remote preamble already in flight merges
         // into the same session (the preamble exchange is symmetric),
         // exactly as it does when two `gossip` triggers race.
-        result.map(|(converged, stats)| Gossiped {
-            converged,
-            led: Led::Local,
-            stats,
-        })
+        let (converged, stats) = result?;
+        Ok((
+            Gossiped {
+                converged,
+                led: Led::Local,
+                stats,
+            },
+            read,
+            write,
+        ))
     }
 
     /// Time an established peer's session while retaining its recovery outcome.
@@ -424,7 +405,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         &self,
         intent: Intent,
         staged: &mut preamble::Staged,
-        link: SessionTransport<'_>,
+        read: DynRead<'_>,
+        write: DynWrite<'_>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>) {
         let mut outcome = Intent::Remain;
         let kind = match intent {
@@ -437,7 +419,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let stats = Recorder::default();
         let mut result = self
             .gossip_policy
-            .run(self.gossip_inner(intent, &mut outcome, staged, link, observe, stats))
+            .run(self.gossip_inner(intent, &mut outcome, staged, read, write, observe, stats))
             .await;
         if let Ok((_, stats)) = &mut result {
             stats.elapsed = started.elapsed();
@@ -491,18 +473,21 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// uses that frontier to decide whether further gossip is needed.
     ///
     /// `staged` holds any preamble bytes already read by the continuous gossip driver.
-    /// The erased [`SessionTransport`] and [`Reconciliation`] keep protocol code
-    /// generation independent of the caller's concrete link type.
+    /// The erased halves and [`Reconciliation`] keep protocol code generation
+    /// independent of the caller's concrete transport type.
+    // The arguments are the session's inputs, one per concern; bundling them
+    // into a struct would only rename the arity.
+    #[allow(clippy::too_many_arguments)]
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
         outcome: &mut Intent,
         staged: &mut preamble::Staged,
-        link: SessionTransport<'a>,
+        read: DynRead<'a>,
+        write: DynWrite<'a>,
         observe: SessionHandle,
         stats: Recorder,
     ) -> Result<(Version, SessionStats), Error<B>> {
-        let (read, write, connector, acceptor, epoch) = link;
         let codec = self.codec;
         // Check protocol and network compatibility before reconciliation.
         let remote = preamble::preamble(self.network, intent, staged, read, write, &observe)
@@ -514,7 +499,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
         // Stop cleanly, early if we're both trying to retire into each other.
         // Symmetric by construction: both sides take this same branch, so the
-        // epilogue markers pair up with no session body between them.
+        // completion markers pair up with no session body between them.
         if self_retiring && peer_retiring {
             epilogue(read, write, &observe)
                 .await
@@ -562,12 +547,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let local_min_events = prior_tree.latest().min_ticks();
 
         // Retain the starting root so publication can detect concurrent changes.
-        // Reconciliation owns a clone and returns the merged root and control
-        // streams. Its boxed future keeps the protocol state out of this outer
+        // Reconciliation owns a clone and returns the merged root and the
+        // pipe's halves. Its boxed future keeps the protocol state out of this outer
         // future and the consumer crate that instantiates it.
         let reconciliation = Reconciliation {
             root: prior_tree.root.clone(),
-            link: (read, write, connector, acceptor, epoch),
+            read,
+            write,
             codec,
             window: self.window,
             run_budget: self.run_budget,
@@ -678,29 +664,25 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     }
 }
 
-/// Drive repeated sessions over one link with application-owned timing.
+/// Drive repeated sessions over one connection with application-owned timing.
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Run the continuous driver under this peer's initiation policy.
     #[must_use = "the driver does nothing until the returned stream is polled"]
-    pub(crate) fn gossip_driver<'a, CR, CW, C, A>(
+    pub(crate) fn gossip_driver<'a, R, W>(
         &'a self,
-        link: &'a mut Link<CR, CW, C, A>,
+        read: R,
+        write: W,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send + 'a,
+        W: AsyncWrite + Unpin + Send + 'a,
     {
         // Each driver gets its own change subscription and policy stream.
         // Factories are shared by the replica, but active state belongs here.
         let drive = Drive {
             peer: self,
-            read: &mut link.control_read as DynRead<'a>,
-            write: &mut link.control_write as DynWrite<'a>,
-            connector: DynConnector::new(link.connector.clone()),
-            acceptor: &mut link.acceptor as DynAcceptor<'a>,
-            state: &mut link.session,
+            read: Box::new(read),
+            write: Box::new(write),
             when: self
                 .gossip_policy
                 .when(crate::Changes::subscribe(&self.inner)),
@@ -717,14 +699,6 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 return None;
             }
             loop {
-                // A driver started on a poisoned link must fail fast
-                // here, before the idle select: its session would fail
-                // the same way, but only once a trigger fired, leaving
-                // a driver that looks live while parked on a dead link.
-                if drive.state.poisoned() {
-                    drive.done = true;
-                    return Some((Err(Error::LinkPoisoned.widen()), drive));
-                }
                 // No timer runs here. Receiving the first bytes returns
                 // immediately, so a partial preamble enters the timed
                 // exchange instead of leaving the driver idle.
@@ -736,15 +710,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 };
                 let led = match trigger {
                     Trigger::Arrival(Err(e)) => {
-                        // An I/O failure invalidates the link even when
-                        // no bytes arrived and no session began.
-                        drive.state.poison();
                         drive.done = true;
                         return Some((Err(Error::from(e).widen()), drive));
                     }
                     // EOF or policy exhaustion at an untouched boundary
                     // ends cleanly. Once any bytes arrive, this same poll
-                    // proceeds to `begin` before it can suspend again.
+                    // proceeds to the session before it can suspend again.
                     Trigger::Arrival(Ok(false)) | Trigger::Tick(None) => return None,
                     Trigger::Arrival(Ok(true)) => Led::Remote,
                     Trigger::Tick(Some(Gossip::WhenChanged)) => {
@@ -770,13 +741,6 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     Trigger::Tick(Some(Gossip::Unconditionally)) => Led::Local,
                 };
 
-                let epoch = match drive.state.begin() {
-                    Ok(epoch) => epoch,
-                    Err(e) => {
-                        drive.done = true;
-                        return Some((Err(e.widen()), drive));
-                    }
-                };
                 // `unfold` keeps the session and its deadline alive when
                 // the caller drops a `next()` future between polls.
                 let (_, result) = drive
@@ -784,22 +748,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     .session(
                         Intent::Remain,
                         &mut drive.staged,
-                        (
-                            &mut *drive.read,
-                            &mut *drive.write,
-                            drive.connector.clone(),
-                            &mut *drive.acceptor,
-                            epoch,
-                        ),
+                        &mut *drive.read,
+                        &mut *drive.write,
                     )
                     .await;
                 return match result {
                     Ok((converged, stats)) => {
-                        // Re-arm for the next session: un-poison the
-                        // link (this session completed cleanly), a
-                        // fresh staging buffer (this preamble is
-                        // consumed), and the new suppression token.
-                        drive.state.finish();
+                        // Re-arm for the next session: a fresh staging
+                        // buffer (this preamble is consumed), and the new
+                        // suppression token.
                         drive.staged = preamble::Staged::new();
                         drive.converged = Some(converged.clone());
                         Some((
@@ -826,13 +783,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 /// Gossip and bootstrap both assemble this bundle and consume it through
 /// [`reconcile`](Self::reconcile). That non-generic, non-inlined boundary keeps
 /// the protocol state machine in this crate rather than instantiating it for
-/// each downstream peer and link type.
+/// each downstream peer and transport type.
 struct Reconciliation<'a> {
     /// The local replica's root, snapshotted inside the session transaction's
     /// critical section: exactly what the local participant reconciles from.
     root: tree::Root,
-    /// The session's erased link.
-    link: SessionTransport<'a>,
+    /// The session's erased read half.
+    read: DynRead<'a>,
+    /// The session's erased write half.
+    write: DynWrite<'a>,
     /// The peer's payload codec: the payload boundary in both directions.
     ///
     /// Supplied leaves decode through it at wire ingress, and egress
@@ -894,7 +853,8 @@ impl RemoteRole {
 }
 
 impl<'a> Reconciliation<'a> {
-    /// Reconcile content and return control input with any read-ahead retained.
+    /// Reconcile content and return the pipe's halves, with any byte read
+    /// ahead of the closing items retained.
     ///
     /// Box the protocol future at this non-generic boundary so consumers do
     /// not instantiate its state machine. Prevent inlining from moving that
@@ -904,7 +864,8 @@ impl<'a> Reconciliation<'a> {
         Box::pin(async move {
             let Self {
                 root,
-                link,
+                read,
+                write,
                 codec,
                 window,
                 run_budget,
@@ -912,13 +873,11 @@ impl<'a> Reconciliation<'a> {
                 observe,
                 remote_role,
             } = self;
-            let (read, write, connector, acceptor, epoch) = link;
             let local =
                 materialized::Handshaking::start(Local, root.into(), run_budget.bytes() as u64)
                     .window(window)
                     .stats(stats.clone());
-            let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-            let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
+            let proxy = streaming_remote::Handshaking::start(Local, read, write, codec)
                 .window(window)
                 .stats(stats)
                 .observe(observe);
@@ -931,29 +890,6 @@ impl<'a> Reconciliation<'a> {
             Ok((root.into(), read, write))
         })
     }
-}
-
-/// Erase a caller's link into one session's [`SessionTransport`], opening the
-/// session on the link's [`SessionState`]: each call is exactly one session.
-///
-/// Fails fast with [`Error::LinkPoisoned`] on a link whose previous session
-/// was interrupted; on success the link is poisoned until its funnel
-/// observes the session's clean completion and clears the latch.
-fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> Result<SessionTransport<'a>, Error>
-where
-    CR: AsyncRead + Unpin + Send,
-    CW: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
-{
-    let epoch = link.session.begin()?;
-    Ok((
-        &mut link.control_read as DynRead<'a>,
-        &mut link.control_write as DynWrite<'a>,
-        DynConnector::new(link.connector.clone()),
-        &mut link.acceptor as DynAcceptor<'a>,
-        epoch,
-    ))
 }
 
 /// Reject a newcomer claiming causal history before reconciliation uses that
@@ -986,31 +922,21 @@ enum SessionDefect {
     /// A complete closing item differs from the protocol's marker.
     #[error("invalid completion marker: {0:02x?}")]
     CompletionMarker([u8; 2]),
-    /// Bytes after the completion marker arrived before we confirmed completion.
-    #[error("peer sent {0} extra control bytes before our completion marker")]
-    EarlyControl(usize),
 }
 
-/// Finish the session without discarding bytes read ahead of its boundary.
+/// Finish the session, consuming any byte the pipe read ahead of the
+/// closing items.
 ///
-/// The departure watch stops before we send our completion marker. A peer
-/// cannot start another session before receiving that marker, so leftover
-/// lookahead is a protocol violation, not the next session's preamble.
+/// The pipe reads at most the first byte of the peer's first closing item
+/// ahead, and every closing item is read through it, so after the epilogue
+/// the read half rests exactly at the session boundary. A peer cannot start
+/// another session before receiving our marker.
 async fn finish_session<R: AsyncRead + Unpin + Send>(
-    read: &mut ControlRead<R>,
+    read: &mut PipeRead<R>,
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
     observe: &SessionHandle,
 ) -> Result<(), Error> {
-    epilogue(read, write, observe).await?;
-    let (ahead, _) = read.get_ref();
-    let unread = ahead.get_ref().len() - ahead.position() as usize;
-    if unread != 0 {
-        return Err(Error::violation(
-            Phase::Completion,
-            SessionDefect::EarlyControl(unread),
-        ));
-    }
-    Ok(())
+    epilogue(read, write, observe).await
 }
 
 /// Exchange completion markers concurrently so both sides can flush before
@@ -1023,22 +949,22 @@ async fn epilogue(
 ) -> Result<(), Error> {
     let send = async {
         write
-            .write_all(&EPILOGUE_MARKER)
+            .write_all(&COMPLETION_MARKER)
             .await
             .map_err(|source| Error::transport(Phase::Completion, Op::Write, source))?;
         write
             .flush()
             .await
             .map_err(|source| Error::transport(Phase::Completion, Op::Flush, source))?;
-        observe.control_sent(&EPILOGUE_MARKER);
+        observe.control_sent(&COMPLETION_MARKER);
         Ok(())
     };
     let receive = async {
-        let mut marker = [0u8; EPILOGUE_MARKER.len()];
+        let mut marker = [0u8; COMPLETION_MARKER.len()];
         read.read_exact(&mut marker)
             .await
             .map_err(|source| Error::transport(Phase::Completion, Op::Read, source))?;
-        if marker != EPILOGUE_MARKER {
+        if marker != COMPLETION_MARKER {
             return Err(Error::violation(
                 Phase::Completion,
                 SessionDefect::CompletionMarker(marker),
@@ -1062,18 +988,13 @@ enum Trigger {
 
 /// State retained between sessions; `unfold` also retains the active future.
 struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
-    /// The replica served by every session on this link.
+    /// The replica served by every session on this connection.
     peer: &'a Peer<T, B>,
-    /// Control input, retained across session boundaries.
-    read: DynRead<'a>,
-    /// Control output, retained across session boundaries.
-    write: DynWrite<'a>,
-    /// Opens outgoing data streams for each session.
-    connector: DynConnector,
-    /// Supplies incoming data streams for each session.
-    acceptor: DynAcceptor<'a>,
-    /// `begin` poisons an active session; only successful completion clears it.
-    state: &'a mut SessionState,
+    /// The connection's read half, retained across session boundaries and
+    /// boxed so the driver is not generic over the transport.
+    read: Box<dyn AsyncRead + Unpin + Send + 'a>,
+    /// The connection's write half, retained across session boundaries.
+    write: Box<dyn AsyncWrite + Unpin + Send + 'a>,
     /// Local initiation policy; pinned independently of the driver state.
     when: futures::stream::BoxStream<'static, Gossip>,
     /// Initiation bytes consumed before the active exchange takes over.

@@ -1,7 +1,7 @@
-//! Check that every protocol stream is a CBOR sequence.
+//! Check that each direction of a session's connection is a CBOR sequence.
 //!
-//! A generic parser walks captured control and data streams in both directions,
-//! using only `ciborium::Value`. It follows containers and tags, decoding tag 63's
+//! A generic parser walks both directions' captured bytes, control items and
+//! frames alike, using only `ciborium::Value`. It follows containers and tags, decoding tag 63's
 //! byte string as an embedded sequence and tag 24's as exactly one embedded
 //! item. Every byte at each level must belong to a complete CBOR item.
 //!
@@ -15,8 +15,9 @@ use ciborium::value::Value;
 use proptest::prelude::*;
 use rumors::{Peer, Rumors};
 
-use crate::common::gossip_snapshot::{CapturedLink, capture_sides, corpora};
+use crate::common::gossip_snapshot::{capture_sides, corpora};
 use crate::common::wire::{block_on, bootstrap_fork_async};
+use rumors::testing::PipeCapture;
 
 /// Tag number for an embedded CBOR sequence in a byte string (RFC 9277).
 const TAG_CBOR_SEQUENCE: u64 = 63;
@@ -70,14 +71,10 @@ fn walk_value(value: &Value, context: &str) -> Result<(), String> {
     }
 }
 
-/// Assert every directed stream of one side's capture walks clean.
-fn assert_legible(side: &str, capture: &CapturedLink) {
-    walk_sequence(&capture.control, &format!("{side} control"))
-        .unwrap_or_else(|e| panic!("illegible control stream: {e}"));
-    for (index, stream) in capture.streams.iter().enumerate() {
-        walk_sequence(stream, &format!("{side} data stream {index}"))
-            .unwrap_or_else(|e| panic!("illegible data stream: {e}"));
-    }
+/// Assert one side's captured direction walks clean.
+fn assert_legible(side: &str, capture: &PipeCapture) {
+    walk_sequence(&capture.sent, &format!("{side} sent"))
+        .unwrap_or_else(|e| panic!("illegible connection: {e}"));
 }
 
 /// A peer loaded with `payloads`, forked from `parent` when one is given
@@ -94,7 +91,7 @@ fn loaded(parent: Option<&Rumors<Vec<u8>>>, payloads: &[Vec<u8>]) -> Rumors<Vec<
 }
 
 proptest! {
-    /// Every directed stream of an arbitrary V2 gossip session is a pure
+    /// Each direction of an arbitrary V2 gossip session is a pure
     /// CBOR sequence under the rumors-blind walk.
     #[test]
     fn arbitrary_gossip_sessions_are_cbor_sequences(
@@ -108,14 +105,14 @@ proptest! {
         let (a_capture, b_capture) = capture_sides(
             {
                 let a = a.clone();
-                move |mut link| async move {
-                    a.gossip_once(&mut link).await.expect("gossip A");
+                move |mut end| async move {
+                    a.gossip_once(&mut end.read, &mut end.write).await.expect("gossip A");
                 }
             },
             {
                 let b = b.clone();
-                move |mut link| async move {
-                    b.gossip_once(&mut link).await.expect("gossip B");
+                move |mut end| async move {
+                    b.gossip_once(&mut end.read, &mut end.write).await.expect("gossip B");
                 }
             },
         );
@@ -123,7 +120,7 @@ proptest! {
         assert_legible("B", &b_capture);
     }
 
-    /// Every directed stream of an arbitrary V2 bootstrap session is a
+    /// Each direction of an arbitrary V2 bootstrap session is a
     /// pure CBOR sequence under the rumors-blind walk, the trailing party
     /// hand-off included.
     #[test]
@@ -132,12 +129,12 @@ proptest! {
     ) {
         let provider = loaded(None, &shared);
         let (provider_capture, newcomer_capture) = capture_sides(
-            move |mut link| async move {
-                provider.gossip_once(&mut link).await.expect("provider gossip");
+            move |mut end| async move {
+                provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
             },
-            move |mut link| async move {
-                let rumors::Joined::Joined { peer: _ } =
-                    Peer::<Vec<u8>>::bootstrap().join(&mut link).await
+            move |mut end| async move {
+                let rumors::Joined::Joined { .. } =
+                    Peer::<Vec<u8>>::bootstrap().join(&mut end.read, &mut end.write).await
                 else {
                     panic!("provider must serve the bootstrap");
                 };
@@ -147,7 +144,7 @@ proptest! {
         assert_legible("newcomer", &newcomer_capture);
     }
 
-    /// Every directed stream of an arbitrary V2 retire session is a pure
+    /// Each direction of an arbitrary V2 retire session is a pure
     /// CBOR sequence under the rumors-blind walk, the trailing party
     /// hand-off included.
     #[test]
@@ -164,13 +161,13 @@ proptest! {
         let (absorber_capture, retiree_capture) = capture_sides(
             {
                 let absorber = absorber.clone();
-                move |mut link| async move {
-                    absorber.gossip_once(&mut link).await.expect("absorber gossip");
+                move |mut end| async move {
+                    absorber.gossip_once(&mut end.read, &mut end.write).await.expect("absorber gossip");
                 }
             },
-            move |mut link| async move {
-                match retiree.retire(&mut link).await {
-                    rumors::Retire::Retired => {}
+            move |mut end| async move {
+                match retiree.retire(&mut end.read, &mut end.write).await {
+                    rumors::Retire::Retired { .. } => {}
                     other => panic!("the retiree must retire cleanly, got {other:?}"),
                 }
             },

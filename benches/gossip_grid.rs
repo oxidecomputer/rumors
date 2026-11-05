@@ -17,8 +17,8 @@
 //! A naive harness would allocate a fresh transport per Criterion iteration.
 //! The
 //! gossip exchange chain is statically bounded and self-delimiting (it closes
-//! on its own counter, never on EOF), so a completed session leaves the link
-//! at its next boundary. [`Wire::new`] therefore allocates once for all cells.
+//! on its own counter, never on EOF), so a completed session leaves the
+//! connection at its next boundary. [`Wire::new`] therefore allocates once for all cells.
 
 use std::hint::black_box;
 

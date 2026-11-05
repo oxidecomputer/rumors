@@ -37,6 +37,7 @@
 //! the sharper equalities (2)–(4) hold after *every* step.
 
 use rumors_testkit::common;
+use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::collections::BTreeMap;
 
@@ -46,12 +47,7 @@ use rumors::{Peer, Retire, Rumors};
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
-
-/// Capacity for each in-memory link stream on the retirement path: a
-/// divergent retiree's session moves content through its gossip round, so
-/// keep `retire.rs`'s headroom.
-const LINK_BUF: usize = 64 * 1024;
+use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// The largest fleet [`fleet_scale_retirement_preserves_content_and_party`]
 /// builds and retires.
@@ -107,7 +103,7 @@ fn assert_seed_conserved(fleet: &[Rumors<u64>]) {
     );
 }
 
-/// Retire `retiree` into `absorber` over a clean in-memory link, requiring
+/// Retire `retiree` into `absorber` over a clean in-memory connection, requiring
 /// the retirement to complete (a clean wire and a gossiping counterparty
 /// admit no other outcome).
 fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
@@ -116,18 +112,22 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
             .try_into_peer()
             .await
             .expect("the fleet holds each set's sole handle");
-        let (mut r_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (mut r_end, mut a_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (retired, gossiped) = tokio::join!(
-            retiree.retire(&mut r_link),
-            absorber.gossip_once(&mut a_link)
+            retiree.retire(&mut r_end.read, &mut r_end.write),
+            absorber.gossip_once(&mut a_end.read, &mut a_end.write)
         );
         gossiped.expect("absorber gossip");
-        assert_control_drained(r_link, a_link);
-        retired
+        let completed = matches!(retired, Retire::Retired { .. });
+        let outcome = format!("{retired:?}");
+        drop(retired);
+        assert_connection_drained(r_end, a_end);
+        (completed, outcome)
     });
+    let (completed, outcome) = outcome;
     assert!(
-        matches!(outcome, Retire::Retired),
-        "a clean-wire retirement into a gossiping peer must complete: {outcome:?}"
+        completed,
+        "a clean-wire retirement into a gossiping peer must complete: {outcome}"
     );
 }
 

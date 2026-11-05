@@ -17,7 +17,8 @@ use super::events::{Event, EventIdx, Schedule};
 use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce, quiesce_slots};
 use crate::common::window::WindowAssignment;
-use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_with_window};
+use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork_with_window};
+use rumors::testing::MEMORY_CAPACITY;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -173,7 +174,7 @@ where
 /// party-disjoint fork of an already-built peer (`fork_parents[i] < i`),
 /// created by serving it a bootstrap. Mid-schedule `Bootstrap` events
 /// append newcomer slots the same way; `Retire` events run a real
-/// retirement session over a clean in-memory link (the absorber side is
+/// retirement session over a clean in-memory connection (the absorber side is
 /// plain gossip) and vacate the retiree's slot, saving its observation
 /// log. All peers descend from one seed and live parties stay pairwise
 /// disjoint, so every session can always merge.
@@ -260,16 +261,19 @@ where
                     .expect("retire names an alive absorber");
                 let retiring_peer = block_on(retiring.local.try_into_peer())
                     .expect("the executor holds the only handle");
-                let (mut link_r, mut link_a) = rumors::link::memory_with_capacity(LINK_BUF);
+                let (mut retiring_end, mut absorbing_end) =
+                    rumors::testing::memory_connection(MEMORY_CAPACITY);
                 let (outcome, absorbed) = block_on(async {
                     tokio::join!(
-                        retiring_peer.retire(&mut link_r),
-                        absorbing.local.gossip_once(&mut link_a),
+                        retiring_peer.retire(&mut retiring_end.read, &mut retiring_end.write),
+                        absorbing
+                            .local
+                            .gossip_once(&mut absorbing_end.read, &mut absorbing_end.write),
                     )
                 });
                 absorbed.expect("clean-wire absorber gossip");
                 match outcome {
-                    Retire::Retired => {}
+                    Retire::Retired { .. } => {}
                     Retire::Recovered { .. } => panic!("clean-wire retirement recovered"),
                     Retire::Uncertain { .. } => panic!("clean-wire retirement uncertain"),
                     Retire::Declined { .. } => {
@@ -277,7 +281,7 @@ where
                     }
                 }
                 absorbing.drain();
-                assert_control_drained(link_r, link_a);
+                assert_connection_drained(retiring_end, absorbing_end);
                 retired_observations.insert(*retiree, retiring.observations);
             }
         }

@@ -189,7 +189,7 @@ pub enum StreamClass {
     TerminalLeafReplies,
 }
 
-/// A logical reply boundary or transport-level stream boundary.
+/// The end of a reply, or the end of a logical stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum End {
     /// End the current reply while leaving its stream open.

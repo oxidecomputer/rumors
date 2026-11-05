@@ -12,11 +12,6 @@ use futures::StreamExt;
 use rumors::{
     Batch, Bookmark, CausalMessages, Changes, Error, Gossip, Joined, Led, Peer, Protocol, Retire,
     Rumors, Snapshot, TryTick, Unbookmarked, UnorderedMessages,
-    link::{
-        Link, MemoryAcceptor, MemoryConnector, SessionState,
-        routed::{Config, Endpoint, Incoming, LinkInfo, StreamAcceptor, StreamConnector, Token},
-    },
-    testing::MemoryDial,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,9 +39,6 @@ fn require_hash_eq<T: std::hash::Hash + Eq>() {}
 
 /// Compile-time total-order check for public value types.
 fn require_ord<T: Ord>() {}
-
-/// Compile-time equality check for public value types.
-fn require_eq<T: Eq>() {}
 
 /// A legal payload that deliberately provides neither `Clone` nor `Debug`.
 #[derive(Deserialize, Eq, PartialEq, Serialize)]
@@ -89,25 +81,20 @@ fn handle_types_are_send_sync() {
     require_send_type::<UnorderedMessages<String>>();
 }
 
-/// Public wrappers inherit only the bounds required by their stored fields.
+/// Public wrappers inherit only the bounds required by their stored fields:
+/// session outcomes format without inspecting payloads, bookmark handles,
+/// or the connection halves they return.
 #[test]
-fn wrapper_traits_do_not_inspect_payloads_or_bookmark_handles() {
+fn wrapper_traits_do_not_inspect_payloads_bookmarks_or_halves() {
     require_error::<Error<SilentBookmark>>();
     require_clone_debug::<Snapshot<Opaque>>();
-    require_debug::<Retire<Opaque, SilentBookmark>>();
+    require_debug::<Retire<Opaque, Opaque, Opaque, SilentBookmark>>();
     require_debug::<Unbookmarked<Opaque, SilentBookmark>>();
-    require_debug::<Joined<Opaque, SilentBookmark>>();
+    require_debug::<Joined<Opaque, Opaque, Opaque, SilentBookmark>>();
     require_debug::<Batch<'static, Opaque>>();
     require_debug::<CausalMessages<Opaque>>();
     require_debug::<Changes<Opaque>>();
     require_debug::<UnorderedMessages<Opaque>>();
-    require_debug::<Link<Opaque, Opaque, Opaque, Opaque>>();
-    require_debug::<MemoryConnector>();
-    require_debug::<MemoryAcceptor>();
-    require_debug::<Endpoint<MemoryDial>>();
-    require_debug::<Incoming<MemoryDial>>();
-    require_debug::<StreamConnector<MemoryDial>>();
-    require_debug::<StreamAcceptor<tokio::io::DuplexStream>>();
 }
 
 /// Small public values implement the standard traits needed as map keys and
@@ -119,19 +106,15 @@ fn public_value_traits_are_complete() {
     require_hash_eq::<Gossip>();
     require_hash_eq::<Protocol>();
     require_ord::<Protocol>();
-    require_ord::<Token>();
-    require_eq::<SessionState>();
-    require_eq::<Config>();
-    require_eq::<LinkInfo<String>>();
 }
 
 /// `Rumors::gossip_once`'s future is `Send`: a session can be `tokio::spawn`ed.
 #[test]
 fn gossip_once_future_is_send() {
     let alice = Peer::<String>::seed().sync_window_floor();
-    let (mut link, _peer) = rumors::link::memory();
+    let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let rumors = alice.into_rumors();
-    let fut = rumors.gossip_once(&mut link);
+    let fut = rumors.gossip_once(&mut end.read, &mut end.write);
     require_send(&fut);
     drop(fut);
 }
@@ -139,8 +122,8 @@ fn gossip_once_future_is_send() {
 /// `Bootstrap::join`'s future is `Send`: joining can be `tokio::spawn`ed.
 #[test]
 fn bootstrap_future_is_send() {
-    let (mut link, _peer) = rumors::link::memory();
-    let fut = Peer::<String>::bootstrap().join(&mut link);
+    let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let fut = Peer::<String>::bootstrap().join(&mut end.read, &mut end.write);
     require_send(&fut);
     drop(fut);
 }
@@ -149,8 +132,8 @@ fn bootstrap_future_is_send() {
 #[test]
 fn retire_future_is_send() {
     let alice = Peer::<String>::seed().sync_window_floor();
-    let (mut link, _peer) = rumors::link::memory();
-    let fut = alice.retire(&mut link);
+    let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let fut = alice.retire(&mut end.read, &mut end.write);
     require_send(&fut);
     drop(fut);
 }
@@ -186,9 +169,9 @@ fn configured_gossip_is_send() {
         .gossip_when(|changes| changes)
         .session_deadline(std::future::pending)
         .into_rumors();
-    let (mut link, _remote) = rumors::link::memory();
-    let driver = rumors.gossip(&mut link);
+    let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let driver = rumors.gossip(&mut end.read, &mut end.write);
     require_send(&driver);
     drop(driver);
-    require_send(&rumors.gossip_once(&mut link));
+    require_send(&rumors.gossip_once(&mut end.read, &mut end.write));
 }

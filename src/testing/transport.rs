@@ -1,19 +1,14 @@
 //! Stackable, deterministic adversity for test transports across the crate.
 
 use std::{
-    collections::VecDeque,
     io,
     pin::Pin,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::link::{Acceptor, Connector, Done, Link, yield_once};
 use crate::testing::schedule::{Countdown, MAX_SCHEDULED_DELAY};
 
 /// Which endpoint owns an observed transport operation.
@@ -34,10 +29,6 @@ pub enum Operation {
     Write,
     /// Flushing a complete frame.
     Flush,
-    /// Opening an outgoing data stream.
-    Connect,
-    /// Accepting an incoming data stream.
-    Accept,
 }
 
 /// Unit in which a transport failure threshold is measured.
@@ -54,16 +45,9 @@ pub enum FaultUnit {
 /// A read fault fires in place of the first *payload-bearing* read beyond
 /// the prefix: end-of-stream probes pass through untouched. This keeps
 /// "would the fault fire?" a function of the clean run's successful-read
-/// counts alone — the control stream reads for a clean goodbye at every
-/// session boundary, so attempts-after-last-success are structural and
-/// must not trip an operations-counted fault.
-///
-/// Stream-supply faults follow the same discipline, counted in operations
-/// only. A connect fault fires in place of the call (a healthy supply's
-/// connects always succeed, so calls and successes coincide); an accept
-/// fault fires in place of the next *successful* accept, so the final
-/// forever-pending accept a session parks on against an honest peer is
-/// structural and cannot trip the threshold.
+/// counts alone: the pipe reads for a clean goodbye at every session
+/// boundary, so attempts-after-last-success are structural and must not
+/// trip an operations-counted fault.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IoFault {
     /// Surface which fails.
@@ -134,10 +118,6 @@ pub struct IoReport {
     pub write_bytes: usize,
     /// Successful flushes.
     pub flushes: usize,
-    /// Successfully opened outgoing data streams.
-    pub connects: usize,
-    /// Successfully accepted incoming data streams.
-    pub accepts: usize,
     /// Polls deliberately suspended by the test schedule.
     pub delayed_polls: usize,
     /// Largest successful read.
@@ -185,8 +165,6 @@ impl State {
             Operation::Read => (&self.plan.read_delays, &mut self.read_step),
             Operation::Write => (&self.plan.write_delays, &mut self.write_step),
             Operation::Flush => (&self.plan.flush_delays, &mut self.flush_step),
-            // Supply operations have no delay schedule.
-            Operation::Connect | Operation::Accept => return 0,
         };
         let delay = delays
             .get(*step)
@@ -212,10 +190,6 @@ impl State {
             (Operation::Write, FaultUnit::Operations) => self.report.writes,
             (Operation::Write, FaultUnit::Bytes) => self.report.write_bytes,
             (Operation::Flush, _) => self.report.flushes,
-            // Supply operations transfer no bytes; only operation counting
-            // is meaningful for them.
-            (Operation::Connect, _) => self.report.connects,
-            (Operation::Accept, _) => self.report.accepts,
         };
         if completed < fault.after {
             return None;
@@ -270,9 +244,6 @@ impl State {
             Operation::Read => self.report.read_bytes,
             Operation::Write => self.report.write_bytes,
             Operation::Flush => self.report.flushes,
-            // Supply operations transfer no bytes, so a byte-counted fault
-            // never constrains them.
-            Operation::Connect | Operation::Accept => return usize::MAX,
         };
         fault.after.saturating_sub(completed)
     }
@@ -526,298 +497,6 @@ fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
         buffered: Vec::new(),
         sent: 0,
     }
-}
-
-/// Wrap one endpoint's whole [`Link`] under one plan and
-/// one report.
-///
-/// The control halves and every data stream share the plan. Delay schedules
-/// and fault thresholds count operations across all of the endpoint's streams
-/// in poll order, extending [`wrap_io`]'s single-pipe behavior to the link.
-pub fn wrap_link<CR, CW, C, A>(
-    side: Side,
-    plan: IoPlan,
-    link: Link<CR, CW, C, A>,
-) -> (AdversarialLink<CR, CW, C, A>, IoReportHandle)
-where
-    CR: AsyncRead + Unpin + Send,
-    CW: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
-{
-    let state = Arc::new(Mutex::new(State {
-        side,
-        plan,
-        report: IoReport::default(),
-        read_step: 0,
-        write_step: 0,
-        flush_step: 0,
-    }));
-    let wrapped = link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            AdversarialRead {
-                inner: control_read,
-                state: state.clone(),
-                delay: Countdown::default(),
-            },
-            wrap_write(control_write, state.clone()),
-            AdversarialConnector {
-                inner: connector,
-                state: state.clone(),
-            },
-            AdversarialAcceptor {
-                inner: acceptor,
-                state: state.clone(),
-            },
-        )
-    });
-    (wrapped, IoReportHandle(state))
-}
-
-/// A link wholly wrapped in one side's shared adversity state.
-pub type AdversarialLink<CR, CW, C, A> = Link<
-    AdversarialRead<CR>,
-    AdversarialWrite<CW>,
-    AdversarialConnector<C>,
-    AdversarialAcceptor<A>,
->;
-
-/// A [`Connector`] whose opened streams write
-/// through the side's shared adversity state.
-pub struct AdversarialConnector<C> {
-    inner: C,
-    state: Arc<Mutex<State>>,
-}
-
-/// Hide the connector and shared fault state from debug output.
-impl<C> std::fmt::Debug for AdversarialConnector<C> {
-    /// Format an opaque adversarial connector.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AdversarialConnector")
-            .finish_non_exhaustive()
-    }
-}
-
-/// Clone the connector while retaining its shared adversity state.
-impl<C: Clone> Clone for AdversarialConnector<C> {
-    /// Clone the underlying connector and state handle.
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            state: self.state.clone(),
-        }
-    }
-}
-
-/// Apply the shared fault plan to outgoing stream opens and writes.
-impl<C: Connector> Connector for AdversarialConnector<C> {
-    type Tx = AdversarialWrite<C::Tx>;
-
-    /// Open a stream unless its configured fault boundary has been reached.
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        // The fault fires in place of the call: a healthy supply's connects
-        // always succeed, so the clean run's success count is also its call
-        // count and "would the fault fire?" remains a function of it.
-        if let Some(error) = self
-            .state
-            .lock()
-            .expect("transport state lock")
-            .failure(Operation::Connect)
-        {
-            return Err(error);
-        }
-        let (tx, done) = self.inner.connect().await?;
-        self.state
-            .lock()
-            .expect("transport state lock")
-            .report
-            .connects += 1;
-        // Completion unwraps the adversity and passes the half through.
-        Ok((
-            wrap_write(tx, self.state.clone()),
-            Done::new(move |wrapped: AdversarialWrite<C::Tx>| done.complete(wrapped.inner)),
-        ))
-    }
-}
-
-/// An [`Acceptor`] whose accepted streams read
-/// through the side's shared adversity state.
-pub struct AdversarialAcceptor<A> {
-    inner: A,
-    state: Arc<Mutex<State>>,
-}
-
-/// Hide the acceptor and shared fault state from debug output.
-impl<A> std::fmt::Debug for AdversarialAcceptor<A> {
-    /// Format an opaque adversarial acceptor.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AdversarialAcceptor")
-            .finish_non_exhaustive()
-    }
-}
-
-/// Apply the shared fault plan to incoming stream accepts and reads.
-impl<A: Acceptor> Acceptor for AdversarialAcceptor<A> {
-    type Rx = AdversarialRead<A::Rx>;
-
-    /// Accept a stream unless its configured fault boundary has been reached.
-    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
-        // An already-injected accept fault keeps failing without consuming
-        // further arrivals.
-        {
-            let mut state = self.state.lock().expect("transport state lock");
-            if state.report.injected.is_some()
-                && let Some(error) = state.failure(Operation::Accept)
-            {
-                return Err(error);
-            }
-        }
-        let (rx, done) = self.inner.accept().await?;
-        let mut state = self.state.lock().expect("transport state lock");
-        // The fault fires in place of a successful accept, so the final
-        // forever-pending accept a session parks on against an honest peer
-        // cannot trip an operations-counted threshold (the same rule
-        // payload-bearing reads follow).
-        if let Some(error) = state.failure(Operation::Accept) {
-            // The arrival is discarded with the failing supply.
-            drop(rx);
-            return Err(error);
-        }
-        state.report.accepts += 1;
-        drop(state);
-        // Completion unwraps the adversity and passes the half through.
-        Ok((
-            AdversarialRead {
-                inner: rx,
-                state: self.state.clone(),
-                delay: Countdown::default(),
-            },
-            Done::new(move |wrapped: AdversarialRead<A::Rx>| done.complete(wrapped.inner)),
-        ))
-    }
-}
-
-/// Cooperative yields spent waiting for another arrival before releasing a
-/// held batch.
-///
-/// Each yield hands the whole closed-world topology one more poll, so the
-/// budget bounds the wait in peer progress rather than wall time. It must
-/// be generous enough for a concurrently working peer to open its next
-/// stream. Expiry releases the held batch, possibly without reordering it.
-const REORDER_PATIENCE: u8 = 32;
-
-/// An [`Acceptor`] that releases arrivals newest-first in bounded batches.
-///
-/// The link contract leaves cross-stream arrival order unspecified, so a
-/// session must pair streams by label alone; this decorator inverts arrival
-/// order whenever the traffic admits it. Each accept awaits one arrival, then
-/// holds it while waiting for up to `batch` arrivals. A fixed patience budget
-/// bounds this wait in cooperative yields, so a lone final stream still flows
-/// and a peer waiting behind the held stream cannot deadlock the harness.
-///
-/// A release of two or more arrivals is an inversion and increments the
-/// shared `reordered` counter. Consumers assert that counter so a ready-only
-/// drain cannot become pass-through unnoticed. The module's unit test shows a
-/// second arrival joining a batch after the first has been held.
-///
-/// The link conformance suite decorates its memory ends with this
-/// acceptor too, so a conformance pass under reordering certifies it.
-pub struct ReorderingAcceptor<A: Acceptor> {
-    inner: A,
-    held: VecDeque<(A::Rx, Done<A::Rx>)>,
-    /// Arrivals buffered before each reversed release.
-    batch: usize,
-    /// Batches of two or more released in reverse order.
-    reordered: Arc<AtomicUsize>,
-}
-
-/// Summarize a reordering acceptor without requiring its transport to be
-/// debuggable.
-impl<A: Acceptor> std::fmt::Debug for ReorderingAcceptor<A> {
-    /// Format the batch configuration and observed reordering progress.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReorderingAcceptor")
-            .field("held", &self.held.len())
-            .field("batch", &self.batch)
-            .field("reordered", &self.reordered.load(Ordering::Relaxed))
-            .finish_non_exhaustive()
-    }
-}
-
-/// Release accepted streams in bounded newest-first batches.
-impl<A: Acceptor> Acceptor for ReorderingAcceptor<A> {
-    type Rx = A::Rx;
-
-    /// Accept the next stream, forming a reversed batch when arrivals overlap.
-    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
-        if let Some(held) = self.held.pop_front() {
-            return Ok(held);
-        }
-        let first = self.inner.accept().await?;
-        self.held.push_front(first);
-        // Hold the arrival while waiting for company. Each round polls a fresh
-        // accept once, drops it if pending as the link contract permits, then
-        // yields so the peer can open its next stream.
-        let mut patience = REORDER_PATIENCE;
-        while self.held.len() < self.batch {
-            let mut next = std::pin::pin!(self.inner.accept());
-            match std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await {
-                Poll::Ready(Ok(rx)) => {
-                    self.held.push_front(rx);
-                    patience = REORDER_PATIENCE;
-                }
-                // Errored: stop batching and release what is held.
-                // The memory acceptors used here report persistent errors, so
-                // the next call resurfaces this error after the held batch is
-                // released. This wrapper does not support one-shot errors.
-                Poll::Ready(Err(_)) => break,
-                Poll::Pending => {
-                    let Some(remaining) = patience.checked_sub(1) else {
-                        break;
-                    };
-                    patience = remaining;
-                    yield_once().await;
-                }
-            }
-        }
-        if self.held.len() > 1 {
-            self.reordered.fetch_add(1, Ordering::Relaxed);
-        }
-        Ok(self.held.pop_front().expect("at least one arrival is held"))
-    }
-}
-
-/// Wrap `link`'s acceptor so arrivals release in reversed batches of `batch`,
-/// recording reversed batches of two or more in `reordered`.
-///
-/// Always assert on the counter after the run: nonzero where the topology
-/// admits reordering (that is the proof the adversity fired), zero as a
-/// tripwire where it cannot. Without either assertion, pass-through behavior
-/// would satisfy the test unnoticed.
-pub fn reorder_accepts<CR, CW, C, A>(
-    link: Link<CR, CW, C, A>,
-    batch: usize,
-    reordered: Arc<AtomicUsize>,
-) -> Link<CR, CW, C, ReorderingAcceptor<A>>
-where
-    CR: AsyncRead + Unpin + Send,
-    CW: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
-{
-    link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            control_read,
-            control_write,
-            connector,
-            ReorderingAcceptor {
-                inner: acceptor,
-                held: VecDeque::new(),
-                batch,
-                reordered,
-            },
-        )
-    })
 }
 
 /// Suspend one operation according to its next scheduled self-waking delay.

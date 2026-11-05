@@ -39,8 +39,8 @@ fn census_locked() -> MutexGuard<'static, ()> {
     CENSUS_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Per-stream in-memory link buffering: far above every transfer here, so
-/// link backpressure never shapes residency.
+/// Per-direction in-memory connection buffering: far above every transfer
+/// here, so transport backpressure never shapes residency.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// A budget under which the window widens past the serialization floor.
@@ -70,14 +70,14 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
     send_random(&left, 1_024, &mut rng);
 
     let right = pollster::block_on(async {
-        let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (mut provider, mut newcomer) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip_once(&mut provider),
-            Peer::<u64>::bootstrap().join(&mut newcomer),
+            left.gossip_once(&mut provider.read, &mut provider.write),
+            Peer::<u64>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("serve bootstrap");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
         .sync_memory_budget(budget)
@@ -94,14 +94,16 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
-/// One reconciliation session over a roomy in-memory link: both sides'
-/// accounts of it, `a`'s first.
+/// One reconciliation session over a roomy in-memory connection: both
+/// sides' accounts of it, `a`'s first.
 fn reconcile(a: &Rumors<u64>, b: &Rumors<u64>) -> (Gossiped, Gossiped) {
     pollster::block_on(async {
-        let (mut left, mut right) = rumors::link::memory_with_capacity(LINK_CAPACITY);
-        let (a_result, b_result) =
-            tokio::join!(a.gossip_once(&mut left), b.gossip_once(&mut right));
-        (a_result.expect("gossip a"), b_result.expect("gossip b"))
+        let (left, right) = rumors::testing::memory_connection(LINK_CAPACITY);
+        let (a_result, b_result) = tokio::join!(
+            a.gossip_once(left.read, left.write),
+            b.gossip_once(right.read, right.write)
+        );
+        (a_result.expect("gossip a").0, b_result.expect("gossip b").0)
     })
 }
 
@@ -216,14 +218,14 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
     // near either input's size, so a third is what gives the many-leaf
     // join room to outgrow the pairwise bound if it ever could.
     let third = pollster::block_on(async {
-        let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (mut provider, mut newcomer) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            right.gossip_once(&mut provider),
-            Peer::<u64>::bootstrap().join(&mut newcomer),
+            right.gossip_once(&mut provider.read, &mut provider.write),
+            Peer::<u64>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("serve third bootstrap");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
         .sync_memory_budget(TIGHT_BUDGET)
@@ -249,17 +251,17 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
     );
 }
 
-/// One newcomer bootstrapped from `provider` over a roomy link.
+/// One newcomer bootstrapped from `provider` over a roomy connection.
 fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
     pollster::block_on(async {
-        let (mut serving, mut joining) = rumors::link::memory_with_capacity(LINK_CAPACITY);
+        let (mut serving, mut joining) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            provider.gossip_once(&mut serving),
-            Peer::<u64>::bootstrap().join(&mut joining),
+            provider.gossip_once(&mut serving.read, &mut serving.write),
+            Peer::<u64>::bootstrap().join(&mut joining.read, &mut joining.write),
         );
         served.expect("serve swarm bootstrap");
         (match joined {
-            rumors::Joined::Joined { peer } => peer,
+            rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
         .sync_window_floor()

@@ -6,6 +6,7 @@
 //! backstop only when the test expects progress.
 
 use rumors_testkit::common;
+use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::{
     future::{Future, poll_fn},
@@ -32,9 +33,6 @@ use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire
 /// machine.
 const DEADLINE: Duration = Duration::from_secs(10);
 
-/// Link stream capacity, comfortably larger than anything a session here ships.
-const LINK_BUF: usize = 64 * 1024;
-
 /// A connected, party-disjoint pair: a freshly seeded peer and a bootstrap
 /// fork of it.
 async fn pair() -> (Rumors<u64>, Rumors<u64>) {
@@ -43,9 +41,9 @@ async fn pair() -> (Rumors<u64>, Rumors<u64>) {
     (a, b)
 }
 
-/// The two ends of one in-memory link connection between two drivers.
-fn links() -> (rumors::link::MemoryLink, rumors::link::MemoryLink) {
-    rumors::link::memory_with_capacity(LINK_BUF)
+/// The two ends of one in-memory connection between two drivers.
+fn connection() -> (rumors::testing::MemoryEnd, rumors::testing::MemoryEnd) {
+    rumors::testing::memory_connection(ROOMY_CAPACITY)
 }
 
 /// Send policy items manually. Unit items request gossip when the set changes;
@@ -117,12 +115,12 @@ async fn single_tick_reduces_to_gossip() {
     a.send(1).unwrap();
     b.send(2).unwrap();
 
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
     let once = || stream::once(std::future::ready(()));
     let a = with_policy_stream(a, once());
-    let mut a_sessions = a.gossip(&mut a_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
     let b = with_policy_stream(b, once());
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
     let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(a_session.converged, b_session.converged);
@@ -146,13 +144,13 @@ async fn single_tick_reduces_to_gossip() {
 #[tokio::test(flavor = "current_thread")]
 async fn pending_when_serves_remote_initiations() {
     let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
 
     let (a_tx, a_when) = ticks();
     let a = with_policy_stream(a, a_when);
-    let mut a_sessions = a.gossip(&mut a_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
     let b = with_policy_stream(b, stream::pending::<()>());
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
     for round in 0..3u64 {
         a.send(round).unwrap();
@@ -174,11 +172,11 @@ async fn pending_when_serves_remote_initiations() {
 #[tokio::test(flavor = "current_thread")]
 async fn suppression_swallows_echoes_not_news() {
     let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
 
     // Real drivers: each side's policy stream is its own change signal.
-    let mut a_sessions = a.gossip(&mut a_link);
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
     // Round 1: the initial `changes()` yield on both sides drives the
     // reconnect-convergence session (both led locally; one session total).
@@ -217,13 +215,13 @@ async fn suppression_swallows_echoes_not_news() {
 #[tokio::test(flavor = "current_thread")]
 async fn heartbeat_ticks_are_free_until_divergence() {
     let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
 
     let (a_tx, a_when) = ticks();
     let a = with_policy_stream(a, a_when);
-    let mut a_sessions = a.gossip(&mut a_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
     let b = with_policy_stream(b, stream::pending::<()>());
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
     // First tick: fresh driver, no token yet — the unconditional first
     // session (reconnect convergence).
@@ -261,13 +259,13 @@ async fn heartbeat_ticks_are_free_until_divergence() {
 #[tokio::test(flavor = "current_thread")]
 async fn unconditional_requests_probe_a_converged_connection() {
     let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
 
     let (a_tx, a_when) = ticks();
     let a = with_policy_stream(a, a_when);
-    let mut a_sessions = a.gossip(&mut a_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
     let b = with_policy_stream(b, stream::pending::<Gossip>());
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
     // Converge the pair: the fresh driver's first policy item always initiates
     // (reconnect convergence).
@@ -321,18 +319,18 @@ async fn changes_propagate_transitively_through_a_chain() {
     let b = bootstrap_fork_async(&a).await;
     let c = bootstrap_fork_async(&b).await;
 
-    let (mut ab_a_link, mut ab_b_link) = links();
-    let (mut bc_b_link, mut bc_c_link) = links();
+    let (mut ab_a_end, mut ab_b_end) = connection();
+    let (mut bc_b_end, mut bc_c_end) = connection();
 
     a.send(42).unwrap();
 
     // Four drivers, every policy stream a real change signal. Consume
     // session items in the background of the convergence check: the
     // drivers only progress while polled.
-    let a_drv = a.gossip(&mut ab_a_link);
-    let b_ab_drv = b.gossip(&mut ab_b_link);
-    let b_bc_drv = b.gossip(&mut bc_b_link);
-    let c_drv = c.gossip(&mut bc_c_link);
+    let a_drv = a.gossip(&mut ab_a_end.read, &mut ab_a_end.write);
+    let b_ab_drv = b.gossip(&mut ab_b_end.read, &mut ab_b_end.write);
+    let b_bc_drv = b.gossip(&mut bc_b_end.read, &mut bc_b_end.write);
+    let c_drv = c.gossip(&mut bc_c_end.read, &mut bc_c_end.write);
     let drive_all = futures::future::join4(
         a_drv.for_each(|item| async move {
             item.expect("A driver session");
@@ -391,13 +389,13 @@ async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
     let b = bootstrap_fork_async(&a).await;
     let c = bootstrap_fork_async(&b).await;
 
-    let (mut ab_a_link, mut ab_b_link) = links();
-    let (mut bc_b_link, mut bc_c_link) = links();
+    let (mut ab_a_end, mut ab_b_end) = connection();
+    let (mut bc_b_end, mut bc_c_end) = connection();
 
-    let mut a_drv = a.gossip(&mut ab_a_link);
-    let mut b_ab_drv = b.gossip(&mut ab_b_link);
-    let mut b_bc_drv = b.gossip(&mut bc_b_link);
-    let mut c_drv = c.gossip(&mut bc_c_link);
+    let mut a_drv = a.gossip(&mut ab_a_end.read, &mut ab_a_end.write);
+    let mut b_ab_drv = b.gossip(&mut ab_b_end.read, &mut ab_b_end.write);
+    let mut b_bc_drv = b.gossip(&mut bc_b_end.read, &mut bc_b_end.write);
+    let mut c_drv = c.gossip(&mut bc_c_end.read, &mut bc_c_end.write);
 
     // The unconditional first sessions converge both connections.
     let initial =
@@ -454,11 +452,11 @@ async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
 #[tokio::test(flavor = "current_thread")]
 async fn when_exhaustion_then_hangup_both_end_cleanly() {
     let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
 
     // A's `when` is already exhausted: its driver ends without a session.
     let a = with_policy_stream(a, stream::empty::<()>());
-    let mut a_sessions = a.gossip(&mut a_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
     assert!(
         timeout(DEADLINE, a_sessions.next())
             .await
@@ -467,11 +465,11 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
     );
     drop(a_sessions);
     let b = with_policy_stream(b, stream::pending::<()>());
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
-    // Dropping A's link hangs the connection up at a session
+    // Dropping A's end hangs the connection up at a session
     // boundary; B's responder ends cleanly.
-    drop(a_link);
+    drop(a_end);
     assert!(
         timeout(DEADLINE, b_sessions.next())
             .await
@@ -484,10 +482,9 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
 /// byte-identical to their pre-session state, and a fresh connection
 /// afterwards converges the pair from scratch.
 ///
-/// The drop forfeits the
-/// connection — the price the crate docs' "What a session promises"
-/// section documents — and poisoning enforces it: a reuse attempt on
-/// either end's link fails fast with [`Error::LinkPoisoned`].
+/// The drop forfeits the connection — the price the crate docs' "What a
+/// session promises" section documents: its position is unknown, so it is
+/// discarded.
 #[pollster::test]
 async fn dropping_a_driver_mid_session_commits_nothing() {
     let (a, b) = pair().await;
@@ -496,13 +493,13 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
     let a_before = (a.snapshot().hash(), a.snapshot().latest().clone());
     let b_before = (b.snapshot().hash(), b.snapshot().latest().clone());
 
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
     let (a_tx, a_when) = ticks();
     let a = with_policy_stream(a, a_when);
     let b = with_policy_stream(b, stream::pending::<()>());
     {
-        let mut a_sessions = a.gossip(&mut a_link);
-        let mut b_sessions = b.gossip(&mut b_link);
+        let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+        let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
         // Freeze the session mid-flight: a couple of single polls per side
         // get the preambles (and the first protocol frames) onto the wire,
@@ -530,63 +527,10 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
         b_before
     );
 
-    // The forfeit is enforced, not just documented: both ends' links are
-    // poisoned, so reuse fails fast — with no counterparty driving, which
-    // the closed-world harness itself proves the fail-fast does not need.
-    let retry = run_to_quiescence(a.gossip_once(&mut a_link)).expect("fail-fast needs no peer");
-    assert!(
-        matches!(retry, Err(Error::LinkPoisoned)),
-        "reusing A's forfeited link must fail fast, got {retry:?}"
-    );
-    let retry = run_to_quiescence(b.gossip_once(&mut b_link)).expect("fail-fast needs no peer");
-    assert!(
-        matches!(retry, Err(Error::LinkPoisoned)),
-        "reusing B's forfeited link must fail fast, got {retry:?}"
-    );
-
     // A fresh connection converges the pair as if nothing had happened.
     wire_gossip_async(&a, &b).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
     assert_eq!(a.snapshot().len(), 2);
-}
-
-/// A driver started on an already-poisoned link yields its terminal
-/// [`Error::LinkPoisoned`] immediately, even though its policy stream
-/// never ticks and no peer drives the other end.
-///
-/// The poison check precedes
-/// the driver's idle select, so a dead link cannot masquerade as a live,
-/// quietly parked driver.
-#[test]
-fn a_driver_on_a_poisoned_link_fails_fast() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let (mut a_link, _b_link) = links();
-
-    // Poison the link: cancel a one-shot session stalled on its silent
-    // counterparty (the bounded-poll harness reports the stall and drops
-    // the session future on the way out).
-    assert!(
-        run_to_quiescence(a.gossip_once(&mut a_link)).is_err(),
-        "the session must stall against a silent peer, then cancel"
-    );
-
-    // The policy stream is pending forever, and nothing drives the other
-    // end: only the pre-select fail-fast can resolve this, which the
-    // closed-world harness proves happens promptly rather than hanging.
-    let a = with_policy_stream(a, stream::pending::<()>());
-    let mut sessions = a.gossip(&mut a_link);
-    let item = run_to_quiescence(sessions.next())
-        .expect("the fail-fast must not wait for a tick or a peer");
-    assert!(
-        matches!(item, Some(Err(Error::LinkPoisoned))),
-        "a driver on a poisoned link must yield LinkPoisoned, got {item:?}"
-    );
-    assert!(
-        run_to_quiescence(sessions.next())
-            .expect("the driver must end after its terminal error")
-            .is_none(),
-        "the stream must end after its terminal error"
-    );
 }
 
 /// Polling is cancel-safe, as documented: a consumer that creates and
@@ -598,12 +542,12 @@ fn dropping_next_futures_loses_nothing() {
     // Tokio's cooperative task budget in this manual-poll test, this pins the
     // public driver's promise that it does not require a Tokio runtime.
     let (a, b) = pollster::block_on(pair());
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
     let (a_tx, a_when) = ticks();
     let a = with_policy_stream(a, a_when);
-    let mut a_sessions = a.gossip(&mut a_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
     let b = with_policy_stream(b, stream::pending::<()>());
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
     a.send(1).unwrap();
     a_tx.unbounded_send(()).expect("driver alive");
@@ -633,7 +577,7 @@ fn dropping_next_futures_loses_nothing() {
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
 
-/// A cleanly ended driver leaves the link usable for a one-shot exchange
+/// A cleanly ended driver leaves the connection usable for a one-shot exchange
 /// and a later driver, while its counterparty keeps responding.
 #[tokio::test(flavor = "current_thread")]
 async fn a_clean_end_leaves_the_connection_reusable() {
@@ -644,14 +588,14 @@ async fn a_clean_end_leaves_the_connection_reusable() {
         .unwrap()
         .gossip_when(|_| stream::once(std::future::ready(())))
         .into_rumors();
-    let (mut a_link, mut b_link) = links();
+    let (mut a_end, mut b_end) = connection();
     let b = with_policy_stream(b, stream::pending::<()>());
-    let mut b_sessions = b.gossip(&mut b_link);
+    let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
     // Phase 1: a single-tick driver runs one session and ends cleanly.
     a.send(1).unwrap();
     {
-        let mut a_sessions = a.gossip(&mut a_link);
+        let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
         let (a_item, b_item) = timeout(
             DEADLINE,
             futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -669,11 +613,14 @@ async fn a_clean_end_leaves_the_connection_reusable() {
         );
     }
 
-    // Phase 2: the same link hosts a one-shot `gossip_once`.
+    // Phase 2: the same connection hosts a one-shot `gossip_once`.
     a.send(2).unwrap();
     let (a_out, b_item) = timeout(
         DEADLINE,
-        futures::future::join(a.gossip_once(&mut a_link), b_sessions.next()),
+        futures::future::join(
+            a.gossip_once(&mut a_end.read, &mut a_end.write),
+            b_sessions.next(),
+        ),
     )
     .await
     .expect("phase 2 deadlocked");
@@ -683,7 +630,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     // Phase 3: and then a second driver.
     a.send(3).unwrap();
     {
-        let mut a_sessions = a.gossip(&mut a_link);
+        let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
         let (a_item, b_item) = timeout(
             DEADLINE,
             futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -703,10 +650,10 @@ async fn a_clean_end_leaves_the_connection_reusable() {
 #[pollster::test]
 async fn a_dropped_driver_does_not_block_peer_reclaim() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let (mut a_link, _b_link) = links();
+    let (mut a_end, _b_end) = connection();
     let rumors = with_policy_stream(rumors, stream::pending::<()>());
     {
-        let _driver = rumors.gossip(&mut a_link);
+        let _driver = rumors.gossip(&mut a_end.read, &mut a_end.write);
     }
     assert!(rumors.try_into_peer().await.is_some());
 }
@@ -736,25 +683,29 @@ struct Severed {
 /// in-memory connection with `a_fault` and `b_fault` applied to the two
 /// ends.
 ///
-/// Each side's link is owned by its future, so the failing side's drop
+/// Each side's end is owned by its future, so the failing side's drop
 /// surfaces as EOF to the other rather than deadlocking the join.
 async fn run_severed(a_fault: FaultPlan, b_fault: FaultPlan) -> Severed {
     let (a, b) = pair().await;
     a.send(1).unwrap();
     b.send(2).unwrap();
 
-    let (a_side, b_side) = links();
-    let a_link = faulty(a_side, a_fault);
-    let b_link = faulty(b_side, b_fault);
+    let (a_side, b_side) = connection();
+    let a_end = faulty(a_side, a_fault);
+    let b_end = faulty(b_side, b_fault);
     let a = with_policy_stream(a, stream::once(std::future::ready(())));
     let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
-        let mut a_link = a_link;
-        a.gossip(&mut a_link).collect::<Vec<_>>().await
+        let mut a_end = a_end;
+        a.gossip(&mut a_end.read, &mut a_end.write)
+            .collect::<Vec<_>>()
+            .await
     };
     let b_task = async {
-        let mut b_link = b_link;
-        b.gossip(&mut b_link).collect::<Vec<_>>().await
+        let mut b_end = b_end;
+        b.gossip(&mut b_end.read, &mut b_end.write)
+            .collect::<Vec<_>>()
+            .await
     };
     let (a_items, b_items) = timeout(DEADLINE, futures::future::join(a_task, b_task))
         .await
@@ -822,8 +773,8 @@ async fn check_severed(run: &Severed) {
 /// Byte extent of the severed-connection fixture on a clean run, per
 /// endpoint: `(a_written, b_written, b_read)`.
 ///
-/// The same pair, sends, drivers, and link capacity as [`run_severed`],
-/// metered with the counters the fault cuts spend. The in-memory link and
+/// The same pair, sends, drivers, and connection capacity as [`run_severed`],
+/// metered with the counters the fault cuts spend. The in-memory connection and
 /// the single-threaded driver make the run byte-identical across
 /// invocations, which lets [`a_lost_marker_certifies_one_side`] place a
 /// cut one byte short of a clean session.
@@ -832,18 +783,22 @@ async fn fixture_session_bytes() -> (usize, usize, usize) {
     a.send(1).unwrap();
     b.send(2).unwrap();
 
-    let (a_side, b_side) = links();
-    let (a_link, a_meter) = fault::metered(a_side);
-    let (b_link, b_meter) = fault::metered(b_side);
+    let (a_side, b_side) = connection();
+    let (a_end, a_meter) = fault::metered(a_side);
+    let (b_end, b_meter) = fault::metered(b_side);
     let a = with_policy_stream(a, stream::once(std::future::ready(())));
     let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
-        let mut a_link = a_link;
-        a.gossip(&mut a_link).collect::<Vec<_>>().await
+        let mut a_end = a_end;
+        a.gossip(&mut a_end.read, &mut a_end.write)
+            .collect::<Vec<_>>()
+            .await
     };
     let b_task = async {
-        let mut b_link = b_link;
-        b.gossip(&mut b_link).collect::<Vec<_>>().await
+        let mut b_end = b_end;
+        b.gossip(&mut b_end.read, &mut b_end.write)
+            .collect::<Vec<_>>()
+            .await
     };
     let (a_items, b_items) = timeout(DEADLINE, futures::future::join(a_task, b_task))
         .await
@@ -891,7 +846,7 @@ fn max_sever_cut_spans_the_fixture_session() {
 /// completion marker: A yields `Ok`; B yields no `Ok` and fails with the
 /// failure in [`rumors::error::Phase::Completion`]. The class places the cut: one
 /// byte more and B completes the session, failing only on its next
-/// control read after an `Ok`; any earlier and B fails pre-commit. A
+/// read after an `Ok`; any earlier and B fails pre-commit. A
 /// generated read cut reaches this case only by landing exactly here, so
 /// this deterministic witness holds the certification assertions to the
 /// case they exist for.
@@ -1017,14 +972,14 @@ proptest! {
     ) {
         block_on(async {
             let (a, b) = pair().await;
-            let (mut a_link, mut b_link) = links();
+            let (mut a_end, mut b_end) = connection();
             let (a_tx, a_when) = ticks();
             let (b_tx, b_when) = ticks();
 
             let a = with_policy_stream(a, a_when);
-            let a_sessions = a.gossip(&mut a_link);
+            let a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
             let b = with_policy_stream(b, b_when);
-            let b_sessions = b.gossip(&mut b_link);
+            let b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
 
             // Collectors poll the drivers to completion; any session error
             // panics, which is the test's core assertion.
@@ -1110,22 +1065,20 @@ proptest! {
 #[tokio::test(flavor = "current_thread")]
 async fn truncated_initiation_is_a_terminal_error() {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let (mut a_link, b) = rumors::link::memory_with_capacity(LINK_BUF);
-    // Drive the counterparty's control stream by hand: keep its read half (and
-    // the data-stream connector/acceptor) alive so A's own writes succeed,
-    // while its control-write half toward A carries only a partial preamble.
-    let mut b_control_write = b.control_write;
+    let (mut a_end, b) = rumors::testing::memory_connection(ROOMY_CAPACITY);
+    // Drive the counterparty by hand: keep its read half alive so A's own
+    // writes succeed, while its write half toward A carries only a partial
+    // preamble.
+    let mut b_write = b.write;
+    let _b_read = b.read;
 
     let a = with_policy_stream(a, stream::pending::<()>());
-    let mut a_sessions = a.gossip(&mut a_link);
+    let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
 
     // Four bytes of a preamble, then hang up mid-preamble. Closing the
-    // control-write half toward A signals end-of-stream on A's control read.
-    b_control_write
-        .write_all(b"RUMO")
-        .await
-        .expect("partial write");
-    drop(b_control_write);
+    // write half toward A signals end-of-stream on A's read half.
+    b_write.write_all(b"RUMO").await.expect("partial write");
+    drop(b_write);
 
     let item = timeout(DEADLINE, a_sessions.next())
         .await
@@ -1147,21 +1100,20 @@ async fn truncated_initiation_is_a_terminal_error() {
     );
 }
 
-/// A transport error on the idle boundary — the control read fails before
-/// one preamble byte arrives — is a terminal `Err` that poisons the link.
+/// A transport error on the idle boundary — the read fails before one
+/// preamble byte arrives — is the driver's terminal `Err`, after which the
+/// stream ends.
 ///
-/// This is the error terminal's poisoning promise on its subtlest path:
-/// zero session bytes moved, so no misframing is even possible, but a
-/// transport that errored is not a link a later session should trust.
-/// Reuse must fail fast with [`Error::LinkPoisoned`] rather than retrying
-/// I/O against the dead transport. (The in-memory duplex can only EOF, so
-/// the read error comes from the fault harness with a zero-byte budget.)
+/// Zero session bytes moved, so this is distinct from the hang-up between
+/// sessions that ends a driver cleanly: an error is never a goodbye. (The
+/// in-memory duplex can only end, so the read error comes from the fault
+/// harness with a zero-byte budget.)
 #[tokio::test(flavor = "current_thread")]
-async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
+async fn a_read_error_on_the_idle_boundary_is_terminal() {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let (a_link, _b_link) = links();
-    let mut a_link = faulty(
-        a_link,
+    let (a_end, _b_end) = connection();
+    let mut a_end = faulty(
+        a_end,
         FaultPlan {
             write_cut: None,
             read_cut: Some(0),
@@ -1171,14 +1123,14 @@ async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
 
     let a = with_policy_stream(a, stream::pending::<()>());
     {
-        let mut a_sessions = a.gossip(&mut a_link);
+        let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
         let item = timeout(DEADLINE, a_sessions.next())
             .await
             .expect("error never surfaced")
             .expect("driver yielded its terminal item");
         assert!(
             matches!(item, Err(Error::Transport(_))),
-            "a control read error is the driver's terminal Err, got {item:?}",
+            "a read error is the driver's terminal Err, got {item:?}",
         );
         assert!(
             timeout(DEADLINE, a_sessions.next())
@@ -1188,14 +1140,4 @@ async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
             "the stream must end after its terminal error"
         );
     }
-
-    // The staging buffer never held a byte, yet the link is poisoned: the
-    // fail-fast happens before any I/O, so no counterparty is needed.
-    let retry = timeout(DEADLINE, a.gossip_once(&mut a_link))
-        .await
-        .expect("the fail-fast must not wait for a peer");
-    assert!(
-        matches!(retry, Err(Error::LinkPoisoned)),
-        "reuse after an error terminal must fail fast, got {retry:?}",
-    );
 }

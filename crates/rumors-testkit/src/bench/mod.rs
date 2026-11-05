@@ -3,5 +3,5 @@
 /// Fixtures spanning the reconciliation divergence grid.
 pub mod grid;
 
-/// An in-memory link with deterministic simulated latency.
+/// An in-memory connection with deterministic simulated latency.
 pub mod latency;

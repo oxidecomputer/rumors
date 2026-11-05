@@ -1,44 +1,49 @@
-//! End-to-end lifecycle pins for the V2 session epilogue and link
-//! poisoning, at the public-API tier.
+//! End-to-end lifecycle pins for the V2 session epilogue, at the public-API
+//! tier.
 //!
 //! The crate docs' "What a session promises" section states the contract
 //! these tests hold the public API to: `Ok` certifies both replicas
-//! committed and leaves the link reusable; `Err` and cancellation leave the
-//! local replica unchanged and the link poisoned, failing every further
-//! session on it fast. Losing the final marker fails in
-//! [`rumors::error::Phase::Completion`], after local work has committed. The in-crate unit tests (`src/tests.rs`)
-//! pin the same mechanisms at exact byte boundaries with forged peers;
-//! these are their integration-tier complements, driving whole sessions
-//! between real replicas.
+//! committed and leaves the connection at the session boundary, reusable;
+//! `Err` and cancellation publish no partial reconciliation and leave the
+//! connection at an unknown position, to be discarded. Losing the final
+//! marker fails in [`rumors::error::Phase::Completion`], after local work
+//! has committed. The in-crate unit tests (`src/tests.rs`) pin the same
+//! mechanisms at exact byte boundaries with forged peers; these are their
+//! integration-tier complements, driving whole sessions between real
+//! replicas.
 
 use rumors_testkit::common;
 #[path = "lifecycle/reunion.rs"]
 mod reunion;
 
 use std::future::Future;
-use std::pin::pin;
-use std::task::Context;
+use std::io::{self, IoSlice};
+use std::pin::{Pin, pin};
+use std::task::{Context, Poll, ready};
 
 use futures::task::noop_waker_ref;
 use rumors::testing::{
-    IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide, run_to_quiescence, wrap_link,
+    COMPLETION_MARKER, IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide, wrap_io,
 };
 use rumors::{Error, Peer, Rumors};
+use tokio::io::AsyncWrite;
 
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip};
 
 /// Messages each side commits before a divergent session: enough that
-/// reconciliation opens several data streams and takes many polls to
-/// complete.
+/// reconciliation carries frames on several logical streams and takes many
+/// polls to complete.
 const DIVERGENT_MESSAGES: u64 = 32;
 
-/// Polls granted to the joined in-flight sessions before they are dropped.
+/// The most polls granted to the joined in-flight sessions while waiting
+/// for both ends to flush frames.
 ///
-/// Each poll is asserted still pending, so the cancellation provably lands
-/// mid-session; the reports separately prove wire traffic had begun and a
-/// data stream was already open at each end: the descent itself, not just
-/// the handshake, was in flight.
-const MID_FLIGHT_POLLS: usize = 4;
+/// Under a waker that never fires, each poll moves a session forward by
+/// about one frame, and one end writes its first frame only after reading
+/// dozens of the other's, so reaching both ends' first frame flush takes
+/// dozens of polls. The cap only turns a session that
+/// never gets there into a failure instead of a hang.
+const MAX_MID_FLIGHT_POLLS: usize = 100_000;
 
 /// Build a party-disjoint pair with [`DIVERGENT_MESSAGES`] unshared
 /// messages committed on each side.
@@ -58,67 +63,171 @@ async fn divergent_pair() -> (Rumors<u64>, Rumors<u64>) {
     (a, b)
 }
 
-/// A gossip session cancelled mid-descent poisons the link on both ends.
+/// A write half that records, at each successful flush, how many bytes it
+/// had accepted.
+struct FlushLog<W> {
+    /// The write half the bytes go to.
+    inner: W,
+    /// Bytes `inner` has accepted.
+    written: usize,
+    /// The value of `written` at each successful flush, in order.
+    flushed_at: Vec<usize>,
+}
+
+impl<W> FlushLog<W> {
+    /// Wraps `inner`, with nothing written or flushed yet.
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            written: 0,
+            flushed_at: Vec::new(),
+        }
+    }
+}
+
+/// Forwards every operation to the inner write half, counting accepted
+/// bytes and logging successful flushes.
+impl<W: AsyncWrite + Unpin> AsyncWrite for FlushLog<W> {
+    /// Writes through, counting the bytes accepted.
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let written = ready!(Pin::new(&mut self.inner).poll_write(cx, buf))?;
+        self.written += written;
+        Poll::Ready(Ok(written))
+    }
+
+    /// Writes the slices through, counting the bytes accepted.
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let written = ready!(Pin::new(&mut self.inner).poll_write_vectored(cx, bufs))?;
+        self.written += written;
+        Poll::Ready(Ok(written))
+    }
+
+    /// Reports the inner half's vectored-write support.
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+
+    /// Flushes through, logging the bytes accepted so far on success.
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        ready!(Pin::new(&mut self.inner).poll_flush(cx))?;
+        let written = self.written;
+        self.flushed_at.push(written);
+        Poll::Ready(Ok(()))
+    }
+
+    /// Shuts the inner half down.
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// The flushes an end makes before its first frame, counted from a session
+/// that writes none.
 ///
-/// The next session attempt on the same link fails immediately with
-/// [`Error::LinkPoisoned`] (no wire traffic, no hang, byte-counters
-/// unchanged), and both replicas come through unharmed, converging fully
-/// over a fresh link.
+/// A session between equal replicas compares nothing, so it writes no
+/// frames: every flush either end makes before it writes its completion
+/// marker belongs to the handshake that opens every session. This runs one
+/// such session, over halves that log each flush, and counts the flushes
+/// each end made before the marker's bytes, which are the last it writes.
+/// An end of another session that has flushed more often than this has
+/// flushed frames.
+fn handshake_flushes() -> usize {
+    let (a, b) = block_on(async {
+        let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+        let b = bootstrap_fork_async(&a).await;
+        (a, b)
+    });
+    let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let (a_out, b_out) = block_on(async {
+        tokio::join!(
+            a.gossip_once(a_end.read, FlushLog::new(a_end.write)),
+            b.gossip_once(b_end.read, FlushLog::new(b_end.write)),
+        )
+    });
+    let ends = [a_out, b_out].map(|out| {
+        let (gossiped, _, log) = out.expect("a session between equal replicas completes");
+        assert_eq!(
+            gossiped.stats.frames_sent, 0,
+            "equal replicas exchange no frames"
+        );
+        let before_marker = log.written - COMPLETION_MARKER.len();
+        log.flushed_at
+            .iter()
+            .filter(|&&written| written <= before_marker)
+            .count()
+    });
+    assert!(
+        ends.iter().all(|&flushes| flushes > 0),
+        "every end flushes its handshake: {ends:?}"
+    );
+    ends.into_iter().max().expect("a session has two ends")
+}
+
+/// A gossip session cancelled mid-descent leaves both replicas unharmed:
+/// nothing of the interrupted session is published, and a fresh
+/// connection converges the pair fully.
+///
+/// The interrupted connection's position is unknown and is discarded, as
+/// every cancellation requires.
 #[test]
-fn a_session_cancelled_mid_descent_poisons_the_link() {
+fn a_session_cancelled_mid_descent_leaves_both_replicas_intact() {
     let (a, b) = block_on(divergent_pair());
-    let (a_link, b_link) = rumors::link::memory();
-    let (mut a_link, a_report) = wrap_link(IoSide::Left, IoPlan::default(), a_link);
-    let (mut b_link, b_report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
+    let (a_before, b_before) = (a.snapshot(), b.snapshot());
+    let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let (mut a_read, mut a_write, a_report) =
+        wrap_io(IoSide::Left, IoPlan::default(), a_end.read, a_end.write);
+    let (mut b_read, mut b_write, b_report) =
+        wrap_io(IoSide::Right, IoPlan::default(), b_end.read, b_end.write);
 
     {
         let mut cx = Context::from_waker(noop_waker_ref());
-        let mut session =
-            pin!(async { tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link)) });
-        for _ in 0..MID_FLIGHT_POLLS {
+        let mut session = pin!(async {
+            tokio::join!(
+                a.gossip_once(&mut a_read, &mut a_write),
+                b.gossip_once(&mut b_read, &mut b_write)
+            )
+        });
+        // Poll until each end has flushed frames, asserting at every poll
+        // that the joined sessions are still in flight: the cancellation
+        // then provably lands mid-descent in both directions.
+        let handshake = handshake_flushes();
+        let both_flushed_frames =
+            || a_report.snapshot().flushes > handshake && b_report.snapshot().flushes > handshake;
+        let mut polls = 0;
+        while !both_flushed_frames() {
+            assert!(
+                polls < MAX_MID_FLIGHT_POLLS,
+                "both ends must flush frames within {MAX_MID_FLIGHT_POLLS} polls"
+            );
             assert!(
                 session.as_mut().poll(&mut cx).is_pending(),
                 "the joined sessions must still be in flight when cancelled"
             );
+            polls += 1;
         }
         // Dropping the joined future here cancels both sessions mid-descent.
     }
-    let (a_cut, b_cut) = (a_report.snapshot(), b_report.snapshot());
-    assert!(
-        a_cut.write_bytes > 0 && b_cut.write_bytes > 0,
-        "the cancellation must land after wire traffic began on both ends"
-    );
-    assert!(
-        a_cut.connects + a_cut.accepts > 0 && b_cut.connects + b_cut.accepts > 0,
-        "the cancellation must land mid-descent: a data stream open at each end, \
-         not merely a handshake in flight"
-    );
-
-    // Reuse fails fast on both ends. The closed-world harness itself is the
-    // no-hang proof: the fail-fast resolves with no counterparty driving.
-    let (a_before, b_before) = (a_report.snapshot(), b_report.snapshot());
-    let retry = run_to_quiescence(a.gossip_once(&mut a_link)).expect("the fail-fast needs no peer");
-    assert!(
-        matches!(retry, Err(Error::LinkPoisoned)),
-        "a poisoned link must fail A's next session fast, got {retry:?}"
-    );
-    let retry = run_to_quiescence(b.gossip_once(&mut b_link)).expect("the fail-fast needs no peer");
-    assert!(
-        matches!(retry, Err(Error::LinkPoisoned)),
-        "a poisoned link must fail B's next session fast, got {retry:?}"
-    );
     assert_eq!(
-        a_report.snapshot(),
+        a.snapshot(),
         a_before,
-        "the fail-fast must perform no wire traffic on A's link"
+        "A published nothing of the cut session"
     );
     assert_eq!(
-        b_report.snapshot(),
+        b.snapshot(),
         b_before,
-        "the fail-fast must perform no wire traffic on B's link"
+        "B published nothing of the cut session"
     );
 
-    // The replicas themselves are unharmed: a fresh link converges the pair.
+    // The replicas themselves are unharmed: a fresh connection converges
+    // the pair.
     wire_gossip(&a, &b);
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
     assert_eq!(a.snapshot().len(), 2 * DIVERGENT_MESSAGES as usize);
@@ -126,25 +235,26 @@ fn a_session_cancelled_mid_descent_poisons_the_link() {
 
 /// Immediate teardown after `Ok` is safe under the epilogue.
 ///
-/// Each side drops its entire link the instant its own `Ok` lands, so the
+/// Each side drops both its halves the instant its own `Ok` lands, so the
 /// slower side must conclude its session, through the peer's epilogue
-/// marker, from bytes already buffered in the link, with the deferred
-/// supply-closure path absorbing the peer's vanished stream supply. Both
-/// sides conclude `Ok`, committed and converged.
+/// marker, from bytes already buffered in the connection. Both sides
+/// conclude `Ok`, committed and converged.
 #[test]
-fn dropping_the_link_immediately_after_ok_is_clean() {
+fn dropping_the_connection_immediately_after_ok_is_clean() {
     let (a, b) = block_on(divergent_pair());
-    let (a_link, b_link) = rumors::link::memory();
+    let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let (a_out, b_out) = block_on(async {
         tokio::join!(
             async {
-                let mut a_link = a_link;
-                a.gossip_once(&mut a_link).await
-                // A's whole link drops right here, at its own outcome.
+                // A's halves drop right here, at its own outcome.
+                a.gossip_once(a_end.read, a_end.write)
+                    .await
+                    .map(|(gossiped, ..)| gossiped)
             },
             async {
-                let mut b_link = b_link;
-                b.gossip_once(&mut b_link).await
+                b.gossip_once(b_end.read, b_end.write)
+                    .await
+                    .map(|(gossiped, ..)| gossiped)
             },
         )
     });
@@ -156,7 +266,7 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
 
 /// Losing completion confirmation does not undo either peer's local commit.
 ///
-/// With A's final epilogue marker withheld (B's read budget is one byte
+/// With A's final completion marker withheld (B's read budget is one byte
 /// short of a clean session, measured from a byte-identical probe run),
 /// A's `Ok` still lands, while B fails in [`rumors::error::Phase::Completion`] rather
 /// than any pre-commit class, and B's replica nonetheless holds the fully
@@ -170,27 +280,30 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
     // replay below sees the same byte schedule.
     let clean_read_bytes = {
         let (a, b) = block_on(divergent_pair());
-        let (a_link, b_link) = rumors::link::memory();
-        let (mut b_link, report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
+        let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let (b_read, b_write, report) =
+            wrap_io(IoSide::Right, IoPlan::default(), b_end.read, b_end.write);
         let (a_out, b_out) = block_on(async {
-            let mut a_link = a_link;
-            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
+            tokio::join!(
+                a.gossip_once(a_end.read, a_end.write),
+                b.gossip_once(b_read, b_write)
+            )
         });
         a_out.expect("probe session A");
-        b_out.expect("probe session B");
+        let (probe, ..) = b_out.expect("probe session B");
         assert!(
-            report.snapshot().accepts >= 2,
-            "the divergence must be deep enough to open several data streams, got {}",
-            report.snapshot().accepts
+            probe.stats.frames_received >= 2,
+            "the divergence must be deep enough to carry several frames, got {}",
+            probe.stats.frames_received
         );
         report.snapshot().read_bytes
     };
 
     // Replay on an identically-built pair, with B's reads failing after
-    // every byte but the last: the lost byte is A's epilogue marker, the
+    // every byte but the last: the lost byte is A's completion marker, the
     // final byte a clean session delivers to B.
     let (a, b) = block_on(divergent_pair());
-    let (a_link, b_link) = rumors::link::memory();
+    let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let plan = IoPlan {
         fault: Some(IoFault {
             operation: IoOperation::Read,
@@ -199,19 +312,21 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
         }),
         ..IoPlan::default()
     };
-    let (b_link, _report) = wrap_link(IoSide::Right, plan, b_link);
+    let (b_read, b_write, _report) = wrap_io(IoSide::Right, plan, b_end.read, b_end.write);
     let (a_out, b_out) = block_on(async {
-        // Each future owns its link: A's teardown after its `Ok` surfaces
+        // Each future owns its halves: A's teardown after its `Ok` surfaces
         // as end-of-stream to B if it wins the race against the injected
         // cut; either way B's marker read fails, post-commit.
         tokio::join!(
             async {
-                let mut a_link = a_link;
-                a.gossip_once(&mut a_link).await
+                a.gossip_once(a_end.read, a_end.write)
+                    .await
+                    .map(|(gossiped, ..)| gossiped)
             },
             async {
-                let mut b_link = b_link;
-                b.gossip_once(&mut b_link).await
+                b.gossip_once(b_read, b_write)
+                    .await
+                    .map(|(gossiped, ..)| gossiped)
             },
         )
     });

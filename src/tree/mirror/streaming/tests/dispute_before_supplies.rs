@@ -2,8 +2,9 @@
 //!
 //! The Lean witness `Mux.wedge`, which the theorem `wc_impossibility` uses,
 //! has this shape: a root fan of seven, with the first child disputed down to
-//! a leaf request and six whole-subtree supplies behind it. These tests
-//! establish that a session between real trees can produce that shape.
+//! a leaf request and six whole-subtree supplies behind it. It is the smallest
+//! schedule in which one shared socket deadlocks. These tests establish that
+//! a session between real trees can produce that shape.
 //!
 //! The pair is hand-placed because a structural equality check needs exact
 //! paths, which content-addressed generators cannot supply.
@@ -87,7 +88,7 @@ fn generator_matches_the_lean_literal() {
 /// smaller-set-initiates election; because the ballast is the *responder's*
 /// exclusive content, it ships as whole root-level supplies and never enters
 /// the dispute skeleton.
-fn dispute_before_supplies_trees() -> (Root, Root) {
+pub(super) fn dispute_before_supplies_trees() -> (Root, Root) {
     let shared = grown(None, 0, 1, &(), &[leaf_sibling_path(0)]);
 
     let mut supplier_paths = Vec::new();
@@ -114,8 +115,10 @@ fn dispute_before_supplies_trees() -> (Root, Root) {
 /// capacity values.
 ///
 /// This establishes that the witness used by `wc_impossibility` can arise from
-/// real trees. The session still converges over a conforming link; the theorem
-/// applies to the single-pipe multiplexing transport it models.
+/// real trees. The session still converges, here in process and in the
+/// `pipe` tests over one pipe: the theorem concerns a shared pipe whose
+/// reader waits for each frame's stage, which this design's reader never
+/// does.
 #[test]
 fn session_realizes_one_dispute_before_six_supplies() {
     let (supplier, chain) = dispute_before_supplies_trees();

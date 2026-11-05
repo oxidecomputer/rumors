@@ -2,7 +2,7 @@
 //! premature closes are transport failures, and bootstrap claimants must have
 //! no causal history.
 //!
-//! Rejections leave the link poisoned. Existing-replica
+//! A rejection leaves the connection at an unknown position. Existing-replica
 //! completion failures happen after commit; bootstrap constructs no peer.
 
 mod notifications;
@@ -14,9 +14,9 @@ use futures::future::BoxFuture;
 use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
-use super::{EPILOGUE_MARKER, SessionDefect, epilogue, erase};
-use crate::link::{Link, MemoryLink, memory};
+use super::{COMPLETION_MARKER, SessionDefect, epilogue};
 use crate::observe::SessionHandle;
+use crate::testing::{MEMORY_CAPACITY, MemoryEnd, memory_connection};
 use crate::tree::mirror::{
     party,
     preamble::{self, Intent},
@@ -52,11 +52,11 @@ proptest! {
     /// Complete marker bytes either confirm completion or report the exact
     /// invalid bytes as a protocol violation in the completion phase.
     #[test]
-    fn complete_markers_are_classified(bytes in prop_oneof![Just(EPILOGUE_MARKER), any::<[u8; 2]>()]) {
+    fn complete_markers_are_classified(bytes in prop_oneof![Just(COMPLETION_MARKER), any::<[u8; 2]>()]) {
         let mut reader = &bytes[..];
         let mut writer = tokio::io::sink();
         let result = pollster::block_on(epilogue(&mut reader, &mut writer, &SessionHandle::default()));
-        if bytes == EPILOGUE_MARKER {
+        if bytes == COMPLETION_MARKER {
             prop_assert!(result.is_ok());
         } else {
             let Err(Error::Protocol(error)) = result else { prop_assert!(false, "invalid marker accepted: {bytes:?}"); return Ok(()); };
@@ -68,8 +68,8 @@ proptest! {
 
     /// Closing at any point before the complete marker is a transport EOF.
     #[test]
-    fn incomplete_markers_are_transport_failures(cut in 0..EPILOGUE_MARKER.len()) {
-        let mut reader = &EPILOGUE_MARKER[..cut];
+    fn incomplete_markers_are_transport_failures(cut in 0..COMPLETION_MARKER.len()) {
+        let mut reader = &COMPLETION_MARKER[..cut];
         let mut writer = tokio::io::sink();
         let result = pollster::block_on(epilogue(&mut reader, &mut writer, &SessionHandle::default()));
         let Err(Error::Transport(error)) = result else { prop_assert!(false, "close was not a transport failure: {result:?}"); return Ok(()); };
@@ -82,11 +82,11 @@ proptest! {
 /// bytes untouched.
 ///
 /// A next session's preamble may already sit behind the marker on a reused
-/// link; the epilogue must not slurp it. After a clean exchange the
+/// connection; the epilogue must not slurp it. After a clean exchange the
 /// following bytes remain unread in the transport.
 #[test]
 fn bytes_after_the_marker_stay_untouched() {
-    let bytes = [EPILOGUE_MARKER[0], EPILOGUE_MARKER[1], b'R', b'U'];
+    let bytes = [COMPLETION_MARKER[0], COMPLETION_MARKER[1], b'R', b'U'];
     let mut reader = &bytes[..];
     let mut writer = tokio::io::sink();
     pollster::block_on(epilogue(
@@ -131,17 +131,16 @@ fn redacted_history_root(events: u64) -> tree::Root {
 /// `root`'s causal frontier. Returns the donated party and the reconciled
 /// tree if the counterparty serves the session to completion.
 async fn claim_bootstrap_with_root(
-    link: &mut MemoryLink,
+    end: &mut MemoryEnd,
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
-    let (read, write, connector, acceptor, epoch) = erase(link)?;
     let mut staged = preamble::Staged::new();
     preamble::preamble(
         Network::BOOTSTRAP,
         Intent::Remain,
         &mut staged,
-        read,
-        write,
+        &mut end.read,
+        &mut end.write,
         &SessionHandle::default(),
     )
     .await
@@ -149,10 +148,10 @@ async fn claim_bootstrap_with_root(
     let local_root: streaming::Root<Local> = root.into();
     let local =
         materialized::Handshaking::start(Local, local_root, DEFAULT_TARGET_MESSAGE_SIZE as u64);
-    let carrier = Link::for_session(read, write, connector, acceptor, epoch);
     let proxy = streaming_remote::Handshaking::start(
         Local,
-        carrier,
+        &mut end.read,
+        &mut end.write,
         PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
     );
     let handshaken = streaming::handshake(local, proxy)
@@ -188,9 +187,7 @@ fn party_of(provider: &Peer<u64>) -> Party {
 /// dominating version would empty the provider's replica. The rejection
 /// runs after the greeting and before the descent: the provider's content,
 /// version, and party are unchanged, the speculative bootstrap fork is
-/// re-joined, the error names the claimed history's event floor, and the
-/// link is poisoned like any failed session's, so the next session on it
-/// fails fast.
+/// re-joined, and the error names the claimed history's event floor.
 #[test]
 fn bootstrap_claimant_declaring_history_is_rejected() {
     let provider = provider_with(&[1, 2, 3]);
@@ -204,17 +201,11 @@ fn bootstrap_claimant_declaring_history_is_rejected() {
     );
 
     let provider_ref = &provider;
-    let (claim_out, (first, second)) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
+    let (claim_out, first) = pollster::block_on(async {
+        let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
         tokio::join!(
-            async move { claim_bootstrap_with_root(&mut a_link, claimant_tree.root).await },
-            async move {
-                let first = provider_ref.gossip_once(&mut b_link).await;
-                // The second session on the same link must fail fast,
-                // before any wire traffic: the rejection poisoned it.
-                let second = provider_ref.gossip_once(&mut b_link).await;
-                (first, second)
-            },
+            async move { claim_bootstrap_with_root(&mut a_end, claimant_tree.root).await },
+            async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
         )
     });
 
@@ -230,10 +221,6 @@ fn bootstrap_claimant_declaring_history_is_rejected() {
         }
         other => panic!("the provider rejects the claimant, got {other:?}"),
     }
-    assert!(
-        matches!(second, Err(Error::LinkPoisoned)),
-        "the failed session poisons the link, got {second:?}",
-    );
     assert!(
         claim_out.is_err(),
         "the rejected claimant's session fails, got {claim_out:?}",
@@ -262,10 +249,10 @@ fn bootstrap_claimant_declaring_history_is_rejected() {
 #[test]
 fn mutual_bootstrap_counterparty_with_history_is_rejected() {
     let (join_out, claim_out) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
+        let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         tokio::join!(
-            async move { Peer::<u64>::bootstrap().join(&mut a_link).await },
-            async move { claim_bootstrap_with_root(&mut b_link, redacted_history_root(8)).await },
+            async move { Peer::<u64>::bootstrap().join(a_end.read, a_end.write).await },
+            async move { claim_bootstrap_with_root(&mut b_end, redacted_history_root(8)).await },
         )
     });
 
@@ -286,10 +273,11 @@ fn mutual_bootstrap_counterparty_with_history_is_rejected() {
 }
 
 /// A rejected claimant costs the provider nothing: a newborn claimant
-/// over a fresh link afterwards succeeds and replicates the full content.
+/// over a fresh connection afterwards succeeds and replicates the full
+/// content.
 ///
 /// The rejection's recovery contract is the claimant's alone — the
-/// provider needs no repair beyond a fresh link, and a newborn
+/// provider needs no repair beyond a fresh connection, and a newborn
 /// claimant (empty greeting version) is served exactly as before.
 #[test]
 fn rejected_claimant_leaves_the_provider_serviceable() {
@@ -297,10 +285,10 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
 
     let provider_ref = &provider;
     pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
+        let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
         let (claim_out, provider_out) = tokio::join!(
-            async move { claim_bootstrap_with_root(&mut a_link, redacted_history_root(8)).await },
-            async move { provider_ref.gossip_once(&mut b_link).await },
+            async move { claim_bootstrap_with_root(&mut a_end, redacted_history_root(8)).await },
+            async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
         );
         assert!(
             matches!(provider_out, Err(Error::Protocol(_))),
@@ -310,14 +298,14 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
     });
 
     let witness = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         let (witness_out, provider_out) = tokio::join!(
-            Peer::<u64>::bootstrap().join(&mut a_link),
-            provider.gossip_once(&mut b_link),
+            Peer::<u64>::bootstrap().join(&mut a_end.read, &mut a_end.write),
+            provider.gossip_once(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("the provider serves the newborn claimant");
         match witness_out {
-            crate::Joined::Joined { peer } => peer,
+            crate::Joined::Joined { peer, .. } => peer,
             _ => panic!("the provider donates"),
         }
     });
@@ -329,13 +317,18 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
 }
 
 proptest! {
-    /// Identity transfer and completion decode across any lookahead boundary,
-    /// leaving bytes from a following session unread in the live transport.
+    /// Identity transfer and completion decode through the pipe's read half
+    /// however their bytes arrive, leaving bytes from a following session
+    /// unread in the live transport.
+    ///
+    /// Half the cases first fill the read half's lookahead with the closing
+    /// item's first byte, as the demultiplexer leaves it when it stops.
     #[test]
-    fn trailing_items_cross_the_lookahead_boundary(
+    fn trailing_items_leave_the_next_session_unread(
         forks in 0usize..32,
         donation in any::<bool>(),
         split_at in any::<usize>(),
+        peeked in any::<bool>(),
         following in prop::collection::vec(any::<u8>(), 1..32),
     ) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -350,69 +343,50 @@ proptest! {
             if donation {
                 party::send(&identity, &mut wire, &observe).await.unwrap();
             }
-            wire.extend_from_slice(&EPILOGUE_MARKER);
+            wire.extend_from_slice(&COMPLETION_MARKER);
             let cut = split_at % (wire.len() + 1);
             let (local, remote) = duplex(1);
             let (local_read, mut local_write) = split(local);
             let (mut remote_read, mut remote_write) = split(remote);
-            let mut read = std::io::Cursor::new(wire[..cut].to_vec()).chain(local_read);
+            let mut read = streaming_remote::PipeRead::new(local_read);
             let receive = async {
+                if peeked {
+                    let first = read.peek().await.unwrap();
+                    assert_eq!(first, Some(wire[0]), "the lookahead holds the first closing byte");
+                }
                 if donation {
                     let received = party::receive(&mut read, &observe).await.unwrap();
                     assert_eq!(received.as_bytes(), expected);
                 }
                 super::finish_session(&mut read, &mut local_write, &observe).await.unwrap();
-                assert_eq!(read.get_ref().0.position() as usize, cut);
                 let mut next = vec![0; following.len()];
                 read.read_exact(&mut next).await.unwrap();
                 assert_eq!(next, following);
             };
             let send = async {
+                remote_write.write_all(&wire[..cut]).await.unwrap();
                 // Read our marker concurrently with sending the suffix, as a
                 // one-byte duplex cannot buffer both complete markers.
                 let (_, marker) = tokio::join!(
                     async { remote_write.write_all(&wire[cut..]).await.unwrap(); },
                     async {
-                        let mut marker = [0; EPILOGUE_MARKER.len()];
+                        let mut marker = [0; COMPLETION_MARKER.len()];
                         remote_read.read_exact(&mut marker).await.unwrap();
                         marker
                     },
                 );
-                assert_eq!(marker, EPILOGUE_MARKER);
+                assert_eq!(marker, COMPLETION_MARKER);
                 // A peer may begin the next session only after our marker.
                 remote_write.write_all(&following).await.unwrap();
             };
             tokio::join!(receive, send);
         }).expect("trailing items must decode without consuming the next session");
     }
-
-    /// Completion cannot silently discard control bytes sent before the peer
-    /// was permitted to start another session.
-    #[test]
-    fn completion_rejects_leftover_lookahead(extra in prop::collection::vec(any::<u8>(), 0..64)) {
-        use tokio::io::AsyncReadExt;
-        let mut bytes = super::EPILOGUE_MARKER.to_vec();
-        bytes.extend_from_slice(&extra);
-        let mut read = std::io::Cursor::new(bytes).chain(tokio::io::empty());
-        let result = crate::testing::run_to_quiescence(super::finish_session(
-            &mut read, &mut tokio::io::sink(), &SessionHandle::default(),
-        )).expect("in-memory completion must finish");
-        if extra.is_empty() {
-            prop_assert!(result.is_ok());
-        } else {
-            let Error::Protocol(error) = result.unwrap_err() else {
-                panic!("extra control bytes must be a protocol violation");
-            };
-            prop_assert_eq!(error.context.phase, crate::error::Phase::Completion);
-            prop_assert!(matches!(error.source.downcast_ref::<super::SessionDefect>(),
-                Some(super::SessionDefect::EarlyControl(count)) if *count == extra.len()));
-        }
-    }
 }
 
 /// Withhold the completion marker while allowing all reconciliation traffic.
 struct HoldCompletion<W> {
-    /// The real control writer used before the completion exchange.
+    /// The real writer used before the completion exchange.
     inner: W,
     /// Signals that reconciliation committed and the marker is now withheld.
     reached: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -426,7 +400,7 @@ impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldCompletion<
         cx: &mut std::task::Context<'_>,
         bytes: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        if bytes == EPILOGUE_MARKER {
+        if bytes == COMPLETION_MARKER {
             self.reached
                 .store(true, std::sync::atomic::Ordering::SeqCst);
             // The test drops this writer after expiring the other side's
@@ -454,8 +428,8 @@ impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldCompletion<
     }
 }
 
-/// Deadline expiry at completion reports failure and poisons the link without
-/// undoing the complete local commit. A fresh link can then confirm convergence.
+/// Deadline expiry at completion reports failure without undoing the
+/// complete local commit. A fresh connection can then confirm convergence.
 #[test]
 fn completion_deadline_preserves_the_local_commit() {
     use futures::FutureExt;
@@ -466,17 +440,17 @@ fn completion_deadline_preserves_the_local_commit() {
     };
     use std::task::Poll;
 
-    let (mut near, mut far) = memory();
+    let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
     let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let (served, joined) = run_to_quiescence(async {
         futures::join!(
-            a.gossip_once(&mut near),
-            Peer::<u64>::bootstrap().join(&mut far)
+            a.gossip_once(&mut near.read, &mut near.write),
+            Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)
         )
     })
     .unwrap();
     served.unwrap();
-    let crate::Joined::Joined { peer } = joined else {
+    let crate::Joined::Joined { peer, .. } = joined else {
         panic!("bootstrap succeeds")
     };
     let b = peer.into_rumors();
@@ -490,19 +464,12 @@ fn completion_deadline_preserves_the_local_commit() {
         .session_deadline(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
         .into_rumors();
     let reached = Arc::new(AtomicBool::new(false));
-    let mut far = far.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            control_read,
-            HoldCompletion {
-                inner: control_write,
-                reached: reached.clone(),
-            },
-            connector,
-            acceptor,
-        )
-    });
-    let mut left = Box::pin(a.gossip_once(&mut near));
-    let mut right = Box::pin(b.gossip_once(&mut far));
+    let mut far_write = HoldCompletion {
+        inner: far.write,
+        reached: reached.clone(),
+    };
+    let mut left = Box::pin(a.gossip_once(&mut near.read, &mut near.write));
+    let mut right = Box::pin(b.gossip_once(&mut far.read, &mut far_write));
     run_to_quiescence(poll_fn(|cx| {
         assert!(left.as_mut().poll(cx).is_pending());
         assert!(right.as_mut().poll(cx).is_pending());
@@ -521,20 +488,19 @@ fn completion_deadline_preserves_the_local_commit() {
         Err(Error::DeadlineExceeded)
     ));
     drop(right);
-    assert!(matches!(
-        pollster::block_on(a.gossip_once(&mut near)),
-        Err(Error::LinkPoisoned)
-    ));
 
     // The peer's content is intact; remove the test's single-use deadline
-    // factory before checking ordinary gossip over a new link.
+    // factory before checking ordinary gossip over a fresh connection.
     let a = pollster::block_on(a.try_into_peer())
         .unwrap()
         .session_deadline(std::future::pending)
         .into_rumors();
-    let (mut near, mut far) = memory();
+    let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
     let (left, right) = run_to_quiescence(async {
-        futures::join!(a.gossip_once(&mut near), b.gossip_once(&mut far))
+        futures::join!(
+            a.gossip_once(&mut near.read, &mut near.write),
+            b.gossip_once(&mut far.read, &mut far.write)
+        )
     })
     .unwrap();
     left.unwrap();

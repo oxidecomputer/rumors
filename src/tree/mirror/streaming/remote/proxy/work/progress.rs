@@ -42,7 +42,8 @@ impl Progress {
         self
     }
 
-    /// Record a flushed wire reply at the height of the questions it asks.
+    /// Record a reply handed to the multiplexer, at the height of the
+    /// questions it asks.
     pub fn wire_reply(self, _height: usize, _questions: usize) {
         #[cfg(test)]
         trace::record_stage(

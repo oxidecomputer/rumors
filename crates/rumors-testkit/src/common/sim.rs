@@ -18,7 +18,7 @@
 //! 1. **Fleet**: one seed and its clean bootstrap forks.
 //! 2. **Chaos**: every session, every activity script, and every extra
 //!    bootstrap attempt runs concurrently; channel cuts land at arbitrary
-//!    byte offsets, and endpoints vanish mid-stream, via [`FaultPlan`]s.
+//!    byte offsets, and endpoints vanish mid-session, via [`FaultPlan`]s.
 //!    Serving a bootstrap mid-chaos puts
 //!    the snapshot-and-fork critical section under concurrent sends from
 //!    sibling handles (see `run_boot`); a failed attempt may orphan the
@@ -85,7 +85,7 @@ use crate::common::oracle::{readout, version_key};
 use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
 use crate::common::wire::wire_gossip_async;
 
-/// Upper bound on the byte offset at which a cut can land.
+/// Upper bound on the byte offset at which a cut or a vanish can land.
 ///
 /// Derived from measurement, not transcribed: the envelope session —
 /// a fully-divergent pair on the generator's maximal fork lattice, each
@@ -93,8 +93,8 @@ use crate::common::wire::wire_gossip_async;
 /// every party's ticks entangled into the version bounds, at the
 /// sweep's widest window — moves fewer bytes per endpoint than this
 /// bound, and the bound stays within twice that measurement, so
-/// generated cuts reach every byte of the envelope and keep landing
-/// inside real sessions. The envelope dominates plan sessions exactly
+/// generated cuts and vanishes reach every byte of the envelope and keep
+/// landing inside real sessions. The envelope dominates plan sessions exactly
 /// on value count and representatively on version shapes (the boundary
 /// is stated at the pin); the two-sided pin is
 /// `max_cut_spans_the_envelope_session` in `tests/disruption.rs` —
@@ -109,26 +109,6 @@ const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
 /// This leaves time inside nextest's process limit for proptest to persist a
 /// failing case after shrinking it.
 pub const MAX_SHRINK_TIME: u32 = 60_000;
-
-/// Upper bound on the data-stream ordinal a generated vanish names.
-///
-/// Derived from measurement, like `MAX_CUT`: the envelope session opens
-/// fewer data streams per endpoint than this bound, and the bound stays
-/// within twice that count, so generated vanishes reach every stream an
-/// envelope endpoint opens and mostly name streams that exist. The
-/// two-sided pin is `vanish_draw_spans_the_envelope_session` in
-/// `tests/disruption.rs`.
-pub const MAX_VANISH_STREAM: usize = 2;
-
-/// Upper bound on the byte offset into a data stream at which a
-/// generated vanish lands.
-///
-/// Derived from measurement, like `MAX_CUT`: the envelope session's
-/// widest data stream carries fewer bytes than this bound, and the bound
-/// stays within twice that extent, so generated vanishes reach every
-/// byte of the widest stream and keep landing inside real ones. Pinned
-/// with [`MAX_VANISH_STREAM`].
-pub const MAX_VANISH_OFFSET: usize = 1280;
 
 /// One concurrently-executed simulation plan. See the module docs for how
 /// the pieces are scheduled.
@@ -329,24 +309,18 @@ pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
 
 /// Add peer departures to the read and write faults drawn by [`arb_fault`].
 ///
-/// An endpoint may disappear on its first data-stream open, while writing
-/// control bytes, or while writing one of its first [`MAX_VANISH_STREAM`]
-/// data streams. Byte offsets stay below [`MAX_VANISH_OFFSET`], with extra
-/// weight on the first data stream and byte. A point the endpoint never
-/// reaches does not fire.
+/// An endpoint may disappear at any byte offset of its outgoing traffic
+/// below [`MAX_CUT`], the bound that already spans a whole envelope
+/// session's bytes per endpoint, so a vanish lands in the preamble, the
+/// greeting, a frame, between frames, or the closing items alike. A point
+/// the endpoint never reaches does not fire.
 fn arb_fault_or_vanish(faults: bool) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
     }
     let vanish = prop_oneof![
         3 => Just(None),
-        1 => Just(Some(Vanish::AtFirstConnect)),
-        1 => (0..MAX_VANISH_OFFSET).prop_map(|offset| Some(Vanish::OnControl { offset })),
-        1 => (
-            prop_oneof![3 => Just(0usize), 1 => 0..MAX_VANISH_STREAM],
-            prop_oneof![1 => Just(0usize), 2 => 0..MAX_VANISH_OFFSET],
-        )
-            .prop_map(|(index, offset)| Some(Vanish::OnStream { index, offset })),
+        3 => (0..MAX_CUT).prop_map(|offset| Some(Vanish { offset })),
     ];
     (arb_fault(faults), vanish)
         .prop_map(|(cuts, vanish)| FaultPlan { vanish, ..cuts })
@@ -458,7 +432,7 @@ pub fn assert_honest_gossip(out: &Result<Gossiped, Error>) {
 }
 
 /// The survivor of a vanished counterparty ends with an honest error,
-/// never `Ok`: a vanish trips at a write or a stream open, so the
+/// never `Ok`: a vanish trips at a write, so the
 /// counterparty's completion marker, its last write, never lands.
 pub fn assert_survivor(out: &Result<Gossiped, Error>) {
     assert!(
@@ -483,12 +457,16 @@ async fn run_session(
     fault_a: FaultPlan,
     fault_b: FaultPlan,
 ) -> usize {
-    let (link_a, link_b) = rumors::link::memory();
-    let task_a = tokio::spawn(fault::drive(link_a, fault_a, async move |link| {
-        a.gossip_once(link).await
+    let (end_a, end_b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let task_a = tokio::spawn(fault::drive(end_a, fault_a, async move |end| {
+        a.gossip_once(end.read, end.write)
+            .await
+            .map(|(gossiped, ..)| gossiped)
     }));
-    let task_b = tokio::spawn(fault::drive(link_b, fault_b, async move |link| {
-        b.gossip_once(link).await
+    let task_b = tokio::spawn(fault::drive(end_b, fault_b, async move |end| {
+        b.gossip_once(end.read, end.write)
+            .await
+            .map(|(gossiped, ..)| gossiped)
     }));
     let (driven_a, driven_b) = tokio::join!(task_a, task_b);
     let driven_a = driven_a.expect("session task A");
@@ -525,13 +503,17 @@ async fn run_boot(
     fault: FaultPlan,
     window: WindowChoice,
 ) -> (Option<Peer<u64>>, usize) {
-    let (boot_side, serve_side) = rumors::link::memory();
+    let (boot_side, serve_side) =
+        rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let serve = tokio::spawn(async move {
-        let mut link = fault::faulty(serve_side, FaultPlan::NONE);
-        server.gossip_once(&mut link).await
+        let mut end = fault::faulty(serve_side, FaultPlan::NONE);
+        server
+            .gossip_once(&mut end.read, &mut end.write)
+            .await
+            .map(|(gossiped, ..)| gossiped)
     });
-    let boot = tokio::spawn(fault::drive(boot_side, fault, async move |link| {
-        Peer::<u64>::bootstrap().join(link).await
+    let boot = tokio::spawn(fault::drive(boot_side, fault, async move |end| {
+        Peer::<u64>::bootstrap().join(end.read, end.write).await
     }));
     let (served, driven) = tokio::join!(serve, boot);
     let served = served.expect("bootstrap serve task");
@@ -541,7 +523,7 @@ async fn run_boot(
     };
     assert_honest_gossip(&served);
     let newcomer = match joined {
-        rumors::Joined::Joined { peer } => Some(window.apply(peer)),
+        rumors::Joined::Joined { peer, .. } => Some(window.apply(peer)),
         rumors::Joined::Bailed { .. } => {
             unreachable!("the serving peer is never itself bootstrapping")
         }
@@ -549,7 +531,7 @@ async fn run_boot(
             assert_honest_error(&error);
             None
         }
-        rumors::Joined::Unbookmarked(_) => unreachable!("no bookmark was selected"),
+        rumors::Joined::Unbookmarked { .. } => unreachable!("no bookmark was selected"),
     };
     (newcomer, 0)
 }
@@ -833,15 +815,19 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         // The absorber's side of a retirement is plain gossip, which lives
         // on `Rumors`; it converts back the moment the session ends.
         let absorber = absorber.into_rumors();
-        let (retiree_side, absorber_side) = rumors::link::memory();
-        let retiring = tokio::spawn(fault::drive(retiree_side, op.fault, async move |link| {
-            retiree.retire(link).await
+        let (retiree_side, absorber_side) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let retiring = tokio::spawn(fault::drive(retiree_side, op.fault, async move |end| {
+            retiree.retire(end.read, end.write).await
         }));
         let absorbing = tokio::spawn({
             let absorber = absorber.clone();
             async move {
-                let mut link = fault::faulty(absorber_side, FaultPlan::NONE);
-                absorber.gossip_once(&mut link).await
+                let mut end = fault::faulty(absorber_side, FaultPlan::NONE);
+                absorber
+                    .gossip_once(&mut end.read, &mut end.write)
+                    .await
+                    .map(|(gossiped, ..)| gossiped)
             }
         });
         let (driven, absorbed) = tokio::join!(retiring, absorbing);
@@ -873,7 +859,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             // The retiree believes its party was delivered; if the absorber
             // failed too, delivery is unconfirmed on both sides and the
             // region may be in limbo.
-            Retire::Retired => {
+            Retire::Retired { .. } => {
                 let transfer = if absorbed.is_err() {
                     possible_losses += 1;
                     Transfer::Lost

@@ -6,7 +6,7 @@
 //! Every fixture starts with a total universe size of `N = 10_000` possible
 //! actions and varies only where the work lands: shared pre-fork insertions,
 //! post-fork divergent insertions, or post-fork redactions. Each benchmark
-//! drives [`Rumors::gossip`] over one persistent in-memory link, so the timed
+//! drives [`Rumors::gossip`] over one persistent in-memory connection, so the timed
 //! body pays for the gossip session rather than transport allocation.
 //!
 //! The fixed-size groups measure the wire protocol on the same fixtures. Their
@@ -17,7 +17,7 @@
 //! - `gossip_fixed_unilateral_insertions`: one-side post-fork insertions `I`.
 //! - `gossip_fixed_unilateral_redactions`: one-side post-fork redactions `R`.
 //!
-//! # The latency knob
+//! # The latency sweep
 //!
 //! Two further groups reuse the bidirectional fixtures but add a third
 //! dimension: one-way link latency, swept as the x-axis at a few fixed
@@ -27,7 +27,7 @@
 //! - `gossip_latency_bidir_insertions`: `I ∈ {0, 5000}`.
 //! - `gossip_latency_bidir_redactions`: `R = 2500`.
 //!
-//! Sessions run over the test kit's delayed-pipe link, which
+//! Sessions run over the test kit's delayed-pipe connection, which
 //! charges wire delay to a paused runtime clock, so the sweep costs
 //! wall-clock compute only and the reported duration is elapsed compute time
 //! plus virtual wire stall. Read each line's intercept as the protocol's
@@ -76,12 +76,12 @@ const LATENCY_INSERTIONS: &[usize] = &[0, 5_000];
 /// sweep already carries the size-scaling signal.
 const LATENCY_REDACTIONS: &[usize] = &[2_500];
 
-/// Per-stream in-flight window for the latency sweep: far above any
-/// session's per-stream transfer at `N = 10_000`.
+/// Per-direction in-flight window for the latency sweep: far above any
+/// session's one-direction transfer at `N = 10_000`.
 ///
 /// Measurements therefore isolate round-trip serialization from
-/// bandwidth-delay throttling (the window caps per-stream throughput at
-/// `capacity / delay`).
+/// bandwidth-delay throttling (the window caps each direction's throughput
+/// at `capacity / delay`).
 const LATENCY_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// How the two peers diverge after their shared history.

@@ -1,19 +1,20 @@
 //! Background work accumulated by the remote protocol states.
 //!
-//! [`Work`] owns the translation tasks created as the typestate advances.
-//! [`stages`] wires each transition, [`encode`] writes local replies, and
-//! [`queues`] owns the internal channel capacities. The terminal operation drives these
-//! tasks with the stream acceptor and incoming error route.
+//! [`Work`] owns the translation tasks created as the typestate advances,
+//! and the session's pipe. [`stages`] wires each transition, [`encode`]
+//! writes local replies, and [`queues`] owns the internal channel
+//! capacities. The terminal operation drives these tasks together with the
+//! pipe's multiplexer and demultiplexer.
 
-use std::io::Cursor;
 use std::pin::{Pin, pin};
-use tokio::io::{AsyncRead, AsyncReadExt, Chain};
+use std::task::Poll;
 
 use futures::{Stream, StreamExt, future::BoxFuture};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    link::Acceptor,
     message::PayloadCodec,
+    observe::SessionHandle,
     tree::{
         mirror::streaming::{
             Backend, Leaf,
@@ -23,9 +24,9 @@ use crate::{
             protocol::BoxResponses,
             remote::{
                 adapter::{ReplyLevel, Scope, derive_questions},
-                codec::{RunBudget, Speaker},
+                codec::{Frame, RunBudget, Speaker, Stream as LogicalStream},
+                pipe::{self, Demultiplexer, Multiplexer, Outgoing, PipeError, PipeRead},
                 proxy::{Error, send_or_cancel},
-                streams::{AcceptDriver, AcceptError, FirstStreamError, StreamReceiver},
             },
             stats::Recorder,
             tasks::{cancelled, complete},
@@ -46,16 +47,6 @@ pub(crate) mod parking_census;
 pub(super) mod progress;
 mod queues;
 mod stages;
-
-/// Remaining control input, with bytes read by the departure watch replayed first.
-///
-/// Tree replies and message payloads travel on separate data streams and never
-/// enter this buffer. A conforming peer can send its completion marker and,
-/// during bootstrap or retirement, an identity donation while our
-/// reconciliation is still running. The buffer has no fixed byte cap: ordinary
-/// gossip needs at most the two-byte marker; an identity donation during
-/// retirement or bootstrap can also append its encoded party.
-pub type ControlRead<R> = Chain<Cursor<Vec<u8>>, R>;
 
 /// Backend and validation state shared by every incoming reply decoder.
 #[derive(Clone)]
@@ -88,34 +79,10 @@ where
     }
 }
 
-/// Watch for control EOF while preserving later session items for their
-/// readers.
-///
-/// During reconciliation the peer may send its identity donation or completion
-/// marker before our data-stream work finishes. Keep those bytes in order and
-/// continue to EOF; stopping at the first byte would miss a departure after a
-/// partially delivered donation. The peer must await our completion marker
-/// before starting its next session.
-///
-/// This watch stops when reconciliation returns. The returned [`ControlRead`]
-/// then replays the saved bytes to the identity and completion readers before
-/// they resume reading the transport.
-async fn departure(read: &mut (impl AsyncRead + Unpin), ahead: &mut Vec<u8>) -> std::io::Error {
-    let mut buffer = [0; 64];
-    loop {
-        match read.read(&mut buffer).await {
-            Ok(0) => return std::io::ErrorKind::UnexpectedEof.into(),
-            Ok(len) => ahead.extend_from_slice(&buffer[..len]),
-            Err(error) => return error,
-        }
-    }
-}
-
 /// Deferred translation tasks and the physical session which drives them.
-pub struct Work<B, R, W, A>
+pub struct Work<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    A: Acceptor,
 {
     /// Backend and validation state for incoming replies.
     ingress: Ingress<B>,
@@ -123,46 +90,47 @@ where
     /// through the in-flight count, its parking queues; the scope queues
     /// hold a fan plus one whatever the window.
     window: Window,
-    /// Byte budget for each outgoing supply run.
+    /// Byte budget for each outgoing supply run, also enforced on every
+    /// incoming one.
     budget: RunBudget,
     /// The remote greeting's root-fan listing, which
     /// [`initiator`](Self::initiator) replays as the remote's opening
     /// question when the remote initiates.
     remote_listing: Vec<(u8, Hash)>,
-    /// Transport and error reporting shared by the tasks.
-    physical: Physical<R, W, A>,
+    /// The pipe and the tasks that connect logical streams to it.
+    physical: Physical<R, W>,
     /// Tasks driven concurrently when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
-    /// The session's stats recorder, which counts the window stalls of the
-    /// proxy's window-sized question queues.
+    /// The session's stats recorder: the pipe's frame counts, and the
+    /// window stalls of the proxy's window-sized question queues.
     stats: Recorder,
+    /// The session's observation handle, through which the pipe delivers
+    /// each frame to its logical stream's observer.
+    observe: SessionHandle,
     /// Records reply and scope publication order in tests.
     progress: Progress,
 }
 
-/// Transport ownership and incoming error reporting for one session.
-pub struct Physical<R, W, A>
-where
-    A: Acceptor,
-{
-    /// Control input watched during reconciliation and returned with lookahead.
-    pub control_read: R,
-    /// Control output returned alongside the input.
-    pub control_write: W,
-    /// The remote elected speaker: the direction whose failures the
-    /// terminal attributes when no single stream can be named.
+/// The pipe's two halves and the logical streams bound to them.
+pub struct Physical<R, W> {
+    /// The pipe's read half, read by the demultiplexer during
+    /// reconciliation and returned for the closing exchange.
+    pub read: R,
+    /// The pipe's write half, written by the multiplexer during
+    /// reconciliation and returned for the closing exchange.
+    pub write: W,
+    /// The remote elected speaker, whose logical streams arrive here.
     pub remote: Speaker,
-    /// Routes arriving data streams to the tasks awaiting them.
-    pub accept: AcceptDriver<A>,
-    /// Receives incoming-stream failures and the acceptor's deferred I/O failure.
-    pub errors: FirstStreamError,
+    /// The local logical streams, bound as their encoders are created.
+    pub multiplexer: Multiplexer,
+    /// The remote logical streams, bound as their decoders are created.
+    pub demultiplexer: Demultiplexer,
 }
 
 /// Accumulate protocol tasks and coordinate them with the transport.
-impl<B, R, W, A> Work<B, R, W, A>
+impl<B, R, W> Work<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
     pub fn new(
@@ -170,8 +138,9 @@ where
         window: Window,
         budget: RunBudget,
         remote_listing: Vec<(u8, Hash)>,
-        physical: Physical<R, W, A>,
+        physical: Physical<R, W>,
         stats: Recorder,
+        observe: SessionHandle,
     ) -> Self {
         Self {
             ingress,
@@ -181,6 +150,7 @@ where
             physical,
             tasks: Vec::new(),
             stats,
+            observe,
             progress: Progress::new(),
         }
     }
@@ -200,8 +170,24 @@ where
         self.tasks.push(Box::pin(task));
     }
 
-    /// Decode the remote replies at height `H` from `incoming`, park them,
-    /// and expose them to the stage that takes them.
+    /// Bind the remote logical stream carrying replies at height `H`.
+    fn incoming<H: Height>(&mut self) -> Receiver<Frame> {
+        let remote = self.physical.remote;
+        self.physical
+            .demultiplexer
+            .lane(stream_at::<H>(remote), H::HEIGHT)
+    }
+
+    /// Bind the local logical stream carrying replies at height `H`.
+    fn outgoing<H: Height>(&mut self) -> Outgoing {
+        let local = self.physical.remote.other();
+        self.physical
+            .multiplexer
+            .lane(stream_at::<H>(local), H::HEIGHT)
+    }
+
+    /// Decode the remote replies at height `H`, park them, and expose them
+    /// to the stage that takes them.
     ///
     /// Each reply is decoded against the record of the local question it
     /// answers, taken from `questions` in order, and then parked as
@@ -211,13 +197,13 @@ where
     fn respond<H>(
         &mut self,
         questions: Receiver<Scope>,
-        incoming: StreamReceiver,
         publish: Option<Sender<Scope>>,
         progress: Progress,
     ) -> BoxResponses<B, H, Error<B::Error>>
     where
         H: Height,
     {
+        let incoming = self.incoming::<H>();
         let decoded = self
             .ingress()
             .decode_pump(ReplyLevel::at::<H>(), questions, incoming);
@@ -271,73 +257,99 @@ where
         })
     }
 
-    /// Drive the protocol, incoming streams, and their error reports together.
+    /// Drive the protocol and the pipe together.
     ///
-    /// Reconciliation uses data streams, leaving control input available to
-    /// watch for departure. The accept driver uses that signal to close missing
-    /// stream claims, then waits for the protocol to decide its outcome.
+    /// The protocol, which here includes the multiplexer writing every
+    /// local frame, is polled first. The demultiplexer reports only
+    /// failures; it runs until the protocol completes and is then dropped
+    /// between frames, its lookahead returned with the read half for the
+    /// closing exchange.
     ///
-    /// The protocol is polled first: a completed reconciliation succeeds even
-    /// if the peer has since departed or closed its stream supply. A reported
-    /// violation also stands on its own. For a transport failure, poll the
-    /// accept driver once more to collect any ready cause before attributing
-    /// the error. This final poll never waits and cannot change a successful
-    /// outcome.
+    /// Once the protocol completes, one last poll of the demultiplexer
+    /// collects a failure it had ready. The peer's departure there does not
+    /// fail the completed reconciliation: the closing exchange reports it
+    /// in its own phase, and a read error stays in the returned read half
+    /// for that exchange's first read. Any other failure, or a frame the demultiplexer had
+    /// begun but not delivered, is a frame no question invited, so it fails
+    /// the session. When the protocol fails because a write failed, a
+    /// violation the demultiplexer had ready explains the failure better,
+    /// since a peer that detected a problem may have closed the
+    /// connection.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
-    ) -> Result<(O, ControlRead<R>, W), Error<B::Error>>
+    ) -> Result<(O, PipeRead<R>, W), Error<B::Error>>
     where
         R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
     {
         let Self {
-            physical, tasks, ..
+            ingress: _,
+            window: _,
+            budget,
+            remote_listing: _,
+            physical,
+            tasks,
+            stats,
+            observe,
+            progress: _,
         } = self;
         let Physical {
-            mut control_read,
-            control_write,
+            read,
+            mut write,
             remote,
-            accept,
-            mut errors,
+            multiplexer,
+            demultiplexer,
         } = physical;
-        // Only early control items accumulate here; data-stream traffic keeps
-        // flowing through the tasks under its existing flow control.
-        let mut ahead = Vec::new();
+        let mut read = PipeRead::new(read);
+        let mut departure = None;
         let outcome = {
-            let mut protocol = Box::pin(complete(tasks, finish));
-            let mut accept = pin!(accept.run(departure(&mut control_read, &mut ahead)));
-            let mut stream_errors = pin!(errors.first());
-            let (mut outcome, protocol_finished) = tokio::select! {
+            let send = multiplexer.run(&mut write, remote.other(), stats.clone(), &observe);
+            let protocol = futures::future::try_join(complete(tasks, finish), async {
+                send.await.map_err(|error| Error::Pipe(error.into()))
+            });
+            let mut protocol = pin!(protocol);
+            let mut receive = pin!(demultiplexer.run(&mut read, remote, budget, stats, &observe));
+            let outcome = tokio::select! {
                 biased;
-                output = &mut protocol => (output, true),
-                error = &mut stream_errors => (Err(Error::Stream(error)), false),
-                error = &mut accept => (Err(Error::Accept(error)), false),
+                output = &mut protocol => output.map(|(output, ())| output),
+                error = &mut receive => Err(Error::Pipe(error)),
             };
-            if matches!(&outcome, Err(error) if error.is_transport_failure()) {
-                match futures::poll!(accept.as_mut()) {
-                    // A failed protocol drops its claim receivers. Delivery
-                    // to one of those slots is a consequence of teardown,
-                    // not evidence that the peer sent an unasked stream.
-                    std::task::Poll::Ready(AcceptError::Unexpected { .. }) if protocol_finished => {
+            // One last poll collects a failure the demultiplexer had ready;
+            // it never waits.
+            match outcome {
+                Ok(output) => match futures::poll!(receive.as_mut()) {
+                    Poll::Ready(PipeError::Departed(source)) => {
+                        departure = Some(source);
+                        Ok(output)
                     }
-                    std::task::Poll::Ready(error) => outcome = Err(Error::Accept(error)),
-                    std::task::Poll::Pending => {}
+                    Poll::Pending => Ok(output),
+                    Poll::Ready(error) => Err(Error::Pipe(error)),
+                },
+                Err(error @ Error::Pipe(PipeError::Encode(_))) => {
+                    match futures::poll!(receive.as_mut()) {
+                        Poll::Ready(violation) if violation.is_violation() => {
+                            Err(Error::Pipe(violation))
+                        }
+                        Poll::Ready(_) | Poll::Pending => Err(error),
+                    }
                 }
+                Err(error) => Err(error),
             }
-            // A selected accept error is a violation, so the completed
-            // accept future never reaches the extra poll above.
-            outcome
         };
-        outcome
-            .map(|output| {
-                (
-                    output,
-                    Cursor::new(ahead).chain(control_read),
-                    control_write,
-                )
-            })
-            .map_err(|error| error.attribute(&mut errors, remote))
+        let output = outcome?;
+        if let Some(source) = departure {
+            read.keep_failure(source);
+        }
+        pipe::check_drained(&read, remote).map_err(Error::Pipe)?;
+        Ok((output, read, write))
     }
+}
+
+/// Find the logical stream assigned to one speaker and reply height.
+fn stream_at<H: Height>(speaker: Speaker) -> LogicalStream {
+    LogicalStream::at_height(speaker, H::HEIGHT)
+        .expect("the typestate binds each speaker only at heights on its parity")
 }
 
 /// A decoded reply parked until its stage takes it.

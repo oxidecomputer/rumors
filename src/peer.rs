@@ -13,7 +13,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark, Reservation, Reservations};
-use crate::link::{Acceptor, Connector, Link};
 pub use crate::message::DEFAULT_PAYLOAD_DEPTH_LIMIT;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
 use crate::observe::{Attachment, Observer};
@@ -37,6 +36,8 @@ mod policy;
 
 pub use bookmark::Unbookmarked;
 pub use bootstrap::{Bootstrap, Joined};
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use gossip::COMPLETION_MARKER;
 pub use gossip::{Gossip, Gossiped, Led, Retire};
 
 /// The start and end of a [`Rumors`]'s lifecycle.
@@ -61,15 +62,21 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// #     .unwrap()
 /// #     .block_on(async {
 /// // The counterparty this example talks to: the universe's seed, serving
-/// // the bootstrap and later accepting the retirement, over in-memory links.
+/// // the bootstrap and later accepting the retirement, over in-memory
+/// // connections. Each session takes the two halves of one connection.
 /// let counterparty = Peer::<String>::seed().into_rumors();
-/// let (mut near, mut far) = rumors::link::memory();
+/// let (near, far) = tokio::io::duplex(64 * 1024);
+/// let (near_read, near_write) = tokio::io::split(near);
 /// # let serve = counterparty.clone();
 /// # tokio::spawn(async move {
-/// #     serve.gossip_once(&mut far).await.unwrap();
+/// #     let (far_read, far_write) = tokio::io::split(far);
+/// #     serve.gossip_once(far_read, far_write).await.unwrap();
 /// # });
 /// // Join through an established peer. The new peer receives its full set.
-/// let Joined::Joined { peer } = Peer::<String>::bootstrap().join(&mut near).await else {
+/// let Joined::Joined { peer, .. } = Peer::<String>::bootstrap()
+///     .join(near_read, near_write)
+///     .await
+/// else {
 ///     panic!("the established counterparty must serve the bootstrap");
 /// };
 ///
@@ -86,16 +93,18 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 ///
 /// // Leave the network through any gossiping peer. It need not be the
 /// // one we joined through.
-/// let (mut near, mut far) = rumors::link::memory();
+/// let (near, far) = tokio::io::duplex(64 * 1024);
+/// let (near_read, near_write) = tokio::io::split(near);
 /// # tokio::spawn(async move {
-/// #     counterparty.gossip_once(&mut far).await.unwrap();
+/// #     let (far_read, far_write) = tokio::io::split(far);
+/// #     counterparty.gossip_once(far_read, far_write).await.unwrap();
 /// # });
-/// let retry = match peer.retire(&mut near).await {
+/// let retry = match peer.retire(near_read, near_write).await {
 ///     // Retirement completed; nothing more to do.
-///     Retire::Retired => None,
+///     Retire::Retired { .. } => None,
 ///     // Both sides were retiring; retry against a different peer.
-///     Retire::Declined { peer } => Some(peer),
-///     // Retirement did not proceed. Retry using a fresh link.
+///     Retire::Declined { peer, .. } => Some(peer),
+///     // Retirement did not proceed. Retry using a fresh connection.
 ///     Retire::Recovered { peer, error: _ } => Some(peer),
 ///     // The outcome is uncertain, and this peer cannot be used again.
 ///     Retire::Uncertain { error } => return Err(error),
@@ -451,7 +460,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
 impl<T: Send + Sync + 'static> Peer<T> {
     /// Configure a join to an existing gossip network.
     ///
-    /// Call [`Bootstrap::join`] with a link to an established member. The
+    /// Call [`Bootstrap::join`] with a connection to an established member. The
     /// returned peer retains the builder's settings. Failed sessions return
     /// the builder for retry. See [`Joined`] for the possible outcomes.
     pub fn bootstrap() -> Bootstrap<T> {
@@ -487,18 +496,21 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// The remote member runs ordinary [`gossip`](Rumors::gossip); it needs
     /// no special call to accept the retirement.
     ///
+    /// `read` and `write` are the two halves of one connection to the remote
+    /// member; see the [transport requirements](crate#transport). Pass
+    /// `&mut` halves to keep the connection after the session.
+    ///
     /// [`Retire`] reports whether this peer left, can retry, or was consumed
     /// with an uncertain outcome, including after [`session_deadline`](Self::session_deadline)
-    /// expires. See the [lifecycle example](Peer) and the
-    /// [session contract](crate::link::Link#what-a-session-promises).
-    pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
+    /// expires; the outcomes that completed the session return the halves.
+    /// See the [lifecycle example](Peer) and
+    /// [what a session promises](crate#what-a-session-promises).
+    pub async fn retire<R, W>(self, read: R, write: W) -> Retire<T, R, W, B>
     where
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
-        self.retire_inner(link).await
+        self.retire_inner(read, write).await
     }
 }
 
@@ -554,7 +566,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// after any active session.
     ///
     /// The factory is shared by all handles and may be called concurrently for
-    /// different links. Each returned stream belongs to one driver.
+    /// different connections. Each returned stream belongs to one driver.
     ///
     /// # Graceful shutdown
     ///
@@ -574,10 +586,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///     .gossip_when(move |changes| changes.take_until(stopped.clone()))
     ///     .into_rumors();
     ///
-    /// let (mut link, _remote) = rumors::link::memory();
+    /// let (connection, _remote) = tokio::io::duplex(64 * 1024);
+    /// let (read, write) = tokio::io::split(connection);
     /// let handle = rumors.clone();
     /// let drive = async move {
-    ///     let mut sessions = handle.gossip(&mut link);
+    ///     let mut sessions = handle.gossip(read, write);
     ///     while let Some(session) = sessions.next().await {
     ///         session?;
     ///     }
@@ -618,7 +631,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// are untimed, and traffic does not reset the deadline.
     ///
     /// Expiry reports [`Error::DeadlineExceeded`](crate::Error::DeadlineExceeded)
-    /// and poisons the link. A completed local commit is not undone.
+    /// and leaves the connection at an unknown position: discard it. A
+    /// completed local commit is not undone.
     /// [`Retire`] preserves a usable peer when recovery is safe; otherwise it
     /// reports an uncertain retirement. A gossip driver ends after the error.
     ///
@@ -681,7 +695,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// This is a sizing target, not a hard memory limit. Buffer sizes are
     /// estimated from the two sets; unusually clustered hashes can require
     /// more memory than estimated. Even a zero budget retains the minimum
-    /// buffers needed for progress over a conforming [`Link`]; their memory
+    /// buffers needed for progress over a conforming connection; their memory
     /// cost may exceed the target.
     ///
     /// Allow additional memory for the replica, observer backlogs such as
@@ -748,10 +762,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// # Memory
     ///
-    /// The target is the unit of wire-message buffering on both sides:
-    /// the encoder accumulates at most one run per stream before writing
-    /// it, and the receiver buffers one run's encoded bytes per message,
-    /// handing each decoded leaf to the storage backend as it is read
+    /// The target is the unit of wire-message buffering on both sides.
+    /// A session carries each tree level's replies separately, and buffers
+    /// at most three runs per level it sends at (one being built or handed
+    /// over, one queued, and one waiting for or undergoing its write) and at
+    /// most two per level it receives at (one queued and one being
+    /// decoded), plus one run per direction that the reader holds while a
+    /// level's queue is full. The receiver decodes each run's encoded bytes
+    /// as it goes, handing each leaf to the storage backend as it is read
     /// (the constructed leaves it holds in flight are charged against
     /// [`sync_memory_budget`](Self::sync_memory_budget), not this
     /// setting). Each session therefore runs at

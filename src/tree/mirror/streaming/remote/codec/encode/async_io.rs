@@ -2,7 +2,7 @@
 
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-use crate::observe::StreamObserver;
+use crate::observe::DataObservers;
 
 use super::super::{
     error::{EncodeError, EncodeErrorKind, FramePart},
@@ -11,19 +11,20 @@ use super::super::{
 };
 use super::{BodyEncoding, FrameEncoding};
 
-/// Async frame writer over one speaker's transport direction.
+/// Async frame writer over one speaker's direction of the pipe.
 ///
 /// A frame is validated before its signal is written. Its pieces then go
 /// directly to the transport and are flushed before [`frame`](Self::frame)
-/// returns, so the caller can safely publish the corresponding internal work.
+/// returns, so a frame is always whole on the wire before the next begins.
 pub struct FrameWrite<W> {
     /// The local protocol role attributed to encoding failures.
     speaker: Speaker,
     /// The transport direction that receives encoded frames.
     write: W,
-    /// The directed stream's observer, if any: handed each flushed
-    /// frame's contiguous bytes, and costing one branch when absent.
-    observe: Option<Box<dyn StreamObserver>>,
+    /// The direction's per-logical-stream observers, if any: each flushed
+    /// frame's contiguous bytes go to its stream's observer, at the cost of
+    /// one branch when absent.
+    observe: Option<DataObservers>,
 }
 
 /// Constructs frame writers and recovers their transport.
@@ -37,8 +38,9 @@ impl<W> FrameWrite<W> {
         }
     }
 
-    /// Deliver every flushed frame to `observe`, when one is attached.
-    pub fn observed(mut self, observe: Option<Box<dyn StreamObserver>>) -> Self {
+    /// Deliver every flushed frame to its logical stream's observer in
+    /// `observe`, when the session is observed.
+    pub fn observed(mut self, observe: Option<DataObservers>) -> Self {
         self.observe = observe;
         self
     }
@@ -46,6 +48,7 @@ impl<W> FrameWrite<W> {
     /// Recover the transport writer without buffered frame state. Every
     /// frame is flushed as it is written, so between frames the writer
     /// rests exactly at a frame boundary.
+    #[cfg(test)]
     pub fn into_inner(self) -> W {
         self.write
     }
@@ -72,7 +75,7 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
             // pieces are the bytes just written, so the materialized
             // buffer equals the wire by construction.
             if let Some(observe) = &mut self.observe {
-                observe.message(&encoding.to_vec());
+                observe.message(stream.index(), &encoding.to_vec());
             }
             Ok(())
         }

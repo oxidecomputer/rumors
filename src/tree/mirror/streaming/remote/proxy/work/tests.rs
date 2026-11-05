@@ -1,29 +1,32 @@
 //! Error selection and shutdown behavior for the proxy work executor.
 
-use std::{future, io::ErrorKind, pin::pin};
+use std::{
+    future,
+    io::ErrorKind,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-use futures::StreamExt;
 use proptest::prelude::*;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::sync::oneshot;
 
 use super::{Ingress, Parked, Physical, Work, progress::Progress};
-use crate::link::{Connector, Done, MemoryAcceptor, MemoryLink, memory};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
-use crate::observe::SessionHandle;
-use crate::testing::run_to_quiescence;
+use crate::testing::{MemoryEnd, memory_connection, run_to_quiescence};
+use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::Window;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
     erased::Reply,
     remote::{
         adapter::{DecodeError, EncodeError, Scope},
-        codec::{self, DecodeErrorKind, End, Frame, Origin, RunBudget, Speaker, Stream},
-        proxy::Error,
-        streams::{
-            AcceptDriver, AcceptError, Claims, ErrorRoute, SendError, StreamError, StreamReceiver,
-            claims, error_route,
+        codec::{
+            self, DecodeErrorKind, EncodeErrorKind, End, Flow, Frame, FramePart, Origin, Reaction,
+            RunBudget, Speaker, Stream,
         },
+        pipe::{Demultiplexer, Multiplexer, PipeError},
+        proxy::Error,
     },
     stats::Recorder,
 };
@@ -32,32 +35,31 @@ use crate::tree::typed::height::Z;
 /// Pending tasks placed before the injected failure to exercise aggregation.
 const PARKED_PUMPS: usize = 3;
 
-/// A memory-link executor with its claims, error route, and peer held alive.
+/// The remote speaker of every session here: the local side initiates.
+const REMOTE: Speaker = Speaker::Responder;
+
+/// The completion marker that closes a session: a CBOR text item.
+const MARKER: [u8; 2] = crate::testing::COMPLETION_MARKER;
+
+/// An executor over a fresh in-memory pipe, with the peer's end held open.
 struct ParkedSession {
     /// The executor under test, with a backend whose errors retain identity.
-    work: Work<Failing<Local>, DuplexStream, DuplexStream, MemoryAcceptor>,
-    /// The claim table the protocol owns in production. Keeping it alive
-    /// ensures no stream-layer closure can accidentally win the error race.
-    claims: Claims<DuplexStream>,
-    /// A publishing half of the error route, for tests that report to it.
-    route: ErrorRoute,
-    /// The peer link; dropping it would close the stream supply.
-    peer: MemoryLink,
+    work: Work<Failing<Local>, DuplexStream, DuplexStream>,
+    /// The peer's end; dropping its write half ends the pipe toward us.
+    peer: MemoryEnd,
 }
 
-/// Wire a fresh in-memory link into a [`ParkedSession`].
+/// Wire a fresh in-memory connection into a [`ParkedSession`].
 fn parked_session() -> ParkedSession {
-    let (link, peer) = memory();
-    let (slots, claims) = claims();
-    let (route, errors) = error_route();
-    let accept = AcceptDriver::new(
-        link.acceptor,
-        link.session.epoch(),
-        Speaker::Responder,
-        slots,
-        route.clone(),
-    );
-    let work = Work::new(
+    let (end, peer) = memory_connection(crate::testing::MEMORY_CAPACITY);
+    let work = session_over(end.read, end.write);
+    ParkedSession { work, peer }
+}
+
+/// An executor over the pipe halves `read` and `write`, with a backend
+/// whose errors retain identity.
+fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
+    Work::new(
         Ingress::new(
             Failing::after(Local, usize::MAX),
             u64::MAX,
@@ -68,35 +70,51 @@ fn parked_session() -> ParkedSession {
         RunBudget::default(),
         Vec::new(),
         Physical {
-            control_read: link.control_read,
-            control_write: link.control_write,
-            remote: Speaker::Responder,
-            accept,
-            errors,
+            read,
+            write,
+            remote: REMOTE,
+            multiplexer: Multiplexer::default(),
+            demultiplexer: Demultiplexer::default(),
         },
         Recorder::default(),
-    );
-    ParkedSession {
-        work,
-        claims,
-        route,
-        peer,
+        crate::observe::SessionHandle::default(),
+    )
+}
+
+/// A read half that fails once with its error kind, then reports end of
+/// stream: a transport whose failure is not sticky.
+struct FailsOnce(Option<ErrorKind>);
+
+/// Report the error on the first read and end of stream on every later one.
+impl AsyncRead for FailsOnce {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Poll::Ready(match self.get_mut().0.take() {
+            Some(kind) => Err(kind.into()),
+            None => Ok(()),
+        })
     }
 }
 
-/// Build a receiver whose missing claim reports a closed supply, then parks.
-fn failed_claim(route: ErrorRoute, stream: Stream) -> StreamReceiver {
-    let (claim_send, claim_receive) = oneshot::channel::<(DuplexStream, Done<DuplexStream>)>();
-    drop(claim_send);
-    StreamReceiver::new(
-        claim_receive,
-        Speaker::Initiator,
-        stream,
-        RunBudget::default(),
-        route,
-        Recorder::default(),
-        SessionHandle::default(),
-    )
+/// A write failure of the local multiplexer.
+fn failed_write<E>() -> Error<E> {
+    Error::Pipe(PipeError::Encode(codec::EncodeError {
+        origin: Origin::direction(REMOTE.other()),
+        kind: EncodeErrorKind::Write {
+            part: FramePart::FrameHead,
+            source: ErrorKind::BrokenPipe.into(),
+        },
+    }))
+}
+
+/// Encode `frame` on `stream` as the remote speaker writes it.
+fn remote_frame(stream: Stream, frame: Frame) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    codec::encode(REMOTE, &(stream, frame), &mut bytes).expect("test frames encode");
+    bytes
 }
 
 /// A pump failure cancels parked work and retains its backend error.
@@ -104,8 +122,6 @@ fn failed_claim(route: ErrorRoute, stream: Stream) -> StreamReceiver {
 fn pump_failure_preempts_parked_pumps() {
     let ParkedSession {
         mut work,
-        claims: _claims,
-        route: _route,
         peer: _peer,
     } = parked_session();
 
@@ -133,181 +149,58 @@ fn pump_failure_preempts_parked_pumps() {
     ));
 }
 
-/// A ready supply failure explains a write failure selected before the acceptor is polled.
+/// The peer's departure between frames ends a session whose protocol work is
+/// all parked: the pipe's end of stream is the departure.
 #[test]
-fn deposited_supply_failure_outranks_a_racing_consequence() {
-    let ParkedSession {
-        mut work,
-        claims: _claims,
-        route: _route,
-        peer,
-    } = parked_session();
-
-    // The final accept poll must discover the closure beside the write error.
+fn departure_ends_a_parked_protocol() {
+    let ParkedSession { work, peer } = parked_session();
     drop(peer);
-
-    // Select a write failure before polling the closed supply.
-    work.spawn(async {
-        Err(Error::Send(SendError::Connect {
-            origin: Origin::stream(Speaker::Responder, Stream::new(0).expect("stream 0 exists")),
-            source: ErrorKind::BrokenPipe.into(),
-        }))
-    });
-
     let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
-        .expect("the racing consequence must resolve the session, not hang it")
+        .expect("departure must resolve the session, not leave it parked")
         .expect_err("the session must fail");
-
-    match error {
-        Error::Stream(StreamError::SupplyClosed {
-            origin,
-            source: Some(cause),
-        }) => {
-            // No stream provably needed the supply (every claim is still
-            // alive), so the cause is attributed at direction granularity.
-            assert_eq!(origin, Origin::direction(Speaker::Responder));
-            // The deposited cause is the acceptor's own transport error.
-            assert_eq!(cause.kind(), ErrorKind::UnexpectedEof);
-        }
-        other => panic!("the consequence outranked the deposited cause: {other:?}"),
-    }
-}
-
-/// A backend failure keeps its identity when the peer has also closed its stream supply.
-#[test]
-fn an_independent_backend_error_survives_a_deposited_supply_failure() {
-    let ParkedSession {
-        mut work,
-        claims: _claims,
-        route: _route,
-        peer,
-    } = parked_session();
-
-    drop(peer);
-
-    work.spawn(async {
-        Err(Error::Encode(EncodeError::Backend(Failure::Injected(
-            Operation::Children { height: 1 },
-        ))))
-    });
-
-    let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
-        .expect("the racing backend failure must resolve the session")
-        .expect_err("the session must fail");
-
     assert!(
-        matches!(
-            error,
-            Error::Encode(EncodeError::Backend(Failure::Injected(
-                Operation::Children { height: 1 },
-            )))
-        ),
-        "the backend error must surface as itself, got: {error:?}",
+        matches!(&error, Error::Pipe(PipeError::Departed(source)) if source.kind() == ErrorKind::UnexpectedEof),
+        "{error:?}"
     );
 }
 
-/// A queued supply-closed report preserves the affected stream when a write fails concurrently.
+/// A violation the demultiplexer has ready explains a write failure the
+/// protocol selected first: the peer that broke the protocol may also have
+/// closed the connection.
 #[test]
-fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() {
-    let ParkedSession {
-        mut work,
-        claims: _claims,
-        route,
-        peer,
-    } = parked_session();
-
-    // The final accept poll observes this closure.
-    drop(peer);
-
-    // Poll this receiver before the failing send so its report is queued
-    // when the protocol arm resolves.
-    let mut receiver = failed_claim(route, Stream::new(3).expect("stream index 3 exists"));
-    work.spawn(async move {
-        receiver.next().await;
-        unreachable!("a reporter parks forever after publishing");
-    });
-
-    // The consequence, resolving the protocol arm in the same wave.
-    work.spawn(async {
-        Err(Error::Send(SendError::Connect {
-            origin: Origin::stream(Speaker::Responder, Stream::new(0).expect("stream 0 exists")),
-            source: ErrorKind::BrokenPipe.into(),
-        }))
-    });
-
-    let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
-        .expect("the racing consequence must resolve the session, not hang it")
-        .expect_err("the session must fail");
-
-    match error {
-        Error::Stream(StreamError::SupplyClosed {
-            origin,
-            source: Some(cause),
-        }) => {
-            // The queued report names the stream that provably needed the
-            // supply: finer than the deposit's direction granularity.
-            assert_eq!(
-                origin,
-                Origin::stream(Speaker::Initiator, Stream::new(3).expect("stream 3 exists")),
-                "the queued report's stream-granularity origin must win",
-            );
-            assert_eq!(cause.kind(), ErrorKind::UnexpectedEof);
-        }
-        other => panic!("the queued SupplyClosed was not recovered: {other:?}"),
-    }
-}
-
-/// An incoming-stream report ends a session even when all protocol work is parked.
-#[test]
-fn published_stream_error_preempts_a_parked_protocol() {
-    let ParkedSession {
-        mut work,
-        claims: _claims,
-        route,
-        peer: _peer,
-    } = parked_session();
-
-    // The failed claim reports to the route, then parks its receiver.
-    let mut receiver = failed_claim(route, Stream::new(0).expect("stream index 0 exists"));
-    work.spawn(async move {
-        receiver.next().await;
-        unreachable!("a reporter parks forever after publishing");
-    });
-
-    let error = run_to_quiescence(work.execute(future::pending::<Result<(), _>>()))
-        .expect("a published stream error must resolve the parked session, not hang it")
-        .expect_err("the published stream error must surface");
-
-    assert!(matches!(
-        error,
-        Error::Stream(StreamError::SupplyClosed { source: None, .. })
-    ));
-}
-
-/// A write failure used to race incoming errors through the protocol arm.
-fn failed_send<E>() -> Error<E> {
-    Error::Send(SendError::Connect {
-        origin: Origin::direction(Speaker::Responder),
-        source: ErrorKind::BrokenPipe.into(),
+fn a_ready_violation_explains_a_write_failure() {
+    let ParkedSession { work, mut peer } = parked_session();
+    // A frame whose state names no signal.
+    let mut malformed = Vec::new();
+    cbor::write_head(&mut malformed, cbor::MAJOR_ARRAY, 2);
+    cbor::write_head(&mut malformed, cbor::MAJOR_UINT, 1);
+    cbor::write_head(&mut malformed, cbor::MAJOR_UINT, u64::from(u8::MAX));
+    let error = run_to_quiescence(async {
+        peer.write.write_all(&malformed).await.unwrap();
+        work.execute(async { Err::<(), _>(failed_write()) }).await
     })
+    .expect("the session resolves")
+    .expect_err("the session must fail");
+    assert!(
+        matches!(&error, Error::Pipe(PipeError::Decode(decoded)) if matches!(decoded.kind, DecodeErrorKind::InvalidSignal(_))),
+        "the write failure outranked the violation: {error:?}"
+    );
 }
 
-/// Decode supplied bytes through a real incoming stream's error-reporting path.
-async fn receiver(bytes: &[u8], stream: Stream, route: ErrorRoute) -> StreamReceiver {
-    let (mut tx, rx) = tokio::io::duplex(bytes.len().max(1));
-    tx.write_all(bytes).await.unwrap();
-    drop(tx);
-    let (send, receive) = oneshot::channel();
-    send.send((rx, Done::discard())).unwrap();
-    StreamReceiver::new(
-        receive,
-        Speaker::Responder,
-        stream,
-        RunBudget::default(),
-        route,
-        Recorder::default(),
-        SessionHandle::default(),
-    )
+/// A write failure stands when the demultiplexer has only the peer's
+/// departure ready: both are transport failures, and the protocol's came
+/// first.
+#[test]
+fn a_write_failure_stands_beside_departure() {
+    let ParkedSession { work, peer } = parked_session();
+    drop(peer);
+    let error = run_to_quiescence(work.execute(async { Err::<(), _>(failed_write()) }))
+        .expect("the session resolves")
+        .expect_err("the session must fail");
+    assert!(
+        matches!(error, Error::Pipe(PipeError::Encode(_))),
+        "{error:?}"
+    );
 }
 
 proptest! {
@@ -321,7 +214,7 @@ proptest! {
         declared in 0u64..1024,
         excess in 1usize..1024,
     ) {
-        let ParkedSession { mut work, claims: _claims, route: _route, peer: _peer } = parked_session();
+        let ParkedSession { mut work, peer: _peer } = parked_session();
         let actual = declared as usize + excess;
         // A closed consumer may stop a pump before later items are read.
         let buffered = buffered && !dropped;
@@ -335,7 +228,7 @@ proptest! {
         let _responses = (!dropped).then_some(responses);
         let finish = async move {
             if terminal_ready {
-                Err(failed_send())
+                Err(failed_write())
             } else {
                 future::pending::<Result<(), _>>().await
             }
@@ -347,367 +240,113 @@ proptest! {
             "response error was lost: {:?}", result);
     }
 
-    /// Frame violations retain their kind and origin whether selected directly
-    /// or queued beside a write failure, before or after supply or control EOF.
+    /// The peer's closing items, arriving before or after the protocol
+    /// completes and split at any byte, return unread with the read half:
+    /// the closing exchange reads every byte, in order.
     #[test]
-    fn incoming_violation_survives_supply_failure(
-        index in 0u8..Stream::COUNT,
-        offset in 1u8..Stream::COUNT,
-        invalid_array_len in 3u8..24,
-        mislabel in any::<bool>(),
-        queued in any::<bool>(),
-        supply_first in any::<bool>(),
-        control_only in any::<bool>(),
+    fn completed_work_returns_the_closing_items_unread(
+        trailing in proptest::collection::vec(any::<u8>(), 0..64),
+        cut in any::<prop::sample::Index>(),
+        arrives_first in any::<bool>(),
     ) {
-        let ParkedSession { mut work, claims: _claims, route, peer } = parked_session();
-        let stream = Stream::new(index).unwrap();
-        let framed = Stream::new((index + offset) % Stream::COUNT).unwrap();
-        let mut bytes = Vec::new();
-        if mislabel {
-            codec::encode(Speaker::Responder, &(framed, Frame::End(End::Reply)), &mut bytes).unwrap();
-        } else {
-            codec::encode(Speaker::Responder, &(stream, Frame::End(End::Reply)), &mut bytes).unwrap();
-            bytes[0] = 0x80 | invalid_array_len;
-        }
-        let error = run_to_quiescence(async {
-            let mut frames = receiver(&bytes, stream, route).await;
-            let (start, ready) = oneshot::channel();
-            work.spawn(async move {
-                ready.await.unwrap();
-                if queued {
-                    // Decoding reports to the route and parks. Resolve this
-                    // task in the same poll to select the write error first.
-                    assert!(futures::poll!(frames.next()).is_pending());
-                    Err(failed_send())
-                } else {
-                    frames.next().await;
-                    unreachable!("a malformed stream reports and parks");
-                }
-            });
-            let _supply = if control_only {
-                drop(peer.control_write);
-                Some(peer.connector)
-            } else {
-                drop(peer);
-                None
-            };
-            let mut execute = pin!(work.execute(future::pending::<Result<(), _>>()));
-            if supply_first {
-                assert!(futures::poll!(execute.as_mut()).is_pending());
-            }
-            start.send(()).unwrap();
-            execute.await
-        }).unwrap().unwrap_err();
-        if mislabel {
-            prop_assert!(matches!(error, Error::Stream(StreamError::Mislabeled {
-                origin, labeled, framed: actual,
-            }) if origin == Origin::stream(Speaker::Responder, stream)
-                && labeled == stream && actual == framed), "{error:?}");
-        } else if invalid_array_len == 3 {
-            prop_assert!(matches!(error, Error::Stream(StreamError::Decode(codec::DecodeError {
-                origin, kind: DecodeErrorKind::FrameArity { expected: 2, found: 3 },
-            })) if origin == Origin::stream(Speaker::Responder, stream)), "{error:?}");
-        } else {
-            prop_assert!(matches!(error, Error::Stream(StreamError::Decode(codec::DecodeError {
-                origin, kind: DecodeErrorKind::FrameLength { .. },
-            })) if origin == Origin::direction(Speaker::Responder)), "{error:?}");
-        }
-    }
-
-    /// A declaration violation from a response pump survives supply or control
-    /// EOF, including closures already observed on an earlier poll.
-    #[test]
-    fn declaration_violation_survives_supply_failure(
-        declared in 0u64..1024,
-        excess in 1usize..1024,
-        supply_first in any::<bool>(),
-        control_only in any::<bool>(),
-    ) {
-        let ParkedSession { mut work, claims: _claims, route: _route, peer } = parked_session();
-        let actual = declared as usize + excess;
-        let error = run_to_quiescence(async {
-            let (send, receive) = oneshot::channel();
-            let _supply = if control_only {
-                drop(peer.control_write);
-                Some(peer.connector)
-            } else {
-                drop(peer);
-                None
-            };
-            let _responses = work.park_and_take::<Z>(
-                futures::stream::once(async { receive.await.unwrap() }),
-                None,
-                Progress::new(),
-            );
-            let mut execute = pin!(work.execute(future::pending::<Result<(), _>>()));
-            if supply_first {
-                assert!(futures::poll!(execute.as_mut()).is_pending());
-            }
-            assert!(send.send(Err::<Parked<_>, _>(Error::Decode(
-                DecodeError::OversizedVersion { declared, actual },
-            )))
-                .is_ok());
-            execute.await
-        }).unwrap().unwrap_err();
-        prop_assert!(matches!(error, Error::Decode(DecodeError::OversizedVersion {
-            declared: found_declared, actual: found_actual,
-        }) if found_declared == declared && found_actual == actual), "{error:?}");
-    }
-
-    /// A truncated frame still reports the failed supply as its cause, with
-    /// no codec-violation exception hiding the transport failure.
-    #[test]
-    fn truncated_frame_uses_the_supply_cause(index in 0u8..Stream::COUNT, cut in 0usize..3) {
-        let ParkedSession { mut work, claims: _claims, route, peer } = parked_session();
-        let stream = Stream::new(index).unwrap();
-        let mut bytes = Vec::new();
-        codec::encode(Speaker::Responder, &(stream, Frame::End(End::Reply)), &mut bytes).unwrap();
-        let error = run_to_quiescence(async {
-            let mut frames = receiver(&bytes[..cut], stream, route).await;
-            work.spawn(async move {
-                frames.next().await;
-                unreachable!("a truncated stream reports and parks");
-            });
-            drop(peer);
-            work.execute(future::pending::<Result<(), _>>()).await
-        }).unwrap().unwrap_err();
-        prop_assert!(matches!(error, Error::Stream(StreamError::SupplyClosed {
-            origin, source: Some(ref source),
-        }) if origin == Origin::direction(Speaker::Responder)
-            && source.kind() == ErrorKind::UnexpectedEof), "{error:?}");
-    }
-
-    /// Invalid stream labels surface through both normal acceptance and the
-    /// final accept poll after a transport error; the driver is never repolled
-    /// after it returns the violation.
-    #[test]
-    fn label_violation_reaches_the_executor(
-        wrong_epoch in 1u8..24,
-        write_fails in any::<bool>(),
-    ) {
-        let ParkedSession { work, claims: _claims, route: _route, peer } = parked_session();
-        let error = run_to_quiescence(async {
-            let (mut tx, _) = peer.connector.connect().await.unwrap();
-            tx.write_all(&[wrong_epoch, 0]).await.unwrap();
-            let finish = async {
-                if write_fails { Err(failed_send()) }
-                else { future::pending::<Result<(), _>>().await }
-            };
-            work.execute(finish).await
-        }).unwrap().unwrap_err();
-        prop_assert!(matches!(error, Error::Accept(AcceptError::Epoch {
-            origin, expected: 0, actual,
-        }) if origin == Origin::direction(Speaker::Responder) && actual == u64::from(wrong_epoch)),
-            "{error:?}");
-    }
-}
-
-/// Successful protocol completion wins over a ready accept-side violation.
-#[test]
-fn completed_protocol_does_not_poll_the_acceptor() {
-    let ParkedSession {
-        work,
-        claims: _claims,
-        route: _route,
-        peer,
-    } = parked_session();
-    run_to_quiescence(async {
-        let (mut tx, _) = peer.connector.connect().await.unwrap();
-        tx.write_all(&[1, 0]).await.unwrap();
-        let _ = work.execute(async { Ok(()) }).await.unwrap();
-    })
-    .unwrap();
-}
-
-/// A delivery rejected during protocol teardown cannot replace the failure
-/// that caused teardown; the same rejection from live work is a violation.
-#[test]
-fn unasked_stream_is_attributed_before_or_after_protocol_teardown() {
-    for protocol_fails in [false, true] {
-        let ParkedSession {
-            mut work,
-            claims,
-            route,
-            peer,
-        } = parked_session();
-        let error = run_to_quiescence(async {
-            let (mut tx, _) = peer.connector.connect().await.unwrap();
-            tx.write_all(&[0, 0]).await.unwrap();
-            let mut frames = receiver(&[], Stream::new(0).unwrap(), route).await;
-            work.spawn(async move {
-                drop(claims);
-                if protocol_fails {
-                    Err(failed_send())
-                } else {
-                    frames.next().await;
-                    unreachable!("a truncated stream reports and parks");
-                }
-            });
-            work.execute(future::pending::<Result<(), _>>()).await
-        })
-        .unwrap()
-        .unwrap_err();
-        if protocol_fails {
-            assert!(
-                matches!(error, Error::Send(SendError::Connect { .. })),
-                "{error:?}"
-            );
-        } else {
-            assert!(
-                matches!(error, Error::Accept(AcceptError::Unexpected { .. })),
-                "{error:?}"
-            );
-        }
-    }
-}
-
-proptest! {
-    /// Control EOF interrupts an accepted stream's incomplete label, even
-    /// while its writer and the incoming stream supply remain alive.
-    #[test]
-    fn control_departure_interrupts_a_partial_label(
-        index in 0u8..Stream::COUNT,
-        label_bytes in 0usize..2,
-    ) {
-        let ParkedSession { work, mut claims, route, peer } = parked_session();
-        let stream = Stream::new(index).unwrap();
-        let mut incoming = StreamReceiver::new(
-            claims.take(stream), Speaker::Responder, stream, RunBudget::default(),
-            route, Recorder::default(), SessionHandle::default(),
-        );
-        let error = run_to_quiescence(async {
-            let (mut tx, _done) = peer.connector.connect().await.unwrap();
-            tx.write_all(&[0, index][..label_bytes]).await.unwrap();
-            let mut execute = pin!(work.execute(async {
-                let _ = incoming.next().await;
-                Ok::<(), _>(())
-            }));
-            assert!(futures::poll!(&mut execute).is_pending());
-            drop(peer.control_write);
-            execute.await.unwrap_err()
-        }).expect("control EOF must interrupt a partial label");
-        prop_assert!(matches!(error, Error::PeerDeparted(ref source)
-            if source.kind() == ErrorKind::UnexpectedEof), "{error:?}");
-    }
-
-    /// After the watch stops, saved bytes precede later transport input,
-    /// regardless of the split or the application's read buffer size.
-    #[test]
-    fn control_lookahead_hands_off_to_live_input(
-        bytes in prop::collection::vec(any::<u8>(), 0..256),
-        split_at in any::<usize>(),
-        read_size in 1usize..65,
-    ) {
-        let ParkedSession { work, claims: _claims, route: _route, mut peer } = parked_session();
-        let cut = split_at % (bytes.len() + 1);
+        let ParkedSession { work, mut peer } = parked_session();
+        let mut closing = MARKER.to_vec();
+        closing.extend_from_slice(&trailing);
+        let cut = cut.index(closing.len() + 1);
         let actual = run_to_quiescence(async {
-            peer.control_write.write_all(&bytes[..cut]).await.unwrap();
-            let (finish, finished) = oneshot::channel();
-            let mut execute = pin!(work.execute(async { finished.await.unwrap(); Ok(()) }));
-            assert!(futures::poll!(&mut execute).is_pending());
-            finish.send(()).unwrap();
-            let ((), mut read, _) = execute.await.unwrap();
-            assert_eq!(read.get_ref().0.get_ref(), &bytes[..cut]);
-            peer.control_write.write_all(&bytes[cut..]).await.unwrap();
-            // Keep the transport open: exact-length reads must not need EOF.
-            let mut actual = vec![0; bytes.len()];
-            for chunk in actual.chunks_mut(read_size) {
-                read.read_exact(chunk).await.unwrap();
-            }
-            actual
-        }).expect("saved input must hand off to the live transport");
-        prop_assert_eq!(actual, bytes);
-    }
-
-    /// Control EOF closes missing claims without discarding unread replies
-    /// on streams already delivered to the protocol.
-    #[test]
-    fn control_departure_preserves_delivered_replies(
-        index in 0u8..Stream::COUNT,
-        replies in 1usize..8,
-    ) {
-        let ParkedSession { work, mut claims, route: _route, peer } = parked_session();
-        let stream = Stream::new(index).unwrap();
-        let delivered = claims.take(stream);
-        let mut missing = claims.take(Stream::new((index + 1) % Stream::COUNT).unwrap());
-        let mut bytes = Vec::new();
-        for _ in 0..replies {
-            codec::encode(Speaker::Responder, &(stream, Frame::Reaction(
-                codec::Reaction::Match, codec::Flow::End,
-            )), &mut bytes).unwrap();
-        }
-        let actual = run_to_quiescence(async {
-            let (mut tx, _done) = peer.connector.connect().await.unwrap();
-            tx.write_all(&[0, index]).await.unwrap();
-            tx.write_all(&bytes).await.unwrap();
-            let (ready, resume) = oneshot::channel();
-            let mut execute = pin!(work.execute(async {
-                let (mut rx, _done) = delivered.await.unwrap();
-                resume.await.unwrap();
-                let mut actual = vec![0; bytes.len()];
-                rx.read_exact(&mut actual).await.unwrap();
-                Ok(actual)
-            }));
-            assert!(futures::poll!(&mut execute).is_pending());
-            assert!(matches!(missing.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
-            drop(peer.control_write);
-            assert!(futures::poll!(&mut execute).is_pending());
-            assert!(matches!(missing.try_recv(), Err(oneshot::error::TryRecvError::Closed)));
-            ready.send(()).unwrap();
-            execute.await.unwrap().0
-        }).expect("delivered replies must remain readable after control EOF");
-        prop_assert_eq!(actual, bytes);
-    }
-
-    /// Control EOF releases every possible undelivered stream claim, even
-    /// when later control bytes arrived before the peer disappeared.
-    #[test]
-    fn control_departure_ends_an_owed_stream_wait(
-        index in 0u8..Stream::COUNT,
-        ahead in prop::collection::vec(any::<u8>(), 0..128),
-    ) {
-        let ParkedSession { work, mut claims, route, mut peer } = parked_session();
-        let _supply = peer.connector;
-        let stream = Stream::new(index).unwrap();
-        let mut incoming = StreamReceiver::new(
-            claims.take(stream), Speaker::Responder, stream, RunBudget::default(),
-            route, Recorder::default(), SessionHandle::default(),
-        );
-        let result = run_to_quiescence(async {
-            peer.control_write.write_all(&ahead).await.unwrap();
-            drop(peer.control_write);
-            work.execute(async {
-                let _ = incoming.next().await;
-                Ok(())
-            }).await
-        }).expect("control EOF must release a missing stream");
-        let error = result.unwrap_err();
-        prop_assert!(matches!(error, Error::PeerDeparted(ref source)
-            if source.kind() == ErrorKind::UnexpectedEof), "{error:?}");
-    }
-
-    /// A locally complete protocol succeeds after departure and replays every
-    /// control byte already read, in order, for the lifecycle's trailing readers.
-    #[test]
-    fn completed_work_retains_control_lookahead(
-        ahead in prop::collection::vec(any::<u8>(), 0..128),
-    ) {
-        let ParkedSession { work, claims: _claims, route: _route, mut peer } = parked_session();
-        let _supply = peer.connector;
-        let actual = run_to_quiescence(async {
-            peer.control_write.write_all(&ahead).await.unwrap();
-            drop(peer.control_write);
             let (finish, finished) = oneshot::channel();
             let mut execute = Box::pin(work.execute(async { finished.await.unwrap(); Ok(()) }));
+            if arrives_first {
+                peer.write.write_all(&closing[..cut]).await.unwrap();
+            }
             assert!(futures::poll!(&mut execute).is_pending());
             finish.send(()).unwrap();
             let ((), mut read, _) = execute.await.unwrap();
+            let rest = if arrives_first { &closing[cut..] } else { &closing[..] };
+            peer.write.write_all(rest).await.unwrap();
+            drop(peer);
             let mut actual = Vec::new();
             read.read_to_end(&mut actual).await.unwrap();
             actual
-        }).expect("departure cannot prevent already-complete local work");
-        prop_assert_eq!(actual, ahead);
+        }).expect("completed work hands the closing items on");
+        prop_assert_eq!(actual, closing);
     }
+}
+
+/// A completed protocol succeeds although the peer has since departed: the
+/// closing exchange, which reads next, reports the departure in its own
+/// phase.
+#[test]
+fn completed_work_defers_departure_to_the_closing_exchange() {
+    let ParkedSession { work, peer } = parked_session();
+    drop(peer);
+    let result =
+        run_to_quiescence(work.execute(async { Ok(()) })).expect("completed work resolves");
+    assert!(result.is_ok(), "{:?}", result.err());
+}
+
+/// A read error the demultiplexer meets after the protocol completes
+/// reaches the closing exchange as itself.
+///
+/// The returned read half reports it on its next read, although the
+/// transport would report only end of stream if read again.
+#[test]
+fn completed_work_keeps_a_read_error_for_the_closing_exchange() {
+    let work = session_over(
+        FailsOnce(Some(ErrorKind::ConnectionReset)),
+        tokio::io::sink(),
+    );
+    let error = run_to_quiescence(async {
+        let ((), mut read, _) = work
+            .execute(async { Ok(()) })
+            .await
+            .expect("completed work succeeds");
+        read.read(&mut [0; 1])
+            .await
+            .expect_err("the next read reports the kept error")
+    })
+    .expect("completed work resolves");
+    assert_eq!(error.kind(), ErrorKind::ConnectionReset);
+}
+
+/// A whole frame waiting on the pipe when the protocol completes answers no
+/// question, and fails the session.
+#[test]
+fn a_frame_after_completion_is_unasked() {
+    let ParkedSession { work, mut peer } = parked_session();
+    let frame = remote_frame(
+        Stream::new(1).unwrap(),
+        Frame::Reaction(Reaction::Match, Flow::End),
+    );
+    let error = run_to_quiescence(async {
+        peer.write.write_all(&frame).await.unwrap();
+        work.execute(async { Ok(()) }).await
+    })
+    .expect("the session resolves")
+    .expect_err("an unasked frame must fail the session");
+    assert!(
+        matches!(error, Error::Pipe(PipeError::Unasked { .. })),
+        "{error:?}"
+    );
+}
+
+/// A frame the demultiplexer has begun but cannot finish when the protocol
+/// completes answers no question either, and fails the session instead of
+/// leaving the read half mid-frame.
+#[test]
+fn a_partial_frame_after_completion_is_unasked() {
+    let ParkedSession { work, mut peer } = parked_session();
+    let frame = remote_frame(Stream::new(1).unwrap(), Frame::End(End::Reply));
+    let error = run_to_quiescence(async {
+        peer.write.write_all(&frame[..1]).await.unwrap();
+        work.execute(async { Ok(()) }).await
+    })
+    .expect("the session resolves")
+    .expect_err("a begun frame must fail the session");
+    assert!(
+        matches!(error, Error::Pipe(PipeError::Unasked { origin }) if origin == Origin::direction(REMOTE)),
+        "{error:?}"
+    );
 }
 
 /// Parking accepts exactly its capacity of replies without waiting, and

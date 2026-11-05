@@ -6,15 +6,14 @@
 //! long-lived connection, and finally redact the message and watch it
 //! vanish from both replicas. Along the way we will meet
 //! [`Peer`](crate::Peer), [`Rumors`](crate::Rumors),
-//! [`Snapshot`](crate::Snapshot), the in-memory
-//! [`Link`](crate::Link), and the
+//! [`Snapshot`](crate::Snapshot), in-memory connections, and the
 //! [`gossip`](crate::Rumors::gossip) driver.
 //!
-//! Everything runs over the in-memory link, so there is no network to
-//! configure. Binding a real transport is the [`link`](crate::link)
-//! module's topic; how a session works under the hood is the
-//! [`reconciliation`](crate::reconciliation) page's. Neither is needed
-//! here.
+//! Everything runs over in-memory connections, so there is no network to
+//! configure. Binding a real transport is the crate docs'
+//! [transport](crate#transport) section's topic; how a session works under
+//! the hood is the [`reconciliation`](crate::reconciliation) page's.
+//! Neither is needed here.
 //!
 //! Every step below is a complete program: paste it over your `main.rs`,
 //! run it, and compare against the output shown.
@@ -27,7 +26,7 @@
 //! ```toml
 //! [dependencies]
 //! rumors = "0.1"
-//! tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+//! tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread"] }
 //! futures = "0.3"
 //! ```
 //!
@@ -119,10 +118,11 @@
 //! forever unable to gossip with this one. Instead it
 //! [`bootstrap`](crate::Peer::bootstrap)s through any established member:
 //! one session against Alice joins her network and gives Bob a full replica.
-//! Sessions run over a [`Link`](crate::Link);
-//! [`link::memory`](crate::link::memory) makes the in-process pair, and
-//! each link end is a conduit to exactly one counterparty. Alice serves
-//! her end from a spawned task while Bob joins through the other:
+//! A session runs over one connection, which it takes as two halves, a
+//! read half and a write half. `tokio::io::duplex` makes an in-process
+//! connection, and `tokio::io::split` splits each end into its halves; each
+//! end is a conduit to exactly one counterparty. Alice serves her end from a
+//! spawned task while Bob joins through the other:
 //!
 //! ```
 //! use rumors::Peer;
@@ -132,14 +132,16 @@
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!     alice.send("the meeting is at noon".to_string())?;
 //!
-//!     // Alice serves one gossip session on her end of the link...
-//!     let (mut near, mut far) = rumors::link::memory();
+//!     // Alice serves one gossip session on her end of the connection...
+//!     let (near, far) = tokio::io::duplex(64 * 1024);
+//!     let (far_read, far_write) = tokio::io::split(far);
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
+//!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
 //!
 //!     // ...and Bob joins the universe through the other end.
-//!     let rumors::Joined::Joined { peer: bob } =
-//!         Peer::<String>::bootstrap().join(&mut near).await
+//!     let (near_read, near_write) = tokio::io::split(near);
+//!     let rumors::Joined::Joined { peer: bob, .. } =
+//!         Peer::<String>::bootstrap().join(near_read, near_write).await
 //!     else {
 //!         panic!("Alice must serve Bob’s bootstrap");
 //!     };
@@ -165,15 +167,16 @@
 //! # Step 5: keep the pair converged
 //!
 //! To *keep* the pair converged, each side drives its own end of a long-lived
-//! link — the *bridge* — with [`gossip`](crate::Rumors::gossip): the
+//! connection — the *bridge* — with [`gossip`](crate::Rumors::gossip): the
 //! driver initiates a session whenever its `when` stream ticks (if there's been
 //! local change since the last gossip), and serves whatever the remote
 //! initiates. That second half is what to remember about the bridge — a driver
 //! serves only while polled, so a converged pair needs **one driver per end**,
 //! each polled, even if only one end ever originates news. Reusing the
-//! bootstrap link here would be legal (a session that ends `Ok` leaves its link
-//! at a clean session boundary, ready for the next), but we moved its far end
-//! into Alice's serving task, so we make a fresh pair for the bridge:
+//! bootstrap connection here would be legal (a session that ends `Ok` returns
+//! its halves at a clean session boundary, ready for the next), but we moved
+//! its far end into Alice's serving task, so we make a fresh pair for the
+//! bridge:
 //!
 //! ```
 //! use futures::StreamExt;
@@ -184,24 +187,28 @@
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!     alice.send("the meeting is at noon".to_string())?;
 //!
-//!     let (mut near, mut far) = rumors::link::memory();
+//!     let (near, far) = tokio::io::duplex(64 * 1024);
+//!     let (far_read, far_write) = tokio::io::split(far);
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
-//!     let rumors::Joined::Joined { peer: bob } =
-//!         Peer::<String>::bootstrap().join(&mut near).await
+//!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
+//!     let (near_read, near_write) = tokio::io::split(near);
+//!     let rumors::Joined::Joined { peer: bob, .. } =
+//!         Peer::<String>::bootstrap().join(near_read, near_write).await
 //!     else {
 //!         panic!("Alice must serve Bob’s bootstrap");
 //!     };
 //!     let bob = bob.into_rumors();
 //!     server.await??;
 //!
-//!     // A second, long-lived link between them, one driver per end.
-//!     let (mut alice_side, mut bob_side) = rumors::link::memory();
+//!     // A second, long-lived connection between them, one driver per end.
+//!     let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
+//!     let (alice_read, alice_write) = tokio::io::split(alice_side);
+//!     let (bob_read, bob_write) = tokio::io::split(bob_side);
 //!
 //!     alice.send("bring the slides".to_string())?;
 //!
-//!     let mut alice_drive = alice.gossip(&mut alice_side);
-//!     let mut bob_drive = bob.gossip(&mut bob_side);
+//!     let mut alice_drive = alice.gossip(alice_read, alice_write);
+//!     let mut bob_drive = bob.gossip(bob_read, bob_write);
 //!
 //!     // Alice's change signal initiates; Bob's driver serves. One
 //!     // session converges the pair, and each driver reports it.
@@ -244,23 +251,27 @@
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!     alice.send("the meeting is at noon".to_string())?;
 //!
-//!     let (mut near, mut far) = rumors::link::memory();
+//!     let (near, far) = tokio::io::duplex(64 * 1024);
+//!     let (far_read, far_write) = tokio::io::split(far);
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
-//!     let rumors::Joined::Joined { peer: bob } =
-//!         Peer::<String>::bootstrap().join(&mut near).await
+//!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
+//!     let (near_read, near_write) = tokio::io::split(near);
+//!     let rumors::Joined::Joined { peer: bob, .. } =
+//!         Peer::<String>::bootstrap().join(near_read, near_write).await
 //!     else {
 //!         panic!("Alice must serve Bob’s bootstrap");
 //!     };
 //!     let bob = bob.into_rumors();
 //!     server.await??;
 //!
-//!     let (mut alice_side, mut bob_side) = rumors::link::memory();
+//!     let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
+//!     let (alice_read, alice_write) = tokio::io::split(alice_side);
+//!     let (bob_read, bob_write) = tokio::io::split(bob_side);
 //!
 //!     alice.send("bring the slides".to_string())?;
 //!
-//!     let mut alice_drive = alice.gossip(&mut alice_side);
-//!     let mut bob_drive = bob.gossip(&mut bob_side);
+//!     let mut alice_drive = alice.gossip(alice_read, alice_write);
+//!     let mut bob_drive = bob.gossip(bob_read, bob_write);
 //!
 //!     let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
 //!     pushed.expect("alice's driver is running")?;
@@ -307,7 +318,7 @@
 //! a peer that joined later, kept both ends converged with change-driven
 //! drivers, and redacted a message contagiously out of every replica.
 //! Every piece here scales past the demo: more peers mean more
-//! `bootstrap` calls and more driven links, nothing else new.
+//! `bootstrap` calls and more driven connections, nothing else new.
 //!
 //! Where to go next:
 //!
@@ -317,9 +328,9 @@
 //! - Reacting to messages as they arrive (instead of polling snapshots) is
 //!   the [observers](crate#how-should-you-observe-messages) section's
 //!   decision guide.
-//! - A real deployment binds a network transport as a
-//!   [`Link`](crate::Link) — the [`link`](crate::link) module states the
-//!   contract and ships a conformance suite for your implementation.
+//! - A real deployment passes the two halves of a network connection, such
+//!   as a split TCP stream; the crate docs' [transport](crate#transport)
+//!   section states what the connection must guarantee.
 //! - To limit version growth across restarts, reuse a
 //!   [`Bookmark`](crate::Bookmark).
 //! - And for how a session actually reconciles two replicas —

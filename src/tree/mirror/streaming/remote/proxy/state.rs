@@ -1,4 +1,4 @@
-//! Typed protocol states over an open per-stream session.
+//! Typed protocol states over an open session pipe.
 //!
 //! Each proxy stage owns the one [`Scope`] queue needed to interpret the local
 //! reply it will receive at that height. Background tasks write local replies
@@ -7,11 +7,9 @@
 //! walk; each take publishes the scopes its reply's questions create before
 //! the stage receives the reply.
 
-use std::io::Cursor;
 use std::marker::PhantomData;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::link::{Acceptor, Connector, Link};
 use crate::observe::{Role, SessionHandle};
 use crate::tree::{
     mirror::streaming::{
@@ -20,13 +18,11 @@ use crate::tree::{
         protocol::{self, BoxResponses, Requests},
         remote::{
             adapter::Scope,
-            codec::{RunBudget, Speaker, Stream},
+            codec::{RunBudget, Speaker},
+            pipe::{Demultiplexer, Multiplexer, PipeRead},
             proxy::{
                 Error,
-                work::{ControlRead, Ingress, Physical, Work},
-            },
-            streams::{
-                AcceptDriver, Claims, ErrorRoute, StreamReceiver, StreamSender, claims, error_route,
+                work::{Ingress, Physical, Work},
             },
         },
         stats::Recorder,
@@ -38,85 +34,17 @@ use crate::tree::{
     },
 };
 
-/// Session endpoints and backend shared by every state in one proxy chain.
-struct Session<B, R, W, C, A>
-where
-    B: Backend<Node<Z>: Leaf>,
-    A: Acceptor,
-{
-    /// Which role the remote endpoint plays in the wire schedule.
-    remote: Speaker,
-    /// The link epoch carried by every data-stream label.
-    epoch: u8,
-    /// Opens data streams spoken by the local endpoint.
-    connector: C,
-    /// Supplies data streams accepted from the remote endpoint.
-    claims: Claims<A::Rx>,
-    /// Reports transport failures to the session driver.
-    route: ErrorRoute,
-    /// The session's negotiated run budget, handed to every incoming
-    /// stream this session binds so its codec enforces the budget at
-    /// ingress (the outgoing side's copy lives in [`Work`]).
-    budget: RunBudget,
-    /// The session's stats recorder, handed to every stream this session
-    /// binds so the codec boundary's byte counts accumulate in one place.
-    stats: Recorder,
-    /// The session's observation handle, handed to every stream this
-    /// session binds so each can create its own observer when it opens.
-    observe: SessionHandle,
-    /// Encodes local work and decodes remote work across the session.
-    work: Work<B, R, W, A>,
-}
-
-impl<B, R, W, C, A> Session<B, R, W, C, A>
-where
-    B: Backend<Node<Z>: Leaf>,
-    C: Connector,
-    A: Acceptor,
-{
-    /// Bind the incoming logical stream spoken by the remote at height `H`.
-    fn incoming<H: Height>(&mut self) -> StreamReceiver {
-        let stream = stream_at::<H>(self.remote);
-        StreamReceiver::new(
-            self.claims.take(stream),
-            self.remote,
-            stream,
-            self.budget,
-            self.route.clone(),
-            self.stats.clone(),
-            self.observe.clone(),
-        )
-    }
-
-    /// Bind the outgoing logical stream spoken locally at height `H`.
-    fn outgoing<H: Height>(&self) -> StreamSender<C> {
-        let local = self.remote.other();
-        StreamSender::new(
-            self.connector.clone(),
-            self.epoch,
-            local,
-            stream_at::<H>(local),
-            self.stats.clone(),
-            self.observe.clone(),
-        )
-    }
-}
-
-/// Find the logical stream assigned to one speaker and reply height.
-fn stream_at<H: Height>(speaker: Speaker) -> Stream {
-    Stream::at_height(speaker, H::HEIGHT)
-        .expect("the typestate binds each speaker only at heights on its parity")
-}
-
 /// A proxy holding exchanged premises until the driver selects its path.
-pub struct Connected<B, R, W, C, A>
+pub struct Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
 {
     /// Backend and validation state for incoming replies.
     pub(super) ingress: Ingress<B>,
-    /// The transport carrier retained until data-stream role dispatch.
-    pub(super) link: Link<R, W, C, A>,
+    /// The pipe's read half, retained until role dispatch.
+    pub(super) read: R,
+    /// The pipe's write half, retained until role dispatch.
+    pub(super) write: W,
     /// Root-fan listing sent by the remote endpoint.
     pub(super) remote_listing: Vec<(u8, Hash)>,
     /// Queue capacities resolved from both greetings.
@@ -129,17 +57,16 @@ where
     pub(super) observe: SessionHandle,
 }
 
-impl<B, R, W, C, A> Connected<B, R, W, C, A>
+impl<B, R, W> Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    C: Connector,
-    A: Acceptor,
 {
-    /// Open the per-stream session after the driver assigns the remote role.
-    fn open(self, remote: Speaker) -> Session<B, R, W, C, A> {
+    /// Open the session's pipe after the driver assigns the remote role.
+    fn open(self, remote: Speaker) -> Work<B, R, W> {
         let Connected {
             ingress,
-            link,
+            read,
+            write,
             remote_listing,
             window,
             budget,
@@ -150,69 +77,45 @@ where
             Speaker::Initiator => Role::Initiator,
             Speaker::Responder => Role::Responder,
         });
-        let Link {
-            control_read,
-            control_write,
-            connector,
-            acceptor,
-            session,
-        } = link;
-        let epoch = session.epoch();
-        let (slots, claims) = claims();
-        let (route, errors) = error_route();
-        let accept = AcceptDriver::new(acceptor, epoch, remote, slots, route.clone());
-        let work = Work::new(
+        Work::new(
             ingress,
             window,
             budget,
             remote_listing,
             Physical {
-                control_read,
-                control_write,
+                read,
+                write,
                 remote,
-                accept,
-                errors,
+                multiplexer: Multiplexer::default(),
+                demultiplexer: Demultiplexer::default(),
             },
-            stats.clone(),
-        );
-        Session {
-            remote,
-            epoch,
-            connector,
-            claims,
-            route,
-            budget,
             stats,
             observe,
-            work,
-        }
+        )
     }
 }
 
 /// A connected wire participant remains at root height until driver dispatch.
-impl<B, R, W, C, A> protocol::Phase for Connected<B, R, W, C, A>
+impl<B, R, W> protocol::Phase for Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Send,
-    A: Acceptor,
 {
     type Height = Root;
     type Error = Error<B::Error>;
-    type Output = (ControlRead<R>, W);
+    type Output = (PipeRead<R>, W);
 }
 
 /// A proxy inside the descent with scopes for the next local reply stream.
-pub struct Descending<B, H, R, W, C, A>
+pub struct Descending<B, H, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     H: Height,
     S<H>: Height,
-    A: Acceptor,
 {
-    /// The session resources and work accumulated so far.
-    session: Session<B, R, W, C, A>,
+    /// The session's pipe and the work accumulated so far.
+    work: Work<B, R, W>,
     /// The next local reply's scopes, erased: the typestate's `H` is what
     /// pins this queue to the stage that consumes it at the right height,
     /// and every scope's parent prefix carries the runtime witness.
@@ -223,85 +126,71 @@ where
 }
 
 /// The initiator proxy's leaf terminal and accumulated transport work.
-pub struct Completing<B, R, W, C, A>
+pub struct Completing<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    A: Acceptor,
 {
-    /// The session resources and work accumulated through the descent.
-    session: Session<B, R, W, C, A>,
+    /// The session's pipe and the work accumulated through the descent.
+    work: Work<B, R, W>,
     /// The leaf scopes awaiting the local terminal replies.
     scopes: Receiver<Scope>,
 }
 
 /// A wire descent phase processes the height carried by its state.
-impl<B, H, R, W, C, A> protocol::Phase for Descending<B, H, R, W, C, A>
+impl<B, H, R, W> protocol::Phase for Descending<B, H, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Send,
-    A: Acceptor,
     H: Height,
     S<H>: Height,
 {
     type Height = H;
     type Error = Error<B::Error>;
-    type Output = (ControlRead<R>, W);
+    type Output = (PipeRead<R>, W);
 }
 
 /// A completing wire participant processes the final leaf-height replies.
-impl<B, R, W, C, A> protocol::Phase for Completing<B, R, W, C, A>
+impl<B, R, W> protocol::Phase for Completing<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Send,
-    A: Acceptor,
 {
     type Height = Z;
     type Error = Error<B::Error>;
-    type Output = (ControlRead<R>, W);
+    type Output = (PipeRead<R>, W);
 }
 
-impl<B, R, W, C, A> protocol::CompleteEqual<B> for Connected<B, R, W, C, A>
+impl<B, R, W> protocol::CompleteEqual<B> for Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
     W: Send,
-    C: Connector,
-    A: Acceptor,
 {
-    /// Return the control halves without opening data streams.
-    async fn complete_equal(self) -> Result<(ControlRead<R>, W), Self::Error> {
-        let Link {
-            control_read,
-            control_write,
-            ..
-        } = self.link;
-        Ok((Cursor::new(Vec::new()).chain(control_read), control_write))
+    /// Return the pipe's halves without sending a frame.
+    async fn complete_equal(self) -> Result<(PipeRead<R>, W), Self::Error> {
+        Ok((PipeRead::new(self.read), self.write))
     }
 }
 
-impl<B, R, W, C, A> protocol::Initiator<B> for Connected<B, R, W, C, A>
+impl<B, R, W> protocol::Initiator<B> for Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Connector,
-    A: Acceptor,
 {
-    type Next = Descending<B, UnderRoot, R, W, C, A>;
+    type Next = Descending<B, UnderRoot, R, W>;
 
     /// Replay the remote initiator's opening.
     ///
     /// [`Work::initiator`] reconstructs the opening question from the
-    /// greeting; no stream carries it.
+    /// greeting; no frame carries it.
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
-        let mut session = self.open(Speaker::Initiator);
-        let (responses, scopes) = session.work.initiator();
+        let mut work = self.open(Speaker::Initiator);
+        let (responses, scopes) = work.initiator();
         let next = Descending {
-            session,
+            work,
             scopes,
             height: PhantomData,
         };
@@ -309,15 +198,13 @@ where
     }
 }
 
-impl<B, R, W, C, A> protocol::Responder<B> for Connected<B, R, W, C, A>
+impl<B, R, W> protocol::Responder<B> for Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Connector,
-    A: Acceptor,
 {
-    type Next = Descending<B, UnderUnderRoot, R, W, C, A>;
+    type Next = Descending<B, UnderUnderRoot, R, W>;
 
     /// Bind the remote responder's opening stream and proxy the local
     /// initiator's opening.
@@ -327,122 +214,95 @@ where
         self,
         requests: impl Requests<B, UnderRoot>,
     ) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
-        let mut session = self.open(Speaker::Responder);
-        let incoming = session.incoming::<UnderRoot>();
-        let (responses, next_scopes) = session.work.opening_responder(requests, incoming);
+        let mut work = self.open(Speaker::Responder);
+        let (responses, scopes) = work.opening_responder(requests);
         let next = Descending {
-            session,
-            scopes: next_scopes,
+            work,
+            scopes,
             height: PhantomData,
         };
         (responses, next)
     }
 }
 
-impl<B, H, R, W, C, A> protocol::Reply<B> for Descending<B, S<S<H>>, R, W, C, A>
+impl<B, H, R, W> protocol::Reply<B> for Descending<B, S<S<H>>, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Connector,
-    A: Acceptor,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
 {
-    type Next = Descending<B, H, R, W, C, A>;
+    type Next = Descending<B, H, R, W>;
 
     /// Proxy one ordinary two-height descent transition.
     fn reply(
         mut self,
         requests: impl Requests<B, S<S<H>>>,
     ) -> (BoxResponses<B, S<H>, Self::Error>, Self::Next) {
-        let incoming = self.session.incoming::<S<H>>();
-        let outgoing = self.session.outgoing::<S<S<H>>>();
-        let (responses, next_scopes) =
-            self.session
-                .work
-                .internal_replies(requests, self.scopes, incoming, outgoing);
+        let (responses, scopes) = self.work.internal_replies(requests, self.scopes);
         let next = Descending {
-            session: self.session,
-            scopes: next_scopes,
+            work: self.work,
+            scopes,
             height: PhantomData,
         };
         (responses, next)
     }
 }
 
-impl<B, R, W, C, A> protocol::Reply<B> for Descending<B, S<Z>, R, W, C, A>
+impl<B, R, W> protocol::Reply<B> for Descending<B, S<Z>, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
-    C: Connector,
-    A: Acceptor,
 {
-    type Next = Completing<B, R, W, C, A>;
+    type Next = Completing<B, R, W>;
 
     /// Proxy the leaf-parent transition into the initiator's terminal.
     fn reply(
         mut self,
         requests: impl Requests<B, S<Z>>,
     ) -> (BoxResponses<B, Z, Self::Error>, Self::Next) {
-        let incoming = self.session.incoming::<Z>();
-        let outgoing = self.session.outgoing::<S<Z>>();
-        let (responses, next_scopes) =
-            self.session
-                .work
-                .leaf_replies(requests, self.scopes, incoming, outgoing);
+        let (responses, scopes) = self.work.leaf_replies(requests, self.scopes);
         let next = Completing {
-            session: self.session,
-            scopes: next_scopes,
+            work: self.work,
+            scopes,
         };
         (responses, next)
     }
 }
 
-impl<B, R, W, C, A> protocol::CompleteInitiator<B> for Completing<B, R, W, C, A>
+impl<B, R, W> protocol::CompleteInitiator<B> for Completing<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
-    W: Send,
-    C: Connector,
-    A: Acceptor,
+    W: AsyncWrite + Unpin + Send,
 {
     /// Encode the local responder's final leaf answers and close its stream.
     async fn complete_initiator(
         self,
         requests: impl Requests<B, Z>,
-    ) -> Result<(ControlRead<R>, W), Self::Error> {
-        let outgoing = self.session.outgoing::<Z>();
-        self.session
-            .work
-            .complete_initiator(requests, self.scopes, outgoing)
-            .await
+    ) -> Result<(PipeRead<R>, W), Self::Error> {
+        self.work.complete_initiator(requests, self.scopes).await
     }
 }
 
-impl<B, R, W, C, A> protocol::CompleteResponder<B> for Descending<B, Z, R, W, C, A>
+impl<B, R, W> protocol::CompleteResponder<B> for Descending<B, Z, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
-    W: Send,
-    C: Connector,
-    A: Acceptor,
+    W: AsyncWrite + Unpin + Send,
 {
     /// Proxy the final bidirectional leaf exchange to clean completion.
     fn complete_responder(
-        mut self,
+        self,
         requests: impl Requests<B, Z>,
     ) -> (
         BoxResponses<B, Z, Self::Error>,
-        impl Future<Output = Result<(ControlRead<R>, W), Self::Error>> + Send,
+        impl Future<Output = Result<(PipeRead<R>, W), Self::Error>> + Send,
     ) {
-        let incoming = self.session.incoming::<Z>();
-        let outgoing = self.session.outgoing::<Z>();
-        self.session
-            .work
-            .complete_responder(requests, self.scopes, incoming, outgoing)
+        self.work.complete_responder(requests, self.scopes)
     }
 }

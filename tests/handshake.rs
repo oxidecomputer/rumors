@@ -1,7 +1,7 @@
 //! Protocol preamble exchange.
 //!
-//! Drives [`rumors::Rumors::gossip_once`] against a counterparty whose control
-//! stream is driven by hand over an in-memory [`rumors::link`] pair. Each
+//! Drives [`rumors::Rumors::gossip_once`] against a counterparty driven by hand
+//! over an in-memory connection ([`rumors::testing::memory_connection`]). Each
 //! rejection test checks the outbound wire spelling, the reported error, and
 //! that the local set remains unchanged. The preamble is one self-described
 //! CBOR item of exactly 30 bytes with no redundant length:
@@ -18,7 +18,7 @@ use rumors::error::Mismatch;
 use rumors::{Error, Gossiped, Peer, Protocol, Rumors};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::common::wire::{assert_control_drained, bootstrap_fork_async};
+use crate::common::wire::{assert_connection_drained, bootstrap_fork_async};
 
 /// Length of the complete V2 preamble item: the self-described tag (3),
 /// the four-item array head (1), the text `"rumors"` (7), the version
@@ -62,9 +62,9 @@ fn preamble(opening: [u8; 11], version: u8, network: [u8; 16], intent: u8) -> [u
 async fn gossip_against(reply: &[u8]) -> Result<Gossiped, Error> {
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let before = alice.snapshot();
-    let (mut a_link, b) = rumors::link::memory();
-    let mut b_read = b.control_read;
-    let mut b_write = b.control_write;
+    let (a_end, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let mut b_read = b.read;
+    let mut b_write = b.write;
 
     let fake_peer = async move {
         let mut got = [0u8; PREAMBLE_LEN];
@@ -75,9 +75,9 @@ async fn gossip_against(reply: &[u8]) -> Result<Gossiped, Error> {
         b_write.write_all(reply).await.expect("fake peer write");
     };
 
-    let (result, ()) = tokio::join!(alice.gossip_once(&mut a_link), fake_peer);
+    let (result, ()) = tokio::join!(alice.gossip_once(a_end.read, a_end.write), fake_peer);
     assert_eq!(alice.snapshot(), before, "rejection changed the local set");
-    result
+    result.map(|(gossiped, ..)| gossiped)
 }
 
 /// Two well-behaved peers in the same universe complete the preamble and
@@ -89,14 +89,17 @@ async fn handshake_roundtrip_succeeds() {
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
     let bob = bootstrap_fork_async(&alice).await;
 
-    let (mut a_link, mut b_link) = rumors::link::memory();
+    let (mut a_end, mut b_end) =
+        rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
 
-    let (alice_out, bob_out) =
-        tokio::join!(alice.gossip_once(&mut a_link), bob.gossip_once(&mut b_link));
+    let (alice_out, bob_out) = tokio::join!(
+        alice.gossip_once(&mut a_end.read, &mut a_end.write),
+        bob.gossip_once(&mut b_end.read, &mut b_end.write)
+    );
 
     alice_out.expect("alice gossip");
     bob_out.expect("bob gossip");
-    assert_control_drained(a_link, b_link);
+    assert_connection_drained(a_end, b_end);
 }
 
 /// A peer that opens with the wrong bytes is rejected with

@@ -12,7 +12,7 @@ use super::{
     SUPPLY_RECORDS_PER_STREAM, Window, WindowConfig, children_quantile, disputed, occupied,
     stage_population,
 };
-use crate::link::STREAM_COUNT;
+use crate::tree::mirror::streaming::remote::STREAM_COUNT;
 
 /// The symmetric set size the fixed-scale tests derive against: both
 /// replicas at a terabyte-scale corpus.

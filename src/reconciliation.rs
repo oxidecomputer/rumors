@@ -179,36 +179,29 @@
 //!
 //! # The bytes on the wire
 //!
-//! A session's transport is a [`Link`](crate::Link): one persistent
-//! bidirectional *control stream*, plus unidirectional *data streams*
-//! opened lazily as the descent needs them, at most
-//! [`STREAM_COUNT`](crate::link::STREAM_COUNT) per direction.
+//! A session runs over one connection, a reliable, ordered duplex byte
+//! stream, which it takes as two halves (see [Transport](crate#transport)).
+//! Each direction carries, in order, the preamble, the greeting, the
+//! descent's frames, and the closing items: an identity donation when one
+//! changes hands, and the [`Phase::Completion`](crate::error::Phase::Completion)
+//! confirmation.
 //!
-//! The asymmetry is demand-shaped. The control stream carries what every
-//! session unconditionally exchanges — the preamble, the greeting, and the
-//! closing [`Phase::Completion`](crate::error::Phase::Completion) confirmation — so it is
-//! the one stream worth holding open across sessions: those fixed phases
-//! dominate a short session's latency, and re-dialing per session would put
-//! transport dial time and its failure modes inside every one of them. The
-//! persistent control stream is also what gives a link its stable identity
-//! between sessions (its session counter and its poison state). Data streams
-//! carry the descent into the tree, whose traffic exists only where divergence
-//! does: a converged session opens none, so they are opened on demand and are
-//! worth recycling back to a transport's connection pool. They are
-//! unidirectional because the protocol needs traffic in only one direction; a
-//! link may split a bidirectional stream into two such roles.
+//! The descent's frames travel on *logical streams*, one per tree level a
+//! side answers at. Each frame names its logical stream, so the one
+//! connection carries them all, their frames interleaved. A logical stream
+//! carries frames only where divergence does: a converged session sends no
+//! frame at all.
 //!
-//! Each direction may open at most [`STREAM_COUNT`](crate::link::STREAM_COUNT)
-//! data streams in addition to the control stream, though a session usually
-//! opens fewer. The bound comes from the fixed tree height and the wire
-//! schedule's assignment of tree levels to streams. The constant's documentation
-//! gives the derivation.
-//!
-//! Streams are independently flow-controlled: one stream's backpressure is
-//! invisible to every other stream, so the two levels sharing a stream
-//! serialize against each other and levels on different streams do not. This
-//! independence is required for deadlock freedom and lets the session pipeline
-//! disputes across several levels.
+//! Sharing one connection among levels could let a full queue at one level
+//! stop delivery at another, which would break the walk's deadlock freedom.
+//! A receiver prevents that by reading every frame as it arrives. A reply
+//! exists only in answer to the receiver's own question, so at each level it
+//! can have invited at most its window's width plus a fan plus one replies,
+//! and it reserves room for every reply it can have invited: reading never
+//! waits on the walk.
+//! Levels still pipeline across the connection, and whenever a sender has a
+//! choice, a frame carrying the descent goes out ahead of supply runs
+//! waiting at other levels.
 //!
 //! # Memory: the budget and the window
 //!
@@ -220,9 +213,10 @@
 //! divergence drain in waves. A smaller budget can add latency; even a zero
 //! budget permits one dispute per level and remains deadlock-free.
 //! Message bodies are governed separately: supplies stream outside the window
-//! as size-targeted runs, with at most one run in hand per stream per direction
-//! ([`Peer::target_message_size`](crate::Peer::target_message_size)). The
-//! budget's contract is at
+//! as size-targeted runs, with at most three runs buffered per level sending,
+//! and two per level receiving plus one more for the whole receiving
+//! direction ([`Peer::target_message_size`](crate::Peer::target_message_size)).
+//! The budget's contract is at
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);
 //! [the sizing guide](crate::sizing) explains how to choose it.
 //!

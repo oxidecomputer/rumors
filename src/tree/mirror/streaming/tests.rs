@@ -41,6 +41,7 @@ mod faults;
 mod fixtures;
 mod local_eq;
 mod outstanding;
+mod pipe;
 mod skeleton;
 mod stats;
 
@@ -287,7 +288,7 @@ fn streaming_mirror_sides(a: Root, b: Root) -> (Root, Root) {
 /// publication trace, and the walk's payload-erased replies.
 ///
 /// This capture precedes the proxy's byte-budgeted framing of supply runs, so
-/// it describes the walk's protocol decisions rather than link-level frames.
+/// it describes the walk's protocol decisions rather than wire frames.
 fn transcribed_mirror_sides(a: Root, b: Root) -> (Root, Root, Trace, Transcript) {
     let mut outcome = LocalSession::new(a, b).trace().transcript().run();
     let trace = outcome

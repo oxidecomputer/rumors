@@ -24,7 +24,7 @@ control item 1 (136 bytes) / greeting /
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Responder stream 0 (height 31), epoch 0, 47 wire bytes
+Responder stream 0 (height 31), 45 wire bytes
   frame 0 (22 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'40120c009010'), 575_1>>)>>)]
   frame 1 (20 bytes) / Supply(End) /

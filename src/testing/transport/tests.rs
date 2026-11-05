@@ -1,64 +1,10 @@
 //! Tests for the shared transport adversity wrappers.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
-
 use futures::poll;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex, split};
 
-use super::{IoPlan, Side, reorder_accepts, wrap_io, yield_once};
-use crate::link::{Acceptor, Connector, memory};
+use super::{IoPlan, Side, wrap_io};
 use crate::testing::run_to_quiescence;
-
-/// The patient wait forms a batch of two and releases it newest-first,
-/// counting one inversion.
-///
-/// The second stream is connected only after the acceptor has held the
-/// first and begun yielding, so a drain of only-`Ready` arrivals would
-/// release the first alone and count nothing.
-#[test]
-fn reordering_acceptor_inverts_a_patient_batch() {
-    let reordered = Arc::new(AtomicUsize::new(0));
-    let (a, b) = memory();
-    let mut acceptor = reorder_accepts(a, 2, reordered.clone()).acceptor;
-    let connector = b.connector;
-    let released = run_to_quiescence(async {
-        let (_streams, released) = futures::join!(
-            async {
-                let (mut first, _done) = connector.connect().await.unwrap();
-                first.write_all(b"1").await.unwrap();
-                // Let the acceptor take the first arrival and start
-                // waiting before the second exists.
-                for _ in 0..4 {
-                    yield_once().await;
-                }
-                let (mut second, _done) = connector.connect().await.unwrap();
-                second.write_all(b"2").await.unwrap();
-                (first, second)
-            },
-            async {
-                let mut released = Vec::new();
-                for _ in 0..2 {
-                    let (mut rx, _done) = acceptor.accept().await.unwrap();
-                    let mut tag = [0u8; 1];
-                    rx.read_exact(&mut tag).await.unwrap();
-                    released.push(tag[0]);
-                }
-                released
-            },
-        );
-        released
-    })
-    .expect("the batch releases and the harness stays live");
-    assert_eq!(released, b"21", "the batch of two releases newest-first");
-    assert_eq!(
-        reordered.load(Ordering::Relaxed),
-        1,
-        "one batch of two is one recorded inversion"
-    );
-}
 
 /// Flush buffering keeps completed writes invisible to the peer until the
 /// corresponding flush is polled.

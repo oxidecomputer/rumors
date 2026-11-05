@@ -9,8 +9,8 @@
 //! Keeping these phases separate permits a provider to learn that its peer is
 //! bootstrapping before it atomically snapshots the tree and forks its party.
 //!
-//! The preamble is one self-described CBOR item, so a control stream is a
-//! CBOR sequence from its very first byte —
+//! The preamble is one self-described CBOR item, so each direction of a
+//! session's byte stream is a CBOR sequence from its very first byte —
 //! `55799(["rumors", version: uint, network: bstr, intent: uint])`.
 //! Every field's head is one byte at the values the dialect admits, so the
 //! item has the fixed [`V2_PREAMBLE_LEN`] width. That width is part of the

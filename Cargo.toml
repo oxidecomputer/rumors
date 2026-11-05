@@ -148,8 +148,8 @@ bench = false
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
 test-internals = ["tokio/rt", "dep:cbor-diag"]
-# Conformance suites for caller-built links and bookmark storage.
-# Enable from a dev-dependency to validate an application's adapters.
+# A conformance suite for caller-built bookmark storage. Enable from a
+# dev-dependency to validate an application's storage adapter.
 conformance = []
 # Atomic file storage for bookmarks, driven by caller-supplied blocking execution.
 fs = ["dep:tempfile"]

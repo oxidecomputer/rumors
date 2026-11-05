@@ -23,9 +23,11 @@ fn concurrent_bootstrap_checkpoint_protects_writes_after_restart() {
         let before = owner.dangerously_alias_party();
         let writer;
         {
-            let (mut near, mut far) = rumors::link::memory();
-            let mut joining = Box::pin(Peer::<u64>::bootstrap().join(&mut near));
-            let mut serving = Box::pin(owner.gossip_once(&mut far));
+            let (mut near, mut far) =
+                rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let mut joining =
+                Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
+            let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
             // Let the newcomer send its preamble, then let the provider reserve
             // a fork. Neither future runs again while a second session proceeds.
             assert!(futures::poll!(joining.as_mut()).is_pending());
@@ -79,9 +81,11 @@ fn restart_reclaims_identities_that_overlap_without_nesting() {
         let retiree = bootstrap_fork_peer(&seed).await;
         let absorbed = retiree.dangerously_alias_party();
         {
-            let (mut near, mut far) = rumors::link::memory();
-            let mut joining = Box::pin(Peer::<u64>::bootstrap().join(&mut near));
-            let mut serving = Box::pin(owner.gossip_once(&mut far));
+            let (mut near, mut far) =
+                rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let mut joining =
+                Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
+            let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
             assert!(futures::poll!(joining.as_mut()).is_pending());
             assert!(futures::poll!(serving.as_mut()).is_pending());
             assert_ne!(
@@ -148,12 +152,12 @@ proptest! {
             let mut pending = Vec::new();
             for _ in &releases {
                 let before = restarted.dangerously_alias_party();
-                let (mut near, mut far) = rumors::link::memory();
+                let (near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let provider = restarted.clone();
                 let mut joining = Box::pin(async move {
-                    Peer::<u64>::bootstrap().join(&mut near).await
+                    Peer::<u64>::bootstrap().join(near.read, near.write).await
                 });
-                let mut serving = Box::pin(async move { provider.gossip_once(&mut far).await });
+                let mut serving = Box::pin(async move { provider.gossip_once(far.read, far.write).await });
                 assert!(futures::poll!(joining.as_mut()).is_pending());
                 assert!(futures::poll!(serving.as_mut()).is_pending());
                 assert_ne!(before, restarted.dangerously_alias_party(), "a fork must be held");
@@ -184,7 +188,7 @@ proptest! {
                 if complete {
                     let (joined, served) = futures::join!(joining, serving);
                     served.unwrap();
-                    let rumors::Joined::Joined { peer } = joined else {
+                    let rumors::Joined::Joined { peer, .. } = joined else {
                         panic!("reliable bootstrap must complete");
                     };
                     newcomers.push(peer);

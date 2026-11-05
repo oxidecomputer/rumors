@@ -79,6 +79,7 @@ use std::task::{Context, Poll};
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
     channel::{QueueKind, QueueRole, Receiver, Sender, channel},
@@ -422,8 +423,10 @@ impl Multiplexer {
         write: &mut W,
         speaker: Speaker,
         stats: Recorder,
+        observe: &SessionHandle,
     ) -> Result<(), EncodeError> {
-        let mut out = FrameWrite::new(speaker, CountedWrite::new(write, stats.clone()));
+        let mut out = FrameWrite::new(speaker, CountedWrite::new(write, stats.clone()))
+            .observed(observe.data(speaker.role(), Direction::Sent));
         let mut cursors = [0; Class::ORDER.len()];
         while let Some((stream, frame)) = self.next(&mut cursors).await {
             out.frame(&(stream, frame)).await?;
@@ -553,8 +556,10 @@ impl Demultiplexer {
         speaker: Speaker,
         budget: RunBudget,
         stats: Recorder,
+        observe: &SessionHandle,
     ) -> PipeError {
-        let mut frames = FrameRead::new(speaker, budget, CountedRead::new(read, stats.clone()));
+        let mut frames = FrameRead::new(speaker, budget, CountedRead::new(read, stats.clone()))
+            .observed(observe.data(speaker.role(), Direction::Received));
         loop {
             let read = frames.get_mut().get_mut();
             match read.peek().await {
