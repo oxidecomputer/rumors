@@ -509,7 +509,7 @@ fn describe_leaf_kind(out: &mut String, kind: &DecodeLeafError) {
 fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame); 3] {
     [
         (
-            "placement/opening-supplies",
+            "placement/unused-opening-stream",
             Speaker::Initiator,
             Stream::new(0).unwrap(),
             Frame::Reaction(Reaction::Match, Flow::Continue),

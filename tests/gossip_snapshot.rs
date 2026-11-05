@@ -267,18 +267,16 @@ const TARGETED_POOL: u64 = 2048;
 /// messages.
 const BALLAST_POOL: (u64, u64) = (10_000, 16);
 
-/// A bulk-holding initiator ships its exclusive root children whole at the
-/// opening, on its own stream 0, without waiting for the responder's empty
-/// queries.
+/// A bulk-holding initiator supplies its exclusive root child when the
+/// responder's opening requests it.
 ///
 /// The initiator (the smaller set) holds one exclusive root child with two
-/// leaves splitting at the second path byte. The pinned shape is the
-/// supply-only opening: the whole child crosses as a single two-record
-/// Supply run on `Initiator stream 0 (height 31)`, and the responder's
-/// root-level empty query is answered by a bare empty reply at height 30
-/// instead of one decomposed Supply frame per second-byte child.
+/// leaves splitting at the second path byte. The responder's opening reply
+/// requests that child with an empty query; the initiator answers at height
+/// 30 with one Supply frame per second-byte child, and never writes its
+/// unused stream 0.
 #[test]
-fn bulk_initiator_ships_opening_supplies() {
+fn bulk_initiator_supplies_its_exclusive_child_on_request() {
     // Stage: the initiator holds exactly two leaves sharing a root radix
     // and splitting one level down (pool-search-and-redact; the shape is a
     // function of the created versions, see `common::shape`); the responder
@@ -328,37 +326,34 @@ fn bulk_initiator_ships_opening_supplies() {
     );
 
     let capture = capture_gossip(a, b);
-    let opening = stream_frames(&capture, "Initiator stream 0 (height 31)")
-        .expect("the initiator's opening supplies ride its stream 0");
     assert_eq!(
-        opening,
-        ["Supply(End)", "End(Stream)"],
-        "the exclusive subtree crosses whole: one batched Supply run"
+        stream_frames(&capture, "Initiator stream 0 (height 31)"),
+        None,
+        "the initiator's stream 0 is unused"
     );
     let height_30 = stream_frames(&capture, "Initiator stream 1 (height 30)")
-        .expect("the responder's root-level empty query still gets its reply");
+        .expect("the responder's root-level empty query gets its reply");
     assert_eq!(
         height_30,
-        ["End(Reply)", "End(Stream)"],
-        "the empty query's answer is an empty reply: the content crossed at \
-         the opening"
+        ["Supply(Continue)", "Supply(End)", "End(Stream)"],
+        "the requested child crosses as one supply per child one level down"
     );
     insta::assert_snapshot!(capture);
 }
 
-/// Deletion honoring prunes the opening supplies: a redacted message does
-/// not resurrect through the early path, and the supply carries the
-/// survivor rather than the full subtree.
+/// Deletion honoring prunes a requested root child's supply: a redacted
+/// message does not resurrect, and the supply carries the survivor rather
+/// than the full subtree.
 ///
 /// The initiator holds two messages under one root radix; the responder
 /// once held the first (it forked after it existed), redacted it, and holds
-/// ballast elsewhere. The initiator's early supply for that radix must
-/// carry only the second message — the survivor of pruning against the
-/// responder's version — and both peers converge with the redacted message
-/// gone. Two records in the supply run would resurrect the redaction; the
-/// pinned bytes show one.
+/// ballast elsewhere. The initiator's supply answering the responder's
+/// request for that radix must carry only the second message — the
+/// survivor of pruning against the responder's version — and both peers
+/// converge with the redacted message gone. Two records would resurrect the
+/// redaction; the pinned bytes show one.
 #[test]
-fn early_supplies_honor_redactions() {
+fn requested_supplies_honor_redactions() {
     // Stage: the initiator's first message exists before the fork (so the
     // responder once held it), and a pool search lands a second initiator
     // leaf under the same root radix; the responder redacts its copy of
@@ -405,10 +400,10 @@ fn early_supplies_honor_redactions() {
     );
 
     let (capture, a, b) = capture_gossip_returning(a, b);
-    let opening = stream_frames(&capture, "Initiator stream 0 (height 31)")
-        .expect("the surviving message rides the opening supplies");
+    let height_30 = stream_frames(&capture, "Initiator stream 1 (height 30)")
+        .expect("the surviving message answers the responder's request");
     assert_eq!(
-        opening,
+        height_30,
         ["Supply(End)", "End(Stream)"],
         "one pruned Supply run: the survivor, not the full subtree"
     );

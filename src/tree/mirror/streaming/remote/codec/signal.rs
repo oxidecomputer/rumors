@@ -105,7 +105,7 @@ impl Stream {
     /// Classify the protocol phase carried by this speaker's stream.
     fn class(self, speaker: Speaker) -> StreamClass {
         match (speaker, self.0) {
-            (Speaker::Initiator, Self::FIRST) => StreamClass::OpeningSupplies,
+            (Speaker::Initiator, Self::FIRST) => StreamClass::Unused,
             (Speaker::Responder, Self::FIRST) => StreamClass::OpeningReply,
             (Speaker::Initiator, Self::MAX) => StreamClass::LeafParentReplies,
             (Speaker::Responder, Self::MAX) => StreamClass::TerminalLeafReplies,
@@ -171,12 +171,10 @@ impl fmt::Display for Speaker {
 /// The phase-specific signal grammar of a logical stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum StreamClass {
-    /// The initiator's early whole-subtree supplies: its exclusive root
-    /// children, shipped at the opening without waiting to be asked (the
-    /// opening *question* itself never occupies a frame — its content
-    /// rides the greeting).
-    #[error("the initiator's opening supplies")]
-    OpeningSupplies,
+    /// The initiator's first stream, which no phase uses: the opening
+    /// question it would carry rides the greeting instead.
+    #[error("the initiator's unused opening stream")]
+    Unused,
     /// The responder's answer to the listing in the greeting.
     #[error("the responder's opening reply")]
     OpeningReply,
@@ -401,12 +399,7 @@ impl WireSignal {
     fn validate(self, speaker: Speaker) -> Result<Self, InvalidSignalPlacement> {
         let class = self.stream.class(speaker);
         let valid = match class {
-            // One supplies-only reply (empty when pruning left nothing),
-            // then the stream end: the opening carries answers the
-            // responder is about to ask for, never questions of its own.
-            StreamClass::OpeningSupplies => {
-                matches!(self.signal, Signal::Supply(_) | Signal::End(_))
-            }
+            StreamClass::Unused => false,
             StreamClass::OpeningReply => true,
             StreamClass::InteriorReplies => true,
             StreamClass::LeafParentReplies => !matches!(self.signal, Signal::Query(_)),

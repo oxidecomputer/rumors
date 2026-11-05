@@ -4,16 +4,16 @@ expression: atlas
 ---
 Initiator
   stream 00
-    Match(Continue): rejected state 0 class OpeningSupplies
-    Match(End): rejected state 1 class OpeningSupplies
-    QueryEmpty(Continue): rejected state 2 class OpeningSupplies
-    QueryEmpty(End): rejected state 3 class OpeningSupplies
-    Query(Continue): rejected state 4 class OpeningSupplies
-    Query(End): rejected state 5 class OpeningSupplies
-    Supply(Continue): accepted len 15 hex 830006d83f49d83f46d9d25641e0f6
-    Supply(End): accepted len 15 hex 830007d83f49d83f46d9d25641e0f6
-    End(Reply): accepted len 3 hex 820008
-    End(Stream): accepted len 3 hex 820009
+    Match(Continue): rejected state 0 class Unused
+    Match(End): rejected state 1 class Unused
+    QueryEmpty(Continue): rejected state 2 class Unused
+    QueryEmpty(End): rejected state 3 class Unused
+    Query(Continue): rejected state 4 class Unused
+    Query(End): rejected state 5 class Unused
+    Supply(Continue): rejected state 6 class Unused
+    Supply(End): rejected state 7 class Unused
+    End(Reply): rejected state 8 class Unused
+    End(Stream): rejected state 9 class Unused
   stream 01
     Match(Continue): accepted len 3 hex 820100
     Match(End): accepted len 3 hex 820101

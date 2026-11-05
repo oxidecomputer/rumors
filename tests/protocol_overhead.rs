@@ -176,8 +176,8 @@ fn check(expected: &[Cell]) -> Vec<Cell> {
 #[test]
 fn small_reconciliation_cost_at_documented_shared_sizes() {
     let measured = check(&[
-        Cell::new(Shape::new(0, 1, 1, 0, 0), 188, 191),
-        Cell::new(Shape::new(100, 1, 1, 0, 0), 2_543, 2_789),
+        Cell::new(Shape::new(0, 1, 1, 0, 0), 188, 183),
+        Cell::new(Shape::new(100, 1, 1, 0, 0), 2_535, 2_789),
         Cell::new(Shape::new(1_000, 1, 1, 0, 0), 7_246, 8_186),
         Cell::new(Shape::new(10_000, 1, 1, 0, 0), 7_537, 10_187),
         Cell::new(Shape::new(65_536, 1, 1, 0, 0), 8_333, 17_305),

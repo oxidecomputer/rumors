@@ -56,13 +56,8 @@ control item 2 (5 bytes) / party hand-off /
 53845_1(h'48')
 control item 3 (2 bytes) / epilogue /
 "."
-Initiator stream 0 (height 31), epoch 0, 20 wire bytes
+Initiator stream 1 (height 30), epoch 0, 20 wire bytes
   frame 0 (15 bytes) / Supply(End) /
-[0, 7, 63_0(<<63_0(<<53846_1(h'77'), 1>>)>>)]
-  frame 1 (3 bytes) / End(Stream) /
-[0, 9]
-Initiator stream 1 (height 30), epoch 0, 8 wire bytes
-  frame 0 (3 bytes) / End(Reply) /
-[1, 8]
+[1, 7, 63_0(<<63_0(<<53846_1(h'77'), 1>>)>>)]
   frame 1 (3 bytes) / End(Stream) /
 [1, 9]

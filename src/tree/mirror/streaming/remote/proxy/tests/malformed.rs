@@ -10,12 +10,12 @@ use crate::link::{Acceptor, Done, Link, MemoryAcceptor, MemoryConnector, MemoryL
 use crate::testing::{IoSide, run_to_quiescence};
 use crate::tree::{
     Root as TreeRoot, Tree,
-    arb::early_first_child_dispute_pair,
+    arb::{early_first_child_dispute_pair, leaf_parent_dispute_pair},
     mirror::streaming::remote::{
         Error as RemoteError,
         codec::{
             DecodeErrorKind as CodecDecodeErrorKind, DecodeSignalError, End, Flow, ListingIssue,
-            Signal,
+            Signal, Stream,
         },
         streams::StreamError,
     },
@@ -88,23 +88,23 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 
 /// A signal placed in a forbidden stream phase is a typed placement failure.
 ///
-/// The injected state is a continuing `Match` aimed at the opening-supply
-/// stream — whose grammar admits only supplies and ends — and the
-/// receiving proxy retains the exact placement rejection through the full
-/// stack. The corrupt side must be the elected *initiator*: its first
-/// data frame is an opening supply, the stream the mutated state must
-/// land in.
+/// The injected state is a continuing `Query` aimed at the initiator's
+/// leaf-parent stream, whose grammar admits no nonempty query (nothing lies
+/// below a leaf to ask about), and the receiving proxy retains the exact
+/// placement rejection through the full stack. The corrupt side must be the
+/// elected *initiator*, the only speaker on that stream, and the pair's
+/// dispute must reach the leaf parents so that the stream carries a frame.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
-    let (left, right) = deep_pair();
+    let (left, right, _) = leaf_parent_dispute_pair();
     let writer = if harness::left_initiates(&left, &right) {
         IoSide::Left
     } else {
         IoSide::Right
     };
     let script = Script::new(
-        FrameSelector::First,
-        FrameMutation::State(Signal::Match(Flow::Continue).state()),
+        FrameSelector::Stream(Stream::MAX),
+        FrameMutation::State(Signal::Query(Flow::Continue).state()),
     );
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,

@@ -790,40 +790,49 @@ fn async_eof_distinguishes_close_from_truncation() {
 
 /// An invalid async signal consumes only its own frame, leaving the
 /// following valid frame at the next exact boundary.
+///
+/// The invalid signal is one the other speaker may place on the same
+/// stream, so only this speaker's phase grammar rejects it.
 #[test]
 fn async_invalid_signal_does_not_consume_a_body() {
     for speaker in SPEAKERS {
-        let (stream, other, invalid_signal, valid_signal, valid_frame) = match speaker {
-            Speaker::Initiator => (
-                stream(0),
-                Speaker::Responder,
-                Signal::Match(Flow::Continue),
-                Signal::End(End::Stream),
-                Frame::End(End::Stream),
-            ),
-            Speaker::Responder => (
-                stream(Stream::MAX),
-                Speaker::Initiator,
-                Signal::Match(Flow::Continue),
-                Signal::End(End::Reply),
-                Frame::End(End::Reply),
-            ),
-        };
-        WireSignal::new(other, stream, invalid_signal).expect("valid for the other speaker");
-        WireSignal::new(speaker, stream, valid_signal).expect("valid for this speaker");
-        let mut bytes = frame_head(2, stream, invalid_signal);
-        bytes.extend_from_slice(&frame_head(2, stream, valid_signal));
+        let (invalid_stream, valid_stream, other, invalid_signal, valid_signal, valid_frame) =
+            match speaker {
+                // The initiator's first stream admits nothing, so the valid
+                // frame follows on the next stream.
+                Speaker::Initiator => (
+                    stream(0),
+                    stream(1),
+                    Speaker::Responder,
+                    Signal::Match(Flow::Continue),
+                    Signal::End(End::Stream),
+                    Frame::End(End::Stream),
+                ),
+                Speaker::Responder => (
+                    stream(Stream::MAX),
+                    stream(Stream::MAX),
+                    Speaker::Initiator,
+                    Signal::Match(Flow::Continue),
+                    Signal::End(End::Reply),
+                    Frame::End(End::Reply),
+                ),
+            };
+        WireSignal::new(other, invalid_stream, invalid_signal)
+            .expect("valid for the other speaker");
+        WireSignal::new(speaker, valid_stream, valid_signal).expect("valid for this speaker");
+        let mut bytes = frame_head(2, invalid_stream, invalid_signal);
+        bytes.extend_from_slice(&frame_head(2, valid_stream, valid_signal));
         let mut reader = FrameRead::new(speaker, RunBudget::default(), bytes.as_slice());
 
         let error = pollster::block_on(reader.frame()).unwrap_err();
-        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert_eq!(error.origin, Origin::stream(speaker, invalid_stream));
         assert!(matches!(
             error.kind,
             DecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(_))
         ));
         assert_eq!(
             pollster::block_on(reader.frame()).unwrap(),
-            Some((stream, valid_frame)),
+            Some((valid_stream, valid_frame)),
         );
     }
 }

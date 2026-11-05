@@ -29,14 +29,14 @@ use async_stream::try_stream;
 use futures::Stream;
 use tokio::io::AsyncRead;
 
-use super::{ControlRead, Ingress, Work, encode, opening_supplies::OpeningSupplies, queues};
+use super::{ControlRead, Ingress, Work, encode, queues};
 use crate::{
     link::{Acceptor, Connector},
     tree::{
         mirror::streaming::{
             Backend, Leaf,
             channel::{Receiver, Sender},
-            erased::{Reaction, Reply, ops},
+            erased::Reply,
             protocol::{BoxResponses, Requests},
             remote::{
                 adapter::{
@@ -103,10 +103,7 @@ where
     /// The question's content — the remote's root-fan listing — already
     /// crossed inside the greeting, so no wire frame exists at this stage:
     /// the reply and its root scope are synthesized from the retained
-    /// listing. The initiator-direction opening stream carries the remote's
-    /// early supplies instead; the first descending transition claims and
-    /// decodes it against the root-level requests it answers, so the root
-    /// merge-join below never waits on the supply bulk.
+    /// listing.
     pub fn initiator(&mut self) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
         let (mut next_scopes, scopes) =
             queues::next_scopes(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
@@ -124,53 +121,34 @@ where
     }
 
     /// Proxy the responder opening and return its lower scope queue.
-    pub fn opening_responder<C: Connector>(
+    pub fn opening_responder(
         &mut self,
         requests: impl Requests<B, UnderRoot>,
         incoming: StreamReceiver,
-        outgoing: StreamSender<C>,
     ) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
         let requests = requests.erase();
         let (local_questions, questions) =
             queues::local_questions(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
-        let remote_listing = std::mem::take(&mut self.remote_listing);
-        self.spawn(encode::opening(
-            self.backend(),
-            self.budget,
+        self.spawn(encode::opening::<B>(
             requests,
             local_questions,
-            outgoing,
-            remote_listing,
             self.progress,
         ));
         let (next_scopes, scopes) = queues::next_scopes(
             UnderUnderRoot::HEIGHT,
             self.window.capacity(UnderUnderRoot::HEIGHT),
         );
-        let responses = self.decode_pump(
-            questions,
-            incoming,
-            next_scopes,
-            None,
-            UnderUnderRoot::HEIGHT,
-        );
+        let responses = self.decode_pump(questions, incoming, next_scopes, UnderUnderRoot::HEIGHT);
         (self.respond::<UnderRoot>(responses), scopes)
     }
 
     /// Proxy one ordinary two-height transition and return its lower scopes.
-    ///
-    /// `opening_supplies` is armed only on the first initiator-representing
-    /// transition: there, each of the local responder's root-level requests
-    /// pairs its (empty) wire reply with the whole node the remote supplied at
-    /// the opening, exploded into the per-child supplies the walk absorbs — the
-    /// same reply shape a wire-borne answer would have carried.
     pub fn internal_replies<C: Connector, H>(
         &mut self,
         requests: impl Requests<B, S<S<H>>>,
         scopes: Receiver<Scope>,
         incoming: StreamReceiver,
         outgoing: StreamSender<C>,
-        opening_supplies: Option<StreamReceiver>,
     ) -> (BoxResponses<B, S<H>, Error<B::Error>>, Receiver<Scope>)
     where
         H: Height,
@@ -191,13 +169,7 @@ where
             <S<H>>::HEIGHT,
         ));
         let (next_scopes, scopes) = queues::next_scopes(H::HEIGHT, self.window.capacity(H::HEIGHT));
-        let responses = self.decode_pump(
-            questions,
-            incoming,
-            next_scopes,
-            opening_supplies,
-            H::HEIGHT,
-        );
+        let responses = self.decode_pump(questions, incoming, next_scopes, H::HEIGHT);
         (self.respond::<S<H>>(responses), scopes)
     }
 
@@ -205,63 +177,25 @@ where
     /// transition: pair each flushed local question with its decoded wire
     /// reply, publishing the reply before the lower scopes derived from it.
     ///
-    /// `height` is the derived scopes' height. `opening_supplies` arms the
-    /// opening-supply pairing (see
-    /// [`internal_replies`](Self::internal_replies)); the opening
-    /// responder and every deeper stage pass `None`.
+    /// `height` is the derived scopes' height.
     fn decode_pump(
         &mut self,
         mut questions: Receiver<Scope>,
         mut incoming: StreamReceiver,
         mut next_scopes: Sender<Scope>,
-        opening_supplies: Option<StreamReceiver>,
         height: usize,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
         let progress = self.progress;
         let ingress = self.ingress();
         try_stream! {
-            let mut opening = opening_supplies
-                .map(|receiver| OpeningSupplies::new(ingress.clone(), receiver));
             while let Some(scope) = questions.recv().await {
-                // A conforming initiator sends the root-level request's content
-                // at the opening and leaves this pairing reply empty. If it
-                // also sends supplies here, they precede the opening children;
-                // the materialized walk rejects duplicates by radix.
-                let opening_supply = (opening.is_some() && scope.is_request()).then(|| {
-                    let parent = scope.parent();
-                    let (root, radix) = parent.pop();
-                    (parent, root, radix)
-                });
-                let Decoded {
-                    mut reply,
-                    questions,
-                } = ingress.decode(scope, &mut incoming).await?;
-                let opening_node = match (opening.as_mut(), opening_supply) {
-                    (Some(opening), Some((parent, root, radix))) => opening
-                        .advance_to(root, radix)
-                        .await?
-                        .map(|node| (parent, node)),
-                    _ => None,
-                };
-                if let Some((parent, node)) = opening_node {
-                    let children = ops::children_of(&ingress.backend, parent, node)
-                        .await
-                        .map_err(|error| Error::Decode(DecodeError::Backend(error)))?;
-                    reply.reactions.extend(
-                        children
-                            .into_iter()
-                            .map(|(radix, child)| Reaction::Supply(radix, child)),
-                    );
-                }
+                let Decoded { reply, questions } = ingress.decode(scope, &mut incoming).await?;
                 yield_reply_scopes!(
                     progress, height + 1, questions.len();
                     yield reply;
                     next_scopes => questions;
                 );
-            }
-            if let Some(opening) = &mut opening {
-                opening.finish().await?;
             }
             reject_extra(&mut incoming).await?;
         }

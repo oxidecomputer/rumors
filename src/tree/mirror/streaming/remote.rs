@@ -36,14 +36,9 @@
 //! content — the initiator's root-fan listing — rides the greeting on the
 //! control stream (see [`message::Greeting`](super::message::Greeting)
 //! for the trade), so the elected responder answers one hop earlier. The
-//! initiator-direction opening stream instead carries the *early
-//! supplies*: the initiator's exclusive root children, shipped whole in
-//! one supplies-only reply the moment the greetings cross — the answers
-//! to root-level requests the responder is provably about to make, one
-//! hop and one decomposition level ahead of being asked. The stream opens
-//! exactly when that exclusive set is nonempty, and the responder's
-//! matching empty queries are answered by empty replies: pairing
-//! intact, content relocated.
+//! initiator-direction opening stream therefore carries nothing; root
+//! children only the initiator holds cross as ordinary supplies, answering
+//! the responder's empty queries for them.
 //!
 //! [`adapter`] retains the question scope omitted from protocol replies. It
 //! attaches each newly asked scope to the exact outgoing frame which makes the

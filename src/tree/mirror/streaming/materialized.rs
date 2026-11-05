@@ -109,7 +109,6 @@ use crate::tree::{
 };
 use before::Version;
 use futures::{Stream, StreamExt, future::BoxFuture};
-use tokio::sync::oneshot;
 
 mod error;
 pub(super) mod progress;
@@ -267,25 +266,12 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     fan: Vec<(u8, B::Erased)>,
 }
 
-/// A one-shot result passed from the opening pump to the first internal stage.
-///
-/// The opening owns the producer. The first internal stage takes this receiver;
-/// deeper stages have no opening result.
-pub(crate) enum OpeningHandoff<E> {
-    /// Root children the initiator supplied before the responder asked.
-    Supplies(oneshot::Receiver<Vec<(u8, Vec<(u8, E)>)>>),
-    /// Initiator-owned root children already pruned against the peer's version.
-    Survivors(oneshot::Receiver<Vec<(u8, Option<E>)>>),
-}
-
 /// The remote tree properties retained from its greeting.
 struct PeerSummary {
     /// The peer's causal version, used to bound supplies and join ceilings.
     version: Version,
     /// The peer's declared message count and maximum encoded version size.
     size: ReplicaSize,
-    /// The peer's root-fan listing, consumed by the elected initiator.
-    listing: Vec<(u8, Hash)>,
 }
 
 impl PeerSummary {
@@ -294,7 +280,6 @@ impl PeerSummary {
         Self {
             version: greeting.version,
             size: ReplicaSize::new(greeting.set_len, greeting.max_version_bytes),
-            listing: greeting.listing,
         }
     }
 }
@@ -303,8 +288,6 @@ impl PeerSummary {
 struct Opening<B: Backend<Node<Z>: Leaf>> {
     /// The peer's causal version, retained through the descent.
     peer_version: Version,
-    /// The peer's root-fan listing, used only by an elected initiator.
-    peer_listing: Vec<(u8, Hash)>,
     /// The session-total allowance for supplies received from the peer.
     ledger: SupplyLedger,
     /// The joined ceiling assigned to reconstructed nodes.
@@ -334,8 +317,6 @@ where
     queries: Receiver<Query<B::Erased>>,
     /// One resolved scope per query, in query order, to the stage above.
     returns: Sender<Option<B::Erased>>,
-    /// Opening-only state, consumed by the first descent stage.
-    opening: Option<OpeningHandoff<B::Erased>>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
     work: Work<B>,
@@ -519,7 +500,6 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
         let work = Work::new(self.backend, window, self.stats);
         Opening {
             peer_version: peer.version,
-            peer_listing: peer.listing,
             ledger,
             ceiling,
             fan,
@@ -542,14 +522,12 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let Opening {
             peer_version,
-            peer_listing,
             ledger,
             ceiling,
             fan,
             mut work,
         } = self.open();
-        let (responses, queries, returns, early, finish) =
-            work.initiator_level(peer_version.clone(), ceiling, fan, peer_listing);
+        let (responses, queries, returns, finish) = work.initiator_level(ceiling, fan);
 
         (
             responses,
@@ -558,7 +536,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
                 ledger,
                 queries,
                 returns,
-                opening: Some(OpeningHandoff::Survivors(early)),
                 work,
                 finish,
                 height: PhantomData,
@@ -577,14 +554,13 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connec
     ) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let Opening {
             peer_version,
-            peer_listing: _,
             ledger,
             ceiling,
             fan,
             mut work,
         } = self.open();
-        let (responses, queries, returns, early, finish) =
-            work.responder_level(peer_version.clone(), ledger.clone(), ceiling, fan, requests);
+        let (responses, queries, returns, finish) =
+            work.responder_level(peer_version.clone(), ceiling, fan, requests);
 
         (
             responses,
@@ -593,7 +569,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connec
                 ledger,
                 queries,
                 returns,
-                opening: Some(OpeningHandoff::Supplies(early)),
                 work,
                 finish,
                 height: PhantomData,
@@ -630,7 +605,6 @@ where
         let (responses, queries, upper, lower) = self.work.internal_level::<H>(
             self.their_version.clone(),
             self.ledger.clone(),
-            self.opening.take(),
             requests,
             self.queries,
         );
@@ -644,7 +618,6 @@ where
                 ledger: self.ledger,
                 queries,
                 returns,
-                opening: None,
                 work: self.work,
                 finish: self.finish,
                 height: PhantomData,

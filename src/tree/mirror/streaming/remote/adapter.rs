@@ -26,13 +26,10 @@
 //! exception to “one reply answers one earlier question”: it seeds the
 //! root scope directly, and its question occupies no wire frame because
 //! the listing rides the greeting
-//! ([`Greeting`](super::super::message::Greeting)). [`opening_parts`]
-//! validates the local reply's query-then-supplies shape and splits off
-//! the early supplies that do cross; [`opening_reply`] replays the
-//! peer's listing as the message the responder answers. The early
-//! supplies travel as one supplies-only reply, decoded incrementally by
-//! [`early_supplies`] so each whole root child surfaces the moment its
-//! records complete.
+//! ([`Greeting`](super::super::message::Greeting)). [`opening_listing`]
+//! validates the local opening's one-query shape and returns its listing;
+//! [`opening_reply`] replays the peer's listing as the message the
+//! responder answers.
 //!
 //! Encoding attaches a newly created scope to the exact frame containing its
 //! `Query`. [`Encoded::write_with`] releases that scope only after the supplied
@@ -78,8 +75,8 @@ mod encode;
 mod error;
 mod scope;
 
-pub use decode::{Decoded, decode_leaf_reply, decode_reply, early_supplies, opening_reply};
-pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_parts};
+pub use decode::{Decoded, decode_leaf_reply, decode_reply, opening_reply};
+pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_listing};
 #[cfg(test)]
 use error::ScopeError;
 pub use error::{DecodeError, EncodeError, OpeningError};

@@ -609,8 +609,12 @@ fn every_branching_depth_matches_join() {
     }
 }
 
-/// Multiple disputes at deep heights use more than one queue slot, while
-/// reversed stream arrivals preserve both peers' reconciliation results.
+/// Multiple disputes at deep heights use more than one queue slot.
+///
+/// A reordering acceptor finds nothing to reverse: each side opens a data
+/// stream only after its peer's previous stream has delivered a frame, so a
+/// conforming session's stream arrivals are causally ordered. The zero
+/// count is a tripwire for any stream that opens without that dependency.
 #[test]
 fn deep_queues_use_the_wider_window() {
     let mut pair = Divergence::new((0..16).map(|child| root_prefix(child, 31)), [2, 3]);
@@ -624,16 +628,14 @@ fn deep_queues_use_the_wider_window() {
             let session = Session {
                 capacity: 4096,
                 window: Window::uniform(width),
-                // Hold the initiator's opening supply while its opposite
-                // acceptor keeps reading. That allows a later stream to
-                // arrive before the opening stream is delivered.
                 reorder: if swap { [3, 1] } else { [1, 3] },
             };
             let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
             observed.assert_reach(31);
-            assert!(
-                observed.inversions.iter().sum::<usize>() > 0,
-                "no stream arrivals were reversed"
+            assert_eq!(
+                observed.inversions,
+                [0, 0],
+                "stream arrivals are causally ordered, so none can be reversed"
             );
             let peak = observed
                 .queues
@@ -692,8 +694,11 @@ proptest! {
     }
 
     /// Nested disputes progress beside exclusive root supplies and an entirely
-    /// redacted shared subtree, with reordered arrivals and delayed flushes
-    /// extending through the complete descent.
+    /// redacted shared subtree, with delayed flushes extending through the
+    /// complete descent.
+    ///
+    /// The exclusive root children travel as ordinary supplies, so the
+    /// initiator never writes its unused opening stream.
     #[test]
     fn nested_disputes_with_supplies_match_join(
         (outer, inner) in (1usize..31).prop_flat_map(|outer| (Just(outer), outer + 1..32)),
@@ -726,10 +731,8 @@ proptest! {
             prop_assert_eq!(observed.io[side].delayed_polls,
                 observed.io[side].flushes * usize::from(delay));
         }
-        prop_assert!(observed.sent.iter().any(|sent| sent.0.lock().unwrap().iter().any(|frame|
+        prop_assert!(!observed.sent.iter().any(|sent| sent.0.lock().unwrap().iter().any(|frame|
             matches!(frame, StreamId::Data { speaker: Role::Initiator, index: 0 })
-        )), "no opening subtree supplies");
-        // Actual reversal is guaranteed by the dedicated wide fixture; this
-        // family also includes schedules with no simultaneous arrivals.
+        )), "the initiator wrote its unused opening stream");
     }
 }

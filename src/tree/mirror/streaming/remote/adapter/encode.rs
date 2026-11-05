@@ -48,19 +48,15 @@ impl Encoded {
 /// A fallible stream containing the wire frames of one protocol reply.
 pub type Frames<E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> + Send>>;
 
-/// Validate the initiator's distinguished opening reply and split it into
-/// its question's listing and its early whole-subtree supplies.
+/// Validate the initiator's distinguished opening reply and return its
+/// question's listing.
 ///
-/// The opening *question* writes no frame of its own — its content already
-/// crossed inside the greeting's root-fan listing — so its encoding reduces
-/// to checking the canonical shape (one leading query, then only supplies)
-/// and returning the listing whose scope will interpret the responder's
-/// top-level reply. The trailing supplies are the initiator's exclusive
-/// root children; they alone occupy wire frames, as the opening-supply
-/// reply on the initiator's first stream.
-pub fn opening_parts<E>(
-    reply: Reply<E>,
-) -> Result<(Vec<(u8, Hash)>, Vec<ProtocolReaction<E>>), OpeningError> {
+/// The opening writes no frame of its own: its one query's content already
+/// crossed inside the greeting's root-fan listing. Its encoding therefore
+/// reduces to checking the canonical shape, exactly one query, and
+/// returning the listing whose scope will interpret the responder's
+/// top-level reply.
+pub fn opening_listing<E>(reply: Reply<E>) -> Result<Vec<(u8, Hash)>, OpeningError> {
     let mut reactions = reply.reactions.into_iter();
     let Some(first) = reactions.next() else {
         return Err(OpeningError::Empty);
@@ -68,15 +64,10 @@ pub fn opening_parts<E>(
     let ProtocolReaction::Query(listing) = first else {
         return Err(OpeningError::NotQuery);
     };
-    let supplies: Vec<_> = reactions.collect();
-    if let Some(index) = supplies
-        .iter()
-        .position(|reaction| !matches!(reaction, ProtocolReaction::Supply(_, _)))
-    {
-        // Positions are reported in whole-reply terms; the query is 0.
-        return Err(OpeningError::NotSupply { index: index + 1 });
+    if reactions.next().is_some() {
+        return Err(OpeningError::Trailing);
     }
-    Ok((listing, supplies))
+    Ok(listing)
 }
 
 /// Encode one non-leaf reply and derive the lower questions it asks.

@@ -320,7 +320,10 @@ where
             ReplyCorruption::UncontainedSupply => {
                 // Appended past the honest reply, which covers the whole
                 // held fan, so the supply is structurally valid and only
-                // its escaped version is at fault. Radix 0xff assumes no
+                // its escaped version is at fault. The initiator's opening
+                // is the exception: it admits no supply at all, so there
+                // the supply is out of place (`InvalidSupply`) before its
+                // version is examined. Radix 0xff assumes no
                 // fixture holds that child; the assertion above keeps that
                 // premise attached to the injection.
                 reply

@@ -6,7 +6,7 @@ use proptest::prelude::*;
 
 use super::{
     fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair},
-    floor_start, streaming_mirror_sides,
+    floor_start, left_initiates, streaming_mirror_sides,
 };
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::testing::run_to_quiescence;
@@ -75,12 +75,23 @@ fn connected_violation(
 
 /// Every scripted reply corruption is detected at every ordinary walk phase,
 /// in either orientation, and attributed to its receiver.
+///
+/// The initiator's opening admits no supply, so an escaped supply there is
+/// out of place before its version is examined.
 #[test]
 fn connected_violations_are_classified_exhaustively() {
+    let (client_root, server_root) = full_depth_comb_pair(2, LeafOrder::Interleaved);
+    let client_initiates = left_initiates(&client_root, &server_root);
     for &corruption in ReplyCorruption::ALL {
         for steps in 0..=LAST_WALK_REPLY {
-            let violation = corruption.violation();
             for fault_client in [false, true] {
+                let at_initiator_opening = steps == 0 && fault_client == client_initiates;
+                let violation = match corruption {
+                    ReplyCorruption::UncontainedSupply if at_initiator_opening => {
+                        Violation::InvalidSupply
+                    }
+                    _ => corruption.violation(),
+                };
                 let result = connected_violation(corruption, steps, fault_client);
                 let actual = match (fault_client, result) {
                     (false, Err(MirrorError::Client(MaterializedError::Violation(actual))))

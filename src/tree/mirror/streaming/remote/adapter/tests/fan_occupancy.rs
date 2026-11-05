@@ -5,7 +5,7 @@
 //! full channel plus the record held by the reader. A paced source confirms
 //! that the probe measures actual occupancy rather than returning a constant.
 
-use futures::{Stream, StreamExt, TryStreamExt, stream};
+use futures::{Stream, StreamExt, stream};
 
 use before::Version;
 
@@ -18,14 +18,14 @@ use crate::{
             remote::codec::{Frame, LeafRun, Reaction as WireReaction},
             window::{FAN, SUPPLY_RECORDS_PER_STREAM},
         },
-        typed::{Path, Prefix},
+        typed::Path,
     },
 };
 
 use super::super::{
     Scope,
     decode::{decode_reply_one_slot, fan_probe},
-    decode_reply, early_supplies,
+    decode_reply,
 };
 use super::{codec, reply_frames, unbounded, uniform_version};
 
@@ -126,40 +126,6 @@ fn eager_decode_occupancy_pins_the_charged_ceiling() {
         "peak resident decoded records must equal the charged ceiling: one full \
          fan channel plus the record in the reader's hand, the per-stream shape \
          SUPPLY_DECODE_ENVELOPE_BYTES prices",
-    );
-}
-
-/// Eager opening-supply decoding reaches the same `FAN + 1` ceiling.
-///
-/// This separately checks the jointly driven opening path.
-#[test]
-fn eager_early_supplies_ride_the_same_ceiling() {
-    let leaves = leaves(4 * FAN as u64);
-    let runtime = super::runtime();
-    fan_probe::reset();
-    runtime.block_on(async {
-        let assembled: Vec<_> = early_supplies::<Local, _>(
-            Local,
-            u64::MAX,
-            unbounded(),
-            Prefix::new().erase(),
-            stream::iter(frames(&leaves)),
-            codec(),
-        )
-        .try_collect()
-        .await
-        .expect("ascending in-scope leaves assemble");
-        assert!(
-            !assembled.is_empty(),
-            "the eager reply supplies real groups"
-        );
-    });
-    assert_eq!(
-        fan_probe::peak(),
-        SUPPLY_RECORDS_PER_STREAM,
-        "peak resident decoded records on the early-supply path must equal the \
-         charged ceiling, the same per-stream shape SUPPLY_DECODE_ENVELOPE_BYTES \
-         prices for every reply stream",
     );
 }
 

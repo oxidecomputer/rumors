@@ -1,6 +1,5 @@
 ---
 source: src/tree/mirror/streaming/remote/codec/tests/error_atlas.rs
-assertion_line: 128
 expression: build_atlas()
 ---
 ENCODE
@@ -345,11 +344,11 @@ DECODE
     origin: Responder stream 8
     kind: TrailingBytes(count=1)
     source[0]: 1 trailing bytes follow the frame
-  placement/opening-supplies/decode
-    display: Initiator stream 0: match followed by another reaction on stream 0 is invalid for the initiator's opening supplies
+  placement/unused-opening-stream/decode
+    display: Initiator stream 0: match followed by another reaction on stream 0 is invalid for the initiator's unused opening stream
     origin: Initiator stream 0
-    kind: InvalidSignal::Placement(stream=0, signal=Match(Continue), class=OpeningSupplies)
-    source[0]: match followed by another reaction on stream 0 is invalid for the initiator's opening supplies
+    kind: InvalidSignal::Placement(stream=0, signal=Match(Continue), class=Unused)
+    source[0]: match followed by another reaction on stream 0 is invalid for the initiator's unused opening stream
   placement/leaf-parent/decode
     display: Initiator stream 16: query followed by another reaction on stream 16 is invalid for the initiator's leaf-parent replies
     origin: Initiator stream 16

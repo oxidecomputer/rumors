@@ -15,13 +15,14 @@ use super::super::encode::encode;
 use super::super::frame::{Frame, LeafRun, Reaction};
 use super::super::signal::Flow;
 
-/// Encode one supply frame carrying `payload` as a single record on
-/// stream 0, the harness-reachable shape a captured frame arrives in.
+/// Encode one initiator supply frame carrying `payload` as a single record
+/// on stream 1, an interior stream: the harness-reachable shape a captured
+/// frame arrives in.
 fn supply_frame(payload: &Message) -> (Stream, Vec<u8>) {
     let mut run = LeafRun::new();
     run.push(&Version::new(), payload)
         .expect("one record fits a fresh run");
-    let stream = Stream::new(0).expect("stream 0 names a stream");
+    let stream = Stream::new(1).expect("stream 1 names a stream");
     let frame = (stream, Frame::Reaction(Reaction::Supply(run), Flow::End));
     let mut bytes = Vec::new();
     encode(Speaker::Initiator, &frame, &mut bytes).expect("a supply frame encodes");

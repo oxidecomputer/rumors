@@ -1,14 +1,9 @@
-//! Question-ownership and lazy-establishment pins for the supply-only
-//! opening.
+//! Question-ownership pins for the descent.
 //!
-//! The opening's early supplies are Left-arm-only: they answer, and never
-//! ask. The property that admits them — and that any rework of the opening
-//! must preserve — is that **every scope has exactly one question-owner**:
-//! for any node the descent visits, exactly one side ever asks a question
-//! about it. These tests pin the observable consequences on the wire: a
-//! divergent root child draws exactly one nonempty `Query` frame in the
-//! whole session, and a session whose initiator holds no exclusive root
-//! children never opens the opening-supply stream at all.
+//! Every scope has exactly one question-owner: for any node the descent
+//! visits, exactly one side ever asks a question about it. These tests pin
+//! the observable consequence on the wire: a divergent root child draws
+//! exactly one nonempty `Query` frame in the whole session.
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -137,11 +132,10 @@ fn divergent_root_child_has_one_question_owner() {
          exclusive, supplied without being asked"
     );
 
-    // The initiator's fan is covered by the responder's listing, so the
-    // early set is empty and the opening-supply stream never exists on the
-    // wire: lazy establishment, pinned from the capture's stream census.
+    // The opening question rides the greeting, so the initiator's first
+    // stream stays unused: pinned from the capture's stream census.
     assert!(
         !capture.contains("Initiator stream 0 (height 31)"),
-        "an empty early set opens no opening-supply stream"
+        "the initiator never opens its unused stream 0"
     );
 }

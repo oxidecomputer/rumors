@@ -165,7 +165,7 @@ fn understated_version_bytes_fail_the_session() {
 /// have completed; this test constrains only the receiver's diagnosis.
 ///
 /// Reducing the smaller side's declaration preserves its initiator role, so
-/// its early supplies reach this check on the opening stream.
+/// its supplies answering the responder's requests reach this check.
 #[test]
 fn understated_set_len_fails_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -192,34 +192,27 @@ fn understated_set_len_fails_the_session() {
     }
 }
 
-/// A divergent pair of four messages against eight, on distinct parties:
-/// the four-message side wins the initiator election, and its whole
-/// exclusive content rides the opening-supply stream as one reply.
-fn opening_bulk_pair() -> (TreeRoot, TreeRoot) {
-    let (large, small) = harness::disjoint_pair(8, 4);
-    (small, large)
-}
-
 /// A `set_len` mismatch surfacing *within* one still-open reply fails at the
 /// offending record, at ingress.
 ///
-/// The zero-declaration case above trips at a reply's first record; here
-/// the heard declaration admits one leaf while the initiator's
-/// opening-supply reply carries four, so the overrun surfaces
-/// mid-reply. The wire decoder must reject that record before the decoded
-/// subtree reaches the backend. Reducing the smaller side's declaration to a
-/// nonzero value preserves its initiator role.
+/// The zero-declaration case above trips at a reply's first record. Here the
+/// initiator hears the bulk responder's declaration as two, while the
+/// responder's opening reply supplies all of its exclusive root children at
+/// once, so the overrun surfaces at the third record, mid-reply. The wire
+/// decoder must reject that record before the decoded subtree reaches the
+/// backend. A declaration of two still exceeds the initiator's one message,
+/// so the election is unchanged.
 #[test]
 fn set_len_overrun_within_one_reply_fails_at_ingress() {
     for receiver in [IoSide::Left, IoSide::Right] {
-        let (small, large) = opening_bulk_pair();
-        // The receiver holds the large tree and hears the small
-        // (initiating) side's declared length as one.
-        let rewrite = GreetingRewrite::set_len(1);
+        let (small, large) = batched_uneven_pair();
+        // The receiver holds the small tree and hears the bulk
+        // (responding) side's declared length as two.
+        let rewrite = GreetingRewrite::set_len(2);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
             receiver,
-            large,
             small,
+            large,
             rewrite.clone(),
         ))
         .expect("a mid-reply overdrawn supply must terminate both sessions, not stall them");
@@ -228,7 +221,7 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
         assert!(
             matches!(
                 receiver_error,
-                RemoteError::Decode(ReplyDecodeError::OverdrawnSupply { declared: 1 })
+                RemoteError::Decode(ReplyDecodeError::OverdrawnSupply { declared: 2 })
             ),
             "mistyped within-one-reply set_len violation: {receiver_error:?}",
         );

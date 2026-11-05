@@ -8,10 +8,9 @@
 //! [link contract](crate::link), not reconstructed here.
 //!
 //! Streams are established lazily, on both sides, from the same shared
-//! fact: a stream carries answers to questions its receiver asked — or,
-//! for the opening-supply stream, to the root-level requests the two
-//! exchanged listings prove are coming — and each side learns whether any
-//! such question exists at a level before it touches the stream. A
+//! fact: a stream carries answers to questions its receiver asked, and each
+//! side learns whether any such question exists at a level before it
+//! touches the stream. A
 //! [`StreamSender`] connects on its first frame — a level that produces no
 //! reply never opens its stream — and a [`StreamReceiver`] claims its
 //! accepted stream on its first read — a level that asks no question never

@@ -237,7 +237,7 @@ fn every_transport_fault_surface_is_reachable() {
     for (operation, unit) in variants {
         // The faulted (left) side must be the elected responder. A destroyed
         // incoming stream reaches Accept only when this endpoint awaits the
-        // initiator's opening supplies.
+        // initiator's replies.
         let (a, b) = stacked_pair();
         let (left, right) = if harness::left_initiates(&a, &b) {
             (b, a)

@@ -1,9 +1,8 @@
 //! Background work accumulated by the remote protocol states.
 //!
 //! [`Work`] owns the translation tasks created as the typestate advances.
-//! [`stages`] wires each transition, [`encode`] writes local replies,
-//! [`opening_supplies`] pairs early supplies with their requests, and [`queues`]
-//! owns the internal channel capacities. The terminal operation drives these
+//! [`stages`] wires each transition, [`encode`] writes local replies, and
+//! [`queues`] owns the internal channel capacities. The terminal operation drives these
 //! tasks with the stream acceptor and incoming error route.
 
 use std::io::Cursor;
@@ -40,7 +39,6 @@ use crate::{
 use self::progress::Progress;
 
 mod encode;
-mod opening_supplies;
 pub(super) mod progress;
 mod queues;
 mod stages;
@@ -121,13 +119,9 @@ where
     window: Window,
     /// Byte budget for each outgoing supply run.
     budget: RunBudget,
-    /// The remote greeting's root-fan listing, consumed by whichever role
-    /// the election assigns.
-    ///
-    /// [`initiator`](Self::initiator) replays it as the remote's opening
-    /// question; [`opening_responder`](Self::opening_responder) merges the
-    /// local opening's listing against it to decide whether the
-    /// early-supply stream opens.
+    /// The remote greeting's root-fan listing, which
+    /// [`initiator`](Self::initiator) replays as the remote's opening
+    /// question when the remote initiates.
     remote_listing: Vec<(u8, Hash)>,
     /// Transport and error reporting shared by the tasks.
     physical: Physical<R, W, A>,

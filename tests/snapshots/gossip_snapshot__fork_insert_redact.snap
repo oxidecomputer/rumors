@@ -58,15 +58,10 @@ control item 1 (160 bytes) / greeting /
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Initiator stream 0 (height 31), epoch 0, 21 wire bytes
-  frame 0 (16 bytes) / Supply(End) /
-[0, 7, 63_0(<<63_0(<<53846_1(h'5dc0'), 4>>)>>)]
-  frame 1 (3 bytes) / End(Stream) /
-[0, 9]
-Initiator stream 1 (height 30), epoch 0, 11 wire bytes
+Initiator stream 1 (height 30), epoch 0, 24 wire bytes
   frame 0 (3 bytes) / End(Reply) /
 [1, 8]
-  frame 1 (3 bytes) / End(Reply) /
-[1, 8]
+  frame 1 (16 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'5dc0'), 4>>)>>)]
   frame 2 (3 bytes) / End(Stream) /
 [1, 9]

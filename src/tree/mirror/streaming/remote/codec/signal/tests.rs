@@ -4,7 +4,7 @@ use std::fmt::Write;
 use super::*;
 
 /// Protocol-valid signal placements in either speaker direction.
-const VALID_PLACEMENTS: [usize; 2] = [162, 163];
+const VALID_PLACEMENTS: [usize; 2] = [158, 163];
 
 /// The state roster is a bijection between the ten signals and the state
 /// codes 0 through 9; every other code is reserved.
@@ -113,7 +113,7 @@ fn invalid_placement_snapshot() {
 
 fn expected_class(speaker: Speaker, index: u8) -> StreamClass {
     match (speaker, index) {
-        (Speaker::Initiator, 0) => StreamClass::OpeningSupplies,
+        (Speaker::Initiator, 0) => StreamClass::Unused,
         (Speaker::Responder, 0) => StreamClass::OpeningReply,
         (Speaker::Initiator, Stream::MAX) => StreamClass::LeafParentReplies,
         (Speaker::Responder, Stream::MAX) => StreamClass::TerminalLeafReplies,
@@ -123,7 +123,7 @@ fn expected_class(speaker: Speaker, index: u8) -> StreamClass {
 
 fn placement_is_valid(speaker: Speaker, index: u8, signal: Signal) -> bool {
     match (speaker, index) {
-        (Speaker::Initiator, 0) => matches!(signal, Signal::Supply(_) | Signal::End(_)),
+        (Speaker::Initiator, 0) => false,
         (Speaker::Responder, 0) => true,
         (Speaker::Initiator, Stream::MAX) => !matches!(signal, Signal::Query(_)),
         (Speaker::Responder, Stream::MAX) => {

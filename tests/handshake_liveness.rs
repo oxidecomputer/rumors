@@ -205,14 +205,13 @@ async fn divergent_session(a_window: WindowChoice, b_window: WindowChoice) {
     );
 }
 
-/// Bulk initiator: the smaller side holds many exclusive root children, so
-/// its opening supplies cross a stream the responder drains only while its
-/// own opening reply is still flushing.
+/// Bulk initiator: the smaller side holds many exclusive root children,
+/// which cross as supplies answering the responder's root-level requests
+/// while the responder's opening reply may still be flushing.
 ///
 /// One extra message on the other side makes the bulk holder the smaller
 /// set, so the size election routes it into the initiator role
-/// deterministically, and every early-supply frame dwarfs the one-byte
-/// window.
+/// deterministically, and every supply frame dwarfs the one-byte window.
 async fn bulk_initiator_session() {
     let (a, b) = seasoned_pair(WindowChoice::Floor, WindowChoice::Floor).await;
     let converged_len = a.snapshot().len();
@@ -413,7 +412,7 @@ fn divergent_asymmetric_windows() {
     ));
 }
 
-/// A V2 session whose initiator ships bulk opening supplies stays live
+/// A V2 session whose initiator supplies bulk root children stays live
 /// over a one-byte-window link and converges both replicas.
 #[test]
 fn bulk_initiator() {

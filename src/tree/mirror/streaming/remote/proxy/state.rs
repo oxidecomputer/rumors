@@ -216,12 +216,6 @@ where
     /// pins this queue to the stage that consumes it at the right height,
     /// and every scope's parent prefix carries the runtime witness.
     scopes: Receiver<Scope>,
-    /// The remote initiator's opening-supply stream (`None` below the
-    /// stage right after the opening, the one whose scopes are root-level).
-    ///
-    /// The receiver claims its transport stream on first read, so a
-    /// session without early supplies never touches it.
-    early: Option<StreamReceiver>,
     /// The stage's height, phantom (`fn() -> H` for the auto-trait
     /// shortcut; see [`typed::Node`](crate::tree::typed::Node)).
     height: PhantomData<fn() -> H>,
@@ -298,18 +292,16 @@ where
 {
     type Next = Descending<B, UnderRoot, R, W, C, A>;
 
-    /// Bind the remote initiator's opening supplies and replay its opening.
+    /// Replay the remote initiator's opening.
     ///
-    /// This state binds the lazily claimed supply stream. [`Work::initiator`]
-    /// reconstructs the opening question from the greeting.
+    /// [`Work::initiator`] reconstructs the opening question from the
+    /// greeting; no stream carries it.
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.open(Speaker::Initiator);
-        let early = session.incoming::<UnderRoot>();
         let (responses, scopes) = session.work.initiator();
         let next = Descending {
             session,
             scopes,
-            early: Some(early),
             height: PhantomData,
         };
         (responses, next)
@@ -326,7 +318,8 @@ where
 {
     type Next = Descending<B, UnderUnderRoot, R, W, C, A>;
 
-    /// Bind both opening streams and proxy the local responder's opening.
+    /// Bind the remote responder's opening stream and proxy the local
+    /// initiator's opening.
     ///
     /// [`Work::opening_responder`] owns the encoding and decoding mechanics.
     fn responder(
@@ -335,12 +328,10 @@ where
     ) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.open(Speaker::Responder);
         let incoming = session.incoming::<UnderRoot>();
-        let outgoing = session.outgoing::<UnderRoot>();
-        let (responses, next_scopes) = session.work.opening_responder(requests, incoming, outgoing);
+        let (responses, next_scopes) = session.work.opening_responder(requests, incoming);
         let next = Descending {
             session,
             scopes: next_scopes,
-            early: None,
             height: PhantomData,
         };
         (responses, next)
@@ -368,15 +359,13 @@ where
     ) -> (BoxResponses<B, S<H>, Self::Error>, Self::Next) {
         let incoming = self.session.incoming::<S<H>>();
         let outgoing = self.session.outgoing::<S<S<H>>>();
-        let early = self.early.take();
         let (responses, next_scopes) =
             self.session
                 .work
-                .internal_replies(requests, self.scopes, incoming, outgoing, early);
+                .internal_replies(requests, self.scopes, incoming, outgoing);
         let next = Descending {
             session: self.session,
             scopes: next_scopes,
-            early: None,
             height: PhantomData,
         };
         (responses, next)

@@ -193,9 +193,9 @@ async fn bootstrap_retire_conflict_is_a_violation() {
     }
 }
 
-/// Check ownership of the first supply reply after the greeting.
-#[path = "handshake/opening_supply.rs"]
-mod opening_supply;
+/// Check that every scope the descent visits has one question-owner.
+#[path = "handshake/question_owner.rs"]
+mod question_owner;
 
 /// Check that gossip preserves messages sent after a bootstrap snapshot.
 #[path = "handshake/stale_floor.rs"]

@@ -214,7 +214,8 @@ const SMALL_TARGET: usize = 32;
 ///
 /// At this shape both supply directions ship
 /// their exclusive root-fan subtrees as whole multi-record runs — the
-/// responder in its opening reply, the initiator in its opening supplies —
+/// responder in its opening reply, the initiator in its replies to the
+/// responder's root-level requests —
 /// so the margin self-checks hold per direction and the tuple equalities
 /// discriminate in both directions.
 const BINDING_MESSAGES_PER_SIDE: usize = 512;

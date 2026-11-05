@@ -110,7 +110,8 @@ pub use signal::{End, Flow, Speaker, Stream};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn supply_frame_head(declared: usize) -> Vec<u8> {
     use crate::tree::mirror::cbor;
-    let stream = Stream::new(0).expect("stream 0 is within the stream range");
+    // An interior reply stream, where the initiator may place a supply.
+    let stream = Stream::new(4).expect("stream 4 is within the stream range");
     let mut bytes = Vec::new();
     cbor::write_head(&mut bytes, cbor::MAJOR_ARRAY, 3);
     cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(stream.index()));

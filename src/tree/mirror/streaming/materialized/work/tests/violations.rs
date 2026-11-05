@@ -326,7 +326,6 @@ where
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,
             SupplyLedger::new(u64::MAX),
-            None,
             stream::iter(requests),
             queries,
         );
@@ -392,11 +391,10 @@ proptest! {
     /// Every malformed opening reply is reported as its exact public
     /// `Violation`.
     ///
-    /// The responder's opening leg reads the root question and the
-    /// initiator's early supplies with arms of its own: the opening reply
-    /// is not paired positionally against the held fan, so the resolver
-    /// cannot classify it. An arbitrary held fan and channel poll order
-    /// pin those arms to the taxonomy.
+    /// The responder's opening leg reads the root question with arms of
+    /// its own: the opening reply is not paired positionally against the
+    /// held fan, so the resolver cannot classify it. An arbitrary held fan
+    /// and channel poll order pin those arms to the taxonomy.
     #[test]
     fn opening_fault_reports_exact_violation(
         injection in arb_opening_injection(),
@@ -412,9 +410,8 @@ proptest! {
 /// One deliberately malformed opening reply and the exact violation it
 /// must surface.
 ///
-/// The opening reply is the root question followed by the initiator's
-/// early supplies, in ascending radix order and at radices the responder
-/// does not hold; each shape below breaks one clause of that grammar.
+/// The opening reply is the root question and nothing else; each shape
+/// below breaks that grammar once.
 #[derive(Clone, Copy, Debug)]
 enum OpeningInjection {
     /// The reply stream ends before the opening reply.
@@ -425,21 +422,11 @@ enum OpeningInjection {
     UnfinishedReply,
     /// A `Match`, ahead of the root question or after it.
     Match { trailing: bool },
-    /// A supply ahead of the root question, at a radix this side holds or
-    /// at a fresh one.
-    LeadingSupply { held: bool },
+    /// A supply ahead of the root question or after it, at a radix this
+    /// side holds or at a fresh one.
+    Supply { trailing: bool, held: bool },
     /// A second `Query` after the root question.
     TrailingQuery,
-    /// Two early supplies in descending radix order.
-    DescendingSupplies,
-    /// The same early radix supplied twice.
-    DuplicateSupply,
-    /// An early supply at a radix this side holds.
-    HeldSupply,
-    /// An early supply whose version escapes the declared version.
-    UncontainedSupply,
-    /// An early supply past the declared set length.
-    OverdrawnSupply,
 }
 
 impl OpeningInjection {
@@ -449,22 +436,9 @@ impl OpeningInjection {
             Self::UnaskedReply => Violation::UnaskedReply,
             Self::UnfinishedReply => Violation::UnfinishedReply,
             Self::Match { .. } => Violation::UnexpectedMatch,
-            Self::LeadingSupply { held: true } | Self::HeldSupply => Violation::UnexpectedSupply,
-            Self::LeadingSupply { held: false }
-            | Self::DescendingSupplies
-            | Self::DuplicateSupply => Violation::InvalidSupply,
+            Self::Supply { held: true, .. } => Violation::UnexpectedSupply,
+            Self::Supply { held: false, .. } => Violation::InvalidSupply,
             Self::TrailingQuery => Violation::UnexpectedQuery,
-            Self::UncontainedSupply => Violation::UncontainedSupply,
-            Self::OverdrawnSupply => Violation::OverdrawnSupply,
-        }
-    }
-
-    /// The declared set length the script runs under: spent only where
-    /// the overrun is the fault.
-    fn ledger(self) -> SupplyLedger {
-        match self {
-            Self::OverdrawnSupply => SupplyLedger::new(0),
-            _ => SupplyLedger::new(u64::MAX),
         }
     }
 }
@@ -475,13 +449,9 @@ fn arb_opening_injection() -> impl Strategy<Value = OpeningInjection> {
         Just(OpeningInjection::UnaskedReply),
         Just(OpeningInjection::UnfinishedReply),
         any::<bool>().prop_map(|trailing| OpeningInjection::Match { trailing }),
-        any::<bool>().prop_map(|held| OpeningInjection::LeadingSupply { held }),
+        (any::<bool>(), any::<bool>())
+            .prop_map(|(trailing, held)| OpeningInjection::Supply { trailing, held }),
         Just(OpeningInjection::TrailingQuery),
-        Just(OpeningInjection::DescendingSupplies),
-        Just(OpeningInjection::DuplicateSupply),
-        Just(OpeningInjection::HeldSupply),
-        Just(OpeningInjection::UncontainedSupply),
-        Just(OpeningInjection::OverdrawnSupply),
     ]
 }
 
@@ -489,9 +459,7 @@ fn arb_opening_injection() -> impl Strategy<Value = OpeningInjection> {
 /// whose root fan holds one child per radix in `radixes`.
 ///
 /// The root question matches the held fan exactly, so a script whose
-/// fault lies past the question is answered without a dispute. The
-/// declared version is snapshotted after every contained node is built;
-/// the `UncontainedSupply` script alone ticks past the snapshot.
+/// fault lies past the question is answered without a dispute.
 fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Violation {
     let mut version = Version::new();
     let ours = radixes
@@ -506,16 +474,14 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         .into_iter()
         .map(|(radix, node)| (radix, <Local as Backend>::erase(node)))
         .collect::<Vec<(u8, Erased)>>();
-    let contained = [UnderRoot::node(&mut version), UnderRoot::node(&mut version)];
+    let supplied = UnderRoot::node(&mut version);
     let declared = version.clone();
-    let escaped = UnderRoot::node(&mut version);
 
     let held = *radixes.first().expect("the strategy produces a child");
-    let mut fresh = (0..=u8::MAX).filter(|radix| !radixes.contains(radix));
-    let low = fresh.next().expect("at most eight radices are held");
-    let high = fresh.next().expect("at most eight radices are held");
+    let fresh = (0..=u8::MAX)
+        .find(|radix| !radixes.contains(radix))
+        .expect("at most eight radices are held");
     let question = || Reaction::Query(theirs.clone());
-    let supply = |radix: u8, index: usize| Reaction::Supply(radix, contained[index].clone());
     let one = |reactions: Vec<Reaction<Local, UnderRoot>>| vec![Reply { reactions }];
     let requests = match injection {
         OpeningInjection::UnansweredQuery => Vec::new(),
@@ -530,29 +496,25 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         OpeningInjection::UnfinishedReply => one(Vec::new()),
         OpeningInjection::Match { trailing: false } => one(vec![Reaction::Match]),
         OpeningInjection::Match { trailing: true } => one(vec![question(), Reaction::Match]),
-        OpeningInjection::LeadingSupply { held: true } => one(vec![supply(held, 0), question()]),
-        OpeningInjection::LeadingSupply { held: false } => one(vec![supply(low, 0), question()]),
+        OpeningInjection::Supply {
+            trailing,
+            held: is_held,
+        } => {
+            let radix = if is_held { held } else { fresh };
+            let supply = Reaction::Supply(radix, supplied);
+            if trailing {
+                one(vec![question(), supply])
+            } else {
+                one(vec![supply, question()])
+            }
+        }
         OpeningInjection::TrailingQuery => one(vec![question(), Reaction::Query(Vec::new())]),
-        OpeningInjection::DescendingSupplies => {
-            one(vec![question(), supply(high, 0), supply(low, 1)])
-        }
-        OpeningInjection::DuplicateSupply => one(vec![question(), supply(low, 0), supply(low, 1)]),
-        OpeningInjection::HeldSupply => one(vec![question(), supply(held, 0)]),
-        OpeningInjection::UncontainedSupply => {
-            one(vec![question(), Reaction::Supply(low, escaped)])
-        }
-        OpeningInjection::OverdrawnSupply => one(vec![question(), supply(low, 0)]),
     };
 
     let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
     // The channels the leg publishes into stay open for the run: a closed
     // one ends the leg quietly instead of reporting.
-    let (responses, _asked, _returns, _early, _finish) = work.responder_level(
-        declared.clone(),
-        injection.ledger(),
-        declared,
-        fan,
-        stream::iter(requests),
-    );
+    let (responses, _asked, _returns, _finish) =
+        work.responder_level(declared.clone(), declared, fan, stream::iter(requests));
     reported_violation(work, responses)
 }

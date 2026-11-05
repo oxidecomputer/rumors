@@ -245,6 +245,8 @@ pub enum FrameSelector {
     Query,
     /// The first reaction which ends its reply.
     EndingReaction,
+    /// The first frame on this logical stream index.
+    Stream(u8),
 }
 
 /// One mutation applied to the selected complete frame.
@@ -356,9 +358,12 @@ impl<W> ScriptedWrite<W> {
             }
         }
         let frame_at = self.frame.len() - rest.len();
-        if cbor::read_head(&mut rest).is_err() || cbor::read_head(&mut rest).is_err() {
+        if cbor::read_head(&mut rest).is_err() {
             return;
         }
+        let Ok(stream) = cbor::read_head(&mut rest) else {
+            return;
+        };
         let state_at = self.frame.len() - rest.len();
         let Ok(state) = cbor::read_head(&mut rest) else {
             return;
@@ -378,6 +383,7 @@ impl<W> ScriptedWrite<W> {
                     | Signal::Query(Flow::End)
                     | Signal::Supply(Flow::End))
             ),
+            FrameSelector::Stream(index) => stream.value == u64::from(index),
         };
         if !selected {
             return;

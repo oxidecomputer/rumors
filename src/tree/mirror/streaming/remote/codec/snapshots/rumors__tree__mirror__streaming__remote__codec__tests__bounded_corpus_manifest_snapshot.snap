@@ -4,16 +4,16 @@ expression: manifest
 ---
 Initiator
   stream 00
-    Match(Continue): cases 1 accepted 0 rejected 1 rejection Some(OpeningSupplies) digest 4f808a691382f10c81d6bbad4a2016bf155f36623197b97e3bb47afec194cead
-    Match(End): cases 1 accepted 0 rejected 1 rejection Some(OpeningSupplies) digest c071a92a8fd2403faf107a10ea2b2524296241894869d96a77031e3a804721e4
-    QueryEmpty(Continue): cases 1 accepted 0 rejected 1 rejection Some(OpeningSupplies) digest a50457e609c84942d4ce6fa24c8e0588cb274d594505c16f939f060de9970d44
-    QueryEmpty(End): cases 1 accepted 0 rejected 1 rejection Some(OpeningSupplies) digest bae484b67d98e56926e87f8cd01da5f32d6916125cc0b04bc9b6ebbe02f950b5
-    Query(Continue): cases 32896 accepted 0 rejected 32896 rejection Some(OpeningSupplies) digest 809023b266040d9bbac2bd5d757001ca150238fee2d51cb15cb2456e5e95c9a6
-    Query(End): cases 32896 accepted 0 rejected 32896 rejection Some(OpeningSupplies) digest 71f7caf67dd46a100c6d690a8d6a12737d832610f2aeb5d3053e0d54f0043ff8
-    Supply(Continue): cases 1 accepted 1 rejected 0 rejection None digest 866a1b08cbd5c8f99e52861f75503acfb44b02dce493ce460255092d2b7b58f4
-    Supply(End): cases 1 accepted 1 rejected 0 rejection None digest 15b428f1a105875f33478a953d53f85b569737f2251840beb180784bb5ecdf37
-    End(Reply): cases 1 accepted 1 rejected 0 rejection None digest ada1aabed424ad0b25534d6c7ae4308582fd32e11206f4544b07af311533d82a
-    End(Stream): cases 1 accepted 1 rejected 0 rejection None digest 0556194d4a37fd73b7db5d7a8e8149bbb6ac18408edf2ca6e1c3a1e328dd787c
+    Match(Continue): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest 4f808a691382f10c81d6bbad4a2016bf155f36623197b97e3bb47afec194cead
+    Match(End): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest c071a92a8fd2403faf107a10ea2b2524296241894869d96a77031e3a804721e4
+    QueryEmpty(Continue): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest a50457e609c84942d4ce6fa24c8e0588cb274d594505c16f939f060de9970d44
+    QueryEmpty(End): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest bae484b67d98e56926e87f8cd01da5f32d6916125cc0b04bc9b6ebbe02f950b5
+    Query(Continue): cases 32896 accepted 0 rejected 32896 rejection Some(Unused) digest 809023b266040d9bbac2bd5d757001ca150238fee2d51cb15cb2456e5e95c9a6
+    Query(End): cases 32896 accepted 0 rejected 32896 rejection Some(Unused) digest 71f7caf67dd46a100c6d690a8d6a12737d832610f2aeb5d3053e0d54f0043ff8
+    Supply(Continue): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest df5a88e34e683b0bfe79b3fdbfff8d636a1f437a4cae8fa1ceecc1c3b544117d
+    Supply(End): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest 0fe7a208dfe7d8d74b9b7d080c198f0cd0546a49b629700c85881cda8c3f7e1c
+    End(Reply): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest 0c4da8becd5cf9e35009f7cd50a31772815def24a2ca90abeae05680f4d3b991
+    End(Stream): cases 1 accepted 0 rejected 1 rejection Some(Unused) digest 4a9efb55a0fdd5e600730ce3b0d0cc60d37e93dd50f2dfdeaa19907afa3a38e6
   stream 01
     Match(Continue): cases 1 accepted 1 rejected 0 rejection None digest f3885f71816e09280cfc7e174a804974d69a8b514cce9ba1fe090f8d41b6cad8
     Match(End): cases 1 accepted 1 rejected 0 rejection None digest d0955836b5a9eee3c98025a49b776317eceec67bb4c285035847bf6d764058e8

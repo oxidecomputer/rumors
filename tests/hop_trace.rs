@@ -15,9 +15,8 @@
 //! tracer captures each data pipe's label prefix and renders both speaker
 //! interpretations; which side is initiator is evident from the trace
 //! (the opening question rides the greeting, so the earliest data-stream
-//! writes are the *responder's* opening reply and, when the initiator
-//! holds exclusive root children, the initiator's opening supplies, each
-//! on its own index 0).
+//! write is the *responder's* opening reply on its index 0; the
+//! initiator's index 0 stays unused).
 //!
 //! Run with:
 //!
@@ -137,6 +136,18 @@ impl Trace {
             "every traced event lands on an exact delay multiple"
         );
         millis / DELAY.as_millis() as u64
+    }
+
+    /// Whether `side` opened a data pipe labeled with logical stream `index`.
+    fn opened(&self, side: char, index: u8) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .prefixes
+            .iter()
+            .any(|(pipe, prefix)| {
+                pipe.side == side && pipe.serial != CONTROL && prefix.get(1) == Some(&index)
+            })
     }
 
     /// The delay multiple of the first write on `side`'s data pipe whose
@@ -347,7 +358,7 @@ where
 /// Render the phase a data stream index carries under each speaker role.
 fn describe(index: u8) -> String {
     let as_initiator = match index {
-        0 => "I:opening-supplies(h31)".to_string(),
+        0 => "I:unused".to_string(),
         16 => "I:leaf-parent-replies(h0)".to_string(),
         i => format!("I:interior(h{})", 32 - 2 * usize::from(i)),
     };
@@ -603,16 +614,13 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
 }
 
 /// Traces a pure transfer whose initiator holds exclusive bulk, pinning the
-/// hop ladder of the supply-only opening.
+/// hop ladder of its supplies.
 ///
 /// Derived before running: preamble (hop 1), greetings (hop 2), then the
-/// initiator's opening supplies depart *with* the responder's opening reply
-/// — both writes at hop 2, landing at hop 3 — the initiator's bare empty
-/// reply to the responder's one whole-subtree request lands at hop 4, and
-/// the session epilogue closes at hop 5. The pinned departure is the win:
-/// the initiator's exclusive content is written at hop 2, in the greeting
-/// response window, rather than waiting a further hop for the
-/// responder's request to arrive.
+/// responder's opening reply departs at hop 2, requesting the initiator's
+/// exclusive root child; the initiator's supplies answer it, departing at
+/// hop 3 on its level-2 stream and landing at hop 4; the session epilogue
+/// closes at hop 5. The initiator never writes its unused index 0.
 #[test]
 fn trace_bulk_initiator_session() {
     let (left, right) = transfer_pair();
@@ -621,9 +629,13 @@ fn trace_bulk_initiator_session() {
     assert_eq!(left.snapshot().len(), right.snapshot().len());
     assert_eq!(trace.hops(), 5, "bulk-initiator session hop count");
     assert_eq!(
-        trace.first_write_hop('A', 0),
-        2,
-        "the opening supplies depart in the greeting response window"
+        trace.first_write_hop('A', 1),
+        3,
+        "the supplies answer the responder's request as it arrives"
+    );
+    assert!(
+        !trace.opened('A', 0),
+        "the initiator never opens its unused index 0"
     );
 }
 
