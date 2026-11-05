@@ -230,7 +230,7 @@ proptest! {
         let ledger = Ledger::default();
         let room = ledger.charge(Holding::ParkedReplies, parked_room::<Small>(bound, positions));
         let mut allowance = Allowance::<Small>::new(bound, positions, room);
-        prop_assert!(allowance.price() <= parked_room::<Small>(bound, positions));
+        prop_assert_eq!(allowance.price(), parked_room::<Small>(bound, positions));
 
         let mut chunks: Vec<Reply<Small>> = Vec::new();
         let mut ready: Vec<Reaction<Small>> = Vec::new();
@@ -313,19 +313,21 @@ proptest! {
         );
     }
 
-    /// A fresh allowance's price is at most the room its question sets
-    /// aside, and equal to it unless the bound allows more listing entries
-    /// than a fan for each question the reply can ask.
+    /// A fresh allowance's price is exactly the room its question sets
+    /// aside, for any bound and positions, including bounds whose listing
+    /// exceeds a fan for each question the reply can ask, which both hold
+    /// to that many fans.
     #[test]
-    fn a_fresh_allowance_costs_at_most_its_room((bound, positions) in bounds()) {
+    fn a_fresh_allowance_costs_exactly_its_room((bound, positions) in bounds()) {
         let allowance = Allowance::<Small>::new(bound, positions, Default::default());
         let room = parked_room::<Small>(bound, positions);
+        prop_assert_eq!(allowance.price(), room);
         let questions = min(positions, bound.reactions);
-        if bound.listing <= FAN * questions {
-            prop_assert_eq!(allowance.price(), room);
-        } else {
-            prop_assert!(allowance.price() < room);
-        }
+        prop_assert_eq!(
+            allowance.deliverable().listing,
+            min(bound.listing, FAN * questions),
+            "the listing priced is a fan per question, within the bound",
+        );
     }
 }
 

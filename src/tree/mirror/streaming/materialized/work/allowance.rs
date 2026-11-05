@@ -21,9 +21,10 @@
 //!   can come to what is ready, and each chunk delivered takes what was
 //!   ready out of the price as it takes its own bytes out of the room.
 //! - It returns the room beyond its price after each frame, and the room
-//!   starts at least at its price, so the room covers the price at every
-//!   moment, and each chunk's bytes come out of what the price set aside
-//!   for it.
+//!   starts at its price, since the question priced the room as a fresh
+//!   allowance's price ([`parked_room`]), so the room covers the price at
+//!   every moment, and each chunk's bytes come out of what the price set
+//!   aside for it.
 
 use std::marker::PhantomData;
 use std::mem::size_of;
@@ -75,19 +76,24 @@ pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
 /// price of everything a reply within `bound` can deliver, about `listed`
 /// of the asker's children.
 ///
-/// The chunks are at most one more than the reply's questions, which number
-/// at most `listed.min(bound.reactions)` since a query sits only at a
-/// position the asker listed, and they hold the reply's reactions and
-/// listing entries, and the set of later matches its one match covers,
-/// which needs a listed child for the match and one more to cover. The
-/// bound's reactions count a slot for each child the set covers, so the
-/// set is priced net of those slots ([`covered_set_price`]).
+/// That is the price of a fresh [`Allowance`] for the same bound and
+/// positions, computed by the same code ([`Left::deliverable`]): the room
+/// a question sets aside is exactly what its reply's allowance first
+/// prices, and the reservation holds no parked room its reply could never
+/// use. Before its first frame, a reply can still deliver:
 ///
-/// An [`Allowance`] for the same bound and positions starts at a price no
-/// greater than this: the same terms, but for the listing, which it also
-/// holds to a fan per question that can still come. The two are equal
-/// unless the bound allows more listing entries than that, and the
-/// allowance's first release returns the difference.
+/// - a reaction slot for each the bound allows, at most a fan, one per
+///   radix;
+/// - a question at most for each position the asker listed, since a query
+///   sits only at one, and for each reaction slot;
+/// - at most a fan of listing entries for each of those questions, since a
+///   listing names each child at its own radix, and no more than the
+///   bound's listing;
+/// - the set of later matches its one match covers, if the asker listed
+///   a child for the match and one more to cover, priced net of the slots
+///   the bound's reactions count for the children it covers
+///   ([`covered_set_price`]);
+/// - a chunk for each question, and one more.
 ///
 /// The decoder charges each chunk its own part
 /// ([`parked_bytes`](super::charges::parked_bytes)), which prices the
@@ -97,12 +103,7 @@ pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
 /// together; a chunk that took more would be charged in full and counted
 /// as a shortfall ([`Charge::take`]).
 pub(crate) const fn parked_room<E>(bound: ReplyBound, listed: usize) -> usize {
-    parked_price::<E>(Deliverable {
-        chunks: min(listed, bound.reactions) + 1,
-        reactions: bound.reactions,
-        listing: bound.listing,
-        sets: covered_sets(listed),
-    })
+    parked_price::<E>(Left::opening(bound, listed).deliverable(Ready::NONE))
 }
 
 /// What a frame asked of an [`Allowance`] that it could not give.
@@ -150,7 +151,7 @@ pub(crate) enum Overdraft {
 }
 
 /// What a reply has taken that no delivered chunk holds yet.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 struct Ready {
     /// Their reaction slots: one per reaction, and one per child their
     /// match covers.
@@ -162,6 +163,75 @@ struct Ready {
     /// The children their match covers: none unless the match is among
     /// them and carries a covered set.
     covered: usize,
+}
+
+impl Ready {
+    /// Nothing ready: the state before a reply's first frame and after
+    /// each chunk.
+    const NONE: Self = Self {
+        slots: 0,
+        questions: 0,
+        listing: 0,
+        covered: 0,
+    };
+}
+
+/// What a reply's later frames can still use of the limits its room is
+/// priced on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Left {
+    /// The reaction slots later reactions can take: what the bound leaves,
+    /// and at most one per radix above the floor that the match does not
+    /// cover.
+    reactions: usize,
+    /// The positions later matches and queries can take.
+    positions: usize,
+    /// The listing entries later queries can carry: what the peer's
+    /// grandchild count of the scope leaves.
+    listing: usize,
+    /// Whether the reply's one match can still come.
+    matchable: bool,
+}
+
+impl Left {
+    /// What a reply bounded by `bound` can use before its first frame,
+    /// against a record listing `positions` positions: every slot the
+    /// bound allows, at most one per radix, every position, all the peer's
+    /// count, and its match.
+    const fn opening(bound: ReplyBound, positions: usize) -> Self {
+        Self {
+            reactions: min(bound.reactions, FAN),
+            positions,
+            listing: bound.listing,
+            matchable: true,
+        }
+    }
+
+    /// The most a reply can still deliver to parked chunks: what is
+    /// `ready`, beside the most that can come within these limits.
+    ///
+    /// Later queries sit only at the positions left, and number no more
+    /// than the later reactions; each carries at most a fan of listing
+    /// entries, as the codec decodes every listing. A later match can carry
+    /// one covered set, if two positions are left, for the match and a
+    /// child it covers ([`covered_sets`]); the slots of the children it
+    /// covers are among the later reactions'. Every non-last chunk ends at
+    /// a query, so the chunks number at most the queries ready and to
+    /// come, and one more.
+    const fn deliverable(self, ready: Ready) -> Deliverable {
+        let questions = min(self.positions, self.reactions);
+        let sets = if self.matchable {
+            covered_sets(self.positions)
+        } else {
+            0
+        };
+        Deliverable {
+            chunks: ready.questions + questions + 1,
+            reactions: ready.slots + self.reactions,
+            listing: ready.listing + min(self.listing, FAN * questions),
+            sets: if ready.covered > 0 { 1 } else { 0 } + sets,
+        }
+    }
 }
 
 /// What one reply can still deliver to its parked chunks, which checks each
@@ -226,10 +296,11 @@ impl<E> Allowance<E> {
     /// `positions` positions for its matches and queries, its chunks parked
     /// out of `room`.
     ///
-    /// Its price starts at most at [`parked_room`] of the same bound and
-    /// positions, which is what a question sets aside.
+    /// Its price starts at [`parked_room`] of the same bound and
+    /// positions, which is what a question sets aside: that price is this
+    /// fresh allowance's, which this checks in debug builds.
     pub(crate) fn new(bound: ReplyBound, positions: usize, room: Charge) -> Self {
-        Self {
+        let allowance = Self {
             bound,
             slots: 0,
             listing: 0,
@@ -237,10 +308,16 @@ impl<E> Allowance<E> {
             positions,
             covered: ByteSet::EMPTY,
             matched: false,
-            ready: Ready::default(),
+            ready: Ready::NONE,
             room,
             handles: PhantomData,
-        }
+        };
+        debug_assert_eq!(
+            allowance.left(),
+            Left::opening(bound, positions),
+            "a fresh allowance leaves what parked_room prices",
+        );
+        allowance
     }
 
     /// Whether the reply has taken no reaction slot yet.
@@ -377,7 +454,7 @@ impl<E> Allowance<E> {
             last || self.ready.questions > 0,
             "a chunk that does not end its reply ends at a query",
         );
-        self.ready = Ready::default();
+        self.ready = Ready::NONE;
         let charge = self.room.take(Holding::ParkedReplies, bytes);
         if last {
             drop(std::mem::take(&mut self.room));
@@ -388,8 +465,8 @@ impl<E> Allowance<E> {
     /// Return the room beyond what the reply can still deliver.
     ///
     /// The room covers that much at every moment, which is what lets every
-    /// chunk take its whole price from it: it starts at least at the price,
-    /// the price never grows, and each release returns only the excess.
+    /// chunk take its whole price from it: it starts at the price, the
+    /// price never grows, and each release returns only the excess.
     pub(crate) fn release(&mut self) {
         let beyond = self.room.bytes().saturating_sub(self.price());
         drop(self.room.split(Holding::ParkedReplies, beyond));
@@ -403,22 +480,10 @@ impl<E> Allowance<E> {
     /// The most the reply can still deliver to parked chunks, what it has
     /// taken that no chunk holds yet included.
     ///
-    /// What is ready counts as it was taken. What can come is bounded four
-    /// ways:
-    ///
-    /// - Later reactions number at most the slots the bound leaves, and one
-    ///   per radix above the floor that the match does not cover.
-    /// - Later queries sit only at the positions left, and number no more
-    ///   than the later reactions.
-    /// - Later listing entries number at most what the peer's count leaves
-    ///   and a fan per later query.
-    /// - A later match can carry one covered set, if two positions are
-    ///   left, for the match and a child it covers; the slots of the
-    ///   children it covers are among the later reactions', whose bound and
-    ///   radixes both still count them.
-    ///
-    /// Every non-last chunk ends at a query, so the chunks number at most
-    /// the queries ready and to come, and one more.
+    /// What is ready counts as it was taken; what can come is bounded by
+    /// what the reply leaves of each limit ([`Left::deliverable`]). The
+    /// slots of the children a later match covers are among the later
+    /// reactions', whose bound and radixes both still count them.
     ///
     /// No term grows as the reply goes on. Each spend moves its slots,
     /// position, and entries from what can come to what is ready, and
@@ -428,18 +493,19 @@ impl<E> Allowance<E> {
     /// shrinks the listing left; and each chunk takes what is ready out of
     /// the price.
     pub(crate) fn deliverable(&self) -> Deliverable {
+        self.left().deliverable(self.ready)
+    }
+
+    /// What the reply's later frames can still use of each limit.
+    fn left(&self) -> Left {
         let radixes = self.floor.map_or(FAN, |floor| {
             usize::from(u8::MAX - floor) - self.covered.len_above(floor)
         });
-        let reactions = (self.bound.reactions - self.slots).min(radixes);
-        let questions = self.positions.min(reactions);
-        let listing = self.listing_left().min(FAN * questions);
-        let sets = usize::from(!self.matched && self.positions >= 2);
-        Deliverable {
-            chunks: self.ready.questions + questions + 1,
-            reactions: self.ready.slots + reactions,
-            listing: self.ready.listing + listing,
-            sets: usize::from(self.ready.covered > 0) + sets,
+        Left {
+            reactions: (self.bound.reactions - self.slots).min(radixes),
+            positions: self.positions,
+            listing: self.listing_left(),
+            matchable: !self.matched,
         }
     }
 
