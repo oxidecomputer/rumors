@@ -14,7 +14,7 @@ use crate::causally::{Coverage, Polarity, Query};
 
 use crate::{Version, causally, message::Message};
 
-use super::{Body, Node};
+use super::{Body, Node, View};
 use crate::tree::typed::hash::PATH_LEN;
 
 /// One pending subtree in a walk's frontier.
@@ -311,21 +311,14 @@ impl Leaf {
             .arc::<T>()
     }
 
-    /// Return a leaf node with an empty compressed path.
+    /// View the stored leaf at height zero: its body, with its whole
+    /// compressed path hidden.
     ///
-    /// Height-zero nodes hash an empty suffix. Reuse an already bare node;
-    /// otherwise build one sharing the stored version and payload, leaving
-    /// the original compressed node intact for other readers.
-    pub(crate) fn into_node(self) -> Node {
-        if self.0.inner.prefix.is_empty() {
-            return self.0;
-        }
-        match &self.0.inner.body {
-            Body::Leaf { version, message } => Node::leaf(version.clone(), message.clone()),
-            Body::Branch { .. } => {
-                unreachable!("a Leaf wraps a leaf node, by construction")
-            }
-        }
+    /// Height-zero nodes hash an empty suffix, as the view does. The view
+    /// shares the stored node, so it allocates nothing and leaves the
+    /// stored path intact for other readers.
+    pub(crate) fn into_view(self) -> View {
+        View::body(self.0)
     }
 }
 

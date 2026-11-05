@@ -102,17 +102,16 @@ impl<H: Height> View<H> {
     ///
     /// The walk starts at the stored node and skips compressed spans
     /// ([`untyped::View::leaves`]); descent state is bounded by the tree's
-    /// depth.
+    /// depth. Each leaf is the stored leaf with its whole path hidden
+    /// ([`untyped::Leaf::into_view`]), so the walk allocates nothing per
+    /// leaf: one shared handle each.
     pub(crate) fn leaves(
         self,
         prefix: &Prefix<H>,
     ) -> impl Iterator<Item = (Prefix<Z>, View<Z>)> + Send + use<H> {
-        self.inner.leaves(prefix.as_bytes()).map(|(key, leaf)| {
-            (
-                Prefix::from(key),
-                View::from_untyped(untyped::View::from(leaf.into_node())),
-            )
-        })
+        self.inner
+            .leaves(prefix.as_bytes())
+            .map(|(key, leaf)| (Prefix::from(key), View::from_untyped(leaf.into_view())))
     }
 }
 

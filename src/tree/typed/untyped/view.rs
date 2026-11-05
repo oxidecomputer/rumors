@@ -103,6 +103,13 @@ impl fmt::Debug for View {
 }
 
 impl View {
+    /// View a stored node from below its whole compressed path: its body
+    /// alone, at the height of the body itself.
+    pub(super) fn body(node: Node) -> View {
+        let peeled = Peel::ALL[node.inner.prefix.len()];
+        View { node, peeled }
+    }
+
     /// The visible part of the stored node's path over its body.
     fn shape(&self) -> Shape<'_> {
         let prefix = &self.node.inner.prefix;

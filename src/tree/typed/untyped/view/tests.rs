@@ -116,4 +116,44 @@ proptest! {
             Ok(())
         })?;
     }
+
+    /// Walking a warm tree's leaves as height-zero views allocates as much
+    /// as walking a one-leaf tree's: nothing per leaf.
+    ///
+    /// The walk allocates its own descent buffer alone, though every leaf
+    /// of a full-height tree sits under a compressed path the tree keeps.
+    ///
+    /// Published trees are warm; a cold branch computes its bounds on the
+    /// walk's first read of them, which allocates per branch, not per
+    /// leaf.
+    #[test]
+    fn walking_leaves_allocates_nothing_per_leaf(paths in arb_leaf_paths(64)) {
+        let build = |paths| {
+            let mut entries: Vec<_> = leaves_below([0; 32], 0, paths)
+                .into_iter()
+                .map(|(path, leaf)| (path, Some(leaf)))
+                .collect();
+            let tree = Node::from_sorted_leaves(0, &mut entries);
+            tree.version_bytes();
+            tree
+        };
+        let walk = |tree: &Node| {
+            alloc_meter::measure(|| {
+                View::from(tree.clone())
+                    .leaves(&[])
+                    .fold(0, |walked, (_, leaf)| {
+                        // Each leaf becomes its height-zero view, as the
+                        // backend yields it.
+                        drop(leaf.into_view());
+                        walked + 1
+                    })
+            })
+        };
+        let lone = build([[0; 32]].into_iter().collect());
+        let tree = build(paths.clone());
+        let (one, _) = walk(&lone);
+        let (all, walked) = walk(&tree);
+        prop_assert_eq!(walked, paths.len());
+        prop_assert_eq!(all.bytes_allocated, one.bytes_allocated);
+    }
 }
