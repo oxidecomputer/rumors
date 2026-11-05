@@ -235,12 +235,19 @@ impl Allowances {
     ///
     /// At this budget its ledger admits exactly the largest grant, so it
     /// can always admit any one unit against the budget while every kind
-    /// and depth holds within its bound. Below it, a
-    /// session would run in a starved regime where units race for room,
-    /// and a larger budget can slow a session by more than a round trip;
-    /// a peer raises every requested budget to this
+    /// and depth holds within its bound. No proof needs that room:
+    /// admission admits every unit at every ledger budget, zero included,
+    /// and the budget criterion holds from zero where tested. The room is
+    /// for speed. At a ledger budget of zero, a session admits nothing
+    /// beyond its kinds and depths' bounds, so between large replicas
+    /// that differ throughout it waits far more often. Two replicas of a
+    /// million 100-byte messages that differ throughout, on the test kit's
+    /// simulated link with a 12.5 MB bandwidth-delay product, take about
+    /// 14.5 times as long at this minimum as with no limit, and about 127
+    /// times at a ledger budget of zero beside the same allowances.
+    /// A peer raises every requested budget to this
     /// ([`requested`](Self::requested)), so only the test path's ledger
-    /// budgets reach that regime ([`ledger`](Self::ledger)).
+    /// budgets reach below it ([`ledger`](Self::ledger)).
     ///
     /// The wire pools grow with the target, so the minimum does too: about
     /// two runs at the target in each direction beside a fixed part.

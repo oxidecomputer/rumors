@@ -143,9 +143,8 @@ pub const fn ledger_budget_within(budget: usize) -> usize {
 /// default target), this one sessions run on as given, at the peer's
 /// target as given. So it reaches ledger budgets below the largest grant,
 /// zero included, where sessions pipeline within each kind and depth's
-/// bound alone, and the starved regime the budget analyses probe. The
-/// serial configuration, one unit of each kind and depth at a time, is
-/// [`serial_budget`]'s.
+/// bound alone, which the budget analyses probe. The serial configuration,
+/// one unit of each kind and depth at a time, is [`serial_budget`]'s.
 pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
     bytes: usize,

@@ -57,10 +57,11 @@
 //! an anomaly of the kind Graham showed for greedy list scheduling, where
 //! more resources can lengthen a schedule.
 //!
-//! Those inversions are bounded above the largest grant any unit can take,
-//! `c_max`, the least ledger budget which may be set by the public API. For
-//! every pair of ledger budgets `c_max ≤ B ≤ B′`, with inversions counted
-//! cumulatively, so that every pair is judged and not only adjacent budgets:
+//! Those inversions are bounded at every pair of ledger budgets `0 ≤ B ≤ B′`,
+//! below as well as above the largest grant any unit can take, `c_max`, the
+//! least ledger budget which may be set by the public API, with inversions
+//! counted cumulatively, so that every pair is judged and not only adjacent
+//! budgets:
 //!
 //! - **(a)** on every link, no inversion exceeds one round trip,
 //!   `T(B′) ≤ T(B) + 2δ`;

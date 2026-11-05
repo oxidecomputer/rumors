@@ -5,11 +5,13 @@
 //!
 //! Write `T(B)` for a session's duration at ledger budget `B` (the budget
 //! its ledgers admit work against, beside the floor and session allowances),
-//! `c_max` for the largest grant any unit can take ([`LARGEST_GRANT`]),
 //! `N*` for the session's no-cost point, and `δ` for the link's one-way
-//! delay, so that one round trip is `2δ` on every link. The owner's ruling states what
-//! holds for every pair of ledger budgets `c_max ≤ B ≤ B′`, where a public
-//! budget always leaves the ledger at least `c_max`:
+//! delay, so that one round trip is `2δ` on every link. The owner's ruling
+//! states what holds for every pair of ledger budgets `0 ≤ B ≤ B′`, zero
+//! included: below as well as above the largest grant
+//! ([`LARGEST_GRANT`](rumors::testing::LARGEST_GRANT)), the least ledger
+//! budget a public memory budget leaves, which only the test path's
+//! budgets reach below:
 //!
 //! - **(a)** On every link, no inversion exceeds one round trip:
 //!   `T(B′) ≤ T(B) + 2δ`. Inversions are cumulative, so the claim covers
@@ -47,10 +49,10 @@
 //! which reads that link's `N*`. Then it runs the pair at [`BUDGETS`] budgets
 //! drawn below each link's `N*`: on the latency-only link the first below `D₁`
 //! and the rest at or above it, so every case judges pairs on both sides of the
-//! threshold; on the drawn link all across `[c_max, N*)`. It checks (a) on
-//! every pair of each link's budgets, the unlimited session among them, and (b)
-//! on every latency-only pair whose smaller budget is at least `D₁`. Over the
-//! run, it requires some drawn budget to have slowed its session beyond the
+//! threshold; on the drawn link all across `[0, N*)`. It checks (a) on every
+//! pair of each link's budgets, the unlimited session among them, and (b) on
+//! every latency-only pair whose smaller budget is at least `D₁`. Over the run,
+//! it requires some drawn budget to have slowed its session beyond the
 //! unlimited one, and some pair of two drawn budgets, both below `N*`, so that
 //! the criterion is judged on sessions the budget constrains.
 //!
@@ -61,7 +63,6 @@
 //! unlimited session's.
 
 use proptest::prelude::*;
-use rumors::testing::LARGEST_GRANT;
 use rumors_testkit::bench::link::{LinkConfig, Side};
 use rumors_testkit::bench::session::{
     self as fixture, Case, DatedAdmission, LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Session, Shape,
@@ -85,9 +86,9 @@ const PARTS: u32 = 1 << 16;
 /// The pairs a case draws: messages on each side, and the percent of them
 /// both sides hold.
 ///
-/// The sizes give a no-cost point of about 3–4 `c_max` and a depth-1
-/// claims' total above `c_max`, while keeping a case's sessions inside the
-/// suite's time.
+/// The sizes give a no-cost point of about 5 to 6.5 MB on the
+/// latency-only link and a depth-1 claims' total of about 4 to 5.3 MB,
+/// while keeping a case's sessions inside the suite's time.
 ///
 /// The sizes start high and sharing is capped so that `D₁` stays below the
 /// no-cost point. On the latency-only link that point is then the
@@ -224,22 +225,20 @@ fn check_case(
         .map(|reference| reference.admitted.no_cost_point());
     let threshold = depth1_claims(&references[0]);
     assert!(
-        LARGEST_GRANT < threshold && threshold < no_cost[0],
-        "the premise fails: the depth-1 claims' total {threshold} must lie between c_max \
-         {LARGEST_GRANT} and the no-cost point {}: {shape:?}",
+        0 < threshold && threshold < no_cost[0],
+        "the premise fails: the depth-1 claims' total {threshold} must lie strictly between \
+         zero and the no-cost point {}: {shape:?}",
         no_cost[0],
     );
     assert!(
-        no_cost[1] > LARGEST_GRANT,
-        "the premise fails: the no-cost point {} on the drawn link must exceed c_max \
-         {LARGEST_GRANT}: {shape:?}",
-        no_cost[1],
+        no_cost[1] > 0,
+        "the premise fails: the no-cost point on the drawn link must exceed zero: {shape:?}",
     );
     let latency_budgets: [usize; BUDGETS] = std::array::from_fn(|index| match index {
-        0 => between(LARGEST_GRANT, threshold, latency_parts[index]),
+        0 => between(0, threshold, latency_parts[index]),
         _ => between(threshold, no_cost[0], latency_parts[index]),
     });
-    let link_budgets = link_parts.map(|parts| between(LARGEST_GRANT, no_cost[1], parts));
+    let link_budgets = link_parts.map(|parts| between(0, no_cost[1], parts));
     let swept = fixture::run_all(std::array::from_fn::<_, { 2 * BUDGETS }, _>(|index| {
         if index < BUDGETS {
             case(shape, latency_only, latency_budgets[index])
@@ -276,9 +275,9 @@ fn check_case(
     judged
 }
 
-/// Above the largest grant, a larger budget never costs a session more
-/// than one round trip, on any link, and never costs it anything at or
-/// above its depth-1 claims' total on the latency-only link.
+/// At every budget, zero included, a larger budget never costs a session
+/// more than one round trip, on any link, and never costs it anything at
+/// or above its depth-1 claims' total on the latency-only link.
 ///
 /// This is the criterion the module docs state, measured rather than proven:
 /// (a) on every link, and (b) on the latency-only link alone, since on a link
@@ -286,8 +285,8 @@ fn check_case(
 /// lengthen the session by about one message's serialization.
 ///
 /// Neither half may pass vacuously. Each case premises a constrained
-/// session: its no-cost point exceeds `c_max` on both links, its depth-1
-/// claims' total lies strictly between `c_max` and the no-cost point, so it
+/// session: its no-cost point exceeds zero on both links, its depth-1
+/// claims' total lies strictly between zero and the no-cost point, so it
 /// judges pairs both below and above the threshold, and units wait at every
 /// budget it draws. And over the run, some drawn budget must have slowed
 /// its session beyond the unlimited one, and some pair must hold two drawn
@@ -372,16 +371,15 @@ fn first_burst(session: &Session, side: Option<Side>, start: u64) -> Vec<DatedAd
 /// `D₁` the check that weighed `D₁` refuses its question. The first burst is
 /// every admission the responder's ledger makes before a depth-1 reply can
 /// reach it ([`first_burst`]), and two bursts are compared admission by
-/// admission, each one's time, unit, grant, and whether it waited or took its
-/// floor slot.
+/// admission, each one's time, unit, grant, and whether it waited or was
+/// exempt.
 ///
 /// Each case runs the pair at `D₁` and `D₁ − 1`, which the claim must
-/// separate exactly, and at one budget drawn in `[c_max, D₁ − 1)` and one
+/// separate exactly, and at one budget drawn in `[0, D₁ − 1)` and one
 /// drawn in `(D₁, N*)`. Neither half may pass vacuously: the unlimited
 /// burst must hold depth-1 questions, and `D₁` must lie strictly between
-/// `c_max` and the no-cost point, so that every budget drawn lies where a
-/// public budget can leave the ledger and below the point where nothing
-/// waits.
+/// zero and the no-cost point, so that every budget drawn lies below the
+/// point where nothing waits.
 #[test]
 fn the_first_burst_saturates_at_the_depth1_claims_total() {
     run(
@@ -405,9 +403,9 @@ fn the_first_burst_saturates_at_the_depth1_claims_total() {
             let threshold = depth1_claims(&reference);
             let no_cost = reference.admitted.no_cost_point();
             assert!(
-                LARGEST_GRANT < threshold && threshold < no_cost,
-                "the premise fails: the depth-1 claims' total {threshold} must lie between \
-                 c_max {LARGEST_GRANT} and the no-cost point {no_cost}: {shape:?}",
+                0 < threshold && threshold < no_cost,
+                "the premise fails: the depth-1 claims' total {threshold} must lie strictly \
+                 between zero and the no-cost point {no_cost}: {shape:?}",
             );
             let responder = reference
                 .admitted
@@ -436,7 +434,7 @@ fn the_first_burst_saturates_at_the_depth1_claims_total() {
                 "the unlimited first burst holds several depth-1 questions: {unlimited:?}",
             );
             let budgets = [
-                (between(LARGEST_GRANT, threshold - 1, parts[0]), false),
+                (between(0, threshold - 1, parts[0]), false),
                 (threshold - 1, false),
                 (threshold, true),
                 (between(threshold + 1, no_cost, parts[1]), true),
