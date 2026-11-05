@@ -11,6 +11,8 @@
 //!   trust its timing.
 //! - [`no_slowdown`] checks that a budget of the session's unlimited-budget
 //!   peak leaves the session exactly as it runs with no budget.
+//! - [`budget_sweep`] checks what holds exactly at every budget of a
+//!   ladder, below the no-cost point and above it.
 //! - [`send_buffer`] checks that bytes queued in the sending kernel do not
 //!   slow a session.
 
@@ -21,6 +23,10 @@ mod model;
 /// A budget at the no-cost point against no budget at all.
 #[path = "throughput/no_slowdown.rs"]
 mod no_slowdown;
+
+/// The exact properties of a session across a ladder of budgets.
+#[path = "throughput/budget_sweep.rs"]
+mod budget_sweep;
 
 /// Unsent bytes in the sending kernel against a session's duration.
 #[path = "throughput/send_buffer.rs"]
