@@ -38,7 +38,7 @@
 //! it works on, at every moment, with one exception: a request reply's
 //! charge prices the deletion filter's work by the top node's explosion
 //! only, so a filter that rebuilds deeper nodes holds more than it is
-//! charged.
+//! charged. The session-budget suite holds it to that.
 //!
 //! # What the ledger decides
 //!
@@ -144,7 +144,7 @@ pub(crate) fn buffer<T>(items: &Vec<T>) -> usize {
 }
 
 /// The places a ledger keeps an account for, in [`Holding::ALL`] order.
-const PLACES: usize = 9;
+pub const PLACES: usize = Holding::ALL.len();
 
 /// One endpoint's ledger: a handle onto the account its walk and proxy
 /// share.
@@ -418,6 +418,7 @@ impl Account {
     fn shift(&self, from: Holding, to: Holding, bytes: usize) {
         self.places[place_index(from)].fetch_sub(bytes, Ordering::Relaxed);
         self.places[place_index(to)].fetch_add(bytes, Ordering::Relaxed);
+        observe(self, to, self.held.load(Ordering::Relaxed));
     }
 }
 
@@ -628,7 +629,8 @@ impl std::fmt::Debug for Charge {
 /// or carried by them is made, and reported, under the ledger's admission
 /// queue lock, so a report's `held`, `floor`, `carried` and `floor_bound`
 /// agree with one another. A split moves bytes between places outside that
-/// lock and reports nothing. `short` and `waited` are counted outside the
+/// lock, so its report's `places` can include another thread's change made
+/// as it reports. `short` and `waited` are counted outside the
 /// lock: when the tasks that change the ledger run on several threads, a
 /// report can include a shortfall whose bytes it does not yet show as held,
 /// or miss a wait another thread has just counted. Both are exact when
@@ -644,6 +646,9 @@ pub struct LedgerChange {
     pub place: Holding,
     /// Bytes the ledger holds in all after the change.
     pub held: usize,
+    /// Bytes the ledger holds for each place after the change, in
+    /// [`Holding::ALL`] order.
+    pub places: [usize; PLACES],
     /// Bytes of `held` that charges built out of floor grants hold.
     pub floor: usize,
     /// Bytes of `held` that floor slots carry for charges admitted against
@@ -686,6 +691,8 @@ fn observe(account: &Account, place: Holding, held: usize) {
             ledger: std::ptr::from_ref(account) as usize,
             place,
             held,
+            places: Holding::ALL
+                .map(|place| account.places[place_index(place)].load(Ordering::Relaxed)),
             floor: account.floor.load(Ordering::Relaxed),
             carried: account.carried.load(Ordering::Relaxed),
             short: account.short.load(Ordering::Relaxed),

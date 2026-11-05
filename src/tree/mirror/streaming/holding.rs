@@ -72,7 +72,6 @@ pub enum Holding {
 
 impl Holding {
     /// Every place, in declaration order.
-    #[cfg(any(test, feature = "test-internals"))]
     pub const ALL: [Self; 9] = [
         Self::Questions,
         Self::Resolutions,

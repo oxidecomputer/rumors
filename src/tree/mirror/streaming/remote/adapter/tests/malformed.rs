@@ -130,6 +130,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
         charge: Default::default(),
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -186,6 +187,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
         charge: Default::default(),
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -240,6 +242,7 @@ fn leaf_query_matrix_is_exhaustive() {
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             };
             let encoded = runtime().block_on(async {
                 encode_leaf_reply(

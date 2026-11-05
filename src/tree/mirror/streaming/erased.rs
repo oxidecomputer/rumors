@@ -66,6 +66,9 @@ pub(crate) struct Reply<E> {
     /// which the encoder publishes the record with; on chunks that ask
     /// nothing, or that this side decoded, it holds nothing.
     pub record: Charge,
+    /// The charge for the node copies the chunk's supplies made, returned
+    /// with the chunk's own charge.
+    pub copies: Charge,
 }
 
 /// [`message::Reaction`] with its height forgotten.
@@ -98,6 +101,7 @@ where
         charge: reply.charge,
         last: reply.last,
         record: reply.record,
+        copies: reply.copies,
     }
 }
 
@@ -120,6 +124,7 @@ where
         charge: reply.charge,
         last: reply.last,
         record: reply.record,
+        copies: reply.copies,
     }
 }
 

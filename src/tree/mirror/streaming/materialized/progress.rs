@@ -41,7 +41,13 @@ impl<H: Height> Scoped for Prefix<H> {
 }
 
 /// A leaf request names its scope in its path.
-impl<H: Height> Scoped for (Prefix<H>, crate::tree::mirror::streaming::ledger::Charge) {
+impl<H: Height> Scoped
+    for (
+        Prefix<H>,
+        crate::tree::mirror::streaming::ledger::Charge,
+        crate::tree::mirror::streaming::materialized::Reserved,
+    )
+{
     #[cfg(test)]
     fn scope(&self) -> &[u8] {
         self.0.as_bytes()

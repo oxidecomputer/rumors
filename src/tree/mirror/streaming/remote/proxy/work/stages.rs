@@ -35,7 +35,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::{Receiver, Sender, TrySendError},
         erased,
-        holding::{Holding, holding},
+        holding::{Holding, held_by, holding},
         ledger::Charge,
         protocol::{BoxResponses, Requests},
         remote::{
@@ -44,7 +44,7 @@ use crate::tree::{
             pipe::PipeRead,
             proxy::{Error, send_or_cancel},
         },
-        tasks::cancelled,
+        tasks::{TaskRole, cancelled},
     },
     typed::height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
 };
@@ -79,7 +79,9 @@ where
         let mut edge = LeafEdge::new();
         while let Some((answered, record)) = questions.recv().await {
             asked = true;
-            let answered = Arc::new(answered);
+            // The record's shared allocation is the record's own, charged
+            // with it.
+            let answered = held_by(Holding::QuestionRecords, || Arc::new(answered));
             let mut opens = Some((answered.clone(), record));
             let mut gone = false;
             let mut deliver = |chunk| {
@@ -152,7 +154,7 @@ where
     ) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
         let requests = requests.erase();
         let (local_questions, questions) = queues::local_questions(UnderRoot::HEIGHT);
-        self.spawn(holding(
+        self.spawn(TaskRole::Encoder.paced(holding(
             Holding::Wire,
             encode::opening::<B>(
                 requests,
@@ -160,7 +162,7 @@ where
                 self.ingress.root_grandchildren,
                 self.progress,
             ),
-        ));
+        )));
         let (next_scopes, scopes) = queues::next_scopes(UnderUnderRoot::HEIGHT);
         let responses = self.respond::<UnderRoot>(questions, Some(next_scopes), self.progress);
         (responses, scopes)
@@ -180,7 +182,7 @@ where
         let requests = requests.erase();
         let outgoing = self.outgoing::<S<S<H>>>();
         let (local_questions, questions) = queues::local_questions(<S<H>>::HEIGHT);
-        self.spawn(holding(
+        self.spawn(TaskRole::Encoder.paced(holding(
             Holding::Wire,
             encode::replies(
                 self.backend(),
@@ -192,7 +194,7 @@ where
                 self.progress,
                 <S<H>>::HEIGHT,
             ),
-        ));
+        )));
         let (next_scopes, scopes) = queues::next_scopes(H::HEIGHT);
         let responses = self.respond::<S<H>>(questions, Some(next_scopes), self.progress);
         (responses, scopes)
@@ -207,7 +209,7 @@ where
         let requests = requests.erase();
         let outgoing = self.outgoing::<S<Z>>();
         let (local_questions, questions) = queues::local_questions(Z::HEIGHT);
-        self.spawn(holding(
+        self.spawn(TaskRole::Encoder.paced(holding(
             Holding::Wire,
             encode::replies(
                 self.backend(),
@@ -219,7 +221,7 @@ where
                 self.progress,
                 Z::HEIGHT,
             ),
-        ));
+        )));
         let (next_scopes, scopes) = queues::next_scopes(Z::HEIGHT);
         let responses = self.respond::<Z>(questions, Some(next_scopes), self.progress);
         (responses, scopes)
@@ -269,7 +271,7 @@ where
         let requests = requests.erase();
         let outgoing = self.outgoing::<Z>();
         let (local_questions, questions) = queues::local_questions(Z::HEIGHT);
-        self.spawn(holding(
+        self.spawn(TaskRole::Encoder.paced(holding(
             Holding::Wire,
             encode::terminal(
                 self.backend(),
@@ -280,7 +282,7 @@ where
                 Some(encode::Records::new(local_questions)),
                 self.progress.terminal(),
             ),
-        ));
+        )));
         let responses = self.respond::<Z>(questions, None, self.progress.terminal());
         let completion = async move {
             let ((), read, write) = self.execute(async { Ok(()) }).await?;

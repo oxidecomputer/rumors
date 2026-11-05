@@ -58,7 +58,7 @@ pub(super) fn requests<E: Send + 'static>(
 }
 
 /// `chunk` as one chunk per reaction, the last ending the reply if `chunk`
-/// does and carrying its charge and its record's charge, which belongs to
+/// does and carrying its charges, which belongs to
 /// the question a walk's chunk ends at; an empty chunk stays one empty
 /// chunk.
 fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
@@ -67,6 +67,7 @@ fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
         charge,
         last,
         record,
+        copies,
     } = chunk;
     if reactions.is_empty() {
         return vec![Reply {
@@ -74,16 +75,17 @@ fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
             charge,
             last,
             record,
+            copies,
         }];
     }
     let count = reactions.len();
-    let mut ending = Some((charge, record));
+    let mut ending = Some((charge, record, copies));
     reactions
         .into_iter()
         .enumerate()
         .map(|(index, reaction)| {
             let ends = index + 1 == count;
-            let (charge, record) = if ends {
+            let (charge, record, copies) = if ends {
                 ending.take().unwrap_or_default()
             } else {
                 Default::default()
@@ -93,6 +95,7 @@ fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
                 charge,
                 last: last && ends,
                 record,
+                copies,
             }
         })
         .collect()

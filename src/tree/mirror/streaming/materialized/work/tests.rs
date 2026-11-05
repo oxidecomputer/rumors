@@ -92,7 +92,7 @@ proptest! {
         let buffered = buffered && !dropped;
         let messages = stream::iter(
             buffered.then_some(Ok(Reply {
-                reactions: Vec::new(), charge: Default::default(), last: true, record: Default::default(),
+                reactions: Vec::new(), charge: Default::default(), last: true, record: Default::default(), copies: Default::default(),
             })).into_iter().chain([Err(Error::Violation(Violation::UnaskedReply))]),
         );
         let responses = work.respond::<Z>(messages);
@@ -165,6 +165,7 @@ fn fills_pendings_in_order() {
         ],
         charge: Default::default(),
         kept: Default::default(),
+        copies: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],
@@ -199,6 +200,7 @@ fn ready_none_is_deletion() {
         ],
         charge: Default::default(),
         kept: Default::default(),
+        copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
 
@@ -221,6 +223,7 @@ fn empty_resolution_assembles_to_none() {
         resolved: vec![],
         charge: Default::default(),
         kept: Default::default(),
+        copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -235,6 +238,7 @@ fn all_deleted_resolution_assembles_to_none() {
         resolved: vec![(1, Resolve::Ready(None)), (2, Resolve::Ready(None))],
         charge: Default::default(),
         kept: Default::default(),
+        copies: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -255,12 +259,14 @@ fn chains_two_instances() {
         ],
         charge: Default::default(),
         kept: Default::default(),
+        copies: Default::default(),
     })];
     let upper: Vec<Item> = vec![Ok(Resolution {
         prefix: parent_prefix(3).pop().0.erase(),
         resolved: vec![(3, Resolve::Pending)],
         charge: Default::default(),
         kept: Default::default(),
+        copies: Default::default(),
     })];
 
     let chained = assemble::<Local>(
@@ -308,6 +314,7 @@ fn level_error_passes_through() {
         resolved: vec![(1, Resolve::Pending)],
         charge: Default::default(),
         kept: Default::default(),
+        copies: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],

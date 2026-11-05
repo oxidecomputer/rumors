@@ -271,10 +271,10 @@ pub trait ErasedNode {
     /// in-memory backend's copy of a shared compressed node.
     ///
     /// A session reads this before it explodes the node, to charge the
-    /// memory the explosion will hold, and in test builds reports it for a
-    /// meter to hold against what the listing allocates. It must not fall
-    /// short of what the listing allocates, and it never exceeds
-    /// [`MAX_EXPLOSION_BYTES`](Self::MAX_EXPLOSION_BYTES).
+    /// memory the explosion will hold. It must not fall short of what the
+    /// listing allocates; the session-budget suite holds the in-memory
+    /// backend's answer to exactly the bytes its listings allocate. It
+    /// never exceeds [`MAX_EXPLOSION_BYTES`](Self::MAX_EXPLOSION_BYTES).
     fn explosion_bytes(&self) -> usize;
 
     /// The most [`explosion_bytes`](Self::explosion_bytes) reports for any

@@ -16,7 +16,7 @@ use crate::tree::mirror::streaming::{
     erased::{Reaction, Reply},
     holding::Holding,
     ledger::{Charge, ReplyBound, Unit, buffer, queued, shared},
-    materialized::{Error, Query, Resolution, Resolve},
+    materialized::{Error, Query, Reserved, Resolution, Resolve},
     message::{Grandchildren, Listed},
     remote::{Parked, Scope},
 };
@@ -26,6 +26,8 @@ use crate::tree::typed::{
 };
 
 use super::LeafRequest;
+#[cfg(any(test, feature = "test-internals"))]
+use super::answer::{Planned, Question};
 
 /// The bytes an outgoing reply holds while it waits for its consumer: its
 /// slot in the response queue, its reactions, and the listing each query
@@ -71,6 +73,7 @@ where
         charge: Charge::default(),
         last,
         record,
+        copies: Charge::default(),
     };
     reply.charge = grant.take(Holding::OutgoingReplies, reply_bytes::<B>(&reply));
     reply
@@ -85,19 +88,21 @@ fn chunk_bound<E, Err>(reactions: usize, listing: usize) -> usize {
 }
 
 /// A resolution of `resolved` at `prefix`, built out of `grant` for its
-/// queue slot and slots, and keeping `kept` until its assembly.
+/// queue slot and slots, and keeping `copies`, the node copies exploding
+/// its node made, until its assembly.
 pub(super) fn resolution<E>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
     resolved: Vec<(u8, Resolve<E>)>,
-    kept: Charge,
+    copies: Charge,
 ) -> Resolution<E> {
     let bytes = queued::<Resolution<E>>() + buffer(&resolved);
     Resolution {
         prefix,
         resolved,
         charge: grant.take(Holding::Resolutions, bytes),
-        kept,
+        kept: Charge::default(),
+        copies,
     }
 }
 
@@ -108,21 +113,42 @@ pub(crate) fn parent_resolution<E>(bound: ReplyBound) -> usize {
     queued::<Resolution<E>>() + bound.reactions * size_of::<(u8, Resolve<E>)>()
 }
 
+/// The part of a reservation the reply's chunks take while they park.
+///
+/// They are at most one chunk more than the reply's questions, which number
+/// at most `listed.min(bound.reactions)` since a query sits only at a
+/// position the asker listed, and they hold the reply's reactions and
+/// listing entries.
+pub(crate) fn parked_room<E>(bound: ReplyBound, listed: usize) -> usize {
+    (listed.min(bound.reactions) + 1) * queued::<Parked<E>>()
+        + bound.reactions * size_of::<Reaction<E>>()
+        + bound.listing * size_of::<Listed>()
+}
+
+/// The part of a reservation the records the take derives take: one queue
+/// slot per question the reply can ask, beside the reply's listing entries'
+/// radices and counts.
+pub(crate) fn records_room(bound: ReplyBound, listed: usize) -> usize {
+    listed.min(bound.reactions) * queued::<Scope>()
+        + bound.listing * size_of::<(u8, Grandchildren)>()
+}
+
 /// The room a question listing `listed` children sets aside for the peer's
 /// reply bounded by `bound`: the reply's chunks parked, the records its take
 /// derives, and the parent resolution the stage builds.
-///
-/// A query sits only at a position the asker listed, so the reply asks at
-/// most `listed.min(bound.reactions)` questions; the decoder parks at most
-/// one more chunk than that, and the records together hold at most the
-/// reply's listing entries.
 pub(crate) fn reservation<E>(bound: ReplyBound, listed: usize) -> usize {
-    let questions = listed.min(bound.reactions);
-    let parked = (questions + 1) * queued::<Parked<E>>()
-        + bound.reactions * size_of::<Reaction<E>>()
-        + bound.listing * size_of::<Listed>();
-    let records = questions * queued::<Scope>() + bound.listing * size_of::<(u8, Grandchildren)>();
-    parked + records + parent_resolution::<E>(bound)
+    parked_room::<E>(bound, listed) + records_room(bound, listed) + parent_resolution::<E>(bound)
+}
+
+/// The room, built out of `grant`, a question listing `listed` children
+/// sets aside for the reply `bound` bounds, each part charged to the place
+/// its items take.
+fn reserve<E>(grant: &mut Charge, bound: ReplyBound, listed: usize) -> Reserved {
+    Reserved {
+        parked: grant.take(Holding::ParkedReplies, parked_room::<E>(bound, listed)),
+        records: grant.take(Holding::QuestionRecords, records_room(bound, listed)),
+        slots: grant.take(Holding::Resolutions, parent_resolution::<E>(bound)),
+    }
 }
 
 /// The bytes the record of a question listing `listed` children holds.
@@ -152,22 +178,24 @@ pub(super) fn query<E>(
     bound: ReplyBound,
     copies: usize,
 ) -> Query<E> {
-    let held = queued::<Query<E>>() + buffer(&ours) + copies;
-    let room = reservation::<E>(bound, ours.len());
+    let held = queued::<Query<E>>() + buffer(&ours);
     Query {
         prefix,
         charge: grant.take(Holding::Questions, held),
-        reservation: grant.take(Holding::ParkedReplies, room),
+        copies: grant.take(Holding::ExplodedNodes, copies),
+        reservation: reserve::<E>(grant, bound, ours.len()),
         ours,
         bound,
     }
 }
 
-/// The charge, built out of `grant`, for one leaf request in its queue,
-/// with the room its reply, one supplied leaf, sets aside.
-pub(super) fn leaf_request<E>(grant: &mut Charge) -> Charge {
-    let bytes = queued::<LeafRequest>() + reservation::<E>(ReplyBound::LEAF, 0);
-    grant.take(Holding::ParkedReplies, bytes)
+/// The charges, built out of `grant`, for one leaf request's queue slot and
+/// the room its reply, one supplied leaf, sets aside.
+pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved) {
+    (
+        grant.take(Holding::Questions, queued::<LeafRequest>()),
+        reserve::<E>(grant, ReplyBound::LEAF, 0),
+    )
 }
 
 /// The most an answer's own unit holds, before its scope is explored.
@@ -298,4 +326,64 @@ pub(crate) fn floor_allowance<E: ErasedNode, Err>() -> usize {
         sides[1 - asker] += slot_bound::<E, Err>(Unit::Answer, depth);
     }
     sides[0].max(sides[1])
+}
+
+/// The most one logical stream's stage, encoder, and decoder hold for
+/// `place` beyond its ledger charges at once.
+///
+/// These are the buffers they fill while they build items they charge only
+/// once built, or keep a moment after their charge returns. Every term
+/// counts requested bytes, as the ledger's charges and the allocation meter
+/// both do, so the allocator's rounding enters neither side of the
+/// comparison it allows for.
+///
+/// Each term is computed from the types it covers, so it follows them:
+///
+/// - Every channel keeps the node of the last item taken from it as its
+///   queue's stub until the channel drops, after that item's charge has
+///   returned: one node of the place's item type per channel of the place.
+///   A stream's questions travel one channel; its resolutions two, the
+///   child and the parent ones; its outgoing replies one; its parked chunks
+///   one; its records two, the decoder's queue and the take's scopes.
+/// - [`Holding::Resolutions`]: an answer's plan, one entry per child either
+///   side holds, at most two fans, in a vector at most twice its length.
+/// - [`Holding::OutgoingReplies`]: a chunk's reactions, allocated before
+///   its question is admitted with one slot spare, at most two fans and
+///   one; and a question's listing, a fan of entries, built before the
+///   chunk carrying it is charged.
+/// - [`Holding::ParkedReplies`]: a decoder's ready reactions and its open
+///   group's runs, a fan of each, in vectors at most twice their length.
+/// - [`Holding::QuestionRecords`]: a take's derived scopes for one chunk, a
+///   fan, in a vector at most twice its length; and the record an encoder
+///   still holds for the reply it writes after its asker's reservation
+///   returned, a scope with a fan of radices and counts.
+///
+/// The exploded nodes' place is charged before each explosion the walk
+/// makes; the greeting's copy of the root, made before any unit is
+/// admitted, is the one copy no unit charges.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) fn scratch<E, Err>(place: Holding) -> usize {
+    match place {
+        Holding::Questions => queued::<Query<E>>().max(queued::<LeafRequest>()),
+        Holding::Resolutions => {
+            2 * queued::<Resolution<E>>() + 2 * 2 * FAN * size_of::<Planned<E, Question<E>>>()
+        }
+        Holding::OutgoingReplies => {
+            queued::<Result<Reply<E>, Error<Err>>>()
+                + (2 * FAN + 1) * size_of::<Reaction<E>>()
+                + FAN * size_of::<Listed>()
+        }
+        Holding::ParkedReplies => {
+            queued::<Parked<E>>()
+                + 2 * FAN * (size_of::<Reaction<E>>() + size_of::<(u8, ErasedPrefix)>())
+        }
+        Holding::QuestionRecords => {
+            queued::<(Scope, Charge)>()
+                + queued::<Scope>()
+                + 2 * FAN * size_of::<Scope>()
+                + size_of::<Scope>()
+                + FAN * size_of::<(u8, Grandchildren)>()
+        }
+        _ => 0,
+    }
 }

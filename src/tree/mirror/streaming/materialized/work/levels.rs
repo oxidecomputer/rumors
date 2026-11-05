@@ -250,7 +250,7 @@ where
             // holds is already known; any other supply is out of place.
             let mut theirs = None;
             loop {
-            let Reply { reactions, charge: received, last, record } = next_chunk(&mut requests).await?;
+            let Reply { reactions, charge: received, last, record, copies } = next_chunk(&mut requests).await?;
             for reaction in reactions {
                 match reaction {
                     Reaction::Query(listing) => {
@@ -271,7 +271,7 @@ where
             // The chunk is used up, so its charges return now, before the
             // stage waits for the next one: the peer's admission may wait on
             // them.
-            drop((received, record));
+            drop((received, record, copies));
             if last {
                 break;
             }
@@ -408,7 +408,7 @@ where
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
-                let Reply { reactions, charge: received, last, record } = chunk;
+                let Reply { reactions, charge: received, last, record, copies } = chunk;
                 for reaction in reactions {
                     let Some(Dispute {
                         child_prefix,
@@ -437,7 +437,7 @@ where
                                 .collect()
                         });
                         let mut reply = charges::reply::<B>(&mut grant, reactions);
-                        reply.charge.absorb(grant.take(Holding::OutgoingReplies, copies));
+                        reply.copies = grant.take(Holding::ExplodedNodes, copies);
                         drop(grant);
                         yield_ready!(
                             progress, child_prefix;
@@ -496,7 +496,7 @@ where
                 // The chunk is used up, so its charges return now, before
                 // the stage waits for the next one: the peer's admission may
                 // wait on them.
-                drop((received, record));
+                drop((received, record, copies));
                 if last {
                     break;
                 }
@@ -566,7 +566,7 @@ where
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
-                let Reply { reactions, charge: received, last, record } = chunk;
+                let Reply { reactions, charge: received, last, record, copies } = chunk;
                 for reaction in reactions {
                     let Some(Dispute {
                         child_prefix,
@@ -595,7 +595,7 @@ where
                                 .collect()
                         });
                         let mut reply = charges::reply::<B>(&mut grant, reactions);
-                        reply.charge.absorb(grant.take(Holding::OutgoingReplies, copies));
+                        reply.copies = grant.take(Holding::ExplodedNodes, copies);
                         drop(grant);
                         yield_ready!(
                             progress, child_prefix;
@@ -642,7 +642,7 @@ where
                 // The chunk is used up, so its charges return now, before
                 // the stage waits for the next one: the peer's admission may
                 // wait on them.
-                drop((received, record));
+                drop((received, record, copies));
                 if last {
                     break;
                 }
@@ -704,17 +704,17 @@ where
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
-                    let Reply { reactions, charge: received, last, record } = chunk;
-                    for reaction in reactions {
-                        let Some(Dispute {
-                            child_prefix,
-                            radix,
-                            node,
-                            listing,
-                        }) = resolver.react(reaction)?
-                        else {
-                            continue;
-                        };
+                let Reply { reactions, charge: received, last, record, copies } = chunk;
+                for reaction in reactions {
+                    let Some(Dispute {
+                        child_prefix,
+                        radix,
+                        node,
+                        listing,
+                    }) = resolver.react(reaction)?
+                    else {
+                        continue;
+                    };
 
                         let bytes = charges::supply_bound::<B::Erased, B::Error>(1, 0);
                         let mut grant = account.admit(Unit::Answer, depth(child_prefix), bytes).await;
@@ -728,14 +728,14 @@ where
                         );
                     }
 
-                    // The chunk is used up, so its charges return now, before
-                    // the stage waits for the next one: the peer's admission may
-                    // wait on them.
-                    drop((received, record));
-                    if last {
-                        break;
-                    }
-                    chunk = next_chunk(&mut requests).await?;
+                // The chunk is used up, so its charges return now, before
+                // the stage waits for the next one: the peer's admission may
+                // wait on them.
+                drop((received, record, copies));
+                if last {
+                    break;
+                }
+                chunk = next_chunk(&mut requests).await?;
                 }
                 let resolution = resolver.finish()?;
                 progress.parent_resolution(&resolution);

@@ -60,6 +60,7 @@ fn opening_listing_agrees_with_greeting_replay() {
         charge: Default::default(),
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     };
 
     let local = opening_listing(reply.reactions).expect("canonical opening");
@@ -120,6 +121,7 @@ fn opening_accepts_exactly_one_query() {
             charge: Default::default(),
             last: true,
             record: Default::default(),
+            copies: Default::default(),
         }
     }
 

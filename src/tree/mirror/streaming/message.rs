@@ -281,6 +281,8 @@ pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The charge for the record of the question the chunk ends at, if
     /// any.
     pub(crate) record: Charge,
+    /// The charge for the node copies the chunk's supplies made.
+    pub(crate) copies: Charge,
 }
 
 /// Reactions are positionally keyed against the corresponding

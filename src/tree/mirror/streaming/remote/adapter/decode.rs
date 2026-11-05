@@ -159,6 +159,7 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
             charge: Charge::default(),
             last: true,
             record: Charge::default(),
+            copies: Charge::default(),
         },
         scope,
     )
@@ -283,6 +284,7 @@ where
         charge: Charge::default(),
         last: true,
         record: Charge::default(),
+        copies: Charge::default(),
     })
 }
 
@@ -603,6 +605,7 @@ where
             charge: Charge::default(),
             last,
             record: Charge::default(),
+            copies: Charge::default(),
         }
     }
 }

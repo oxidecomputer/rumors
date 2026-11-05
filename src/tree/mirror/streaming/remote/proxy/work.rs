@@ -33,7 +33,7 @@ use crate::{
                 proxy::{Error, send_or_cancel},
             },
             stats::Recorder,
-            tasks::complete,
+            tasks::{TaskRole, complete},
         },
         typed::height::{Height, Z},
     },
@@ -215,11 +215,13 @@ where
         // The pump decodes into parking, so for the session-budget meter
         // its work is the parked replies' unless it marks otherwise; the
         // take derives question records.
-        self.spawn(holding(
-            Holding::ParkedReplies,
-            self.ingress()
-                .decode_and_park(level, questions, incoming, parking),
-        ));
+        self.spawn(
+            TaskRole::Decoder { height: H::HEIGHT }.paced(holding(
+                Holding::ParkedReplies,
+                self.ingress()
+                    .decode_and_park(level, questions, incoming, parking),
+            )),
+        );
         Box::pin(holding_stream(
             Holding::QuestionRecords,
             async_stream::stream! {

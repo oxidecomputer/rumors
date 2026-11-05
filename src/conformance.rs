@@ -26,6 +26,6 @@ fn timed(
 }
 
 // Compiled as this crate's own gate: the storage-backend boundary is
-// crate-internal; see the module docs' visibility section.
+// crate-internal; see the module docs' Scope section.
 #[cfg(test)]
 pub(crate) mod backend;

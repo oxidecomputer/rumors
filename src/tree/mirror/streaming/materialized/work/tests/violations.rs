@@ -149,6 +149,7 @@ where
             .collect(),
         bound: Default::default(),
         charge: Default::default(),
+        copies: Default::default(),
         reservation: Default::default(),
     };
 
@@ -165,6 +166,7 @@ where
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             }],
         ),
         ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
@@ -177,6 +179,7 @@ where
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             }],
         ),
         ScriptedViolation::UnexpectedMatch => {
@@ -189,6 +192,7 @@ where
                     charge: Default::default(),
                     last: true,
                     record: Default::default(),
+                    copies: Default::default(),
                 }],
             )
         }
@@ -202,6 +206,7 @@ where
                     charge: Default::default(),
                     last: true,
                     record: Default::default(),
+                    copies: Default::default(),
                 }],
             )
         }
@@ -215,6 +220,7 @@ where
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             }],
         ),
         ScriptedViolation::InvalidSupply => {
@@ -225,6 +231,7 @@ where
                     ours: Vec::new(),
                     bound: Default::default(),
                     charge: Default::default(),
+                    copies: Default::default(),
                     reservation: Default::default(),
                 }),
                 vec![Reply {
@@ -235,6 +242,7 @@ where
                     charge: Default::default(),
                     last: true,
                     record: Default::default(),
+                    copies: Default::default(),
                 }],
             )
         }
@@ -244,6 +252,7 @@ where
                 ours: vec![(5, <Local as Backend>::erase(ours[0].1.clone()))],
                 bound: Default::default(),
                 charge: Default::default(),
+                copies: Default::default(),
                 reservation: Default::default(),
             }),
             vec![Reply {
@@ -251,6 +260,7 @@ where
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             }],
         ),
         ScriptedViolation::UncontainedSupply => {
@@ -263,6 +273,7 @@ where
                     ours: Vec::new(),
                     bound: Default::default(),
                     charge: Default::default(),
+                    copies: Default::default(),
                     reservation: Default::default(),
                 }),
                 vec![Reply {
@@ -270,6 +281,7 @@ where
                     charge: Default::default(),
                     last: true,
                     record: Default::default(),
+                    copies: Default::default(),
                 }],
             )
         }
@@ -533,6 +545,7 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
             charge: Default::default(),
             last: true,
             record: Default::default(),
+            copies: Default::default(),
         }]
     };
     let requests = match injection {
@@ -543,12 +556,14 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             },
             Reply {
                 reactions: Vec::new(),
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),

@@ -126,6 +126,7 @@ where
             charge: Default::default(),
             last: true,
             record: Default::default(),
+            copies: Default::default(),
         };
         let expected_questions = case
             .radixes
@@ -496,6 +497,7 @@ fn mixed_reply<H: Height>(
         charge: Default::default(),
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     }
 }
 
@@ -514,6 +516,7 @@ fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
                 charge: Default::default(),
                 last: false,
                 record: Default::default(),
+                copies: Default::default(),
             });
         }
     }
@@ -522,6 +525,7 @@ fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
         charge: reply.charge,
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     });
     chunks
 }

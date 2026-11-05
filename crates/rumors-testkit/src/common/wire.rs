@@ -249,6 +249,22 @@ pub async fn bootstrap_fork_configured<T>(
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
+    bootstrap_fork_then(parent, bootstrap, |peer| budget.apply(peer)).await
+}
+
+/// Join through a configured builder, check the connection drained, and
+/// configure the new peer with `configure` before it starts gossiping.
+///
+/// The general form of [`bootstrap_fork_configured`], for a suite that
+/// sets more of the peer than its budget.
+pub async fn bootstrap_fork_then<T>(
+    parent: &Rumors<T>,
+    bootstrap: Bootstrap<T>,
+    configure: impl FnOnce(Peer<T>) -> Peer<T>,
+) -> Rumors<T>
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
+{
     let (mut parent_end, mut boot_end) = memory_connection(MEMORY_CAPACITY);
 
     let (server_out, boot_out) = tokio::join!(
@@ -256,12 +272,11 @@ where
         bootstrap.join(&mut boot_end.read, &mut boot_end.write),
     );
     server_out.expect("bootstrap server gossip");
-    let forked = budget
-        .apply(match boot_out {
-            rumors::Joined::Joined { peer, .. } => peer,
-            _ => panic!("parent served the bootstrap"),
-        })
-        .into_rumors();
+    let forked = configure(match boot_out {
+        rumors::Joined::Joined { peer, .. } => peer,
+        _ => panic!("parent served the bootstrap"),
+    })
+    .into_rumors();
     assert_connection_drained(parent_end, boot_end);
     forked
 }

@@ -221,6 +221,12 @@ opt-level = 2
 [profile.dev.package.suanpan]
 opt-level = 2
 
+# The session-budget suite classifies tens of millions of traced allocator
+# events in the meter's lifetime analysis, which dominates its execution
+# unoptimized.
+[profile.dev.package.alloc-meter]
+opt-level = 2
+
 # Leaf paths and node hashes are SHA3-256. On x86_64, keccak computes them
 # in software, and unoptimized that costs about 54 µs a hash, which makes
 # the hash-heavy tests several times slower there than on aarch64, whose

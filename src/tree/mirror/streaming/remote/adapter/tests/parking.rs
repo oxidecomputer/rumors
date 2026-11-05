@@ -105,6 +105,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
         charge: Default::default(),
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     };
     let runtime = runtime();
     let scope = Scope::opening_unbounded(&[]);
@@ -172,6 +173,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
         charge: Default::default(),
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     };
 
     let runtime = runtime();

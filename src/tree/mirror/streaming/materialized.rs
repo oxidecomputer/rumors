@@ -133,6 +133,8 @@ pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
 pub(crate) use work::floor_allowance;
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use work::scratch;
 use work::{LeafRequest, Resolver, Work};
 
 pub use error::{Error, Violation};
@@ -220,15 +222,33 @@ pub struct Query<E> {
     /// The bound on the peer's reply, from the grandchild count the peer
     /// gave the node.
     pub(crate) bound: ReplyBound,
-    /// What the question holds: its queue slot, its children, and the node
-    /// copies listing them made. It moves into the parent resolution the
-    /// reply becomes, which keeps those children, and returns at its
-    /// assembly.
+    /// What the question holds: its queue slot and its children. It moves
+    /// into the parent resolution the reply becomes, which keeps those
+    /// children, and returns at its assembly.
     pub(crate) charge: Charge,
+    /// The node copies listing its children made, which the parent
+    /// resolution keeps as well.
+    pub(crate) copies: Charge,
     /// The room set aside for what the peer's reply becomes ([`ledger`]).
     ///
     /// [`ledger`]: super::ledger
-    pub(crate) reservation: Charge,
+    pub(crate) reservation: Reserved,
+}
+
+/// The room a question sets aside for the peer's reply, in one charge per
+/// place the reply's items take, so each place's charges cover exactly what
+/// that place holds.
+#[derive(Default)]
+pub(crate) struct Reserved {
+    /// The reply's chunks while they park and their stage reads them.
+    #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
+    pub(crate) parked: Charge,
+    /// The records the take derives from the reply's questions.
+    #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
+    pub(crate) records: Charge,
+    /// The parent resolution's slots, which the resolution keeps until its
+    /// assembly.
+    pub(crate) slots: Charge,
 }
 
 /// One scope's resolution: its children in radix order, each resolved
@@ -240,9 +260,12 @@ pub struct Resolution<E> {
     pub(crate) resolved: Vec<(u8, Resolve<E>)>,
     /// What the resolution holds: its queue slot and its slots.
     pub(crate) charge: Charge,
-    /// What its slots keep until assembly beyond their handles: the node
-    /// copies and children that exploding the node made.
+    /// What its slots keep until assembly beyond their handles: the
+    /// children that exploding the node made.
     pub(crate) kept: Charge,
+    /// The node copies that exploding the node made, which its slots keep
+    /// until assembly.
+    pub(crate) copies: Charge,
 }
 
 /// One child's slot in a [`Resolution`].
@@ -836,7 +859,9 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut requests = pin!(requests);
-    while let Some((prefix, reservation)) = queries.recv().await {
+    while let Some((prefix, request, reservation)) = queries.recv().await {
+        // The request's queue slot is free once dequeued.
+        drop(request);
         let Some(mut chunk) = requests.next().await else {
             return violation(Violation::UnansweredQuery);
         };
@@ -849,6 +874,7 @@ where
             ours: Vec::new(),
             bound: ReplyBound::LEAF,
             charge: Charge::default(),
+            copies: Charge::default(),
             reservation,
         };
         let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, &stats);
@@ -858,6 +884,7 @@ where
                 charge: received,
                 last,
                 record,
+                copies,
             } = chunk;
             for reaction in reactions {
                 if let Reaction::Supply(radix, _) = &reaction
@@ -874,7 +901,7 @@ where
             // The chunk is used up, so its charges return now, before the
             // loop waits for the next one: the peer's admission may wait on
             // them.
-            drop((received, record));
+            drop((received, record, copies));
             if last {
                 break;
             }

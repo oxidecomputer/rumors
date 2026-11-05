@@ -22,12 +22,14 @@ mod levels;
 mod queues;
 mod resolver;
 
-pub(crate) use charges::{floor_allowance, parent_resolution};
+pub(crate) use charges::floor_allowance;
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use charges::scratch;
 pub(super) use resolver::Resolver;
 
 /// One leaf request in its queue: the leaf's path, with the charge for the
-/// request and the room its reply sets aside.
-pub(crate) type LeafRequest = (Prefix<Z>, Charge);
+/// request's queue slot and the room its reply sets aside.
+pub(crate) type LeafRequest = (Prefix<Z>, Charge, Reserved);
 
 use super::progress::Progress;
 use crate::tree::{
@@ -37,10 +39,10 @@ use crate::tree::{
         erased,
         holding::{Holding, holding_stream},
         ledger::{Charge, Ledger},
-        materialized::Error,
+        materialized::{Error, Reserved},
         protocol::BoxResponses,
         stats::Recorder,
-        tasks::complete,
+        tasks::{TaskRole, complete},
     },
     typed::{
         Prefix,
@@ -111,30 +113,34 @@ where
         messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> BoxResponses<B, H, Error<B::Error>> {
         let (send, responses) = outgoing_responses::<B, H>();
-        self.tasks.push(Box::pin(pump(
-            Box::pin(holding_stream(Holding::Resolutions, messages)),
-            send,
-            self.progress,
-            H::HEIGHT,
-        )));
+        self.tasks
+            .push(Box::pin(TaskRole::Walk { height: H::HEIGHT }.paced(pump(
+                Box::pin(holding_stream(Holding::Resolutions, messages)),
+                send,
+                self.progress,
+                H::HEIGHT,
+            ))));
         Box::pin(responses)
     }
 
-    /// Forward a stream of nodes into an upward return channel.
+    /// Forward a stream of nodes assembled from children at typed height
+    /// `height` into an upward return channel.
     fn return_into(
         &mut self,
+        height: usize,
         mut returns: Sender<Option<B::Erased>>,
         stream: impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
-        self.tasks.push(Box::pin(async move {
-            let mut stream = pin!(holding_stream(Holding::Assembly, stream));
-            while let Some(item) = stream.next().await {
-                if returns.send(item?).await.is_err() {
-                    return Ok(());
+        self.tasks
+            .push(Box::pin(TaskRole::Assembly { height }.paced(async move {
+                let mut stream = pin!(holding_stream(Holding::Assembly, stream));
+                while let Some(item) = stream.next().await {
+                    if returns.send(item?).await.is_err() {
+                        return Ok(());
+                    }
                 }
-            }
-            Ok(())
-        }));
+                Ok(())
+            })));
     }
 
     /// Drive every registered task and the terminal output to completion.

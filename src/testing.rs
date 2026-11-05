@@ -19,13 +19,15 @@ use crate::{
     Snapshot,
     tree::{
         mirror::streaming::{
-            Backend, Local,
+            Backend, FAN, Local,
+            materialized::{Resolution, Resolve},
             remote::{self, RunBudget, SUPPLY_DECODE_ENVELOPE_BYTES, codec::LeafRun},
         },
         typed::{
+            ErasedPrefix,
             hash::{Hash, MERKLE_HASH_LEN as TREE_HASH_LEN},
-            height::Root,
-            untyped::{self, census},
+            height::{Height, Root},
+            untyped::{self, FAN_ENTRY_BYTES, NODE_ALLOCATION_BYTES, census, fan},
         },
     },
 };
@@ -41,6 +43,7 @@ pub use crate::tree::mirror::streaming::holding::{
 pub use crate::tree::mirror::streaming::ledger::{
     FitHook, LedgerChange, LedgerHook, ReplyFit, observe_fits, observe_ledgers,
 };
+pub use crate::tree::mirror::streaming::tasks::{Pacer, TaskRole, pace_tasks};
 
 pub use transport::{
     AdversarialRead, AdversarialWrite, FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan,
@@ -385,6 +388,75 @@ pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> 
         }
     }
     Err(Quiescence::PollBudget)
+}
+
+/// The logical reply streams each direction of a session carries, one per
+/// height its speaker answers at: also the most walk stages, reply encoders,
+/// and reply decoders one side of a session runs.
+pub const SESSION_STREAMS: usize = remote::STREAM_COUNT;
+
+/// The most one side's transient bytes for `holding` may exceed its
+/// ledger's charges for that place on the in-memory backend.
+///
+/// That is one stage, encoder, and decoder's scratch for the place per
+/// logical stream, each computed from the types it covers
+/// (`materialized::scratch` derives every term), and for the exploded
+/// nodes, the copy the greeting makes of the root to list its fan, before
+/// any unit is admitted to charge it: at most one node and a full fan's
+/// heap slots. Each term counts requested bytes, as the allocation meter
+/// does, so the allocator's rounding is not part of it.
+pub fn ledger_scratch(holding: Holding) -> usize {
+    let streams = SESSION_STREAMS
+        * crate::tree::mirror::streaming::materialized::scratch::<
+            untyped::Node,
+            <Local as Backend>::Error,
+        >(holding);
+    let greeting = match holding {
+        Holding::ExplodedNodes => NODE_ALLOCATION_BYTES + fan::heap_slots(FAN) * FAN_ENTRY_BYTES,
+        _ => 0,
+    };
+    streams + greeting
+}
+
+/// The wire bytes of the largest frame that carries one comparison rather
+/// than supplied records: a query listing a full fan of children.
+///
+/// A session whose run target is at most this sends no frame larger, unless
+/// one supplied record alone outgrows it.
+pub const COMPARISON_FRAME_BYTES: usize = remote::codec::FULL_FAN_QUERY_FRAME_LEN;
+
+/// The most bytes one side's assembly can hold at once on the in-memory
+/// backend, whatever the replicas' sizes: the bound the session-budget suite
+/// holds [`Holding::Assembly`] to.
+///
+/// The ledger charges none of assembly: the queues of fixed capacity around
+/// it, and the in-memory backend's build of each supplied subtree, are
+/// fixed state. Counted at their capacities:
+///
+/// - each assembled height, the root's through the leaves', returns at most
+///   a fan of child handles to the height above, and builds at most one
+///   parent at a time from at most a fan of children;
+/// - the terminal leaf resolutions wait at most a fan deep, each with one
+///   slot;
+/// - each of the [`SESSION_STREAMS`] reply decoders assembles at most one
+///   supplied subtree at a time, holding only its open right spine
+///   ([`ASSEMBLY_SPINE_BYTES`]) however many leaves it has, and queues at
+///   most a fan of assembled supplies for its reader.
+///
+/// Every queued item is counted at twice its size: the most a vector holds
+/// for its length, or a channel node beside its item.
+pub fn assembly_allowance() -> usize {
+    use std::mem::size_of;
+    let heights = Root::HEIGHT + 1;
+    let fan = FAN;
+    let returned = size_of::<Option<untyped::Node>>();
+    let child = size_of::<(u8, Option<untyped::Node>)>();
+    let terminal = size_of::<Resolution<<Local as Backend>::Erased>>()
+        + size_of::<(u8, Resolve<<Local as Backend>::Erased>)>();
+    let supplied = size_of::<(ErasedPrefix, untyped::Node)>();
+    let levels = 2 * (heights * fan * (returned + child) + fan * terminal);
+    let decoders = SESSION_STREAMS * (ASSEMBLY_SPINE_BYTES + 2 * fan * supplied);
+    levels + decoders
 }
 
 /// The most transient bytes the in-memory backend holds while it assembles

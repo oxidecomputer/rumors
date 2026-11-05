@@ -11,10 +11,10 @@ use crate::{
         mirror::streaming::{
             Backend, ErasedNode, Leaf,
             erased::Reaction,
-            holding::Holding,
             ledger::{self, Charge, ReplyBound},
-            materialized::work::parent_resolution,
-            materialized::{Error, Query, Resolution, Resolve, SupplyLedger, Violation, violation},
+            materialized::{
+                Error, Query, Reserved, Resolution, Resolve, SupplyLedger, Violation, violation,
+            },
             stats::Recorder,
         },
         typed::{ErasedPrefix, height::Z},
@@ -54,9 +54,11 @@ where
     /// The question's charge for its children, which the resolution keeps
     /// until assembly.
     kept: Charge,
-    /// The room the question set aside for the reply; the resolution takes
-    /// its part, and the rest returns when the resolver is done.
-    reservation: Charge,
+    /// The question's node copies, which the resolution keeps as well.
+    copies: Charge,
+    /// The room the question set aside for the reply: the resolution takes
+    /// its slots' part, and the rest returns when the resolver is done.
+    reservation: Reserved,
     /// What the reply has held so far: its reactions and the listing
     /// entries its queries carried.
     held: ReplyBound,
@@ -85,6 +87,7 @@ where
             ours,
             bound,
             charge,
+            copies,
             reservation,
         }: Query<B::Erased>,
         their_version: &'session Version,
@@ -102,6 +105,7 @@ where
             stats,
             bound,
             kept: charge,
+            copies,
             reservation,
             held: ReplyBound::default(),
         }
@@ -186,15 +190,12 @@ where
             violation(Violation::UnfinishedReply)
         } else {
             ledger::fitted(self.bound, self.held);
-            let charge = self.reservation.split(
-                Holding::Resolutions,
-                parent_resolution::<B::Erased>(self.bound),
-            );
             Ok(Resolution {
                 prefix: self.prefix,
                 resolved: self.resolved,
-                charge,
+                charge: self.reservation.slots,
                 kept: self.kept,
+                copies: self.copies,
             })
         }
     }

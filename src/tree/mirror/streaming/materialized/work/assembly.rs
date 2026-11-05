@@ -14,7 +14,7 @@ use crate::tree::{
         materialized::{Error, Resolution, Resolve},
         tasks::next_or_cancelled,
     },
-    typed::height::Z,
+    typed::height::{Height, Z},
 };
 
 impl<B> Work<B>
@@ -35,7 +35,11 @@ where
         resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> Sender<Option<B::Erased>> {
         let (level, level_rx) = assembly_level_returns::<B>(height);
-        self.return_into(returns, assemble(self.backend(), resolutions, level_rx));
+        self.return_into(
+            height,
+            returns,
+            assemble(self.backend(), resolutions, level_rx),
+        );
         level
     }
 
@@ -46,6 +50,7 @@ where
         resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
         self.return_into(
+            Z::HEIGHT,
             returns,
             assemble(self.backend(), resolutions, stream::empty()),
         );
@@ -74,6 +79,7 @@ where
                 resolved,
                 charge: _charge,
                 kept: _kept,
+                copies: _copies,
             } = resolved?;
             let mut children = Vec::with_capacity(resolved.len());
             for (radix, slot) in resolved {

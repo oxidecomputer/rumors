@@ -71,9 +71,14 @@ fn absorb_scripted(
     let (mut queries, queries_rx) = channel::<(
         Prefix<Z>,
         crate::tree::mirror::streaming::ledger::Charge,
+        super::Reserved,
     )>(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1);
-    pollster::block_on(queries.send((Prefix::containing(&path), Default::default())))
-        .expect("the loop is live");
+    pollster::block_on(queries.send((
+        Prefix::containing(&path),
+        Default::default(),
+        Default::default(),
+    )))
+    .expect("the loop is live");
     drop(queries);
 
     let (returns, mut returns_rx) = channel::<Option<Erased>>(
@@ -101,6 +106,7 @@ fn requested(version: Version) -> Vec<Reply<Erased>> {
         charge: Default::default(),
         last: true,
         record: Default::default(),
+        copies: Default::default(),
     }]
 }
 
@@ -229,6 +235,7 @@ impl Injection {
                 charge: Default::default(),
                 last: true,
                 record: Default::default(),
+                copies: Default::default(),
             }]
         };
         match self {
@@ -239,12 +246,14 @@ impl Injection {
                     charge: Default::default(),
                     last: true,
                     record: Default::default(),
+                    copies: Default::default(),
                 },
                 Reply {
                     reactions: Vec::new(),
                     charge: Default::default(),
                     last: true,
                     record: Default::default(),
+                    copies: Default::default(),
                 },
             ],
             Self::Match { after_supply } => one(after_supply, Reaction::Match),

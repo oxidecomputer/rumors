@@ -54,7 +54,7 @@ pub(crate) mod message;
 mod protocol;
 pub mod remote;
 pub mod stats;
-mod tasks;
+pub(crate) mod tasks;
 #[cfg(test)]
 mod testing;
 

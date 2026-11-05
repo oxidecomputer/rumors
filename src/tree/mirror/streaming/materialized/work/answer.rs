@@ -362,10 +362,8 @@ pub(super) fn leaf_question<E>(
     // A leaf-parent scope's child prefix is a full 32-byte path: the length
     // witness makes the leaf-height re-tag exact.
     let request = held_by(Holding::Questions, || {
-        (
-            prefix.push(radix).assume::<Z>(),
-            charges::leaf_request::<E>(grant),
-        )
+        let (slot, reservation) = charges::leaf_request::<E>(grant);
+        (prefix.push(radix).assume::<Z>(), slot, reservation)
     });
     (reaction, request, record)
 }

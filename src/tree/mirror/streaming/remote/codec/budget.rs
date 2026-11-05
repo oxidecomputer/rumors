@@ -42,7 +42,7 @@ use crate::tree::mirror::streaming::message::Grandchildren;
 /// hash, and grandchild count, each count at its widest. Radix keys have
 /// different CBOR head sizes, so the calculation visits each key rather than
 /// multiplying one entry size.
-const FULL_FAN_QUERY_FRAME_LEN: usize = {
+pub(crate) const FULL_FAN_QUERY_FRAME_LEN: usize = {
     let mut total = FRAME_OPENER_LEN + cbor::head_len(widen(MAX_QUERY_CHILDREN));
     let mut radix = 0usize;
     while radix < MAX_QUERY_CHILDREN {
