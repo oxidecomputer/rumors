@@ -526,6 +526,447 @@ divided_proptest! {
     }
 }
 
+/// A session deadline that expires on its `expires_at`-th poll, counting
+/// every poll in `polls`.
+///
+/// A session polls its deadline only after the session itself returns
+/// `Pending`, so the deadline's polls count the session's suspensions, and
+/// expiring on the `k`-th cancels the session at its `k`-th suspension.
+struct ExpireAtPoll {
+    /// Polls of this session's deadline so far.
+    polls: Arc<std::sync::atomic::AtomicUsize>,
+    /// The poll on which the deadline expires; `usize::MAX` never does.
+    expires_at: usize,
+}
+
+impl Future for ExpireAtPoll {
+    type Output = ();
+
+    /// Count the poll, and expire on the chosen one. A pending deadline
+    /// registers no waker: the session it races has registered its own.
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<()> {
+        let polls = self
+            .polls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        if polls >= self.expires_at {
+            std::task::Poll::Ready(())
+        } else {
+            std::task::Poll::Pending
+        }
+    }
+}
+
+/// A deadline factory whose deadline expires on its `expires_at`-th poll,
+/// counting polls in `polls`.
+fn expire_at_poll(
+    polls: &Arc<std::sync::atomic::AtomicUsize>,
+    expires_at: usize,
+) -> impl Fn() -> ExpireAtPoll + Send + Sync + 'static {
+    let polls = Arc::clone(polls);
+    move || ExpireAtPoll {
+        polls: Arc::clone(&polls),
+        expires_at,
+    }
+}
+
+/// What one cancelled bootstrap left on each side, and how often each
+/// side's session suspended.
+struct Cancelled {
+    /// The provider's party after its session.
+    provider: Party,
+    /// The phase the provider's session failed in, if it failed with a
+    /// transport failure or a protocol violation.
+    provider_failed_in: Option<crate::error::Phase>,
+    /// The joiner's party, if the join returned a peer.
+    joiner: Option<Party>,
+    /// Whether the join returned a peer whose completion was unconfirmed.
+    unconfirmed: bool,
+    /// Suspensions of the joiner's session, then of the provider's.
+    suspensions: [usize; 2],
+}
+
+/// One bootstrap from a fresh peer of `network` holding three messages,
+/// whose joiner's session is cancelled at its `joiner_at`-th suspension and
+/// whose provider's at its `provider_at`-th (`usize::MAX` for never).
+///
+/// Each side owns its halves, so a cancelled side's drop reaches the other
+/// as end of stream rather than leaving it waiting.
+fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usize) -> Cancelled {
+    let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    let provider = with_messages(
+        network
+            .peer::<u64>()
+            .session_deadline(expire_at_poll(&polls[1], provider_at)),
+        &[1, 2, 3],
+    );
+    let (served, joined) = pollster::block_on(async {
+        let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+        let (served, joined) = tokio::join!(
+            provider.gossip_once(a_end.read, a_end.write),
+            Peer::<u64>::bootstrap()
+                .session_deadline(expire_at_poll(&polls[0], joiner_at))
+                .join(b_end.read, b_end.write),
+        );
+        (served.map(drop), joined)
+    });
+    let unconfirmed = matches!(joined, crate::Joined::Unconfirmed { .. });
+    Cancelled {
+        provider: party_of(&provider),
+        provider_failed_in: match served {
+            Err(Error::Transport(failure)) => Some(failure.context.phase),
+            Err(Error::Protocol(violation)) => Some(violation.context.phase),
+            _ => None,
+        },
+        joiner: joined_party(joined),
+        unconfirmed,
+        suspensions: polls.map(|polls| polls.load(std::sync::atomic::Ordering::Relaxed)),
+    }
+}
+
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// Cancelling either side of a bootstrap at any suspension, or both at
+    /// any pair of them, never gives one identity to both sides, and a joiner
+    /// that returns a peer holds exactly what the provider gave up.
+    ///
+    /// A session deadline that expires on its `k`-th poll cancels its session
+    /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled bootstrap
+    /// counts each side's suspensions; the joiner's cancellation then ranges
+    /// over each of its suspensions, one past its last, and never, and so does
+    /// the provider's, in every combination. At every combination the two
+    /// parties are disjoint, and when the join returns a peer the two
+    /// together are the seed's whole identity.
+    ///
+    /// Two floors show both custody paths ran. The provider reserves its fork
+    /// before reconciliation, so a provider whose session failed in
+    /// reconciliation, holding the whole seed with no peer joined, had its
+    /// unsent fork come back to it; some cancellation does that. And some join
+    /// returns
+    /// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed), keeping a party
+    /// whose completion the cancelled provider never confirmed.
+    ///
+    /// A cancellation can strand the fork, which neither side then holds: a
+    /// joiner that leaves after its last reconciliation bytes leaves the
+    /// provider to give the fork up into a closed connection. That loses an
+    /// identity but never duplicates one, so it is permitted here.
+    ///
+    /// The claim holds for every network seed. Each case runs a bootstrap per
+    /// pair of suspensions, so it takes the fleet divisor.
+    #[test]
+    fn cancelled_bootstrap_never_duplicates_and_keeps_a_received_party(network in network_seed()) {
+        let clean = cancelled_bootstrap(network, usize::MAX, usize::MAX);
+        assert!(clean.joiner.is_some(), "an uncancelled bootstrap joins");
+        let points = |suspensions: usize| (1..=suspensions + 1).chain([usize::MAX]);
+        let (mut restored, mut unconfirmed) = (0, 0);
+        for joiner_at in points(clean.suspensions[0]) {
+            for provider_at in points(clean.suspensions[1]) {
+                let cancelled = cancelled_bootstrap(network, joiner_at, provider_at);
+                let at = format!("joiner at {joiner_at}, provider at {provider_at}");
+                let mut whole = cancelled.provider;
+                match cancelled.joiner {
+                    Some(joiner) => {
+                        assert!(whole.join(joiner).is_ok(), "{at}: one identity on both sides");
+                        assert_eq!(whole, Party::seed(), "{at}: a joined peer, yet identity stranded");
+                        unconfirmed += usize::from(cancelled.unconfirmed);
+                    }
+                    None => {
+                        restored += usize::from(
+                            whole == Party::seed()
+                                && cancelled.provider_failed_in
+                                    == Some(crate::error::Phase::Reconciliation),
+                        );
+                    }
+                }
+            }
+        }
+        assert!(restored > 0, "some cancellation returns a reserved, unsent fork to the provider");
+        assert!(unconfirmed > 0, "some join keeps a party its provider never confirmed");
+    }
+}
+
+/// What one cancelled retirement returned to the retiree.
+enum RetireOutcome {
+    /// The absorber confirmed the retirement.
+    Retired,
+    /// The retirement failed before the handoff began, returning the peer.
+    Recovered(Peer<u64>),
+    /// The handoff began, and the retiree was consumed unconfirmed.
+    Uncertain,
+}
+
+/// What one cancelled retirement left on each side, and how often each
+/// side's session suspended.
+struct CancelledRetire {
+    /// The absorber, after its session.
+    absorber: Peer<u64>,
+    /// The absorber's party before the session.
+    absorber_before: Party,
+    /// What the retirement returned.
+    outcome: RetireOutcome,
+    /// Suspensions of the retiree's session, then of the absorber's.
+    suspensions: [usize; 2],
+}
+
+/// Retire a peer joined from a fresh peer of `network` into the peer it
+/// joined from, cancelling the retiree's session at its `retiree_at`-th
+/// suspension and the absorber's at its `absorber_at`-th.
+///
+/// `usize::MAX` cancels never. Each side holds messages the other lacks.
+///
+/// Each side owns its halves, so a cancelled side's drop reaches the other
+/// as end of stream rather than leaving it waiting.
+fn cancelled_retire(
+    network: NetworkSeed,
+    retiree_at: usize,
+    absorber_at: usize,
+) -> CancelledRetire {
+    let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    let (absorber, retiree) = bootstrap_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
+    let retiree =
+        with_messages(retiree, &[4, 5]).session_deadline(expire_at_poll(&polls[0], retiree_at));
+    let absorber =
+        with_messages(absorber, &[6]).session_deadline(expire_at_poll(&polls[1], absorber_at));
+    let absorber_before = party_of(&absorber);
+    let retired = pollster::block_on(async {
+        let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+        let (retired, _) = tokio::join!(
+            retiree.retire(a_end.read, a_end.write),
+            absorber.gossip_once(b_end.read, b_end.write),
+        );
+        retired
+    });
+    let outcome = match retired {
+        Retire::Retired { .. } => RetireOutcome::Retired,
+        Retire::Recovered { peer, .. } => RetireOutcome::Recovered(peer),
+        Retire::Uncertain { .. } => RetireOutcome::Uncertain,
+        Retire::Declined { .. } => panic!("the absorber is not retiring"),
+    };
+    CancelledRetire {
+        absorber,
+        absorber_before,
+        outcome,
+        suspensions: polls.map(|polls| polls.load(std::sync::atomic::Ordering::Relaxed)),
+    }
+}
+
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// Cancelling either side of a retirement at any suspension, or both at
+    /// any pair of them, never gives one identity to both sides, and a
+    /// retiree returned for retry still retires.
+    ///
+    /// A session deadline that expires on its `k`-th poll cancels its session
+    /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled retirement
+    /// counts each side's suspensions; the retiree's cancellation then ranges
+    /// over each of its suspensions, one past its last, and never, and so does
+    /// the absorber's, in every combination. A confirmed retirement leaves
+    /// the absorber holding the seed's whole identity and the retiree's
+    /// messages. A recovered retiree holds exactly the identity it had, the
+    /// absorber exactly its own, and the two together the seed's whole
+    /// identity; with the deadlines lifted, the retiree then retires into the
+    /// absorber. An uncertain retirement leaves the absorber holding either
+    /// the seed's whole identity or exactly its own: the retiree's identity
+    /// is absorbed whole or stranded, never split.
+    ///
+    /// Two floors show both custody paths ran: some cancellation returns the
+    /// retiree for retry, and some consumes it after its handoff began.
+    ///
+    /// The claim holds for every network seed. Each case runs a retirement
+    /// per pair of suspensions, so it takes the fleet divisor.
+    #[test]
+    fn cancelled_retire_never_duplicates_and_recovers_a_usable_peer(network in network_seed()) {
+        let clean = cancelled_retire(network, usize::MAX, usize::MAX);
+        assert!(matches!(clean.outcome, RetireOutcome::Retired), "an uncancelled retirement completes");
+        let points = |suspensions: usize| (1..=suspensions + 1).chain([usize::MAX]);
+        let (mut recovered, mut uncertain) = (0, 0);
+        for retiree_at in points(clean.suspensions[0]) {
+            for absorber_at in points(clean.suspensions[1]) {
+                let at = format!("retiree at {retiree_at}, absorber at {absorber_at}");
+                let cancelled = cancelled_retire(network, retiree_at, absorber_at);
+                let absorber = party_of(&cancelled.absorber);
+                match cancelled.outcome {
+                    RetireOutcome::Retired => {
+                        assert_eq!(absorber, Party::seed(), "{at}: a confirmed retirement left identity behind");
+                        let held: Vec<u64> = cancelled.absorber.snapshot().iter().map(|(_, value)| *value).collect();
+                        assert!(held.contains(&4) && held.contains(&5), "{at}: the absorber lacks the retiree's messages");
+                    }
+                    RetireOutcome::Recovered(retiree) => {
+                        recovered += 1;
+                        assert_eq!(absorber, cancelled.absorber_before, "{at}: a recovered retiree's identity was absorbed");
+                        let mut whole = party_of(&retiree);
+                        assert!(whole.join(absorber).is_ok(), "{at}: one identity on both sides");
+                        assert_eq!(whole, Party::seed(), "{at}: a recovered retiree stranded identity");
+                        let survivor = retire_child_into(
+                            cancelled.absorber.session_deadline(std::future::pending::<()>),
+                            retiree.session_deadline(std::future::pending::<()>),
+                        );
+                        assert_eq!(party_of(&survivor), Party::seed(), "{at}: the retried retirement left identity behind");
+                    }
+                    RetireOutcome::Uncertain => {
+                        uncertain += 1;
+                        assert!(
+                            absorber == Party::seed() || absorber == cancelled.absorber_before,
+                            "{at}: the absorber holds part of the retiree's identity",
+                        );
+                    }
+                }
+            }
+        }
+        assert!(recovered > 0, "some cancellation returns the retiree for retry");
+        assert!(uncertain > 0, "some cancellation consumes the retiree after its handoff began");
+    }
+}
+
+/// The payloads a peer holds live, sorted.
+fn live_values(peer: &Peer<u64>) -> Vec<u64> {
+    let mut values: Vec<u64> = peer.snapshot().iter().map(|(_, value)| *value).collect();
+    values.sort_unstable();
+    values
+}
+
+/// What one cancelled gossip left on one side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GossipSide {
+    /// The session completed.
+    Completed,
+    /// The session failed after publishing the reconciled set.
+    FailedPublished,
+    /// The session failed with the side's set unchanged.
+    FailedUnchanged,
+}
+
+/// Gossip between a fresh peer of `network` and a peer joined from it,
+/// cancelling the first's session at its `a_at`-th suspension and the
+/// second's at its `b_at`-th.
+///
+/// `usize::MAX` cancels never. Each side holds messages the other lacks,
+/// and the first has redacted a message both held.
+///
+/// Checks that each side ends holding its own set or the reconciled one,
+/// and that with the deadlines lifted the two then converge on the
+/// reconciled set. Returns each side's outcome and suspensions.
+fn cancelled_gossip(
+    network: NetworkSeed,
+    a_at: usize,
+    b_at: usize,
+) -> ([GossipSide; 2], [usize; 2]) {
+    let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    let (a, b) = bootstrap_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
+    let a = with_messages(a, &[6]);
+    let one = a
+        .snapshot()
+        .iter()
+        .find(|(_, value)| **value == 1)
+        .map(|(version, _)| version.clone());
+    assert!(a.redact(&one.expect("the first side holds message 1")));
+    let a = a.session_deadline(expire_at_poll(&polls[0], a_at));
+    let b = with_messages(b, &[4, 5]).session_deadline(expire_at_poll(&polls[1], b_at));
+    let before = [live_values(&a), live_values(&b)];
+    let reconciled = vec![2, 3, 4, 5, 6];
+    let results = pollster::block_on(async {
+        let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+        let (a_out, b_out) = tokio::join!(
+            a.gossip_once(a_end.read, a_end.write),
+            b.gossip_once(b_end.read, b_end.write),
+        );
+        [a_out.is_ok(), b_out.is_ok()]
+    });
+    let at = format!("first at {a_at}, second at {b_at}");
+    let mut sides = [GossipSide::Completed; 2];
+    for (index, peer) in [&a, &b].into_iter().enumerate() {
+        let after = live_values(peer);
+        sides[index] = if results[index] {
+            assert_eq!(
+                after, reconciled,
+                "{at}: a completed session left side {index} unreconciled"
+            );
+            GossipSide::Completed
+        } else if after == reconciled {
+            GossipSide::FailedPublished
+        } else {
+            assert_eq!(
+                after, before[index],
+                "{at}: side {index} published part of a session"
+            );
+            GossipSide::FailedUnchanged
+        };
+    }
+    let a = a.session_deadline(std::future::pending::<()>);
+    let b = b.session_deadline(std::future::pending::<()>);
+    pollster::block_on(async {
+        let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+        let (a_out, b_out) = tokio::join!(
+            a.gossip_once(&mut a_end.read, &mut a_end.write),
+            b.gossip_once(&mut b_end.read, &mut b_end.write),
+        );
+        a_out.expect("the first side gossips after the cancellation");
+        b_out.expect("the second side gossips after the cancellation");
+    });
+    assert_eq!(
+        live_values(&a),
+        reconciled,
+        "{at}: the first side did not converge afterwards"
+    );
+    assert_eq!(
+        live_values(&b),
+        reconciled,
+        "{at}: the second side did not converge afterwards"
+    );
+    (
+        sides,
+        polls.map(|polls| polls.load(std::sync::atomic::Ordering::Relaxed)),
+    )
+}
+
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// Cancelling either side of a gossip session at any suspension, or both
+    /// at any pair of them, publishes all of the session's result or none of
+    /// it, and leaves both peers able to gossip.
+    ///
+    /// A session deadline that expires on its `k`-th poll cancels its session
+    /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled session
+    /// counts each side's suspensions; each side's cancellation then ranges
+    /// over each of its suspensions, one past its last, and never, in every
+    /// combination. Each side holds messages the other lacks, and one side
+    /// has redacted a message both held, so the reconciled set differs from
+    /// both. After every combination each side holds its own set or the
+    /// reconciled one, a side whose session completed holds the reconciled
+    /// one, and an uncancelled session between the two then reconciles both.
+    ///
+    /// A floor shows that cancellation reaches both sides of publication:
+    /// some failed session leaves its side unchanged, and some publishes
+    /// the reconciled set before failing in its completion exchange.
+    ///
+    /// The claim holds for every network seed. Each case runs two sessions
+    /// per pair of suspensions, so it takes the fleet divisor.
+    #[test]
+    fn cancelled_gossip_publishes_all_or_nothing(network in network_seed()) {
+        let (clean, suspensions) = cancelled_gossip(network, usize::MAX, usize::MAX);
+        assert_eq!(clean, [GossipSide::Completed; 2], "an uncancelled session completes");
+        let points = |suspensions: usize| (1..=suspensions + 1).chain([usize::MAX]);
+        let (mut unchanged, mut published) = (0, 0);
+        for a_at in points(suspensions[0]) {
+            for b_at in points(suspensions[1]) {
+                let (sides, _) = cancelled_gossip(network, a_at, b_at);
+                for side in sides {
+                    unchanged += usize::from(side == GossipSide::FailedUnchanged);
+                    published += usize::from(side == GossipSide::FailedPublished);
+                }
+            }
+        }
+        assert!(unchanged > 0, "some cancelled session leaves its side unchanged");
+        assert!(published > 0, "some cancelled session publishes before failing");
+    }
+}
+
 /// A writer that passes `budget` bytes through to `inner`, then accepts no
 /// more: every later write stays pending, as a stalled connection's does.
 struct StallAfter<W> {
