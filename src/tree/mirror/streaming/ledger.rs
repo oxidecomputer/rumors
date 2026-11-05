@@ -391,10 +391,6 @@ impl Account {
     fn add(
         &self,
         slots: &mut admission::Slots,
-        #[cfg_attr(
-            not(any(test, feature = "test-internals")),
-            expect(unused_variables, reason = "only the observed totals read the place")
-        )]
         place: Holding,
         bytes: usize,
         floor: bool,
@@ -406,16 +402,7 @@ impl Account {
                 *slots.budgeted(unit, depth) += bytes;
             }
         }
-        #[cfg(any(test, feature = "test-internals"))]
-        {
-            if floor {
-                self.floor.fetch_add(bytes, Ordering::Relaxed);
-            }
-            let held = self.held.fetch_add(bytes, Ordering::Relaxed) + bytes;
-            self.peak.fetch_max(held, Ordering::Relaxed);
-            self.places[place_index(place)].fetch_add(bytes, Ordering::Relaxed);
-            observe(self, place, held);
-        }
+        self.tally((None, Some(place)), bytes, floor, unit);
     }
 
     /// Return `bytes` from the account of `place`, and from the floor part
@@ -431,10 +418,6 @@ impl Account {
     fn sub(
         &self,
         slots: &mut admission::Slots,
-        #[cfg_attr(
-            not(any(test, feature = "test-internals")),
-            expect(unused_variables, reason = "only the observed totals read the place")
-        )]
         place: Holding,
         bytes: usize,
         floor: bool,
@@ -448,15 +431,8 @@ impl Account {
             }
         }
         #[cfg(any(test, feature = "test-internals"))]
-        {
-            if floor {
-                self.floor.fetch_sub(bytes, Ordering::Relaxed);
-            }
-            self.carried.fetch_sub(carried, Ordering::Relaxed);
-            let held = self.held.fetch_sub(bytes, Ordering::Relaxed) - bytes;
-            self.places[place_index(place)].fetch_sub(bytes, Ordering::Relaxed);
-            observe(self, place, held);
-        }
+        self.carried.fetch_sub(carried, Ordering::Relaxed);
+        self.tally((Some(place), None), bytes, floor, unit);
     }
 
     /// Count `bytes` of the charges of `unit` kind at `depth` admitted
@@ -466,44 +442,70 @@ impl Account {
     /// The caller holds the admission queue's lock, as `slots` proves, and
     /// keeps the slot's share of the carried bytes, which are at most what
     /// the kind and depth hold against the budget.
-    fn carry(
-        &self,
-        slots: &mut admission::Slots,
-        bytes: usize,
-        #[cfg_attr(
-            not(any(test, feature = "test-internals")),
-            expect(unused_variables, reason = "only the observed totals read the unit")
-        )]
-        unit: Unit,
-        #[cfg_attr(
-            not(any(test, feature = "test-internals")),
-            expect(unused_variables, reason = "only the slots' peaks read the depth")
-        )]
-        depth: usize,
-    ) {
+    fn carry(&self, slots: &mut admission::Slots, bytes: usize, unit: Unit, depth: usize) {
         slots.normal -= bytes;
         #[cfg(any(test, feature = "test-internals"))]
         {
             self.carried.fetch_add(bytes, Ordering::Relaxed);
             self.slot_peaks[unit.row()][depth].fetch_max(bytes, Ordering::Relaxed);
-            observe(self, unit.place(), self.held.load(Ordering::Relaxed));
         }
+        self.tally((None, None), bytes, false, Some((unit, depth)));
     }
 
-    /// Move `bytes` from the account of `from` to that of `to`, changing
-    /// nothing else the ledger holds.
+    /// Count one change in the totals only observation reads, and report it
+    /// to the observation hook ([`observe`]).
+    ///
+    /// The change moves `bytes` of a charge of `unit`, through a floor slot
+    /// if `floor`, out of the first place of `(from, to)` and into the
+    /// second. A change with only `to` builds a charge, one with only `from` drops
+    /// one, one with both moves bytes between places, and one with neither
+    /// moves no charge's bytes, as a slot starting to carry does.
     #[cfg(any(test, feature = "test-internals"))]
-    fn shift(&self, from: Holding, to: Holding, bytes: usize) {
-        self.places[place_index(from)].fetch_sub(bytes, Ordering::Relaxed);
-        self.places[place_index(to)].fetch_add(bytes, Ordering::Relaxed);
-        observe(self, to, self.held.load(Ordering::Relaxed));
+    fn tally(
+        &self,
+        (from, to): (Option<Holding>, Option<Holding>),
+        bytes: usize,
+        floor: bool,
+        unit: Option<(Unit, usize)>,
+    ) {
+        let held = match (from, to) {
+            (None, Some(_)) => {
+                if floor {
+                    self.floor.fetch_add(bytes, Ordering::Relaxed);
+                }
+                let held = self.held.fetch_add(bytes, Ordering::Relaxed) + bytes;
+                self.peak.fetch_max(held, Ordering::Relaxed);
+                held
+            }
+            (Some(_), None) => {
+                if floor {
+                    self.floor.fetch_sub(bytes, Ordering::Relaxed);
+                }
+                self.held.fetch_sub(bytes, Ordering::Relaxed) - bytes
+            }
+            _ => self.held.load(Ordering::Relaxed),
+        };
+        if let Some(from) = from {
+            self.places[place_index(from)].fetch_sub(bytes, Ordering::Relaxed);
+        }
+        if let Some(to) = to {
+            self.places[place_index(to)].fetch_add(bytes, Ordering::Relaxed);
+        }
+        observe(self, (from, to), bytes, floor, unit, held);
     }
 
-    /// Move bytes between places: nothing in builds that keep no account
-    /// per place.
+    /// Count one change in the totals only observation reads: nothing in
+    /// builds that observe nothing.
     #[cfg(not(any(test, feature = "test-internals")))]
     #[inline(always)]
-    fn shift(&self, _: Holding, _: Holding, _: usize) {}
+    fn tally(
+        &self,
+        _: (Option<Holding>, Option<Holding>),
+        _: usize,
+        _: bool,
+        _: Option<(Unit, usize)>,
+    ) {
+    }
 }
 
 /// Bytes charged for one place, returned to their ledger when dropped.
@@ -685,7 +687,12 @@ impl Charge {
         if let Some(slot) = self.slot {
             slot.share(account);
         }
-        account.shift(self.place, place, widen(bytes));
+        account.tally(
+            (Some(self.place), Some(place)),
+            widen(bytes),
+            self.slot.is_some(),
+            self.unit(),
+        );
         self.bytes -= bytes;
         Charge {
             account: Some(account.clone()),
@@ -860,10 +867,20 @@ impl std::fmt::Debug for Charge {
 pub struct LedgerChange {
     /// The ledger that changed, identified for as long as it lives.
     pub ledger: usize,
-    /// The place whose account changed; for a change that only moves bytes
-    /// onto a floor slot, the place its kind of unit's grants are charged
-    /// to.
-    pub place: Holding,
+    /// The place the change took bytes from, if any: a release or a move
+    /// between places.
+    pub from: Option<Holding>,
+    /// The place the change put bytes into, if any: a charge or a move
+    /// between places.
+    pub to: Option<Holding>,
+    /// The bytes the change moved.
+    pub bytes: usize,
+    /// Whether they are bytes of a charge built out of a floor grant, which
+    /// the budget does not count.
+    pub through_floor: bool,
+    /// The unit whose charge changed, if admission granted it: every charge
+    /// a session makes, since each is a grant or a part of one.
+    pub unit: Option<ChargeUnit>,
     /// Bytes the ledger holds in all after the change.
     pub held: usize,
     /// Bytes the ledger holds for each place after the change, in
@@ -874,6 +891,9 @@ pub struct LedgerChange {
     /// Bytes of `held` that floor slots carry for charges admitted against
     /// the budget, which the budget does not count either: with `floor`,
     /// the ledger's floor part.
+    ///
+    /// A change that only moves bytes onto a slot names neither place, and
+    /// the unit whose bytes the slot carries.
     pub carried: usize,
     /// Bytes items have needed beyond their grants, over the ledger's life.
     pub short: u64,
@@ -882,6 +902,19 @@ pub struct LedgerChange {
     /// The sum over floor slots of the largest grant each has admitted or
     /// carried: the `Σ F` the ledger's bound adds to its budget.
     pub floor_bound: usize,
+}
+
+/// The unit a charge was built out of, as [`LedgerChange::unit`] reports
+/// it.
+#[cfg(any(test, feature = "test-internals"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ChargeUnit {
+    /// Whether the unit is a question; otherwise it is an answer's own
+    /// items.
+    pub question: bool,
+    /// The depth of the scope the unit concerns: the root's 0 through the
+    /// leaves' 32.
+    pub depth: usize,
 }
 
 /// The process's ledger observation hook, called after every change to any
@@ -903,13 +936,30 @@ pub fn observe_ledgers(hook: LedgerHook) -> bool {
     std::ptr::fn_addr_eq(*HOOK.get_or_init(|| hook), hook)
 }
 
-/// Report one change to `account` to the installed hook.
+/// Report one change to `account` to the installed hook: `bytes` of a
+/// charge of `unit`, through a floor slot if `floor`, moved out of the
+/// first place of `(from, to)` and into the second, after which the ledger
+/// holds `held`.
 #[cfg(any(test, feature = "test-internals"))]
-fn observe(account: &Account, place: Holding, held: usize) {
+fn observe(
+    account: &Account,
+    (from, to): (Option<Holding>, Option<Holding>),
+    bytes: usize,
+    floor: bool,
+    unit: Option<(Unit, usize)>,
+    held: usize,
+) {
     if let Some(hook) = HOOK.get() {
         hook(LedgerChange {
             ledger: std::ptr::from_ref(account) as usize,
-            place,
+            from,
+            to,
+            bytes,
+            through_floor: floor,
+            unit: unit.map(|(unit, depth)| ChargeUnit {
+                question: unit == Unit::Question,
+                depth,
+            }),
             held,
             places: Holding::ALL
                 .map(|place| account.places[place_index(place)].load(Ordering::Relaxed)),

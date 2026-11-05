@@ -234,7 +234,7 @@ impl Unit {
 
     /// The place a grant of this kind is charged to until the walk builds
     /// its items out of it.
-    pub(super) fn place(self) -> Holding {
+    fn place(self) -> Holding {
         match self {
             Self::Answer => Holding::Resolutions,
             Self::Question => Holding::Questions,
@@ -761,13 +761,26 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>, freed
     }
 }
 
-/// One admitted unit, as the process's admission hook sees it.
+/// One unit's admission, as the process's admission hook sees it: the unit
+/// starting to wait, taking its grant, or its grant returning what the unit
+/// did not use.
 #[cfg(any(test, feature = "test-internals"))]
 #[derive(Clone, Copy, Debug)]
 pub struct Admission {
     /// The ledger that admitted the unit, identified as in
     /// [`LedgerChange::ledger`](super::LedgerChange::ledger).
     pub ledger: usize,
+    /// The unit's order among the units its ledger queued, which names it
+    /// for as long as the ledger lives.
+    ///
+    /// It is `None` for a unit admitted at once, which was never queued and
+    /// never waits, and in a report of a grant's return, which names no
+    /// unit.
+    pub order: Option<u64>,
+    /// Whether this reports the unit starting to wait, because the ledger
+    /// did not admit it as it was queued; its admission is reported later,
+    /// with `waited` set.
+    pub waiting: bool,
     /// Whether the unit is a question; otherwise it is an answer's own
     /// items.
     pub question: bool,
@@ -779,7 +792,7 @@ pub struct Admission {
     /// Whether the unit took its depth's floor slot rather than budget.
     pub floor: bool,
     /// Whether the unit waited for admission rather than being admitted
-    /// as it was queued.
+    /// at once or as it was queued.
     pub waited: bool,
     /// Whether this reports the grant's unused bytes returning once its
     /// unit was built, rather than the grant itself: `bytes` then counts
@@ -808,12 +821,40 @@ pub fn observe_admissions(hook: AdmissionHook) -> bool {
     std::ptr::fn_addr_eq(*ADMISSION_HOOK.get_or_init(|| hook), hook)
 }
 
-/// Report the unit `request` names taking `grant` to the installed hook.
+/// Report a unit starting to wait to the installed hook.
 #[cfg(any(test, feature = "test-internals"))]
-fn admitted(account: &Account, request: Request, grant: &Charge, waited: bool) {
+fn waiting(account: &Account, waiter: &Waiter) {
+    if let Some(hook) = ADMISSION_HOOK.get() {
+        let Request { unit, depth, bytes } = waiter.request;
+        hook(Admission {
+            ledger: std::ptr::from_ref(account) as usize,
+            order: Some(waiter.order),
+            waiting: true,
+            question: unit == Unit::Question,
+            depth,
+            bytes: widen(bytes),
+            floor: false,
+            waited: false,
+            leftover: false,
+            partial: false,
+        });
+    }
+}
+
+/// Report a unit starting to wait: nothing outside test builds.
+#[cfg(not(any(test, feature = "test-internals")))]
+#[inline(always)]
+fn waiting(_: &Account, _: &Waiter) {}
+
+/// Report the unit `request` names taking `grant` to the installed hook,
+/// with its queue order if it was queued.
+#[cfg(any(test, feature = "test-internals"))]
+fn admitted(account: &Account, request: Request, order: Option<u64>, grant: &Charge, waited: bool) {
     if let Some(hook) = ADMISSION_HOOK.get() {
         hook(Admission {
             ledger: std::ptr::from_ref(account) as usize,
+            order,
+            waiting: false,
             question: request.unit == Unit::Question,
             depth: request.depth,
             bytes: widen(request.bytes),
@@ -840,6 +881,8 @@ pub(super) fn settled(
     if let Some(hook) = ADMISSION_HOOK.get() {
         hook(Admission {
             ledger: std::ptr::from_ref(account) as usize,
+            order: None,
+            waiting: false,
             question: unit == Unit::Question,
             depth,
             bytes,
@@ -854,7 +897,7 @@ pub(super) fn settled(
 /// Report a unit taking its grant: nothing outside test builds.
 #[cfg(not(any(test, feature = "test-internals")))]
 #[inline(always)]
-fn admitted(_: &Account, _: Request, _: &Charge, _: bool) {}
+fn admitted(_: &Account, _: Request, _: Option<u64>, _: &Charge, _: bool) {}
 
 /// Wait for a unit's admission ([`Ledger::admit`](super::Ledger::admit)).
 pub(crate) struct Admit {
@@ -923,6 +966,7 @@ impl Admit {
         let waited = lock(&waiter.state).grant.is_none();
         if waited {
             account.waited.fetch_add(1, Ordering::Relaxed);
+            waiting(&account, &waiter);
         }
         Self {
             account,
@@ -937,12 +981,12 @@ impl Future for Admit {
 
     /// Return the grant once the unit is admitted.
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Charge> {
-        let (request, grant) = match self
+        let (request, order, grant) = match self
             .state
             .take()
             .expect("an admission is not polled after it returns its grant")
         {
-            Admitting::Granted(request, grant) => (request, grant),
+            Admitting::Granted(request, grant) => (request, None, grant),
             Admitting::Queued(waiter) => {
                 let mut state = lock(&waiter.state);
                 let Some(grant) = state.grant.take() else {
@@ -951,10 +995,10 @@ impl Future for Admit {
                     self.state = Some(Admitting::Queued(waiter));
                     return Poll::Pending;
                 };
-                (waiter.request, grant)
+                (waiter.request, Some(waiter.order), grant)
             }
         };
-        admitted(&self.account, request, &grant, self.waited);
+        admitted(&self.account, request, order, &grant, self.waited);
         Poll::Ready(grant)
     }
 }

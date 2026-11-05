@@ -10,7 +10,12 @@
 //!
 //! A session's ledgers report every change through the process's ledger
 //! hook ([`observe_ledgers`]), and every unit they admit through its
-//! admission hook ([`observe_admissions`]). The link model polls both peers
+//! admission hook ([`observe_admissions`]). From those reports a
+//! [`LedgerReading`] keeps, beside its totals, three records of how the
+//! session spent its budget over time: the budget-counted bytes at every
+//! moment ([`LedgerReading::profile`]), every wait for admission
+//! ([`LedgerReading::waits`]), and what each place held for each depth
+//! ([`LedgerReading::holders`]). The link model polls both peers
 //! on the thread that drives the session, so the runner keeps each
 //! thread's readings apart and attributes them to the session that thread
 //! runs, and reads only while one of its sessions runs: a session a thread
@@ -19,6 +24,10 @@
 //! sessions through it installs no other.
 //!
 //! [`Link`]: crate::bench::link::Link
+//! [`LedgerReading`]: crate::bench::session::LedgerReading
+//! [`LedgerReading::profile`]: crate::bench::session::LedgerReading::profile
+//! [`LedgerReading::waits`]: crate::bench::session::LedgerReading::waits
+//! [`LedgerReading::holders`]: crate::bench::session::LedgerReading::holders
 //! [`observe_ledgers`]: rumors::testing::observe_ledgers
 //! [`observe_admissions`]: rumors::testing::observe_admissions
 
@@ -29,7 +38,8 @@ use std::thread;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::testing::{
-    Admission, LedgerChange, PLACES, floor_allowance, observe_admissions, observe_ledgers,
+    Admission, ChargeUnit, Holding, LedgerChange, PLACES, floor_allowance, observe_admissions,
+    observe_ledgers,
 };
 use rumors::{Peer, Rumors};
 
@@ -56,11 +66,6 @@ pub const LONG_HAUL_BDP: u64 = 12_500_000;
 /// The scopes a session can admit units about, the root's depth 0 through
 /// the leaves' 32.
 pub const DEPTHS: usize = 33;
-
-/// The deepest scope whose admissions a reading dates one by one
-/// ([`LedgerReading::dated`]): depth 1, the top-level subtrees, whose
-/// questions the root's answer asks and whose answers open them.
-pub const DATED_DEPTH: usize = 1;
 
 /// The encoded size of every fixture message unless a shape names
 /// another: 100 bytes.
@@ -261,8 +266,7 @@ impl Grants {
     }
 }
 
-/// One admission at depth [`DATED_DEPTH`] or shallower, dated by the
-/// link's clock.
+/// One admission, dated by the link's clock.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DatedAdmission {
     /// The link time of the admission, in byte-times.
@@ -277,6 +281,66 @@ pub struct DatedAdmission {
     pub waited: bool,
     /// Its grant's bytes.
     pub bytes: usize,
+}
+
+/// One unit's wait for admission, dated by the link's clock.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Wait {
+    /// When the ledger queued the unit and could not admit it.
+    pub queued: u64,
+    /// When the unit's task took its grant.
+    pub admitted: u64,
+    /// Whether the unit is a question rather than an answer's own items.
+    pub question: bool,
+    /// The depth of the scope the unit concerns.
+    pub depth: usize,
+    /// Its grant's bytes.
+    pub bytes: usize,
+    /// Whether it was admitted through its depth's floor slot.
+    pub floor: bool,
+}
+
+/// One step of a ledger's profile: from `at` until the next step's time,
+/// the ledger held `bytes` outside its floor slots.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Step {
+    /// The link time the step starts, in byte-times.
+    pub at: u64,
+    /// The bytes held outside floor slots from then on.
+    pub bytes: usize,
+}
+
+/// One holder of a ledger's bytes: one place's charges for units of one
+/// kind at one depth, through floor slots or against the budget.
+///
+/// Every charge belongs to one holder at a time, and moves between holders
+/// only when the session moves its bytes from one place to another, so the
+/// holders partition what the ledger holds: those not through floor slots
+/// add up to the budget-counted bytes at every moment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Holder {
+    /// The place.
+    pub place: Holding,
+    /// The unit kind and depth, if admission granted the charges.
+    pub unit: Option<ChargeUnit>,
+    /// Whether the charges were built out of floor grants, which the
+    /// budget does not count.
+    pub through_floor: bool,
+}
+
+/// What one holder held over a session.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Held {
+    /// The bytes it held, integrated over the link's clock.
+    pub area: u128,
+    /// The bytes it held while at least one unit waited for its ledger's
+    /// admission, integrated over the link's clock: what kept the budget
+    /// full while admission held work back.
+    pub area_waiting: u128,
+    /// The bytes that entered it, charged to it or moved into it from
+    /// another place: with `area`, the mean time a byte stayed
+    /// (`area / inflow`, by Little's law).
+    pub inflow: u64,
 }
 
 /// What one side's ledger held and admitted over a session.
@@ -312,18 +376,33 @@ pub struct LedgerReading {
     /// the link's clock.
     pub floor_area: u128,
     /// The bytes its floor slots carried for charges admitted against the
-    /// budget, integrated over the link's clock: with `budget_area` and
-    /// `floor_area`, what its places held.
+    /// budget, integrated over the link's clock: with `budget_area`, what
+    /// the holders outside floor slots held.
     pub carried_area: u128,
     /// Its grants to questions, by the depth of the scope each asks about.
     pub questions: [Grants; DEPTHS],
     /// Its grants to answers' own items, by the depth of the scope each
     /// answers.
     pub answers: [Grants; DEPTHS],
-    /// Its admissions at depth [`DATED_DEPTH`] or shallower, in order:
-    /// when each top-level subtree's units started, which shows whether
-    /// the root's answer opens its subtrees at once or one after another.
+    /// Its admissions, in order: when each unit started, which shows, for
+    /// one, whether the root's answer opens its subtrees at once or one
+    /// after another.
     pub dated: Vec<DatedAdmission>,
+    /// The bytes it held outside its floor slots over the session, as
+    /// steps in time order, one per link time at which they changed.
+    ///
+    /// The value a step records is the one in force once every change at
+    /// its time is made, which is all an integral over time can see. Before
+    /// the first step it held nothing.
+    pub profile: Vec<Step>,
+    /// Every unit that waited for admission, in the order each was
+    /// admitted.
+    pub waits: Vec<Wait>,
+    /// The link time during which at least one unit waited for its
+    /// admission, in byte-times.
+    pub waiting_time: u64,
+    /// What each holder of its bytes held over the session.
+    pub holders: BTreeMap<Holder, Held>,
 }
 
 impl Default for LedgerReading {
@@ -344,6 +423,10 @@ impl Default for LedgerReading {
             questions: [Grants::default(); DEPTHS],
             answers: [Grants::default(); DEPTHS],
             dated: Vec::new(),
+            profile: Vec::new(),
+            waits: Vec::new(),
+            waiting_time: 0,
+            holders: BTreeMap::new(),
         }
     }
 }
@@ -421,6 +504,50 @@ struct Reading {
     floor: usize,
     /// The bytes floor slots carried after the last change.
     carried: usize,
+    /// Each holder's bytes now, the link time they last changed, and the
+    /// waiting clock's reading then.
+    holders: BTreeMap<Holder, (usize, u64, u64)>,
+    /// The units waiting for admission, by order, with the time each began.
+    pending: BTreeMap<u64, (u64, Admission)>,
+    /// The link time at which `pending` last changed.
+    pending_since: u64,
+}
+
+impl Reading {
+    /// The waiting clock at `now`: the link time so far during which at
+    /// least one unit waited, which grows at one byte-time per byte-time
+    /// while any does and stands still otherwise.
+    fn waiting_clock(&self, now: u64) -> u64 {
+        let current = if self.pending.is_empty() {
+            0
+        } else {
+            now - self.pending_since
+        };
+        self.reading.waiting_time + current
+    }
+
+    /// Bring the waiting clock up to `now`, before `pending` changes.
+    fn settle_waiting(&mut self, now: u64) {
+        self.reading.waiting_time = self.waiting_clock(now);
+        self.pending_since = now;
+    }
+
+    /// Integrate `holder`'s bytes up to `now`, then add `delta` to them.
+    fn hold(&mut self, holder: Holder, now: u64, delta: isize) {
+        let clock = self.waiting_clock(now);
+        let (bytes, since, clock_then) = self.holders.entry(holder).or_insert((0, now, clock));
+        let held = self.reading.holders.entry(holder).or_default();
+        held.area += *bytes as u128 * u128::from(now - *since);
+        held.area_waiting += *bytes as u128 * u128::from(clock - *clock_then);
+        if let Ok(entered) = u64::try_from(delta) {
+            held.inflow += entered;
+        }
+        *bytes = bytes
+            .checked_add_signed(delta)
+            .expect("a holder releases no more than it holds");
+        *since = now;
+        *clock_then = clock;
+    }
 }
 
 /// One thread's readings: the link whose clock dates them, and each ledger
@@ -474,6 +601,19 @@ fn record_change(change: LedgerChange) {
         let Some(now) = readings.link.as_ref().map(Link::now) else {
             return;
         };
+        let ledger = readings.ledger(change.ledger);
+        let moved =
+            isize::try_from(change.bytes).expect("a change moves fewer than isize::MAX bytes");
+        for (place, delta) in [(change.from, -moved), (change.to, moved)] {
+            if let Some(place) = place {
+                let holder = Holder {
+                    place,
+                    unit: change.unit,
+                    through_floor: change.through_floor,
+                };
+                ledger.hold(holder, now, delta);
+            }
+        }
         let Reading {
             reading,
             last,
@@ -482,7 +622,7 @@ fn record_change(change: LedgerChange) {
             floor,
             carried,
             ..
-        } = readings.ledger(change.ledger);
+        } = ledger;
         let before_held = std::mem::replace(held, change.held);
         let normal = change.held - change.floor - change.carried;
         let (before, since) = *last;
@@ -497,6 +637,14 @@ fn record_change(change: LedgerChange) {
         *floor = change.floor;
         *carried = change.carried;
         *last = (normal, now);
+        match reading.profile.last_mut() {
+            Some(step) if step.at == now => step.bytes = normal,
+            Some(step) if step.bytes == normal => {}
+            _ => reading.profile.push(Step {
+                at: now,
+                bytes: normal,
+            }),
+        }
         reading.budget_peak = reading.budget_peak.max(normal);
         reading.held_peak = reading.held_peak.max(change.held);
         reading.floor_peak = reading.floor_peak.max(change.floor + change.carried);
@@ -523,8 +671,33 @@ fn record_admission(admission: Admission) {
         if admission.depth == 0 && !admission.question && admission.leftover && !admission.partial {
             readings.root_answered = true;
         }
-        let reading = &mut readings.ledger(admission.ledger).reading;
-        if admission.depth <= DATED_DEPTH && !admission.leftover {
+        let ledger = readings.ledger(admission.ledger);
+        if admission.waiting {
+            ledger.settle_waiting(now);
+            let order = admission
+                .order
+                .expect("a unit that waits was queued, so its report names its order");
+            ledger.pending.insert(order, (now, admission));
+            return;
+        }
+        if admission.waited {
+            ledger.settle_waiting(now);
+            if let Some((queued, _)) = admission
+                .order
+                .and_then(|order| ledger.pending.remove(&order))
+            {
+                ledger.reading.waits.push(Wait {
+                    queued,
+                    admitted: now,
+                    question: admission.question,
+                    depth: admission.depth,
+                    bytes: admission.bytes,
+                    floor: admission.floor,
+                });
+            }
+        }
+        let reading = &mut ledger.reading;
+        if !admission.leftover {
             reading.dated.push(DatedAdmission {
                 at: now,
                 depth: admission.depth,
@@ -575,7 +748,16 @@ fn start_reading(link: &Link) {
 fn admitted() -> Admitted {
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
-        readings.link = None;
+        let end = readings.link.take().map_or(0, |link| link.now());
+        for ledger in readings.ledgers.values_mut() {
+            // Every holder's area runs to the session's end, and the
+            // waiting clock with it.
+            let holders: Vec<Holder> = ledger.holders.keys().copied().collect();
+            for holder in holders {
+                ledger.hold(holder, end, 0);
+            }
+            ledger.settle_waiting(end);
+        }
         let mut ledgers: Vec<_> = readings.ledgers.values().collect();
         ledgers.sort_by_key(|reading| reading.order);
         let ledgers: Vec<_> = ledgers

@@ -1,8 +1,10 @@
-//! Fixture messages' encoded sizes, against an independent CBOR encoder.
+//! Fixture messages' encoded sizes, against an independent CBOR encoder,
+//! and a session's records over time, against its ledgers' totals.
 
 use proptest::prelude::*;
 
-use super::{message, text_chars};
+use super::{Case, LAN_BDP, LedgerReading, Shape, message, run, text_chars};
+use crate::bench::link::LinkConfig;
 
 /// The bytes `text` takes encoded as a CBOR text string.
 fn encoded(text: &str) -> usize {
@@ -33,6 +35,69 @@ proptest! {
             && *chars > 7
         {
             prop_assert_eq!(encoded(&message('a', index, bytes)), bytes);
+        }
+    }
+}
+
+/// The bytes `ledger`'s profile held outside floor slots, integrated from
+/// its first step to its last.
+fn profile_area(ledger: &LedgerReading) -> u128 {
+    ledger
+        .profile
+        .windows(2)
+        .map(|pair| pair[0].bytes as u128 * u128::from(pair[1].at - pair[0].at))
+        .sum()
+}
+
+/// A session's records over time agree with the totals its ledgers keep
+/// by other means, with and without a budget that holds units back.
+///
+/// Each side's profile integrates to its budget area and ends at zero, as
+/// the session releases every charge. Its holders, built from the moves the
+/// ledger reports, partition what it holds: their areas outside floor
+/// slots add up to the budget area and the area of what floor slots carried
+/// for them, those through floor slots to the floor area. Its waits number the units the ledger counted as waiting, each
+/// admitted no earlier than it was queued and no wait longer than the time
+/// some unit waited.
+#[test]
+fn records_over_time_agree_with_the_ledger_totals() {
+    let shape = Shape::overlapping(3_000, 0);
+    let link = LinkConfig::with_bdp(LAN_BDP);
+    let unlimited = run(Case {
+        shape,
+        budget: usize::MAX,
+        link,
+    });
+    let budget = unlimited.admitted.budget_peak() / 4;
+    let budgeted = run(Case {
+        shape,
+        budget,
+        link,
+    });
+    assert!(
+        budgeted.admitted.waited() > 0,
+        "a quarter of the peak holds units back"
+    );
+    for session in [&unlimited, &budgeted] {
+        for ledger in &session.admitted.ledgers {
+            assert_eq!(profile_area(ledger), ledger.budget_area);
+            assert_eq!(ledger.profile.last().map(|step| step.bytes), Some(0));
+            let area = |through_floor: bool| -> u128 {
+                ledger
+                    .holders
+                    .iter()
+                    .filter(|(holder, _)| holder.through_floor == through_floor)
+                    .map(|(_, held)| held.area)
+                    .sum()
+            };
+            assert_eq!(area(false), ledger.budget_area + ledger.carried_area);
+            assert_eq!(area(true), ledger.floor_area);
+            assert_eq!(u64::try_from(ledger.waits.len()), Ok(ledger.waited));
+            assert!(ledger.waiting_time <= session.duration());
+            for wait in &ledger.waits {
+                assert!(wait.queued <= wait.admitted);
+                assert!(wait.admitted - wait.queued <= ledger.waiting_time);
+            }
         }
     }
 }
