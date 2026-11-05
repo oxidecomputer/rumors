@@ -260,15 +260,23 @@ impl Scope {
             Pairing::Positional => self.children.get(taken..).unwrap_or_default(),
             Pairing::Requested => &[],
         };
+        // The covered radixes are positions after the match's, in ascending
+        // order as every listing is, so those not yet passed are exactly
+        // those above the last position passed. Before any position is
+        // passed nothing is covered: the match takes one.
+        let covered_ahead = match taken
+            .checked_sub(1)
+            .and_then(|last| self.children.get(last))
+        {
+            Some(passed) => covered.len_above(passed.radix),
+            None => covered.len(),
+        };
         Positions {
             parent: self.parent,
             children: children.iter(),
             taken,
             covered,
-            covered_ahead: children
-                .iter()
-                .filter(|child| covered.contains(child.radix))
-                .count(),
+            covered_ahead,
             matched,
         }
     }
