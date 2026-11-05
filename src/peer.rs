@@ -39,7 +39,7 @@ use serde::{Serialize, de::DeserializeOwned};
 /// 41 MiB on 64-bit targets.
 ///
 /// A smaller budget, zero included, is raised to this at the default
-/// target, so a session there holds at most the larger of its budget and
+/// target, so a session there counts at most the larger of its budget and
 /// this minimum. It covers the room every session keeps for one piece of
 /// work in flight at each level of its comparison, which is how a session
 /// always makes progress, room beside it for the largest single piece of
@@ -803,16 +803,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Set the memory budget for each synchronization session: the most
-    /// memory a session holds, its work in flight and its messages on their
-    /// way included.
+    /// Set the memory budget for each synchronization session: an
+    /// approximate limit on the memory a session holds, its work in flight
+    /// and its messages on their way included.
     ///
     /// A session overlaps its round trips by keeping work in flight while
     /// replies cross the link, and that work costs memory: what the session
     /// has built, and room set aside for the replies on their way. The
-    /// budget caps that memory: a session on a budget of 512 MiB holds at
-    /// most 512 MiB of it at once, counted as [Accuracy](#accuracy)
-    /// describes. Within it, a session keeps in flight as much as it can
+    /// budget caps that memory as the session counts it: a session on a
+    /// budget of 512 MiB counts at most 512 MiB of it at once, as
+    /// [Accuracy](#accuracy) describes. Within it, a session keeps in flight as much as it can
     /// put to use.
     ///
     /// Part of every budget is set aside for one piece of work in flight at
@@ -832,7 +832,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// always has room for at least the largest single piece of work. A
     /// session raises a budget below the minimum for its target, zero
     /// included, to that minimum, which is [`MIN_SYNC_MEMORY_BUDGET`] at the
-    /// default target, so a session there holds at most the larger of
+    /// default target, so a session there counts at most the larger of
     /// `budget_bytes` and [`MIN_SYNC_MEMORY_BUDGET`];
     /// [`synchronization_settings`](Self::synchronization_settings)
     /// reports the raised budget. The raise reads both settings when a
@@ -973,8 +973,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// # Accuracy
     ///
     /// A session counts what it holds and sets aside for the budget by the
-    /// in-memory size of each item it builds. Allocator rounding falls
-    /// outside the count.
+    /// in-memory size of each item it builds, and the count is exact for
+    /// what it covers. The budget as a whole is approximate: it applies
+    /// backpressure as a session's counted memory nears the budget, and it
+    /// does not bound everything a session allocates, as
+    /// [what the budget does not cover](#what-the-budget-does-not-cover)
+    /// lists. Allocator rounding falls outside the count.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.sync_memory_budget = MemoryBudget::Requested(budget_bytes);

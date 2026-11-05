@@ -6,8 +6,9 @@
 // against the minimum.
 //! Choosing a synchronization memory budget.
 //!
-//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets the
-//! most memory a session holds, its messages on their way included. Beyond
+//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets an
+//! approximate limit on the memory a session holds, its messages on their
+//! way included. Beyond
 //! what every budget sets aside, it buys room for keeping questions in
 //! flight while their answers cross the link, so that a session overlaps
 //! its round trips instead of waiting out each one. The
@@ -41,7 +42,7 @@
 //!   flight only what the added room holds, and otherwise waits for
 //!   answers before it asks its next questions. This is the declared
 //!   behavior of such a budget, not a failure; the session completes,
-//!   holding at most the smallest budget.
+//!   counting at most the smallest budget.
 //! - **A larger budget** keeps more questions in flight at once, up to the
 //!   point where nothing waits for memory. Beyond that point more budget
 //!   changes nothing: a session that never needs more runs exactly as it
