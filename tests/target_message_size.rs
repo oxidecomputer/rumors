@@ -12,7 +12,7 @@ use rumors_testkit::common;
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
+use rumors::{Bootstrap, Peer, Rumors, default};
 
 use crate::common::gossip_snapshot::{capture_gossip, capture_session, observed};
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
@@ -99,7 +99,7 @@ proptest! {
         assert_converges(diverged_pair(
             network,
             0,
-            DEFAULT_TARGET_MESSAGE_SIZE,
+            default::TARGET_MESSAGE_SIZE,
             payloads,
         ));
     }
@@ -202,8 +202,8 @@ fn zero_target_emits_more_supply_frames_than_default() {
     };
     let batched = {
         let (left, right) = seeded_diverged_pair(
-            DEFAULT_TARGET_MESSAGE_SIZE,
-            DEFAULT_TARGET_MESSAGE_SIZE,
+            default::TARGET_MESSAGE_SIZE,
+            default::TARGET_MESSAGE_SIZE,
             (DIVERGENT_PER_SIDE, DIVERGENT_PER_SIDE),
         );
         capture_gossip(left, right)
@@ -269,10 +269,10 @@ fn nonzero_minimum_binds_both_encoders() {
         );
         directional_supply_frames(&capture_gossip(l, r))
     };
-    let small_default = frames(SMALL_TARGET, DEFAULT_TARGET_MESSAGE_SIZE);
-    let default_small = frames(DEFAULT_TARGET_MESSAGE_SIZE, SMALL_TARGET);
+    let small_default = frames(SMALL_TARGET, default::TARGET_MESSAGE_SIZE);
+    let default_small = frames(default::TARGET_MESSAGE_SIZE, SMALL_TARGET);
     let small_small = frames(SMALL_TARGET, SMALL_TARGET);
-    let default_default = frames(DEFAULT_TARGET_MESSAGE_SIZE, DEFAULT_TARGET_MESSAGE_SIZE);
+    let default_default = frames(default::TARGET_MESSAGE_SIZE, default::TARGET_MESSAGE_SIZE);
 
     // Margin self-checks: the small target splits runs in each direction
     // independently, so the tuple equalities below cannot hold vacuously.
@@ -340,7 +340,7 @@ fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
     )
 }
 
-/// A budget far from [`rumors::DEFAULT_SYNC_MEMORY_BUDGET`]'s 512 MiB, so
+/// A budget far from [`rumors::default::SYNC_MEMORY_BUDGET`]'s 512 MiB, so
 /// the wire-equality pin below cannot pass by the two configurations
 /// coinciding.
 const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;

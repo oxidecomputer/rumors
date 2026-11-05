@@ -49,8 +49,9 @@ use before::Span;
 use futures::{Stream, StreamExt, stream as futures_stream};
 
 use crate::{
-    DEFAULT_TARGET_MESSAGE_SIZE, Version,
+    Version,
     counter::widen,
+    default,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -832,14 +833,14 @@ where
         charged.clone(),
         left,
         Some(Arc::clone(&keys)),
-        widen(DEFAULT_TARGET_MESSAGE_SIZE),
+        widen(default::TARGET_MESSAGE_SIZE),
     )
     .budget(budget);
     let server = materialized::Handshaking::start(
         charged,
         right,
         Some(Arc::clone(&keys)),
-        widen(DEFAULT_TARGET_MESSAGE_SIZE),
+        widen(default::TARGET_MESSAGE_SIZE),
     )
     .budget(budget);
     let (ours, theirs) = streaming::mirror(client, server)

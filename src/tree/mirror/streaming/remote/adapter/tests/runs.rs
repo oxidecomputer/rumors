@@ -13,15 +13,14 @@ use futures::{StreamExt, TryStreamExt, stream};
 use proptest::prelude::*;
 
 use crate::{
-    Version,
+    Version, default,
     message::Message,
     tree::{
         mirror::streaming::{
             Backend, Failing, FailingNode, Local,
             erased::{Reaction, Reply},
             remote::codec::{
-                DEFAULT_TARGET_MESSAGE_SIZE, Flow, Frame, LeafRun, Reaction as WireReaction,
-                RunBudget, SUPPLY_FRAME_OVERHEAD,
+                Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget, SUPPLY_FRAME_OVERHEAD,
             },
         },
         typed::{Prefix, height::UnderRoot},
@@ -266,7 +265,7 @@ fn runs_never_span_reactions() {
     let leaves = separated_leaves();
     let frames = recode(
         unbatched_frames(&leaves),
-        RunBudget::from_bytes(DEFAULT_TARGET_MESSAGE_SIZE),
+        RunBudget::from_bytes(default::TARGET_MESSAGE_SIZE),
     );
 
     let runs = runs_of(&frames);

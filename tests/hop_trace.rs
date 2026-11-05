@@ -45,9 +45,7 @@ use rand_chacha::ChaChaRng;
 use rumors::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
-use rumors::{
-    DEFAULT_SYNC_MEMORY_BUDGET, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors, SessionStats, Version,
-};
+use rumors::{Peer, Rumors, SessionStats, Version, default};
 use rumors_testkit::bench::latency;
 use rumors_testkit::common::shape::path_radix;
 use rumors_testkit::divided_proptest;
@@ -449,12 +447,12 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
 
     let left = NETWORK
         .peer()
-        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
         .into_rumors();
     // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
+    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
 
     send_random(&left, DIVERGENT_PER_SIDE, &mut rng);
     send_random(&right, DIVERGENT_PER_SIDE, &mut rng);
@@ -468,13 +466,13 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
 
     let left = NETWORK
         .peer()
-        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
         .into_rumors();
     // Fixed, as is the shuffle below, so the trace prints the same session,
     // with the same redactions, every run.
     let mut rng = ChaChaRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
+    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
 
     let versions: Vec<Version> = left.snapshot().versions().cloned().collect();
     let mut shuffled = versions;
@@ -506,7 +504,7 @@ where
             rumors::Joined::Joined { peer, .. } => peer,
             _ => panic!("provider is established"),
         })
-        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
         .target_message_size(target_message_size)
         .into_rumors()
     })
@@ -624,9 +622,9 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
 
     let left = NETWORK
         .peer()
-        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
         .into_rumors();
-    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
+    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
     {
         left.send_all(0..64u64).unwrap();
     }
@@ -731,12 +729,12 @@ fn trace_bulk_initiator_session() {
 fn trace_empty_session() {
     let left = NETWORK
         .peer()
-        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
         .into_rumors();
     // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x1234_5678_9abc_def0);
     send_random(&left, 64, &mut rng);
-    let right = bootstrap_fork(&left, DEFAULT_TARGET_MESSAGE_SIZE);
+    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
     let (traced, predicted) =
         trace_point("empty divergence: identical 64-message peers", left, right);
     assert_eq!(predicted.hops, 3, "the rule's count for equal versions");
@@ -844,7 +842,7 @@ impl PairPlan {
         let payload = Bytes::from(vec![0; self.payload_len]);
         let a = network
             .peer()
-            .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+            .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
             .target_message_size(self.a.target_message_size)
             .into_rumors();
         a.send_all(iter::repeat_n(payload.clone(), self.common))
@@ -874,7 +872,7 @@ fn divergence() -> impl Strategy<Value = Divergence> {
         prop_oneof![
             Just(0),
             1..=MAX_SMALL_TARGET,
-            Just(DEFAULT_TARGET_MESSAGE_SIZE)
+            Just(default::TARGET_MESSAGE_SIZE)
         ],
     )
         .prop_map(

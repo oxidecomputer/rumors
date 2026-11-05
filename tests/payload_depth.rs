@@ -17,7 +17,7 @@
 use rumors_testkit::common;
 
 use rumors::error::Mismatch;
-use rumors::{DEFAULT_PAYLOAD_DEPTH_LIMIT, Peer, Rumors};
+use rumors::{Peer, Rumors, default};
 
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
@@ -44,7 +44,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn a_payload_at_the_default_depth_round_trips(network in network_seed()) {
-        let at_limit = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT);
+        let at_limit = nested(default::PAYLOAD_DEPTH_LIMIT);
         let a: Rumors<Arr> = network.peer().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork(&a);
 
@@ -73,10 +73,10 @@ divided_proptest! {
     fn one_step_past_the_limit_is_rejected_at_send(network in network_seed()) {
         let rumors: Rumors<Arr> = network.peer().sync_memory_budget(0).into_rumors();
         let error = rumors
-            .send(nested(DEFAULT_PAYLOAD_DEPTH_LIMIT + 1))
+            .send(nested(default::PAYLOAD_DEPTH_LIMIT + 1))
             .expect_err("one step past the limit is rejected");
         assert!(
-            matches!(error, rumors::EncodeError::Depth { limit } if limit == DEFAULT_PAYLOAD_DEPTH_LIMIT),
+            matches!(error, rumors::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
@@ -113,7 +113,7 @@ divided_proptest! {
     #[test]
     fn the_deepest_admissible_enum_round_trips(network in network_seed()) {
         // The innermost unit variant costs the step the wrappers don't.
-        let at_limit = nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT - 1);
+        let at_limit = nested_enum(default::PAYLOAD_DEPTH_LIMIT - 1);
         let a: Rumors<E> = network.peer().sync_memory_budget(0).into_rumors();
         let b = bootstrap_fork(&a);
 
@@ -143,10 +143,10 @@ divided_proptest! {
     fn an_enum_needing_one_step_past_the_limit_is_rejected_at_send(network in network_seed()) {
         let rumors: Rumors<E> = network.peer().sync_memory_budget(0).into_rumors();
         let error = rumors
-            .send(nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT))
+            .send(nested_enum(default::PAYLOAD_DEPTH_LIMIT))
             .expect_err("a decode needing limit + 1 is rejected");
         assert!(
-            matches!(error, rumors::EncodeError::Depth { limit } if limit == DEFAULT_PAYLOAD_DEPTH_LIMIT),
+            matches!(error, rumors::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
@@ -163,8 +163,8 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn equal_raised_limits_gossip_deep_content_clean(network in network_seed()) {
-        let raised = DEFAULT_PAYLOAD_DEPTH_LIMIT + 64;
-        let deep = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT + 32);
+        let raised = default::PAYLOAD_DEPTH_LIMIT + 64;
+        let deep = nested(default::PAYLOAD_DEPTH_LIMIT + 32);
 
         let a: Rumors<Arr> = network.peer()
             .payload_depth_limit(raised)
@@ -309,7 +309,7 @@ divided_proptest! {
 
         // Re-key one side's limit through the Peer knob: the fork was created
         // at the default, and the setting follows the peer through reunion.
-        let raised = DEFAULT_PAYLOAD_DEPTH_LIMIT + 1;
+        let raised = default::PAYLOAD_DEPTH_LIMIT + 1;
         let b = crate::common::wire::block_on(async {
             let peer = b.try_into_peer().await.expect("the sole handle reunites");
             peer.payload_depth_limit(raised).into_rumors()
@@ -344,11 +344,11 @@ divided_proptest! {
         let Error::Mismatch(Mismatch::PayloadDepth { local, remote, .. }) = a_err else {
             panic!("a's error must be the typed mismatch: {a_err:?}");
         };
-        assert_eq!((local, remote), (DEFAULT_PAYLOAD_DEPTH_LIMIT, raised));
+        assert_eq!((local, remote), (default::PAYLOAD_DEPTH_LIMIT, raised));
         let Error::Mismatch(Mismatch::PayloadDepth { local, remote, .. }) = b_err else {
             panic!("b's error must be the typed mismatch: {b_err:?}");
         };
-        assert_eq!((local, remote), (raised, DEFAULT_PAYLOAD_DEPTH_LIMIT));
+        assert_eq!((local, remote), (raised, default::PAYLOAD_DEPTH_LIMIT));
 
         for shape in [&a_shape, &b_shape] {
             assert!(

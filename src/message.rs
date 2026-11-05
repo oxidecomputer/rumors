@@ -8,6 +8,8 @@ use bytes::Bytes;
 
 use serde::{Serialize, Serializer, de::DeserializeOwned};
 
+use crate::default;
+
 /// A type-erased payload and its cached CBOR encoding.
 ///
 /// Clones share the payload and cache. Typed API boundaries recover the payload
@@ -32,21 +34,12 @@ pub struct Message {
     serialized: Bytes,
 }
 
-/// The default payload nesting-depth limit: 256 decode recursion steps.
-///
-/// This is the decoder's default recursion bound, so the depth check rejects
-/// nothing the decoder would otherwise accept.
-///
-/// Wire interop across releases is governed by the greeting's format,
-/// not by this constant.
-pub const DEFAULT_PAYLOAD_DEPTH_LIMIT: u64 = 256;
-
 /// A peer's payload nesting-depth limit, counted in the CBOR decode
 /// engine's recursion steps.
 ///
 /// Selected by [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
 /// (whose docs carry the full contract); defaults to
-/// [`DEFAULT_PAYLOAD_DEPTH_LIMIT`]. A step is the engine's own
+/// [`default::PAYLOAD_DEPTH_LIMIT`]. A step is the engine's own
 /// accounting (arrays, maps, tags, and type-driven wrappers such as an
 /// enum's variant scope), not a structural property of the bytes —
 /// which is why admission at send runs the decode itself rather than
@@ -81,7 +74,7 @@ impl PayloadDepthLimit {
 impl Default for PayloadDepthLimit {
     /// Return the default recursion limit.
     fn default() -> Self {
-        PayloadDepthLimit(DEFAULT_PAYLOAD_DEPTH_LIMIT)
+        PayloadDepthLimit(default::PAYLOAD_DEPTH_LIMIT)
     }
 }
 

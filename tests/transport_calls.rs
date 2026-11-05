@@ -38,7 +38,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use rumors::testing::{LANE_CAPACITY, MemoryEnd, memory_connection};
-use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Rumors};
+use rumors::{Rumors, default};
 use rumors_testkit::bench::session::{Shape, pair};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
@@ -253,7 +253,7 @@ async fn gossip(peer: Rumors<String>, end: MemoryEnd, vectored: bool) -> Calls {
 /// Building the pair runs the peers' own joining sessions, before counting
 /// starts.
 fn session(shape: Shape, vectored: bool) -> Calls {
-    let (a, b) = pair(shape, DEFAULT_SYNC_MEMORY_BUDGET);
+    let (a, b) = pair(shape, default::SYNC_MEMORY_BUDGET);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build a current-thread runtime");

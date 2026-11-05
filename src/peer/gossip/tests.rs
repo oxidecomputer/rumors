@@ -31,7 +31,7 @@ use crate::tree::mirror::{
     streaming::{self, Local, materialized, remote as streaming_remote},
 };
 use crate::tree::{self, Tree};
-use crate::{DEFAULT_TARGET_MESSAGE_SIZE, Error, Network, Peer};
+use crate::{Error, Network, Peer, default};
 
 /// Both sides exchange markers over a one-byte transport without deadlock.
 ///
@@ -180,7 +180,7 @@ async fn claim_bootstrap_with_root(
         Local,
         local_root,
         Some(NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     );
     let proxy = streaming_remote::Handshaking::start(
         Local,

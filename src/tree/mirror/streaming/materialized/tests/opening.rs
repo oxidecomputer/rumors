@@ -2,7 +2,7 @@
 
 use proptest::prelude::*;
 
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
+use crate::default;
 use crate::network::NetworkKeys;
 use crate::tree::Root;
 use crate::tree::arb::arb_tree_root;
@@ -24,7 +24,7 @@ fn start(root: Root) -> Handshaking<Local, Start> {
         Local,
         root.into(),
         Some(NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0)
 }

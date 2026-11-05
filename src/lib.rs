@@ -382,6 +382,7 @@ mod bookmark;
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
 mod counter;
+pub mod default;
 pub mod error;
 mod message;
 mod network;
@@ -414,18 +415,14 @@ pub use before::{Count, Version, causally};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub use bookmark::FileBookmark;
-pub use bookmark::{
-    BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, DEFAULT_BOOKMARK_SIZE_LIMIT, FormatError,
-    NoBookmark,
-};
+pub use bookmark::{BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, FormatError, NoBookmark};
 pub use error::Error;
 pub use message::EncodeError;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    Bootstrap, DEFAULT_PAYLOAD_DEPTH_LIMIT, DEFAULT_SYNC_MEMORY_BUDGET,
-    DEFAULT_TARGET_MESSAGE_SIZE, Gossip, Gossiped, Joined, Led, MAX_RUN_BUDGET_BYTES,
-    MIN_SYNC_MEMORY_BUDGET, Peer, Retire, SynchronizationSettings, Unbookmarked,
+    Bootstrap, Gossip, Gossiped, Joined, Led, MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET, Peer,
+    Retire, SynchronizationSettings, Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

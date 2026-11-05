@@ -63,13 +63,6 @@ use crate::counter;
 pub use self::admission::{Admission, AdmissionHook, observe_admissions};
 pub(crate) use self::admission::{Admit, Unit};
 
-/// The default memory budget for each synchronization session: 512 MiB.
-///
-/// See [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
-/// what the budget covers and [the sizing guide](crate::sizing) for choosing
-/// one.
-pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
-
 mod admission;
 #[cfg(any(test, feature = "test-internals"))]
 use std::sync::OnceLock;

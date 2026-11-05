@@ -19,7 +19,8 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, Re
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::DEFAULT_SYNC_MEMORY_BUDGET;
+use crate::default;
+use crate::message::{Message, PayloadCodec, PayloadDepthLimit};
 use crate::testing::{
     IoFault, IoPlan, IoReportHandle, IoSide, MemoryEnd, memory_connection, wrap_io,
 };
@@ -41,10 +42,6 @@ use crate::tree::{
             },
         },
     },
-};
-use crate::{
-    DEFAULT_TARGET_MESSAGE_SIZE,
-    message::{Message, PayloadCodec, PayloadDepthLimit},
 };
 
 /// Bytes buffered by each direction of the pipe before backpressure applies.
@@ -766,7 +763,7 @@ pub async fn reconcile_rewritten_greetings(
         rewritten(left_end, left_hears),
         rewritten(right_end, right_hears),
         codec::<()>(),
-        DEFAULT_SYNC_MEMORY_BUDGET,
+        default::SYNC_MEMORY_BUDGET,
     )
     .await
 }
@@ -885,14 +882,14 @@ where
         left_backend,
         B::lift(left),
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(budget);
     let right = Handshaking::start(
         right_backend,
         B::lift(right),
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(budget);
     let (left_read, left_write) = left_end;

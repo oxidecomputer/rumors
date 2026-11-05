@@ -83,7 +83,8 @@ mod signal;
 pub(crate) use budget::FULL_FAN_QUERY_FRAME_LEN;
 #[cfg(test)]
 pub use budget::SUPPLY_FRAME_OVERHEAD;
-pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
+pub use budget::{MAX_RUN_BUDGET_BYTES, RunBudget};
+pub(crate) use frame::MAX_QUERY_CHILDREN;
 
 #[cfg(any(test, feature = "test-internals"))]
 pub use crate::tree::mirror::cbor::HeadError;

@@ -14,7 +14,7 @@
 //! runs its fixtures, and the counts cover both sides, their commits
 //! included.
 
-use rumors::DEFAULT_SYNC_MEMORY_BUDGET;
+use rumors::default;
 use rumors::testing::{MemoWork, memo_work, memo_work_reset, memory_connection};
 use rumors_testkit::bench::session::{Shape, pair};
 
@@ -29,7 +29,7 @@ const CAPACITY: usize = 4 << 20;
 /// Building the pair runs the peers' own joining sessions, before counting
 /// starts.
 fn session(shape: Shape) -> MemoWork {
-    let (a, b) = pair(shape, DEFAULT_SYNC_MEMORY_BUDGET);
+    let (a, b) = pair(shape, default::SYNC_MEMORY_BUDGET);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build a current-thread runtime");

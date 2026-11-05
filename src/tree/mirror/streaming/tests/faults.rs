@@ -8,7 +8,7 @@ use super::{
     fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair},
     floor_start, left_initiates, streaming_mirror_sides,
 };
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
+use crate::default;
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::{
     Error as MirrorError,
@@ -50,7 +50,7 @@ fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Loc
         backend,
         root,
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0)
 }

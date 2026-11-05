@@ -7,8 +7,8 @@ use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 /// assert loudly.
 #[test]
 fn default_budget_matches_its_derivation() {
-    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 1_502_720);
-    assert_eq!(RunBudget::default().bytes(), DEFAULT_TARGET_MESSAGE_SIZE);
+    assert_eq!(default::TARGET_MESSAGE_SIZE, 1_502_720);
+    assert_eq!(RunBudget::default().bytes(), default::TARGET_MESSAGE_SIZE);
 }
 
 /// The full-fan frame constant prices exactly what the encoder writes.
@@ -63,7 +63,7 @@ fn admission_charges_the_frame_envelope() {
 /// default-sized run is always representable on the wire.
 #[test]
 fn default_budget_fits_the_framing_header() {
-    assert!(u32::try_from(DEFAULT_TARGET_MESSAGE_SIZE).is_ok());
+    assert!(u32::try_from(default::TARGET_MESSAGE_SIZE).is_ok());
 }
 
 /// Budgets above the wire's run byte cap saturate to it, so a run the

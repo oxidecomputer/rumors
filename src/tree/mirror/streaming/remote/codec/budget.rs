@@ -34,6 +34,7 @@
 //! wire limit is rejected before the encoder writes any part of its frame.
 
 use crate::counter::widen;
+use crate::default;
 use crate::tree::mirror::cbor;
 
 use super::error::DecodeErrorKind;
@@ -56,13 +57,6 @@ pub(crate) const FULL_FAN_QUERY_FRAME_LEN: usize = {
     }
     total
 };
-
-/// Default supply-run byte budget: the size of the maximally disputed reply.
-///
-/// A non-supply reply can contain one reaction per radix, each a full-fan
-/// query. Giving supply runs the same byte allowance preserves that per-reply
-/// memory ceiling.
-pub const DEFAULT_TARGET_MESSAGE_SIZE: usize = MAX_QUERY_CHILDREN * FULL_FAN_QUERY_FRAME_LEN;
 
 /// Most wire bytes a supply frame can add around its run body.
 ///
@@ -136,7 +130,7 @@ impl RunBudget {
 
 impl Default for RunBudget {
     fn default() -> Self {
-        Self::from_bytes(DEFAULT_TARGET_MESSAGE_SIZE)
+        Self::from_bytes(default::TARGET_MESSAGE_SIZE)
     }
 }
 

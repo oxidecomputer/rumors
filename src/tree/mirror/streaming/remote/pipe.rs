@@ -131,6 +131,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use futures::StreamExt;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufWriter, ReadBuf};
 
+use crate::default;
 use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
@@ -142,9 +143,8 @@ use crate::tree::mirror::streaming::{
 };
 
 use super::codec::{
-    DEFAULT_TARGET_MESSAGE_SIZE, DecodeError, DecodeErrorKind, EncodeError, End,
-    FULL_FAN_QUERY_FRAME_LEN, Frame, FrameRead, FrameWrite, Origin, Reaction, ReplyFrame,
-    RunBudget, Speaker, Stream,
+    DecodeError, DecodeErrorKind, EncodeError, End, FULL_FAN_QUERY_FRAME_LEN, Frame, FrameRead,
+    FrameWrite, Origin, Reaction, ReplyFrame, RunBudget, Speaker, Stream,
 };
 
 /// Frames each logical stream's channel holds between the pipe and a
@@ -765,7 +765,7 @@ impl Multiplexer {
 ///   limit, takes a whole buffer in one write when no earlier records wait
 ///   to be sent, and sends its records together. A larger buffer would take
 ///   two rounds of encryption and socket writes on that path.
-/// - It is at most [`DEFAULT_TARGET_MESSAGE_SIZE`], so a supply run that
+/// - It is at most [`default::TARGET_MESSAGE_SIZE`], so a supply run that
 ///   reaches the default target bypasses the buffer instead of being
 ///   copied.
 ///
@@ -796,7 +796,7 @@ const TLS_SEND_LIMIT: usize = 64 * 1024;
 const _: () = assert!(
     FULL_FAN_QUERY_FRAME_LEN < WRITE_BUFFER_BYTES
         && WRITE_BUFFER_BYTES <= TLS_SEND_LIMIT
-        && WRITE_BUFFER_BYTES <= DEFAULT_TARGET_MESSAGE_SIZE,
+        && WRITE_BUFFER_BYTES <= default::TARGET_MESSAGE_SIZE,
     "the write buffer copies every comparison frame, fits one TLS write, and passes a default-target run through"
 );
 

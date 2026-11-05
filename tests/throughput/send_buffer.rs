@@ -66,7 +66,7 @@
 //! size. A comparison means something only if the unsent queue fills, and
 //! at half of `Λ` only if the budget binds there; the tests check both.
 
-use rumors::DEFAULT_SYNC_MEMORY_BUDGET;
+use rumors::default;
 use rumors_testkit::bench::link::{LinkConfig, Side};
 
 use rumors_testkit::bench::session::{self as fixture, Case, LAN_BDP, Session, Shape, resolution};
@@ -204,7 +204,7 @@ fn unsent_bytes_leave_a_catch_up_unchanged() {
     let [bare, buffered] = links();
     let case = |link| Case {
         shape,
-        budget: BudgetChoice::Bytes(DEFAULT_SYNC_MEMORY_BUDGET),
+        budget: BudgetChoice::Bytes(default::SYNC_MEMORY_BUDGET),
         link,
     };
     let [critical_path, without, with] = fixture::run_all([

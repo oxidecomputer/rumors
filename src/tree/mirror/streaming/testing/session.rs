@@ -11,7 +11,7 @@ use std::convert::Infallible;
 use futures::join;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
+use crate::default;
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::observe::{Attachment, SessionKind};
 use crate::testing::{Quiescence, memory_connection, run_to_quiescence};
@@ -69,7 +69,7 @@ where
     let [a_budget, b_budget] = budgets;
     let codec = PayloadCodec::new::<T>(PayloadDepthLimit::default());
     run_to_quiescence(async move {
-        let size = DEFAULT_TARGET_MESSAGE_SIZE as u64;
+        let size = default::TARGET_MESSAGE_SIZE as u64;
         let a_walk = Handshaking::start(
             Local,
             a.into(),

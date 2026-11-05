@@ -133,7 +133,7 @@ proptest! {
         finish in proptest::collection::vec(any::<bool>(), 1..4),
         steps in proptest::collection::vec(arb_step(4, true), 0..18),
         write_faults in arb_fault_bits(true),
-        limit in prop_oneof![Just(rumors::DEFAULT_BOOKMARK_SIZE_LIMIT), 0usize..2000],
+        limit in prop_oneof![Just(rumors::default::BOOKMARK_SIZE_LIMIT), 0usize..2000],
         network in network_seed(),
     ) {
         let mut world = World::single_network(4, network);

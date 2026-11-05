@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use proptest::prelude::*;
 
 use super::{Bootstrap, Joined};
-use crate::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::Peer;
 use crate::bookmark::Bookmark;
+use crate::default;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
 use crate::testing::property::{NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::run_to_quiescence;
@@ -221,7 +221,7 @@ divided_proptest! {
     #[test]
     fn configuration_defaults_and_saturation(network in network_seed()) {
         let config = Peer::<u64>::bootstrap();
-        assert_eq!(config.sync_memory_budget, DEFAULT_SYNC_MEMORY_BUDGET);
+        assert_eq!(config.sync_memory_budget, default::SYNC_MEMORY_BUDGET);
         assert_eq!(config.run_budget, RunBudget::default());
         assert_eq!(
             config.payload_depth_limit,
@@ -235,7 +235,7 @@ divided_proptest! {
             &sessions,
             None,
             (
-                DEFAULT_SYNC_MEMORY_BUDGET,
+                default::SYNC_MEMORY_BUDGET,
                 RunBudget::default(),
                 crate::message::PayloadDepthLimit::default(),
             ),

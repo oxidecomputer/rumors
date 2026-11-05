@@ -37,7 +37,7 @@ use crate::tree::mirror::streaming::{
 use crate::tree::typed::Path;
 use crate::tree::typed::height::{Height, Root as RootHeight};
 use crate::tree::{Action, Root as TreeRoot, Tree, arb::nth_party};
-use crate::{DEFAULT_TARGET_MESSAGE_SIZE, Version};
+use crate::{Version, default};
 
 use super::{
     harness::{self, Backends, EndpointError, Topology, codec},
@@ -499,14 +499,14 @@ impl Session {
                     Local,
                     Root::from(left),
                     Some(crate::network::NetworkKeys::fixture()),
-                    DEFAULT_TARGET_MESSAGE_SIZE as u64,
+                    default::TARGET_MESSAGE_SIZE as u64,
                 )
                 .budget(self.budget);
                 let right = Handshaking::start(
                     Local,
                     Root::from(right),
                     Some(crate::network::NetworkKeys::fixture()),
-                    DEFAULT_TARGET_MESSAGE_SIZE as u64,
+                    default::TARGET_MESSAGE_SIZE as u64,
                 )
                 .budget(self.budget);
                 let left_proxy = RemoteHandshaking::start(

@@ -84,7 +84,7 @@ pub(crate) use adapter::{RecordedChild, Scope};
 pub(crate) use adapter::{Replay, ReplyLevel, derive_questions};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::STREAM_COUNT;
-pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
+pub use codec::{MAX_RUN_BUDGET_BYTES, RunBudget};
 pub(crate) use error::streaming_error;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use pipe::LANE_CAPACITY;

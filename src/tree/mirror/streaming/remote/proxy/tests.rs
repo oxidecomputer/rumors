@@ -33,7 +33,7 @@ use crate::tree::{
     },
 };
 use crate::{
-    DEFAULT_TARGET_MESSAGE_SIZE, Network, Version,
+    Network, Version, default,
     message::{Message, PayloadCodec, PayloadDepthLimit},
     tree::mirror::Error as MirrorError,
 };
@@ -149,14 +149,14 @@ async fn reconcile_locally(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
         Local,
         Root::<Local>::from(a),
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);
     let b = Handshaking::start(
         Local,
         Root::<Local>::from(b),
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);
     let (a, b) = Box::pin(mirror(a, b))
@@ -262,14 +262,14 @@ async fn reconcile_with_failing_walk(
         left_backend,
         failing_root(a),
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);
     let b = Handshaking::start(
         right_backend,
         failing_root(b),
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0);
 

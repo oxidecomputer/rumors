@@ -21,7 +21,7 @@ use rumors::testing::LANE_CAPACITY;
 use rumors::testing::{
     MEMORY_CAPACITY, MemoryEnd, MultiplexerPoll, memory_connection, observe_multiplexers,
 };
-use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Rumors};
+use rumors::{Rumors, default};
 use rumors_testkit::bench::session::{Shape, pair};
 
 /// What a session's multiplexers did, summed over both sides.
@@ -100,7 +100,7 @@ fn session() -> Session {
         observe_multiplexers(record),
         "this suite installs the process's multiplexer hook"
     );
-    let (a, b) = pair(Shape::overlapping(2_000, 50), DEFAULT_SYNC_MEMORY_BUDGET);
+    let (a, b) = pair(Shape::overlapping(2_000, 50), default::SYNC_MEMORY_BUDGET);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build a current-thread runtime");

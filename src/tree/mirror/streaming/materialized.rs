@@ -113,7 +113,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Node as _, Root,
         erased::{self, Reaction, Reply},
-        ledger::{Charge, DEFAULT_SYNC_MEMORY_BUDGET, Ledger, ReplyBound},
+        ledger::{Charge, Ledger, ReplyBound},
         message::{CountError, Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
@@ -487,7 +487,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             root,
             target_message_size,
             stats: Recorder::default(),
-            ledger: Ledger::new(admission_budget::<B>(DEFAULT_SYNC_MEMORY_BUDGET)),
+            ledger: Ledger::new(admission_budget::<B>(crate::default::SYNC_MEMORY_BUDGET)),
             keys,
         }
     }

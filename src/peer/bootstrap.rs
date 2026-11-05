@@ -80,13 +80,13 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// Use the default session settings without a bookmark.
     pub(crate) fn new() -> Self {
         Self {
-            sync_memory_budget: crate::DEFAULT_SYNC_MEMORY_BUDGET,
+            sync_memory_budget: crate::default::SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
             gossip_policy: super::policy::Policy::default(),
             payload_depth_limit: PayloadDepthLimit::default(),
             observe: Attachment::default(),
             bookmark: NoBookmark,
-            bookmark_size_limit: crate::DEFAULT_BOOKMARK_SIZE_LIMIT,
+            bookmark_size_limit: crate::default::BOOKMARK_SIZE_LIMIT,
             marker: PhantomData,
         }
     }

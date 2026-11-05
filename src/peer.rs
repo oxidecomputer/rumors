@@ -15,16 +15,13 @@ use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark, Reservation, Reservations};
-pub use crate::message::DEFAULT_PAYLOAD_DEPTH_LIMIT;
+use crate::default;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
 use crate::network::{NetworkKeys, NetworkSecret};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
-pub use crate::tree::mirror::streaming::ledger::DEFAULT_SYNC_MEMORY_BUDGET;
+pub use crate::tree::mirror::streaming::remote::MAX_RUN_BUDGET_BYTES;
 use crate::tree::mirror::streaming::remote::RunBudget;
-pub use crate::tree::mirror::streaming::remote::{
-    DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
-};
 use crate::tree::mirror::streaming::{Local, materialized};
 use crate::{
     Batch, Bookmark, CausalMessages, Changes, Committed, Network, Rumors, Snapshot,
@@ -479,7 +476,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
         let keys = Arc::new(NetworkKeys::new(NetworkSecret::from_rng(rng)));
         Self {
             keys: Arc::clone(&keys),
-            sync_memory_budget: DEFAULT_SYNC_MEMORY_BUDGET,
+            sync_memory_budget: default::SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
             gossip_policy: policy::Policy::default(),
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(keys))),
@@ -687,7 +684,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Limit the complete encoded bookmark, including its integrity frame.
     ///
-    /// The default is [`crate::DEFAULT_BOOKMARK_SIZE_LIMIT`] (16 MiB). The
+    /// The default is [`default::BOOKMARK_SIZE_LIMIT`] (16 MiB). The
     /// budget is shared by all networks retained in this bookmark. Updates
     /// discard the oldest identities from the least recently used network,
     /// removing each network only after its last identity is gone. Eviction
@@ -762,7 +759,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// sessions running at once, to one peer or to several, can each use up
     /// to it.
     ///
-    /// The default is [`DEFAULT_SYNC_MEMORY_BUDGET`] (512 MiB), and the
+    /// The default is [`default::SYNC_MEMORY_BUDGET`] (512 MiB), and the
     /// least is [`MIN_SYNC_MEMORY_BUDGET`]. All
     /// [`Rumors`] clones inherit this setting, and it is preserved when
     /// returning to a `Peer`, attaching a bookmark, or retiring.
@@ -885,7 +882,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// the more memory-constrained peer sets the pace. Peers with
     /// different settings interoperate.
     ///
-    /// The default, [`DEFAULT_TARGET_MESSAGE_SIZE`], is the byte size of
+    /// The default, [`default::TARGET_MESSAGE_SIZE`], is the byte size of
     /// the wire's maximally disputed reply (the decode side's documented
     /// per-reply memory unit), so default batching never raises the wire's
     /// established memory ceiling. Any value is safe: zero degrades to one
@@ -911,7 +908,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// type — arrays, maps, and tags each do, and so can type-driven
     /// wrappers such as an enum's variant scope — so the bound is
     /// engine-defined, not a structural count of the bytes. The default,
-    /// [`DEFAULT_PAYLOAD_DEPTH_LIMIT`], is 256 steps: exactly the bound
+    /// [`default::PAYLOAD_DEPTH_LIMIT`], is 256 steps: exactly the bound
     /// the decoder applies by default, so a fleet at the default sees no
     /// acceptance change on existing content.
     ///

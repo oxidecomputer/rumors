@@ -34,7 +34,7 @@ use std::sync::Arc;
 use before::{Party, Version};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::Network;
+use crate::{Network, default};
 
 mod error;
 #[cfg(feature = "fs")]
@@ -44,9 +44,6 @@ mod record;
 mod serde;
 
 use record::Record;
-
-/// Default maximum encoded bookmark size: 16 MiB, allocated only as needed.
-pub const DEFAULT_BOOKMARK_SIZE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub use error::FormatError;
 #[cfg(feature = "fs")]
@@ -317,7 +314,7 @@ impl<B> Bookmarked<B> {
         Self {
             persist,
             cache: None,
-            size_limit: DEFAULT_BOOKMARK_SIZE_LIMIT,
+            size_limit: default::BOOKMARK_SIZE_LIMIT,
         }
     }
 

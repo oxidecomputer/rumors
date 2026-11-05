@@ -11,7 +11,7 @@ use std::{
 use proptest::prelude::*;
 
 use super::driver::try_join_mapped;
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
+use crate::default;
 use crate::testing::{
     Quiescence, node_census, node_census_reset, run_to_quiescence, schedule::MAX_SCHEDULED_DELAY,
 };
@@ -233,14 +233,14 @@ impl LocalSession {
             Local,
             client.into(),
             Some(crate::network::NetworkKeys::fixture()),
-            DEFAULT_TARGET_MESSAGE_SIZE as u64,
+            default::TARGET_MESSAGE_SIZE as u64,
         )
         .budget(budget);
         let mut server = Handshaking::start(
             Local,
             server.into(),
             Some(crate::network::NetworkKeys::fixture()),
-            DEFAULT_TARGET_MESSAGE_SIZE as u64,
+            default::TARGET_MESSAGE_SIZE as u64,
         )
         .budget(budget);
         if let Some((client_recorder, server_recorder)) = &recorders {
@@ -337,7 +337,7 @@ fn floor_start(root: Root) -> Handshaking<Local, Start> {
         Local,
         root.into(),
         Some(crate::network::NetworkKeys::fixture()),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        default::TARGET_MESSAGE_SIZE as u64,
     )
     .budget(0)
 }

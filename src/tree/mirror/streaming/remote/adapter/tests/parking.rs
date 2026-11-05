@@ -13,7 +13,7 @@
 //! While such a reply decodes, its encoding and its decoded skeleton can be
 //! resident at once. Both halves are measured here against the figures
 //! they are derived from, so neither needs a ceiling of its own: the
-//! encoded reply is exactly [`DEFAULT_TARGET_MESSAGE_SIZE`], a fan of
+//! encoded reply is exactly [`default::TARGET_MESSAGE_SIZE`], a fan of
 //! full-fan query frames, and the decoded skeleton holds exactly fan²
 //! listing entries of `size_of::<Listed>()` bytes each.
 
@@ -23,6 +23,7 @@ use std::mem;
 use futures::{TryStreamExt, stream};
 
 use crate::{
+    default,
     message::Message,
     tree::{
         Action, Tree,
@@ -30,7 +31,7 @@ use crate::{
             Backend, ErasedNode, FAN, Local,
             erased::{Reaction, Reply},
             ledger::buffer,
-            remote::codec::{self, DEFAULT_TARGET_MESSAGE_SIZE, RunBudget, Speaker, Stream},
+            remote::codec::{self, RunBudget, Speaker, Stream},
         },
         typed::{
             self, Hash, HashKey, Prefix,
@@ -171,7 +172,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 /// both its halves are exactly the figures they are derived from.
 ///
 /// The skeleton is fan queries of fan listing entries each, every count at
-/// its widest. Its encoding is exactly [`DEFAULT_TARGET_MESSAGE_SIZE`]: a
+/// its widest. Its encoding is exactly [`default::TARGET_MESSAGE_SIZE`]: a
 /// fan of frames, each the full-fan query frame that constant is derived
 /// from. Its decoded form holds exactly fan² listing entries, at exactly
 /// their size, so the two resident at once mid-decode hold that sum and no
@@ -217,7 +218,8 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
         })
         .sum();
     assert_eq!(
-        encoded_bytes, DEFAULT_TARGET_MESSAGE_SIZE,
+        encoded_bytes,
+        default::TARGET_MESSAGE_SIZE,
         "a maximally disputed reply encodes as a fan of full-fan query frames",
     );
 
