@@ -1,7 +1,7 @@
 # rumors workspace verification. `just --list` is the tour.
 #
 #   inner loop   just check / just test <filter>
-#   commit gate  just gate    fully clean before every commit that changes code
+#   commit gate  just gate    fully clean on what main's first-parent line gains
 #   CI           just ci      with ci-instruments and ci-properties, one per CI job
 #   full sweep   just all     CI plus the local-only fuzz and Lean checks
 #
@@ -129,7 +129,7 @@ fmt:
 fmt-check:
     cargo fmt --all --check
 
-# ── commit gate: everything a commit must pass, fully clean ──────────────────
+# ── commit gate: everything main's first-parent line must pass, fully clean ──
 # Each tools/ checker runs its self-test first, so a checker bug fails the
 # gate instead of passing everything. Each tool's header documents its rules.
 
@@ -281,14 +281,17 @@ fuzz-build:
 # but changes no verdict. Nothing caps peak memory, which concurrency
 # multiplies.
 
-# A commit needs the checks that can read what it changes. A change confined
-# to plain comments and test doc comments cannot alter what builds or runs,
-# so the build-free tier `gate-lints` judges it completely; a rewrite of a
-# commit message alone needs no check. Everything else, rustdoc included
-# (it builds as doctests and as docs with warnings denied), needs the whole
-# gate.
+# The gate is the full check: it must pass on the tip proposed for `main`
+# and on every commit `main`'s first-parent line gains, its merges and
+# commits made directly on `main`. A commit inside a merged branch needs
+# only the recipes that can read what it changes. A change
+# confined to plain comments and test doc comments cannot alter what builds
+# or runs, so the build-free tier `gate-lints` judges it completely; a
+# rewrite of a commit message alone needs no check. Rustdoc builds as
+# doctests and as docs with warnings denied, so a rustdoc change needs the
+# doc recipes too.
 
-# Run the pre-commit gate; it must come up fully clean before every commit that changes code.
+# Run the full gate; it must come up fully clean on the tip proposed for main.
 gate: gate-lints gate-streams
 
 # Run the build-free gate tier, sequentially.

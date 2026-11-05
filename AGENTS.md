@@ -22,11 +22,16 @@ tour, and the comment above each recipe says what it checks and why.
   `just fmt`.
 - After editing crate-level rustdoc, run `just readme`: the READMEs are
   derived, never hand-edited.
-- Before committing, get the checks that can read the change fully clean:
-  `just gate` for anything that can alter what builds or runs, its
-  build-free tier `just gate-lints` for a change confined to plain comments
-  and test doc comments, and nothing for a commit-message rewrite. The
-  comment above the `gate` recipe gives the reasoning.
+- Choose verification by what your diff can break: the comment above each
+  recipe says what it checks. Before a commit, run the recipes that check
+  what you touched. A change that can alter what builds or runs needs at
+  least `just clippy` and the affected tests; a change confined to plain
+  comments and test doc comments needs only the build-free tier
+  `just gate-lints`; a rewrite of a commit message alone needs no check.
+- Get `just gate` fully clean on the tip proposed for `main`, and on every
+  commit `main`'s first-parent line gains: its merges, and commits made
+  directly on `main`. Commits inside a merged branch need not each pass the
+  gate; first-parent bisection (below) is what makes that safe.
 - After a gate leg fails, fix it and rerun that leg and any leg the fix can
   reach, not the whole gate: the legs that passed still hold for what they
   read.
