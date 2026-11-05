@@ -3,7 +3,7 @@
 //! A session's replies travel on *logical streams*, one per level a speaker
 //! answers at ([`Stream`]). Each frame names its logical stream in its
 //! signal, so one byte stream per direction carries all of them, their
-//! frames interleaved. Two tasks connect the logical streams to that pipe:
+//! frames interleaved. Two futures connect the logical streams to that pipe:
 //!
 //! - The [`Multiplexer`] owns the write half. Each local encoder hands it
 //!   frames through its own capacity-1 channel ([`Outgoing`]). It writes
@@ -43,6 +43,17 @@
 //! frame, so a peer that sends the rest of a reply only once those
 //! questions are answered is never kept waiting by this side's receive
 //! path.
+//!
+//! The session polls the demultiplexer, the multiplexer and the walk's
+//! tasks as members of one task set (a
+//! [`FuturesUnordered`](futures::stream::FuturesUnordered)), not as tasks
+//! of their own. That changes when a member is polled, never what it waits
+//! for. The set polls a member once it has woken, in the order members
+//! woke; it yields after a bounded number of member polls, waking the
+//! session as it does, so a woken member is polled within a bounded number
+//! of the session's polls. Each wait in the table therefore ends when what
+//! it waits for wakes it, whatever the walk's members are doing, provided
+//! only that every poll returns.
 //!
 //! On the sending side, encoders wait for the multiplexer and the
 //! multiplexer waits for the pipe, but no receiving stage's consumption
@@ -484,9 +495,9 @@ fn lock(wakes: &Mutex<Wakes>) -> MutexGuard<'_, Wakes> {
 /// which records the lane ([`Wakes`]) and then wakes the task that last
 /// polled the multiplexer. Each poll registers the polling task and
 /// collects the recorded lanes, then polls only marked lanes' channels.
-/// The multiplexer's task is polled for every wake of the session's
-/// work, but it polls a lane's channel only when that channel may have
-/// something to give.
+/// The multiplexer may be polled for wakes that are not its own, but it
+/// polls a lane's channel only when that channel may have something to
+/// give.
 #[derive(Default)]
 pub struct Multiplexer {
     /// One lane per logical stream an encoder was created for.
@@ -765,9 +776,11 @@ impl Demultiplexer {
     ///
     /// The read half is borrowed. Whenever this future is dropped between
     /// frames, the read half rests at an item boundary, with the next
-    /// item's first byte possibly in its lookahead.
+    /// item's first byte possibly in its lookahead. The routes are borrowed
+    /// too, so a failure leaves every decoder's channel open until the
+    /// demultiplexer itself is dropped.
     pub async fn run<R: AsyncRead + Unpin>(
-        mut self,
+        &mut self,
         read: &mut PipeRead<R>,
         speaker: Speaker,
         budget: RunBudget,
@@ -840,7 +853,7 @@ impl Demultiplexer {
     /// stream it started must have ended. Streams it never started close
     /// here: a decoder that still expected a reply finds its stream
     /// truncated.
-    async fn stop(self, speaker: Speaker) -> PipeError {
+    async fn stop(&mut self, speaker: Speaker) -> PipeError {
         for lane in &self.lanes {
             if let IncomingLane::Open {
                 stream,
@@ -853,7 +866,11 @@ impl Demultiplexer {
                 };
             }
         }
-        drop(self);
+        for lane in &mut self.lanes {
+            if matches!(lane, IncomingLane::Open { .. }) {
+                *lane = IncomingLane::Ended;
+            }
+        }
         cancelled().await
     }
 }

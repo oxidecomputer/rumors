@@ -295,6 +295,41 @@ proptest! {
     }
 }
 
+/// A future that wakes itself and yields once, then completes: work left
+/// within the session, needing no outside event.
+struct YieldOnce(bool);
+
+/// Yield on the first poll, after waking the task; complete on the next.
+impl Future for YieldOnce {
+    type Output = ();
+
+    /// Completes if it has yielded before; otherwise wakes the task and
+    /// yields.
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if self.0 {
+            return Poll::Ready(());
+        }
+        self.0 = true;
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    }
+}
+
+/// The peer's departure, reported while the terminal step still has work
+/// within the session, does not fail the session: the walk completes, and
+/// the closing exchange reports the departure in its own phase.
+#[test]
+fn departure_before_the_walk_completes_waits_for_it() {
+    let ParkedSession { work, peer } = parked_session();
+    drop(peer);
+    let finish = async {
+        YieldOnce(false).await;
+        Ok(())
+    };
+    let result = run_to_quiescence(work.execute(finish)).expect("the session resolves");
+    assert!(result.is_ok(), "{:?}", result.err());
+}
+
 /// A completed protocol succeeds although the peer has since departed: the
 /// closing exchange, which reads next, reports the departure in its own
 /// phase.

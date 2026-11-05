@@ -247,8 +247,8 @@ where
         scopes: Receiver<Scope>,
     ) -> Result<(PipeRead<R>, W), Error<B::Error>>
     where
-        R: AsyncRead + Unpin,
-        W: AsyncWrite + Unpin,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
         let requests = requests.erase();
         let outgoing = self.outgoing::<Z>();

@@ -471,6 +471,12 @@ fn demultiplex(
     let mut read = PipeRead::new(bytes);
     let (failure, frames) = run_to_quiescence(async {
         let observe = SessionHandle::default();
+        let mut demultiplexer = demultiplexer;
+        let mut consume = pin!(futures::future::join_all(
+            receivers
+                .into_iter()
+                .map(|receiver| receiver.collect::<Vec<Frame>>()),
+        ));
         let run = demultiplexer.run(
             &mut read,
             SPEAKER,
@@ -478,19 +484,14 @@ fn demultiplex(
             Recorder::default(),
             &observe,
         );
-        let consume = futures::future::join_all(
-            receivers
-                .into_iter()
-                .map(|receiver| receiver.collect::<Vec<Frame>>()),
-        );
-        match futures::future::select(pin!(run), pin!(consume)).await {
-            Either::Left((failure, consume)) => {
-                // The failure dropped the demultiplexer's lanes, so every
-                // receiver ends.
-                (Some(failure), consume.await)
-            }
-            Either::Right((frames, _)) => (None, frames),
-        }
+        let failure = match futures::future::select(pin!(run), consume.as_mut()).await {
+            Either::Left((failure, _)) => failure,
+            Either::Right((frames, _)) => return (None, frames),
+        };
+        // A failed run leaves the lanes open; dropping the demultiplexer
+        // closes them, so every receiver ends.
+        drop(demultiplexer);
+        (Some(failure), consume.await)
     })
     .expect("the demultiplexer either fails or closes every lane");
     (failure, frames, read.pending)

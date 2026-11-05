@@ -4,15 +4,14 @@
 //! and the session's pipe. [`stages`] wires each transition, [`encode`]
 //! writes local replies, and [`queues`] owns the internal channel
 //! capacities. The terminal operation drives these tasks together with the
-//! pipe's multiplexer and demultiplexer.
+//! pipe's multiplexer and demultiplexer, as members of one task set
+//! ([`drive`]).
 
 use crate::tree::mirror::streaming::ledger::Charge;
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
-use std::pin::pin;
 use std::sync::Arc;
-use std::task::Poll;
 
-use futures::future::BoxFuture;
+use futures::{TryFutureExt, future::BoxFuture};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
@@ -29,11 +28,11 @@ use crate::{
             remote::{
                 adapter::{ReplyLevel, Scope, derive_questions},
                 codec::{Frame, RunBudget, Speaker, Stream as LogicalStream},
-                pipe::{self, Demultiplexer, Multiplexer, Outgoing, PipeError, PipeRead},
+                pipe::{self, Demultiplexer, Multiplexer, Outgoing, PipeRead},
                 proxy::{Error, send_or_cancel},
             },
             stats::Recorder,
-            tasks::{TaskRole, complete},
+            tasks::TaskRole,
         },
         typed::height::{Height, Z},
     },
@@ -41,6 +40,7 @@ use crate::{
 
 use self::progress::Progress;
 
+mod drive;
 mod encode;
 pub(super) mod progress;
 mod queues;
@@ -266,32 +266,31 @@ where
         ))
     }
 
-    /// Drive the protocol and the pipe together.
+    /// Drive the protocol and the pipe together, as members of one task set
+    /// ([`drive`]), whose module docs give the rules that turn their
+    /// failures into the session's outcome.
     ///
-    /// The protocol, which here includes the multiplexer writing every
-    /// local frame, is polled first. The demultiplexer reports only
-    /// failures; it runs until the protocol completes and is then dropped
-    /// between frames, its lookahead returned with the read half for the
-    /// closing exchange.
+    /// The demultiplexer reports only failures; it runs until the protocol
+    /// completes and is then dropped between frames, its lookahead returned
+    /// with the read half for the closing exchange. A departure it reported
+    /// does not fail a completed reconciliation: a read error stays in the
+    /// returned read half for the closing exchange's first read. A frame
+    /// the demultiplexer had begun but not delivered is a frame no question
+    /// invited, so it fails the session.
     ///
-    /// Once the protocol completes, one last poll of the demultiplexer
-    /// collects a failure it had ready. The peer's departure there does not
-    /// fail the completed reconciliation: the closing exchange reports it
-    /// in its own phase, and a read error stays in the returned read half
-    /// for that exchange's first read. Any other failure, or a frame the demultiplexer had
-    /// begun but not delivered, is a frame no question invited, so it fails
-    /// the session. When the protocol fails because a write failed, a
-    /// violation the demultiplexer had ready explains the failure better,
-    /// since a peer that detected a problem may have closed the
-    /// connection.
-    async fn execute<O>(
+    /// This boxes `finish` and takes the work apart before building the
+    /// future it returns, which therefore holds each part once: an `async
+    /// fn` would keep its arguments, the terminal future among them, for
+    /// its whole run.
+    fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
-    ) -> Result<(O, PipeRead<R>, W), Error<B::Error>>
+    ) -> impl Future<Output = Result<(O, PipeRead<R>, W), Error<B::Error>>>
     where
-        R: AsyncRead + Unpin,
-        W: AsyncWrite + Unpin,
+        R: AsyncRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
+        let finish = Box::pin(finish);
         let Self {
             ingress: _,
             budget,
@@ -307,56 +306,27 @@ where
             mut write,
             remote,
             multiplexer,
-            demultiplexer,
+            mut demultiplexer,
         } = physical;
         let mut read = PipeRead::new(read);
-        let mut departure = None;
-        let outcome = {
+        async move {
             let send = holding(
                 Holding::Wire,
                 multiplexer.run(&mut write, remote.other(), stats.clone(), &observe),
-            );
-            let protocol = futures::future::try_join(complete(tasks, finish), async {
-                send.await.map_err(|error| Error::Pipe(error.into()))
-            });
-            let mut protocol = pin!(protocol);
-            let mut receive = pin!(holding(
+            )
+            .map_err(|error| Error::Pipe(error.into()));
+            let receive = holding(
                 Holding::Wire,
                 demultiplexer.run(&mut read, remote, budget, stats, &observe),
-            ));
-            let outcome = tokio::select! {
-                biased;
-                output = &mut protocol => output.map(|(output, ())| output),
-                error = &mut receive => Err(Error::Pipe(error)),
-            };
-            // One last poll collects a failure the demultiplexer had ready;
-            // it never waits.
-            match outcome {
-                Ok(output) => match futures::poll!(receive.as_mut()) {
-                    Poll::Ready(PipeError::Departed(source)) => {
-                        departure = Some(source);
-                        Ok(output)
-                    }
-                    Poll::Pending => Ok(output),
-                    Poll::Ready(error) => Err(Error::Pipe(error)),
-                },
-                Err(error @ Error::Pipe(PipeError::Encode(_))) => {
-                    match futures::poll!(receive.as_mut()) {
-                        Poll::Ready(violation) if violation.is_violation() => {
-                            Err(Error::Pipe(violation))
-                        }
-                        Poll::Ready(_) | Poll::Pending => Err(error),
-                    }
-                }
-                Err(error) => Err(error),
+            );
+            let (output, departure) =
+                drive::drive(tasks, finish, Box::pin(send), Box::pin(receive)).await?;
+            if let Some(source) = departure {
+                read.keep_failure(source);
             }
-        };
-        let output = outcome?;
-        if let Some(source) = departure {
-            read.keep_failure(source);
+            pipe::check_drained(&read, remote).map_err(Error::Pipe)?;
+            Ok((output, read, write))
         }
-        pipe::check_drained(&read, remote).map_err(Error::Pipe)?;
-        Ok((output, read, write))
     }
 }
 
