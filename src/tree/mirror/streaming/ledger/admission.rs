@@ -343,14 +343,21 @@ impl Slots {
     }
 }
 
-/// One unit waiting for admission.
-struct Waiter {
+/// One unit asking for admission: what the rule decides it by.
+#[derive(Clone, Copy)]
+struct Request {
     /// The unit's kind.
     unit: Unit,
     /// The depth of the scope it concerns.
     depth: usize,
     /// The most its items can hold.
     bytes: u32,
+}
+
+/// One unit waiting for admission.
+struct Waiter {
+    /// The unit asking.
+    request: Request,
     /// Its order among the units its ledger queued, which breaks ties
     /// between waiting units at one depth.
     order: u64,
@@ -479,9 +486,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// The admission rule: return the grant that gives a unit permission to
 /// build and send, or `None` to keep it waiting.
 ///
-/// The unit is of `unit` kind, concerns a scope at `depth`, and holds at
-/// most `bytes`. The two steps are the module's rule; `budget_open` is
-/// false once a deeper unit must keep waiting.
+/// The unit `request` names is of its kind, concerns a scope at its depth,
+/// and holds at most its bytes. The two steps are the module's rule;
+/// `budget_open` is false once a deeper unit must keep waiting.
 ///
 /// The caller holds the queue's lock, which makes this one of the two
 /// places a free slot is taken ([`Slot`]), and passes the slots' state it
@@ -491,10 +498,9 @@ fn decide(
     account: &Arc<Account>,
     slots: &mut Slots,
     budget_open: bool,
-    unit: Unit,
-    depth: usize,
-    bytes: u32,
+    request: Request,
 ) -> Option<Charge> {
+    let Request { unit, depth, bytes } = request;
     let slot = Slot::new(unit, depth);
     // 1. If the unit's floor slot is free, it takes the slot.
     if !slot.taken(account, slots) {
@@ -697,7 +703,7 @@ fn carry(account: &Account, queue: &mut Queue, slot: Slot) {
     if queue
         .waiting
         .iter()
-        .any(|waiter| (waiter.unit, waiter.depth) == (unit, depth))
+        .any(|waiter| (waiter.request.unit, waiter.request.depth) == (unit, depth))
     {
         return;
     }
@@ -723,17 +729,10 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>, freed
     let mut woken = Vec::new();
     let Queue { waiting, slots, .. } = &mut *queue;
     if !waiting.is_empty() {
-        waiting.sort_by_key(|waiter| (Reverse(waiter.depth), waiter.order));
+        waiting.sort_by_key(|waiter| (Reverse(waiter.request.depth), waiter.order));
         let mut budget_open = true;
-        waiting.retain(|waiter| {
-            match decide(
-                account,
-                slots,
-                budget_open,
-                waiter.unit,
-                waiter.depth,
-                waiter.bytes,
-            ) {
+        waiting.retain(
+            |waiter| match decide(account, slots, budget_open, waiter.request) {
                 Some(grant) => {
                     let mut state = lock(&waiter.state);
                     state.grant = Some(grant);
@@ -744,8 +743,8 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>, freed
                     budget_open = false;
                     true
                 }
-            }
-        });
+            },
+        );
     }
     // Whether the freed slot is taken changes under this lock only by this
     // critical section's own steps, so a slot that reads free here is one
@@ -809,15 +808,15 @@ pub fn observe_admissions(hook: AdmissionHook) -> bool {
     std::ptr::fn_addr_eq(*ADMISSION_HOOK.get_or_init(|| hook), hook)
 }
 
-/// Report a unit taking `grant` to the installed hook.
+/// Report the unit `request` names taking `grant` to the installed hook.
 #[cfg(any(test, feature = "test-internals"))]
-fn admitted(account: &Account, waiter: &Waiter, grant: &Charge, waited: bool) {
+fn admitted(account: &Account, request: Request, grant: &Charge, waited: bool) {
     if let Some(hook) = ADMISSION_HOOK.get() {
         hook(Admission {
             ledger: std::ptr::from_ref(account) as usize,
-            question: waiter.unit == Unit::Question,
-            depth: waiter.depth,
-            bytes: widen(waiter.bytes),
+            question: request.unit == Unit::Question,
+            depth: request.depth,
+            bytes: widen(request.bytes),
             floor: grant.is_floor(),
             waited,
             leftover: false,
@@ -855,41 +854,65 @@ pub(super) fn settled(
 /// Report a unit taking its grant: nothing outside test builds.
 #[cfg(not(any(test, feature = "test-internals")))]
 #[inline(always)]
-fn admitted(_: &Account, _: &Waiter, _: &Charge, _: bool) {}
+fn admitted(_: &Account, _: Request, _: &Charge, _: bool) {}
 
 /// Wait for a unit's admission ([`Ledger::admit`](super::Ledger::admit)).
 pub(crate) struct Admit {
     /// The ledger admitting the unit.
     account: Arc<Account>,
-    /// The unit, waiting until its grant is taken.
-    waiter: Option<Arc<Waiter>>,
+    /// The unit's grant or its place among the waiting units, until its
+    /// task takes the grant.
+    state: Option<Admitting>,
     /// Whether the unit was not admitted as it was queued.
     waited: bool,
 }
 
+/// Where an [`Admit`] stands before its task takes the grant.
+enum Admitting {
+    /// Admitted at once, with no unit waiting: the grant, which no other
+    /// task can reach, and the unit it admits.
+    Granted(Request, Charge),
+    /// Queued among the waiting units, where [`reconsider`] leaves the grant.
+    Queued(Arc<Waiter>),
+}
+
 impl Admit {
-    /// Queue a unit of `unit` kind concerning a scope at `depth`, whose
-    /// items take at most `bytes`, and admit what the ledger has room for.
+    /// Admit a unit of `unit` kind concerning a scope at `depth`, whose
+    /// items take at most `bytes`, at once if nothing waits and the rule
+    /// allows, or queue it and admit what the ledger has room for.
     ///
-    /// For the session-budget meter, the waiting unit is admission's own
-    /// ([`Holding::Admission`]).
+    /// For the session-budget meter, a waiting unit is admission's own
+    /// ([`Holding::Admission`]); a unit admitted at once allocates nothing.
     pub(super) fn new(account: Arc<Account>, unit: Unit, depth: usize, bytes: u32) -> Self {
         assert!(depth < DEPTHS, "a scope sits at most 32 bytes deep");
-        held_by(Holding::Admission, || {
-            Self::queue(account, unit, depth, bytes)
-        })
+        let request = Request { unit, depth, bytes };
+        held_by(Holding::Admission, || Self::queue(account, request))
     }
 
-    /// Queue a unit and admit what the ledger has room for ([`Admit::new`]).
-    fn queue(account: Arc<Account>, unit: Unit, depth: usize, bytes: u32) -> Self {
+    /// Admit a unit at once or queue it ([`Admit::new`]).
+    fn queue(account: Arc<Account>, request: Request) -> Self {
         let waiter = {
             let mut queue = lock(&account.admission);
+            // With no unit waiting, this unit is the only one `reconsider`
+            // would consider, with the budget open, so deciding it here
+            // admits exactly what queueing it would, without building a
+            // waiter. The lock is held from the decision to the queueing,
+            // so a unit this refuses queues as if it had never been tried.
+            let Queue { waiting, slots, .. } = &mut *queue;
+            if waiting.is_empty()
+                && let Some(grant) = decide(&account, slots, true, request)
+            {
+                drop(queue);
+                return Self {
+                    account,
+                    state: Some(Admitting::Granted(request, grant)),
+                    waited: false,
+                };
+            }
             let order = queue.next;
             queue.next += 1;
             let waiter = Arc::new(Waiter {
-                unit,
-                depth,
-                bytes,
+                request,
                 order,
                 state: Mutex::default(),
             });
@@ -903,7 +926,7 @@ impl Admit {
         }
         Self {
             account,
-            waiter: Some(waiter),
+            state: Some(Admitting::Queued(waiter)),
             waited,
         }
     }
@@ -914,30 +937,34 @@ impl Future for Admit {
 
     /// Return the grant once the unit is admitted.
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Charge> {
-        let waiter = self
-            .waiter
-            .as_ref()
-            .expect("an admission is not polled after it returns its grant");
-        let mut state = lock(&waiter.state);
-        match state.grant.take() {
-            Some(grant) => {
-                drop(state);
-                admitted(&self.account, waiter, &grant, self.waited);
-                self.waiter = None;
-                Poll::Ready(grant)
+        let (request, grant) = match self
+            .state
+            .take()
+            .expect("an admission is not polled after it returns its grant")
+        {
+            Admitting::Granted(request, grant) => (request, grant),
+            Admitting::Queued(waiter) => {
+                let mut state = lock(&waiter.state);
+                let Some(grant) = state.grant.take() else {
+                    state.waker = Some(held_by(Holding::Admission, || cx.waker().clone()));
+                    drop(state);
+                    self.state = Some(Admitting::Queued(waiter));
+                    return Poll::Pending;
+                };
+                (waiter.request, grant)
             }
-            None => {
-                state.waker = Some(held_by(Holding::Admission, || cx.waker().clone()));
-                Poll::Pending
-            }
-        }
+        };
+        admitted(&self.account, request, &grant, self.waited);
+        Poll::Ready(grant)
     }
 }
 
 impl Drop for Admit {
     /// Withdraw a unit no longer awaited, returning a grant it never took.
     fn drop(&mut self) {
-        let Some(waiter) = self.waiter.take() else {
+        let Some(Admitting::Queued(waiter)) = self.state.take() else {
+            // A grant made at once returns as it drops here, which
+            // reconsiders the waiting units itself.
             return;
         };
         lock(&self.account.admission)

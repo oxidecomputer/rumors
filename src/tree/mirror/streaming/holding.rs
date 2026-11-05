@@ -72,12 +72,15 @@ pub enum Holding {
     /// queue that orders them, and the wakers that resume them.
     ///
     /// The charge leaves it out, as a fixed amount whatever the budget and
-    /// the sets' sizes, like the session's setup. A floor slot is a count in
-    /// the ledger's own account and allocates nothing; each unit the walk
-    /// asks to admit is queued as a waiter, and each walk stage asks for one
-    /// unit at a time, so at most one waiter per stage is queued at once.
-    /// Marking it apart keeps it out of whichever place's code admitted a
-    /// unit or released the bytes that let one in.
+    /// the sets' sizes, like the session's setup. A unit admitted as it
+    /// asks allocates nothing, and a floor slot is a count in the ledger's
+    /// own account, so only a unit that waits allocates: its waiter, the
+    /// lock inside it where the standard library boxes locks, a clone of
+    /// its task's waker where the executor's waker allocates one, and its
+    /// place in the queue's buffer. Each walk stage waits on one unit at a
+    /// time, so at most one unit per stage waits at once. Marking it apart
+    /// keeps it out of whichever place's code admitted a unit or released
+    /// the bytes that let one in.
     Admission,
 }
 
