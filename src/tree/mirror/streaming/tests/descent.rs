@@ -482,3 +482,29 @@ fn model_predicts_forked_replicas() {
     let wire = wire_transcript(left.clone(), right.clone(), window, false);
     assert_matches(&left, &right, &wire).expect("the model predicts the wire session");
 }
+
+proptest! {
+    /// Both sides of a reconciled pair, in process and over a pipe, hold
+    /// trees whose every node stores the grandchild count a direct count
+    /// finds.
+    ///
+    /// Reconciliation builds nodes on every path a branch can be built on:
+    /// assembly of resolved scopes, the deletion filter's rebuilt branches,
+    /// and, over the pipe, the decoder's assembly of supplied runs.
+    #[test]
+    fn reconciled_trees_count_grandchildren_exactly(
+        (left, right) in prop_oneof![arb_divergent_pair(), arb_wide_divergent_pair()],
+    ) {
+        let local = LocalSession::new(left.clone(), right.clone()).run().sides();
+        let wire = completed(
+            over_pipe::<()>((left, right), [WindowConfig::FLOOR; 2], AMPLE)
+                .expect("the session completes under the closed-world poller"),
+        );
+        for root in [local.0, local.1, wire.0, wire.1] {
+            if let Some(node) = root.node {
+                let miscounted = node.into_untyped().miscounted_grandchildren();
+                prop_assert!(miscounted.is_none(), "{miscounted:?}");
+            }
+        }
+    }
+}

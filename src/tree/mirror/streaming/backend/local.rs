@@ -45,6 +45,11 @@ impl<H: Height> Node for typed::Node<H> {
         self.len()
     }
 
+    /// Derive the grandchild count from the stored aggregate and the path.
+    fn grandchildren(&self) -> usize {
+        self.grandchildren()
+    }
+
     /// Return the largest encoded version bound in the subtree.
     fn version_bytes(&self) -> usize {
         self.version_bytes()
@@ -66,6 +71,11 @@ impl ErasedNode for typed::untyped::Node {
     /// Return the stored leaf count.
     fn len(&self) -> usize {
         self.len()
+    }
+
+    /// Derive the grandchild count from the stored aggregate and the path.
+    fn grandchildren(&self) -> usize {
+        self.grandchildren()
     }
 }
 

@@ -65,6 +65,10 @@ pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
 pub(crate) use backend::BoxNodeStream;
 #[cfg(test)]
 pub use backend::NodeStream;
+// The conformance suite recounts a node's grandchildren by exploding its
+// children at their runtime height.
+#[cfg(test)]
+pub(crate) use erased::ops;
 #[cfg(test)]
 pub use testing::{
     Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Operation, ReplyCorruption,

@@ -982,3 +982,60 @@ fn spine_build_rejects_a_repeated_path() {
     spine.push([1; PATH_LEN], Node::leaf(Version::new(), Message::new(())));
     spine.push([1; PATH_LEN], Node::leaf(Version::new(), Message::new(())));
 }
+
+proptest! {
+    /// Every node of an arbitrary tree, and every peeled view of its
+    /// compressed paths, stores the grandchild count a direct count of its
+    /// children's children finds.
+    #[test]
+    fn grandchildren_match_a_direct_count(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
+    ) {
+        prop_assert!(tree.miscounted_grandchildren().is_none(), "{:?}", tree.miscounted_grandchildren());
+    }
+
+    /// Both bulk builders, over the runs a reply decoder assembles, build
+    /// trees whose every node stores the grandchild count a direct count
+    /// finds, at every starting depth.
+    #[test]
+    fn built_runs_count_grandchildren_exactly(
+        base in any::<[u8; PATH_LEN]>(),
+        depth in 0..PATH_LEN,
+        paths in arb_leaf_paths(300),
+    ) {
+        let leaves = leaves_below(base, depth, paths);
+        let mut entries: Vec<_> = leaves
+            .iter()
+            .map(|(path, leaf)| (*path, Some(leaf.clone())))
+            .collect();
+        let bulk = Node::from_sorted_leaves(depth, &mut entries);
+        let mut spine = SortedLeaves::new(depth);
+        for (path, leaf) in leaves {
+            spine.push(path, leaf);
+        }
+        let spine = spine.finish().expect("the run holds at least one leaf");
+        for built in [bulk, spine] {
+            prop_assert!(built.miscounted_grandchildren().is_none(), "{:?}", built.miscounted_grandchildren());
+        }
+    }
+}
+
+/// A full fan of branches, each over a full fan of leaves, stores the
+/// largest grandchild count a branch can have, 65,536, which its `u16`
+/// holds exactly as 65,535.
+#[test]
+fn a_full_fan_of_full_fans_counts_every_grandchild() {
+    let paths: Vec<[u8; PATH_LEN]> = (0..=u8::MAX)
+        .flat_map(|top| {
+            (0..=u8::MAX).map(move |next| {
+                let mut path = [0; PATH_LEN];
+                path[0] = top;
+                path[1] = next;
+                path
+            })
+        })
+        .collect();
+    let root = canonical_at(0, &paths);
+    assert_eq!(root.grandchildren(), 65_536);
+    assert!(root.miscounted_grandchildren().is_none());
+}

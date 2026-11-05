@@ -1820,3 +1820,24 @@ fn react_asserts_on_a_path_collision_between_distinct_versions() {
         traverse::Action::Insert(msg(Bytes::from_static(b"a"))),
     )]);
 }
+
+proptest! {
+    /// Every node of replicas built by inserts and redactions, and of their
+    /// join, stores the grandchild count a direct count finds.
+    ///
+    /// The branch constructors keep the count exact through every edit that
+    /// rebuilds a branch.
+    #[test]
+    fn edited_and_joined_trees_count_grandchildren_exactly(
+        (a, b) in crate::tree::arb::arb_divergent_pair(),
+    ) {
+        let mut joined = Tree::<()>::from_root(a.clone());
+        joined.join(Tree::from_root(b.clone()));
+        for root in [a, b, joined.root] {
+            if let Some(node) = root.node {
+                let miscounted = node.into_untyped().miscounted_grandchildren();
+                prop_assert!(miscounted.is_none(), "{miscounted:?}");
+            }
+        }
+    }
+}

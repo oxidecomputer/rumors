@@ -222,6 +222,20 @@ pub trait Node {
     /// root's count supplies the session greeting's set size.
     fn len(&self) -> usize;
 
+    /// The exact number of children this node's children have, as
+    /// [`Backend::children`] lists them: over its children, each one's own
+    /// child count, a child at the leaves counting one. A leaf has none.
+    ///
+    /// It bounds the reply this side gives to a question about the node.
+    /// Like [`len`](Self::len), maintain it wherever a node is built; it depends
+    /// only on the node's children, and on whether each child is itself a
+    /// leaf or has one child or many.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only tests read the grandchild count")
+    )]
+    fn grandchildren(&self) -> usize;
+
     /// The largest encoded version bound in this subtree, in bytes.
     ///
     /// Include leaf versions and every branch's floor and ceiling. A leaf
@@ -249,6 +263,14 @@ pub trait ErasedNode {
 
     /// The number of live leaves under this node, exact ([`Node::len`]).
     fn len(&self) -> usize;
+
+    /// The number of children this node's children have, exact
+    /// ([`Node::grandchildren`]).
+    #[expect(
+        dead_code,
+        reason = "no caller reads the grandchild count of an erased node"
+    )]
+    fn grandchildren(&self) -> usize;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

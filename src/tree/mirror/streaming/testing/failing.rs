@@ -154,6 +154,11 @@ where
         self.0.len()
     }
 
+    /// Read the wrapped node's grandchild count.
+    fn grandchildren(&self) -> usize {
+        self.0.grandchildren()
+    }
+
     /// Read the wrapped node's largest encoded version bound.
     fn version_bytes(&self) -> usize {
         self.0.version_bytes()
@@ -171,6 +176,11 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
 
     fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Read the wrapped node's grandchild count.
+    fn grandchildren(&self) -> usize {
+        self.0.grandchildren()
     }
 }
 

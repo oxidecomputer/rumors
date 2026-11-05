@@ -127,6 +127,17 @@ pub(crate) mod census {
     }
 }
 
+/// A branch's grandchild count, less one, from its fan
+/// ([`Body::Branch`]'s `spread`).
+///
+/// A fan of two to 256 children, each weighing one to 256, sums to at most
+/// 65,536, so the stored value fits a `u16` exactly.
+fn spread(children: &Fan) -> u16 {
+    debug_assert!(children.len() >= 2, "a branch has at least two children");
+    let grandchildren: usize = children.values().map(Node::weight).sum();
+    u16::try_from(grandchildren - 1).expect("a branch has at most 65,536 grandchildren")
+}
+
 /// Shared node storage, copied only when a mutation cannot reuse it.
 #[derive(Clone)]
 struct NodeInner {
@@ -143,6 +154,56 @@ struct NodeInner {
     /// The leaf or branch stored beneath the prefix.
     body: Body,
 }
+
+/// [`NodeInner`] as it would be without the grandchild count: the same
+/// fields, with [`BodyWithoutSpread`] for its body.
+///
+/// Nothing builds one; it exists so the compiler lays out the node without
+/// `spread`, for the assertion below to compare against.
+#[expect(dead_code, reason = "a layout reference, measured and never built")]
+struct NodeInnerWithoutSpread {
+    /// As [`NodeInner`]'s `prefix`.
+    prefix: ArrayVec<[u8; PATH_LEN]>,
+    /// As [`NodeInner`]'s `hash`.
+    hash: OnceLock<Hash>,
+    /// As [`NodeInner`]'s `body`, without `spread`.
+    body: BodyWithoutSpread,
+}
+
+/// [`Body`] as it would be without `spread`: every variant and field but
+/// the branch's grandchild count.
+#[expect(dead_code, reason = "a layout reference, measured and never built")]
+enum BodyWithoutSpread {
+    /// As [`Body::Leaf`].
+    Leaf {
+        /// As [`Body::Leaf`]'s `version`.
+        version: Version,
+        /// As [`Body::Leaf`]'s `message`.
+        message: Message,
+    },
+    /// As [`Body::Branch`], without `spread`.
+    Branch {
+        /// As [`Body::Branch`]'s `bounds`.
+        bounds: OnceLock<Span<'static>>,
+        /// As [`Body::Branch`]'s `leaves`.
+        leaves: usize,
+        /// As [`Body::Branch`]'s `version_bytes`.
+        version_bytes: OnceLock<usize>,
+        /// As [`Body::Branch`]'s `children`.
+        children: Fan,
+    },
+}
+
+// Every node pays for the grandchild count, leaves included, unless it fits
+// in padding the node already has. It does on the platforms the crate is
+// measured on, and this keeps it so: a platform where the count grows the
+// node fails here, so the cost is a decision rather than an unnoticed
+// change. A field added to `NodeInner` or `Body` belongs in the twins above
+// as well, or this fails for that reason instead.
+const _: () = assert!(
+    mem::size_of::<NodeInner>() == mem::size_of::<NodeInnerWithoutSpread>(),
+    "the branch's grandchild count must fit in the node's padding",
+);
 
 /// Display node content without evaluating its cached summaries.
 impl fmt::Debug for Node {
@@ -178,6 +239,19 @@ enum Body {
         bounds: OnceLock<Span<'static>>,
         /// The number of leaves below this branch.
         leaves: usize,
+        /// This branch's grandchild count as a bare branch, `S`, stored as
+        /// `S − 1`: over its children, each one's own child count, a child
+        /// at the leaves counting one ([`Node::grandchildren`]).
+        ///
+        /// A branch has two to 256 children, each counting one to 256, so
+        /// `S` lies in 2..=65,536 and `S − 1` fits exactly. It depends only
+        /// on the fan, which never changes after construction; peeling or
+        /// extending the prefix leaves it valid.
+        #[cfg_attr(
+            not(test),
+            expect(dead_code, reason = "only tests read the grandchild count")
+        )]
+        spread: u16,
         /// The largest encoded version size in this subtree: leaf versions
         /// and branch bounds, including this branch's own bounds. Computing
         /// it also fills `bounds`; later reads use the cached size.
@@ -225,6 +299,7 @@ impl Node {
                     body: Body::Branch {
                         bounds: OnceLock::new(),
                         leaves: children.values().map(Node::len).sum(),
+                        spread: spread(&children),
                         version_bytes: OnceLock::new(),
                         children,
                     },
@@ -381,6 +456,7 @@ impl Node {
             body: Body::Branch {
                 bounds: OnceLock::new(),
                 leaves: count,
+                spread: spread(&children),
                 version_bytes: OnceLock::new(),
                 children,
             },
@@ -441,6 +517,75 @@ impl Node {
         match self.inner.body {
             Body::Leaf { .. } => 1,
             Body::Branch { leaves, .. } => leaves,
+        }
+    }
+
+    /// The number of children this node's children have, as
+    /// [`child_iter`](Self::child_iter) would list them.
+    ///
+    /// That is, over its children, each one's own child count, a child at
+    /// the leaves counting one. A bare leaf, which has no children, has
+    /// none.
+    ///
+    /// Exact, and O(1): a node with a compressed path of two bytes or more
+    /// peels to one child that itself peels to one, so it has one; a node
+    /// with one byte of path over a branch has that branch's fan as its
+    /// grandchildren, and over a leaf has the leaf alone; a bare branch
+    /// stores its count.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "only tests read the grandchild count")
+    )]
+    pub fn grandchildren(&self) -> usize {
+        match (self.inner.prefix.len(), &self.inner.body) {
+            (0, Body::Leaf { .. }) => 0,
+            (0, Body::Branch { spread, .. }) => usize::from(*spread) + 1,
+            (1, Body::Leaf { .. }) => 1,
+            (1, Body::Branch { children, .. }) => children.len(),
+            _ => 1,
+        }
+    }
+
+    /// Check [`grandchildren`](Self::grandchildren) against a direct count
+    /// at this node and every node beneath it, returning the first that
+    /// disagrees.
+    ///
+    /// Each peeled view of a compressed path counts as a node. A
+    /// disagreement comes back with the stored and the counted values.
+    ///
+    /// The count lists each node's children with
+    /// [`child_iter`](Self::child_iter) and each child's own children the
+    /// same way. The traversal keeps an explicit stack, bounded by the key
+    /// depth times the fan, so it never recurses on the tree's shape.
+    #[cfg(test)]
+    pub(crate) fn miscounted_grandchildren(&self) -> Option<(Node, usize, usize)> {
+        let mut stack = vec![self.clone()];
+        while let Some(node) = stack.pop() {
+            let Ok(children) = node.clone().child_iter() else {
+                if node.grandchildren() != 0 {
+                    return Some((node.clone(), node.grandchildren(), 0));
+                }
+                continue;
+            };
+            let mut counted = 0;
+            for (_, child) in children {
+                counted += child.clone().child_iter().map_or(1, Iterator::count);
+                stack.push(child);
+            }
+            if node.grandchildren() != counted {
+                return Some((node.clone(), node.grandchildren(), counted));
+            }
+        }
+        None
+    }
+
+    /// How many children this node has, as [`child_iter`](Self::child_iter)
+    /// would list them, counting a bare leaf as one: what it contributes to
+    /// its parent's grandchild count.
+    fn weight(&self) -> usize {
+        match (self.inner.prefix.is_empty(), &self.inner.body) {
+            (true, Body::Branch { children, .. }) => children.len(),
+            _ => 1,
         }
     }
 
@@ -817,6 +962,7 @@ impl Closed {
                     body: Body::Branch {
                         bounds: OnceLock::new(),
                         leaves,
+                        spread: spread(&children),
                         version_bytes: OnceLock::new(),
                         children,
                     },

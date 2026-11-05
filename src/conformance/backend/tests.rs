@@ -238,6 +238,10 @@ static ASSEMBLE_RETAGS: Knob = Knob::new(0);
 /// zero, deflating the aggregate above it.
 static VERSION_DEFLATE: Knob = Knob::new(0);
 
+/// Grandchildren added to every branch's `grandchildren` answer: honest at
+/// zero, an overcount of the children its children list above it.
+static GRANDCHILDREN_SKEW: Knob = Knob::new(0);
+
 /// Bytes added to a leaf's `version_bytes` answer: honest at zero,
 /// pushing a leaf's claimed encoding past its parents' aggregates above
 /// it.
@@ -372,6 +376,17 @@ where
         self.inner.len()
     }
 
+    /// Read the underlying node's grandchild count, skewed above the leaves
+    /// to exercise a miscounting backend.
+    fn grandchildren(&self) -> usize {
+        let skew = if H::HEIGHT == 0 {
+            0
+        } else {
+            GRANDCHILDREN_SKEW.get()
+        };
+        self.inner.grandchildren() + skew
+    }
+
     /// Alter the version-size aggregate to exercise undercounts and overcounts.
     fn version_bytes(&self) -> usize {
         // Assembly checks must catch undercounts; leaf walks must catch
@@ -422,6 +437,11 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
 
     fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    /// Read the wrapped node's grandchild count.
+    fn grandchildren(&self) -> usize {
+        self.inner.grandchildren()
     }
 }
 
@@ -875,6 +895,15 @@ fn a_symmetric_loss_fails_the_completeness_check() {
 #[should_panic(expected = "deflated version_bytes: bulk-assembled node")]
 fn deflated_version_bytes_fails_the_assembly_floor() {
     let _dishonest = VERSION_DEFLATE.set(usize::MAX);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A branch whose `grandchildren` answer disagrees with the children its
+/// children list is caught where the session lists its children.
+#[test]
+#[should_panic(expected = "mis-propagated grandchildren")]
+fn miscounted_grandchildren_fails_the_listing_check() {
+    let _dishonest = GRANDCHILDREN_SKEW.set(1);
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 

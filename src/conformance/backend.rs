@@ -56,6 +56,7 @@ use crate::{
             self, Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, Root,
             convert::Convert,
             materialized::{self, Resolve},
+            ops,
             stats::{Recorder, SessionStats},
             window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, WindowConfig},
         },
@@ -287,6 +288,11 @@ where
         self.inner().len()
     }
 
+    /// Read the wrapped node's grandchild count.
+    fn grandchildren(&self) -> usize {
+        self.inner().grandchildren()
+    }
+
     /// Read the wrapped node's largest encoded version bound.
     fn version_bytes(&self) -> usize {
         self.inner().version_bytes()
@@ -304,6 +310,11 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
 
     fn len(&self) -> usize {
         self.inner().len()
+    }
+
+    /// Read the wrapped node's grandchild count.
+    fn grandchildren(&self) -> usize {
+        self.inner().grandchildren()
     }
 }
 
@@ -467,9 +478,27 @@ where
         H: Height,
         S<H>: Height,
     {
+        // The grandchild contract: the parent answers the children its
+        // children list, each child at the leaves counting one. The count
+        // explodes each child through the wrapped backend, outside the
+        // ledger, whose census follows only wrapped nodes.
+        let stored = parent.grandchildren();
+        let counter = self.inner.clone();
         stream! {
+            let mut counted = 0_u64;
+            let mut failed = false;
             let mut children = pin!(self.inner.children(prefix, parent.into_inner()));
             while let Some(child) = children.next().await {
+                match &child {
+                    Ok(_) if H::HEIGHT == 0 => counted += 1,
+                    Ok((child_prefix, node)) => {
+                        match ops::children_of(&counter, child_prefix.erase(), B::erase(node.clone())).await {
+                            Ok(grandchildren) => counted += widen(grandchildren.len()),
+                            Err(_) => failed = true,
+                        }
+                    }
+                    Err(_) => failed = true,
+                }
                 yield child.map(|(prefix, node)| {
                     let measured = B::measure(&node);
                     // The pointwise contract at the explosion: an exploded
@@ -492,6 +521,12 @@ where
                     }
                     (prefix, ChargedNode::wrap(node, measured))
                 });
+            }
+            if !failed && counted != widen(stored) {
+                ledger::violation(format!(
+                    "mis-propagated grandchildren: parent answers {stored}, \
+                     its children list {counted}",
+                ));
             }
         }
     }
