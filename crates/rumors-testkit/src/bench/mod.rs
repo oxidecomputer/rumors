@@ -5,3 +5,6 @@ pub mod grid;
 
 /// An in-memory connection with deterministic simulated latency.
 pub mod latency;
+
+/// A duplex link with bandwidth, delay, and send buffers, on simulated time.
+pub mod link;
