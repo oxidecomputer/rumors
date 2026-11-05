@@ -18,6 +18,7 @@
 //! caps every target at [`MAX_RUN_BUDGET_BYTES`]. A single record beyond that
 //! wire limit is rejected before the encoder writes any part of its frame.
 
+use crate::counter::widen;
 use crate::tree::mirror::cbor;
 
 use super::error::DecodeErrorKind;
@@ -30,7 +31,7 @@ use super::signal::FRAME_OPENER_LEN;
 /// hash. Radix keys have different CBOR head sizes, so the calculation visits
 /// each key rather than multiplying one entry size.
 const FULL_FAN_QUERY_FRAME_LEN: usize = {
-    let mut total = FRAME_OPENER_LEN + cbor::head_len(MAX_QUERY_CHILDREN as u64);
+    let mut total = FRAME_OPENER_LEN + cbor::head_len(widen(MAX_QUERY_CHILDREN));
     let mut radix = 0usize;
     while radix < MAX_QUERY_CHILDREN {
         total += listing_entry_len(radix as u8);

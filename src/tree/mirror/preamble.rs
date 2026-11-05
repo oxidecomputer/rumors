@@ -24,6 +24,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     Network, Protocol,
+    counter::widen,
     error::TransportOperation,
     network::NETWORK_BYTES,
     observe::SessionHandle,
@@ -99,7 +100,7 @@ impl Preamble {
         let mut bytes = Vec::with_capacity(V2_PREAMBLE_LEN);
         bytes.extend_from_slice(&V2_PREFIX);
         cbor::write_head(&mut bytes, MAJOR_UINT, Protocol::V2.wire_version());
-        cbor::write_head(&mut bytes, MAJOR_BSTR, NETWORK_BYTES as u64);
+        cbor::write_head(&mut bytes, MAJOR_BSTR, widen(NETWORK_BYTES));
         bytes.extend_from_slice(&self.network.to_bytes());
         cbor::write_head(&mut bytes, MAJOR_UINT, u64::from(self.intent.to_byte()));
         debug_assert_eq!(bytes.len(), V2_PREAMBLE_LEN, "the dialect width is fixed");
@@ -129,7 +130,7 @@ impl Preamble {
         }
         cbor::read_head(&mut input)
             .ok()
-            .filter(|head| head.major == MAJOR_BSTR && head.value == NETWORK_BYTES as u64)
+            .filter(|head| head.major == MAJOR_BSTR && head.value == widen(NETWORK_BYTES))
             .ok_or(malformed(PreambleDefect::Network))?;
         // The canonical one-byte version and network heads leave exactly the
         // network bytes and one-byte intent in this fixed-width input.

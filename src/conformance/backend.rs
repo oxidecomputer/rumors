@@ -49,6 +49,7 @@ use futures::{StreamExt, stream as futures_stream};
 
 use crate::{
     DEFAULT_TARGET_MESSAGE_SIZE, Version,
+    counter::widen,
     message::Message,
     tree::{
         mirror::streaming::{
@@ -506,7 +507,7 @@ where
         let expected = node.len();
         let aggregate = node.version_bytes();
         stream! {
-            let mut walked = 0usize;
+            let mut walked = 0_u64;
             let mut failed = false;
             let mut previous: Option<Prefix<Z>> = None;
             let mut leaves = pin!(self.inner.leaves(prefix, node.into_inner()));
@@ -555,7 +556,7 @@ where
                 });
             }
             // The len aggregate is exact, so a completed walk returns it.
-            if !failed && walked != expected {
+            if !failed && walked != widen(expected) {
                 ledger::violation(format!(
                     "mis-sized leaf walk: yielded {walked} leaves, \
                      the walked node's len answers {expected}",
@@ -643,7 +644,7 @@ where
 #[derive(Default)]
 struct Run {
     /// Leaves supplied to the run: the assembled node's exact `len`.
-    leaves: usize,
+    leaves: u64,
     /// The largest supplied version encoding: a floor on the assembled
     /// node's `version_bytes` aggregate.
     version_bytes: usize,
@@ -656,7 +657,7 @@ where
     H: Height,
 {
     // The len aggregate is exact: a run's node answers its leaf count.
-    if node.len() != run.leaves {
+    if widen(node.len()) != run.leaves {
         ledger::violation(format!(
             "bulk-assembled len: node answers {}, its run supplied {} leaves",
             node.len(),
@@ -683,8 +684,10 @@ where
     // admits: the node's own fan is invisible here but never exceeds
     // the radix (`FAN`) or the run's leaf count, and the contract
     // requires `node_bytes` monotone in fan, so a measurement above
-    // this price is above the price at the node's own fan too.
-    let priced = B::node_bytes(run.leaves.min(FAN), bound_bytes(node));
+    // this price is above the price at the node's own fan too. A leaf
+    // count no `usize` holds is past `FAN` as well.
+    let widest_fan = usize::try_from(run.leaves).map_or(FAN, |leaves| leaves.min(FAN));
+    let priced = B::node_bytes(widest_fan, bound_bytes(node));
     if measured > priced {
         ledger::violation(format!(
             "bulk-assembled node over-holds: measured {measured} B, \
@@ -839,13 +842,13 @@ fn histories() -> [Vec<(Version, u64)>; 3] {
     let mut left_clock = before::Clock::seed();
     let mut right_clock = left_clock.fork();
 
-    let common: Vec<(Version, u64)> = (0..COMMON as u64)
+    let common: Vec<(Version, u64)> = (0..widen(COMMON))
         .map(|payload| (left_clock.tick().clone(), payload))
         .collect();
-    let left_tail: Vec<(Version, u64)> = (0..DIVERGENT as u64)
+    let left_tail: Vec<(Version, u64)> = (0..widen(DIVERGENT))
         .map(|payload| (left_clock.tick().clone(), 1 << 32 | payload))
         .collect();
-    let right_tail: Vec<(Version, u64)> = (0..DIVERGENT as u64)
+    let right_tail: Vec<(Version, u64)> = (0..widen(DIVERGENT))
         .map(|payload| (right_clock.tick().clone(), 2 << 32 | payload))
         .collect();
 

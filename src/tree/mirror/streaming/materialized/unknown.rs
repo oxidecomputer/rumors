@@ -26,6 +26,7 @@ use before::Dominance;
 
 use crate::{
     Version,
+    counter::widen,
     tree::{
         mirror::{
             contained,
@@ -102,7 +103,7 @@ where
             Dominance::Before => return Ok(Some(node)),
             // Wholly known: nothing under the node needs to travel.
             Dominance::After => {
-                stats.shed(node.len() as u64);
+                stats.shed(widen(node.len()));
                 return Ok(None);
             }
             Dominance::Between => {}
@@ -148,7 +149,7 @@ where
         }
         // Wholly known: nothing under the node needs to travel.
         Dominance::After => {
-            stats.shed(node.len() as u64);
+            stats.shed(widen(node.len()));
             return Ok((None, Vec::new()));
         }
         Dominance::Between => {}

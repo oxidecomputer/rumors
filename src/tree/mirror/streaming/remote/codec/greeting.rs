@@ -23,6 +23,7 @@
 
 use crate::{
     Version,
+    counter::widen,
     tree::mirror::cbor::{
         self, HeadError, MAJOR_BSTR, MAJOR_TAG, MAJOR_TEXT, MAJOR_UINT, TAG_EMBEDDED_ITEM,
     },
@@ -47,10 +48,10 @@ const FIELDS: [GreetingField; 6] = [
 pub(crate) fn encode_greeting(greeting: &Greeting) -> Vec<u8> {
     let map = greeting_map(greeting);
     let mut item = Vec::with_capacity(
-        cbor::head_len(TAG_EMBEDDED_ITEM) + cbor::head_len(map.len() as u64) + map.len(),
+        cbor::head_len(TAG_EMBEDDED_ITEM) + cbor::head_len(widen(map.len())) + map.len(),
     );
     cbor::write_tag(&mut item, TAG_EMBEDDED_ITEM);
-    cbor::write_head(&mut item, MAJOR_BSTR, map.len() as u64);
+    cbor::write_head(&mut item, MAJOR_BSTR, widen(map.len()));
     item.extend_from_slice(&map);
     item
 }
@@ -58,7 +59,7 @@ pub(crate) fn encode_greeting(greeting: &Greeting) -> Vec<u8> {
 /// Render the greeting map alone.
 fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     let mut map = Vec::new();
-    cbor::write_head(&mut map, cbor::MAJOR_MAP, FIELDS.len() as u64);
+    cbor::write_head(&mut map, cbor::MAJOR_MAP, widen(FIELDS.len()));
     write_key(&mut map, GreetingField::Listing);
     write_listing(&mut map, &greeting.listing);
     write_key(&mut map, GreetingField::SetLen);
@@ -66,7 +67,7 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     write_key(&mut map, GreetingField::Version);
     let version = greeting.version.as_bytes();
     cbor::write_tag(&mut map, crate::tags::VERSION_TAG);
-    cbor::write_head(&mut map, MAJOR_BSTR, version.len() as u64);
+    cbor::write_head(&mut map, MAJOR_BSTR, widen(version.len()));
     map.extend_from_slice(version);
     write_key(&mut map, GreetingField::MaxVersionBytes);
     cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
@@ -80,7 +81,7 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
 /// Append one field's text key to a greeting map.
 fn write_key(out: &mut Vec<u8>, field: GreetingField) {
     let key = field.name();
-    cbor::write_head(out, MAJOR_TEXT, key.len() as u64);
+    cbor::write_head(out, MAJOR_TEXT, widen(key.len()));
     out.extend_from_slice(key.as_bytes());
 }
 
@@ -246,7 +247,7 @@ pub enum GreetingError {
 pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     let mut input = bytes;
     let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
-    if head.major != cbor::MAJOR_MAP || head.value != FIELDS.len() as u64 {
+    if head.major != cbor::MAJOR_MAP || head.value != widen(FIELDS.len()) {
         return Err(GreetingError::Structure(GreetingStructureError::Map {
             expected: FIELDS.len(),
             actual: head,
@@ -314,7 +315,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
 fn expect_key(input: &mut &[u8], expected: GreetingField) -> Result<(), GreetingError> {
     let name = expected.name();
     let head = cbor::read_head(input).map_err(GreetingError::Head)?;
-    if head.major != MAJOR_TEXT || head.value != name.len() as u64 {
+    if head.major != MAJOR_TEXT || head.value != widen(name.len()) {
         return Err(GreetingError::Structure(GreetingStructureError::Key {
             expected,
             issue: GreetingKeyError::Head(head),

@@ -4,6 +4,7 @@ use std::iter::Peekable;
 
 use crate::{
     Version,
+    counter::widen,
     tree::{
         mirror::contained,
         mirror::streaming::{
@@ -115,7 +116,7 @@ where
                         return violation(Violation::UncontainedSupply);
                     }
                     _ => {
-                        let leaves = node.len() as u64;
+                        let leaves = widen(node.len());
                         self.ledger.absorb(leaves)?;
                         // An absorbed supply is content this replica just
                         // learned: credit its exact live-leaf count.

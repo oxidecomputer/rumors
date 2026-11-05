@@ -22,6 +22,7 @@ use super::error::FormatError;
 use super::record::{NetworkRecord, Record};
 use super::serde::{Bytes, Complete};
 use crate::Network;
+use crate::counter::widen;
 use crate::tree::mirror::cbor::{self, TAG_EMBEDDED_ITEM, TAG_SELF_DESCRIBED};
 
 /// The on-disk bookmark format version.
@@ -109,14 +110,14 @@ pub(super) fn encode_network(network: Network, record: &NetworkRecord) -> Vec<u8
 
 /// The complete frame size for an array of already-encoded network records.
 pub(crate) fn record_size(networks: usize, encoded_bytes: usize) -> usize {
-    let payload = cbor::head_len(networks as u64) + encoded_bytes;
+    let payload = cbor::head_len(widen(networks)) + encoded_bytes;
     cbor::head_len(TAG_SELF_DESCRIBED)
         + 1
         + cbor::head_len(BOOKMARK_FORMAT_VERSION)
-        + cbor::head_len(HASH_LEN as u64)
+        + cbor::head_len(widen(HASH_LEN))
         + HASH_LEN
         + cbor::head_len(TAG_EMBEDDED_ITEM)
-        + cbor::head_len(payload as u64)
+        + cbor::head_len(widen(payload))
         + payload
 }
 

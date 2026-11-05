@@ -3,6 +3,7 @@
 use crate::tree::mirror::streaming::window::FAN;
 use crate::{
     Version,
+    counter::widen,
     message::{Message, PayloadCodec},
     tree::{
         mirror::cbor::{
@@ -22,7 +23,7 @@ use super::signal::{End, Flow, Stream};
 pub const MAX_QUERY_CHILDREN: usize = FAN;
 
 /// Bytes of the byte-string head ahead of one listed Merkle hash.
-pub const HASH_HEAD_LEN: usize = cbor::head_len(MERKLE_HASH_LEN as u64);
+pub const HASH_HEAD_LEN: usize = cbor::head_len(widen(MERKLE_HASH_LEN));
 
 /// Bytes one listed child occupies as a map entry: its radix key's head,
 /// then its hash value's head and digest bytes. Radixes of 24 and above
@@ -191,7 +192,7 @@ impl LeafRun {
     fn record_body_len(version: &Version, message: &Message) -> usize {
         let version = version.as_bytes().len();
         VERSION_TAG_LEN
-            .saturating_add(cbor::head_len(version as u64))
+            .saturating_add(cbor::head_len(widen(version)))
             .saturating_add(version)
             .saturating_add(message.as_slice().len())
     }
@@ -210,7 +211,7 @@ impl LeafRun {
         let message = message.as_slice();
         self.bytes.reserve(item);
         cbor::write_tag(&mut self.bytes, TAG_CBOR_SEQUENCE);
-        cbor::write_head(&mut self.bytes, MAJOR_BSTR, body as u64);
+        cbor::write_head(&mut self.bytes, MAJOR_BSTR, widen(body));
         cbor::write_tag(&mut self.bytes, crate::tags::VERSION_TAG);
         cbor::write_head(&mut self.bytes, MAJOR_BSTR, version.len() as u64);
         self.bytes.extend_from_slice(version);
@@ -328,7 +329,7 @@ pub(super) fn record_head(input: &mut &[u8]) -> Result<u64, RecordHeadError> {
 /// Bytes occupied by a record item whose byte string contains `content` bytes.
 const fn record_item_len(content: usize) -> usize {
     RECORD_TAG_LEN
-        .saturating_add(cbor::head_len(content as u64))
+        .saturating_add(cbor::head_len(widen(content)))
         .saturating_add(content)
 }
 
@@ -535,7 +536,7 @@ pub(super) struct ListingBuilder {
 impl ListingBuilder {
     /// Accept a map head of `count` entries within the radix space.
     pub(super) fn new(count: u64) -> Result<Self, ListingIssue> {
-        if count > MAX_QUERY_CHILDREN as u64 {
+        if count > widen(MAX_QUERY_CHILDREN) {
             return Err(ListingIssue::Structure(ListingStructureError::TooMany {
                 declared: count,
                 maximum: MAX_QUERY_CHILDREN,
@@ -570,7 +571,7 @@ impl ListingBuilder {
 
     /// Accept one entry's value head: a byte string of exactly one digest.
     pub(super) fn value_head(head: cbor::Head) -> Result<(), ListingIssue> {
-        if head.major != MAJOR_BSTR || head.value != MERKLE_HASH_LEN as u64 {
+        if head.major != MAJOR_BSTR || head.value != widen(MERKLE_HASH_LEN) {
             return Err(ListingIssue::Structure(ListingStructureError::Hash {
                 actual: head,
                 expected: MERKLE_HASH_LEN,
@@ -624,17 +625,17 @@ pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<(u8, Hash)>, Li
 /// The encoder is not a trust boundary — callers guarantee canonical
 /// child order — so this writes without revalidating it.
 pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[(u8, Hash)]) {
-    cbor::write_head(out, MAJOR_MAP, children.len() as u64);
+    cbor::write_head(out, MAJOR_MAP, widen(children.len()));
     for (radix, hash) in children {
         cbor::write_head(out, MAJOR_UINT, u64::from(*radix));
-        cbor::write_head(out, MAJOR_BSTR, MERKLE_HASH_LEN as u64);
+        cbor::write_head(out, MAJOR_BSTR, widen(MERKLE_HASH_LEN));
         out.extend_from_slice(hash.as_bytes());
     }
 }
 
 /// Bytes a whole child listing occupies as a map: its head plus entries.
 pub(crate) fn listing_len(children: &[(u8, Hash)]) -> usize {
-    let mut total = cbor::head_len(children.len() as u64);
+    let mut total = cbor::head_len(widen(children.len()));
     for (radix, _) in children {
         total += listing_entry_len(*radix);
     }

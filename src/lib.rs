@@ -257,6 +257,7 @@ mod batch;
 mod bookmark;
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
+mod counter;
 pub mod error;
 pub mod link;
 mod message;

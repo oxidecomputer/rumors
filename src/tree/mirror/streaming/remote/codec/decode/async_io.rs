@@ -4,6 +4,7 @@ use std::io::ErrorKind;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+use crate::counter::widen;
 use crate::observe::{CaptureRead, StreamObserver};
 
 use super::super::{
@@ -291,7 +292,7 @@ impl<'a, R: AsyncRead + Unpin> Exact<'a, R> {
 
         scratch.reserve(want);
         let failure = (&mut *self.read)
-            .take(want as u64)
+            .take(widen(want))
             .read_to_end(scratch)
             .await
             .err();

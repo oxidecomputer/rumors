@@ -16,6 +16,7 @@ use futures::{Stream, stream};
 
 use crate::{
     Version,
+    counter::widen,
     message::Message,
     tree::{
         mirror::streaming::convert::Convert,
@@ -313,7 +314,7 @@ impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     pub(crate) fn len(&self) -> u64 {
         self.root
             .as_ref()
-            .map(|node| node.len() as u64)
+            .map(|node| widen(node.len()))
             .unwrap_or_default()
     }
 
@@ -326,7 +327,7 @@ impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     pub(crate) fn max_version_bytes(&self) -> u64 {
         self.root
             .as_ref()
-            .map(|node| node.version_bytes() as u64)
+            .map(|node| widen(node.version_bytes()))
             .unwrap_or_default()
     }
 }

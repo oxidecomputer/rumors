@@ -15,6 +15,8 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+use crate::counter::widen;
+
 /// Local measurements from one completed session while joining, gossiping, or
 /// leaving a network.
 ///
@@ -219,7 +221,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
             this.recorder
                 .inner
                 .bytes_sent
-                .fetch_add(*accepted as u64, Ordering::Relaxed);
+                .fetch_add(widen(*accepted), Ordering::Relaxed);
         }
         poll
     }
@@ -270,7 +272,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for CountedRead<R> {
             this.recorder
                 .inner
                 .bytes_received
-                .fetch_add(delivered as u64, Ordering::Relaxed);
+                .fetch_add(widen(delivered), Ordering::Relaxed);
         }
         poll
     }

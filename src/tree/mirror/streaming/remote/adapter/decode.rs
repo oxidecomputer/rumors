@@ -5,6 +5,7 @@ use async_stream::try_stream;
 use futures::{FutureExt, Stream, StreamExt};
 
 use crate::{
+    counter::widen,
     message::PayloadCodec,
     tree::{
         mirror::streaming::{
@@ -559,7 +560,7 @@ impl SupplyRuns {
         // window solve priced this session with, and fails the session
         // before the record is admitted.
         let actual = version.as_bytes().len();
-        if actual as u64 > self.version_bytes {
+        if widen(actual) > self.version_bytes {
             return Err(DecodeError::OversizedVersion {
                 declared: self.version_bytes,
                 actual,
