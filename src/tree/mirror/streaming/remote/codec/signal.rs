@@ -425,7 +425,7 @@ impl WireSignal {
 }
 
 /// Encoded bytes in a frame's array head, stream, and state.
-pub(super) const FRAME_OPENER_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
+pub(crate) const FRAME_OPENER_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
 
 /// A known signal placed on a stream where the protocol forbids it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

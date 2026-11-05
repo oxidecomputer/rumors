@@ -328,13 +328,16 @@ proptest! {
     /// unread in the live transport.
     ///
     /// Half the cases first fill the read half's lookahead with the closing
-    /// item's first byte, as the demultiplexer leaves it when it stops.
+    /// items' first bytes, as the demultiplexer leaves it when it stops:
+    /// as many as the transport has ready, up to a frame opener's worth,
+    /// which the transport's capacity bounds.
     #[test]
     fn trailing_items_leave_the_next_session_unread(
         forks in 0usize..32,
         donation in any::<bool>(),
         split_at in any::<usize>(),
         peeked in any::<bool>(),
+        capacity in 1usize..=4,
         following in prop::collection::vec(any::<u8>(), 1..32),
     ) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -351,14 +354,14 @@ proptest! {
             }
             wire.extend_from_slice(&COMPLETION_MARKER);
             let cut = split_at % (wire.len() + 1);
-            let (local, remote) = duplex(1);
+            let (local, remote) = duplex(capacity);
             let (local_read, mut local_write) = split(local);
             let (mut remote_read, mut remote_write) = split(remote);
             let mut read = streaming_remote::PipeRead::new(local_read);
             let receive = async {
                 if peeked {
                     let first = read.peek().await.unwrap();
-                    assert_eq!(first, Some(wire[0]), "the lookahead holds the first closing byte");
+                    assert_eq!(first, Some(wire[0]), "the lookahead starts at the first closing byte");
                 }
                 if donation {
                     let received = party::receive(&mut read, &observe).await.unwrap();
@@ -371,8 +374,9 @@ proptest! {
             };
             let send = async {
                 remote_write.write_all(&wire[..cut]).await.unwrap();
-                // Read our marker concurrently with sending the suffix, as a
-                // one-byte duplex cannot buffer both complete markers.
+                // Read our marker concurrently with sending the suffix, so
+                // neither waits for room only the other can free in so small
+                // a duplex.
                 let (_, marker) = tokio::join!(
                     async { remote_write.write_all(&wire[cut..]).await.unwrap(); },
                     async {

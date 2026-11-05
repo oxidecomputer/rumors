@@ -937,13 +937,14 @@ enum SessionDefect {
     CompletionMarker([u8; 2]),
 }
 
-/// Finish the session, consuming any byte the pipe read ahead of the
+/// Finish the session, consuming any bytes the pipe read ahead of the
 /// closing items.
 ///
-/// The pipe reads at most the first byte of the peer's first closing item
-/// ahead, and every closing item is read through it, so after the epilogue
-/// the read half rests exactly at the session boundary. A peer cannot start
-/// another session before receiving our marker.
+/// The pipe reads at most a frame opener's worth of bytes ahead, all of
+/// them the peer's closing items, since a peer cannot start another
+/// session before receiving our marker, and every closing item is read
+/// through it, so after the epilogue the read half rests exactly at the
+/// session boundary.
 async fn finish_session<R: AsyncRead + Unpin + Send>(
     read: &mut PipeRead<R>,
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),

@@ -457,12 +457,9 @@ fn wire(frames: &[(Stream, Frame)], trailer: &[u8]) -> Vec<u8> {
 
 /// Run a demultiplexer over `bytes` with lanes claimed for `claimed`, until
 /// it fails or every claimed lane's receiver ends. Returns the failure, if
-/// any, each lane's frames, and the pipe's lookahead byte.
+/// any, each lane's frames, and the bytes the pipe read ahead.
 #[allow(clippy::type_complexity)]
-fn demultiplex(
-    bytes: &[u8],
-    claimed: &[Stream],
-) -> (Option<PipeError>, Vec<Vec<Frame>>, Option<u8>) {
+fn demultiplex(bytes: &[u8], claimed: &[Stream]) -> (Option<PipeError>, Vec<Vec<Frame>>, Vec<u8>) {
     let mut demultiplexer = Demultiplexer::default();
     let receivers: Vec<_> = claimed
         .iter()
@@ -494,13 +491,15 @@ fn demultiplex(
         (Some(failure), consume.await)
     })
     .expect("the demultiplexer either fails or closes every lane");
-    (failure, frames, read.pending)
+    (failure, frames, read.lookahead().to_vec())
 }
 
 /// The demultiplexer routes each frame to its logical stream's decoder,
 /// closes a stream at its end-of-stream frame without delivering it, and
-/// stops at the first item that is not a frame, holding only that item's
-/// first byte.
+/// stops at the first item that is not a frame, holding only its bytes.
+///
+/// Here the read half holds the whole two-byte marker, which its one read
+/// ahead takes.
 #[test]
 fn frames_route_by_stream_and_the_closing_item_stays_unread() {
     let reply = |tag| Frame::from(frame(Kind::Supply, tag));
@@ -514,14 +513,14 @@ fn frames_route_by_stream_and_the_closing_item_stays_unread() {
         ],
         &MARKER,
     );
-    let (failure, frames, pending) = demultiplex(&bytes, &[interior(1), interior(2)]);
+    let (failure, frames, ahead) = demultiplex(&bytes, &[interior(1), interior(2)]);
     assert!(failure.is_none(), "{failure:?}");
     assert_eq!(frames, [vec![reply(1), reply(3)], vec![reply(2)]]);
-    assert_eq!(pending, Some(MARKER[0]));
+    assert_eq!(ahead, MARKER);
 }
 
-/// The read half returns the lookahead byte before the transport, so the
-/// closing exchange reads the whole closing item.
+/// The read half returns the bytes it read ahead before the transport, so
+/// the closing exchange reads the whole closing item.
 #[test]
 fn the_closing_exchange_reads_the_lookahead_first() {
     let bytes = [MARKER[0], MARKER[1]];
@@ -626,8 +625,149 @@ fn a_closing_item_before_a_started_stream_ends_is_unfinished() {
 /// decoder, if it still expected a reply, finds its stream ended.
 #[test]
 fn an_unstarted_stream_closes_at_the_closing_item() {
-    let (failure, frames, pending) = demultiplex(&MARKER, &[interior(1)]);
+    let (failure, frames, ahead) = demultiplex(&MARKER, &[interior(1)]);
     assert!(failure.is_none(), "{failure:?}");
     assert_eq!(frames, [Vec::<Frame>::new()]);
-    assert_eq!(pending, Some(MARKER[0]));
+    assert_eq!(ahead, MARKER);
+}
+
+/// A transport that delivers its bytes in scripted pieces, finding nothing
+/// ready before each piece and waking its reader as it does.
+struct Trickle {
+    /// Every byte the transport delivers.
+    bytes: Vec<u8>,
+    /// How many of them it has delivered.
+    delivered: usize,
+    /// The sizes of its pieces, used in turn.
+    pieces: Vec<usize>,
+    /// The index of the next piece.
+    piece: usize,
+    /// Whether the next poll delivers a piece, rather than finding nothing
+    /// ready.
+    ready: bool,
+}
+
+/// Find nothing ready, waking the reader, and deliver one piece, in turn.
+impl AsyncRead for Trickle {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        if !this.ready {
+            this.ready = true;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        this.ready = false;
+        let piece = this.pieces[this.piece % this.pieces.len()];
+        this.piece += 1;
+        let taken = piece
+            .min(buf.remaining())
+            .min(this.bytes.len() - this.delivered);
+        buf.put_slice(&this.bytes[this.delivered..this.delivered + taken]);
+        this.delivered += taken;
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// One use of the read half.
+#[derive(Clone, Copy, Debug)]
+enum Use {
+    /// Peek at the next byte, polling until the peek resolves.
+    Peek,
+    /// Read into a buffer of this many bytes, polling until the read
+    /// resolves.
+    Read(usize),
+    /// Start a peek, poll it once, and drop it unresolved if it found
+    /// nothing ready.
+    DroppedPeek,
+    /// Start a read of this many bytes, poll it once, and drop it
+    /// unresolved if it found nothing ready.
+    DroppedRead(usize),
+}
+
+/// Any use of the read half, reading up to six bytes at once.
+fn usage() -> impl Strategy<Value = Use> {
+    prop_oneof![
+        Just(Use::Peek),
+        Just(Use::DroppedPeek),
+        (1usize..=6).prop_map(Use::Read),
+        (1usize..=6).prop_map(Use::DroppedRead),
+    ]
+}
+
+/// Poll `future` once with a waker that does nothing.
+fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
+    future.poll(&mut Context::from_waker(Waker::noop()))
+}
+
+/// Poll `future` until it resolves; a [`Trickle`] transport always has a
+/// piece ready by the second poll.
+fn resolve<F: Future>(future: F) -> F::Output {
+    let mut future = pin!(future);
+    loop {
+        if let Poll::Ready(output) = poll_once(future.as_mut()) {
+            return output;
+        }
+    }
+}
+
+proptest! {
+    /// The read half hands on every byte of its transport once and in
+    /// order, holding at most [`LOOKAHEAD`] bytes ahead.
+    ///
+    /// That holds however the transport splits its delivery, wherever
+    /// peeks fall between reads, and whenever a peek or a read is dropped
+    /// after a poll that found nothing ready: a peek returns the next byte
+    /// not yet read, and a dropped one loses nothing.
+    #[test]
+    fn the_read_half_hands_on_every_byte_once(
+        bytes in proptest::collection::vec(any::<u8>(), 0..32),
+        pieces in proptest::collection::vec(1usize..=5, 1..8),
+        uses in proptest::collection::vec(usage(), 0..24),
+    ) {
+        let mut read = PipeRead::new(Trickle {
+            bytes: bytes.clone(),
+            delivered: 0,
+            pieces,
+            piece: 0,
+            ready: false,
+        });
+        let mut handed = Vec::new();
+        for usage in uses {
+            let peeked = match usage {
+                Use::Peek => Some(resolve(read.peek())),
+                Use::DroppedPeek => match poll_once(pin!(read.peek())) {
+                    Poll::Ready(peeked) => Some(peeked),
+                    Poll::Pending => None,
+                },
+                Use::Read(len) => {
+                    let mut buf = vec![0; len];
+                    let filled = resolve(read.read(&mut buf)).expect("the transport never fails");
+                    handed.extend_from_slice(&buf[..filled]);
+                    None
+                }
+                Use::DroppedRead(len) => {
+                    let mut buf = vec![0; len];
+                    if let Poll::Ready(filled) = poll_once(pin!(read.read(&mut buf))) {
+                        let filled = filled.expect("the transport never fails");
+                        handed.extend_from_slice(&buf[..filled]);
+                    }
+                    None
+                }
+            };
+            if let Some(peeked) = peeked {
+                let peeked = peeked.expect("the transport never fails");
+                prop_assert_eq!(peeked, bytes.get(handed.len()).copied());
+            }
+            prop_assert!(read.lookahead().len() <= LOOKAHEAD);
+            prop_assert_eq!(&handed[..], &bytes[..handed.len()]);
+        }
+        let mut rest = Vec::new();
+        resolve(read.read_to_end(&mut rest)).expect("the transport never fails");
+        handed.extend(rest);
+        prop_assert_eq!(handed, bytes);
+    }
 }
