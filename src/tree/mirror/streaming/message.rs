@@ -113,14 +113,18 @@ pub struct Greeting {
     /// The sender's root children in strictly ascending radix order, each
     /// with its grandchild count; empty when the sender's tree is empty.
     pub listing: Vec<Listed>,
-    /// The sender's grandchild count of its root, `G(root)`: over the
-    /// listed root children, each one's own child count, a child at the
-    /// leaves counting one; zero for an empty tree.
+    /// The sender's grandchild count of its root: over the listed root
+    /// children, each one's own child count, a child at the leaves counting
+    /// one; zero for an empty tree.
     ///
-    /// It bounds the elected responder's reply to the opening question,
-    /// which lists the responder's children of its root children. The
-    /// initiator sizes its memory for that reply from the responder's
-    /// greeting, as it sizes every later reply from a listing's counts.
+    /// Otherwise it lies in 1..=65,536. A sender whose backend reports a count
+    /// outside that range fails the session at its greeting
+    /// ([`CountError::Grandchildren`]), and a receiver rejects one at decode.
+    ///
+    /// It bounds the elected responder's reply to the opening question, which
+    /// lists the responder's children of its root children. The initiator sizes
+    /// its memory for that reply from the responder's greeting, as it sizes
+    /// every later reply from a listing's counts.
     pub grandchildren: u64,
 }
 
@@ -247,7 +251,17 @@ impl Grandchildren {
     /// Returns [`CountError::Grandchildren`] if the backend reports more
     /// than 65,536, more than any node's children can have.
     pub fn of(node: &impl ErasedNode) -> Result<Self, CountError> {
-        let count = node.grandchild_count();
+        Self::counted(node.grandchild_count())
+    }
+
+    /// The grandchild count a backend reported for a node, `count`, a leaf
+    /// counting one: the check [`of`](Self::of) applies, for counts read
+    /// through a node's typed interface, such as the greeting's root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CountError::Grandchildren`] if `count` exceeds 65,536.
+    pub fn counted(count: usize) -> Result<Self, CountError> {
         Self::new(count.max(1)).ok_or(CountError::Grandchildren(count))
     }
 

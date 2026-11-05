@@ -581,17 +581,23 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
     /// Build and send this participant's greeting.
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
         let (fan, copies) = greeting_fan(&self.backend, self.root.root.clone()).await?;
+        // The root's grandchild count bounds the peer's first reply, so it
+        // is checked as every count a listing carries is.
+        let grandchildren = match &self.root.root {
+            Some(root) => widen(
+                Grandchildren::counted(root.grandchild_count())
+                    .map_err(Error::Count)?
+                    .get(),
+            ),
+            None => 0,
+        };
         let greeting = Greeting {
             version: self.root.ceiling.clone(),
             // The greeting's sizes come from the root's own aggregates,
             // so they cannot drift from the tree they describe.
             set_len: self.root.len(),
             max_version_bytes: self.root.max_version_bytes(),
-            grandchildren: self
-                .root
-                .root
-                .as_ref()
-                .map_or(0, |root| widen(root.grandchild_count())),
+            grandchildren,
             // The walk is not the wire: on a wire session the proxy
             // stamps its codec's configured limit over this field at
             // send, so an in-process participant carries the default.

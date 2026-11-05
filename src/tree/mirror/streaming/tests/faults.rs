@@ -176,16 +176,18 @@ proptest! {
     /// whose backend reported it, and neither panics nor stalls.
     ///
     /// The count is misreported for every node one side's backend lists as
-    /// a child at one height. The session reads a node's count only to
-    /// list it, and then fails at once, so it fails exactly when it read a
-    /// misreported count and completes otherwise. The root's children are
-    /// listed by every greeting, so a misreported count there always fails
-    /// the session; deeper heights fail only where a disputed scope's
-    /// question lists them.
+    /// a child at one height, or for its root at the root's height. The
+    /// session reads a node's count only to list it, or for the root to
+    /// send it in its greeting, and then fails at once, so it fails exactly
+    /// when it read a misreported count and completes otherwise. Every
+    /// greeting carries the root's count and lists the root's children, so
+    /// a misreported count at either height always fails the session when
+    /// that side holds a root; deeper heights fail only where a disputed
+    /// scope's question lists them.
     #[test]
     fn out_of_range_grandchild_counts_fail_the_session(
         (client_root, server_root) in arb_wide_divergent_pair(),
-        height in 1..=ROOT_CHILDREN_HEIGHT,
+        height in 1..=height::Root::HEIGHT,
         grandchildren in prop_oneof![Just(65_537usize), 65_537usize..=1 << 24, Just(usize::MAX)],
         miscount_client in any::<bool>(),
         schedule in proptest::collection::vec(0_u8..=2, 0..128),
@@ -195,7 +197,7 @@ proptest! {
             report: Misreport::Grandchildren(grandchildren),
         });
         let sound = Failing::after(Local, usize::MAX);
-        let lists_root_children = if miscount_client {
+        let holds_root = if miscount_client {
             client_root.node.is_some()
         } else {
             server_root.node.is_some()
@@ -228,8 +230,8 @@ proptest! {
                 "a misreported count was misattributed: {other:?}",
             ))),
         }
-        if height == ROOT_CHILDREN_HEIGHT && lists_root_children {
-            prop_assert!(read > 0, "the greeting must list the root's children");
+        if height >= ROOT_CHILDREN_HEIGHT && holds_root {
+            prop_assert!(read > 0, "the greeting must carry the root's count and list its children");
         }
     }
 }
