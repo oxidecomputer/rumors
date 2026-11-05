@@ -29,7 +29,7 @@ use crate::{
         typed::{
             hash::{Hash, MERKLE_HASH_LEN as TREE_HASH_LEN},
             height::{Height, Root},
-            untyped::census,
+            untyped::{self, census},
         },
     },
 };
@@ -421,6 +421,101 @@ pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> 
     Err(Quiescence::PollBudget)
 }
 
+/// The most transient bytes the in-memory backend holds while it assembles
+/// one supplied subtree, whatever the subtree's size.
+///
+/// That is one open branch per path byte, each with a full fan's heap
+/// slots, counted twice for the blocks a growing vector frees as it
+/// reallocates.
+pub const ASSEMBLY_SPINE_BYTES: usize = untyped::SortedLeaves::MAX_TRANSIENT_BYTES;
+
+/// Leaves at version-derived paths, in path order, ready for an assembly
+/// measurement: the in-memory leaves a reply decoder hands the backend's
+/// assembler for one supplied subtree.
+pub struct SuppliedLeaves(
+    Vec<(
+        crate::tree::typed::Prefix<crate::tree::typed::height::Z>,
+        crate::tree::typed::Node<crate::tree::typed::height::Z>,
+    )>,
+);
+
+/// `count` leaves, one per version a fresh party ticks, at their
+/// version-derived paths, in path order.
+pub fn supplied_leaves(count: usize) -> SuppliedLeaves {
+    use crate::tree::typed::{Node, Path, Prefix};
+    let party = before::Party::seed().fork();
+    let mut version = crate::Version::new();
+    let mut leaves: Vec<_> = (0..count)
+        .map(|_| {
+            version.tick(&party);
+            let path = Prefix::containing(&Path::for_leaf(&version));
+            (path, Node::leaf(version.clone(), unit_message()))
+        })
+        .collect();
+    leaves.sort_unstable_by_key(|(path, _)| *path);
+    SuppliedLeaves(leaves)
+}
+
+/// Assemble `leaves` into one root-height subtree through the in-memory
+/// backend's assembler, the path a reply decoder's supplies take, and
+/// return it, keeping the assembled nodes alive until the caller drops
+/// them.
+///
+/// # Panics
+///
+/// Panics if `leaves` is empty: a supplied subtree holds at least one leaf.
+pub fn assemble_supplied(leaves: SuppliedLeaves) -> AssembledSubtree {
+    use crate::tree::typed::height::Z;
+    use futures::StreamExt;
+    let stream: crate::tree::mirror::streaming::BoxNodeStream<'static, Local, Z> =
+        Box::pin(futures::stream::iter(leaves.0.into_iter().map(Ok)));
+    let assembled = Local.assemble::<Root>(stream);
+    let (_, root) = run_to_quiescence(async move { std::pin::pin!(assembled).next().await })
+        .expect("the in-memory assembler never waits")
+        .expect("a nonempty run assembles to one subtree")
+        .unwrap_or_else(|never| match never {});
+    AssembledSubtree(root)
+}
+
+/// A subtree [`assemble_supplied`] built, kept alive until it is dropped.
+pub struct AssembledSubtree(crate::tree::typed::Node<Root>);
+
+/// Summarize the subtree by its leaf count.
+impl std::fmt::Debug for AssembledSubtree {
+    /// Formats the subtree's leaf count.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AssembledSubtree")
+            .field("leaves", &self.leaves())
+            .finish()
+    }
+}
+
+/// Summarize the leaves by their count.
+impl std::fmt::Debug for SuppliedLeaves {
+    /// Formats the number of leaves.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SuppliedLeaves")
+            .field("leaves", &self.0.len())
+            .finish()
+    }
+}
+
+impl AssembledSubtree {
+    /// The subtree's leaf count.
+    pub fn leaves(&self) -> usize {
+        self.0.len()
+    }
+}
+
 /// Unit tests for this support module.
 #[cfg(test)]
 mod tests;
+
+/// The unit payload every [`supplied_leaves`] leaf carries.
+fn unit_message() -> crate::message::Message {
+    crate::message::Message::try_from_arc(
+        Arc::new(()),
+        crate::message::PayloadDepthLimit::default(),
+    )
+    .expect("the unit payload encodes within any depth limit")
+}

@@ -61,7 +61,7 @@ pub(crate) mod window;
 pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) use backend::BoxNodeStream;
 #[cfg(test)]
 pub use backend::NodeStream;

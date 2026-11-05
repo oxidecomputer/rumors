@@ -8,7 +8,7 @@ use crate::tree::arb::{arb_leaf_paths, arb_radixes, arb_version};
 use crate::{Version, message::Message};
 
 use super::{
-    Node, PATH_LEN,
+    Body, Node, PATH_LEN, SortedLeaves,
     fan::{Fan, heap_slots},
 };
 
@@ -868,4 +868,117 @@ fn node_inner_stays_within_budget() {
     assert!(std::mem::size_of::<Fan>() <= 40);
     assert!(std::mem::size_of::<super::Body>() <= 160);
     assert!(std::mem::size_of::<super::NodeInner>() <= 224);
+}
+
+/// Leaves at `paths`, sorted and deduplicated, observed from `depth`: every
+/// path takes `base`'s first `depth` bytes. Each leaf carries its own
+/// version, so the trees compared below cannot swap two leaves unseen.
+fn leaves_below(
+    base: [u8; PATH_LEN],
+    depth: usize,
+    paths: BTreeSet<[u8; PATH_LEN]>,
+) -> Vec<([u8; PATH_LEN], Node)> {
+    let party = crate::tree::arb::nth_party(0);
+    let mut version = Version::new();
+    let paths: BTreeSet<_> = paths
+        .into_iter()
+        .map(|mut path| {
+            path[..depth].copy_from_slice(&base[..depth]);
+            path
+        })
+        .collect();
+    paths
+        .into_iter()
+        .map(|path| {
+            version.tick(&party);
+            (path, Node::leaf(version.clone(), Message::new(())))
+        })
+        .collect()
+}
+
+/// Require `actual` and `expected` to be one tree.
+///
+/// That is equal compressed prefixes, hashes, and leaf counts everywhere,
+/// the same leaf at every leaf position, and the same radices at every
+/// branch. The recursion is bounded by the key depth.
+fn same_tree(actual: &Node, expected: &Node) -> Result<(), TestCaseError> {
+    prop_assert_eq!(
+        actual.inner.prefix.as_slice(),
+        expected.inner.prefix.as_slice()
+    );
+    prop_assert_eq!(actual.hash(), expected.hash());
+    prop_assert_eq!(actual.len(), expected.len());
+    match (&actual.inner.body, &expected.inner.body) {
+        (
+            Body::Leaf { version: ours, .. },
+            Body::Leaf {
+                version: theirs, ..
+            },
+        ) => {
+            prop_assert_eq!(ours, theirs);
+        }
+        (
+            Body::Branch { children: ours, .. },
+            Body::Branch {
+                children: theirs, ..
+            },
+        ) => {
+            prop_assert_eq!(ours.len(), theirs.len());
+            for ((our_radix, ours), (their_radix, theirs)) in ours.iter().zip(theirs.iter()) {
+                prop_assert_eq!(our_radix, their_radix);
+                same_tree(ours, theirs)?;
+            }
+        }
+        _ => prop_assert!(
+            false,
+            "both trees hold a leaf or a branch at the same position"
+        ),
+    }
+    Ok(())
+}
+
+proptest! {
+    /// Building a subtree one leaf at a time over its open right spine
+    /// yields exactly the tree the bulk constructor builds from the whole
+    /// run, at every starting depth, with every fan fitted.
+    ///
+    /// The paths come from a narrow alphabet, whose long shared prefixes
+    /// exercise compression and deep spines, and from the full byte range,
+    /// whose wide fans exercise branch closing at the top.
+    #[test]
+    fn spine_build_matches_the_bulk_build(
+        base in any::<[u8; PATH_LEN]>(),
+        depth in 0..PATH_LEN,
+        paths in arb_leaf_paths(300),
+    ) {
+        let leaves = leaves_below(base, depth, paths);
+        let mut entries: Vec<_> = leaves
+            .iter()
+            .map(|(path, leaf)| (*path, Some(leaf.clone())))
+            .collect();
+        let expected = Node::from_sorted_leaves(depth, &mut entries);
+        let mut spine = SortedLeaves::new(depth);
+        for (path, leaf) in leaves {
+            spine.push(path, leaf);
+        }
+        let actual = spine.finish().expect("the run holds at least one leaf");
+        same_tree(&actual, &expected)?;
+        fans_fit(&actual)?;
+    }
+}
+
+/// A spine build that receives no leaf finishes with no subtree.
+#[test]
+fn spine_build_of_nothing_is_none() {
+    assert!(SortedLeaves::new(0).finish().is_none());
+}
+
+/// A spine build rejects a leaf that does not ascend from the previous
+/// one: a duplicate path here.
+#[test]
+#[should_panic(expected = "a leaf run is strictly ascending by path")]
+fn spine_build_rejects_a_repeated_path() {
+    let mut spine = SortedLeaves::new(0);
+    spine.push([1; PATH_LEN], Node::leaf(Version::new(), Message::new(())));
+    spine.push([1; PATH_LEN], Node::leaf(Version::new(), Message::new(())));
 }

@@ -182,7 +182,7 @@ where
 ///
 /// The edge accounts for decoded leaves awaiting the backend. Any further
 /// buffering used to construct a node belongs to that backend; `Local`, for
-/// example, keeps one complete same-prefix run as replica storage.
+/// example, keeps only the open right spine of the subtree it is building.
 ///
 /// The stream ends at the reply's closing `None`, and is fused, so the
 /// assembler cannot read past it into the next reply's leaves.

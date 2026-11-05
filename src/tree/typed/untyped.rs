@@ -22,6 +22,11 @@ pub struct Node {
     inner: Arc<NodeInner>,
 }
 
+/// The bytes of one heap slot of a branch's fan: a radix beside a child
+/// handle.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) const FAN_ENTRY_BYTES: usize = mem::size_of::<(u8, Node)>();
+
 /// An owned, ascending walk over one node's immediate children.
 ///
 /// An uncompressed branch stays shared while the iterator clones each child
@@ -303,11 +308,15 @@ impl Node {
     /// the work is proportional to the *materialized* structure: one node
     /// per real branch point plus one per leaf spine.
     ///
+    /// The session builds supplied subtrees one leaf at a time instead
+    /// ([`SortedLeaves`]), which builds this same tree; this constructor is
+    /// the reference that builder is tested against.
+    ///
     /// # Panics
     ///
     /// Panics if the run is empty, contains duplicate paths or a consumed
-    /// slot, or supplies a node that is not a bare leaf. The streaming decoder
-    /// rejects unordered or out-of-scope leaves before constructing a run.
+    /// slot, or supplies a node that is not a bare leaf.
+    #[cfg(test)]
     pub(crate) fn from_sorted_leaves(
         depth: usize,
         leaves: &mut [([u8; PATH_LEN], Option<Self>)],
@@ -713,6 +722,201 @@ impl PartialEq for Node {
         // different payloads would compare equal; producing such a pair
         // takes an already-fatal linearity violation.)
         self.ptr_eq(other) || self.hash() == other.hash()
+    }
+}
+
+/// Builds the maximally compressed subtree over a strictly ascending stream
+/// of bare leaves, one leaf at a time, holding only the subtree's open right
+/// spine.
+///
+/// The result is the node the tests' whole-run constructor,
+/// `Node::from_sorted_leaves`, builds from the same leaves: the same
+/// compressed prefixes, branches, and fans, so the same hash. Where that
+/// constructor needs the whole run in hand, this one keeps
+/// at most one open branch per path byte below its starting depth, each with
+/// the children closed beneath it so far, and the last leaf pushed. A
+/// subtree of any size therefore assembles in transient memory bounded by
+/// [`PATH_LEN`] fans of at most 256 children.
+///
+/// Each push compares the new leaf's path with the previous one's. Every
+/// open branch deeper than the byte where the two diverge can gain no more
+/// children, so it closes, and is built once with its whole compressed
+/// prefix, exactly as the bulk constructor builds it. The work is the bulk
+/// constructor's: one node per branch point and one per leaf.
+pub(crate) struct SortedLeaves {
+    /// The depth the finished subtree observes from: every leaf's path
+    /// shares its first `depth` bytes.
+    depth: usize,
+    /// The open branches along the right spine, shallowest first, with
+    /// strictly increasing divergence bytes.
+    spine: Vec<OpenBranch>,
+    /// The last leaf pushed, with its path. It stays unattached because its
+    /// compressed prefix starts below its parent's divergence byte, which
+    /// the next leaf decides.
+    last: Option<([u8; PATH_LEN], Node)>,
+}
+
+/// One branch of a [`SortedLeaves`] spine that may still gain children.
+struct OpenBranch {
+    /// The byte at which this branch's children diverge.
+    branch_at: usize,
+    /// The path of the first leaf beneath it, which spells its compressed
+    /// prefix.
+    first: [u8; PATH_LEN],
+    /// Leaves beneath its closed children.
+    leaves: usize,
+    /// Its closed children, in ascending radix order.
+    children: Fan,
+}
+
+/// A finished subtree of a [`SortedLeaves`] build, not yet given the
+/// compressed prefix its parent's divergence byte decides.
+enum Closed {
+    /// A bare leaf at its full path.
+    Leaf([u8; PATH_LEN], Node),
+    /// A branch whose children are all closed.
+    Branch(OpenBranch),
+}
+
+impl Closed {
+    /// The path of the first leaf beneath it.
+    fn first(&self) -> &[u8; PATH_LEN] {
+        match self {
+            Closed::Leaf(path, _) => path,
+            Closed::Branch(branch) => &branch.first,
+        }
+    }
+
+    /// Build the node observed from depth `from`, returning it with its
+    /// leaf count: its compressed prefix spans the path bytes from `from` to
+    /// its own divergence byte, or to the end of the path for a leaf.
+    fn observed_from(self, from: usize) -> (Node, usize) {
+        match self {
+            Closed::Leaf(path, mut node) => {
+                if from < PATH_LEN {
+                    // As in the bulk constructor: the node now observes
+                    // from a shallower level, so any memoized hash is
+                    // stale.
+                    let inner = Arc::make_mut(&mut node.inner);
+                    inner.prefix.extend(path[from..].iter().rev().copied());
+                    inner.hash = OnceLock::new();
+                }
+                (node, 1)
+            }
+            Closed::Branch(OpenBranch {
+                branch_at,
+                first,
+                leaves,
+                mut children,
+            }) => {
+                debug_assert!(children.len() >= 2, "a branch point separates >= 2 runs");
+                children.fit();
+                let node = Node::from_inner(Arc::new(NodeInner {
+                    prefix: first[from..branch_at].iter().rev().copied().collect(),
+                    hash: OnceLock::new(),
+                    body: Body::Branch {
+                        bounds: OnceLock::new(),
+                        leaves,
+                        version_bytes: OnceLock::new(),
+                        children,
+                    },
+                }));
+                (node, leaves)
+            }
+        }
+    }
+}
+
+impl OpenBranch {
+    /// Open a branch diverging at `branch_at` whose first child is `first`.
+    fn new(branch_at: usize, first: Closed) -> Self {
+        let mut branch = Self {
+            branch_at,
+            first: *first.first(),
+            leaves: 0,
+            children: Fan::new(),
+        };
+        branch.adopt(first);
+        branch
+    }
+
+    /// Close `child` beneath this branch, as its next child in radix order.
+    fn adopt(&mut self, child: Closed) {
+        let radix = child.first()[self.branch_at];
+        let (node, leaves) = child.observed_from(self.branch_at + 1);
+        self.children.push(radix, node);
+        self.leaves += leaves;
+    }
+}
+
+impl SortedLeaves {
+    /// The most transient bytes one build holds at once, whatever the
+    /// subtree's size.
+    ///
+    /// That is [`PATH_LEN`] open branches, each with the heap slots of a
+    /// full fan, counted twice for the blocks a growing vector or fan frees
+    /// as it reallocates. Closed children are not transient: each becomes
+    /// part of the finished subtree.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) const MAX_TRANSIENT_BYTES: usize =
+        2 * PATH_LEN * (mem::size_of::<OpenBranch>() + fan::heap_slots(256) * FAN_ENTRY_BYTES);
+
+    /// Begin a subtree observed from `depth`.
+    pub(crate) fn new(depth: usize) -> Self {
+        Self {
+            depth,
+            spine: Vec::new(),
+            last: None,
+        }
+    }
+
+    /// Append the next bare leaf at `path`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `path` does not ascend strictly from the previous leaf's
+    /// path, and in debug builds if it leaves the subtree's shared prefix or
+    /// `leaf` is not a bare leaf. Session decoding establishes all three.
+    pub(crate) fn push(&mut self, path: [u8; PATH_LEN], leaf: Node) {
+        debug_assert!(
+            leaf.inner.prefix.is_empty() && leaf.is_leaf(),
+            "a leaf run supplies bare leaf nodes",
+        );
+        let Some((previous, last)) = self.last.replace((path, leaf)) else {
+            return;
+        };
+        debug_assert!(
+            previous[..self.depth] == path[..self.depth],
+            "every leaf in a run falls under the run's prefix",
+        );
+        let diverge = (self.depth..PATH_LEN)
+            .find(|&at| previous[at] != path[at])
+            .filter(|&at| previous[at] < path[at])
+            .expect("a leaf run is strictly ascending by path");
+        // Every open branch deeper than the divergence byte is complete: no
+        // later leaf, sharing fewer bytes with it, can fall beneath it.
+        let mut closed = Closed::Leaf(previous, last);
+        while let Some(deeper) = self.spine.pop_if(|open| open.branch_at > diverge) {
+            let mut deeper = deeper;
+            deeper.adopt(closed);
+            closed = Closed::Branch(deeper);
+        }
+        match self.spine.last_mut() {
+            Some(open) if open.branch_at == diverge => open.adopt(closed),
+            _ => self.spine.push(OpenBranch::new(diverge, closed)),
+        }
+    }
+
+    /// Close every open branch and return the finished subtree, or `None`
+    /// if no leaf was pushed.
+    pub(crate) fn finish(mut self) -> Option<Node> {
+        let (path, leaf) = self.last.take()?;
+        let mut closed = Closed::Leaf(path, leaf);
+        while let Some(mut open) = self.spine.pop() {
+            open.adopt(closed);
+            closed = Closed::Branch(open);
+        }
+        Some(closed.observed_from(self.depth).0)
     }
 }
 

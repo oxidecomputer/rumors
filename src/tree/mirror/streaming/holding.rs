@@ -56,8 +56,9 @@ pub enum Holding {
     /// assemblers and the terminal leaf resolutions.
     ///
     /// The queues are a fan deep whatever the window, so they cost a fixed
-    /// amount per level, and the in-memory backend's assembly buffer grows
-    /// with the subtree it builds, not with the window.
+    /// amount per level, and the in-memory backend builds each supplied
+    /// subtree over its open right spine, at most one fan per path byte
+    /// however many leaves the subtree holds.
     Assembly,
     /// Nodes a backend builds to explode a node into its children, beyond
     /// the handles it yields.

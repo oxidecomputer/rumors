@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::mem;
 use std::pin::pin;
 
 use async_stream::try_stream;
@@ -18,7 +17,7 @@ use crate::{
             convert::Convert,
         },
         typed::{
-            self, LeafRun, Path, Prefix,
+            self, Path, Prefix, SortedRun,
             height::{Height, S, Z},
         },
     },
@@ -186,35 +185,36 @@ impl Backend for Local {
         leaves
     }
 
-    /// Build each same-prefix leaf run as one in-memory subtree.
+    /// Build each same-prefix leaf run as one in-memory subtree, one leaf
+    /// at a time.
+    ///
+    /// Each run builds over its open right spine ([`SortedRun`]), so a
+    /// subtree of any size assembles in transient memory bounded by one fan
+    /// per path byte, and each node is built once, with its whole
+    /// compressed prefix: one node per branch point and one per leaf. The
+    /// default level-by-level fold would instead rebuild a node at every
+    /// virtual level a compressed path spans.
     fn assemble<'a, H: Convert>(
         self,
         leaves: BoxNodeStream<'a, Self, Z>,
     ) -> impl NodeStream<Self, H> + 'a {
-        // Buffer one maximal same-prefix run in the bulk builder's own entry
-        // format, then consume it directly. This avoids both the default
-        // level-by-level assembly and a second run-sized conversion buffer.
-        // The remaining transient grows with the subtree being inserted and
-        // is released as soon as that subtree joins the replica.
         let assembled = try_stream! {
             let mut leaves = pin!(leaves);
-            let mut current: Option<Prefix<H>> = None;
-            let mut run = LeafRun::new();
+            let mut run: Option<SortedRun<H>> = None;
             while let Some(item) = leaves.next().await {
-                let (prefix, leaf) = item?;
-                let target = Prefix::<H>::containing(&Path::from(prefix));
-                if current != Some(target)
-                    && let Some(finished) = current.replace(target)
+                let (path, leaf) = item?;
+                let target = Prefix::<H>::containing(&Path::from(path));
+                if run.as_ref().is_none_or(|run| run.prefix() != target)
+                    && let Some(finished) = run.replace(SortedRun::new(target))
                 {
-                    yield (
-                        finished,
-                        mem::take(&mut run).build(&finished),
-                    );
+                    yield finished.finish();
                 }
-                run.push(prefix, leaf);
+                run.as_mut()
+                    .expect("a run is open once a leaf has arrived")
+                    .push(path, leaf);
             }
-            if let Some(finished) = current {
-                yield (finished, run.build(&finished));
+            if let Some(finished) = run {
+                yield finished.finish();
             }
         };
         #[cfg(test)]

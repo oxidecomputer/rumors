@@ -174,8 +174,12 @@ where
     /// order.
     ///
     /// This is the inverse of [`leaves`](Self::leaves). By default, leaves fold
-    /// through [`parent`](Self::parent) one level at a time; a backend with
-    /// directly constructible nodes may use a bulk builder.
+    /// through [`parent`](Self::parent) one level at a time, each height
+    /// holding one open group of at most a fan of children, so the default
+    /// holds transient memory bounded by the heights and the fan, whatever
+    /// a run's size. A backend with directly constructible nodes may build
+    /// in fewer steps; an override should keep that bound, since a run can
+    /// be a whole supplied subtree.
     ///
     /// An override must preserve what the default guarantees — the reply
     /// decoder enforces each by panic:

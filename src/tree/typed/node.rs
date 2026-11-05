@@ -27,45 +27,52 @@ pub struct Children<H: Height> {
     inner: Fan,
 }
 
-/// Leaves buffered for one bulk-built subtree.
-///
-/// Entries already use the untyped builder's representation, so completing a
-/// run does not allocate and copy a second vector proportional to its size.
-#[derive(Default)]
-pub(crate) struct LeafRun {
-    /// Sorted paths paired with bare leaf nodes that the builder may consume.
-    entries: Vec<([u8; PATH_LEN], Option<untyped::Node>)>,
+/// Builds one bulk subtree at height `H` from its leaves in ascending path
+/// order, holding only its open right spine ([`untyped::SortedLeaves`]).
+pub(crate) struct SortedRun<H: Height> {
+    /// The subtree's prefix, which every leaf's path extends.
+    prefix: Prefix<H>,
+    /// The spine built so far.
+    leaves: untyped::SortedLeaves,
 }
 
-/// Collect and build one sorted run of bare leaves.
-impl LeafRun {
-    /// Start an empty run.
-    pub(crate) fn new() -> Self {
-        Self::default()
+impl<H: Height> SortedRun<H> {
+    /// Begin the subtree at `prefix`.
+    pub(crate) fn new(prefix: Prefix<H>) -> Self {
+        Self {
+            prefix,
+            leaves: untyped::SortedLeaves::new(prefix.as_bytes().len()),
+        }
     }
 
-    /// Append the next path and leaf in ascending path order.
-    pub(crate) fn push(&mut self, path: Prefix<Z>, leaf: Node<Z>) {
-        self.entries.push((path.into(), Some(leaf.into_untyped())));
+    /// The subtree's prefix.
+    pub(crate) fn prefix(&self) -> Prefix<H> {
+        self.prefix
     }
 
-    /// Build the maximally compressed height-`H` subtree for this run.
+    /// Append the next leaf, at `path`.
     ///
     /// # Panics
     ///
-    /// Panics unless the run is nonempty, strictly ascending, and contained
-    /// by `prefix`. Session decoding establishes those conditions.
-    pub(crate) fn build<H: Height>(mut self, prefix: &Prefix<H>) -> Node<H> {
+    /// Panics if `path` does not ascend strictly from the previous leaf's,
+    /// and in debug builds if it falls outside the subtree's prefix. Session
+    /// decoding establishes both.
+    pub(crate) fn push(&mut self, path: Prefix<Z>, leaf: Node<Z>) {
         debug_assert!(
-            self.entries
-                .iter()
-                .all(|(path, _)| path.starts_with(prefix.as_bytes())),
+            path.as_bytes().starts_with(self.prefix.as_bytes()),
             "every leaf in a run falls under the run's prefix",
         );
-        Node::from_untyped(untyped::Node::from_sorted_leaves(
-            prefix.as_bytes().len(),
-            &mut self.entries,
-        ))
+        self.leaves.push(path.into(), leaf.into_untyped());
+    }
+
+    /// Finish the maximally compressed subtree, with its prefix.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no leaf was pushed: a run holds at least one leaf.
+    pub(crate) fn finish(self) -> (Prefix<H>, Node<H>) {
+        let node = self.leaves.finish().expect("a leaf run is non-empty");
+        (self.prefix, Node::from_untyped(node))
     }
 }
 
