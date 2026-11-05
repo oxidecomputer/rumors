@@ -77,6 +77,11 @@ impl ErasedNode for typed::untyped::Node {
     fn grandchildren(&self) -> usize {
         self.grandchildren()
     }
+
+    /// Price the copy that peeling a shared compressed node makes.
+    fn explosion_bytes(&self) -> usize {
+        self.explosion_bytes()
+    }
 }
 
 /// Store leaf payloads directly in the in-memory tree.

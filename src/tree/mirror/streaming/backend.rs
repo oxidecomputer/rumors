@@ -271,6 +271,17 @@ pub trait ErasedNode {
         reason = "no caller reads the grandchild count of an erased node"
     )]
     fn grandchildren(&self) -> usize;
+
+    /// The bytes listing this node's children with [`Backend::children`]
+    /// allocates beyond the handles it yields.
+    ///
+    /// Those are the nodes a backend builds to explode this one, such as the
+    /// in-memory backend's copy of a shared compressed node.
+    ///
+    /// In test builds, a session reports this before it explodes the node,
+    /// for a meter to hold against what the listing allocates. It must not
+    /// fall short of what the listing allocates.
+    fn explosion_bytes(&self) -> usize;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

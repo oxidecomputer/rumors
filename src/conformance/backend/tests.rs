@@ -443,6 +443,11 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     fn grandchildren(&self) -> usize {
         self.inner.grandchildren()
     }
+
+    /// Read the wrapped node's explosion cost.
+    fn explosion_bytes(&self) -> usize {
+        self.inner.explosion_bytes()
+    }
 }
 
 impl Backend for Materializing {

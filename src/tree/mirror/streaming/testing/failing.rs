@@ -182,6 +182,11 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     fn grandchildren(&self) -> usize {
         self.0.grandchildren()
     }
+
+    /// Read the wrapped node's explosion cost.
+    fn explosion_bytes(&self) -> usize {
+        self.0.explosion_bytes()
+    }
 }
 
 impl<N> Leaf for FailingNode<N>

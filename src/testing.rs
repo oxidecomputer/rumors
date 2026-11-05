@@ -39,7 +39,9 @@ pub use crate::tree::mirror::streaming::remote::codec::{
     FramePart, HeadError, LeafRunError,
 };
 
-pub use crate::tree::mirror::streaming::holding::{Holding, Hook, attribute_allocations};
+pub use crate::tree::mirror::streaming::holding::{
+    Holding, Hook, ReportHook, attribute_allocations, report_allocations,
+};
 
 pub use transport::{
     AdversarialRead, AdversarialWrite, FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan,

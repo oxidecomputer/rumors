@@ -22,9 +22,21 @@ pub struct Node {
     inner: Arc<NodeInner>,
 }
 
+/// The bytes of one node's shared allocation: the two reference counts an
+/// [`Arc`] keeps beside the node's own storage.
+///
+/// Copying a shared node, as peeling a byte off a compressed node's path
+/// does, makes one such allocation; its fan's heap slots, if it has any,
+/// are [`FAN_ENTRY_BYTES`] each.
+pub(crate) const NODE_ALLOCATION_BYTES: usize =
+    2 * mem::size_of::<usize>() + mem::size_of::<NodeInner>();
+
+// The reference counts are words, and the node's storage is no more aligned
+// than a word, so the allocation is their sizes added with no padding.
+const _: () = assert!(mem::align_of::<NodeInner>() <= mem::align_of::<usize>());
+
 /// The bytes of one heap slot of a branch's fan: a radix beside a child
 /// handle.
-#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const FAN_ENTRY_BYTES: usize = mem::size_of::<(u8, Node)>();
 
 /// An owned, ascending walk over one node's immediate children.
@@ -577,6 +589,29 @@ impl Node {
             }
         }
         None
+    }
+
+    /// The bytes [`child_iter`](Self::child_iter) allocates to list this
+    /// node's children, beyond the handles it yields: exact, absent other
+    /// threads releasing handles to the node meanwhile.
+    ///
+    /// Listing a bare branch's children shares their handles and allocates
+    /// nothing. Listing a compressed node's one child peels a byte off its
+    /// path, which changes the node, so a node another handle shares is
+    /// copied first: one node allocation, and for a branch its fan's heap
+    /// slots, which the copy's fan holds at [`fan::heap_slots`] of its
+    /// length. A node no other handle shares is peeled in place. A handle
+    /// released elsewhere between this call and the listing can only turn a
+    /// copy into an in-place peel, so the answer never falls short.
+    pub fn explosion_bytes(&self) -> usize {
+        if self.inner.prefix.is_empty() || Arc::strong_count(&self.inner) == 1 {
+            return 0;
+        }
+        let fan = match &self.inner.body {
+            Body::Leaf { .. } => 0,
+            Body::Branch { children, .. } => fan::heap_slots(children.len()) * FAN_ENTRY_BYTES,
+        };
+        NODE_ALLOCATION_BYTES + fan
     }
 
     /// How many children this node has, as [`child_iter`](Self::child_iter)

@@ -104,6 +104,42 @@ pub fn attribute_allocations(hook: Hook) -> bool {
     std::ptr::fn_addr_eq(*HOOK.get_or_init(|| hook), hook)
 }
 
+/// The process's report hook: called with a place and the bytes a backend
+/// reported the place's next work will allocate.
+#[cfg(any(test, feature = "test-internals"))]
+pub type ReportHook = fn(Holding, usize);
+
+/// The report hook every session in the process reports through, once
+/// installed.
+#[cfg(any(test, feature = "test-internals"))]
+static REPORT_HOOK: OnceLock<ReportHook> = OnceLock::new();
+
+/// Install `hook` as the process's report hook, returning whether it is now
+/// the installed one.
+///
+/// A session reports, before each node it explodes, the bytes its backend
+/// says the explosion allocates, as work for [`Holding::ExplodedNodes`]; a
+/// meter compares the sum with what that place's marked regions allocated.
+/// The first installation wins for the life of the process, as for
+/// [`attribute_allocations`].
+#[cfg(any(test, feature = "test-internals"))]
+pub fn report_allocations(hook: ReportHook) -> bool {
+    std::ptr::fn_addr_eq(*REPORT_HOOK.get_or_init(|| hook), hook)
+}
+
+/// Report that `holding`'s next work allocates `bytes`.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) fn reported(holding: Holding, bytes: usize) {
+    if let Some(hook) = REPORT_HOOK.get() {
+        hook(holding, bytes);
+    }
+}
+
+/// Report that `holding`'s next work allocates `bytes`.
+#[cfg(not(any(test, feature = "test-internals")))]
+#[inline(always)]
+pub(crate) fn reported(_: Holding, _: usize) {}
+
 /// Run `region` as work for `holding`.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn held_by<T>(holding: Holding, region: impl FnOnce() -> T) -> T {

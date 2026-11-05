@@ -186,8 +186,9 @@ pub(crate) mod ops {
     use super::*;
     use crate::tree::{
         mirror::streaming::{
+            ErasedNode,
             backend::BoxNodeStream,
-            holding::{Holding, held_by},
+            holding::{Holding, held_by, reported},
         },
         typed::{
             ErasedPrefix, Prefix,
@@ -265,6 +266,9 @@ pub(crate) mod ops {
     where
         B: Backend<Node<Z>: Leaf>,
     {
+        // The backend's own account of what the explosion allocates, for a
+        // meter to hold against the allocations themselves.
+        reported(Holding::ExplodedNodes, node.explosion_bytes());
         at_parent_height!(prefix.height(), H => {
             let children =
                 children_of_typed::<B, <H as Pred>::Pred>(
