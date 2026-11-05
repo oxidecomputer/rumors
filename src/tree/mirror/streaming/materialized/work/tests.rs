@@ -338,7 +338,7 @@ fn level_error_passes_through() {
 }
 
 /// The floor allowance of a walk over the in-memory backend is the "about
-/// 26 MiB" its documentation states, on the 64-bit targets the figure is
+/// 25.5 MiB" its documentation states, on the 64-bit targets the figure is
 /// measured on.
 #[cfg(target_pointer_width = "64")]
 #[test]
@@ -346,57 +346,9 @@ fn the_floor_allowance_is_the_documented_figure() {
     const MIB: usize = 1 << 20;
     let allowance = super::floor_allowance::<Erased, Infallible>();
     assert!(
-        (25 * MIB + MIB / 2..26 * MIB + MIB / 2).contains(&allowance),
-        "the floor allowance is {allowance} B, not about 26 MiB",
+        (25 * MIB + MIB / 4..25 * MIB + 3 * MIB / 4).contains(&allowance),
+        "the floor allowance is {allowance} B, not about 25.5 MiB",
     );
-}
-
-/// A finished resolver returns its question's own charge, leaving the
-/// resolution its slots' charge alone while it waits for assembly.
-///
-/// The question's queue slot is gone once its stage received it, and the
-/// buffer of this side's children is gone once the resolver has walked it
-/// into the resolution's slots, which the slots' charge covers.
-#[test]
-fn finished_resolution_keeps_no_charge_for_its_question() {
-    let ledger = Ledger::default();
-    let mut version = Version::default();
-    let prefix = parent_prefix(7).erase();
-    let ours: Vec<(u8, Erased)> = (1..=3)
-        .map(|radix| (radix, erased(leaf(&mut version))))
-        .collect();
-    let children = ours.len();
-    let bound = ReplyBound::of(prefix.height(), children, Grandchildren::ONE);
-    let mut grant = ledger.charge(Holding::Questions, 1 << 20);
-    let query = charges::query(&mut grant, prefix, None, ours, bound);
-    drop(grant);
-    assert!(
-        ledger.held_for(Holding::Questions) > 0,
-        "the question charges its queue slot and its children's buffer",
-    );
-
-    let supplies = SupplyLedger::new(u64::MAX);
-    let stats = Recorder::default();
-    let mut resolver = Resolver::<Local>::new(query, &version, &supplies, &stats);
-    // One match at the first child, covering the rest.
-    let dispute = resolver
-        .react(Reaction::Match(LaterMatches::new((2..=3).collect())))
-        .expect("the match pairs with the first child and covers the rest");
-    assert!(dispute.is_none(), "a match resolves its children here");
-    let resolution = resolver.finish().expect("every child was answered");
-
-    assert_eq!(
-        ledger.held_for(Holding::Questions),
-        0,
-        "the question's charge returns when its reply is finished",
-    );
-    assert_eq!(
-        ledger.held(),
-        resolution.charge.bytes(),
-        "the waiting resolution holds its slots' charge and nothing more",
-    );
-    drop(resolution);
-    assert_eq!(ledger.held(), 0, "assembly returns the rest");
 }
 
 proptest! {
@@ -467,6 +419,175 @@ proptest! {
         prop_assert_eq!(resolved.len(), children);
         prop_assert_eq!(resolved.capacity(), priced, "an internal scope's slots");
     }
+}
+
+/// Which sides of an answer's scope hold the child at one radix, and
+/// whether both sides' copies agree.
+#[derive(Clone, Copy, Debug)]
+enum Holder {
+    /// Neither side.
+    Neither,
+    /// This side alone: a supply.
+    Ours,
+    /// The peer alone: a request.
+    Theirs,
+    /// Both sides, with equal digests: a match.
+    Agreeing,
+    /// Both sides, with different digests: a dispute among internal
+    /// children, and a match among leaves, whose equal paths agree.
+    Differing,
+}
+
+/// A scope's holders, one per radix, with at most four children that ask a
+/// question of an internal answer, so that the reactions leading a question
+/// run long, and a match ahead of them often covers later children.
+fn arb_scope() -> impl Strategy<Value = Vec<Holder>> {
+    let unasked = prop_oneof![
+        1 => Just(Holder::Neither),
+        6 => Just(Holder::Ours),
+        2 => Just(Holder::Agreeing),
+    ];
+    let asking = prop_oneof![Just(Holder::Theirs), Just(Holder::Differing)];
+    (
+        prop::collection::vec(unasked, FAN),
+        prop::collection::vec((any::<u8>(), asking), 0..=4),
+    )
+        .prop_map(|(mut scope, asks)| {
+            for (radix, holder) in asks {
+                scope[usize::from(radix)] = holder;
+            }
+            scope
+        })
+}
+
+/// Check that no question among `chunks` is led by more than
+/// [`answer::Held::LEADING_MAX`]: by at most one covered set, and by at
+/// most a fan of reactions less one, or less two beside a set.
+fn check_leads<E, Q>(mut chunks: answer::Chunks<E, Q>) -> Result<(), TestCaseError> {
+    let most = answer::Held::LEADING_MAX;
+    while let Some(part) = chunks.next_part() {
+        if part.ask.is_some() {
+            let held = charges::held(&part.leading);
+            prop_assert!(held.sets <= most.sets, "{held:?} leads a question");
+            prop_assert!(
+                held.reactions + held.sets <= most.reactions,
+                "{held:?} leads a question"
+            );
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    /// Every question an answer's chunks ask is led by at most
+    /// [`answer::Held::LEADING_MAX`]: a fan of reactions less one, or less
+    /// two beside the answer's one covered set.
+    ///
+    /// The walk's largest grant and floor slots are priced at that lead.
+    /// The reactions are counted as admission counts them
+    /// ([`charges::held`]), over both builders of an answer's plan, a leaf
+    /// parent's and an internal scope's, across scopes where questions are
+    /// sparse and matches may cover later children.
+    #[test]
+    fn no_question_is_led_by_more_than_leading_max(scope in arb_scope()) {
+        let mut version = Version::default();
+        let prefix = parent_prefix(0).erase();
+        let keys = NetworkKeys::fixture();
+        let mut ours = Vec::new();
+        let mut theirs = Vec::new();
+        for (radix, holder) in (0..=u8::MAX).zip(scope) {
+            let at = prefix.push(radix);
+            let node = erased(leaf(&mut version));
+            let hash = match holder {
+                Holder::Agreeing => node.hash(&at, keys.hash()),
+                _ => erased(leaf(&mut version)).hash(&at, keys.hash()),
+            };
+            if matches!(holder, Holder::Ours | Holder::Agreeing | Holder::Differing) {
+                ours.push((radix, node));
+            }
+            if matches!(holder, Holder::Theirs | Holder::Agreeing | Holder::Differing) {
+                theirs.push(Listed {
+                    radix,
+                    hash,
+                    grandchildren: Grandchildren::ONE,
+                    children_less_one: 0,
+                });
+            }
+        }
+        let unknown = Version::default();
+        let stats = Recorder::default();
+
+        let (chunks, _) = answer::leaf_parent(
+            &unknown,
+            ours.clone(),
+            theirs.clone(),
+            &stats,
+            &mut Charge::default(),
+        )
+        .into_parts();
+        check_leads(chunks)?;
+
+        let internal = pollster::block_on(answer::internal(
+            &Local,
+            &unknown,
+            prefix,
+            ours,
+            theirs,
+            Some(&*keys),
+            &stats,
+            &mut Charge::default(),
+        ))
+        .expect("the in-memory backend lists exactly the children it reports");
+        check_leads(internal.into_parts().0)?;
+    }
+}
+
+/// A finished resolver returns its question's own charge, leaving the
+/// resolution its slots' charge alone while it waits for assembly.
+///
+/// The question's queue slot is gone once its stage received it, and the
+/// buffer of this side's children is gone once the resolver has walked it
+/// into the resolution's slots, which the slots' charge covers.
+#[test]
+fn finished_resolution_keeps_no_charge_for_its_question() {
+    let ledger = Ledger::default();
+    let mut version = Version::default();
+    let prefix = parent_prefix(7).erase();
+    let ours: Vec<(u8, Erased)> = (1..=3)
+        .map(|radix| (radix, erased(leaf(&mut version))))
+        .collect();
+    let children = ours.len();
+    let bound = ReplyBound::of(prefix.height(), children, Grandchildren::ONE);
+    let mut grant = ledger.charge(Holding::Questions, 1 << 20);
+    let query = charges::query(&mut grant, prefix, None, ours, bound);
+    drop(grant);
+    assert!(
+        ledger.held_for(Holding::Questions) > 0,
+        "the question charges its queue slot and its children's buffer",
+    );
+
+    let supplies = SupplyLedger::new(u64::MAX);
+    let stats = Recorder::default();
+    let mut resolver = Resolver::<Local>::new(query, &version, &supplies, &stats);
+    // One match at the first child, covering the rest.
+    let dispute = resolver
+        .react(Reaction::Match(LaterMatches::new((2..=3).collect())))
+        .expect("the match pairs with the first child and covers the rest");
+    assert!(dispute.is_none(), "a match resolves its children here");
+    let resolution = resolver.finish().expect("every child was answered");
+
+    assert_eq!(
+        ledger.held_for(Holding::Questions),
+        0,
+        "the question's charge returns when its reply is finished",
+    );
+    assert_eq!(
+        ledger.held(),
+        resolution.charge.bytes(),
+        "the waiting resolution holds its slots' charge and nothing more",
+    );
+    drop(resolution);
+    assert_eq!(ledger.held(), 0, "assembly returns the rest");
 }
 
 /// A prefix at `height`, its bytes all `byte`.

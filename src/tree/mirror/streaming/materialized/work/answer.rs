@@ -267,6 +267,39 @@ pub(crate) struct Held {
     pub(crate) sets: usize,
 }
 
+impl Held {
+    /// The most that leads a question in its chunk: a fan of reactions less
+    /// one, and one covered set.
+    ///
+    /// The opening question leads its chunk alone. Every other question is
+    /// an entry of its answer's plan, which [`internal`] or [`leaf_parent`]
+    /// builds, and [`Chunks::next_part`] leads it with the plan's ready
+    /// entries since the question before it. Those reactions are entries of
+    /// the same plan, so they and the question together number at most the
+    /// plan's entries.
+    ///
+    /// The plan holds at most one entry per child either side holds, and so
+    /// at most a fan. Both builders merge-join this side's children with the
+    /// peer's listing and push at most one entry per joined element. Each
+    /// element is one radix of the union of the two sides' radixes, because
+    /// each side ascends strictly: this side's children as
+    /// [`Backend::children`] lists them, and the peer's listing as the codec
+    /// checks of every listing it decodes. A radix is a byte, so the union
+    /// is at most a fan. That leaves at most a fan less one for the
+    /// reactions ahead of the question, and the plan's one match at most
+    /// ([`Matches::plan`]) carries the one covered set among them.
+    ///
+    /// The plan's capacity rests on the same order: a backend listing its
+    /// children out of order would overrun the plan and resolution its
+    /// answer's grant prices, as well as this bound. A chunk whose match
+    /// carries a set leads by one reaction fewer, since the set covers a
+    /// child that takes no entry; this bound does not spend that slot.
+    pub(crate) const LEADING_MAX: Self = Self {
+        reactions: FAN - 1,
+        sets: 1,
+    };
+}
+
 /// Classify one nonempty internal query's children by merge-joining both
 /// child listings, exploring no disputed child.
 ///

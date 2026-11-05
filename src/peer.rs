@@ -784,7 +784,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   each level of its comparison, which a session can always hold,
     ///   whatever else waits, and which is how it always makes progress.
     ///   The allowance is the most that work can hold at once, about
-    ///   26 MiB on the in-memory replica on 64-bit targets, whatever the
+    ///   25.5 MiB on the in-memory replica on 64-bit targets, whatever the
     ///   sets' sizes.
     ///
     /// A session admits the rest of its work against the budget less the
