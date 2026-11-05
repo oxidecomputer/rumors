@@ -12,6 +12,7 @@ use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::{Error, Peer};
 
 use super::bookmark::Unbookmarked;
+use super::gossip::Bootstrapped;
 
 /// Configuration for joining a gossip network through [`Peer::bootstrap`].
 ///
@@ -215,7 +216,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     ///
     /// [`Joined::Failed`] returns the builder on session failure, including
     /// [`session_deadline`](Self::session_deadline) expiry. Discard the
-    /// connection and retry on another.
+    /// connection and retry on another. A failure after this side has
+    /// received its whole identity, while it confirms completion, instead
+    /// returns the live peer in [`Joined::Unconfirmed`]: the provider has
+    /// already given that identity up.
     ///
     /// If a bookmark was selected, joining then attaches it through
     /// [`Peer::bookmark`]. A failed attachment returns [`Joined::Unbookmarked`],
@@ -235,7 +239,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         // The session needs a copy of the settings, not ownership of storage.
         // Retaining self lets both unsuccessful outcomes return it unchanged.
         match Peer::bootstrap_inner(self.session_config(), &mut read, &mut write).await {
-            Ok(Some(peer)) => match peer
+            Ok(Bootstrapped::Joined(peer)) => match peer
                 .bookmark_size_limit(self.bookmark_size_limit)
                 .bookmark(self.bookmark)
                 .await
@@ -247,10 +251,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
                     write,
                 },
             },
-            Ok(None) => Joined::Bailed {
+            Ok(Bootstrapped::Bailed) => Joined::Bailed {
                 bootstrap: self,
                 read,
                 write,
+            },
+            Ok(Bootstrapped::Unconfirmed { peer, error }) => Joined::Unconfirmed {
+                peer: peer.bookmark_size_limit(self.bookmark_size_limit),
+                bookmark: self.bookmark,
+                error,
             },
             Err(error) => Joined::Failed {
                 error,
@@ -263,8 +272,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
 /// A bootstrap's outcome, preserving either its new peer or its retry
 /// configuration.
 ///
-/// Every outcome but [`Failed`](Self::Failed) completed the session and
-/// returns the connection's halves, resting at the session boundary.
+/// Every outcome but [`Unconfirmed`](Self::Unconfirmed) and
+/// [`Failed`](Self::Failed) completed the session and returns the
+/// connection's halves, resting at the session boundary.
 #[must_use = "Joined contains a peer or a builder needed for retry"]
 pub enum Joined<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
     /// The session succeeded and any selected bookmark was attached and persisted.
@@ -296,6 +306,23 @@ pub enum Joined<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
         /// The connection's write half, ready for another session.
         write: W,
     },
+    /// This side received its whole identity and the provider's content,
+    /// then the session failed before the provider confirmed completion,
+    /// for example by a cut connection or an expired deadline.
+    ///
+    /// The peer is live and stands exactly as a [`Joined`](Self::Joined)
+    /// peer does: the provider gave the identity up before sending it, so
+    /// no other peer holds it. Storage was not touched: attach `bookmark`
+    /// with [`Peer::bookmark`] to keep restart bookkeeping. Discard the
+    /// connection.
+    Unconfirmed {
+        /// The new peer, carrying the selected configuration but no storage.
+        peer: Peer<T>,
+        /// The selected storage, untouched.
+        bookmark: B,
+        /// The failure after the identity arrived.
+        error: Error,
+    },
     /// The session failed. Storage was not touched; discard the connection.
     Failed {
         /// The session error.
@@ -322,6 +349,11 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Joined<T, R, W,
             Self::Unbookmarked { unbookmarked, .. } => f
                 .debug_struct("Unbookmarked")
                 .field("unbookmarked", unbookmarked)
+                .finish_non_exhaustive(),
+            Self::Unconfirmed { peer, error, .. } => f
+                .debug_struct("Unconfirmed")
+                .field("peer", peer)
+                .field("error", error)
                 .finish_non_exhaustive(),
             Self::Failed { error, bootstrap } => f
                 .debug_struct("Failed")

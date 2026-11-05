@@ -527,6 +527,12 @@ async fn run_boot(
         rumors::Joined::Bailed { .. } => {
             unreachable!("the serving peer is never itself bootstrapping")
         }
+        // The whole party arrived before the session failed, so the joiner
+        // keeps it, and the server gave it up: nothing is lost.
+        rumors::Joined::Unconfirmed { peer, error, .. } => {
+            assert_honest_error(&error);
+            Some(budget.apply(peer))
+        }
         rumors::Joined::Failed { error, .. } => {
             assert_honest_error(&error);
             None

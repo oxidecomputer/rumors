@@ -262,7 +262,8 @@ reused:
 Bootstrap attaches a selected bookmark after its wire session completes.
 Failing or cancelling that attachment leaves the connection at the
 session boundary; `Joined::Unbookmarked` preserves the joined peer
-after an attachment failure.
+after an attachment failure. A bootstrap whose session fails after its
+whole identity arrived keeps its live peer, in `Joined::Unconfirmed`.
 
 Configure `Peer::session_deadline` to bound gossip, bootstrap, and
 retirement exchanges while leaving idle waits untimed. Post-join bookmark

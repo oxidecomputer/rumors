@@ -24,8 +24,11 @@ pub enum Phase {
     /// this phase. A failure means the peer's commit is unconfirmed; it does
     /// not undo local changes.
     ///
-    /// A failed bootstrap returns no peer, even if the provider completed
-    /// its side. Retry with the builder in [`Joined::Failed`](crate::Joined::Failed).
+    /// A bootstrap served by a provider has received its whole identity
+    /// before this phase, so a failure here returns its live peer in
+    /// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed). Two
+    /// bootstrappers exchange no identity, so a failure here returns each
+    /// one's builder in [`Joined::Failed`](crate::Joined::Failed).
     Completion,
 }
 

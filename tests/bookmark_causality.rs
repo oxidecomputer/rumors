@@ -873,7 +873,11 @@ impl World {
                         .join(&mut end.read, &mut end.write)
                         .await
                     {
-                        rumors::Joined::Joined { peer, .. } => peer,
+                        // A joiner that received its whole party keeps it, as a
+                        // joined one does, whether or not completion was
+                        // confirmed.
+                        rumors::Joined::Joined { peer, .. }
+                        | rumors::Joined::Unconfirmed { peer, .. } => peer,
                         rumors::Joined::Bailed { .. } => return Err(BootFailure::NoPeer),
                         rumors::Joined::Failed { error, .. } => {
                             return Err(BootFailure::Join(error));

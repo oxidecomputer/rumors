@@ -38,6 +38,15 @@ fn released<B: Bookmark, R, W>(joined: Joined<u64, R, W, B>) -> Outcome<B> {
             read: (),
             write: (),
         },
+        Joined::Unconfirmed {
+            peer,
+            bookmark,
+            error,
+        } => Joined::Unconfirmed {
+            peer,
+            bookmark,
+            error,
+        },
         Joined::Failed { error, bootstrap } => Joined::Failed { error, bootstrap },
     }
 }

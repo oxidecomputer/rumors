@@ -393,6 +393,232 @@ fn severed_party_frame_is_uncertain() {
     drop(survivor);
 }
 
+// ---- fault injection: cutting the wire across a bootstrap hand-off -------
+
+/// The joiner's party, if a bootstrap returned a peer.
+fn joined_party<R, W>(joined: crate::Joined<u64, R, W>) -> Option<Party> {
+    match joined {
+        crate::Joined::Joined { peer, .. } | crate::Joined::Unconfirmed { peer, .. } => {
+            Some(party_of(&peer))
+        }
+        crate::Joined::Failed { .. } => None,
+        other => panic!("a provider serves the bootstrap or the session fails, got {other:?}"),
+    }
+}
+
+/// One bootstrap from a fresh seed holding three messages, over a connection
+/// whose joiner-side halves fail as `fault` says.
+///
+/// Returns the provider after its session, the joiner's party if the join
+/// returned a peer, and the joiner's transport report: how many of the
+/// provider's bytes it read, and how many of its own it wrote.
+fn cut_bootstrap(fault: Option<IoFault>) -> (Peer<u64>, Option<Party>, crate::testing::IoReport) {
+    let provider = with_messages(Peer::<u64>::seed(), &[1, 2, 3]);
+    pollster::block_on(async move {
+        let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+        let plan = IoPlan {
+            fault,
+            ..IoPlan::default()
+        };
+        let (read, write, report) =
+            wrap_io(IoSide::Right, plan, b_end.read.into_inner(), b_end.write);
+        // The join owns its halves, so a failed joiner's drop reaches the
+        // provider as end of stream rather than leaving it waiting.
+        let (_, joined) = tokio::join!(
+            provider.gossip_once(&mut a_end.read, &mut a_end.write),
+            Peer::<u64>::bootstrap().join(read, write),
+        );
+        (provider, joined_party(joined), report.snapshot())
+    })
+}
+
+/// Cutting the wire at any point of a bootstrap never gives one identity to
+/// both sides, and a joiner that has received its whole party keeps it.
+///
+/// The cut falls after every prefix of the provider's bytes as the joiner
+/// reads them, and after every prefix of the joiner's own bytes as it writes
+/// them. At every cut the provider's party and the joiner's are disjoint.
+/// Once the joiner has read the whole party item, which is everything the
+/// provider sends but its two-byte completion marker, it returns its peer,
+/// and the two parties together are the seed's whole identity: nothing is
+/// stranded. A cut inside the hand-off window, after the provider began
+/// sending the party and before the joiner holds all of it, can strand the
+/// fork, but never duplicates it.
+#[test]
+fn cut_bootstrap_never_duplicates_and_keeps_a_received_party() {
+    let (_, clean, report) = cut_bootstrap(None);
+    assert!(clean.is_some(), "an uncut bootstrap joins");
+    let party_end = report.read_bytes - crate::peer::COMPLETION_MARKER.len();
+    let cuts = (0..=report.read_bytes)
+        .map(|after| (IoOperation::Read, after))
+        .chain((0..=report.write_bytes).map(|after| (IoOperation::Write, after)));
+    let mut kept_after_failure = 0;
+    for (operation, after) in cuts {
+        let fault = IoFault {
+            operation,
+            after,
+            unit: IoFaultUnit::Bytes,
+        };
+        let (provider, joiner, cut) = cut_bootstrap(Some(fault));
+        let mut whole = party_of(&provider);
+        match joiner {
+            Some(joiner) => {
+                assert!(
+                    whole.join(joiner).is_ok(),
+                    "a {operation:?} cut after {after} bytes left one identity on both sides",
+                );
+                assert_eq!(
+                    whole,
+                    Party::seed(),
+                    "a {operation:?} cut after {after} bytes stranded identity the joiner holds a peer for",
+                );
+                kept_after_failure += usize::from(cut.injected.is_some());
+            }
+            None => assert!(
+                cut.read_bytes < party_end,
+                "a {operation:?} cut after {after} bytes dropped a party the joiner had read whole",
+            ),
+        }
+    }
+    assert!(
+        kept_after_failure > 0,
+        "some cut falls after the party arrived, so the kept-party arm is exercised",
+    );
+}
+
+/// A writer that passes `budget` bytes through to `inner`, then accepts no
+/// more: every later write stays pending, as a stalled connection's does.
+struct StallAfter<W> {
+    /// The writer the budget's bytes go to.
+    inner: W,
+    /// Bytes still to pass through before the stall.
+    budget: usize,
+}
+
+impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for StallAfter<W> {
+    /// Pass bytes through until the budget is spent, then stay pending.
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        if self.budget == 0 {
+            return std::task::Poll::Pending;
+        }
+        let take = buf.len().min(self.budget);
+        let poll = std::pin::Pin::new(&mut self.inner).poll_write(cx, &buf[..take]);
+        if let std::task::Poll::Ready(Ok(written)) = poll {
+            self.budget -= written;
+        }
+        poll
+    }
+
+    /// Flush the inner writer.
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    /// Shut the inner writer down.
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// The seed of [`deadline_after_the_party_arrives_keeps_it`]'s providers'
+/// network.
+const DEADLINE_PROVIDER_SEED: u64 = 0x7374_616c_6c65_6421;
+
+/// A joiner whose session deadline expires after its whole party has
+/// arrived keeps the party.
+///
+/// The deadline expires while the joiner waits for the provider's completion
+/// marker, and the join returns
+/// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed) carrying a peer with
+/// the provider's content and the deadline's error.
+///
+/// A clean bootstrap measures how many bytes the provider writes. A second
+/// provider, built identically from the same seeded network, then serves
+/// through a writer that passes every byte before its completion marker
+/// and stalls on the marker. Under a paused clock the joiner's deadline
+/// fires exactly when nothing else can run: after the party arrived.
+#[test]
+fn deadline_after_the_party_arrives_keeps_it() {
+    use rand::SeedableRng;
+    let provider = || {
+        let mut rng = rand_chacha::ChaChaRng::seed_from_u64(DEADLINE_PROVIDER_SEED);
+        with_messages(Peer::<u64>::seed_rng(&mut rng), &[1, 2, 3])
+    };
+    let clean = provider();
+    let provider_bytes = pollster::block_on(async {
+        let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+        let (mut read, mut write, report) = wrap_io(
+            IoSide::Left,
+            IoPlan::default(),
+            a_end.read.into_inner(),
+            a_end.write,
+        );
+        let (served, joined) = tokio::join!(
+            clean.gossip_once(&mut read, &mut write),
+            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+        );
+        served.expect("the measured bootstrap completes");
+        assert!(
+            joined_party(joined).is_some(),
+            "the measured bootstrap joins"
+        );
+        report.snapshot().write_bytes
+    });
+
+    let provider = provider();
+    let joined = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .start_paused(true)
+        .build()
+        .unwrap()
+        .block_on(async {
+            let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            let mut stalled = StallAfter {
+                inner: &mut a_end.write,
+                budget: provider_bytes - crate::peer::COMPLETION_MARKER.len(),
+            };
+            let serve = provider.gossip_once(&mut a_end.read, &mut stalled);
+            let join = Peer::<u64>::bootstrap()
+                .session_deadline(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
+                .join(&mut b_end.read, &mut b_end.write);
+            let joined = tokio::select! {
+                joined = join => joined,
+                _ = serve => panic!("the stalled provider cannot finish"),
+            };
+            match joined {
+                crate::Joined::Unconfirmed { peer, error, .. } => (peer, error),
+                other => panic!("a deadline after the party arrives keeps the peer, got {other:?}"),
+            }
+        });
+    let (peer, error) = joined;
+    assert!(matches!(error, Error::DeadlineExceeded), "got {error:?}");
+    assert_eq!(
+        peer.snapshot().len(),
+        3,
+        "the joiner holds the provider's content"
+    );
+    let mut whole = party_of(&provider);
+    assert!(
+        whole.join(party_of(&peer)).is_ok(),
+        "the parties are disjoint"
+    );
+    assert_eq!(
+        whole,
+        Party::seed(),
+        "the provider and joiner hold the whole identity"
+    );
+}
+
 /// An uncontained supply crossing a real peer session surfaces through
 /// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
 ///

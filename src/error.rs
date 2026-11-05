@@ -21,7 +21,12 @@
 //!
 //! Failure does not guarantee unchanged state. On an existing replica, a
 //! failure in [`Phase::Completion`] leaves local work committed but the peer's
-//! commit unconfirmed; a failed bootstrap instead returns a builder for retry.
+//! commit unconfirmed. A bootstrap served by a provider has received its
+//! whole identity before that phase, so one that fails there keeps its peer
+//! in [`Joined::Unconfirmed`](crate::Joined::Unconfirmed). A bootstrap that
+//! fails earlier, or that met another bootstrapper and so received no
+//! identity, returns its builder for retry in
+//! [`Joined::Failed`](crate::Joined::Failed).
 //! [`Error::Bookmark`] can also leave restart bookkeeping awaiting persistence.
 
 use std::fmt;

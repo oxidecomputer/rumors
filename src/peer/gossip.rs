@@ -209,6 +209,34 @@ impl From<()> for Gossip {
     }
 }
 
+/// What a bootstrap session produced.
+pub(crate) enum Bootstrapped<T: Send + Sync + 'static> {
+    /// The session completed, and the provider confirmed it.
+    Joined(Peer<T>),
+    /// Both endpoints were bootstrapping, so neither could provide.
+    Bailed,
+    /// The joiner received its whole party, then the session failed before
+    /// the provider confirmed completion. The peer is live all the same.
+    Unconfirmed {
+        /// The new peer.
+        peer: Peer<T>,
+        /// The failure after the party arrived.
+        error: Error,
+    },
+}
+
+/// What a joiner holds once its whole party has arrived: everything it
+/// needs to become a peer, whether or not the completion exchange that
+/// follows succeeds.
+struct Received {
+    /// The provider's network, from its preamble.
+    network: Network,
+    /// The donated identity.
+    party: Party,
+    /// The provider's content, reconciled into the empty tree.
+    root: tree::Root,
+}
+
 /// Create joined peers and attach bookmark storage.
 impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Run bootstrap over any connection.
@@ -219,7 +247,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         config: Bootstrap<T>,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
+    ) -> BoxFuture<'a, Result<Bootstrapped<T>, Error>>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         R: AsyncBufRead + Unpin + Send,
@@ -231,60 +259,105 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             let completion = SessionCompletion::new(config.observe.begin(SessionKind::Bootstrap));
             let observe = completion.handle();
             let stats = Recorder::default();
+            // The peer-to-be's payload codec, built before it exists:
+            // the bootstrap session's ingress decodes through it, and the
+            // constructed peer inherits it.
+            let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
+            // The received party lives here, outside the session future, so
+            // it survives that future's failure or its cancellation by the
+            // deadline.
+            let mut received = None;
             let result = policy
                 .run(Self::bootstrap_erased(
-                    config,
+                    config.sync_memory_budget,
+                    config.run_budget,
+                    codec,
+                    &mut received,
                     read as DynRead<'_>,
                     write as DynWrite<'_>,
                     observe,
                     stats.clone(),
                 ))
                 .await;
-            match &result {
-                Ok(Some(peer)) => {
-                    let inner = peer.inner.borrow();
-                    let mut measured = stats.snapshot();
-                    measured.elapsed = started.elapsed();
+            let mut measured = stats.snapshot();
+            measured.elapsed = started.elapsed();
+            // Once the whole party has arrived, the joiner keeps it however
+            // the session ends: the provider removed it before sending it and
+            // never restores it, so exactly one side holds it (see
+            // `bootstrap_erased`).
+            let outcome = match (result, received) {
+                (Ok(()), Some(received)) => {
+                    let peer = Self::joined(config, codec, received);
                     completion.finish(SessionOutcome::Completed {
-                        converged: inner.tree.latest(),
+                        converged: peer.inner.borrow().tree.latest(),
                         stats: measured,
                     });
+                    Bootstrapped::Joined(peer)
                 }
-                Ok(None) => {
-                    let converged = Version::new();
-                    let mut measured = stats.snapshot();
-                    measured.elapsed = started.elapsed();
+                (Ok(()), None) => {
                     completion.finish(SessionOutcome::Completed {
-                        converged: &converged,
+                        converged: &Version::new(),
                         stats: measured,
                     });
+                    Bootstrapped::Bailed
                 }
-                Err(error) => {
+                (Err(error), Some(received)) => {
                     completion.finish(SessionOutcome::Failed(error.session_error_kind()));
+                    Bootstrapped::Unconfirmed {
+                        peer: Self::joined(config, codec, received),
+                        error,
+                    }
                 }
-            }
-            result
+                (Err(error), None) => {
+                    completion.finish(SessionOutcome::Failed(error.session_error_kind()));
+                    return Err(error);
+                }
+            };
+            Ok(outcome)
         })
+    }
+
+    /// The peer a bootstrap that received its whole party becomes, carrying
+    /// the builder's settings.
+    fn joined(config: Bootstrap<T>, codec: PayloadCodec, received: Received) -> Self {
+        let Received {
+            network,
+            party,
+            root,
+        } = received;
+        Self {
+            network,
+            sync_memory_budget: config.sync_memory_budget,
+            run_budget: config.run_budget,
+            gossip_policy: config.gossip_policy,
+            inner: watch::Sender::new(Inner::new(party, Tree::from_root(root))),
+            bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            codec,
+            observe: config.observe,
+        }
     }
 
     /// The transport-erased bootstrap body behind [`bootstrap_inner`].
     ///
+    /// Leaves the joiner's network, party, and content in `received` once the
+    /// whole party has arrived, then confirms completion. `Ok` with nothing
+    /// received means the counterparty was bootstrapping too.
+    ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
+    // The arguments are the session's inputs, one per concern; bundling them
+    // into a struct would only rename the arity.
+    #[allow(clippy::too_many_arguments)]
     fn bootstrap_erased<'a>(
-        config: Bootstrap<T>,
+        sync_memory_budget: usize,
+        run_budget: RunBudget,
+        codec: PayloadCodec,
+        received: &'a mut Option<Received>,
         read: DynRead<'a>,
         write: DynWrite<'a>,
         observe: SessionHandle,
         stats: Recorder,
-    ) -> BoxFuture<'a, Result<Option<Self>, Error>>
-    where
-        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-    {
+    ) -> BoxFuture<'a, Result<(), Error>> {
         Box::pin(async move {
-            // The peer-to-be's payload codec, built before it exists:
-            // the bootstrap session's ingress decodes through it, and the
-            // constructed peer inherits it.
-            let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
             // Establish the protocol version and the provider's network
             // before interpreting the rest of the session.
             let mut staged = preamble::Staged::new();
@@ -308,8 +381,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 read,
                 write,
                 codec,
-                sync_memory_budget: config.sync_memory_budget,
-                run_budget: config.run_budget,
+                sync_memory_budget,
+                run_budget,
                 remote_role: if both_bootstrapping {
                     RemoteRole::Bootstrapping
                 } else {
@@ -319,30 +392,30 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 observe: observe.clone(),
             };
             let (root, mut read, mut write) = reconciliation.reconcile().await?;
-            // A provider donates a fork or its whole retiring identity. Two
-            // bootstrappers have no identity to exchange.
-            let party = if both_bootstrapping {
-                None
-            } else {
-                Some(party::receive(&mut read, &observe).await?)
-            };
-            // Confirm completion before exposing the new peer. On failure, any
-            // received identity is dropped and cannot be reused.
-            finish_session(&mut read, &mut write, &observe).await?;
-            let Some(party) = party else {
-                return Ok(None);
-            };
-            let peer = Self {
+            // Two bootstrappers have no identity to exchange.
+            if both_bootstrapping {
+                return finish_session(&mut read, &mut write, &observe).await;
+            }
+            // A provider donates a fork or its whole retiring identity.
+            let party = party::receive(&mut read, &observe).await?;
+            // The whole party has arrived, and this side keeps it from here
+            // on, even if the completion exchange below fails or the deadline
+            // cancels it. That never duplicates the identity, because exactly
+            // one side holds it at every point. A providing peer removes a
+            // fork from its live party when it reserves it, makes the removal
+            // durable in its bookmark before the first byte of the party item
+            // is written, and takes the fork out of its recovery guard before
+            // that write begins, so it never restores a fork it has started
+            // to send. A retiring provider is consumed from its first send
+            // poll. So once the party can have arrived here, the provider no
+            // longer holds it, whatever its own session's outcome; a cut
+            // before it arrives whole leaves this side without it.
+            *received = Some(Received {
                 network: remote.network,
-                sync_memory_budget: config.sync_memory_budget,
-                run_budget: config.run_budget,
-                gossip_policy: config.gossip_policy,
-                inner: watch::Sender::new(Inner::new(party, Tree::from_root(root))),
-                bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-                codec,
-                observe: config.observe,
-            };
-            Ok(Some(peer))
+                party,
+                root,
+            });
+            finish_session(&mut read, &mut write, &observe).await
         })
     }
 }
@@ -953,8 +1026,10 @@ async fn finish_session<R: AsyncBufRead + Unpin + Send>(
 }
 
 /// Exchange completion markers concurrently so both sides can flush before
-/// waiting for a response. Existing replicas have committed at this point;
-/// bootstrap constructs its new peer only after the exchange succeeds.
+/// waiting for a response.
+///
+/// Existing replicas have committed at this point, and a joiner already
+/// holds its whole party, which it keeps if the exchange fails.
 async fn epilogue(
     read: &mut (dyn AsyncRead + Unpin + Send + '_),
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
