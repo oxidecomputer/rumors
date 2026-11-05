@@ -170,9 +170,10 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut planned = Vec::new();
-    // Every child either side holds takes one slot: sized now, the
+    // Every child either side holds takes one slot, and the children sit at
+    // distinct radices, so they number at most a fan: sized now, the
     // resolution holds no more than its unit's bound prices.
-    let mut resolved = Vec::with_capacity(ours.len() + theirs.len());
+    let mut resolved = Vec::with_capacity((ours.len() + theirs.len()).min(FAN));
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
 
@@ -309,9 +310,10 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     stats: &Recorder,
 ) -> Answer<E, u8> {
     let mut planned = Vec::new();
-    // Every child either side holds takes one slot: sized now, the
+    // Every child either side holds takes one slot, and the children sit at
+    // distinct radices, so they number at most a fan: sized now, the
     // resolution holds no more than its unit's bound prices.
-    let mut resolved = Vec::with_capacity(ours.len() + theirs.len());
+    let mut resolved = Vec::with_capacity((ours.len() + theirs.len()).min(FAN));
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
 

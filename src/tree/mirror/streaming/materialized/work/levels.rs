@@ -281,7 +281,7 @@ where
                 return violation(Violation::UnfinishedReply)?;
             };
             let ours = fan;
-            let bytes = charges::answer_bound::<B::Erased, B::Error>(theirs.len(), copies);
+            let bytes = charges::answer_bound::<B::Erased, B::Error>(copies);
             let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
             let kept = answer_grant.take(Holding::ExplodedNodes, copies);
             let (mut chunks, resolved) =
@@ -449,7 +449,7 @@ where
                     }
 
                     let copies = node.explosion_bytes();
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(listing.len(), copies);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(copies);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
@@ -607,7 +607,7 @@ where
                     }
 
                     let copies = node.explosion_bytes();
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(listing.len(), copies);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(copies);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;

@@ -6,12 +6,12 @@
 //! errors through unchanged. Counterparty-fault classification lives in
 //! [`violations`].
 
-use std::{convert::Infallible, future};
+use std::{collections::BTreeSet, convert::Infallible, future};
 
 use futures::stream::{self, StreamExt, TryStreamExt};
 use proptest::prelude::*;
 
-use super::{Work, assembly::assemble, charges, resolver::Resolver};
+use super::{Work, answer, assembly::assemble, charges, resolver::Resolver};
 
 mod violations;
 
@@ -23,12 +23,12 @@ use crate::{
     tree::{
         arb::nth_party,
         mirror::streaming::{
-            Backend, Failing, Failure, Local, Operation,
+            Backend, FAN, Failing, Failure, Local, Operation,
             erased::{Reaction, Reply},
             holding::Holding,
             ledger::{Ledger, ReplyBound},
             materialized::{Error, Resolution, Resolve, SupplyLedger, Violation},
-            message::Grandchildren,
+            message::{Grandchildren, Listed},
         },
         typed::{
             self, Path, Prefix,
@@ -383,4 +383,61 @@ fn finished_resolution_keeps_no_charge_for_its_question() {
     );
     drop(resolution);
     assert_eq!(ledger.held(), 0, "assembly returns the rest");
+}
+
+proptest! {
+    /// An answer's resolution has a slot per child either side holds, and at
+    /// most a fan of capacity, however many children the two listings name.
+    ///
+    /// Every child sits at its own radix, so the listings' union is at most a
+    /// fan, and those slots are what the answer's unit is admitted to hold.
+    /// Each side's radices are drawn with repeats and deduplicated here, so
+    /// the sides range from empty to nearly full.
+    #[test]
+    fn answer_resolution_holds_at_most_a_fan(
+        ours in prop::collection::vec(any::<u8>(), 0..=2 * FAN),
+        theirs in prop::collection::vec(any::<u8>(), 0..=2 * FAN),
+    ) {
+        let ours: BTreeSet<u8> = ours.into_iter().collect();
+        let theirs: BTreeSet<u8> = theirs.into_iter().collect();
+        let mut version = Version::default();
+        let ours_nodes: Vec<(u8, Erased)> = ours
+            .iter()
+            .map(|&radix| (radix, erased(leaf(&mut version))))
+            .collect();
+        let theirs_listing: Vec<Listed> = theirs
+            .iter()
+            .map(|&radix| Listed {
+                radix,
+                hash: erased(leaf(&mut version)).hash(),
+                grandchildren: Grandchildren::ONE,
+            })
+            .collect();
+        let children = ours.union(&theirs).count();
+        let unknown = Version::default();
+        let stats = Recorder::default();
+
+        let (_, resolved) = answer::leaf_parent(
+            &unknown,
+            ours_nodes.clone(),
+            theirs_listing.clone(),
+            &stats,
+        )
+        .into_parts();
+        prop_assert_eq!(resolved.len(), children);
+        prop_assert!(resolved.capacity() <= FAN, "a leaf parent's slots: {}", resolved.capacity());
+
+        let internal = pollster::block_on(answer::internal(
+            &Local,
+            &unknown,
+            Prefix::new().erase(),
+            ours_nodes,
+            theirs_listing,
+            &stats,
+        ))
+        .unwrap_or_else(|never| match never {});
+        let (_, resolved) = internal.into_parts();
+        prop_assert_eq!(resolved.len(), children);
+        prop_assert!(resolved.capacity() <= FAN, "an internal scope's slots: {}", resolved.capacity());
+    }
 }

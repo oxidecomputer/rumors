@@ -200,17 +200,16 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved) {
 /// The most an answer's own unit holds, before its scope is explored.
 ///
 /// That is the copies exploding its scope makes, `copies`, its resolution,
-/// with a slot for each child this side or the peer's listing of `theirs`
-/// children can hold, and its reactions that ask nothing, one per such
-/// child at most.
-pub(crate) fn answer_bound<E, Err>(theirs: usize, copies: usize) -> usize {
-    let children = FAN + theirs;
+/// with a slot for each child either side holds, and its reactions that ask
+/// nothing, one per such child at most. Both sides' children of the scope
+/// sit at distinct radices, so together they number at most a fan.
+pub(crate) fn answer_bound<E, Err>(copies: usize) -> usize {
     // A chunk's reactions keep one slot spare for a question
     // ([`Chunks::next_part`](super::answer::Chunks::next_part)).
     copies
         + queued::<Resolution<E>>()
-        + children * size_of::<(u8, Resolve<E>)>()
-        + chunk_bound::<E, Err>(children + 1, 0)
+        + FAN * size_of::<(u8, Resolve<E>)>()
+        + chunk_bound::<E, Err>(FAN + 1, 0)
 }
 
 /// The most a question's unit holds, before it is built.
@@ -285,9 +284,7 @@ fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
             question_bound::<E, Err>(height, Grandchildren::MAX, copies, leading, FAN)
         }
         Unit::Answer if height == 0 => supply_bound::<E, Err>(1, 0),
-        Unit::Answer => {
-            answer_bound::<E, Err>(FAN, copies).max(supply_bound::<E, Err>(FAN, copies))
-        }
+        Unit::Answer => answer_bound::<E, Err>(copies).max(supply_bound::<E, Err>(FAN, copies)),
     }
 }
 
