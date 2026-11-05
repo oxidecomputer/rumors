@@ -144,6 +144,71 @@ pub(crate) mod census {
     }
 }
 
+/// Test-only counts of the work nodes do building branches and computing
+/// their memos, crate-wide.
+///
+/// Each [`Work`] names one kind of step, counted where it happens; outside
+/// test builds [`record`](memo_census::record) compiles to nothing. Tests
+/// read the counts through
+/// [`testing::memo_work`](crate::testing::memo_work) to see how much of
+/// that work a session does, a deterministic stand-in for the time it
+/// takes.
+pub(crate) mod memo_census {
+    #[cfg(any(test, feature = "test-internals"))]
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// One kind of step the census counts.
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) enum Work {
+        /// A bare branch assembled from a fan of children by
+        /// [`Node::branch`](super::Node::branch), as reassembly assembles
+        /// them.
+        ///
+        /// The subtrees a session receives are built leaf by leaf
+        /// ([`SortedLeaves`](super::SortedLeaves)) and not counted.
+        Branch,
+        /// A hash computed rather than read from its memo.
+        Hash,
+        /// A branch's bounds computed from all of its children.
+        BoundsFull,
+        /// A branch's encoded version size computed from all of its
+        /// children.
+        VersionBytesFull,
+    }
+
+    /// How many kinds of step there are.
+    #[cfg(any(test, feature = "test-internals"))]
+    const KINDS: usize = Work::VersionBytesFull as usize + 1;
+
+    /// The count of each kind of step since the last reset.
+    #[cfg(any(test, feature = "test-internals"))]
+    static COUNTS: [AtomicU64; KINDS] = [const { AtomicU64::new(0) }; KINDS];
+
+    /// Count one step of `work`.
+    #[inline]
+    pub(crate) fn record(work: Work) {
+        #[cfg(any(test, feature = "test-internals"))]
+        COUNTS[work as usize].fetch_add(1, Ordering::Relaxed);
+        #[cfg(not(any(test, feature = "test-internals")))]
+        let _ = work;
+    }
+
+    /// The steps of `work` counted since the last reset.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn read(work: Work) -> u64 {
+        COUNTS[work as usize].load(Ordering::Relaxed)
+    }
+
+    /// Restart every count from zero.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn reset() {
+        for count in &COUNTS {
+            count.store(0, Ordering::Relaxed);
+        }
+    }
+}
+use memo_census::Work;
+
 /// A branch's grandchild count, less one, from its fan
 /// ([`Body::Branch`]'s `spread`).
 ///
@@ -305,6 +370,7 @@ impl Node {
                 Some(node.beneath(index))
             }
             _ => {
+                memo_census::record(Work::Branch);
                 children.fit();
                 Some(Node::from_inner(Arc::new(NodeInner {
                     prefix: ArrayVec::new(),
@@ -678,6 +744,7 @@ impl Node {
                 children,
                 ..
             } => *version_bytes.get_or_init(|| {
+                memo_census::record(Work::VersionBytesFull);
                 children
                     .values()
                     .map(Node::version_bytes)
@@ -714,6 +781,7 @@ impl Node {
     /// canonicity section.
     pub fn hash(&self) -> Hash {
         *self.inner.hash.get_or_init(|| {
+            memo_census::record(Work::Hash);
             // The preimage takes the prefix in path order — shallowest byte
             // first — while storage is shallowest-last, so reverse into a
             // stack buffer (a compressed span never exceeds the 32-byte
@@ -790,6 +858,7 @@ impl Node {
     /// The fold cannot be empty: canonical branches have at least two children.
     fn bounds<'a>(bounds: &'a OnceLock<Span<'static>>, children: &Fan) -> &'a Span<'static> {
         bounds.get_or_init(|| {
+            memo_census::record(Work::BoundsFull);
             if children.values().all(Node::is_leaf) {
                 let mut versions = children.values().map(|child| match &child.inner.body {
                     Body::Leaf { version, .. } => version,

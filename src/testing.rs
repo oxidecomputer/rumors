@@ -27,7 +27,10 @@ use crate::{
             ErasedPrefix,
             hash::{Hash, MAX_BRANCH_PREIMAGE_LEN, MERKLE_HASH_LEN as TREE_HASH_LEN, PATH_LEN},
             height::{Height, Root},
-            untyped::{self, census},
+            untyped::{
+                self, census,
+                memo_census::{self, Work},
+            },
         },
     },
 };
@@ -185,6 +188,40 @@ pub fn node_census() -> NodeCensus {
 /// Restart the census high-water mark from the current live count.
 pub fn node_census_reset() {
     census::reset_peak();
+}
+
+/// The work tree nodes did building branches and computing their memos,
+/// crate-wide, since the last [`memo_work_reset`].
+///
+/// The counts are process-global, like the [`node_census`]; tests that
+/// assert on them must own the process.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MemoWork {
+    /// Bare branches assembled from a fan of children, as reassembly
+    /// assembles them. The subtrees a session receives are built leaf by
+    /// leaf and not counted.
+    pub branches: u64,
+    /// Hashes computed rather than read from their memos.
+    pub hashes: u64,
+    /// Branch bounds computed from all of the branch's children.
+    pub bounds_full: u64,
+    /// Encoded version sizes computed from all of a branch's children.
+    pub version_bytes_full: u64,
+}
+
+/// Read the work tree nodes did since the last [`memo_work_reset`].
+pub fn memo_work() -> MemoWork {
+    MemoWork {
+        branches: memo_census::read(Work::Branch),
+        hashes: memo_census::read(Work::Hash),
+        bounds_full: memo_census::read(Work::BoundsFull),
+        version_bytes_full: memo_census::read(Work::VersionBytesFull),
+    }
+}
+
+/// Restart every count [`memo_work`] reads from zero.
+pub fn memo_work_reset() {
+    memo_census::reset();
 }
 
 /// Approximate wire overhead per differing message, excluding its encoded payload.
