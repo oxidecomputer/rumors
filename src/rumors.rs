@@ -12,7 +12,7 @@ use crate::message::EncodeError;
 use crate::{
     Batch, Committed, Error, Gossiped, Network, Peer, Snapshot, SynchronizationSettings, Version,
 };
-use futures::Stream;
+use futures::stream::FusedStream;
 use std::borrow::Borrow;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::{
@@ -572,6 +572,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// - A remote hang-up between sessions ends the stream cleanly. Reconnect
     ///   to reach that peer again.
     ///
+    /// However it ends, the stream stays ended: it is a [`FusedStream`].
+    /// Once a poll has returned `None`,
+    /// [`is_terminated`](FusedStream::is_terminated) returns `true` and every
+    /// later poll returns `None`. After the final `Err`, the next poll is the
+    /// one that returns `None`; until then `is_terminated` returns `false`.
+    ///
     /// # Deadlines and cancellation
     ///
     /// A configured deadline starts when the local policy initiates a session or
@@ -618,7 +624,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         &'a self,
         read: R,
         write: W,
-    ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
+    ) -> impl FusedStream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         R: AsyncBufRead + Unpin + Send + 'a,
         W: AsyncWrite + Unpin + Send + 'a,

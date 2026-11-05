@@ -9,7 +9,7 @@ use std::{fmt, sync::Arc, time::Instant};
 
 use before::{Count, Party};
 use futures::StreamExt;
-use futures::{Stream, future::BoxFuture};
+use futures::{future::BoxFuture, stream::FusedStream};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
     io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -792,7 +792,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         &'a self,
         read: R,
         write: W,
-    ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
+    ) -> impl FusedStream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
         R: AsyncBufRead + Unpin + Send + 'a,
         W: AsyncWrite + Unpin + Send + 'a,
@@ -813,7 +813,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         // Boxed for two reasons: the box makes the returned stream `Unpin`
         // (callers consume it directly, no `pin!` ceremony), and it moves
         // the driver's in-flight session future — a large state machine —
-        // off the caller's stack.
+        // off the caller's stack. `unfold` must not be polled after it ends,
+        // so it is fused inside the box, keeping the returned stream one
+        // pointer.
         Box::pin(futures::stream::unfold(drive, |mut drive| async move {
             if drive.done {
                 return None;
@@ -894,7 +896,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     }
                 };
             }
-        }))
+        })
+        .fuse())
     }
 }
 

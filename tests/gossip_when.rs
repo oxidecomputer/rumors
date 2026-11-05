@@ -16,6 +16,7 @@ use std::{
 
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use futures::stream;
+use futures::stream::FusedStream;
 use futures::{FutureExt, StreamExt};
 use proptest::prelude::*;
 use rumors::{
@@ -1214,6 +1215,81 @@ proptest! {
                         .is_none(),
                     "the stream must end after its terminal error"
                 );
+            }
+        });
+    }
+}
+
+/// How a driver ends, for checking that it stays ended.
+#[derive(Clone, Copy, Debug)]
+enum Ending {
+    /// The local policy ends with no session in flight.
+    PolicyEnds,
+    /// The remote hangs up at a session boundary.
+    HangUp,
+    /// The remote dies mid-preamble, so the driver yields its terminal `Err`.
+    TerminalError,
+}
+
+/// Await a driver's next item, failing instead of hanging.
+async fn next_item<S: stream::Stream + Unpin>(sessions: &mut S) -> Option<S::Item> {
+    timeout(DEADLINE, sessions.next())
+        .await
+        .expect("the driver deadlocked")
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// The gossip stream is fused: once it yields `None`, it reports itself
+    /// terminated and later polls yield `None` again.
+    ///
+    /// The claim holds however the driver ends: its policy ending, a remote
+    /// hang-up at a session boundary, or after its terminal error, which the
+    /// stream yields before it reports itself terminated.
+    #[test]
+    fn an_ended_driver_stays_ended(
+        ending in prop_oneof![
+            Just(Ending::PolicyEnds),
+            Just(Ending::HangUp),
+            Just(Ending::TerminalError),
+        ],
+        network in network_seed(),
+    ) {
+        block_on(async {
+            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let (mut a_end, b_end) = connection();
+            let policy = match ending {
+                Ending::PolicyEnds => stream::empty::<()>().left_stream(),
+                Ending::HangUp | Ending::TerminalError => stream::pending::<()>().right_stream(),
+            };
+            let a = with_policy_stream(a, policy);
+
+            // The remote's halves stay open unless the case ends them. A
+            // truncated preamble keeps the read half, so that A's own writes
+            // succeed and only its read fails.
+            let (b_read, mut b_write) = (b_end.read, b_end.write);
+            match ending {
+                Ending::PolicyEnds => {}
+                Ending::HangUp => drop((b_read, b_write)),
+                Ending::TerminalError => {
+                    b_write.write_all(b"RUMO").await.expect("partial write");
+                    drop(b_write);
+                }
+            }
+
+            let mut sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            if let Ending::TerminalError = ending {
+                assert!(
+                    matches!(next_item(&mut sessions).await, Some(Err(_))),
+                    "the driver yields its terminal error first"
+                );
+                assert!(!sessions.is_terminated(), "the stream ends at the next poll, not at the error");
+            }
+            assert!(next_item(&mut sessions).await.is_none(), "the driver ends");
+            for _ in 0..2 {
+                assert!(sessions.is_terminated());
+                assert!(next_item(&mut sessions).await.is_none(), "an ended driver stays ended");
             }
         });
     }
