@@ -93,20 +93,29 @@ fn fixtures() -> [(&'static str, Shape); 6] {
 /// and a commit that moves them says why.
 #[test]
 fn memo_work_matches_the_baseline() {
-    let work = |branches, reused, hashes, bounds_full, version_bytes_full| MemoWork {
-        branches,
-        reused,
-        hashes,
-        bounds_full,
-        version_bytes_full,
+    // The bounds counts, in order: computed in full, seeded whole, seeded
+    // at one endpoint, seeded with an unchanged child's help, and declined.
+    let work = |branches, reused, hashes, bounds: [u64; 5], version_bytes_full| {
+        let [full, seeded, half, by_sibling, declined] = bounds;
+        MemoWork {
+            branches,
+            reused,
+            hashes,
+            bounds_full: full,
+            bounds_seeded: seeded,
+            bounds_half: half,
+            bounds_by_sibling: by_sibling,
+            bounds_declined: declined,
+            version_bytes_full,
+        }
     };
     let baseline = [
-        work(0, 0, 0, 0, 0),
-        work(2, 2, 3, 2, 2),
-        work(108, 86, 221, 108, 108),
-        work(1, 1, 10_948, 948, 948),
-        work(1_406, 0, 12_254, 1_570, 1_570),
-        work(261, 395, 529, 261, 261),
+        work(0, 0, 0, [0, 0, 0, 0, 0], 0),
+        work(2, 2, 3, [0, 2, 0, 0, 0], 2),
+        work(108, 86, 221, [0, 108, 0, 0, 0], 108),
+        work(1, 1, 10_948, [948, 0, 0, 0, 0], 948),
+        work(1_406, 0, 12_254, [352, 1_218, 0, 0, 0], 1_570),
+        work(261, 395, 529, [0, 0, 261, 148, 0], 261),
     ];
     let measured: Vec<(&str, MemoWork)> = fixtures()
         .into_iter()

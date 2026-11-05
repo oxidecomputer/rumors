@@ -1,6 +1,8 @@
 use std::sync::{Arc, OnceLock};
 use std::{fmt, mem};
 
+use itertools::{EitherOrBoth, Itertools};
+use smallvec::SmallVec;
 use tinyvec::ArrayVec;
 
 use before::Span;
@@ -34,6 +36,9 @@ pub(crate) const NODE_ALLOCATION_BYTES: usize =
 // The reference counts are words, and the node's storage is no more aligned
 // than a word, so the allocation is their sizes added with no padding.
 const _: () = assert!(mem::align_of::<NodeInner>() <= mem::align_of::<usize>());
+
+/// The radices a branch's children can sit at: one per byte value.
+const RADICES: usize = u8::MAX as usize + 1;
 
 /// The bytes of one heap slot of a branch's fan: a radix beside a child
 /// handle.
@@ -99,7 +104,16 @@ enum Listed<'a> {
     Peeled(&'a Node),
 }
 
-impl Listed<'_> {
+impl<'a> Listed<'a> {
+    /// The node whose stored memos answer for this child: the child itself,
+    /// or for a peeled view, the node it was peeled from, whose body it
+    /// shares.
+    fn memos(self) -> &'a Node {
+        match self {
+            Listed::Stored(node) | Listed::Peeled(node) => node,
+        }
+    }
+
     /// Whether `candidate` is this child: the same allocation as a stored
     /// child, or for a peeled one, the node's remaining path over the same
     /// body ([`Node::is_peel_of`]).
@@ -198,6 +212,17 @@ pub(crate) mod memo_census {
         Hash,
         /// A branch's bounds computed from all of its children.
         BoundsFull,
+        /// A rebuilt branch's bounds seeded whole from its original's.
+        BoundsSeeded,
+        /// A rebuilt branch's bounds seeded at one endpoint from its
+        /// original's, the other folded from all of its children.
+        BoundsHalf,
+        /// A rebuilt branch's bounds seeded, whole or at one endpoint, with
+        /// the help of an unchanged child's bound.
+        BoundsBySibling,
+        /// A rebuilt branch's bounds left for warming to compute from all
+        /// of its children, because seeding them would not be exact.
+        BoundsDeclined,
         /// A branch's encoded version size computed from all of its
         /// children.
         VersionBytesFull,
@@ -342,9 +367,12 @@ enum Body {
     },
     /// At least two children; singleton branches are folded into the prefix.
     Branch {
-        /// The tightest span containing all leaf versions below this branch,
-        /// cached on first read. Its floor is their meet; its ceiling is
-        /// their join. [`Span`] keeps the pair ordered by construction.
+        /// The tightest span containing all leaf versions below this branch:
+        /// its floor is their meet, its ceiling their join.
+        ///
+        /// It is computed on first read, or at construction when
+        /// [`Node::rebuild`] can derive it exactly from the node it
+        /// replaces. [`Span`] keeps the pair ordered by construction.
         bounds: OnceLock<Span<'static>>,
         /// The number of leaves below this branch.
         leaves: usize,
@@ -387,7 +415,7 @@ impl Node {
     ///
     /// A branch node stores its fan [fitted](Fan::fit), releasing any heap
     /// slots beyond [`heap_slots`](fan::heap_slots) of its length.
-    pub fn branch(mut children: Fan) -> Option<Self> {
+    pub fn branch(children: Fan) -> Option<Self> {
         match children.len() {
             0 => None,
             1 => {
@@ -396,22 +424,36 @@ impl Node {
                 };
                 Some(node.beneath(index))
             }
-            _ => {
-                memo_census::record(Work::Branch);
-                children.fit();
-                Some(Node::from_inner(Arc::new(NodeInner {
-                    prefix: ArrayVec::new(),
-                    hash: OnceLock::new(),
-                    body: Body::Branch {
-                        bounds: OnceLock::new(),
-                        leaves: children.values().map(Node::len).sum(),
-                        spread: spread(&children),
-                        version_bytes: OnceLock::new(),
-                        children,
-                    },
-                })))
-            }
+            _ => Some(Node::bare_branch(children, OnceLock::new())),
         }
+    }
+
+    /// Store children, at least two, as a bare branch whose bounds are
+    /// `bounds`, either computed already or left for their first read.
+    ///
+    /// A branch node stores its fan [fitted](Fan::fit).
+    fn bare_branch(mut children: Fan, bounds: OnceLock<Span<'static>>) -> Node {
+        debug_assert!(
+            children.len() >= 2,
+            "a bare branch has at least two children"
+        );
+        memo_census::record(Work::Branch);
+        children.fit();
+        Node::from_inner(Arc::new(NodeInner {
+            prefix: ArrayVec::new(),
+            hash: OnceLock::new(),
+            body: Body::Branch {
+                bounds,
+                leaves: children.values().map(Node::len).sum(),
+                spread: spread(&children),
+                // Never seeded: once the bounds are known, the full
+                // computation reads one stored size per child and the
+                // bounds' own two encodings, at most 256 cached loads,
+                // exact by construction.
+                version_bytes: OnceLock::new(),
+                children,
+            },
+        }))
     }
 
     /// Assemble children into a subtree as [`branch`](Self::branch) does,
@@ -421,7 +463,9 @@ impl Node {
     /// When the children are exactly those `original` lists, at the same
     /// radices, this returns `original` itself, its hash and every other
     /// memo intact, so reassembling an unchanged scope allocates nothing and
-    /// computes no memo. Otherwise it builds the node `branch` builds.
+    /// computes no memo. Otherwise it builds the node `branch` builds; when
+    /// that is a bare branch, it seeds the new node's bounds from
+    /// `original`'s wherever that is exact ([`seeded_bounds`]).
     ///
     /// A stored child counts as unchanged only as the same allocation. A
     /// compressed node lists a peeled view of itself, which the walk's
@@ -439,7 +483,12 @@ impl Node {
             memo_census::record(Work::Reused);
             return Some(original);
         }
-        Node::branch(children)
+        if children.len() < 2 {
+            // One child: `branch` extends its path, which keeps its memos.
+            return Node::branch(children);
+        }
+        let bounds = seeded_bounds(&original, &children);
+        Some(Node::bare_branch(children, bounds))
     }
 
     /// Whether `children` are exactly the children
@@ -509,6 +558,15 @@ impl Node {
                 }
                 _ => false,
             }
+    }
+
+    /// This node's bounds if already computed: a leaf's always are, a
+    /// branch's once first read.
+    fn computed_span(&self) -> Option<Span<'_>> {
+        match &self.inner.body {
+            Body::Leaf { version, .. } => Some(Span::at(version)),
+            Body::Branch { bounds, .. } => bounds.get().map(Span::reborrow),
+        }
     }
 
     /// Convert a node into its radix fan of children (inverse to
@@ -925,10 +983,11 @@ impl Node {
     /// Get the ceiling version of this node (the maximal version of all
     /// children).
     ///
-    /// Like [`hash`](Self::hash), the ceiling is computed lazily on first
-    /// call and memoized: a leaf's is set at construction, and a branch's
-    /// is the join endpoint of its memoized bounds span, so reading
-    /// either bound computes both. The memo is a pure function of the
+    /// Like [`hash`](Self::hash), the ceiling is computed on first call and
+    /// memoized: a leaf's is set at construction, and a branch's is the
+    /// join endpoint of its memoized bounds span, so reading either bound
+    /// computes both, unless reassembly derived them when it built the
+    /// branch ([`rebuild`](Self::rebuild)). The memo is a pure function of the
     /// subtree, so it is safe to share across the structurally-shared
     /// clones a forked tree produces.
     pub fn ceiling(&self) -> &Version {
@@ -943,10 +1002,11 @@ impl Node {
     /// Get the floor version of this node (the minimal version of all
     /// children).
     ///
-    /// Like [`hash`](Self::hash), the floor is computed lazily on first
-    /// call and memoized: a leaf's is set at construction, and a branch's
-    /// is the meet endpoint of its memoized bounds span, so reading
-    /// either bound computes both. The memo is a pure function of the
+    /// Like [`hash`](Self::hash), the floor is computed on first call and
+    /// memoized: a leaf's is set at construction, and a branch's is the
+    /// meet endpoint of its memoized bounds span, so reading either bound
+    /// computes both, unless reassembly derived them when it built the
+    /// branch ([`rebuild`](Self::rebuild)). The memo is a pure function of the
     /// subtree, so it is safe to share across the structurally-shared
     /// clones a forked tree produces.
     pub fn floor(&self) -> &Version {
@@ -1029,6 +1089,50 @@ impl Node {
         }
     }
 
+    /// The tightest span containing every leaf version beneath this node,
+    /// computed by direct walk, consulting no memo: each version folded in
+    /// turn into a running meet and join.
+    ///
+    /// Test instrumentation: the independent oracle stored bounds are held
+    /// against ([`mismemoized`](Self::mismemoized)). It shares neither the
+    /// memos nor the balanced folds the bounds are computed with. The
+    /// traversal keeps an explicit stack.
+    #[cfg(test)]
+    pub(crate) fn walked_span(&self) -> Span<'static> {
+        let mut versions = Vec::new();
+        let mut stack = vec![self];
+        while let Some(node) = stack.pop() {
+            match &node.inner.body {
+                Body::Leaf { version, .. } => versions.push(version),
+                Body::Branch { children, .. } => stack.extend(children.values()),
+            }
+        }
+        let (first, rest) = versions.split_first().expect("every node holds a leaf");
+        let (lo, hi) = rest
+            .iter()
+            .fold(((*first).clone(), (*first).clone()), |(lo, hi), version| {
+                (lo.meet(version), hi.join(version))
+            });
+        Span::new(lo, hi).expect("the meet of versions is at or below their join")
+    }
+
+    /// The first node at or beneath this one whose bounds differ from a
+    /// direct walk ([`walked_span`](Self::walked_span)) or whose encoded
+    /// version size differs from one ([`max_bound_bytes`](Self::max_bound_bytes)).
+    #[cfg(test)]
+    pub(crate) fn mismemoized(&self) -> Option<Node> {
+        let mut stack = vec![self.clone()];
+        while let Some(node) = stack.pop() {
+            if node.span() != node.walked_span() || node.version_bytes() != node.max_bound_bytes() {
+                return Some(node);
+            }
+            if let Body::Branch { children, .. } = &node.inner.body {
+                stack.extend(children.values().cloned());
+            }
+        }
+        None
+    }
+
     /// The fan a branch stores, or `None` for a leaf.
     #[cfg(test)]
     pub(crate) fn stored_fan(&self) -> Option<&Fan> {
@@ -1100,6 +1204,217 @@ impl Node {
                 children.len() >= 2 && children.values().all(Self::is_max_compressed)
             }
         }
+    }
+}
+
+/// The bounds of the bare branch over `children`, derived from those of
+/// `original`, the node the children were listed from, wherever that is
+/// exact.
+///
+/// Otherwise the memo is left empty, and warming fills it by computing the
+/// bounds from every child.
+///
+/// # Exactness
+///
+/// A branch's span is the union of its children's spans: its floor is the
+/// meet of their floors, and its ceiling the join of their ceilings. Call
+/// the new branch `N` and `original` `O`. Split `N`'s children into `U`,
+/// those `O` lists unchanged at the same radix, and `D`, those that differ
+/// or are new; and call `R` the children of `O` that changed or are gone.
+/// Let `T` be the union of `D`'s spans. Union is associative, commutative
+/// and idempotent, so
+///
+/// ```text
+/// span(O) ∪ T = span(U) ∪ span(R) ∪ T     span(N) = span(U) ∪ T
+/// ```
+///
+/// and the two agree exactly when every span in `R` lies within span(N).
+/// The endpoints answer separately. `N`'s ceiling is `O`'s joined with
+/// `T`'s exactly when every `r` in `R` has a ceiling at or below `N`'s;
+/// `N`'s floor is `O`'s met with `T`'s exactly when every `r` has a floor
+/// at or above `N`'s.
+///
+/// The ceiling of `r` is *certified* at or below `N`'s by any bound known to
+/// be at or below `N`'s ceiling and at or above `r`'s: `T`'s ceiling, or the
+/// ceiling of any child in `U`. A floor is certified likewise, by `T`'s
+/// floor or any `U` child's. Certificates are sufficient, not necessary: a
+/// ceiling above every certificate can still lie below the join of
+/// several.
+///
+/// An endpoint whose every `r` is certified is seeded, at the cost of one
+/// join or meet. An endpoint with an uncertified `r` is folded over all of
+/// `N`'s children, half the full computation. When neither is certified,
+/// the memo is left for the full computation, which folds both endpoints
+/// in one pass.
+///
+/// # What is read
+///
+/// `O`'s bounds and its children's are read only if already computed:
+/// computing them to seed would cost a full pass over the old node, more
+/// than computing the new one directly. `D`'s bounds are computed if they
+/// are not yet: publication computes the bounds of every node it
+/// publishes, so this moves that work rather than adding it, and lets
+/// seeding continue up the rebuilt path. `U`'s are read as certificates
+/// only if already computed, and computed only where an endpoint is folded,
+/// as warming would compute them.
+///
+/// Each certificate search tries the child that certified last first, then
+/// takes the unchanged children in order, resuming where it left off. Per
+/// endpoint it compares at most once per child of `R` and once per child of
+/// `U`: no more steps than the fold it spares, which joins or meets once per
+/// child, and a comparison allocates nothing.
+fn seeded_bounds(original: &Node, children: &Fan) -> OnceLock<Span<'static>> {
+    let declined = || {
+        memo_census::record(Work::BoundsDeclined);
+        OnceLock::new()
+    };
+    // A bare leaf lists no children, so its span is no union of children's.
+    if original.child_count() == 0 {
+        return declined();
+    }
+    let Some(old) = original.computed_span() else {
+        return declined();
+    };
+    // `D`, `R`, and which of `N`'s radices hold a child of `D`.
+    let mut differ: SmallVec<[&Node; 4]> = SmallVec::new();
+    let mut gone: SmallVec<[&Node; 4]> = SmallVec::new();
+    let mut differs = [false; RADICES];
+    for pair in original
+        .listed()
+        .merge_join_by(children.iter(), |(ours, _), (theirs, _)| ours.cmp(theirs))
+    {
+        match pair {
+            EitherOrBoth::Both((_, listed), (_, child)) if listed.is(child) => {}
+            EitherOrBoth::Both((_, listed), (radix, child)) => {
+                differ.push(child);
+                gone.push(listed.memos());
+                differs[usize::from(radix)] = true;
+            }
+            EitherOrBoth::Left((_, listed)) => gone.push(listed.memos()),
+            EitherOrBoth::Right((radix, child)) => {
+                differ.push(child);
+                differs[usize::from(radix)] = true;
+            }
+        }
+    }
+    // Computing `D`'s bounds here, if they are cold, moves work rather than
+    // adding it: publication computes the bounds of every node it
+    // publishes. It lets seeding continue up the rebuilt path.
+    let joined = differ.split_first().map(|(first, rest)| {
+        first
+            .span()
+            .union_all(rest.iter().map(|child| child.span()))
+    });
+    // `U`, collected only if `T` leaves a bound uncertified.
+    let mut kept: Option<Vec<&Node>> = None;
+    let unchanged = || {
+        children
+            .iter()
+            .filter(|(radix, _)| !differs[usize::from(*radix)])
+            .map(|(_, child)| child)
+            .collect()
+    };
+    let mut ceiling = Certifier::default();
+    let mut floor = Certifier::default();
+    for replaced in &gone {
+        // The old side is read only where already computed.
+        let Some(span) = replaced.computed_span() else {
+            return declined();
+        };
+        if !joined
+            .as_ref()
+            .is_some_and(|joined| span.hi() <= joined.hi())
+        {
+            ceiling.certify(kept.get_or_insert_with(unchanged), |child| {
+                child
+                    .computed_span()
+                    .is_some_and(|bound| span.hi() <= bound.hi())
+            });
+        }
+        if !joined
+            .as_ref()
+            .is_some_and(|joined| joined.lo() <= span.lo())
+        {
+            floor.certify(kept.get_or_insert_with(unchanged), |child| {
+                child
+                    .computed_span()
+                    .is_some_and(|bound| bound.lo() <= span.lo())
+            });
+        }
+        if ceiling.failed && floor.failed {
+            return declined();
+        }
+    }
+    let span = if !ceiling.failed && !floor.failed {
+        memo_census::record(Work::BoundsSeeded);
+        match &joined {
+            Some(joined) => old.union(joined),
+            None => old.into_owned(),
+        }
+    } else {
+        memo_census::record(Work::BoundsHalf);
+        let lo = if floor.failed {
+            let mut floors = children.values().map(Node::floor);
+            let first = floors.next().expect("a branch has at least two children");
+            first.meet_all(floors)
+        } else {
+            joined
+                .as_ref()
+                .map_or_else(|| old.lo().clone(), |joined| old.lo().meet(joined.lo()))
+        };
+        let hi = if ceiling.failed {
+            let mut ceilings = children.values().map(Node::ceiling);
+            let first = ceilings.next().expect("a branch has at least two children");
+            first.join_all(ceilings)
+        } else {
+            joined
+                .as_ref()
+                .map_or_else(|| old.hi().clone(), |joined| old.hi().join(joined.hi()))
+        };
+        Span::new(lo, hi)
+            .expect("the meet of a branch's floors is at or below the join of its ceilings")
+    };
+    if (ceiling.by_sibling && !ceiling.failed) || (floor.by_sibling && !floor.failed) {
+        memo_census::record(Work::BoundsBySibling);
+    }
+    OnceLock::from(span)
+}
+
+/// One endpoint's search of a rebuilt branch's unchanged children for
+/// certificates ([`seeded_bounds`]).
+#[derive(Default)]
+struct Certifier {
+    /// The position of the child that certified last, tried first next time.
+    last: Option<usize>,
+    /// The position the scan resumes from: children before it have been
+    /// tried once.
+    next: usize,
+    /// Whether an unchanged child certified a bound.
+    by_sibling: bool,
+    /// Whether a bound found no certificate, so the endpoint is folded.
+    failed: bool,
+}
+
+impl Certifier {
+    /// Find a child in `kept` that `certifies`, unless the search already
+    /// failed: the child that certified last first, then the children not
+    /// yet tried, in order. Records a failure when none does.
+    fn certify(&mut self, kept: &[&Node], certifies: impl Fn(&Node) -> bool) {
+        if self.failed {
+            return;
+        }
+        if self.last.is_some_and(|at| certifies(kept[at])) {
+            return;
+        }
+        while let Some(&child) = kept.get(self.next) {
+            self.next += 1;
+            if certifies(child) {
+                self.last = Some(self.next - 1);
+                self.by_sibling = true;
+                return;
+            }
+        }
+        self.failed = true;
     }
 }
 

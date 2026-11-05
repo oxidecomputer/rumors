@@ -6,7 +6,7 @@ use proptest::prelude::*;
 
 use super::LocalSession;
 use crate::message::Message;
-use crate::tree::arb::roots_at_depth;
+use crate::tree::arb::{arb_wide_divergent_pair, roots_at_depth};
 use crate::tree::{Action, Root, Tree, typed::Path};
 
 /// Replicas where one, `ahead`, has seen everything the other, `behind`,
@@ -85,6 +85,43 @@ proptest! {
                     false,
                     "the side that learned nothing changed: {prior:?} became {kept:?}",
                 ),
+            }
+        }
+    }
+}
+
+/// Compute every memo of `root`'s tree, as publication does before a
+/// replica serves it.
+fn warmed(root: Root) -> Root {
+    if let Some(node) = &root.node {
+        node.hash();
+        node.version_bytes();
+    }
+    root
+}
+
+proptest! {
+    /// Every node of both reconciled trees holds the bounds and encoded
+    /// version size a direct walk computes, whichever side initiates, at a
+    /// budget of zero and at an unlimited one.
+    ///
+    /// Reassembly seeds a rebuilt node's bounds from the node it replaces,
+    /// and the join oracle, which compares hashes, cannot see a wrong bound.
+    /// The inputs are warm, as published trees are, so seeding has bounds
+    /// to start from; the pairs redact, so rebuilt nodes lose children as
+    /// well as gain them.
+    #[test]
+    fn reconciled_trees_hold_exact_memos(
+        (a, b) in prop_oneof![arb_wide_divergent_pair(), arb_contained_pair()],
+        unlimited in any::<bool>(),
+    ) {
+        let budget = if unlimited { usize::MAX } else { 0 };
+        let (a, b) = (warmed(a), warmed(b));
+        for (client, server) in [(a.clone(), b.clone()), (b, a)] {
+            let (client, server) = LocalSession::new(client, server).budget(budget).run().sides();
+            for side in [client, server] {
+                let drifted = side.node.and_then(|node| node.into_untyped().mismemoized());
+                prop_assert!(drifted.is_none(), "memos drifted: {drifted:?}");
             }
         }
     }

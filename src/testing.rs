@@ -208,6 +208,18 @@ pub struct MemoWork {
     pub hashes: u64,
     /// Branch bounds computed from all of the branch's children.
     pub bounds_full: u64,
+    /// Rebuilt branches whose bounds were seeded whole from the node they
+    /// replace.
+    pub bounds_seeded: u64,
+    /// Rebuilt branches whose bounds were seeded at one endpoint, the other
+    /// folded from all of the branch's children.
+    pub bounds_half: u64,
+    /// Rebuilt branches seeded, whole or at one endpoint, with the help of
+    /// an unchanged child's bound.
+    pub bounds_by_sibling: u64,
+    /// Rebuilt branches whose bounds could not be seeded exactly, left for
+    /// warming to compute in full.
+    pub bounds_declined: u64,
     /// Encoded version sizes computed from all of a branch's children.
     pub version_bytes_full: u64,
 }
@@ -219,6 +231,10 @@ pub fn memo_work() -> MemoWork {
         reused: memo_census::read(Work::Reused),
         hashes: memo_census::read(Work::Hash),
         bounds_full: memo_census::read(Work::BoundsFull),
+        bounds_seeded: memo_census::read(Work::BoundsSeeded),
+        bounds_half: memo_census::read(Work::BoundsHalf),
+        bounds_by_sibling: memo_census::read(Work::BoundsBySibling),
+        bounds_declined: memo_census::read(Work::BoundsDeclined),
         version_bytes_full: memo_census::read(Work::VersionBytesFull),
     }
 }
