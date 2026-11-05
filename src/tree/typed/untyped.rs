@@ -258,7 +258,7 @@ enum Body {
         leaves: usize,
         /// This branch's grandchild count as a bare branch, `S`, stored as
         /// `S − 1`: over its children, each one's own child count, a child
-        /// at the leaves counting one ([`Node::grandchildren`]).
+        /// at the leaves counting one ([`Node::grandchild_count`]).
         ///
         /// A branch has two to 256 children, each counting one to 256, so
         /// `S` lies in 2..=65,536 and `S − 1` fits exactly. It depends only
@@ -545,7 +545,7 @@ impl Node {
     /// with one byte of path over a branch has that branch's fan as its
     /// grandchildren, and over a leaf has the leaf alone; a bare branch
     /// stores its count.
-    pub fn grandchildren(&self) -> usize {
+    pub fn grandchild_count(&self) -> usize {
         match (self.inner.prefix.len(), &self.inner.body) {
             (0, Body::Leaf { .. }) => 0,
             (0, Body::Branch { spread, .. }) => usize::from(*spread) + 1,
@@ -555,7 +555,7 @@ impl Node {
         }
     }
 
-    /// Check [`grandchildren`](Self::grandchildren) against a direct count
+    /// Check [`grandchild_count`](Self::grandchild_count) against a direct count
     /// at this node and every node beneath it, returning the first that
     /// disagrees.
     ///
@@ -571,8 +571,8 @@ impl Node {
         let mut stack = vec![self.clone()];
         while let Some(node) = stack.pop() {
             let Ok(children) = node.clone().child_iter() else {
-                if node.grandchildren() != 0 {
-                    return Some((node.clone(), node.grandchildren(), 0));
+                if node.grandchild_count() != 0 {
+                    return Some((node.clone(), node.grandchild_count(), 0));
                 }
                 continue;
             };
@@ -581,8 +581,8 @@ impl Node {
                 counted += child.clone().child_iter().map_or(1, Iterator::count);
                 stack.push(child);
             }
-            if node.grandchildren() != counted {
-                return Some((node.clone(), node.grandchildren(), counted));
+            if node.grandchild_count() != counted {
+                return Some((node.clone(), node.grandchild_count(), counted));
             }
         }
         None
@@ -611,14 +611,23 @@ impl Node {
         NODE_ALLOCATION_BYTES + fan
     }
 
+    /// The number of children [`child_iter`](Self::child_iter) would list.
+    ///
+    /// Exact, and O(1): a bare branch has its fan, a node with a compressed
+    /// path peels to a single child, and a bare leaf has none.
+    pub fn child_count(&self) -> usize {
+        match (self.inner.prefix.is_empty(), &self.inner.body) {
+            (true, Body::Leaf { .. }) => 0,
+            (true, Body::Branch { children, .. }) => children.len(),
+            (false, _) => 1,
+        }
+    }
+
     /// How many children this node has, as [`child_iter`](Self::child_iter)
     /// would list them, counting a bare leaf as one: what it contributes to
     /// its parent's grandchild count.
     fn weight(&self) -> usize {
-        match (self.inner.prefix.is_empty(), &self.inner.body) {
-            (true, Body::Branch { children, .. }) => children.len(),
-            _ => 1,
-        }
+        self.child_count().max(1)
     }
 
     /// The largest canonical [`Version`] encoding among every bound this

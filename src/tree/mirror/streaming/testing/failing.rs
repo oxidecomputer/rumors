@@ -155,8 +155,8 @@ where
     }
 
     /// Read the wrapped node's grandchild count.
-    fn grandchildren(&self) -> usize {
-        self.0.grandchildren()
+    fn grandchild_count(&self) -> usize {
+        self.0.grandchild_count()
     }
 
     /// Read the wrapped node's largest encoded version bound.
@@ -179,8 +179,8 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     }
 
     /// Read the wrapped node's grandchild count.
-    fn grandchildren(&self) -> usize {
-        self.0.grandchildren()
+    fn grandchild_count(&self) -> usize {
+        self.0.grandchild_count()
     }
 
     /// Read the wrapped node's explosion cost.
@@ -190,6 +190,11 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
 
     /// The wrapped node's bound on its explosion cost.
     const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
+
+    /// Read the wrapped node's child count.
+    fn child_count(&self) -> usize {
+        self.0.child_count()
+    }
 }
 
 impl<N> Leaf for FailingNode<N>

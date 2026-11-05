@@ -237,9 +237,9 @@ impl<H: Height> Node<H> {
     }
 
     /// The number of children this node's children have, a child at the
-    /// leaves counting one ([`untyped::Node::grandchildren`]).
-    pub fn grandchildren(&self) -> usize {
-        self.inner.grandchildren()
+    /// leaves counting one ([`untyped::Node::grandchild_count`]).
+    pub fn grandchild_count(&self) -> usize {
+        self.inner.grandchild_count()
     }
 
     /// The largest encoded version bound stored anywhere in this subtree.

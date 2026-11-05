@@ -235,11 +235,13 @@ impl<E: ErasedNode> Question<E> {
     /// a child of `prefix` in a chunk behind `leading` reactions
     /// ([`charges::question_bound`]).
     ///
-    /// A disputed child lists at most a fan of children; a request lists
-    /// none.
+    /// A disputed child lists this side's children of it, exactly its
+    /// child count, which is at most a fan; a request lists none.
     pub(super) fn bound<Err>(&self, prefix: ErasedPrefix, leading: usize) -> usize {
         let (copies, theirs, listed) = match self {
-            Self::Dispute { node, theirs, .. } => (node.explosion_bytes(), *theirs, FAN),
+            Self::Dispute { node, theirs, .. } => {
+                (node.explosion_bytes(), *theirs, node.child_count().min(FAN))
+            }
             Self::Request { theirs, .. } => (0, *theirs, 0),
         };
         charges::question_bound::<E, Err>(prefix.height() - 1, theirs, copies, leading, listed)

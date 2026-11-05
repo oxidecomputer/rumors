@@ -552,7 +552,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
                 .root
                 .root
                 .as_ref()
-                .map_or(0, |root| widen(root.grandchildren())),
+                .map_or(0, |root| widen(root.grandchild_count())),
             // The walk is not the wire: on a wire session the proxy
             // stamps its codec's configured limit over this field at
             // send, so an in-process participant carries the default.

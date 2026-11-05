@@ -233,8 +233,8 @@ where
     }
 
     /// Read the wrapped node's grandchild count.
-    fn grandchildren(&self) -> usize {
-        self.inner().grandchildren()
+    fn grandchild_count(&self) -> usize {
+        self.inner().grandchild_count()
     }
 
     /// Read the wrapped node's largest encoded version bound.
@@ -257,8 +257,8 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
     }
 
     /// Read the wrapped node's grandchild count.
-    fn grandchildren(&self) -> usize {
-        self.inner().grandchildren()
+    fn grandchild_count(&self) -> usize {
+        self.inner().grandchild_count()
     }
 
     /// Read the wrapped node's explosion cost.
@@ -268,6 +268,11 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
 
     /// The wrapped node's bound on its explosion cost.
     const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
+
+    /// Read the wrapped node's child count.
+    fn child_count(&self) -> usize {
+        self.inner().child_count()
+    }
 }
 
 impl<N> Leaf for ChargedNode<N>
@@ -398,7 +403,7 @@ where
         // children list, each child at the leaves counting one. The count
         // explodes each child through the wrapped backend, outside the
         // ledger, whose census follows only wrapped nodes.
-        let stored = parent.grandchildren();
+        let stored = parent.grandchild_count();
         let counter = self.inner.clone();
         stream! {
             let mut counted = 0_u64;

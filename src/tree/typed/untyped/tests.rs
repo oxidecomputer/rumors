@@ -994,6 +994,32 @@ proptest! {
         prop_assert!(tree.miscounted_grandchildren().is_none(), "{:?}", tree.miscounted_grandchildren());
     }
 
+    /// Every node of an arbitrary tree, and every peeled view of its
+    /// compressed paths, reports as its child count the number of children
+    /// its listing yields, none for a leaf.
+    ///
+    /// The traversal keeps an explicit stack, so it never recurses on the
+    /// tree's shape.
+    #[test]
+    fn child_counts_match_a_direct_listing(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
+    ) {
+        let mut stack = vec![tree];
+        while let Some(node) = stack.pop() {
+            let count = node.child_count();
+            let listed = match node.clone().child_iter() {
+                Ok(children) => {
+                    let children: Vec<_> = children.map(|(_, child)| child).collect();
+                    let listed = children.len();
+                    stack.extend(children);
+                    listed
+                }
+                Err(_) => 0,
+            };
+            prop_assert_eq!(count, listed, "{:?}", node);
+        }
+    }
+
     /// Both bulk builders, over the runs a reply decoder assembles, build
     /// trees whose every node stores the grandchild count a direct count
     /// finds, at every starting depth.
@@ -1036,6 +1062,6 @@ fn a_full_fan_of_full_fans_counts_every_grandchild() {
         })
         .collect();
     let root = canonical_at(0, &paths);
-    assert_eq!(root.grandchildren(), 65_536);
+    assert_eq!(root.grandchild_count(), 65_536);
     assert!(root.miscounted_grandchildren().is_none());
 }

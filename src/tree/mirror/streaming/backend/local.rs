@@ -46,8 +46,8 @@ impl<H: Height> Node for typed::Node<H> {
     }
 
     /// Derive the grandchild count from the stored aggregate and the path.
-    fn grandchildren(&self) -> usize {
-        self.grandchildren()
+    fn grandchild_count(&self) -> usize {
+        self.grandchild_count()
     }
 
     /// Return the largest encoded version bound in the subtree.
@@ -74,8 +74,8 @@ impl ErasedNode for typed::untyped::Node {
     }
 
     /// Derive the grandchild count from the stored aggregate and the path.
-    fn grandchildren(&self) -> usize {
-        self.grandchildren()
+    fn grandchild_count(&self) -> usize {
+        self.grandchild_count()
     }
 
     /// Report the copy that peeling a shared compressed node makes.
@@ -86,6 +86,11 @@ impl ErasedNode for typed::untyped::Node {
     /// One node's allocation and the heap slots of a full fan, the copy of
     /// a shared branch with every child.
     const MAX_EXPLOSION_BYTES: usize = typed::untyped::MAX_EXPLOSION_BYTES;
+
+    /// Count the children listing this node yields, from its shape.
+    fn child_count(&self) -> usize {
+        self.child_count()
+    }
 }
 
 /// Store leaf payloads directly in the in-memory tree.

@@ -205,7 +205,7 @@ pub trait Node {
     /// [`len`](Self::len), maintain it wherever a node is built; it depends
     /// only on the node's children, and on whether each child is itself a
     /// leaf or has one child or many.
-    fn grandchildren(&self) -> usize;
+    fn grandchild_count(&self) -> usize;
 
     /// The largest encoded version bound in this subtree, in bytes.
     ///
@@ -235,9 +235,20 @@ pub trait ErasedNode {
     /// The number of live leaves under this node, exact ([`Node::len`]).
     fn len(&self) -> usize;
 
+    /// The number of children [`Backend::children`] lists for this node,
+    /// exact: at most a fan, and none for a leaf.
+    ///
+    /// A session reads this before it lists the children of a node it
+    /// asks about, to price the question's listing at exactly that many
+    /// entries, and allocates the listing at that capacity. A backend that
+    /// maintains [`grandchild_count`](Self::grandchild_count) already computes it
+    /// for every child it sums over; an undercount leaves the listing
+    /// costing more than its question was charged.
+    fn child_count(&self) -> usize;
+
     /// The number of children this node's children have, exact
-    /// ([`Node::grandchildren`]).
-    fn grandchildren(&self) -> usize;
+    /// ([`Node::grandchild_count`]).
+    fn grandchild_count(&self) -> usize;
 
     /// The bytes listing this node's children with [`Backend::children`]
     /// allocates beyond the handles it yields.

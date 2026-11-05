@@ -260,13 +260,13 @@ where
 
     /// Read the underlying node's grandchild count, skewed above the leaves
     /// to exercise a miscounting backend.
-    fn grandchildren(&self) -> usize {
+    fn grandchild_count(&self) -> usize {
         let skew = if H::HEIGHT == 0 {
             0
         } else {
             GRANDCHILDREN_SKEW.get()
         };
-        self.inner.grandchildren() + skew
+        self.inner.grandchild_count() + skew
     }
 
     /// Alter the version-size aggregate to exercise undercounts and overcounts.
@@ -321,8 +321,8 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     }
 
     /// Read the wrapped node's grandchild count.
-    fn grandchildren(&self) -> usize {
-        self.inner.grandchildren()
+    fn grandchild_count(&self) -> usize {
+        self.inner.grandchild_count()
     }
 
     /// Read the wrapped node's explosion cost.
@@ -332,6 +332,11 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
 
     /// The wrapped node's bound on its explosion cost.
     const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
+
+    /// Read the wrapped node's child count.
+    fn child_count(&self) -> usize {
+        self.inner.child_count()
+    }
 }
 
 impl Backend for Materializing {

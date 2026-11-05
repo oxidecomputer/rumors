@@ -148,7 +148,7 @@ pub struct Listed {
 /// child's children have.
 ///
 /// The lister counts as its backend lists them, a child at the leaves
-/// counting one ([`ErasedNode::grandchildren`]). A listed child that is itself a leaf counts one as well. Nothing is ever
+/// counting one ([`ErasedNode::grandchild_count`]). A listed child that is itself a leaf counts one as well. Nothing is ever
 /// asked about a leaf but the leaf itself, whose reply supplies at most one
 /// node, so one is that reply's bound too. Every count therefore lies in
 /// 1..=65,536: at most 256 children of at most 256 children each. The wire
@@ -166,7 +166,7 @@ impl Grandchildren {
 
     /// The count of `node`'s grandchildren, a leaf counting one.
     pub fn of(node: &impl ErasedNode) -> Self {
-        Self::new(node.grandchildren().max(1))
+        Self::new(node.grandchild_count().max(1))
             .expect("a node has at most 256 children of at most 256 children")
     }
 

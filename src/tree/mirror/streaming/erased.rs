@@ -239,11 +239,13 @@ pub(crate) mod ops {
         }};
     }
 
-    /// Collect one typed node's children, addressed by radix.
+    /// Collect one typed node's children, addressed by radix, into a
+    /// vector of capacity `count`, the number its backend lists.
     async fn children_of_typed<B, H>(
         backend: &B,
         prefix: Prefix<S<H>>,
         node: B::Node<S<H>>,
+        count: usize,
     ) -> Result<Vec<(u8, B::Node<H>)>, B::Error>
     where
         B: Backend<Node<Z>: Leaf>,
@@ -256,17 +258,24 @@ pub(crate) mod ops {
         let mut children = pin!(held_by(Holding::ExplodedNodes, || {
             backend.clone().children(prefix, node)
         }));
-        let mut fan = Vec::new();
+        let mut fan = Vec::with_capacity(count);
         while let Some(item) = children.next().await {
             let (prefix, child) = item?;
             let (_, radix) = prefix.pop();
             fan.push((radix, child));
         }
+        debug_assert_eq!(
+            fan.len(),
+            count,
+            "a backend lists exactly its node's child count"
+        );
         Ok(fan)
     }
 
     /// Collect one erased node's children, addressed by radix
-    /// ([`children_of_typed`], erased).
+    /// ([`children_of_typed`], erased), into a vector of exactly their
+    /// number ([`ErasedNode::child_count`]), which a question's price
+    /// counts at its capacity.
     ///
     /// `prefix` is the node's own prefix; its length names the height the
     /// node is re-tagged at, so a walk cannot explode a node at any level
@@ -282,12 +291,14 @@ pub(crate) mod ops {
         // The backend's own account of what the explosion allocates, for a
         // meter to hold against the allocations themselves.
         reported(Holding::ExplodedNodes, node.explosion_bytes());
+        let count = node.child_count();
         at_parent_height!(prefix.height(), H => {
             let children =
                 children_of_typed::<B, <H as Pred>::Pred>(
                     backend,
                     prefix.assume::<H>(),
                     B::assume::<H>(node),
+                    count,
                 )
                 .await?;
             Ok(children
