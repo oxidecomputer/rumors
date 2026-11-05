@@ -11,13 +11,14 @@
 //! of ledger budgets `c_max ≤ B ≤ B′`, where a public budget always leaves the
 //! ledger at least `c_max`:
 //!
-//! - **(a)** No inversion exceeds one round trip: `T(B′) ≤ T(B) + 2δ`.
-//!   Inversions are cumulative, so the claim covers every pair, not only
-//!   adjacent budgets.
-//! - **(b)** None occur above a threshold the session sets:
-//!   `T(B′) ≤ T(B)` whenever `B ≥ B*`.
-//! - **(c)** Inversions grow rarer as the budget grows: a measured trend,
-//!   which this test does not assert.
+//! - **(a)** On every link, no inversion exceeds one round trip:
+//!   `T(B′) ≤ T(B) + 2δ`. Inversions are cumulative, so the claim covers
+//!   every pair, not only adjacent budgets.
+//! - **(b)** On the latency-only link, none occur above a threshold the
+//!   session sets: `T(B′) ≤ T(B)` whenever `B ≥ B*`.
+//!
+//! On links with bandwidth, inversions remain above `B*`, each within
+//! about one message's serialization. They are observed, not asserted.
 //!
 //! At `B ≥ N*` the session is the unlimited session, event for event
 //! ([`no_slowdown`](super::no_slowdown)), so the pairs that matter have `B <
@@ -262,10 +263,10 @@ fn check_case(
 /// than one round trip, on any link, and never costs it anything at or
 /// above its depth-1 claims' total on the latency-only link.
 ///
-/// This is the owner's ruled criterion: (a) on every link and (b) on the
-/// latency-only link, both declared rather than proven. The module docs
-/// state it, the threshold's proven property, and the counterexample that
-/// confines (b) to the latency-only link.
+/// This is the criterion the module docs state, measured rather than proven:
+/// (a) on every link, and (b) on the latency-only link alone, since on a link
+/// with bandwidth a larger budget can reorder a direction's writes and
+/// lengthen the session by a message's serialization or a few segments'.
 ///
 /// Neither half may pass vacuously. Each case premises a constrained
 /// session: its no-cost point exceeds `c_max` on both links, its depth-1

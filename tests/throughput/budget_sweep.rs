@@ -60,16 +60,22 @@
 //! every pair of ledger budgets `c_max ≤ B ≤ B′`, with inversions counted
 //! cumulatively, so that every pair is judged and not only adjacent budgets:
 //!
-//! - **(a)** no inversion exceeds one round trip, `T(B′) ≤ T(B) + 2δ`;
-//! - **(b)** none occur once `B` reaches a threshold the session sets;
-//! - **(c)** inversions grow rarer as the budget grows.
+//! - **(a)** on every link, no inversion exceeds one round trip,
+//!   `T(B′) ≤ T(B) + 2δ`;
+//! - **(b)** on the latency-only link, none occur once `B` reaches the
+//!   session's depth-1 claims' total.
 //!
-//! [`budget_criterion`](super::budget_criterion) states the criterion in full,
-//! says which parts are proven and which declared, and asserts (a) on every
-//! link and (b) on the latency-only link, whose threshold is the session's
-//! depth-1 claims' total. On a link with bandwidth, a larger budget can reorder
-//! a direction's writes and lengthen the session by a message's serialization
-//! or a few segments' at budgets up to just below `N*`, so (b) fails there.
+//! On a link with bandwidth, a larger budget can still reorder a
+//! direction's writes above that total, at budgets up to just below `N*`,
+//! and lengthen the session by about one message's serialization. Those
+//! residual inversions are observed, not asserted.
+//!
+//! [`budget_criterion`](super::budget_criterion) states the criterion in full
+//! and asserts (a) on every link and (b) on the latency-only link, whose
+//! threshold is the session's depth-1 claims' total. On a link with bandwidth, a
+//! larger budget can reorder a direction's writes and lengthen the session by a
+//! message's serialization or a few segments' at budgets up to just below `N*`,
+//! so (b) fails there.
 //!
 //! # The measurement
 //!

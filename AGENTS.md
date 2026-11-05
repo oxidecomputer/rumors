@@ -50,7 +50,7 @@ justfile's `nightly_toolchain` give the reason and the bump procedure.
 
 - Unit and protocol tests live in a sibling file: `mod tests;` in the source,
   `tests.rs` next to it. Cross-peer suites are binaries in `tests/`, built on
-  the fixtures in `crates/rumors-testkit` (its `common` module doc maps them).
+  the fixtures in `crates/rumors-testkit` (its `common` module doc describes them).
 - Give every test a doc comment stating the behavior and invariant it
   protects. The gate's `testdoc` checks that the comment exists; review holds
   it to the standard.
