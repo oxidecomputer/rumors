@@ -37,8 +37,8 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
     /// is never logged, only what arrives afterwards.
     ///
     /// The caller must create `local` by bootstrapping from the shared
-    /// universe seed (directly, or via another peer), never by an
-    /// independent [`rumors::Peer::seed`]: only then are all peers pairwise
+    /// universe seed (directly, or via another peer), never as the first peer
+    /// of another network: only then are all peers pairwise
     /// disjoint, the precondition for [`gossip_step`] to succeed.
     pub fn new(local: Rumors<T>) -> Self {
         let since = local.snapshot().latest().clone();

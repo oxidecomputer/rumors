@@ -7,9 +7,10 @@ use proptest::prelude::*;
 use rumors::error::Phase;
 use rumors::{Error, Network, Retire};
 
-use super::{GatedBookmark, Msg, Peer, Rumors, block_on, boot_from, gossip};
+use super::{GatedBookmark, Msg, Rumors, block_on, boot_from, gossip};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::flaky::{DurableStore, persisted_record};
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// A converged pair with current durable records at both endpoints.
 struct Pair {
@@ -26,11 +27,14 @@ struct Pair {
 /// Construct the state needed to isolate identity transfer from reconciliation.
 impl Pair {
     /// Bootstrap and settle both records so the next writes concern donation.
-    fn new(initial: usize) -> Self {
+    ///
+    /// The receiver is the first peer of the network `network` names.
+    fn new(network: NetworkSeed, initial: usize) -> Self {
         block_on(async {
             let receiver_bookmark = GatedBookmark::new(DurableStore::default());
             let donor_bookmark = GatedBookmark::new(DurableStore::default());
-            let receiver = Peer::<Msg>::seed()
+            let receiver = network
+                .peer::<Msg>()
                 .bookmark(receiver_bookmark.clone())
                 .await
                 .unwrap()
@@ -67,11 +71,12 @@ fn encoded_len(value: Value) -> usize {
     bytes.len()
 }
 
-/// Measure the donation's start and length, and the donor's total incoming bytes.
-fn boundaries(initial: usize) -> (usize, usize, usize) {
+/// Measure the donation's start and length, and the donor's total incoming
+/// bytes, on the pair [`Pair::new`] builds from `network`.
+fn boundaries(network: NetworkSeed, initial: usize) -> (usize, usize, usize) {
     let Pair {
         donor, receiver, ..
-    } = Pair::new(initial);
+    } = Pair::new(network, initial);
     let identity = donor.dangerously_alias_party();
     let frame = encoded_len(Value::Tag(
         rumors::tags::PARTY_TAG,
@@ -144,11 +149,12 @@ proptest! {
     fn retirement_deadlines_respect_wire_handoff(
         initial in 0usize..6,
         offset in any::<proptest::sample::Index>(),
+        network in network_seed(),
     ) {
-        let (start, frame, _) = boundaries(initial);
+        let (start, frame, _) = boundaries(network, initial);
         for stage in [Failure::Preamble, Failure::Reconciliation,
             Failure::DonationStart, Failure::DonationPrefix] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let receiver_before = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
@@ -191,10 +197,13 @@ proptest! {
     /// Expiry during persistence preserves a recoverable donor before handoff,
     /// even after durable removal, and consumes it after the recipient absorbs it.
     #[test]
-    fn retirement_deadlines_respect_durable_handoff(initial in 0usize..6) {
+    fn retirement_deadlines_respect_durable_handoff(
+        initial in 0usize..6,
+        network in network_seed(),
+    ) {
         for stage in [Cancellation::BeforeRemoval, Cancellation::AfterRemoval,
             Cancellation::AfterAbsorption] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let mut expected_receiver = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
@@ -263,12 +272,13 @@ proptest! {
     fn retirement_errors_preserve_the_recovery_boundary(
         initial in 0usize..6,
         offset in any::<proptest::sample::Index>(),
+        network in network_seed(),
     ) {
-        let (start, frame, incoming) = boundaries(initial);
+        let (start, frame, incoming) = boundaries(network, initial);
         for stage in [Failure::Preamble, Failure::Reconciliation, Failure::DonationStart,
             Failure::DonationPrefix, Failure::Completion, Failure::Removal,
             Failure::AfterRemoval, Failure::AfterAbsorption] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let receiver_before = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
@@ -349,11 +359,12 @@ proptest! {
     fn retirement_cancellation_respects_durable_handoff(
         initial in 0usize..6,
         offset in any::<proptest::sample::Index>(),
+        network in network_seed(),
     ) {
-        let (start, frame, _) = boundaries(initial);
+        let (start, frame, _) = boundaries(network, initial);
         for stage in [Cancellation::BeforeRemoval, Cancellation::AfterRemoval,
             Cancellation::DonationPrefix, Cancellation::AfterAbsorption] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let mut expected_receiver = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();

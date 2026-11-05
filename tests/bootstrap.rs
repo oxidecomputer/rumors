@@ -14,7 +14,7 @@ use crate::common::oracle::readout;
 use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
 
 use rumors_testkit::common::property::SESSION_DIVISOR;
-use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -289,173 +289,185 @@ fn wire_join(
     })
 }
 
-/// A provider holding three messages, the corpus the `Joined`-arm tests
-/// bootstrap from.
-fn populated_provider() -> Rumors<u64> {
-    let provider = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
+/// The first peer of the network `network` names, holding three messages:
+/// the corpus the `Joined`-arm tests bootstrap from.
+fn populated_provider(network: NetworkSeed) -> Rumors<u64> {
+    let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
     provider.send_all([1, 2, 3]).unwrap();
     provider
 }
 
-/// The `Joined` arm: a bookmarked join returns only after the received
-/// identity is durably recorded.
-///
-/// The store holds a record for the joined
-/// network before the caller ever sees the peer, and the peer carries the
-/// provider's whole set.
-///
-/// The empty-store precondition is the negative
-/// control: the record demonstrably came from this join.
-#[test]
-fn bookmarked_join_persists_the_arriving_identity() {
-    let provider = populated_provider();
-    let (store, bookmark) = durable_bookmark(Vec::new());
-    assert!(
-        persisted_record(&store).is_empty(),
-        "the store must start empty for the persist to be attributable",
-    );
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let Joined::Joined { peer, .. } = wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
-    else {
-        panic!("an established provider and healthy storage must produce a joined peer");
-    };
+    /// The `Joined` arm: a bookmarked join returns only after the received
+    /// identity is durably recorded.
+    ///
+    /// The store holds a record for the joined
+    /// network before the caller ever sees the peer, and the peer carries the
+    /// provider's whole set.
+    ///
+    /// The empty-store precondition is the negative
+    /// control: the record demonstrably came from this join.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn bookmarked_join_persists_the_arriving_identity(network in network_seed()) {
+        let provider = populated_provider(network);
+        let (store, bookmark) = durable_bookmark(Vec::new());
+        assert!(
+            persisted_record(&store).is_empty(),
+            "the store must start empty for the persist to be attributable",
+        );
 
-    let record = persisted_record(&store);
-    let clocks = record
-        .get(&peer.network())
-        .expect("the record must hold the joined network's identity");
-    assert!(
-        !clocks.is_empty(),
-        "the joined network's entry must record the received identity",
-    );
-    assert_eq!(
-        readout(&peer.into_rumors().snapshot()),
-        readout(&provider.snapshot()),
-        "the bookmarked join must still deliver the provider's whole set",
-    );
-}
+        let Joined::Joined { peer, .. } = wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
+        else {
+            panic!("an established provider and healthy storage must produce a joined peer");
+        };
 
-/// Mutual bootstrap leaves storage untouched; retrying the returned builder persists there.
-#[test]
-fn mutual_bookmarked_bail_returns_the_builder() {
-    let (store, bookmark) = durable_bookmark(Vec::new());
-    let (a_store, a_bookmark) = durable_bookmark(Vec::new());
+        let record = persisted_record(&store);
+        let clocks = record
+            .get(&peer.network())
+            .expect("the record must hold the joined network's identity");
+        assert!(
+            !clocks.is_empty(),
+            "the joined network's entry must record the received identity",
+        );
+        assert_eq!(
+            readout(&peer.into_rumors().snapshot()),
+            readout(&provider.snapshot()),
+            "the bookmarked join must still deliver the provider's whole set",
+        );
+    }
 
-    let (a_out, b_out) = block_on(async {
-        let (mut a_end, mut b_end) =
-            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-        let (a_out, b_out) = tokio::join!(
-            Peer::<u64>::bootstrap()
-                .bookmark(a_bookmark)
-                .join(&mut a_end.read, &mut a_end.write),
+    /// Mutual bootstrap leaves storage untouched; retrying the returned builder persists there.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn mutual_bookmarked_bail_returns_the_builder(network in network_seed()) {
+        let (store, bookmark) = durable_bookmark(Vec::new());
+        let (a_store, a_bookmark) = durable_bookmark(Vec::new());
+
+        let (a_out, b_out) = block_on(async {
+            let (mut a_end, mut b_end) =
+                rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let (a_out, b_out) = tokio::join!(
+                Peer::<u64>::bootstrap()
+                    .bookmark(a_bookmark)
+                    .join(&mut a_end.read, &mut a_end.write),
+                Peer::<u64>::bootstrap()
+                    .bookmark(bookmark)
+                    .join(&mut b_end.read, &mut b_end.write),
+            );
+            let outcome = (released(a_out), released(b_out));
+            assert_connection_drained(a_end, b_end);
+            outcome
+        });
+
+        let Joined::Bailed { bootstrap, .. } = b_out else {
+            panic!("a mutually-bootstrapping bookmarked peer must bail");
+        };
+        assert!(
+            matches!(a_out, Joined::Bailed { .. }),
+            "both sides of a mutual bootstrap must bail",
+        );
+        assert!(
+            persisted_record(&store).is_empty() && persisted_record(&a_store).is_empty(),
+            "a bail must leave storage untouched",
+        );
+
+        // The retry the bail recommends, with the builder it handed back.
+        let provider = populated_provider(network);
+        let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
+            panic!("the returned builder must serve the retry against a provider");
+        };
+        assert!(
+            persisted_record(&store).contains_key(&peer.network()),
+            "the retry must persist into the very storage the bail returned",
+        );
+    }
+
+    /// A failed session leaves storage untouched and returns a builder that can join another provider.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn failed_bookmarked_join_returns_the_builder(network in network_seed()) {
+        let (store, bookmark) = durable_bookmark(Vec::new());
+
+        let outcome = block_on(async {
+            let (near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            // The counterparty hangs up before the session begins: the join's
+            // preamble exchange dies on the closed transport.
+            drop(far);
             Peer::<u64>::bootstrap()
                 .bookmark(bookmark)
-                .join(&mut b_end.read, &mut b_end.write),
+                .join(near.read, near.write)
+                .await
+        });
+
+        let Joined::Failed { bootstrap, .. } = outcome else {
+            panic!("a dead counterparty must fail the session before a peer exists");
+        };
+        assert!(
+            persisted_record(&store).is_empty(),
+            "a failed session must leave storage untouched",
         );
-        let outcome = (released(a_out), released(b_out));
-        assert_connection_drained(a_end, b_end);
-        outcome
-    });
 
-    let Joined::Bailed { bootstrap, .. } = b_out else {
-        panic!("a mutually-bootstrapping bookmarked peer must bail");
-    };
-    assert!(
-        matches!(a_out, Joined::Bailed { .. }),
-        "both sides of a mutual bootstrap must bail",
-    );
-    assert!(
-        persisted_record(&store).is_empty() && persisted_record(&a_store).is_empty(),
-        "a bail must leave storage untouched",
-    );
+        // The retry the failure permits, with the builder it handed back.
+        let provider = populated_provider(network);
+        let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
+            panic!("the returned builder must serve the retry against a provider");
+        };
+        assert!(
+            persisted_record(&store).contains_key(&peer.network()),
+            "the retry must persist into the very storage the failure returned",
+        );
+    }
 
-    // The retry the bail recommends, with the builder it handed back.
-    let provider = populated_provider();
-    let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
-        panic!("the returned builder must serve the retry against a provider");
-    };
-    assert!(
-        persisted_record(&store).contains_key(&peer.network()),
-        "the retry must persist into the very storage the bail returned",
-    );
-}
+    /// A failed persist returns the received peer with its content and identity intact for retry.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn persist_failure_hands_back_the_live_peer(network in network_seed()) {
+        let provider = populated_provider(network);
 
-/// A failed session leaves storage untouched and returns a builder that can join another provider.
-#[test]
-fn failed_bookmarked_join_returns_the_builder() {
-    let (store, bookmark) = durable_bookmark(Vec::new());
+        // Negative control first: identical join, no injected fault.
+        let (_control_store, control_bookmark) = durable_bookmark(Vec::new());
+        assert!(
+            matches!(
+                wire_join(&provider, Peer::bootstrap().bookmark(control_bookmark)),
+                Joined::Joined { .. }
+            ),
+            "with healthy storage the identical join must take the Joined arm",
+        );
 
-    let outcome = block_on(async {
-        let (near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-        // The counterparty hangs up before the session begins: the join's
-        // preamble exchange dies on the closed transport.
-        drop(far);
-        Peer::<u64>::bootstrap()
-            .bookmark(bookmark)
-            .join(near.read, near.write)
-            .await
-    });
+        // The first (and only) write fails: the eager attach-time persist.
+        let (store, bookmark) = durable_bookmark(vec![true]);
+        let Joined::Unbookmarked { unbookmarked, .. } =
+            wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
+        else {
+            panic!("a failed persist must surface the live peer as Unbookmarked");
+        };
+        assert!(
+            persisted_record(&store).is_empty(),
+            "a failed write must leave the durable bytes untouched",
+        );
 
-    let Joined::Failed { bootstrap, .. } = outcome else {
-        panic!("a dead counterparty must fail the session before a peer exists");
-    };
-    assert!(
-        persisted_record(&store).is_empty(),
-        "a failed session must leave storage untouched",
-    );
+        // The documented recovery: retry the attach against healthy storage.
+        let (retry_store, retry_bookmark) = durable_bookmark(Vec::new());
+        let peer = block_on(unbookmarked.peer.bookmark(retry_bookmark))
+            .expect("re-attaching against healthy storage must succeed");
+        assert!(
+            persisted_record(&retry_store).contains_key(&peer.network()),
+            "the recovered attach must persist the received identity",
+        );
 
-    // The retry the failure permits, with the builder it handed back.
-    let provider = populated_provider();
-    let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
-        panic!("the returned builder must serve the retry against a provider");
-    };
-    assert!(
-        persisted_record(&store).contains_key(&peer.network()),
-        "the retry must persist into the very storage the failure returned",
-    );
-}
-
-/// A failed persist returns the received peer with its content and identity intact for retry.
-#[test]
-fn persist_failure_hands_back_the_live_peer() {
-    let provider = populated_provider();
-
-    // Negative control first: identical join, no injected fault.
-    let (_control_store, control_bookmark) = durable_bookmark(Vec::new());
-    assert!(
-        matches!(
-            wire_join(&provider, Peer::bootstrap().bookmark(control_bookmark)),
-            Joined::Joined { .. }
-        ),
-        "with healthy storage the identical join must take the Joined arm",
-    );
-
-    // The first (and only) write fails: the eager attach-time persist.
-    let (store, bookmark) = durable_bookmark(vec![true]);
-    let Joined::Unbookmarked { unbookmarked, .. } =
-        wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
-    else {
-        panic!("a failed persist must surface the live peer as Unbookmarked");
-    };
-    assert!(
-        persisted_record(&store).is_empty(),
-        "a failed write must leave the durable bytes untouched",
-    );
-
-    // The documented recovery: retry the attach against healthy storage.
-    let (retry_store, retry_bookmark) = durable_bookmark(Vec::new());
-    let peer = block_on(unbookmarked.peer.bookmark(retry_bookmark))
-        .expect("re-attaching against healthy storage must succeed");
-    assert!(
-        persisted_record(&retry_store).contains_key(&peer.network()),
-        "the recovered attach must persist the received identity",
-    );
-
-    // The peer is alive and complete: it holds everything the session
-    // delivered, so the failure cost a persist attempt and nothing else.
-    assert_eq!(
-        readout(&peer.into_rumors().snapshot()),
-        readout(&provider.snapshot()),
-        "the unbookmarked peer must hold the provider's whole set",
-    );
+        // The peer is alive and complete: it holds everything the session
+        // delivered, so the failure cost a persist attempt and nothing else.
+        assert_eq!(
+            readout(&peer.into_rumors().snapshot()),
+            readout(&provider.snapshot()),
+            "the unbookmarked peer must hold the provider's whole set",
+        );
+    }
 }

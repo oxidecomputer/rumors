@@ -10,8 +10,9 @@
 //! the oracle checks also use), or through [`Snapshot`](rumors::Snapshot)
 //! equality where the assertion is "nothing changed at all".
 //!
-//! Every peer in a test is a genuine, party-disjoint fork of one shared
-//! [`Peer::seed`](rumors::Peer::seed), created by [`bootstrap_fork`]. They
+//! Every peer in a test is a genuine, party-disjoint fork, created by
+//! [`bootstrap_fork`], of the first peer of one network, which the test
+//! creates from a drawn network seed. They
 //! share a [`Network`](rumors::Network) but tick disjoint parties, so their
 //! concurrent inserts stay incomparable and gossip between them never
 //! fails.
@@ -31,7 +32,7 @@ use serde::de::DeserializeOwned;
 use crate::common::action::{LocalAction, arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::{readout, readout_multiset};
 use crate::common::wire::{bootstrap_fork, wire_gossip};
-use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// Maximum values generated for each side of the carrier-path property.
 const MAX_CARRIER_VALUES: usize = 8;
@@ -50,17 +51,17 @@ fn fingerprint<T: Send + Sync + 'static>(k: &Rumors<T>) -> Snapshot<T> {
     k.snapshot()
 }
 
-/// Check that one session produces the exact union of two local histories.
+/// Check that one session produces the exact union of two local histories,
+/// built on two forks of the network `network` names.
 fn assert_gossip_unions<T>(
+    network: NetworkSeed,
     a_actions: &[LocalAction<T>],
     b_actions: &[LocalAction<T>],
 ) -> TestCaseResult
 where
     T: Clone + Debug + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    let seed = rumors::Peer::<T>::seed()
-        .sync_memory_budget(0)
-        .into_rumors();
+    let seed = network.peer::<T>().sync_memory_budget(0).into_rumors();
     let a = build_local(dup(&seed), a_actions);
     let b = build_local(dup(&seed), b_actions);
 
@@ -276,8 +277,9 @@ proptest! {
     fn gossip_unions_content(
         a_actions in arb_local_actions(),
         b_actions in arb_local_actions(),
+        network in network_seed(),
     ) {
-        assert_gossip_unions(&a_actions, &b_actions)?;
+        assert_gossip_unions(network, &a_actions, &b_actions)?;
     }
 }
 
@@ -288,8 +290,9 @@ proptest! {
     fn gossip_unions_string_content(
         a_actions in arb_string_actions(),
         b_actions in arb_string_actions(),
+        network in network_seed(),
     ) {
-        assert_gossip_unions(&a_actions, &b_actions)?;
+        assert_gossip_unions(network, &a_actions, &b_actions)?;
     }
 
     /// Carrying one peer's state through a fresh fork reaches the same live

@@ -24,7 +24,7 @@ use crate::common::flaky::{DurableStore, persisted_record};
 use crate::common::wire::block_on;
 use rumors::testing::MEMORY_CAPACITY;
 use rumors_testkit::common::property::SESSION_DIVISOR;
-use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
 /// The message payload: a test-unique id.
@@ -315,11 +315,13 @@ const M0: Msg = 0;
 /// Message committed after the gated session fixes its snapshot.
 const M1: Msg = 1;
 
-/// Replicate M0, then send M1 while A's next session is checkpointing its snapshot.
-async fn transmit_during_persist() -> Scene {
+/// Replicate M0 from the first peer of the network `network` names, then
+/// send M1 while A's next session is checkpointing its snapshot.
+async fn transmit_during_persist(network: NetworkSeed) -> Scene {
     let store_a = DurableStore::default();
     let bm_a = GatedBookmark::new(store_a.clone());
-    let a = Peer::<Msg>::seed()
+    let a = network
+        .peer::<Msg>()
         .sync_memory_budget(0)
         .bookmark(bm_a.clone())
         .await
@@ -370,39 +372,41 @@ async fn transmit_during_persist() -> Scene {
 
 // ---- the tests ----------------------------------------------------------------
 
-/// A session's persisted bookmark record covers every own-party event the
-/// session transmits.
-///
-/// The wire never carries an own event the durable record
-/// does not dominate, however the persist's in-flight window interleaves
-/// with concurrent sends.
-#[test]
-fn record_dominates_the_transmitted_frontier() {
-    block_on(async {
-        let scene = transmit_during_persist().await;
-        let Scene { a, b, store_a, .. } = &scene;
-
-        let party = a.dangerously_alias_party();
-        let recorded = persisted_record(store_a)
-            .remove(&a.network())
-            .expect("the gated session persisted a record")
-            .into_iter()
-            .fold(Version::new(), |acc, clock| acc | clock.version());
-        let transmitted = b.snapshot().latest().clone();
-
-        let own_transmitted = &transmitted / &party;
-        let own_recorded = &recorded / &party;
-        assert!(
-            own_transmitted <= own_recorded,
-            "the session transmitted own-party events the persisted record does not \
-             dominate: transmitted {own_transmitted:?}, recorded {own_recorded:?}: a crash \
-             now reclaims the identity below a frontier another replica durably holds",
-        );
-    });
-}
-
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
+
+    /// A session's persisted bookmark record covers every own-party event the
+    /// session transmits.
+    ///
+    /// The wire never carries an own event the durable record
+    /// does not dominate, however the persist's in-flight window interleaves
+    /// with concurrent sends.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn record_dominates_the_transmitted_frontier(network in network_seed()) {
+        block_on(async {
+            let scene = transmit_during_persist(network).await;
+            let Scene { a, b, store_a, .. } = &scene;
+
+            let party = a.dangerously_alias_party();
+            let recorded = persisted_record(store_a)
+                .remove(&a.network())
+                .expect("the gated session persisted a record")
+                .into_iter()
+                .fold(Version::new(), |acc, clock| acc | clock.version());
+            let transmitted = b.snapshot().latest().clone();
+
+            let own_transmitted = &transmitted / &party;
+            let own_recorded = &recorded / &party;
+            assert!(
+                own_transmitted <= own_recorded,
+                "the session transmitted own-party events the persisted record does not \
+                 dominate: transmitted {own_transmitted:?}, recorded {own_recorded:?}: a crash \
+                 now reclaims the identity below a frontier another replica durably holds",
+            );
+        });
+    }
 
     /// A session future dropped mid-persist never suppresses the next update.
     ///
@@ -488,85 +492,83 @@ divided_proptest! {
             );
         });
     }
-}
 
-/// Restart preserves M0 on every replica; the uncheckpointed M1 stays untransmitted.
-#[test]
-fn restart_after_transmit_never_destroys_durable_messages() {
-    block_on(async {
-        let scene = transmit_during_persist().await;
-        let Scene {
-            a,
-            b,
-            c,
-            bm_a,
-            store_a,
-        } = scene;
+    /// Restart preserves M0 on every replica; the uncheckpointed M1 stays untransmitted.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn restart_after_transmit_never_destroys_durable_messages(network in network_seed()) {
+        block_on(async {
+            let scene = transmit_during_persist(network).await;
+            let Scene {
+                a,
+                b,
+                c,
+                bm_a,
+                store_a,
+            } = scene;
 
-        // M0 is durable because other replicas already hold it. M1 was sent
-        // after the session's snapshot, so losing it with A is permitted.
-        let durable_version = leaf_version(&b, M0).expect("B must already hold M0");
-        assert_eq!(leaf_version(&c, M0).as_ref(), Some(&durable_version));
-        assert!(
-            leaf_version(&b, M1).is_none(),
-            "the gated session must not transmit a write committed after its snapshot",
-        );
-
-        // Crash A: every handle drops; only the durable store survives.
-        drop(a);
-        drop(bm_a);
-
-        // C knows the progress in A's checkpoint. A may reclaim those rights
-        // after catching up, even though the lost M1 is absent.
-        let a2 = boot_from(&c, GatedBookmark::new(store_a.clone())).await;
-        gossip(&a2, &c).await; // the first update reclaims
-
-        // Exercise new writes after recovery. Their versions must not collide
-        // with M0's durable version or cause it to disappear during gossip.
-        for i in 0..8 {
-            a2.send(100 + i).unwrap();
-        }
-
-        // Heal to a fixed point over clean wires.
-        let peers = [&a2, &b, &c];
-        let mut rounds = 0;
-        loop {
-            let before: Vec<_> = peers.iter().map(|p| p.snapshot().hash()).collect();
-            for i in 0..peers.len() {
-                for j in (i + 1)..peers.len() {
-                    gossip(peers[i], peers[j]).await;
-                }
-            }
-            let after: Vec<_> = peers.iter().map(|p| p.snapshot().hash()).collect();
-            if before == after {
-                break;
-            }
-            rounds += 1;
+            // M0 is durable because other replicas already hold it. M1 was sent
+            // after the session's snapshot, so losing it with A is permitted.
+            let durable_version = leaf_version(&b, M0).expect("B must already hold M0");
+            assert_eq!(leaf_version(&c, M0).as_ref(), Some(&durable_version));
             assert!(
-                rounds <= MAX_HEAL_ROUNDS,
-                "fleet did not converge within {MAX_HEAL_ROUNDS} rounds",
+                leaf_version(&b, M1).is_none(),
+                "the gated session must not transmit a write committed after its snapshot",
             );
-        }
 
-        // Convergence: all replicas hold identical content.
-        let reference = a2.snapshot().hash();
-        assert_eq!(reference, b.snapshot().hash(), "B diverged after the heal");
-        assert_eq!(reference, c.snapshot().hash(), "C diverged after the heal");
+            // Crash A: every handle drops; only the durable store survives.
+            drop(a);
+            drop(bm_a);
 
-        // Agreement alone could hide a shared loss. Require the known durable
-        // message to survive with its original version on every replica.
-        for (label, peer) in [("A'", &a2), ("B", &b), ("C", &c)] {
-            assert_eq!(
-                leaf_version(peer, M0).as_ref(),
-                Some(&durable_version),
-                "durable message M0 was lost or changed version at {label}",
-            );
-        }
-    });
-}
+            // C knows the progress in A's checkpoint. A may reclaim those rights
+            // after catching up, even though the lost M1 is absent.
+            let a2 = boot_from(&c, GatedBookmark::new(store_a.clone())).await;
+            gossip(&a2, &c).await; // the first update reclaims
 
-divided_proptest! {
-    #![divisor(SESSION_DIVISOR)]
+            // Exercise new writes after recovery. Their versions must not collide
+            // with M0's durable version or cause it to disappear during gossip.
+            for i in 0..8 {
+                a2.send(100 + i).unwrap();
+            }
+
+            // Heal to a fixed point over clean wires.
+            let peers = [&a2, &b, &c];
+            let mut rounds = 0;
+            loop {
+                let before: Vec<_> = peers.iter().map(|p| p.snapshot().hash()).collect();
+                for i in 0..peers.len() {
+                    for j in (i + 1)..peers.len() {
+                        gossip(peers[i], peers[j]).await;
+                    }
+                }
+                let after: Vec<_> = peers.iter().map(|p| p.snapshot().hash()).collect();
+                if before == after {
+                    break;
+                }
+                rounds += 1;
+                assert!(
+                    rounds <= MAX_HEAL_ROUNDS,
+                    "fleet did not converge within {MAX_HEAL_ROUNDS} rounds",
+                );
+            }
+
+            // Convergence: all replicas hold identical content.
+            let reference = a2.snapshot().hash();
+            assert_eq!(reference, b.snapshot().hash(), "B diverged after the heal");
+            assert_eq!(reference, c.snapshot().hash(), "C diverged after the heal");
+
+            // Agreement alone could hide a shared loss. Require the known durable
+            // message to survive with its original version on every replica.
+            for (label, peer) in [("A'", &a2), ("B", &b), ("C", &c)] {
+                assert_eq!(
+                    leaf_version(peer, M0).as_ref(),
+                    Some(&durable_version),
+                    "durable message M0 was lost or changed version at {label}",
+                );
+            }
+        });
+    }
 
     /// A failed donation write prevents handoff even if removal reached storage.
     /// The donor recovers its fork and can checkpoint and donate again.

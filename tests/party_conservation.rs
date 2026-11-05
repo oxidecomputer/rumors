@@ -43,12 +43,12 @@ use std::collections::BTreeMap;
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::{Peer, Retire, Rumors};
+use rumors::{Retire, Rumors};
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
-use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// The largest fleet [`fleet_scale_retirement_preserves_content_and_party`]
 /// builds and retires.
@@ -196,10 +196,10 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
     }
 }
 
-/// Run `ops` from a freshly seeded universe, invoking `check` on the live
-/// fleet at the baseline and after every step.
-fn run_schedule(ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
-    let mut fleet = vec![Peer::<u64>::seed().sync_memory_budget(0).into_rumors()];
+/// Run `ops` from the universe `network` founds, invoking `check` on the
+/// live fleet at the baseline and after every step.
+fn run_schedule(network: NetworkSeed, ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
+    let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
     check(&fleet);
     for &op in ops {
         apply(&mut fleet, op);
@@ -217,8 +217,9 @@ proptest! {
     #[test]
     fn parties_stay_pairwise_disjoint_under_lifecycle_schedules(
         ops in prop::collection::vec(arb_op(), 1..=20),
+        network in network_seed(),
     ) {
-        run_schedule(&ops, assert_pairwise_disjoint);
+        run_schedule(network, &ops, assert_pairwise_disjoint);
     }
 
     /// Identity is conserved along arbitrary lifecycle schedules: the join
@@ -231,8 +232,9 @@ proptest! {
     #[test]
     fn identity_is_conserved_under_lifecycle_schedules(
         ops in prop::collection::vec(arb_op(), 1..=20),
+        network in network_seed(),
     ) {
-        run_schedule(&ops, assert_seed_conserved);
+        run_schedule(network, &ops, assert_seed_conserved);
     }
 }
 
