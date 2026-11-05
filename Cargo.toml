@@ -75,6 +75,9 @@ dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
 focused-fuel-protocol = { path = "crates/before/focused-fuel/protocol" }
+# 0.11.0 does not build on illumos: it combines `libc`'s `POSIX_SPAWN_*`
+# flags, `i16` there, into a `c_int`.
+fork = "0.10"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 fuzzfit-harness = { path = "crates/before/fuzzfit/harness" }
 hex = "0.4"
@@ -238,6 +241,9 @@ rand_chacha.workspace = true
 pollster.workspace = true
 # The allocation-pricing suites read per-thread allocator traffic from it.
 alloc-meter.workspace = true
+# The seed-after-fork regression test forks its process, through a crate
+# rather than `unsafe` calls of its own.
+fork.workspace = true
 # The sealed exchange's tests seal and open through `hpke` directly, as an
 # oracle for the documented bindings, with its allocating API.
 hpke = { workspace = true, features = ["alloc"] }
