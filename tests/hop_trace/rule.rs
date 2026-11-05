@@ -243,7 +243,7 @@ pub struct Prediction {
 
 /// The hops of the setup and closing: preambles, greetings, and the
 /// completion markers.
-const SETUP_AND_CLOSING_HOPS: u64 = 3;
+pub const SETUP_AND_CLOSING_HOPS: u64 = 3;
 
 /// The depth of the responder's reply to the opening question, the
 /// shallowest reply a divergent session has.

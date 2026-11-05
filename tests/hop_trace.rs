@@ -20,9 +20,12 @@
 //! The hop count of every session follows one rule, stated and argued in
 //! [`rule`], which predicts it from the two replicas' leaf paths alone. The
 //! property `hops_follow_the_rule` checks the traced count against that
-//! prediction over generated replica pairs and every network secret. The
-//! point traces print the critical path of representative sessions, each
-//! stating its expected count through the rule.
+//! prediction over generated replica pairs and every network secret. Hashed
+//! leaves share only a few leading bytes, so those pairs part shallowly;
+//! `deep_parting_depths_follow_the_rule` places leaves to reach every
+//! deeper parting depth, to the leaves themselves. The point traces print
+//! the critical path of representative sessions, each stating its expected
+//! count through the rule.
 //!
 //! Run with:
 //!
@@ -934,5 +937,159 @@ divided_proptest! {
             "traced hops differ from the rule's prediction {predicted:?}",
         );
         assert_converged(&traced);
+    }
+}
+
+/// The shallowest parting depth [`deep_parting_depths_follow_the_rule`]
+/// places: the first beyond those [`hops_follow_the_rule`]'s hashed pairs
+/// reach reliably ([`MAX_COMMON`]).
+const PLACED_SHALLOWEST_DEPTH: usize = 5;
+
+/// The depth of a leaf: the deepest a leaf can part, sharing all but its
+/// last path byte with a leaf the other side holds.
+const LEAF_DEPTH: usize = 32;
+
+/// The messages both sides of a placed pair hold, by value; the first sits
+/// at [`PLACED_BASE`].
+const PLACED_SHARED: [u64; 3] = [0, 1, 2];
+
+/// The one message only side `A` of a placed pair holds, the exclusive
+/// leaf whose parting depth the pair places.
+const PLACED_EXCLUSIVE: u64 = 100;
+
+/// The messages side `B` of a placed pair sends when `A` is to initiate:
+/// they make `B` hold more messages than `A`.
+const PLACED_BALLAST: [u64; 2] = [200, 201];
+
+/// The path of the first shared message, beside which the exclusive leaf
+/// parts.
+const PLACED_BASE: [u8; 32] = [0x10; 32];
+
+/// The path the leaf of the message `value` takes in a placed pair whose
+/// exclusive leaf parts at `depth`.
+///
+/// The exclusive leaf's path is [`PLACED_BASE`] with byte `depth - 1`
+/// changed, so it shares exactly `depth - 1` bytes with a leaf both sides
+/// hold, and parts at `depth`. Every other leaf takes a path whose bytes
+/// all equal one root radix of its own, which no other leaf's path starts
+/// with, so the ballast parts at depth 1 and its replies sit far shallower
+/// than the exclusive leaf's.
+fn placed_path(value: u64, depth: usize) -> [u8; 32] {
+    let uniform = |radix: u8| [radix; 32];
+    match value {
+        PLACED_EXCLUSIVE => {
+            let mut path = PLACED_BASE;
+            path[depth - 1] += 1;
+            path
+        }
+        shared if PLACED_SHARED.contains(&shared) => {
+            uniform(PLACED_BASE[0] * (1 + u8::try_from(shared).expect("few shared messages")))
+        }
+        ballast if PLACED_BALLAST.contains(&ballast) => {
+            uniform(0xf0 + u8::try_from(ballast - PLACED_BALLAST[0]).expect("few ballast messages"))
+        }
+        other => panic!("message {other} is not part of a placed pair"),
+    }
+}
+
+/// Build a placed pair: side `A` creates the network and sends the shared
+/// messages, side `B` joins it by bootstrap, `A` sends the exclusive
+/// message, and, if `a_initiates`, `B` sends the ballast.
+///
+/// Inside a placement ([`with_leaf_paths`]), every leaf takes the path
+/// [`placed_path`] gives its message.
+fn placed_pair(a_initiates: bool) -> (Rumors<u64>, Rumors<u64>) {
+    let a = NETWORK
+        .peer()
+        .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
+        .into_rumors();
+    a.send_all(PLACED_SHARED).expect("a u64 encodes");
+    let b = bootstrap_fork(&a, default::TARGET_MESSAGE_SIZE);
+    a.send_all([PLACED_EXCLUSIVE]).expect("a u64 encodes");
+    if a_initiates {
+        b.send_all(PLACED_BALLAST).expect("a u64 encodes");
+    }
+    (a, b)
+}
+
+/// Every parting depth from [`PLACED_SHALLOWEST_DEPTH`] to the leaves takes
+/// the hops the rule predicts, both when the exclusive leaf's holder lists
+/// its parting depth and when the side lacking it does.
+///
+/// Hashing cannot place leaves that share more than a few bytes, so each
+/// pair places them ([`placed_path`]): side `A` alone holds one leaf, which
+/// shares all but its parting depth's byte with a leaf both sides hold. A
+/// pair in which `B` also sends the ballast has `A` initiate; otherwise `A`
+/// responds. The initiator lists the odd depths and the responder the even
+/// ones, so the two roles cover both cases of the rule at every depth: the
+/// session takes `3 + d` hops when the lacking side lists `d` and the
+/// holder supplies the leaf in its reply about depth `d`, and `3 + d + 1`
+/// when the holder lists `d` and the lacking side must request the node,
+/// which the holder answers one level deeper. At depth 32 that request is
+/// for the single leaf, answered on the leaf stream.
+///
+/// Each case checks the rule's prediction against the case it staged
+/// (initiator, holder, parting depth, and who lists it) before checking the
+/// traced count against the prediction, so a staging that drifted fails as
+/// such, not as a miscount. A first build of each role's pair, outside the
+/// placement, learns each message's version, since forking and sending a
+/// seeded network are deterministic; the placement panics on any version it
+/// does not list, so a rebuild that drifted fails loudly.
+#[test]
+fn deep_parting_depths_follow_the_rule() {
+    for a_initiates in [true, false] {
+        // Both sides hold the shared messages; each is listed once, by its
+        // version's canonical bytes.
+        let versions: BTreeMap<Vec<u8>, (Version, u64)> = {
+            let (a, b) = placed_pair(a_initiates);
+            [a, b]
+                .iter()
+                .flat_map(|side| {
+                    side.snapshot()
+                        .iter()
+                        .map(|(version, value)| {
+                            (version.as_bytes().to_vec(), (version.clone(), *value))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        };
+        for depth in PLACED_SHALLOWEST_DEPTH..=LEAF_DEPTH {
+            let paths = versions
+                .values()
+                .map(|(version, value)| (version.clone(), placed_path(*value, depth)));
+            rumors::testing::with_leaf_paths(paths, || {
+                let (a, b) = placed_pair(a_initiates);
+                let predicted = rule::predict(&Replica::of(&a), &Replica::of(&b));
+                let holder_lists = a_initiates == (depth % 2 == 1);
+                let staged = (
+                    Some(if a_initiates { Side::A } else { Side::B }),
+                    Some((Side::A, depth, holder_lists)),
+                );
+                assert_eq!(
+                    (
+                        predicted.initiator,
+                        predicted
+                            .critical
+                            .map(|leaf| (leaf.holder, leaf.depth, leaf.holder_lists)),
+                    ),
+                    staged,
+                    "the rule reads the staged case at depth {depth}: {predicted:?}",
+                );
+                assert_eq!(
+                    predicted.hops,
+                    rule::SETUP_AND_CLOSING_HOPS + (depth + usize::from(holder_lists)) as u64,
+                    "the rule's count at depth {depth}",
+                );
+                let traced = traced_session(a, b);
+                assert_in_scope(&traced);
+                assert_eq!(
+                    traced.trace.hops(),
+                    predicted.hops,
+                    "traced hops at parting depth {depth}, the holder listing it: {holder_lists}",
+                );
+                assert_converged(&traced);
+            });
+        }
     }
 }
