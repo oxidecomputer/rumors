@@ -20,6 +20,12 @@
 //! A harness that accepts plain function pointers rather than a closure reads
 //! the same ledger through [`reset`] and [`reading`].
 //!
+//! A ledger counts bytes; it cannot tell which of a region's allocations are
+//! still live when the region ends. [`trace()`] records each request's block
+//! address and size, in order, so that [`Trace::lifetimes`] can follow every
+//! block from its allocation to its free; [the `trace` module](mod@trace)
+//! documents the classification.
+//!
 //! # Why each thread keeps its own ledger
 //!
 //! A test harness allocates on its own threads while a test runs. libtest's
@@ -95,7 +101,10 @@ mod tests;
 
 pub mod trace;
 
-pub use trace::{Event, EventKind, Label, Trace, labelled, trace, untraced};
+pub use trace::{
+    Event, EventKind, Incomplete, Label, LabelLifetimes, Lifetimes, Trace, labelled, trace,
+    untraced,
+};
 
 /// The largest alignment that is not *over-aligned*: two machine words, which
 /// is 16 bytes on 64-bit targets.
