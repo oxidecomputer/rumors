@@ -320,6 +320,46 @@ impl Staged {
 /// A bootstrapping peer's key item, which follows its preamble.
 pub(crate) type KeyItem = [u8; crate::tree::mirror::secret::KEY_ITEM_LEN];
 
+/// Who the counterparty is, read from its validated preamble: what every
+/// session decides by before its greeting.
+///
+/// A peer is either joining, and then has no network, no intent but to
+/// remain, and a key item following its preamble, or a member of a network
+/// remaining or retiring after reconciliation. One value carries each case
+/// whole, so a session never checks the bootstrap placeholder and the key
+/// item's presence separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Counterparty {
+    /// A peer joining a network, with the key item that followed its
+    /// preamble: a provider seals the network's secret for that key.
+    Bootstrapping(KeyItem),
+    /// A member of a network.
+    Established {
+        /// The member's network's public identifier.
+        network: Network,
+        /// Whether the member remains or retires after reconciliation.
+        intent: Intent,
+    },
+}
+
+impl Counterparty {
+    /// Whether the counterparty is joining a network.
+    pub(crate) fn bootstrapping(&self) -> bool {
+        matches!(self, Counterparty::Bootstrapping(_))
+    }
+
+    /// Whether the counterparty retires into this side after reconciliation.
+    pub(crate) fn retiring(&self) -> bool {
+        matches!(
+            self,
+            Counterparty::Established {
+                intent: Intent::Retire,
+                ..
+            }
+        )
+    }
+}
+
 /// Exchange the fixed preamble before the protocol trusts framed traffic.
 ///
 /// `follow` is one whole item this side sends right after its preamble, in
@@ -327,8 +367,8 @@ pub(crate) type KeyItem = [u8; crate::tree::mirror::secret::KEY_ITEM_LEN];
 /// bootstrapping peer's key item, so that its key costs no round trip.
 /// Empty for every other session.
 ///
-/// Returns the peer's preamble and, if that preamble declares bootstrapping,
-/// the key item that follows it. The key item is read while this side's own
+/// Returns who the peer is, with the key item that follows a bootstrapping
+/// peer's preamble ([`Counterparty`]). The key item is read while this side's own
 /// write is still in flight: two bootstrapping peers each write a preamble
 /// and a key item before reading anything past the other's preamble, so if
 /// either waited for its write to finish before draining the other's key
@@ -344,7 +384,7 @@ pub(crate) async fn preamble<R, W>(
     reader: &mut R,
     writer: &mut W,
     observe: &SessionHandle,
-) -> Result<(Preamble, Option<KeyItem>), Error>
+) -> Result<Counterparty, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
     W: AsyncWrite + Unpin + ?Sized,
@@ -383,8 +423,7 @@ where
         }
         // A validation failure is reported once both directions are done;
         // only a valid bootstrapping preamble promises a key item to read.
-        let validated = staged.validate();
-        let key = match &validated {
+        let counterparty = match staged.validate() {
             Ok(preamble) if preamble.network.is_bootstrap() => {
                 let mut item = [0; crate::tree::mirror::secret::KEY_ITEM_LEN];
                 reader
@@ -394,22 +433,23 @@ where
                         operation: TransportOperation::Read,
                         source,
                     })?;
-                Some(item)
+                Ok(Counterparty::Bootstrapping(item))
             }
-            _ => None,
+            Ok(Preamble { network, intent }) => Ok(Counterparty::Established { network, intent }),
+            Err(error) => Err(error),
         };
-        Ok((validated, key))
+        Ok(counterparty)
     };
-    let ((), (validated, key)) = futures::future::try_join(write, read).await?;
-    let preamble = validated?;
+    let ((), counterparty) = futures::future::try_join(write, read).await?;
+    let counterparty = counterparty?;
     // Only a validated frame is delivered: the item contract holds for
     // conforming exchanges, and a malformed preamble aborts the session
     // instead of feeding observers a non-item.
     observe.control_received(staged.received());
-    if let Some(item) = &key {
+    if let Counterparty::Bootstrapping(item) = &counterparty {
         observe.control_received(item);
     }
-    Ok((preamble, key))
+    Ok(counterparty)
 }
 
 /// Progress of a cancel-safe preamble arrival.

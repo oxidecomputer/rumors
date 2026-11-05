@@ -2,7 +2,8 @@ use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
 use super::{
-    Error, Intent, Preamble, PreambleDefect, Staged, V2_PREAMBLE_LEN, V2_PREFIX, preamble,
+    Counterparty, Error, Intent, Preamble, PreambleDefect, Staged, V2_PREAMBLE_LEN, V2_PREFIX,
+    preamble,
 };
 use crate::network::NETWORK_BYTES;
 use crate::observe::SessionHandle;
@@ -80,23 +81,17 @@ fn fragmented_exchange_is_symmetric() {
 
     assert_eq!(
         seen_by_left.unwrap(),
-        (
-            Preamble {
-                network: right,
-                intent: Intent::Retire,
-            },
-            None
-        )
+        Counterparty::Established {
+            network: right,
+            intent: Intent::Retire,
+        }
     );
     assert_eq!(
         seen_by_right.unwrap(),
-        (
-            Preamble {
-                network: left,
-                intent: Intent::Remain,
-            },
-            None
-        )
+        Counterparty::Established {
+            network: left,
+            intent: Intent::Remain,
+        }
     );
 }
 
@@ -126,9 +121,8 @@ fn a_bootstrap_preamble_brings_its_key_item() {
             &SessionHandle::default(),
         ))
     };
-    let (seen, key) = exchange(&stream).expect("a whole opening exchanges");
-    assert!(seen.network.is_bootstrap());
-    assert_eq!(key, Some(item));
+    let seen = exchange(&stream).expect("a whole opening exchanges");
+    assert_eq!(seen, Counterparty::Bootstrapping(item));
     for cut in V2_PREAMBLE_LEN..stream.len() {
         assert!(
             matches!(

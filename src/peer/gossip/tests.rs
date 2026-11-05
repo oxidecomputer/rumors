@@ -148,7 +148,7 @@ async fn claim_bootstrap_with_root(
     // Our key item follows our preamble, as a conforming joiner's does.
     let joining = secret::Joining::new();
     let mut staged = preamble::Staged::new();
-    let (remote, remote_key) = preamble::preamble(
+    let counterparty = preamble::preamble(
         Network::BOOTSTRAP,
         Intent::Remain,
         &joining.item(),
@@ -161,14 +161,17 @@ async fn claim_bootstrap_with_root(
     .map_err(Error::from)?;
     // A provider seals its network's secret for our key; a bootstrapping
     // counterparty sends its own key item instead, which we discard.
-    let keys = if let Some(item) = remote_key {
-        secret::decode_key(&item)?;
-        None
-    } else {
-        let secret = joining
-            .receive(&mut end.read, remote.network, &SessionHandle::default())
-            .await?;
-        Some(Arc::new(NetworkKeys::new(secret)))
+    let keys = match counterparty {
+        preamble::Counterparty::Bootstrapping(item) => {
+            secret::decode_key(&item)?;
+            None
+        }
+        preamble::Counterparty::Established { network, .. } => {
+            let secret = joining
+                .receive(&mut end.read, network, &SessionHandle::default())
+                .await?;
+            Some(Arc::new(NetworkKeys::new(secret)))
+        }
     };
     let local_root: streaming::Root<Local> = root.into();
     // The claimed root's leaves sit at the fixture secret's paths, so its

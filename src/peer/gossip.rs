@@ -27,7 +27,7 @@ use crate::{
     bookmark::{Bookmark, BookmarkIo, Bookmarked, NoBookmark, Reservation},
     tree::mirror::{
         party,
-        preamble::{self, Intent},
+        preamble::{self, Counterparty, Intent},
         secret,
         streaming::{
             self, Local, materialized,
@@ -364,7 +364,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // network's secret for us costs no round trip.
             let joining = secret::Joining::new();
             let mut staged = preamble::Staged::new();
-            let (remote, remote_key) = preamble::preamble(
+            let counterparty = preamble::preamble(
                 Network::BOOTSTRAP,
                 Intent::Remain,
                 &joining.item(),
@@ -381,15 +381,18 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // leaves it supplies. Another bootstrapper has no secret
             // and supplies nothing; its key item, sent as ours was, is read
             // and discarded.
-            let both_bootstrapping = remote.network.is_bootstrap();
-            let received_keys = if let Some(item) = remote_key {
-                secret::decode_key(&item)?;
-                None
-            } else {
-                let secret = joining
-                    .receive(&mut *read, remote.network, &observe)
-                    .await?;
-                Some(Arc::new(NetworkKeys::new(secret)))
+            let (received_keys, remote_role) = match counterparty {
+                Counterparty::Bootstrapping(item) => {
+                    secret::decode_key(&item)?;
+                    (None, RemoteRole::Bootstrapping)
+                }
+                Counterparty::Established { network, .. } => {
+                    let secret = joining.receive(&mut *read, network, &observe).await?;
+                    (
+                        Some(Arc::new(NetworkKeys::new(secret))),
+                        RemoteRole::Providing,
+                    )
+                }
             };
 
             // Reconcile from an empty tree. On arrival, the returned root
@@ -405,11 +408,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 keys: received_keys.clone(),
                 sync_memory_budget,
                 run_budget,
-                remote_role: if both_bootstrapping {
-                    RemoteRole::Bootstrapping
-                } else {
-                    RemoteRole::Providing
-                },
+                remote_role,
                 stats,
                 observe: observe.clone(),
             };
@@ -588,13 +587,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ) -> Result<(Version, SessionStats), Error<B>> {
         let codec = self.codec;
         // Check protocol and network compatibility before reconciliation.
-        let (remote, remote_key) =
+        let counterparty =
             preamble::preamble(self.network(), intent, &[], staged, read, write, &observe)
                 .await
                 .map_err(|error| Error::from(error).widen())?;
-        let peer_bootstrapping = remote.network.is_bootstrap();
+        let peer_bootstrapping = counterparty.bootstrapping();
         let self_retiring = intent == Intent::Retire;
-        let peer_retiring = remote.intent == Intent::Retire;
+        let peer_retiring = counterparty.retiring();
 
         // Stop cleanly, early if we're both trying to retire into each other.
         // Symmetric by construction: both sides take this same branch, so the
@@ -611,8 +610,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         // first supply arrives, to place each leaf it receives, and leaves
         // the session holding it. Its key item followed its preamble; seal
         // the secret for that key, ahead of the greeting.
-        if let Some(item) = remote_key {
-            let joiner = secret::decode_key(&item).map_err(Error::widen)?;
+        if let Counterparty::Bootstrapping(item) = &counterparty {
+            let joiner = secret::decode_key(item).map_err(Error::widen)?;
             secret::send(self.keys.secret(), &joiner, self.network(), write, &observe)
                 .await
                 .map_err(Error::widen)?;
@@ -670,14 +669,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             run_budget: self.run_budget,
             stats: stats.clone(),
             observe: observe.clone(),
-            remote_role: if peer_bootstrapping {
-                RemoteRole::Bootstrapping
-            } else {
-                RemoteRole::Gossiping {
-                    remote_network: remote.network,
+            remote_role: match counterparty {
+                Counterparty::Bootstrapping(_) => RemoteRole::Bootstrapping,
+                Counterparty::Established { network, .. } => RemoteRole::Gossiping {
+                    remote_network: network,
                     local_network: self.network(),
                     local_min_events,
-                }
+                },
             },
         };
         let reconcile = reconciliation.reconcile();
