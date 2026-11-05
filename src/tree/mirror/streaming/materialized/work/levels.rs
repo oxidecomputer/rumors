@@ -292,9 +292,9 @@ where
             };
             let ours = fan;
             let held = ours.iter().map(|(radix, _)| *radix).collect();
-            let children = charges::answer_children(held, &theirs);
-            let shared = charges::shared_children(held, &theirs);
-            let bytes = charges::answer_bound::<B::Erased, B::Error>(children, shared);
+            let children = charges::scope_children(held, &theirs);
+            let bytes =
+                charges::answer_bound::<B::Erased, B::Error>(children.either, children.both);
             let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
             let (mut chunks, resolved) = answer::internal(
                 &backend,
@@ -490,10 +490,11 @@ where
                     // The node is kept for its scope's assembly.
                     let original = node.clone();
                     let held = node.child_radices(&child_prefix);
-                    let children = charges::answer_children(held, &listing);
-                    let shared = charges::shared_children(held, &listing);
-                    let bytes =
-                        charges::answer_bound::<B::Erased, B::Error>(children, shared);
+                    let children = charges::scope_children(held, &listing);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(
+                        children.either,
+                        children.both,
+                    );
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (mut chunks, resolved) = answer::internal(
@@ -680,10 +681,11 @@ where
                     // The node is kept for its scope's assembly.
                     let original = node.clone();
                     let held = node.child_radices(&child_prefix);
-                    let children = charges::answer_children(held, &listing);
-                    let shared = charges::shared_children(held, &listing);
-                    let bytes =
-                        charges::answer_bound::<B::Erased, B::Error>(children, shared);
+                    let children = charges::scope_children(held, &listing);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(
+                        children.either,
+                        children.both,
+                    );
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (mut chunks, resolved) = answer::leaf_parent(

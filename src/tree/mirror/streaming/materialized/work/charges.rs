@@ -338,12 +338,12 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 
 /// The most an answer's own unit holds, before its scope is explored.
 ///
-/// That is its resolution, with a slot for each of the `children` either side holds, its plan, with
-/// an entry for each such child at most, and its reactions that ask
-/// nothing, one per such child at most ([`answer_children`] counts them),
-/// with the set of later matches its match covers, if the `shared` children
-/// both sides hold, the only ones it can match, number two or more
-/// ([`shared_children`] counts them). The reactions' slots count each
+/// That is its resolution, with a slot for each of the `children` either
+/// side holds, its plan, with an entry for each such child at most, and its
+/// reactions that ask nothing, one per such child at most, with the set of
+/// later matches its match covers, if the `shared` children both sides
+/// hold, the only ones it can match, number two or more
+/// ([`scope_children`] counts both). The reactions' slots count each
 /// child the set covers, which takes no reaction, so the set is priced net
 /// of them ([`covered_set_price`]).
 ///
@@ -397,27 +397,35 @@ pub(super) fn unasked_chunk_bound<E, Err>(unasked: Option<Held>) -> usize {
     unasked.map_or(0, |held| chunk_bound::<E, Err>(with_question(held), 0))
 }
 
-/// The children both sides hold of an answer's scope, when this side holds
-/// the children at `ours` and the peer listed `theirs`: the children the
-/// answer can match, exact.
-///
-/// Each side's children sit at distinct radices, so the children either
-/// holds ([`answer_children`]) count each shared child once.
-pub(crate) fn shared_children(ours: ByteSet, theirs: &[Listed]) -> usize {
-    ours.len() + theirs.len() - answer_children(ours, theirs)
+/// The children of an answer's scope, counted from their radixes: those
+/// either side holds, and those both sides hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ScopeChildren {
+    /// The children either side holds: the size of the union of the two
+    /// sides' radixes, and so at most a fan.
+    pub(crate) either: usize,
+    /// The children both sides hold: the children the answer can match.
+    pub(crate) both: usize,
 }
 
-/// The children an answer's scope holds when this side holds the children
-/// at `ours` and the peer listed `theirs`: the size of their union, exact,
-/// and so at most a fan.
+/// The children of an answer's scope when this side holds the children at
+/// `ours` and the peer listed `theirs`, exact, from one union of their
+/// radixes.
 ///
-/// A child both sides hold sits at one radix, so it counts once. The walk
-/// reads this side's radices from the backend before it explodes the node
+/// Each side's children sit at distinct radixes, so a child both sides
+/// hold counts once among those either holds, and the children both hold
+/// are what the two sides' counts exceed that union by. The walk reads this
+/// side's radixes from the backend before it explodes the node
 /// ([`ErasedNode::child_radices`]), since the answer's grant prices that
 /// explosion.
-pub(crate) fn answer_children(ours: ByteSet, theirs: &[Listed]) -> usize {
-    ours.union(theirs.iter().map(|listed| listed.radix).collect())
-        .len()
+pub(crate) fn scope_children(ours: ByteSet, theirs: &[Listed]) -> ScopeChildren {
+    let either = ours
+        .union(theirs.iter().map(|listed| listed.radix).collect())
+        .len();
+    ScopeChildren {
+        either,
+        both: ours.len() + theirs.len() - either,
+    }
 }
 
 /// The most a question's unit holds, before it is built.

@@ -440,7 +440,7 @@ proptest! {
         // The price reads this side's radices from a node holding exactly
         // these children, as the walk reads them before exploding it.
         let reported: ByteSet = ours.iter().copied().collect();
-        let priced = charges::answer_children(reported, &theirs_listing);
+        let priced = charges::scope_children(reported, &theirs_listing).either;
         prop_assert_eq!(priced, children);
         prop_assert!(priced <= FAN);
         prop_assert_eq!(resolved.capacity(), priced, "a leaf parent's slots");

@@ -105,9 +105,11 @@ fn plan<E, Q>(grant: &mut Charge, children: usize) -> (Vec<Planned<E, Q>>, Charg
 /// peer's listing `theirs`, counted from the children themselves.
 ///
 /// The answer's price counted the same union from this side's reported
-/// radices ([`charges::answer_children`]).
+/// radices ([`charges::scope_children`]); counting it again from the
+/// children themselves sizes the plan and the resolution exactly even for
+/// a backend whose report disagrees with its children.
 fn union<E>(ours: &[(u8, E)], theirs: &[Listed]) -> usize {
-    charges::answer_children(ours.iter().map(|(radix, _)| *radix).collect(), theirs)
+    charges::scope_children(ours.iter().map(|(radix, _)| *radix).collect(), theirs).either
 }
 
 /// An answer's reactions in chunks: each chunk ends at a question, and the
