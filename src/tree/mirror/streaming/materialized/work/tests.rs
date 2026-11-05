@@ -386,11 +386,12 @@ fn finished_resolution_keeps_no_charge_for_its_question() {
 }
 
 proptest! {
-    /// An answer's resolution has a slot per child either side holds, and at
-    /// most a fan of capacity, however many children the two listings name.
+    /// An answer's resolution has a slot per child either side holds, and no
+    /// more capacity than its unit's grant prices: the two listings' sum, at
+    /// most a fan.
     ///
-    /// Every child sits at its own radix, so the listings' union is at most a
-    /// fan, and those slots are what the answer's unit is admitted to hold.
+    /// Every child sits at its own radix, so the listings' union is at most
+    /// their sum and at most a fan.
     /// Each side's radices are drawn with repeats and deduplicated here, so
     /// the sides range from empty to nearly full.
     #[test]
@@ -425,7 +426,9 @@ proptest! {
         )
         .into_parts();
         prop_assert_eq!(resolved.len(), children);
-        prop_assert!(resolved.capacity() <= FAN, "a leaf parent's slots: {}", resolved.capacity());
+        let priced = charges::answer_children(ours.len(), theirs.len());
+        prop_assert!(priced <= FAN);
+        prop_assert!(resolved.capacity() <= priced, "a leaf parent's slots: {}", resolved.capacity());
 
         let internal = pollster::block_on(answer::internal(
             &Local,
@@ -438,6 +441,6 @@ proptest! {
         .unwrap_or_else(|never| match never {});
         let (_, resolved) = internal.into_parts();
         prop_assert_eq!(resolved.len(), children);
-        prop_assert!(resolved.capacity() <= FAN, "an internal scope's slots: {}", resolved.capacity());
+        prop_assert!(resolved.capacity() <= priced, "an internal scope's slots: {}", resolved.capacity());
     }
 }

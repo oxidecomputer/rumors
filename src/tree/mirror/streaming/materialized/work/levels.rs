@@ -284,7 +284,7 @@ where
                 return violation(Violation::UnfinishedReply)?;
             };
             let ours = fan;
-            let bytes = charges::answer_bound::<B::Erased, B::Error>(copies);
+            let bytes = charges::answer_bound::<B::Erased, B::Error>(ours.len(), theirs.len(), copies);
             let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
             let kept = answer_grant.take(Holding::ExplodedNodes, copies);
             let (mut chunks, resolved) =
@@ -427,7 +427,13 @@ where
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
                         let copies = providing_explosion_bytes(&node, &their_version);
-                        let bytes = charges::supply_bound::<B::Erased, B::Error>(FAN, copies);
+                        // The supplies are this side's children of the node
+                        // that survive the deletion filter, at most all of
+                        // them.
+                        let bytes = charges::supply_bound::<B::Erased, B::Error>(
+                            node.child_count().min(FAN),
+                            copies,
+                        );
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, children) = holding(
                             Holding::OutgoingReplies,
@@ -452,7 +458,11 @@ where
                     }
 
                     let copies = node.explosion_bytes();
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(copies);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(
+                        node.child_count(),
+                        listing.len(),
+                        copies,
+                    );
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
@@ -585,7 +595,13 @@ where
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
                         let copies = providing_explosion_bytes(&node, &their_version);
-                        let bytes = charges::supply_bound::<B::Erased, B::Error>(FAN, copies);
+                        // The supplies are this side's children of the node
+                        // that survive the deletion filter, at most all of
+                        // them.
+                        let bytes = charges::supply_bound::<B::Erased, B::Error>(
+                            node.child_count().min(FAN),
+                            copies,
+                        );
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, leaves) = holding(
                             Holding::OutgoingReplies,
@@ -610,7 +626,11 @@ where
                     }
 
                     let copies = node.explosion_bytes();
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(copies);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(
+                        node.child_count(),
+                        listing.len(),
+                        copies,
+                    );
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;

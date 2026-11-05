@@ -252,15 +252,29 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 ///
 /// That is the copies exploding its scope makes, `copies`, its resolution,
 /// with a slot for each child either side holds, and its reactions that ask
-/// nothing, one per such child at most. Both sides' children of the scope
-/// sit at distinct radices, so together they number at most a fan.
-pub(crate) fn answer_bound<E, Err>(copies: usize) -> usize {
+/// nothing, one per such child at most. This side holds `ours` children of
+/// the scope and the peer listed `theirs`; their union is at most their sum
+/// and, since each sits at its own radix, at most a fan
+/// ([`answer_children`]).
+pub(crate) fn answer_bound<E, Err>(ours: usize, theirs: usize, copies: usize) -> usize {
+    let children = answer_children(ours, theirs);
     // A chunk's reactions keep one slot spare for a question
     // ([`Chunks::next_part`](super::answer::Chunks::next_part)).
     copies
         + queued::<Resolution<E>>()
-        + FAN * size_of::<(u8, Resolve<E>)>()
-        + chunk_bound::<E, Err>(FAN + 1, 0)
+        + children * size_of::<(u8, Resolve<E>)>()
+        + chunk_bound::<E, Err>(children + 1, 0)
+}
+
+/// The most children an answer's scope can hold when this side holds
+/// `ours` of them and the peer listed `theirs`: their sum, at most a fan.
+///
+/// The sum is exact when the two sides share no child of the scope and
+/// counts each shared child twice otherwise. The exact union needs this
+/// side's radices, which only exploding the node lists, and the answer's
+/// grant prices that explosion, so it is admitted before them.
+pub(crate) fn answer_children(ours: usize, theirs: usize) -> usize {
+    (ours + theirs).min(FAN)
 }
 
 /// The most a question's unit holds, before it is built.
@@ -335,7 +349,9 @@ fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
             question_bound::<E, Err>(height, Grandchildren::MAX, copies, leading, FAN)
         }
         Unit::Answer if height == 0 => supply_bound::<E, Err>(1, 0),
-        Unit::Answer => answer_bound::<E, Err>(copies).max(supply_bound::<E, Err>(FAN, copies)),
+        Unit::Answer => {
+            answer_bound::<E, Err>(FAN, FAN, copies).max(supply_bound::<E, Err>(FAN, copies))
+        }
     }
 }
 
