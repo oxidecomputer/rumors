@@ -253,7 +253,7 @@ fn letter(side: Side) -> char {
 /// `bytes` beside the floor allowance every budget sets aside
 /// ([`floor_allowance`]).
 ///
-/// The public setter raises this to
+/// A session raises this, set through the public setter, to
 /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) when `bytes`
 /// is below the largest grant. A suite that states its budgets by what the
 /// ledgers admit, such as fractions of `Λ` or of the no-cost point, and

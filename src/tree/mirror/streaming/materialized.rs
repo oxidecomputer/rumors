@@ -166,17 +166,28 @@ fn admission_budget<B: Backend<Node<Z>: Leaf>>(budget: usize) -> usize {
 }
 
 /// The least memory budget a session over `B`'s nodes runs on through the
-/// public budget setters: the floor allowance ([`floor_allowance`]) and the
-/// largest grant beside it ([`largest_grant`]).
+/// public API when its peer's own message-size target is
+/// `_target_message_size`.
+///
+/// It is the floor allowance ([`floor_allowance`]) and the largest grant
+/// beside it ([`largest_grant`]).
 ///
 /// A memory budget of at least this gives its ledger a budget of at least
 /// the largest grant ([`admission_budget`]), so the ledger can always admit
 /// any one unit beside the floor slots. Below it, a session runs in a
 /// starved regime where units race for room, and a larger budget can slow
-/// a session by more than a round trip. Every budget the public API sets is
-/// at least this; a ledger budget below the largest grant is reachable
-/// only by setting it directly ([`Handshaking::budget`]).
-pub(crate) const fn min_memory_budget<B: Backend<Node<Z>: Leaf>>() -> usize {
+/// a session by more than a round trip. Every session the public API runs
+/// has at least this, since a peer raises its budget to the minimum for its
+/// target ([`MemoryBudget::effective`](crate::peer::MemoryBudget::effective));
+/// a ledger budget below the largest grant is reachable only by setting it
+/// directly ([`Handshaking::budget`]).
+///
+/// Neither term depends on the target, so the minimum is the same at every
+/// target. Callers pass the target anyway, so that each computation of the
+/// minimum names the target it is the minimum for.
+pub(crate) const fn min_memory_budget<B: Backend<Node<Z>: Leaf>>(
+    _target_message_size: usize,
+) -> usize {
     floor_allowance::<B::Erased, B::Error>() + largest_grant::<B::Erased, B::Error>()
 }
 
@@ -500,8 +511,9 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     /// ([`floor_allowance`]), so that what it holds outside its floor slots
     /// and what they hold come to at most `budget` together.
     ///
-    /// This applies `budget` as given: the public setters raise a budget
-    /// to [`min_memory_budget`] before it reaches here. A budget at or
+    /// This applies `budget` as given: a peer raises its budget to
+    /// [`min_memory_budget`] for its target before it reaches here. A
+    /// budget at or
     /// below the floor allowance admits work through the floor slots
     /// alone, as a budget of zero does ([`budget`](Self::budget)), and
     /// holds at most the floor allowance.

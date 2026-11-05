@@ -209,10 +209,9 @@ divided_proptest! {
     /// break the session.
     ///
     /// The join completes, delivers the provider's whole set, and the joined
-    /// peer, retaining the budget its builder raised to
-    /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) for its
-    /// own sessions, still reconciles a fresh origination back into the
-    /// provider.
+    /// peer, retaining the zero budget, which its sessions raise to
+    /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), still
+    /// reconciles a fresh origination back into the provider.
     ///
     /// The budget's any-value safety therefore holds at the one entry point
     /// that runs before the peer exists, and the retained setting survives
@@ -252,7 +251,7 @@ divided_proptest! {
         assert_eq!(
             bootstrapped.synchronization_settings().sync_memory_budget,
             rumors::MIN_SYNC_MEMORY_BUDGET,
-            "the joined peer retains the zero budget as its builder raised it",
+            "the joined peer retains the zero budget, effective at the minimum",
         );
         // The joined peer gossips under its retained minimum budget, and the
         // session still converges.

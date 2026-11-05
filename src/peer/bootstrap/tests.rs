@@ -10,6 +10,7 @@ use crate::Peer;
 use crate::bookmark::Bookmark;
 use crate::default;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
+use crate::peer::MemoryBudget;
 use crate::testing::property::{NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::RunBudget;
@@ -76,7 +77,7 @@ fn retry_then_join<B: Bookmark>(
     fail: &[bool],
     sessions: &Sessions,
     stored: Option<&Stored>,
-    expected: (usize, RunBudget, crate::message::PayloadDepthLimit),
+    expected: (MemoryBudget, RunBudget, crate::message::PayloadDepthLimit),
 ) {
     let (budget, target, depth) = expected;
     assert_eq!(bootstrap.sync_memory_budget, budget);
@@ -165,9 +166,10 @@ fn retry_then_join<B: Bookmark>(
 proptest! {
     /// Both forms retain every setting, observer and storage across mixed retry sequences.
     ///
-    /// Budgets are drawn on both sides of the minimum, so the retained
-    /// budget is the given one raised to
-    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET).
+    /// Budgets are drawn on both sides of
+    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), and the
+    /// retained budget is the requested one as given, below the minimum
+    /// included.
     #[test]
     fn retries_preserve_configuration_and_storage(
         budget in 0usize..2 * crate::MIN_SYNC_MEMORY_BUDGET,
@@ -178,7 +180,7 @@ proptest! {
         network in network_seed(),
     ) {
         let expected = (
-            budget.max(crate::MIN_SYNC_MEMORY_BUDGET),
+            MemoryBudget::Requested(budget),
             RunBudget::from_bytes(target),
             crate::message::PayloadDepthLimit::new(depth),
         );
@@ -221,7 +223,10 @@ divided_proptest! {
     #[test]
     fn configuration_defaults_and_saturation(network in network_seed()) {
         let config = Peer::<u64>::bootstrap();
-        assert_eq!(config.sync_memory_budget, default::SYNC_MEMORY_BUDGET);
+        assert_eq!(
+            config.sync_memory_budget,
+            MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET)
+        );
         assert_eq!(config.run_budget, RunBudget::default());
         assert_eq!(
             config.payload_depth_limit,
@@ -235,7 +240,7 @@ divided_proptest! {
             &sessions,
             None,
             (
-                default::SYNC_MEMORY_BUDGET,
+                MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET),
                 RunBudget::default(),
                 crate::message::PayloadDepthLimit::default(),
             ),

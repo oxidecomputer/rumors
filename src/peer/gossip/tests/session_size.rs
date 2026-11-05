@@ -52,7 +52,7 @@ struct Boxed {
 
 /// The measured sizes, in a 64-bit test build.
 const MEASURED: Boxed = Boxed {
-    session: 1_856,
+    session: 1_864,
     descent: 3_976,
 };
 

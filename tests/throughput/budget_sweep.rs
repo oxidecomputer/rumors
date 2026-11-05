@@ -137,8 +137,8 @@ const SIXTEENTHS: usize = 16;
 /// `N*` itself, to twice it.
 const LADDER: [usize; 9] = [0, 1, 4, 8, 12, 15, 16, 20, 32];
 
-/// The rung below the ladder, half the floor allowance: a budget the
-/// setter raises to the minimum.
+/// The rung below the ladder, half the floor allowance: a budget a
+/// session raises to the minimum.
 fn below_floor() -> usize {
     floor_allowance() / 2
 }
@@ -309,7 +309,7 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// [`MIN_SYNC_MEMORY_BUDGET`] below it, and the bytes, the lower bound on
 /// duration, and ledger exactness at every budget.
 ///
-/// Every session whose budget, as the setter raises it to the minimum,
+/// Every session whose budget, raised to the minimum,
 /// admits at least its pair's no-cost point beside the floor allowance is
 /// the unlimited session, event for event, with no unit waiting; every
 /// session below the minimum, at the allowance and at half of it included,

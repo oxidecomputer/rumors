@@ -18,6 +18,7 @@ use tokio::io::{AsyncRead, BufReader, DuplexStream};
 
 use crate::{
     Snapshot,
+    peer::MemoryBudget,
     tree::{
         mirror::streaming::{
             Backend, FAN, Local,
@@ -729,17 +730,20 @@ pub fn floor_allowance() -> usize {
 /// `bytes`, beside the floor allowance ([`floor_allowance`]), saturating
 /// at `usize::MAX` in all.
 ///
-/// Unlike [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget),
-/// which raises a budget to
-/// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), this reaches
-/// ledger budgets below the largest grant, zero included: the floor-only
+/// Unlike a budget set through
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which a
+/// session raises to the minimum for its peer's message-size target
+/// ([`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
+/// default target), this one sessions run on as given, whatever the
+/// target. So it reaches ledger budgets below the largest grant, zero
+/// included: the floor-only
 /// configuration the liveness argument rests on, and the starved regime
 /// the budget analyses probe.
 pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
     bytes: usize,
 ) -> crate::Peer<T, B> {
-    peer.sync_memory_budget = floor_allowance().saturating_add(bytes);
+    peer.sync_memory_budget = MemoryBudget::Exact(floor_allowance().saturating_add(bytes));
     peer
 }
 

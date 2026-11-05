@@ -8,7 +8,7 @@
 //   a long round trip;
 // - that the budget a session can use before nothing waits grows in
 //   proportion to the messages the larger replica holds.
-// The minimum budget is `MIN_SYNC_MEMORY_BUDGET`, and the setter raises
+// The minimum budget is `MIN_SYNC_MEMORY_BUDGET`, and a session raises
 // every smaller budget to it, so a figure measured at a smaller budget
 // describes a budget no session runs on; measure each figure at or above
 // the minimum.
@@ -39,7 +39,7 @@
 //! - **The smallest budget,**
 //!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), adds room
 //!   for the largest single question or answer beside the floor
-//!   allowance. The setter raises any smaller budget, zero included, to
+//!   allowance. A session raises any smaller budget, zero included, to
 //!   it. At the smallest budget a session pipelines little: beyond one
 //!   question and one answer at each level of its comparison, it keeps in
 //!   flight only what the added room holds, and otherwise waits for

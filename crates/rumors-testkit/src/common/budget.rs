@@ -5,7 +5,7 @@
 //! A ledger budget of zero stays in the population deliberately: each walk
 //! then asks one question at a time, every unit taking its depth's floor
 //! slot, the configuration the liveness argument rests on, and suites must
-//! keep it exercised. The public setter raises every budget to
+//! keep it exercised. A session raises every public budget to
 //! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so this
 //! choice sets the ledger budget through the test path
 //! ([`ledger_budget`](rumors::testing::ledger_budget)). The sweep adds

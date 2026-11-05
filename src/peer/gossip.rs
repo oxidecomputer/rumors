@@ -37,7 +37,7 @@ use crate::{
     },
 };
 
-use super::{Inner, Peer, bootstrap::Bootstrap};
+use super::{Inner, MemoryBudget, Peer, bootstrap::Bootstrap};
 
 /// The completion marker each side writes after all of its session work,
 /// in the closing exchange: the CBOR text item `"."`.
@@ -355,7 +355,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     // into a struct would only rename the arity.
     #[allow(clippy::too_many_arguments)]
     fn bootstrap_erased<'a>(
-        sync_memory_budget: usize,
+        sync_memory_budget: MemoryBudget,
         run_budget: RunBudget,
         write_batch: WriteBatch,
         codec: PayloadCodec,
@@ -927,8 +927,10 @@ struct Reconciliation<'a> {
     /// compares. A bootstrapper meeting a bootstrapper holds no network
     /// secret, lists nothing, and can be supplied nothing.
     keys: Option<Arc<NetworkKeys>>,
-    /// The memory budget the session's ledger admits its work against.
-    sync_memory_budget: usize,
+    /// The peer's memory budget as set, which the session raises to the
+    /// minimum for `run_budget` ([`MemoryBudget::effective`]) before its
+    /// ledger admits work against it.
+    sync_memory_budget: MemoryBudget,
     /// The supply-run sizing budget; its byte target rides the greeting.
     run_budget: RunBudget,
     /// How many bytes of frames one flush of the session's multiplexer may
@@ -1017,7 +1019,7 @@ impl<'a> Reconciliation<'a> {
             keys.clone(),
             widen(run_budget.bytes()),
         )
-        .sync_memory_budget(sync_memory_budget)
+        .sync_memory_budget(sync_memory_budget.effective(run_budget))
         .stats(stats.clone());
         let proxy: RemoteParticipant<'a> =
             streaming_remote::Handshaking::start(Local, read, write, codec, keys)

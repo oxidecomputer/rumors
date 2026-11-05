@@ -13,9 +13,12 @@ use proptest::prelude::*;
 use tokio::sync::watch;
 
 use super::{Inner, MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET, OPTIMISTIC_ATTEMPTS, Peer};
+use crate::default;
 use crate::message::Message;
 use crate::testing::property::{LOCAL_DIVISOR, divided_proptest, network_seed};
-use crate::tree::mirror::streaming::remote::WRITE_BUFFER_BYTES;
+use crate::tree::mirror::streaming::Local;
+use crate::tree::mirror::streaming::materialized::min_memory_budget;
+use crate::tree::mirror::streaming::remote::{RunBudget, WRITE_BUFFER_BYTES};
 use crate::tree::{Action, Tree};
 
 /// Add one event to a tree using its owner's current identity.
@@ -209,27 +212,110 @@ proptest! {
     }
 }
 
+/// One call to a setter that the budget a session runs on reads.
+#[derive(Clone, Copy, Debug)]
+enum Setting {
+    /// A call to `sync_memory_budget` with these bytes.
+    Budget(usize),
+    /// A call to `target_message_size` with these bytes.
+    Target(usize),
+}
+
+/// Budgets on both sides of [`MIN_SYNC_MEMORY_BUDGET`], its neighbours
+/// and the extremes included.
+fn budgets() -> impl Strategy<Value = usize> {
+    prop_oneof![
+        0..=2 * MIN_SYNC_MEMORY_BUDGET,
+        MIN_SYNC_MEMORY_BUDGET - 1..=MIN_SYNC_MEMORY_BUDGET + 1,
+        Just(usize::MAX),
+        any::<usize>(),
+    ]
+}
+
+/// Targets on both sides of [`default::TARGET_MESSAGE_SIZE`] and of the
+/// wire's cap ([`MAX_RUN_BUDGET_BYTES`]), zero and the largest value
+/// included.
+fn targets() -> impl Strategy<Value = usize> {
+    prop_oneof![
+        0..=2 * default::TARGET_MESSAGE_SIZE,
+        Just(default::TARGET_MESSAGE_SIZE),
+        MAX_RUN_BUDGET_BYTES - 1..=MAX_RUN_BUDGET_BYTES + 1,
+        Just(usize::MAX),
+        any::<usize>(),
+    ]
+}
+
+/// Calls to either setter, from the families [`budgets`] and [`targets`].
+fn settings() -> impl Strategy<Value = Setting> {
+    prop_oneof![
+        budgets().prop_map(Setting::Budget),
+        targets().prop_map(Setting::Target),
+    ]
+}
+
 proptest! {
-    /// Both public budget setters raise a budget below
-    /// [`MIN_SYNC_MEMORY_BUDGET`] to it and keep every larger budget as
-    /// given, so a session's budget is `max(budget, MIN_SYNC_MEMORY_BUDGET)`.
+    /// The budget a peer's sessions run on depends only on the last budget
+    /// and the last target set, never on the order or repetition of the
+    /// setters' calls: it is the last budget raised to the minimum for the
+    /// last target.
     ///
-    /// Budgets are drawn on both sides of the minimum, its neighbours and
-    /// the extremes included.
+    /// Every sequence of calls, both setters interleaved and repeated,
+    /// gives on a `Peer` what setting the two last values once gives in
+    /// either order, and the same through `into_rumors` and on a
+    /// `Bootstrap` builder. A setter the sequence never calls holds its
+    /// default. Budgets lie on both sides of the minimum, and targets on
+    /// both sides of the default and of the wire's cap.
     #[test]
-    fn budget_setters_raise_budgets_to_the_minimum(
-        budget in prop_oneof![
-            0..=2 * MIN_SYNC_MEMORY_BUDGET,
-            MIN_SYNC_MEMORY_BUDGET - 1..=MIN_SYNC_MEMORY_BUDGET + 1,
-            any::<usize>(),
-        ],
+    fn effective_budget_ignores_the_setters_order(
+        calls in prop::collection::vec(settings(), 0..8),
         network in network_seed(),
     ) {
-        let raised = budget.max(MIN_SYNC_MEMORY_BUDGET);
-        let peer = network.peer::<u64>().sync_memory_budget(budget);
-        prop_assert_eq!(peer.synchronization_settings().sync_memory_budget, raised);
-        let bootstrap = Peer::<u64>::bootstrap().sync_memory_budget(budget);
-        prop_assert_eq!(bootstrap.sync_memory_budget, raised);
+        let budget = calls
+            .iter()
+            .rev()
+            .find_map(|call| match call {
+                Setting::Budget(bytes) => Some(*bytes),
+                Setting::Target(_) => None,
+            })
+            .unwrap_or(default::SYNC_MEMORY_BUDGET);
+        let target = calls
+            .iter()
+            .rev()
+            .find_map(|call| match call {
+                Setting::Target(bytes) => Some(*bytes),
+                Setting::Budget(_) => None,
+            })
+            .unwrap_or(default::TARGET_MESSAGE_SIZE);
+        let minimum = min_memory_budget::<Local>(RunBudget::from_bytes(target).bytes());
+        let expected = budget.max(minimum);
+
+        let read = |peer: &Peer<u64>| peer.synchronization_settings().sync_memory_budget;
+        let budget_first = network.peer::<u64>()
+            .sync_memory_budget(budget)
+            .target_message_size(target);
+        prop_assert_eq!(read(&budget_first), expected);
+        let target_first = network.peer::<u64>()
+            .target_message_size(target)
+            .sync_memory_budget(budget);
+        prop_assert_eq!(read(&target_first), expected);
+        let sequenced = calls.iter().fold(network.peer::<u64>(), |peer, call| match *call {
+            Setting::Budget(bytes) => peer.sync_memory_budget(bytes),
+            Setting::Target(bytes) => peer.target_message_size(bytes),
+        });
+        prop_assert_eq!(read(&sequenced), expected);
+        prop_assert_eq!(
+            sequenced.into_rumors().synchronization_settings().sync_memory_budget,
+            expected
+        );
+
+        let bootstrap = calls.iter().fold(Peer::<u64>::bootstrap(), |builder, call| match *call {
+            Setting::Budget(bytes) => builder.sync_memory_budget(bytes),
+            Setting::Target(bytes) => builder.target_message_size(bytes),
+        });
+        prop_assert_eq!(
+            bootstrap.sync_memory_budget.effective(bootstrap.run_budget),
+            expected
+        );
     }
 }
 
