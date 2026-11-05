@@ -530,13 +530,13 @@ where
                     // the scope it creates is derived at the take.
                     let (prefix, _) = self.level.check(&mut positions, &listing)?;
                     self.reach(&prefix, &positions);
-                    self.listed += listing.len();
-                    if self.listed > self.bound.listing {
+                    if listing.len() > self.listing_left() {
                         return Err(DecodeError::ExceedsBound {
                             part: BoundedPart::Listing,
                             bound: self.bound.listing,
                         });
                     }
+                    self.listed += listing.len();
                     self.count(1)?;
                     self.ready_questions += 1;
                     self.ready_listing += listing.len();
@@ -640,6 +640,26 @@ where
         Ok(())
     }
 
+    /// The listing entries the reply's later queries can still carry.
+    ///
+    /// That is what the peer's grandchild count of the scope leaves beside
+    /// the entries its queries carried, and the child counts of the
+    /// children it matched or covered and of the nodes it supplied, which
+    /// that count includes and whose listings never come.
+    ///
+    /// Each query is held to it at its frame, and the room is priced at it
+    /// ([`deliverable`](Self::deliverable)), so the room returned as these
+    /// counts grow is never needed. A conforming peer never exceeds it: its
+    /// count sums its children's child counts, a matched or covered child's
+    /// is this side's, and a supplied node is the peer's child or what the
+    /// peer's deletion filter left of it. A query past it therefore reveals
+    /// a miscounting peer at that query's frame.
+    fn listing_left(&self) -> usize {
+        self.bound
+            .listing
+            .saturating_sub(self.listed + self.matched_children + self.supplied_children)
+    }
+
     /// End the open group of supplies, if any, and make its runs' nodes
     /// ready in run order.
     ///
@@ -709,11 +729,7 @@ where
             - positions.covered_above(self.after);
         let reactions = (self.bound.reactions - self.slots).min(radices);
         let questions = self.positions_left.min(reactions);
-        let listing = self
-            .bound
-            .listing
-            .saturating_sub(self.listed + self.matched_children + self.supplied_children)
-            .min(FAN * questions);
+        let listing = self.listing_left().min(FAN * questions);
         let sets = usize::from(!self.matched && self.positions_left >= 2);
         Deliverable {
             chunks: self.ready_questions + questions + 1,
