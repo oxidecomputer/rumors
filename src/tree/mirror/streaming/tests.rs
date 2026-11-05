@@ -20,7 +20,11 @@ use crate::tree::arb::{
     uncontained_supply_pair,
 };
 use crate::tree::mirror::streaming::backend::with_local_schedule;
-use crate::tree::mirror::streaming::channel::{QueueKind, with_kind_capacity, with_schedule};
+#[cfg(doc)]
+use crate::tree::mirror::streaming::channel::UNPARKED_CAPACITY;
+use crate::tree::mirror::streaming::channel::{
+    QueueKind, with_kind_capacity, with_observation, with_schedule,
+};
 use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
 use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
 use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Start};
@@ -40,6 +44,53 @@ mod local_eq;
 mod pipe;
 mod skeleton;
 mod stats;
+
+/// Every edge whose progress needs only one slot, each built with
+/// [`UNPARKED_CAPACITY`] slots so that a send into it while empty does not
+/// park.
+const ONE_SLOT_KINDS: [QueueKind; 7] = [
+    QueueKind::OutgoingResponses,
+    QueueKind::InitiatorRootQuery,
+    QueueKind::InitiatorRootReturn,
+    QueueKind::ResponderRootResolution,
+    QueueKind::ResponderRootReturns,
+    QueueKind::PipeOutgoing,
+    QueueKind::PipeIncoming,
+];
+
+/// Run `f` with every edge of [`ONE_SLOT_KINDS`] capped at one slot, the
+/// liveness floor their progress arguments rest on.
+///
+/// Requires that the cap took: every such edge `f` built had one slot, and
+/// `f` built each kind of `built`.
+///
+/// # Panics
+///
+/// Panics if an edge of [`ONE_SLOT_KINDS`] had more than one slot, or if a
+/// kind of `built` was never built: either would let a caller's verdict
+/// pass without judging the floor.
+fn at_one_slot<R>(built: &[QueueKind], f: impl FnOnce() -> R) -> R {
+    /// Run `f` with every edge of `kinds` capped at one slot.
+    fn capped<R>(kinds: &[QueueKind], f: impl FnOnce() -> R) -> R {
+        match kinds {
+            [] => f(),
+            [kind, rest @ ..] => with_kind_capacity(*kind, 1, || capped(rest, f)),
+        }
+    }
+    let (result, report) = with_observation(|| capped(&ONE_SLOT_KINDS, f));
+    for kind in ONE_SLOT_KINDS {
+        let stats = report.kind(kind);
+        assert!(
+            stats.channels == 0 || stats.effective_capacity == 1,
+            "{kind:?} ran with {} slots",
+            stats.effective_capacity
+        );
+    }
+    for &kind in built {
+        assert!(report.kind(kind).channels > 0, "{kind:?} was never built");
+    }
+    result
+}
 
 /// Whether the left tree wins the session's role election.
 fn left_initiates(left: &Root, right: &Root) -> bool {

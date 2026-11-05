@@ -18,8 +18,8 @@ use crate::{
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, Radices,
-            convert::Convert,
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, QueueKind, Radices,
+            convert::Convert, with_kind_capacity,
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -570,7 +570,15 @@ fn materializing_backend_conforms() {
 }
 
 /// A larger budget can reconcile a clustered fixture without increasing its
-/// peak.
+/// peak, with the outgoing replies' edge at one slot.
+///
+/// The edge's progress argument needs one slot; its second slot lets a
+/// budgeted walk queue a second reply chunk ahead of its encoder, and the
+/// rows that chunk's nodes keep alive raise this fixture's budgeted peak
+/// above the zero-budget run's, by 12,216 bytes on the row store, well
+/// within the budget the check allows. At one slot both runs peak alike,
+/// which is the witness this test needs: the census comparison must accept
+/// a budgeted peak no higher than the zero-budget run's.
 #[test]
 fn a_larger_budget_need_not_increase_the_peak() {
     let _serial = serialized();
@@ -584,14 +592,16 @@ fn a_larger_budget_need_not_increase_the_peak() {
             path[30..].copy_from_slice(&u16::try_from(index).unwrap().to_be_bytes());
             (version, Path::from(path))
         });
-    Path::with_leaf_paths(paths, || {
-        let floor = run_to_quiescence(run(Materializing, 0, 0))
-            .expect("the zero-budget session must complete");
-        let wider = run_to_quiescence(run(Materializing, CENSUS_BUDGET, 0))
-            .expect("the budgeted session must complete");
-        assert!(wider <= floor, "budgeted {wider}, zero-budget {floor}");
-        run_to_quiescence(check(Materializing, CENSUS_BUDGET))
-            .expect("conformance must accept the lower or equal peak");
+    with_kind_capacity(QueueKind::OutgoingResponses, 1, || {
+        Path::with_leaf_paths(paths, || {
+            let floor = run_to_quiescence(run(Materializing, 0, 0))
+                .expect("the zero-budget session must complete");
+            let wider = run_to_quiescence(run(Materializing, CENSUS_BUDGET, 0))
+                .expect("the budgeted session must complete");
+            assert!(wider <= floor, "budgeted {wider}, zero-budget {floor}");
+            run_to_quiescence(check(Materializing, CENSUS_BUDGET))
+                .expect("conformance must accept the lower or equal peak");
+        })
     });
 }
 

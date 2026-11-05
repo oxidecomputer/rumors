@@ -145,21 +145,23 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 /// The fixed session's sends, waits, and parks per kind of edge equal the
 /// committed baseline.
 ///
-/// A send parks exactly when it fills its edge, so every send on an edge
-/// of one slot parks: the lanes between the pipe and each stage's encoder
-/// or decoder, the outgoing replies between each walk and its encoder, the
-/// responder's root returns, and the three edges that carry one item a
-/// session. No send on an edge of a fan or more parks, since none fills it.
+/// A send parks exactly when it fills its edge. No send on an edge of a fan
+/// or more parks, since none fills it. The edges whose progress needs only
+/// one slot have a second, so a send parks there only when it finds the
+/// item before it still queued, and the parks show which end of each such
+/// edge runs ahead:
 ///
-/// The sends that waited show which end of an edge runs ahead. An encoder
-/// finds its lane full on more than half its frames: the multiplexer
-/// stages one frame per lane and takes the lane's next only once it has
-/// written that one, while the encoder builds its next frame meanwhile. A
-/// walk finds its outgoing replies' edge full on most of its chunks, for
-/// the same reason one stage further back. The demultiplexer finds a
-/// decoder's lane full on about half its frames: it runs in the same task
-/// set as the decoders, so it can read a lane's next frame before that
-/// lane's decoder has taken the one before.
+/// - The three edges that carry one item a session never park: their one
+///   send finds them empty.
+/// - The responder's root assembler takes each root return as it arrives,
+///   so few of those sends park.
+/// - Nearly half the frames on either kind of lane park, and about half
+///   the chunks on the outgoing replies. An encoder builds its next frame
+///   while the multiplexer writes the one it staged, and takes the lane's
+///   next only once that write is done; a walk runs ahead of its encoder in
+///   the same way one stage further back; and the demultiplexer can read a
+///   frame while its decoder is still on the one before. Each of those
+///   producers sometimes finds two items queued, and waits.
 ///
 /// The counts are deterministic: the fixture's network is seeded, the
 /// runtime polls its tasks in a fixed order, and nothing in a session reads
@@ -169,13 +171,13 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 fn sends_parked_per_edge_match_the_baseline() {
     let Session { tally, .. } = session();
     let baseline = BTreeMap::from([
-        (QueueKind::OutgoingResponses, sends(2_474, 1_978, 2_474)),
+        (QueueKind::OutgoingResponses, sends(2_474, 1_031, 1_225)),
         (QueueKind::AssemblyLevelReturns, sends(1_330, 0, 0)),
-        (QueueKind::InitiatorRootQuery, sends(1, 0, 1)),
-        (QueueKind::InitiatorRootReturn, sends(1, 0, 1)),
+        (QueueKind::InitiatorRootQuery, sends(1, 0, 0)),
+        (QueueKind::InitiatorRootReturn, sends(1, 0, 0)),
         (QueueKind::ResponderChildQueries, sends(256, 0, 0)),
-        (QueueKind::ResponderRootResolution, sends(1, 0, 1)),
-        (QueueKind::ResponderRootReturns, sends(256, 6, 256)),
+        (QueueKind::ResponderRootResolution, sends(1, 0, 0)),
+        (QueueKind::ResponderRootReturns, sends(256, 6, 15)),
         (QueueKind::InternalChildQueries, sends(1_031, 0, 0)),
         (QueueKind::InternalParentResolutions, sends(1_288, 0, 0)),
         (QueueKind::InternalChildResolutions, sends(299, 0, 0)),
@@ -184,8 +186,8 @@ fn sends_parked_per_edge_match_the_baseline() {
         (QueueKind::ProxyResponses, sends(2_473, 0, 0)),
         (QueueKind::ProxyLocalQuestions, sends(1_288, 0, 0)),
         (QueueKind::ProxyNextScopes, sends(1_288, 0, 0)),
-        (QueueKind::PipeOutgoing, sends(4_279, 2_297, 4_279)),
-        (QueueKind::PipeIncoming, sends(4_275, 2_153, 4_275)),
+        (QueueKind::PipeOutgoing, sends(4_279, 1_295, 1_918)),
+        (QueueKind::PipeIncoming, sends(4_275, 1_290, 2_121)),
     ]);
     assert_eq!(tally, baseline);
 }

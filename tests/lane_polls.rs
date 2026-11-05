@@ -16,6 +16,8 @@
 
 use std::cell::Cell;
 
+#[cfg(doc)]
+use rumors::testing::LANE_CAPACITY;
 use rumors::testing::{
     MEMORY_CAPACITY, MemoryEnd, MultiplexerPoll, memory_connection, observe_multiplexers,
 };
@@ -142,23 +144,25 @@ fn every_frame_costs_at_least_one_lane_poll() {
 ///
 /// A poll polls a lane's channel only when that channel has woken the
 /// multiplexer since its last poll, or has just yielded a frame and may
-/// hold another. So a frame costs about two lane polls: the one that
+/// hold another. So a frame costs one or two lane polls: the one that
 /// stages it, and, once it is written, one that finds the channel empty
-/// and registers the lane's waker. Each lane adds two more: its first
-/// poll, which registers its waker, and the poll that finds its channel
-/// closed.
+/// and registers the lane's waker, unless the channel holds the lane's
+/// next frame already, which that poll then stages. Each lane adds two
+/// more: its first poll, which registers its waker, and the poll that finds
+/// its channel closed.
 ///
 /// The unstaged lanes count what polling every open lane with nothing
 /// staged would cost instead. Each side has one lane per level it answers
 /// at, and nearly every lane is open with nothing staged at nearly every
-/// poll, because a lane holds at most one frame and the multiplexer writes
-/// each frame soon after staging it. The multiplexer is polled a few times
-/// per frame. Having written a frame, it polls once for the next, which is
-/// rarely ready yet: the encoder that handed over the last one must run
-/// again before it can hand over another. Finding none, it flushes and
-/// polls once more before it waits, and is polled again by the wake that
-/// brings the next frame. The session polls it as one member of a task set
-/// that polls each member only for its own wakes, so nothing else polls it.
+/// poll, because a lane holds at most [`LANE_CAPACITY`] frames and the
+/// multiplexer writes each frame soon after staging it. The multiplexer is
+/// polled a few times per frame. Having written a frame, it polls once for
+/// the next, which is ready when some lane's channel already holds one;
+/// otherwise the encoder that handed over the last one must run again
+/// before it can hand over another. Finding none, it flushes and polls once
+/// more before it waits, and is polled again by the wake that brings the
+/// next frame. The session polls it as one member of a task set that polls
+/// each member only for its own wakes, so nothing else polls it.
 ///
 /// The counts are deterministic: the fixture's network is seeded, the
 /// runtime polls its tasks in a fixed order, and nothing in a session reads
@@ -170,10 +174,10 @@ fn lane_polls_per_frame_match_the_baseline() {
     assert_eq!(
         tally,
         Tally {
-            polls: 12_454,
+            polls: 8_802,
             frames: 4_279,
-            polled: 8_620,
-            unstaged: 199_788,
+            polled: 6_702,
+            unstaged: 141_031,
         }
     );
 }

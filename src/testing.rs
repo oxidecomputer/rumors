@@ -423,6 +423,10 @@ pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> 
 /// and reply decoders one side of a session runs.
 pub const SESSION_STREAMS: usize = remote::STREAM_COUNT;
 
+/// The frames each logical stream's channel holds between the pipe and a
+/// stage's encoder or decoder, in either direction.
+pub const LANE_CAPACITY: usize = remote::LANE_CAPACITY;
+
 /// The most one side's transient bytes for `holding` may exceed its
 /// ledger's charges for that place on the in-memory backend.
 ///

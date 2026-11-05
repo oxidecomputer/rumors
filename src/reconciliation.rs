@@ -217,8 +217,8 @@
 //! session: a zero budget asks one question at a time per level and remains
 //! deadlock-free.
 //! Message bodies are governed separately: supplies stream as
-//! size-targeted runs, with at most three runs buffered per level sending,
-//! and two per level receiving plus one more for the whole receiving
+//! size-targeted runs, with at most four runs buffered per level sending,
+//! and three per level receiving plus one more for the whole receiving
 //! direction ([`Peer::target_message_size`](crate::Peer::target_message_size)).
 //! The budget's contract is at
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);

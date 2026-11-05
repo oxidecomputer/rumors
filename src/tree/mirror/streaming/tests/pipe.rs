@@ -37,7 +37,7 @@ use super::fixtures::{
     LeafOrder, full_depth_comb_pair, grown, one_sided_pair, path_at, pyramid_pair, rooted,
 };
 use super::skeleton::{Party, client_role};
-use super::{GENERATED_SCHEDULE_MAX_LEN, join_oracle, standard_schedules};
+use super::{GENERATED_SCHEDULE_MAX_LEN, at_one_slot, join_oracle, standard_schedules};
 use crate::testing::Quiescence;
 use crate::tree::Root;
 use crate::tree::arb::{
@@ -221,25 +221,28 @@ fn dispute_before_supplies_completes_over_a_one_byte_pipe() {
     }
 }
 
-/// Every capacity stress fixture completes over a one-byte pipe at the
-/// budget of zero, in both orientations and under every standard poll
-/// schedule.
+/// The capacity stress fixtures, which stress the walk's one-slot and
+/// fan-sized queues.
 ///
-/// The fixtures stress the walk's one-slot and fan-sized queues: a full fan
-/// of disputed root children, a full fan below four disputed parents, the
-/// fan-plus-one and double-fan aggregates, a multiplying pyramid, and a comb
-/// reaching every trie height.
-#[test]
-fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
-    let cases = [
+/// They are a full fan of disputed root children, a full fan below four
+/// disputed parents, the fan-plus-one and double-fan aggregates, a
+/// multiplying pyramid, and a comb reaching every trie height.
+fn capacity_stress_fixtures() -> [(Root, Root); 6] {
+    [
         pyramid_pair(&[FAN], 1, LeafOrder::Outside),
         pyramid_pair(&[4, FAN], 1, LeafOrder::Reversed),
         one_sided_pair(&[(0x00, FAN - 2, 1), (0x01, 1, 1)]),
         one_sided_pair(&[(0x00, FAN - 1, 1), (0x01, FAN - 1, 1)]),
         pyramid_pair(&[8, 4, 4, 2], 2, LeafOrder::Interleaved),
         full_depth_comb_pair(2, LeafOrder::Interleaved),
-    ];
-    for (a, b) in cases {
+    ]
+}
+
+/// Require each capacity stress fixture to complete over a one-byte pipe
+/// at the budget of zero, in both orientations and under every standard
+/// poll schedule.
+fn assert_capacity_stress_fixtures_complete() {
+    for (a, b) in capacity_stress_fixtures() {
         for pair in [(a.clone(), b.clone()), (b, a)] {
             for (channel_schedule, backend_schedule) in standard_schedules() {
                 assert_completes_over_one_byte(
@@ -253,6 +256,37 @@ fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
             }
         }
     }
+}
+
+/// Every capacity stress fixture ([`capacity_stress_fixtures`]) completes
+/// over a one-byte pipe at the budget of zero, in both orientations and
+/// under every standard poll schedule.
+#[test]
+fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
+    assert_capacity_stress_fixtures_complete();
+}
+
+/// Every capacity stress fixture completes over a one-byte pipe with every
+/// edge that needs only one slot capped at one.
+///
+/// Those edges ([`ONE_SLOT_KINDS`](super::ONE_SLOT_KINDS)) include the
+/// pipe's lanes. Each fixture runs at the budget of zero, in both
+/// orientations and under every standard poll schedule.
+///
+/// Those edges have a second slot only so that a send into an empty edge
+/// does not park; the pipe's argument, and the walk's, rest on one. At the
+/// documented capacities the second slot could hide a wait the arguments
+/// miss, so this runs the fixtures at the floor the arguments state.
+#[test]
+fn capacity_stress_fixtures_complete_over_a_one_byte_pipe_at_one_slot() {
+    at_one_slot(
+        &[
+            QueueKind::OutgoingResponses,
+            QueueKind::PipeOutgoing,
+            QueueKind::PipeIncoming,
+        ],
+        assert_capacity_stress_fixtures_complete,
+    );
 }
 
 /// Every capacity and wire stress fixture completes over a one-byte pipe at

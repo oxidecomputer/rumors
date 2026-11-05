@@ -17,6 +17,8 @@ use crate::tree::mirror::streaming::FAN;
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, UNBOUNDED, with_observation, with_schedule,
 };
+use crate::tree::mirror::streaming::materialized::OUTGOING_REPLY_CHUNKS;
+use crate::tree::mirror::streaming::remote::LANE_CAPACITY;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},
@@ -635,8 +637,9 @@ fn instrumented_reconcile(
 /// (`try_send_is_full_exactly_at_capacity`), so it is not repeated here.
 ///
 /// The record queue and parking are [`UNBOUNDED`], the scope queue holds a
-/// fan plus one, and each logical stream's lane to or from the pipe one
-/// slot.
+/// fan beside the outgoing replies' chunks ([`OUTGOING_REPLY_CHUNKS`]), and
+/// each logical stream's lane to or from the pipe [`LANE_CAPACITY`]
+/// frames.
 fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     for (role, stats) in report
         .roles()
@@ -644,8 +647,8 @@ fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     {
         let expected = match role.kind {
             QueueKind::ProxyLocalQuestions => UNBOUNDED,
-            QueueKind::PipeOutgoing | QueueKind::PipeIncoming => 1,
-            QueueKind::ProxyNextScopes => FAN + 1,
+            QueueKind::PipeOutgoing | QueueKind::PipeIncoming => LANE_CAPACITY,
+            QueueKind::ProxyNextScopes => FAN + OUTGOING_REPLY_CHUNKS,
             QueueKind::ProxyResponses => UNBOUNDED,
             _ => unreachable!("only proxy roles are selected"),
         };

@@ -68,12 +68,14 @@ fn every_invited_reply_parks_while_its_stage_is_held() {
 }
 
 /// The scope queue fed at each take completes this fixture at a fan less
-/// one slot, and at a fan plus one no publish waits.
+/// one slot, and at its own capacity no publish waits.
 ///
 /// The responder takes the initiator's full-fan reply chunk by chunk, each
 /// take publishing its chunk's scopes before its stage receives the chunk.
-/// The scope queue's constructor, `next_scopes`, argues that a fan plus one
-/// slots never make a take wait, whatever the chunking; the decoder delivers
+/// The scope queue's constructor, `next_scopes`, argues that a fan beside
+/// the outgoing replies' chunks never makes a take wait, whatever the
+/// chunking, and that a fan less one slot is the fewest at which a take of
+/// a full-fan chunk can complete; the decoder delivers
 /// each question as its frame arrives, so this session's takes publish far
 /// fewer than a fan at once, and both capacities complete.
 #[test]

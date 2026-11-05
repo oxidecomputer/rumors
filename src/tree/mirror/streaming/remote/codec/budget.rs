@@ -14,10 +14,11 @@
 //! stream.
 //!
 //! Runs are the unit of wire buffering, which the session's pipe bounds
-//! per logical stream. Sending, a logical stream holds at most three
-//! complete runs: one its encoder is waiting to hand over, one in its
-//! channel to the multiplexer, and one the multiplexer has staged or is
-//! writing. Receiving, it holds at most two: one in its channel from the
+//! per logical stream. Sending, a logical stream holds at most one complete
+//! run its encoder is waiting to hand over, a channel's worth
+//! ([`LANE_CAPACITY`](super::super::pipe::LANE_CAPACITY)) queued to the
+//! multiplexer, and one the multiplexer has staged or is writing.
+//! Receiving, it holds at most a channel's worth queued from the
 //! demultiplexer and one its decoder is decoding; the demultiplexer itself
 //! holds at most one more, for the whole direction, while it waits for a
 //! full channel.

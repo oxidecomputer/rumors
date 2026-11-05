@@ -111,9 +111,10 @@
 //! The classes the ledger leaves out, the session's fixed state, are
 //! bounded by their capacities:
 //!
-//! - **Wire buffering** holds at most three frames for each logical stream
-//!   a side sends on and two for each it receives on, and one more on the
-//!   receiving side ([`WIRE_FRAMES`]), each at most
+//! - **Wire buffering** holds at most a lane's channel of frames and two
+//!   more for each logical stream a side sends on, a channel's and one more
+//!   for each it receives on, and one more on the receiving side
+//!   ([`WIRE_FRAMES`]), each at most
 //!   [`COMPARISON_FRAME_BYTES`] here and counted at twice that for its
 //!   vector.
 //! - **Assembly** holds the queues of fixed capacity around it and the
@@ -286,7 +287,7 @@ use proptest::test_runner::TestRunner;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::testing::{
-    Admission, COMPARISON_FRAME_BYTES, HASHING_SCRATCH_BYTES, Holding, LedgerChange,
+    Admission, COMPARISON_FRAME_BYTES, HASHING_SCRATCH_BYTES, Holding, LANE_CAPACITY, LedgerChange,
     OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, SESSION_STREAMS, assembly_allowance,
     attribute_allocations, join_snapshots, ledger_scratch, observe_admissions, observe_fits,
     observe_ledgers, report_allocations, supply_decode_envelope_bytes, with_leaf_paths,
@@ -333,13 +334,14 @@ const SETUP_EVENTS: usize = 1 << 16;
 
 /// The most frames one side's wire buffering holds at once.
 ///
-/// Sending, each logical stream holds at most three: one its encoder is
-/// waiting to hand over, one in its channel to the multiplexer, and one the
-/// multiplexer has staged or is writing. Receiving, each holds at most two,
-/// one in its channel from the demultiplexer and one its decoder is
-/// decoding, and the demultiplexer holds one more for the whole direction
-/// while it waits for a full channel.
-const WIRE_FRAMES: usize = 3 * SESSION_STREAMS + 2 * SESSION_STREAMS + 1;
+/// Sending, each logical stream holds at most one its encoder is waiting to
+/// hand over, [`LANE_CAPACITY`] in its channel to the multiplexer, and one
+/// the multiplexer has staged or is writing. Receiving, each holds at most
+/// [`LANE_CAPACITY`] in its channel from the demultiplexer and one its
+/// decoder is decoding, and the demultiplexer holds one more for the whole
+/// direction while it waits for a full channel.
+const WIRE_FRAMES: usize =
+    (LANE_CAPACITY + 2) * SESSION_STREAMS + (LANE_CAPACITY + 1) * SESSION_STREAMS + 1;
 
 /// What one fixture's construction allocated, and the peers it built.
 struct Fixture {
@@ -1381,7 +1383,7 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// claims under the invitation share let its questions take it, and the
 /// floor slots hold one more unit per depth and kind beside it: each peak
 /// is at most the 8 MiB budget plus its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_388_108, 8_469_368];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_388_452, 8_469_360];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
@@ -1389,7 +1391,7 @@ const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_388_108, 8_469_368];
 ///
 /// A claim reserves room for processing still to come, so a side's peak
 /// can stay below its budget.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [28_376_588, 33_567_888];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [28_376_932, 33_568_448];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.

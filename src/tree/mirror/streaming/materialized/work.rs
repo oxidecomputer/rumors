@@ -31,6 +31,7 @@ pub(crate) use charges::scratch;
 pub(crate) use charges::{Deliverable, parked_bytes, room_beyond};
 #[cfg(test)]
 pub(crate) use charges::{parked_price, parked_room};
+pub(crate) use queues::OUTGOING_REPLY_CHUNKS;
 pub(super) use resolver::Resolver;
 
 /// One leaf request in its queue: the leaf's path, with the charge for the

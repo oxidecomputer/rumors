@@ -18,8 +18,10 @@
 //! ledger when admission grants it
 //! ([`ledger`](crate::tree::mirror::streaming::ledger)), so they are
 //! [`UNBOUNDED`]. The constructors below document the separate cardinality
-//! or flow argument for every remaining one-slot edge; only the
-//! inter-level return boundary needs a fan.
+//! or flow argument for every remaining edge that one slot would serve;
+//! each has [`UNPARKED_CAPACITY`] slots, so that a send into an empty edge
+//! does not park its producer. Only the inter-level return boundary needs a
+//! fan.
 
 use futures::{StreamExt as _, stream};
 
@@ -27,7 +29,7 @@ use super::LeafRequest;
 use crate::tree::{
     mirror::streaming::{
         Backend, FAN, Leaf,
-        channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, channel},
+        channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, UNPARKED_CAPACITY, channel},
         erased::{self, Reply, ReplyResultStream},
         materialized::{Error, Query, Resolution},
     },
@@ -43,11 +45,22 @@ fn ok_channel<T, E>(role: QueueRole, capacity: usize) -> (Sender<T>, OkReceiverS
     (sender, receiver.map(Ok))
 }
 
-/// Buffer outgoing protocol replies one at a time.
+/// The reply chunks the outgoing replies' edge holds
+/// ([`outgoing_responses`]).
 ///
-/// A blocked producer has already made one reply available to the counterparty,
-/// and consuming that reply is sufficient to release the producer. More slots
-/// retain whole messages without breaking another dependency.
+/// The remote proxy's scope queue counts these beside a fan: its encoder
+/// dequeues a reply's scope before it takes the reply's chunks from this
+/// edge, so each chunk queued here can stand for one scope not yet
+/// dequeued.
+pub(crate) const OUTGOING_REPLY_CHUNKS: usize = UNPARKED_CAPACITY;
+
+/// Buffer outgoing protocol replies, [`OUTGOING_REPLY_CHUNKS`] chunks deep.
+///
+/// A blocked producer has already made a reply available to the
+/// counterparty, and consuming that reply is sufficient to release the
+/// producer, so one slot is the liveness floor. More slots retain whole
+/// messages without breaking another dependency; the second keeps a chunk
+/// sent into an empty edge from parking the walk.
 pub(super) fn outgoing_responses<B, H>() -> (
     Sender<Result<Reply<B::Erased>, Error<B::Error>>>,
     ReplyResultStream<B, H, Error<B::Error>>,
@@ -58,7 +71,7 @@ where
 {
     erased::reply_channel::<B, H, Error<B::Error>>(
         QueueRole::new(QueueKind::OutgoingResponses, H::HEIGHT),
-        1,
+        OUTGOING_REPLY_CHUNKS,
     )
 }
 
@@ -100,29 +113,31 @@ where
 
 /// Carry the initiator's single root query.
 ///
-/// The opening emits exactly one query for the root scope, so a second slot
-/// can never be occupied.
+/// The opening emits exactly one query for the root scope, so the edge
+/// never holds a second item; its [`UNPARKED_CAPACITY`] slots leave room
+/// behind that one send, which therefore does not park.
 pub(super) fn initiator_root_query<B>() -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
     B: Backend<Node<Z>: Leaf>,
 {
     channel(
         QueueRole::new(QueueKind::InitiatorRootQuery, UnderRoot::HEIGHT),
-        1,
+        UNPARKED_CAPACITY,
     )
 }
 
 /// Carry the initiator's single completed root.
 ///
 /// Reconciliation produces exactly one root node and the terminal future
-/// consumes it directly.
+/// consumes it directly; the edge's [`UNPARKED_CAPACITY`] slots leave room
+/// behind that one send, which therefore does not park.
 pub(super) fn initiator_root_return<B>() -> (Sender<Option<B::Erased>>, Receiver<Option<B::Erased>>)
 where
     B: Backend<Node<Z>: Leaf>,
 {
     channel(
         QueueRole::new(QueueKind::InitiatorRootReturn, Root::HEIGHT),
-        1,
+        UNPARKED_CAPACITY,
     )
 }
 
@@ -144,7 +159,9 @@ where
 /// Carry the responder's single root resolution.
 ///
 /// The responder processes exactly one opening request and therefore
-/// publishes exactly one resolution for the root scope.
+/// publishes exactly one resolution for the root scope; the edge's
+/// [`UNPARKED_CAPACITY`] slots leave room behind that one send, which
+/// therefore does not park.
 pub(super) fn responder_root_resolution<B>() -> (
     Sender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
@@ -154,7 +171,7 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::ResponderRootResolution, UnderRoot::HEIGHT),
-        1,
+        UNPARKED_CAPACITY,
     )
 }
 
@@ -162,7 +179,9 @@ where
 ///
 /// The root resolution is visible before its child queries are sent, so its
 /// assembler can consume each return as it arrives. No later return is needed
-/// to unlock the consumer of the buffered one.
+/// to unlock the consumer of the buffered one, so one slot is the liveness
+/// floor; with [`UNPARKED_CAPACITY`] slots, a return sent while the
+/// assembler keeps up does not park.
 pub(super) fn responder_root_returns<B>() -> (
     Sender<Option<B::Erased>>,
     OkReceiverStream<Option<B::Erased>, Error<B::Error>>,
@@ -172,7 +191,7 @@ where
 {
     ok_channel(
         QueueRole::new(QueueKind::ResponderRootReturns, UnderRoot::HEIGHT),
-        1,
+        UNPARKED_CAPACITY,
     )
 }
 

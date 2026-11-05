@@ -138,7 +138,7 @@ pub(crate) use work::floor_allowance;
 pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
-pub(crate) use work::{Deliverable, parked_bytes, room_beyond};
+pub(crate) use work::{Deliverable, OUTGOING_REPLY_CHUNKS, parked_bytes, room_beyond};
 use work::{LeafRequest, Resolver, Work};
 #[cfg(test)]
 pub(crate) use work::{parked_price, parked_room};

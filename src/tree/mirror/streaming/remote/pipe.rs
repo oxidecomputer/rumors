@@ -6,15 +6,17 @@
 //! frames interleaved. Two futures connect the logical streams to that pipe:
 //!
 //! - The [`Multiplexer`] owns the write half. Each local encoder hands it
-//!   frames through its own capacity-1 channel ([`Outgoing`]). It writes
-//!   whole frames, choosing a waiting frame that is not a supply run ahead
-//!   of any waiting supply run ([`Class`]), flushes whenever no frame is
-//!   ready, and returns when every encoder's channel has closed.
+//!   frames through its own channel of [`LANE_CAPACITY`] frames
+//!   ([`Outgoing`]). It writes whole frames, choosing a waiting frame that
+//!   is not a supply run ahead of any waiting supply run ([`Class`]),
+//!   flushes whenever no frame is ready, and returns when every encoder's
+//!   channel has closed.
 //! - The [`Demultiplexer`] owns the read half. It reads frames in pipe order
 //!   and routes each, by the logical stream its signal names, to that
-//!   stream's decoder over a capacity-1 channel. It stops at the first item
-//!   that is not a frame: the peer's closing items (its completion marker,
-//!   or a donated identity) follow its last frame on the same pipe.
+//!   stream's decoder over a channel of [`LANE_CAPACITY`] frames. It stops
+//!   at the first item that is not a frame: the peer's closing items (its
+//!   completion marker, or a donated identity) follow its last frame on the
+//!   same pipe.
 //!
 //! # Why sharing one pipe cannot deadlock
 //!
@@ -104,7 +106,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
-    channel::{QueueKind, QueueRole, Receiver, Sender, channel},
+    channel::{QueueKind, QueueRole, Receiver, Sender, UNPARKED_CAPACITY, channel},
     stats::{CountedRead, CountedWrite, Recorder},
     tasks::cancelled,
 };
@@ -115,12 +117,14 @@ use super::codec::{
 };
 
 /// Frames each logical stream's channel holds between the pipe and a stage's
-/// encoder or decoder.
+/// encoder or decoder: [`UNPARKED_CAPACITY`].
 ///
-/// One slot is the smallest channel. Beyond it, the multiplexer holds at most
-/// one frame per stream, staged or being written, and the demultiplexer at most
-/// one frame for the whole direction, while it waits for a full channel.
-const LANE_CAPACITY: usize = 1;
+/// Nothing in this module's argument needs more than one slot. The second keeps
+/// a frame handed into an empty lane, by an encoder or by the demultiplexer,
+/// from parking its sender. Beyond the lane, the multiplexer holds at most one
+/// frame per stream, staged or being written, and the demultiplexer at most one
+/// frame for the whole direction, while it waits for a full channel.
+pub(crate) const LANE_CAPACITY: usize = UNPARKED_CAPACITY;
 
 /// The bits of a CBOR initial byte that hold its major type.
 const MAJOR_TYPE_SHIFT: u32 = 5;
@@ -387,11 +391,11 @@ async fn send_or_cancel(frames: &mut Sender<Frame>, frame: Frame) {
 /// logical stream ahead of every staged supply run, so the descent never queues
 /// behind bulk waiting on another logical stream. Within one logical stream,
 /// frames keep their order: a thin frame still waits behind the frame being
-/// written, and behind up to two earlier supply runs on its own stream, one
-/// staged or being written and one in its channel. A session's traffic is
-/// finite, so every frame is still served. Within a class, logical streams are
-/// served round-robin from that class's own cursor; a further class takes its
-/// place in the order.
+/// written, and behind the earlier supply runs on its own stream, one staged or
+/// being written and up to [`LANE_CAPACITY`] in its channel. A session's
+/// traffic is finite, so every frame is still served. Within a class, logical
+/// streams are served round-robin from that class's own cursor; a further class
+/// takes its place in the order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
     /// Every frame that is not a supply run.

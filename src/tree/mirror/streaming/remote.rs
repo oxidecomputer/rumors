@@ -77,6 +77,8 @@ pub(crate) use adapter::{ReplyLevel, derive_questions};
 pub(crate) use codec::STREAM_COUNT;
 pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
 pub(crate) use error::streaming_error;
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use pipe::LANE_CAPACITY;
 pub use pipe::PipeRead;
 #[cfg(any(test, feature = "test-internals"))]
 pub use pipe::{MultiplexerHook, MultiplexerPoll, observe_multiplexers};

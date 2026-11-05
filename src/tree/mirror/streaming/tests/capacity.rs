@@ -8,8 +8,9 @@ use super::fixtures::{
     LeafOrder, divergent_cells_pair, full_depth_comb_pair, one_sided_pair, pyramid_pair,
 };
 use super::{
-    GENERATED_SCHEDULE_MAX_LEN, LocalSession, Verdict, constant_schedule, floor_start,
-    fully_scheduled_streaming_mirror, join_oracle, standard_schedules,
+    GENERATED_SCHEDULE_MAX_LEN, LocalSession, ONE_SLOT_KINDS, Verdict, at_one_slot,
+    constant_schedule, floor_start, fully_scheduled_streaming_mirror, join_oracle,
+    standard_schedules,
 };
 use crate::testing::{Quiescence, run_to_quiescence, schedule::MAX_SCHEDULED_DELAY};
 use crate::tree::{
@@ -17,7 +18,7 @@ use crate::tree::{
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
         FAN, Fault, Faulting, ReplyCorruption,
-        channel::{QueueKind, UNBOUNDED, with_kind_capacity, with_observation},
+        channel::{QueueKind, UNBOUNDED, UNPARKED_CAPACITY, with_kind_capacity, with_observation},
         mirror as drive_streaming,
     },
 };
@@ -99,47 +100,85 @@ fn assert_capacity_case(name: &'static str, pair: (Root, Root)) {
     }
 }
 
-/// Exact barriers, aggregate overflow, full depth, and multiplying width drain.
+/// The structural stress cases: exact barriers, aggregate overflow, full
+/// depth, and multiplying width, each named.
+fn stress_cases() -> [(&'static str, (Root, Root)); 6] {
+    [
+        // A full fan of disputed root children proves that publishing the
+        // root resolution first lets query and return channels stream a fan
+        // through as little as one slot.
+        ("root full fan", pyramid_pair(&[FAN], 1, LeafOrder::Outside)),
+        // A full fan below four simultaneously disputed parents reaches
+        // every recursive query/resolution boundary and the fan-sized
+        // inter-level return boundary, with a sibling backlog behind it.
+        (
+            "recursive full fan",
+            pyramid_pair(&[4, FAN], 1, LeafOrder::Reversed),
+        ),
+        // The exact off-by-one shape and a double-fan variant prove that
+        // active draining, rather than an accidentally oversized constant,
+        // carries an unbounded sequence of independently resolved children
+        // upward.
+        (
+            "fan plus one",
+            one_sided_pair(&[(0x00, FAN - 2, 1), (0x01, 1, 1)]),
+        ),
+        (
+            "two aggregate fans",
+            one_sided_pair(&[(0x00, FAN - 1, 1), (0x01, FAN - 1, 1)]),
+        ),
+        // Multiplying widths load several pipeline levels at once.
+        // Interleaving the leaf radices prevents request/match/provision
+        // order from being an accidental source of progress.
+        (
+            "multiplying pyramid",
+            pyramid_pair(&[8, 4, 4, 2], 2, LeafOrder::Interleaved),
+        ),
+        // The comb reaches all 32 trie heights with only linear leaf growth
+        // and a disputed sibling branching away from the spine at every
+        // internal level.
+        (
+            "full depth comb",
+            full_depth_comb_pair(2, LeafOrder::Interleaved),
+        ),
+    ]
+}
+
+/// Every structural stress case ([`stress_cases`]) drains at the
+/// documented capacities, in both orientations and under every standard
+/// poll schedule.
 #[test]
 fn capacity_stress_matrix() {
-    // A full fan of disputed root children proves that publishing the root
-    // resolution first lets one-slot query and return channels stream a fan.
-    assert_capacity_case("root full fan", pyramid_pair(&[FAN], 1, LeafOrder::Outside));
+    for (name, pair) in stress_cases() {
+        assert_capacity_case(name, pair);
+    }
+}
 
-    // A full fan below four simultaneously disputed parents reaches every
-    // one-slot recursive query/resolution boundary and the fan-sized
-    // inter-level return boundary, with a sibling backlog behind it.
-    assert_capacity_case(
-        "recursive full fan",
-        pyramid_pair(&[4, FAN], 1, LeafOrder::Reversed),
-    );
+/// The edges of [`ONE_SLOT_KINDS`] a session between two in-memory
+/// endpoints builds: every one but the pipe's lanes.
+const MATERIALIZED_ONE_SLOT_KINDS: [QueueKind; 5] = [
+    QueueKind::OutgoingResponses,
+    QueueKind::InitiatorRootQuery,
+    QueueKind::InitiatorRootReturn,
+    QueueKind::ResponderRootResolution,
+    QueueKind::ResponderRootReturns,
+];
 
-    // The exact off-by-one shape and a double-fan variant prove that active
-    // draining, rather than an accidentally oversized constant, carries an
-    // unbounded sequence of independently resolved children upward.
-    assert_capacity_case(
-        "fan plus one",
-        one_sided_pair(&[(0x00, FAN - 2, 1), (0x01, 1, 1)]),
-    );
-    assert_capacity_case(
-        "two aggregate fans",
-        one_sided_pair(&[(0x00, FAN - 1, 1), (0x01, FAN - 1, 1)]),
-    );
-
-    // Multiplying widths load several pipeline levels at once. Interleaving
-    // the leaf radices prevents request/match/provision order from being an
-    // accidental source of progress.
-    assert_capacity_case(
-        "multiplying pyramid",
-        pyramid_pair(&[8, 4, 4, 2], 2, LeafOrder::Interleaved),
-    );
-
-    // The comb reaches all 32 trie heights with only linear leaf growth and a
-    // disputed sibling branching away from the spine at every internal level.
-    assert_capacity_case(
-        "full depth comb",
-        full_depth_comb_pair(2, LeafOrder::Interleaved),
-    );
+/// Every structural stress case drains with every edge that needs only one
+/// slot ([`ONE_SLOT_KINDS`]) capped at one, in both orientations and under
+/// every standard poll schedule.
+///
+/// Those edges have a second slot only so that a send into an empty edge
+/// does not park; their progress arguments rest on one. At the documented
+/// capacities the second slot could hide a wait the arguments miss, so this
+/// runs the cases at the floor the arguments state.
+#[test]
+fn capacity_stress_matrix_drains_at_one_slot() {
+    for (name, pair) in stress_cases() {
+        at_one_slot(&MATERIALIZED_ONE_SLOT_KINDS, || {
+            assert_capacity_case(name, pair);
+        });
+    }
 }
 
 /// Every materialized queue role carries traffic at its documented capacity,
@@ -178,7 +217,8 @@ fn capacity_stress_covers_every_queue_role() {
             | QueueKind::LeafRequests
             | QueueKind::LeafParentResolutions
             | QueueKind::LeafChildResolutions => UNBOUNDED,
-            _ => 1,
+            kind if ONE_SLOT_KINDS.contains(&kind) => UNPARKED_CAPACITY,
+            kind => unreachable!("{kind:?} is not a materialized queue role"),
         };
         assert_eq!(
             stats.effective_capacity, expected,

@@ -22,6 +22,7 @@ use crate::tree::mirror::streaming::{
     materialized::{Deliverable, parked_bytes, parked_price, parked_room},
     message::{Grandchildren, Listed, listed},
     remote::{
+        LANE_CAPACITY,
         adapter::{ReplyLevel, Scope},
         codec::{End, Flow, Frame, Reaction as WireReaction},
         proxy::Error,
@@ -37,7 +38,8 @@ use crate::tree::typed::{
 /// later frame, so no unasked frame is dropped unseen.
 #[test]
 fn an_unquestioned_decoder_reports_a_waiting_frame() {
-    let (mut frames, mut incoming) = channel(QueueRole::new(QueueKind::PipeIncoming, 0), 1);
+    let (mut frames, mut incoming) =
+        channel(QueueRole::new(QueueKind::PipeIncoming, 0), LANE_CAPACITY);
     run_to_quiescence(async {
         frames.send(Frame::End(End::Reply)).await.unwrap();
         let result = reject_extra::<()>(false, &mut incoming).await;
@@ -54,7 +56,8 @@ fn an_unquestioned_decoder_reports_a_waiting_frame() {
 /// stream, and its closed channel refuses a frame that arrives afterward.
 #[test]
 fn an_unquestioned_decoder_finishes_on_an_empty_stream() {
-    let (mut frames, mut incoming) = channel(QueueRole::new(QueueKind::PipeIncoming, 0), 1);
+    let (mut frames, mut incoming) =
+        channel(QueueRole::new(QueueKind::PipeIncoming, 0), LANE_CAPACITY);
     run_to_quiescence(async {
         let result = reject_extra::<()>(false, &mut incoming).await;
         assert!(result.is_ok(), "{result:?}");
