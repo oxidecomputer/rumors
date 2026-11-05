@@ -37,7 +37,7 @@ use rumors::observe::{
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Rumors, Version};
 use rumors_testkit::bench::latency;
 use sha3::Digest;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use tokio::time::Instant;
 
 use latency::{DelayedReader, DelayedWriter, delayed_pair};
@@ -284,11 +284,13 @@ where
     let (a_end, b_end) = delayed_pair(CAPACITY, DELAY);
     let traced = |end: latency::DelayedEnd, side| {
         (
-            TracedReader {
-                inner: end.read,
+            // The tracer models the transport, beneath the session's read
+            // buffer; the connection end is fresh, so its buffer is empty.
+            BufReader::new(TracedReader {
+                inner: end.read.into_inner(),
                 side,
                 trace: trace.clone(),
-            },
+            }),
             TracedWriter {
                 inner: end.write,
                 side,

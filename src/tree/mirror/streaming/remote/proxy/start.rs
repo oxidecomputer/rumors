@@ -1,7 +1,7 @@
 //! The wire participant's states for exchanging greetings.
 
 use crate::tree::mirror::streaming::message::Grandchildren;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 use crate::{
     message::PayloadCodec,
@@ -164,7 +164,7 @@ where
 impl<B, R, W> Connect<B> for Handshaking<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: AsyncRead + Unpin + Send,
+    R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
     type Next = Handshaking<B, R, W, Connecting>;
@@ -191,7 +191,7 @@ where
 impl<B, R, W> CompleteConnect<B> for Handshaking<B, R, W, Connecting>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: AsyncRead + Unpin + Send,
+    R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
     type Next = Connected<B, R, W>;
@@ -210,7 +210,7 @@ where
 impl<B, R, W> Accept<B> for Handshaking<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: AsyncRead + Unpin + Send,
+    R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
     type Next = Connected<B, R, W>;

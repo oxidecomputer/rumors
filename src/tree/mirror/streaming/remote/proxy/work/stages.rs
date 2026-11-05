@@ -28,7 +28,7 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use super::{Ingress, Outstanding, Parked, Work, encode, queues};
 use crate::tree::{
@@ -247,7 +247,7 @@ where
         scopes: Receiver<Scope>,
     ) -> Result<(PipeRead<R>, W), Error<B::Error>>
     where
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         let requests = requests.erase();
@@ -278,7 +278,7 @@ where
         impl Future<Output = Result<(PipeRead<R>, W), Error<B::Error>>> + Send,
     )
     where
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         let requests = requests.erase();

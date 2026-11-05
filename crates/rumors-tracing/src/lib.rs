@@ -21,6 +21,7 @@
 //!
 //! use rumors::Peer;
 //! use rumors_tracing::TracingObserver;
+//! use tokio::io::BufReader;
 //!
 //! #[tokio::main(flavor = "current_thread")]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,6 +37,7 @@
 //!     let (near, far) = tokio::io::duplex(64 * 1024);
 //!     let ((near_read, near_write), (far_read, far_write)) =
 //!         (tokio::io::split(near), tokio::io::split(far));
+//!     let (near_read, far_read) = (BufReader::new(near_read), BufReader::new(far_read));
 //!     let (served, joined) = tokio::join!(
 //!         alice.gossip_once(far_read, far_write),
 //!         Peer::<String>::bootstrap().join(near_read, near_write),

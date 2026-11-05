@@ -6,9 +6,13 @@
 //! session makes on them that completes costs that transport something
 //! whatever it is: a system call per write or read on a raw socket, a
 //! record per write on an unbuffered TLS stream. This suite counts the
-//! completed calls at that boundary (`poll_read`, `poll_write`,
-//! `poll_write_vectored`, `poll_flush`) on deterministic sessions, so a
-//! change to how a session writes or reads moves a committed number.
+//! completed calls at that boundary (`poll_read`, `poll_fill_buf`,
+//! `consume`, `poll_write`, `poll_write_vectored`, `poll_flush`) on
+//! deterministic sessions, so a change to how a session writes or reads
+//! moves a committed number. A session reads through a buffer it is
+//! given (`AsyncBufRead`), whose calls cost nothing beyond a copy, so the
+//! suite also counts the completed reads beneath that buffer, from the
+//! transport itself: those are what a raw socket pays a system call for.
 //!
 //! A call completes when it returns `Ready`. A call that returns `Pending`
 //! waits for the peer; it is not counted, because how often a session
@@ -16,7 +20,7 @@
 //! or reads. A wait usually costs a Tokio socket no system call, since the
 //! socket answers it from the readiness state its event loop keeps; after
 //! a read that exactly filled the caller's buffer, it costs one `read`
-//! that finds nothing (`EAGAIN`).
+//! that finds nothing (`EAGAIN`). `consume` always completes.
 //!
 //! Each session runs both peers in their own tasks on a current-thread
 //! runtime, over an in-memory connection whose directions buffer more than
@@ -36,7 +40,7 @@ use std::task::{Context, Poll};
 use rumors::testing::{MemoryEnd, memory_connection};
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Rumors};
 use rumors_testkit::bench::session::{Shape, pair};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
 /// Bytes each direction of the connection buffers: more than any fixture
 /// sends in one direction, so no write waits for its reader.
@@ -46,8 +50,15 @@ const CAPACITY: usize = 4 << 20;
 /// sides, beside the frames both sides' statistics count.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Calls {
-    /// Completed `poll_read` calls.
+    /// Completed `poll_read` calls on the transport beneath the read half's
+    /// buffer.
+    transport_reads: u64,
+    /// Completed `poll_read` calls on the read half.
     reads: u64,
+    /// Completed `poll_fill_buf` calls.
+    fills: u64,
+    /// `consume` calls.
+    consumes: u64,
     /// Completed `poll_write` calls.
     writes: u64,
     /// Completed `poll_write_vectored` calls the write half took whole.
@@ -65,6 +76,10 @@ struct Calls {
 struct Counters {
     /// Completed `poll_read` calls.
     reads: AtomicU64,
+    /// Completed `poll_fill_buf` calls.
+    fills: AtomicU64,
+    /// `consume` calls.
+    consumes: AtomicU64,
     /// Completed `poll_write` calls.
     writes: AtomicU64,
     /// Completed `poll_write_vectored` calls passed through whole.
@@ -106,6 +121,23 @@ impl<T: AsyncRead + Unpin> AsyncRead for Counted<T> {
     ) -> Poll<std::io::Result<()>> {
         let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
         completed(&self.counters.reads, poll)
+    }
+}
+
+/// Count each completed look into the buffer and each consumption,
+/// passing them through.
+impl<T: AsyncBufRead + Unpin> AsyncBufRead for Counted<T> {
+    /// Fills through, counting the call if it completes.
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<&[u8]>> {
+        let this = self.get_mut();
+        let poll = Pin::new(&mut this.inner).poll_fill_buf(cx);
+        completed(&this.counters.fills, poll)
+    }
+
+    /// Counts the call, then consumes through.
+    fn consume(mut self: Pin<&mut Self>, amount: usize) {
+        self.counters.consumes.fetch_add(1, Ordering::Relaxed);
+        Pin::new(&mut self.inner).consume(amount);
     }
 }
 
@@ -173,10 +205,21 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Counted<T> {
 
 /// Gossip once over `end` through counting halves, returning the calls and
 /// the frames this side sent.
+///
+/// The read half's buffer is rebuilt over a counted transport, as
+/// `memory_connection` builds it (a `BufReader` of Tokio's default
+/// capacity), so the reads it makes of the transport are counted apart
+/// from the session's calls on it.
 async fn gossip(peer: Rumors<String>, end: MemoryEnd, vectored: bool) -> Calls {
     let counters = Arc::new(Counters::default());
+    let beneath = Arc::new(Counters::default());
+    let transport = Counted {
+        inner: end.read.into_inner(),
+        counters: Arc::clone(&beneath),
+        vectored,
+    };
     let read = Counted {
-        inner: end.read,
+        inner: BufReader::new(transport),
         counters: Arc::clone(&counters),
         vectored,
     };
@@ -191,7 +234,10 @@ async fn gossip(peer: Rumors<String>, end: MemoryEnd, vectored: bool) -> Calls {
         .expect("an in-memory session completes");
     let load = |count: &AtomicU64| count.load(Ordering::Relaxed);
     Calls {
+        transport_reads: load(&beneath.reads),
         reads: load(&counters.reads),
+        fills: load(&counters.fills),
+        consumes: load(&counters.consumes),
         writes: load(&counters.writes),
         vectored_writes: load(&counters.vectored_writes),
         flushes: load(&counters.flushes),
@@ -221,7 +267,10 @@ fn session(shape: Shape, vectored: bool) -> Calls {
         )
     });
     Calls {
+        transport_reads: a.transport_reads + b.transport_reads,
         reads: a.reads + b.reads,
+        fills: a.fills + b.fills,
+        consumes: a.consumes + b.consumes,
         writes: a.writes + b.writes,
         vectored_writes: a.vectored_writes + b.vectored_writes,
         flushes: a.flushes + b.flushes,
@@ -275,6 +324,11 @@ const SIDES: u64 = 2;
 /// outgrows the buffer. Every flush follows at least one item, so the
 /// writes number at most the items, and at least the control items. A
 /// session that sends frames flushes them, so the counters are counting.
+///
+/// The read half's buffer reads the transport only within one of the
+/// session's calls on it, so the transport reads number at most the
+/// session's reads and fills, and at least one: every session reads its
+/// peer's preamble.
 #[test]
 fn calls_follow_from_how_a_session_writes() {
     let controls = CONTROL_ITEMS * SIDES;
@@ -286,6 +340,11 @@ fn calls_follow_from_how_a_session_writes() {
             assert_eq!(calls.vectored_writes, 0, "{name}: {calls:?}");
             assert!(calls.writes <= calls.frames + controls, "{name}: {calls:?}");
             assert!(calls.writes >= controls, "{name}: {calls:?}");
+            assert!(calls.transport_reads >= 1, "{name}: {calls:?}");
+            assert!(
+                calls.transport_reads <= calls.reads + calls.fills,
+                "{name}: {calls:?}"
+            );
         }
         assert_eq!(sliced, whole, "{name}");
         if whole.frames > 0 {
@@ -299,9 +358,20 @@ fn calls_follow_from_how_a_session_writes() {
 /// The multiplexer flushes whenever it finds no frame ready, so frames
 /// ready together share a flush, about two per flush in these sessions,
 /// and its buffer reaches the transport as one plain write per flush,
-/// whichever kind of write half it is. Reads are exact: the session reads
-/// each item's parts with calls of their own, a few per frame received.
-/// Identical replicas exchange only the control items.
+/// whichever kind of write half it is. The demultiplexer looks at each
+/// item's first byte in the read half's buffer (`poll_fill_buf`), without
+/// consuming it, and the session then reads each item's parts with calls
+/// of their own, a few per frame received, which consume what they copy:
+/// it never calls `consume` itself. Identical replicas exchange only the
+/// control items, which their readers read without looking first.
+///
+/// Beneath the read half's buffer, of Tokio's default capacity, 8 KiB, the
+/// transport is read when a call finds the buffer empty: to refill it, or
+/// directly for a read of at least its capacity. A read that finds fewer
+/// bytes buffered than it asks for takes only those, so an item that
+/// straddles the end of a refill costs the session a second read. In the
+/// catch-up, whose supply runs average about 4.4 KB, about one run per
+/// refill straddles one.
 ///
 /// The counts are deterministic: the fixtures' networks are seeded, the
 /// runtime polls its tasks in a fixed order, no write waits, and nothing in
@@ -310,27 +380,36 @@ fn calls_follow_from_how_a_session_writes() {
 /// them says why.
 #[test]
 fn calls_match_the_baseline() {
-    let calls = |reads, writes, vectored_writes, flushes, written_bytes, frames| Calls {
-        reads,
-        writes,
-        vectored_writes,
-        flushes,
-        written_bytes,
-        frames,
-    };
+    let calls =
+        |transport_reads, reads, fills, writes, vectored_writes, flushes, written_bytes, frames| {
+            Calls {
+                transport_reads,
+                reads,
+                fills,
+                consumes: 0,
+                writes,
+                vectored_writes,
+                flushes,
+                written_bytes,
+                frames,
+            }
+        };
     let baseline = [
-        (calls(14, 6, 0, 6, 16_138, 0), calls(14, 6, 0, 6, 16_138, 0)),
         (
-            calls(4_266, 1_715, 0, 1_715, 128_718, 3_383),
-            calls(4_266, 1_715, 0, 1_715, 128_718, 3_383),
+            calls(4, 14, 0, 6, 0, 6, 16_138, 0),
+            calls(4, 14, 0, 6, 0, 6, 16_138, 0),
         ),
         (
-            calls(1_551, 135, 0, 135, 1_131_540, 257),
-            calls(1_551, 135, 0, 135, 1_131_540, 257),
+            calls(203, 4_266, 3_384, 1_715, 0, 1_715, 128_718, 3_383),
+            calls(203, 4_266, 3_384, 1_715, 0, 1_715, 128_718, 3_383),
         ),
         (
-            calls(66_241, 8_045, 0, 8_045, 1_392_526, 15_252),
-            calls(66_241, 8_045, 0, 8_045, 1_392_526, 15_252),
+            calls(142, 1_686, 258, 135, 0, 135, 1_131_540, 257),
+            calls(142, 1_686, 258, 135, 0, 135, 1_131_540, 257),
+        ),
+        (
+            calls(5_919, 66_241, 15_253, 8_045, 0, 8_045, 1_392_526, 15_252),
+            calls(5_919, 66_241, 15_253, 8_045, 0, 8_045, 1_392_526, 15_252),
         ),
     ];
     for ((name, shape), (whole, sliced)) in fixtures().into_iter().zip(baseline) {

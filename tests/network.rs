@@ -74,10 +74,18 @@ fn gossip_rejects_foreign_network() {
 
     let (alice_out, bob_out, alice_report, bob_report) = block_on(async {
         let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-        let (a_read, a_write, alice_report) =
-            wrap_io(IoSide::Left, IoPlan::default(), a_end.read, a_end.write);
-        let (b_read, b_write, bob_report) =
-            wrap_io(IoSide::Right, IoPlan::default(), b_end.read, b_end.write);
+        let (a_read, a_write, alice_report) = wrap_io(
+            IoSide::Left,
+            IoPlan::default(),
+            a_end.read.into_inner(),
+            a_end.write,
+        );
+        let (b_read, b_write, bob_report) = wrap_io(
+            IoSide::Right,
+            IoPlan::default(),
+            b_end.read.into_inner(),
+            b_end.write,
+        );
         let (alice_out, bob_out) = tokio::join!(
             alice.gossip_once(a_read, a_write),
             bob.gossip_once(b_read, b_write)

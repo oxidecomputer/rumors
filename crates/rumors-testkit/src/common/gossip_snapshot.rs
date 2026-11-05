@@ -38,7 +38,7 @@ use rumors::{
         memory_connection, render_hook_capture,
     },
 };
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
 
 use crate::common::wire::block_on;
 
@@ -154,8 +154,9 @@ impl AsyncWrite for Recorder {
 
 /// The recording connection end handed to each session driver.
 pub struct CaptureEnd {
-    /// The recorded read half.
-    pub read: Recorder,
+    /// The recorded read half, buffered as a session requires; the
+    /// recording sees what the buffer reads.
+    pub read: BufReader<Recorder>,
     /// The recorded write half.
     pub write: Recorder,
 }
@@ -174,11 +175,12 @@ impl Side {
             peer,
         };
         let end = CaptureEnd {
-            read: Recorder {
-                inner: end.read,
+            read: BufReader::new(Recorder {
+                // The connection end is fresh, so its buffer holds nothing.
+                inner: end.read.into_inner(),
                 peer,
                 log: log.clone(),
-            },
+            }),
             write: Recorder {
                 inner: end.write,
                 peer,

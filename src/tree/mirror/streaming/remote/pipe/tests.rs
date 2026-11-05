@@ -9,7 +9,7 @@ use std::task::{Wake, Waker};
 
 use futures::{StreamExt, future::Either};
 use proptest::prelude::*;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, BufReader};
 
 use super::*;
 use crate::Version;
@@ -672,7 +672,7 @@ fn wire(frames: &[(Stream, Frame)], trailer: &[u8]) -> Vec<u8> {
 
 /// Run a demultiplexer over `bytes` with lanes claimed for `claimed`, until
 /// it fails or every claimed lane's receiver ends. Returns the failure, if
-/// any, each lane's frames, and the bytes the pipe read ahead.
+/// any, each lane's frames, and the bytes the pipe left unconsumed.
 #[allow(clippy::type_complexity)]
 fn demultiplex(bytes: &[u8], claimed: &[Stream]) -> (Option<PipeError>, Vec<Vec<Frame>>, Vec<u8>) {
     let mut demultiplexer = Demultiplexer::default();
@@ -706,15 +706,15 @@ fn demultiplex(bytes: &[u8], claimed: &[Stream]) -> (Option<PipeError>, Vec<Vec<
         (Some(failure), consume.await)
     })
     .expect("the demultiplexer either fails or closes every lane");
-    (failure, frames, read.lookahead().to_vec())
+    (failure, frames, read.into_inner().to_vec())
 }
 
 /// The demultiplexer routes each frame to its logical stream's decoder,
 /// closes a stream at its end-of-stream frame without delivering it, and
-/// stops at the first item that is not a frame, holding only its bytes.
+/// stops at the first item that is not a frame, consuming none of it.
 ///
-/// Here the read half holds the whole two-byte marker, which its one read
-/// ahead takes.
+/// Here the read half's buffer holds the whole two-byte marker, which stays
+/// there for the closing exchange.
 #[test]
 fn frames_route_by_stream_and_the_closing_item_stays_unread() {
     let reply = |tag| Frame::from(frame(Kind::Supply, tag));
@@ -734,10 +734,10 @@ fn frames_route_by_stream_and_the_closing_item_stays_unread() {
     assert_eq!(ahead, MARKER);
 }
 
-/// The read half returns the bytes it read ahead before the transport, so
-/// the closing exchange reads the whole closing item.
+/// Peeking consumes nothing, so after any number of peeks the closing
+/// exchange reads the whole closing item.
 #[test]
-fn the_closing_exchange_reads_the_lookahead_first() {
+fn peeking_leaves_the_closing_item_whole() {
     let bytes = [MARKER[0], MARKER[1]];
     let marker = run_to_quiescence(async {
         let mut read = PipeRead::new(&bytes[..]);
@@ -931,25 +931,28 @@ fn resolve<F: Future>(future: F) -> F::Output {
 
 proptest! {
     /// The read half hands on every byte of its transport once and in
-    /// order, holding at most [`LOOKAHEAD`] bytes ahead.
+    /// order, and a peek returns the next byte not yet handed on.
     ///
-    /// That holds however the transport splits its delivery, wherever
-    /// peeks fall between reads, and whenever a peek or a read is dropped
-    /// after a poll that found nothing ready: a peek returns the next byte
-    /// not yet read, and a dropped one loses nothing.
+    /// That holds however the transport splits its delivery, whatever the
+    /// capacity of the buffer it is read through, wherever peeks fall
+    /// between reads, and whenever a peek or a read is dropped after a poll
+    /// that found nothing ready: a peek consumes nothing, and a dropped one
+    /// loses nothing.
     #[test]
     fn the_read_half_hands_on_every_byte_once(
         bytes in proptest::collection::vec(any::<u8>(), 0..32),
         pieces in proptest::collection::vec(1usize..=5, 1..8),
+        capacity in 1usize..=8,
         uses in proptest::collection::vec(usage(), 0..24),
     ) {
-        let mut read = PipeRead::new(Trickle {
+        let trickle = Trickle {
             bytes: bytes.clone(),
             delivered: 0,
             pieces,
             piece: 0,
             ready: false,
-        });
+        };
+        let mut read = PipeRead::new(BufReader::with_capacity(capacity, trickle));
         let mut handed = Vec::new();
         for usage in uses {
             let peeked = match usage {
@@ -977,7 +980,6 @@ proptest! {
                 let peeked = peeked.expect("the transport never fails");
                 prop_assert_eq!(peeked, bytes.get(handed.len()).copied());
             }
-            prop_assert!(read.lookahead().len() <= LOOKAHEAD);
             prop_assert_eq!(&handed[..], &bytes[..handed.len()]);
         }
         let mut rest = Vec::new();

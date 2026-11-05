@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use rumors::testing::MemoryEnd;
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
 use tokio::sync::Notify;
 
 /// One endpoint's fault plan: byte budgets after which its write
@@ -79,7 +79,7 @@ impl FaultPlan {
 /// session takes, each drawing on its direction's budget.
 pub struct FaultyEnd {
     /// The read half, failing once the read budget is spent.
-    pub read: Cut<DuplexStream>,
+    pub read: Cut<BufReader<DuplexStream>>,
     /// The write half, failing once the write budget is spent.
     pub write: Fuse<DuplexStream>,
 }
@@ -386,10 +386,15 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
     }
 }
 
-/// An [`AsyncRead`] that forwards reads until a shared byte budget is
-/// exhausted, then fails every read with [`ConnectionReset`]: the read-side
-/// twin of [`Fuse`], for sessions that die while a frame is in flight
-/// toward us.
+/// A buffered read half that forwards reads until a shared byte budget is
+/// exhausted, then fails every read with [`ConnectionReset`].
+///
+/// It is the read-side twin of [`Fuse`], for sessions that die while a
+/// frame is in flight toward us.
+///
+/// The budget counts the bytes the session consumes, whether it reads them
+/// or takes them from the buffer: a look into the buffer shows at most the
+/// bytes the budget has left, and consuming them spends it.
 ///
 /// [`ConnectionReset`]: std::io::ErrorKind::ConnectionReset
 pub struct Cut<R> {
@@ -436,5 +441,40 @@ impl<R: AsyncRead + Unpin> AsyncRead for Cut<R> {
             }
             other => other,
         }
+    }
+}
+
+/// Show and consume buffered bytes within the budget.
+impl<R: AsyncBufRead + Unpin> AsyncBufRead for Cut<R> {
+    /// Fills through, showing at most the bytes the budget has left; fails
+    /// once it is spent.
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        let this = self.get_mut();
+        if vanished(&this.vanish) {
+            return Poll::Pending;
+        }
+        let remaining = *this.remaining.lock().expect("read budget lock");
+        if remaining == 0 {
+            return Poll::Ready(Err(read_severed()));
+        }
+        Pin::new(&mut this.inner)
+            .poll_fill_buf(cx)
+            .map_ok(|buf| &buf[..buf.len().min(remaining)])
+    }
+
+    /// Spends `amount` of the budget, then consumes through.
+    ///
+    /// # Panics
+    ///
+    /// If `amount` exceeds the budget left, which only a reader consuming
+    /// more than `poll_fill_buf` showed it can do: the trait forbids that.
+    fn consume(self: Pin<&mut Self>, amount: usize) {
+        let this = self.get_mut();
+        let mut remaining = this.remaining.lock().expect("read budget lock");
+        *remaining = remaining.checked_sub(amount).expect(
+            "a reader consumes at most the bytes fill_buf showed it, which the budget bounds",
+        );
+        drop(remaining);
+        Pin::new(&mut this.inner).consume(amount);
     }
 }

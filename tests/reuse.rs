@@ -128,10 +128,18 @@ const FRAMELESS_FLUSHES: usize = 3;
 async fn a_frameless_session_leaves_the_connection_reusable() {
     let (a, b) = pair().await;
     let (a_end, b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
-    let (mut a_read, mut a_write, a_report) =
-        wrap_io(IoSide::Left, IoPlan::default(), a_end.read, a_end.write);
-    let (mut b_read, mut b_write, b_report) =
-        wrap_io(IoSide::Right, IoPlan::default(), b_end.read, b_end.write);
+    let (mut a_read, mut a_write, a_report) = wrap_io(
+        IoSide::Left,
+        IoPlan::default(),
+        a_end.read.into_inner(),
+        a_end.write,
+    );
+    let (mut b_read, mut b_write, b_report) = wrap_io(
+        IoSide::Right,
+        IoPlan::default(),
+        b_end.read.into_inner(),
+        b_end.write,
+    );
 
     // Session 1: the pair is converged, so this is preamble, greeting, and
     // epilogue only.

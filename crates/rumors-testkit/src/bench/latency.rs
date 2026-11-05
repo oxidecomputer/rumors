@@ -78,7 +78,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use rumors::Rumors;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use tokio::time::{Instant, Sleep};
 
 /// One in-flight write: its bytes and the virtual instant they arrive.
@@ -286,8 +286,9 @@ impl AsyncRead for DelayedReader {
 /// One end of a delayed in-memory connection: the two halves a session
 /// takes.
 pub struct DelayedEnd {
-    /// The read half: the peer's writes surface here `delay` late.
-    pub read: DelayedReader,
+    /// The read half, buffered as a session requires: the peer's writes
+    /// surface here `delay` late.
+    pub read: BufReader<DelayedReader>,
     /// The write half.
     pub write: DelayedWriter,
 }
@@ -301,11 +302,11 @@ pub fn delayed_pair(capacity: usize, delay: Duration) -> (DelayedEnd, DelayedEnd
     let (b_write, a_read) = delayed_pipe(capacity, delay);
     (
         DelayedEnd {
-            read: a_read,
+            read: BufReader::new(a_read),
             write: a_write,
         },
         DelayedEnd {
-            read: b_read,
+            read: BufReader::new(b_read),
             write: b_write,
         },
     )

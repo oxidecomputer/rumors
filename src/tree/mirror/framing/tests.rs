@@ -180,7 +180,7 @@ fn truncation_at_chunk_boundaries_is_unexpected_eof() {
 }
 
 /// A payload read consumes exactly the declared byte count: the following
-/// bytes stay untouched in the transport, whatever the payload chunking.
+/// bytes stay unconsumed in the reader, whatever the payload chunking.
 #[test]
 fn payload_read_never_consumes_beyond_the_declared_length() {
     let len = PAYLOAD_CHUNK_LEN + 3;
@@ -197,7 +197,7 @@ fn payload_read_never_consumes_beyond_the_declared_length() {
 
 /// A resumed payload read consumes exactly the bytes still owed: spare
 /// capacity on the caller's buffer never draws in the following bytes,
-/// which stay untouched in the transport.
+/// which stay unconsumed in the reader.
 #[test]
 fn resumed_read_never_consumes_beyond_the_declared_length() {
     let len = 9;

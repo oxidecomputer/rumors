@@ -120,9 +120,10 @@
 //! one session against Alice joins her network and gives Bob a full replica.
 //! A session runs over one connection, which it takes as two halves, a
 //! read half and a write half. `tokio::io::duplex` makes an in-process
-//! connection, and `tokio::io::split` splits each end into its halves; each
-//! end is a conduit to exactly one counterparty. Alice serves her end from a
-//! spawned task while Bob joins through the other:
+//! connection, `tokio::io::split` splits each end into its halves, and
+//! `tokio::io::BufReader` buffers each read half, as a session requires;
+//! each end is a conduit to exactly one counterparty. Alice serves her end
+//! from a spawned task while Bob joins through the other:
 //!
 //! ```
 //! use rumors::Peer;
@@ -135,11 +136,13 @@
 //!     // Alice serves one gossip session on her end of the connection...
 //!     let (near, far) = tokio::io::duplex(64 * 1024);
 //!     let (far_read, far_write) = tokio::io::split(far);
+//!     let far_read = tokio::io::BufReader::new(far_read);
 //!     let serve = alice.clone();
 //!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
 //!
 //!     // ...and Bob joins the universe through the other end.
 //!     let (near_read, near_write) = tokio::io::split(near);
+//!     let near_read = tokio::io::BufReader::new(near_read);
 //!     let rumors::Joined::Joined { peer: bob, .. } =
 //!         Peer::<String>::bootstrap().join(near_read, near_write).await
 //!     else {
@@ -189,9 +192,11 @@
 //!
 //!     let (near, far) = tokio::io::duplex(64 * 1024);
 //!     let (far_read, far_write) = tokio::io::split(far);
+//!     let far_read = tokio::io::BufReader::new(far_read);
 //!     let serve = alice.clone();
 //!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
 //!     let (near_read, near_write) = tokio::io::split(near);
+//!     let near_read = tokio::io::BufReader::new(near_read);
 //!     let rumors::Joined::Joined { peer: bob, .. } =
 //!         Peer::<String>::bootstrap().join(near_read, near_write).await
 //!     else {
@@ -203,7 +208,9 @@
 //!     // A second, long-lived connection between them, one driver per end.
 //!     let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
 //!     let (alice_read, alice_write) = tokio::io::split(alice_side);
+//!     let alice_read = tokio::io::BufReader::new(alice_read);
 //!     let (bob_read, bob_write) = tokio::io::split(bob_side);
+//!     let bob_read = tokio::io::BufReader::new(bob_read);
 //!
 //!     alice.send("bring the slides".to_string())?;
 //!
@@ -253,9 +260,11 @@
 //!
 //!     let (near, far) = tokio::io::duplex(64 * 1024);
 //!     let (far_read, far_write) = tokio::io::split(far);
+//!     let far_read = tokio::io::BufReader::new(far_read);
 //!     let serve = alice.clone();
 //!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
 //!     let (near_read, near_write) = tokio::io::split(near);
+//!     let near_read = tokio::io::BufReader::new(near_read);
 //!     let rumors::Joined::Joined { peer: bob, .. } =
 //!         Peer::<String>::bootstrap().join(near_read, near_write).await
 //!     else {
@@ -266,7 +275,9 @@
 //!
 //!     let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
 //!     let (alice_read, alice_write) = tokio::io::split(alice_side);
+//!     let alice_read = tokio::io::BufReader::new(alice_read);
 //!     let (bob_read, bob_write) = tokio::io::split(bob_side);
+//!     let bob_read = tokio::io::BufReader::new(bob_read);
 //!
 //!     alice.send("bring the slides".to_string())?;
 //!

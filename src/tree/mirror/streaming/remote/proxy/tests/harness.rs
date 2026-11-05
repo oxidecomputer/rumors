@@ -15,7 +15,7 @@ use std::{
 };
 
 use futures::join;
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -708,10 +708,18 @@ pub async fn reconcile(
     right_plan: IoPlan,
 ) -> Outcome {
     let (left_end, right_end) = memory_connection(capacity);
-    let (left_read, left_write, left_io) =
-        wrap_io(IoSide::Left, left_plan, left_end.read, left_end.write);
-    let (right_read, right_write, right_io) =
-        wrap_io(IoSide::Right, right_plan, right_end.read, right_end.write);
+    let (left_read, left_write, left_io) = wrap_io(
+        IoSide::Left,
+        left_plan,
+        left_end.read.into_inner(),
+        left_end.write,
+    );
+    let (right_read, right_write, right_io) = wrap_io(
+        IoSide::Right,
+        right_plan,
+        right_end.read.into_inner(),
+        right_end.write,
+    );
 
     let (left, right) = drive(
         Topology::Production,
@@ -778,12 +786,15 @@ pub async fn reconcile_rewritten_for(
     }
 }
 
-/// Wrap one connection end's read half in a greeting-word rewriter.
+/// Wrap one connection end's read half in a greeting-word rewriter, which
+/// rewrites the transport's bytes beneath the session's read buffer.
 pub fn rewritten(
     end: MemoryEnd,
     rewrite: Option<GreetingRewrite>,
-) -> (RewriteRead<DuplexStream>, DuplexStream) {
-    (RewriteRead::new(end.read, rewrite), end.write)
+) -> (BufReader<RewriteRead<DuplexStream>>, DuplexStream) {
+    // The connection end is fresh, so its buffer holds nothing.
+    let read = RewriteRead::new(end.read.into_inner(), rewrite);
+    (BufReader::new(read), end.write)
 }
 
 /// Whether the left tree wins the initiator election against the right,
@@ -854,9 +865,9 @@ pub async fn drive<B, LR, LW, RR, RW>(
 )
 where
     B: TreeBackend,
-    LR: AsyncRead + Unpin + Send,
+    LR: AsyncBufRead + Unpin + Send,
     LW: AsyncWrite + Unpin + Send,
-    RR: AsyncRead + Unpin + Send,
+    RR: AsyncBufRead + Unpin + Send,
     RW: AsyncWrite + Unpin + Send,
 {
     let Backends {

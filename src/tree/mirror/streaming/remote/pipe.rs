@@ -101,7 +101,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Wake, Waker};
 
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncWrite, BufWriter, ReadBuf};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufWriter, ReadBuf};
 
 use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
@@ -112,7 +112,7 @@ use crate::tree::mirror::streaming::{
 };
 
 use super::codec::{
-    DEFAULT_TARGET_MESSAGE_SIZE, DecodeError, DecodeErrorKind, EncodeError, End, FRAME_OPENER_LEN,
+    DEFAULT_TARGET_MESSAGE_SIZE, DecodeError, DecodeErrorKind, EncodeError, End,
     FULL_FAN_QUERY_FRAME_LEN, Frame, FrameRead, FrameWrite, Origin, Reaction, ReplyFrame,
     RunBudget, Speaker, Stream,
 };
@@ -142,41 +142,24 @@ fn opens_frame(byte: u8) -> bool {
     byte >> MAJOR_TYPE_SHIFT == MAJOR_ARRAY
 }
 
-/// The most bytes the pipe's read half holds ahead of the next item: a
-/// frame's opener, the one-byte items every frame begins with.
-const LOOKAHEAD: usize = FRAME_OPENER_LEN;
-
-/// The pipe's read half, holding at most [`LOOKAHEAD`] bytes read ahead of
-/// the next item.
+/// The pipe's read half: the session's buffered read half, and what the
+/// demultiplexer has learned at the next item's boundary.
 ///
-/// The demultiplexer starts each item with one read of the transport, of
-/// up to [`LOOKAHEAD`] bytes, to learn from the first whether a frame
-/// follows, and keeps what arrived here; the frame reader or the closing
-/// exchange then reads those bytes first. So a frame whose opener arrives
-/// at once costs one transport read before its body. Every frame is at
-/// least [`LOOKAHEAD`] bytes long, so reading ahead of a frame takes
-/// nothing of the item after it. Ahead of the peer's closing items, it
-/// takes only bytes of the session: the peer sends nothing after its
-/// closing items until it has received this side's completion marker,
-/// which this side sends only after the demultiplexer has stopped, and the
-/// closing exchange reads every closing item through this read half.
+/// The demultiplexer starts each item by looking at its first byte in the
+/// read half's buffer ([`peek`](Self::peek)) without consuming it, to learn
+/// whether a frame follows. The frame reader and the closing exchange then
+/// consume exactly the bytes of each item they read, so the pipe never
+/// consumes a byte that is not the session's: whatever follows the peer's
+/// closing items stays in the read half's buffer for the application.
 ///
-/// One read of the transport either delivers its bytes into the lookahead
-/// within its poll or takes nothing, so the demultiplexer can be dropped
-/// between frames without losing a byte the closing exchange needs. A read
-/// error the demultiplexer met there can be kept the same way
-/// ([`keep_failure`](Self::keep_failure)), for the closing exchange to
-/// report.
+/// A peek either finds the next byte in the buffer or consumes nothing, so
+/// the demultiplexer can be dropped between frames without losing a byte
+/// the closing exchange needs. A read error the demultiplexer met there can
+/// be kept ([`keep_failure`](Self::keep_failure)), for the closing exchange
+/// to report.
 pub struct PipeRead<R> {
-    /// The transport's read half.
+    /// The transport's buffered read half.
     read: R,
-    /// Bytes read ahead of the next item: `ahead[next..held]` are not yet
-    /// read.
-    ahead: [u8; LOOKAHEAD],
-    /// The first byte of `ahead` not yet read.
-    next: usize,
-    /// The end of the bytes `ahead` holds.
-    held: usize,
     /// Whether the demultiplexer has begun a frame it has not yet handed
     /// to its decoder.
     in_frame: bool,
@@ -188,14 +171,13 @@ pub struct PipeRead<R> {
     failure: Option<io::Error>,
 }
 
-/// Summarize the read half's lookahead without requiring the transport to
-/// be debuggable.
+/// Summarize the read half's state without requiring the transport to be
+/// debuggable.
 impl<R> std::fmt::Debug for PipeRead<R> {
-    /// Formats the lookahead, whether a frame is under way, and how the
-    /// transport last ended a read.
+    /// Formats whether a frame is under way and how the transport last
+    /// ended a read.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PipeRead")
-            .field("lookahead", &self.lookahead())
             .field("in_frame", &self.in_frame)
             .field("ended", &self.ended)
             .field("failure", &self.failure)
@@ -208,18 +190,17 @@ impl<R> PipeRead<R> {
     pub fn new(read: R) -> Self {
         Self {
             read,
-            ahead: [0; LOOKAHEAD],
-            next: 0,
-            held: 0,
             in_frame: false,
             ended: false,
             failure: None,
         }
     }
 
-    /// The bytes read ahead of the next item and not yet read.
-    fn lookahead(&self) -> &[u8] {
-        &self.ahead[self.next..self.held]
+    /// Recover the transport's read half, holding every byte the pipe has
+    /// not consumed.
+    #[cfg(test)]
+    pub fn into_inner(self) -> R {
+        self.read
     }
 
     /// Whether every frame the demultiplexer began reached its decoder.
@@ -242,46 +223,24 @@ impl<R> PipeRead<R> {
     }
 }
 
-impl<R: AsyncRead + Unpin> PipeRead<R> {
+impl<R: AsyncBufRead + Unpin> PipeRead<R> {
     /// Return the first byte of the next item without consuming it, or
     /// `None` at end of stream.
     ///
-    /// With nothing read ahead, this reads up to [`LOOKAHEAD`] bytes of the
-    /// transport in one read and keeps them all.
-    ///
     /// # Cancel safety
     ///
-    /// Cancel safe: its one read of the transport either delivers bytes
-    /// into the lookahead within one poll or reads nothing.
+    /// Cancel safe: filling the read half's buffer consumes nothing.
     pub async fn peek(&mut self) -> io::Result<Option<u8>> {
-        if let Some(&byte) = self.lookahead().first() {
-            return Ok(Some(byte));
-        }
         if let Some(error) = self.failure.take() {
             return Err(error);
         }
-        poll_fn(|cx| {
-            let mut buf = ReadBuf::new(&mut self.ahead);
-            match Pin::new(&mut self.read).poll_read(cx, &mut buf) {
-                Poll::Ready(Ok(())) => {
-                    let held = buf.filled().len();
-                    if held == 0 {
-                        self.ended = true;
-                        return Poll::Ready(Ok(None));
-                    }
-                    (self.next, self.held) = (0, held);
-                    Poll::Ready(Ok(Some(self.ahead[0])))
-                }
-                Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-                Poll::Pending => Poll::Pending,
-            }
-        })
-        .await
+        let first = self.read.fill_buf().await?.first().copied();
+        self.ended = first.is_none();
+        Ok(first)
     }
 }
 
-/// Read the bytes read ahead, or a kept read error, first, then the
-/// transport.
+/// Report a kept read error first, then read the transport.
 impl<R: AsyncRead + Unpin> AsyncRead for PipeRead<R> {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -289,13 +248,6 @@ impl<R: AsyncRead + Unpin> AsyncRead for PipeRead<R> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        let ahead = this.lookahead();
-        if buf.remaining() > 0 && !ahead.is_empty() {
-            let taken = ahead.len().min(buf.remaining());
-            buf.put_slice(&ahead[..taken]);
-            this.next += taken;
-            return Poll::Ready(Ok(()));
-        }
         if let Some(error) = this.failure.take() {
             return Poll::Ready(Err(error));
         }
@@ -877,11 +829,11 @@ impl Demultiplexer {
     /// dropped; return only on failure.
     ///
     /// The read half is borrowed. Whenever this future is dropped between
-    /// frames, the read half rests at an item boundary, with the next
-    /// item's first bytes possibly in its lookahead. The routes are borrowed
-    /// too, so a failure leaves every decoder's channel open until the
-    /// demultiplexer itself is dropped.
-    pub async fn run<R: AsyncRead + Unpin>(
+    /// frames, the read half rests at an item boundary, the next item's
+    /// first bytes, if any arrived, unconsumed in its buffer. The routes are
+    /// borrowed too, so a failure leaves every decoder's channel open until
+    /// the demultiplexer itself is dropped.
+    pub async fn run<R: AsyncBufRead + Unpin>(
         &mut self,
         read: &mut PipeRead<R>,
         speaker: Speaker,

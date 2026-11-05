@@ -8,6 +8,7 @@
 use std::io;
 use std::net::SocketAddr;
 
+use tokio::io::BufReader;
 use tokio::net::{
     TcpListener, TcpSocket, TcpStream,
     tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -15,8 +16,8 @@ use tokio::net::{
 
 /// One end of a TCP connection: the two halves a session takes.
 pub struct TcpEnd {
-    /// The read half.
-    pub read: OwnedReadHalf,
+    /// The read half, buffered as a session requires.
+    pub read: BufReader<OwnedReadHalf>,
     /// The write half.
     pub write: OwnedWriteHalf,
 }
@@ -25,7 +26,10 @@ impl TcpEnd {
     /// Split one connected stream into its halves.
     fn split(stream: TcpStream) -> Self {
         let (read, write) = stream.into_split();
-        Self { read, write }
+        Self {
+            read: BufReader::new(read),
+            write,
+        }
     }
 }
 

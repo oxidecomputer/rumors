@@ -7,7 +7,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
 use crate::testing::schedule::{Countdown, MAX_SCHEDULED_DELAY};
 
@@ -542,12 +542,23 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
 }
 
 /// Wrap one endpoint's ordered transport halves and retain its observations.
+///
+/// The adversarial reader models the transport, so its fragmentation,
+/// delays, and faults apply to the transport's reads; the session reads
+/// through a `BufReader` over it, as it requires of every read half.
 pub fn wrap_io<R, W>(
     side: Side,
     plan: IoPlan,
     read: R,
     write: W,
-) -> (AdversarialRead<R>, AdversarialWrite<W>, IoReportHandle) {
+) -> (
+    BufReader<AdversarialRead<R>>,
+    AdversarialWrite<W>,
+    IoReportHandle,
+)
+where
+    R: AsyncRead + Unpin,
+{
     let state = Arc::new(Mutex::new(State {
         side,
         plan,
@@ -557,11 +568,11 @@ pub fn wrap_io<R, W>(
         flush_step: 0,
     }));
     (
-        AdversarialRead {
+        BufReader::new(AdversarialRead {
             inner: read,
             state: state.clone(),
             delay: Countdown::default(),
-        },
+        }),
         wrap_write(write, state.clone()),
         IoReportHandle(state),
     )

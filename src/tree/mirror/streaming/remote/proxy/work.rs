@@ -12,7 +12,7 @@ use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::sync::Arc;
 
 use futures::{TryFutureExt, future::BoxFuture};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use crate::{
     message::PayloadCodec,
@@ -271,8 +271,9 @@ where
     /// failures into the session's outcome.
     ///
     /// The demultiplexer reports only failures; it runs until the protocol
-    /// completes and is then dropped between frames, its lookahead returned
-    /// with the read half for the closing exchange. A departure it reported
+    /// completes and is then dropped between frames, leaving every byte it
+    /// has not consumed in the read half's buffer for the closing exchange.
+    /// A departure it reported
     /// does not fail a completed reconciliation: a read error stays in the
     /// returned read half for the closing exchange's first read. A frame
     /// the demultiplexer had begun but not delivered is a frame no question
@@ -287,7 +288,7 @@ where
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
     ) -> impl Future<Output = Result<(O, PipeRead<R>, W), Error<B::Error>>>
     where
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         let finish = Box::pin(finish);

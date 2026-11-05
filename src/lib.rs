@@ -107,11 +107,13 @@
 //!     let serve = alice.clone();
 //!     tokio::spawn(async move {
 //!         let (read, write) = tokio::io::split(far);
+//!         let read = tokio::io::BufReader::new(read);
 //!         serve.gossip_once(read, write).await.unwrap();
 //!     });
 //!
 //!     // ...and Bob joins the universe through it, arriving as a full replica.
 //!     let (read, write) = tokio::io::split(near);
+//!     let read = tokio::io::BufReader::new(read);
 //!     let rumors::Joined::Joined { peer: bob, .. } =
 //!         Peer::<String>::bootstrap().join(read, write).await
 //!     else {
@@ -168,8 +170,8 @@
 //! # Transport
 //!
 //! A session runs over one connection to its peer, which it takes as two
-//! halves: a read half implementing
-//! [`AsyncRead`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncRead.html)
+//! halves: a buffered read half implementing
+//! [`AsyncBufRead`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncBufRead.html)
 //! and a write half implementing
 //! [`AsyncWrite`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncWrite.html).
 //! Every session method takes the halves by value. The single-session
@@ -197,16 +199,20 @@
 //!
 //! A TCP connection split with `TcpStream::into_split` meets every clause,
 //! as does one bidirectional QUIC stream, or a `tokio::io::duplex` pair for
-//! an in-process peer. The crate opens no connections itself. Reads take
-//! exactly the bytes each protocol item needs; on an unbuffered transport,
-//! wrap the read half in `tokio::io::BufReader`, which may outlive a
-//! session. The write half needs no wrapper: a session copies the
-//! messages it writes into a buffer of its own, about 64 KiB, and writes
-//! the buffer out whenever it would otherwise wait, so the messages written
-//! between flushes usually reach the write half as one write: one system
-//! call on a TCP socket, and one batch of records on a TLS stream. A
-//! session writes more often when more is ready at once than the buffer
-//! holds, writes a message at least the buffer's size directly, and
+//! an in-process peer. The crate opens no connections itself.
+//!
+//! Wrap the read half in `tokio::io::BufReader`: a TCP read half, a TLS
+//! stream's read half, and a duplex pipe implement only `AsyncRead`. A
+//! session reads its items from the buffer and consumes exactly the bytes
+//! that are its own, so whatever follows a session stays in your buffer:
+//! keep the `BufReader` for the next session on the same connection, and
+//! never read the connection around it. The write half needs no wrapper: a
+//! session copies the messages it writes into a buffer of its own, about
+//! 64 KiB, and writes the buffer out whenever it would otherwise wait, so
+//! the messages written between flushes usually reach the write half as one
+//! write: one system call on a TCP socket, and one batch of records on a TLS
+//! stream. A session writes more often when more is ready at once than the
+//! buffer holds, writes a message at least the buffer's size directly, and
 //! continues any write the transport takes only part of. A `BufWriter`
 //! around the write half is safe, but only copies again what the session
 //! has already gathered.
@@ -288,7 +294,7 @@
 //!
 //! Sessions and observers are plain futures and streams, driven entirely by
 //! the caller. The I/O traits are Tokio's runtime-independent
-//! [`AsyncRead`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncRead.html)
+//! [`AsyncBufRead`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncBufRead.html)
 //! and [`AsyncWrite`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncWrite.html);
 //! no Tokio runtime, spawning, sockets, or timers are required by this crate.
 //!

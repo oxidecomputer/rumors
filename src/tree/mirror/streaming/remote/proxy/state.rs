@@ -9,7 +9,7 @@
 
 use crate::tree::mirror::streaming::message::Listed;
 use std::marker::PhantomData;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use crate::observe::{Role, SessionHandle};
 use crate::tree::{
@@ -158,7 +158,7 @@ where
 impl<B, R, W> protocol::CompleteEqual<B> for Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: AsyncRead + Unpin + Send,
+    R: AsyncBufRead + Unpin + Send,
     W: Send,
 {
     /// Return the pipe's halves without sending a frame.
@@ -270,7 +270,7 @@ where
 impl<B, R, W> protocol::CompleteInitiator<B> for Completing<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: AsyncRead + Unpin + Send,
+    R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
     /// Encode the local responder's final leaf answers and close its stream.
@@ -285,7 +285,7 @@ where
 impl<B, R, W> protocol::CompleteResponder<B> for Descending<B, Z, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: AsyncRead + Unpin + Send,
+    R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
     /// Proxy the final bidirectional leaf exchange to clean completion.

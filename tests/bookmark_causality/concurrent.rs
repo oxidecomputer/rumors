@@ -1,7 +1,7 @@
 //! Generated fleet operations run while bootstrap sessions hold reserved forks.
 
 use futures::{FutureExt, future::LocalBoxFuture};
-use tokio::io::DuplexStream;
+use tokio::io::{BufReader, DuplexStream};
 
 use super::*;
 
@@ -9,7 +9,7 @@ use super::*;
 struct Attempt {
     /// The newcomer owns its connection end until joining completes or is
     /// cancelled.
-    joining: LocalBoxFuture<'static, rumors::Joined<Msg, DuplexStream, DuplexStream>>,
+    joining: LocalBoxFuture<'static, rumors::Joined<Msg, BufReader<DuplexStream>, DuplexStream>>,
     /// The provider owns its connection end and the pending donation guard.
     serving: LocalBoxFuture<'static, Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>>,
     /// The reserved region, used only to check that live peers cannot reclaim it.

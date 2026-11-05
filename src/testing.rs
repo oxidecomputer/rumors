@@ -13,7 +13,7 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-use tokio::io::{AsyncRead, DuplexStream};
+use tokio::io::{AsyncRead, BufReader, DuplexStream};
 
 use crate::{
     Snapshot,
@@ -78,14 +78,16 @@ pub const MEMORY_CAPACITY: usize = 8 * 1024;
 /// later sessions.
 #[derive(Debug)]
 pub struct MemoryEnd {
-    /// The read half: the peer's write half delivers here.
-    pub read: DuplexStream,
+    /// The read half, buffered as a session requires: the peer's write half
+    /// delivers here.
+    pub read: BufReader<DuplexStream>,
     /// The write half: it delivers to the peer's read half.
     pub write: DuplexStream,
 }
 
 /// Create the two ends of one in-memory connection, each direction a
-/// [`tokio::io::duplex`] pipe buffering `capacity` bytes.
+/// [`tokio::io::duplex`] pipe buffering `capacity` bytes, read through a
+/// [`BufReader`].
 ///
 /// The directions are separate pipes, so each progresses independently,
 /// as the transport requirements demand: a read proceeds while the same
@@ -100,11 +102,11 @@ pub fn memory_connection(capacity: usize) -> (MemoryEnd, MemoryEnd) {
     let (b_write, a_read) = tokio::io::duplex(capacity);
     (
         MemoryEnd {
-            read: a_read,
+            read: BufReader::new(a_read),
             write: a_write,
         },
         MemoryEnd {
-            read: b_read,
+            read: BufReader::new(b_read),
             write: b_write,
         },
     )

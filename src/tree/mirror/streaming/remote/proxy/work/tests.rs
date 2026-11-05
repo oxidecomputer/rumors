@@ -9,7 +9,7 @@ use std::{
 };
 
 use proptest::prelude::*;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadBuf};
 use tokio::sync::oneshot;
 
 use super::{Ingress, Outstanding, Physical, Work, progress::Progress};
@@ -48,7 +48,7 @@ const MARKER: [u8; 2] = crate::testing::COMPLETION_MARKER;
 /// An executor over a fresh in-memory pipe, with the peer's end held open.
 struct ParkedSession {
     /// The executor under test, with a backend whose errors retain identity.
-    work: Work<Failing<Local>, DuplexStream, DuplexStream>,
+    work: Work<Failing<Local>, BufReader<DuplexStream>, DuplexStream>,
     /// The peer's end; dropping its write half ends the pipe toward us.
     peer: MemoryEnd,
 }
@@ -350,7 +350,7 @@ fn completed_work_defers_departure_to_the_closing_exchange() {
 #[test]
 fn completed_work_keeps_a_read_error_for_the_closing_exchange() {
     let work = session_over(
-        FailsOnce(Some(ErrorKind::ConnectionReset)),
+        BufReader::new(FailsOnce(Some(ErrorKind::ConnectionReset))),
         tokio::io::sink(),
     );
     let error = run_to_quiescence(async {

@@ -296,6 +296,7 @@ use rumors::testing::{
 use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::bench::session::admitting;
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
+use tokio::io::BufReader;
 
 /// Messages each side of the per-budget fixtures holds that the other
 /// lacks: large enough that units still wait for admission at
@@ -815,8 +816,8 @@ fn run_fixture(
     let link = Link::new();
     prepare_pacing();
     REPORTED_EXPLOSIONS.set([0; 2]);
-    let (mut a_read, mut a_write) = (link.reader(Side::A), link.writer(Side::A));
-    let (mut b_read, mut b_write) = (link.reader(Side::B), link.writer(Side::B));
+    let (mut a_read, mut a_write) = (BufReader::new(link.reader(Side::A)), link.writer(Side::A));
+    let (mut b_read, mut b_write) = (BufReader::new(link.reader(Side::B)), link.writer(Side::B));
     let moved = usize::try_from(messages[0] + messages[1]).expect("the fixture size fits usize");
     let capacity = EVENTS_PER_MESSAGE * moved + SETUP_EVENTS;
 
@@ -1936,8 +1937,8 @@ fn sweep_session(budget: usize) -> (usize, u64) {
     let Fixture { peers: [a, b], .. } = seeded_fixture(sweep_seed, [SWEEP_MESSAGES; 2], 0, budget);
     let link = Link::new();
     prepare_pacing();
-    let (mut a_read, mut a_write) = (link.reader(Side::A), link.writer(Side::A));
-    let (mut b_read, mut b_write) = (link.reader(Side::B), link.writer(Side::B));
+    let (mut a_read, mut a_write) = (BufReader::new(link.reader(Side::A)), link.writer(Side::A));
+    let (mut b_read, mut b_write) = (BufReader::new(link.reader(Side::B)), link.writer(Side::B));
     let (a_out, b_out, drive) = drive(
         &link,
         a.gossip_once(&mut a_read, &mut a_write),

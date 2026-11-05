@@ -12,7 +12,7 @@ use futures::StreamExt;
 use futures::{Stream, future::BoxFuture};
 use serde::{Serialize, de::DeserializeOwned};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{Mutex, watch},
 };
 
@@ -53,7 +53,7 @@ pub(crate) const COMPLETION_MARKER: [u8; 2] = [0x61, b'.'];
 ///
 /// Erasure costs one virtual call per read or write poll beneath the
 /// framing buffers.
-type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
+type DynRead<'a> = &'a mut (dyn AsyncBufRead + Unpin + Send + 'a);
 
 /// A session's write half with its concrete transport type erased.
 ///
@@ -222,7 +222,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         Box::pin(async move {
@@ -355,7 +355,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// drain the retiring peer's final merged state before they end.
     pub(crate) async fn retire_inner<R, W>(self, mut read: R, mut write: W) -> Retire<T, R, W, B>
     where
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         let mut staged = preamble::Staged::new();
@@ -381,7 +381,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         mut write: W,
     ) -> Result<(Gossiped, R, W), Error<B>>
     where
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         let mut staged = preamble::Staged::new();
@@ -681,7 +681,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         write: W,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        R: AsyncRead + Unpin + Send + 'a,
+        R: AsyncBufRead + Unpin + Send + 'a,
         W: AsyncWrite + Unpin + Send + 'a,
     {
         // Each driver gets its own change subscription and policy stream.
@@ -937,15 +937,14 @@ enum SessionDefect {
     CompletionMarker([u8; 2]),
 }
 
-/// Finish the session, consuming any bytes the pipe read ahead of the
-/// closing items.
+/// Finish the session with the closing exchange, read through the pipe's
+/// read half.
 ///
-/// The pipe reads at most a frame opener's worth of bytes ahead, all of
-/// them the peer's closing items, since a peer cannot start another
-/// session before receiving our marker, and every closing item is read
-/// through it, so after the epilogue the read half rests exactly at the
-/// session boundary.
-async fn finish_session<R: AsyncRead + Unpin + Send>(
+/// The pipe consumes exactly the bytes of each item it reads, and only
+/// looks at the next item's first byte in the read half's buffer, so after
+/// the epilogue the read half rests exactly at the session boundary, any
+/// bytes beyond it still in its buffer.
+async fn finish_session<R: AsyncBufRead + Unpin + Send>(
     read: &mut PipeRead<R>,
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
     observe: &SessionHandle,
@@ -1006,7 +1005,7 @@ struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
     peer: &'a Peer<T, B>,
     /// The connection's read half, retained across session boundaries and
     /// boxed so the driver is not generic over the transport.
-    read: Box<dyn AsyncRead + Unpin + Send + 'a>,
+    read: Box<dyn AsyncBufRead + Unpin + Send + 'a>,
     /// The connection's write half, retained across session boundaries.
     write: Box<dyn AsyncWrite + Unpin + Send + 'a>,
     /// Local initiation policy; pinned independently of the driver state.

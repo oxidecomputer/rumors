@@ -9,19 +9,24 @@
 //! through them.
 //!
 //! The exactness guarantee makes a session boundary a stream position. A
-//! buffering reader can slurp leading bytes of traffic belonging after
-//! the current session and discard them when its codec is dropped,
-//! wedging later sessions on the same connection. With exact reads, a
-//! clean session leaves the next session's bytes untouched in the
-//! transport.
+//! reader that consumed leading bytes of the traffic after the current
+//! session would lose them when its codec is dropped, wedging later
+//! sessions on the same connection. With exact reads, a clean session
+//! consumes nothing past its own bytes: the next session's bytes stay in
+//! the caller's read half, in its buffer or in the transport beneath it.
 //!
-//! The price is read batching: capacity-bounded payload reads instead of
-//! one large buffered read. A caller wanting fewer reads on a raw socket
-//! can wrap it in [`tokio::io::BufReader`] sized above
-//! [`PAYLOAD_CHUNK_LEN`] — at the default 8 KiB capacity nearly every
-//! payload read outsizes the buffer and bypasses it. Caller-owned
-//! buffering is safe because it outlives a session and rides into the
-//! next one.
+//! Sessions take a buffered read half (`AsyncBufRead`), so these reads
+//! copy out of the caller's buffer, and the buffer decides how many reads
+//! reach the transport. Tokio's [`tokio::io::BufReader`] refills, up to
+//! its capacity, when a read finds it empty; it passes a read of at least
+//! its capacity straight to the transport when it is empty; and a read
+//! that finds fewer bytes buffered than it asks for takes only those. So at
+//! the default 8 KiB capacity a payload read of 8 KiB or more that finds
+//! the buffer empty reaches the transport directly, while a smaller
+//! payload is copied out of one refill, or two when it straddles the end
+//! of the bytes already buffered. The buffer is the caller's and outlives
+//! a session, so whatever it holds past a session's end stays there for
+//! the next one.
 
 use bytes::BufMut;
 use tokio::io::{AsyncRead, AsyncReadExt};

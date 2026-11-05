@@ -15,7 +15,7 @@ use std::borrow::Borrow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
+    io::{AsyncBufRead, AsyncWrite},
     sync::watch,
 };
 
@@ -418,7 +418,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// also serializes storage access; see [`Bookmark`].
     pub async fn gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error<B>>
     where
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         self.peer.gossip_once(read, write).await
@@ -489,6 +489,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// use futures::StreamExt;
     ///
     /// let (read, write) = connection.into_split();
+    /// let read = tokio::io::BufReader::new(read);
     /// let mut sessions = rumors.gossip(read, write);
     /// while let Some(session) = sessions.next().await {
     ///     let completed = session?;
@@ -504,7 +505,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         write: W,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        R: AsyncRead + Unpin + Send + 'a,
+        R: AsyncBufRead + Unpin + Send + 'a,
         W: AsyncWrite + Unpin + Send + 'a,
     {
         self.peer.gossip_driver(read, write)

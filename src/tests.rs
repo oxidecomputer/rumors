@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use before::Party;
-use tokio::io::DuplexStream;
+use tokio::io::{BufReader, DuplexStream};
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
@@ -254,7 +254,7 @@ fn severed_retire(
     peer: &mut Peer<u64>,
     budget: usize,
 ) -> (
-    Retire<u64, AdversarialRead<DuplexStream>, AdversarialWrite<DuplexStream>>,
+    Retire<u64, BufReader<AdversarialRead<DuplexStream>>, AdversarialWrite<DuplexStream>>,
     Result<(), Error>,
 ) {
     pollster::block_on(async move {
@@ -269,7 +269,8 @@ fn severed_retire(
                     }),
                     ..IoPlan::default()
                 };
-                let (read, write, _) = wrap_io(IoSide::Left, plan, a_end.read, a_end.write);
+                let (read, write, _) =
+                    wrap_io(IoSide::Left, plan, a_end.read.into_inner(), a_end.write);
                 retiree.retire(read, write).await
             },
             async move {

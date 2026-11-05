@@ -218,9 +218,9 @@ fn a_repeated_stream_end_is_rejected_as_unasked() {
         // Adversity below the mutation wrapper, where the repeated bytes
         // really enter the transport.
         let (left_read, left_write, _) =
-            wrap_io(IoSide::Left, plan.clone(), left_end.read, left_end.write);
+            wrap_io(IoSide::Left, plan.clone(), left_end.read.into_inner(), left_end.write);
         let (right_read, right_write, _) =
-            wrap_io(IoSide::Right, plan, right_end.read, right_end.write);
+            wrap_io(IoSide::Right, plan, right_end.read.into_inner(), right_end.write);
         let left_script = append_left.then(|| script.clone());
         let right_script = (!append_left).then(|| script.clone());
         let (left_result, right_result) = run_to_quiescence(harness::drive(

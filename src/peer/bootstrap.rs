@@ -3,7 +3,7 @@
 use std::{fmt, marker::PhantomData, sync::Arc};
 
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use crate::bookmark::{Bookmark, NoBookmark};
 use crate::message::PayloadDepthLimit;
@@ -229,7 +229,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     pub async fn join<R, W>(self, mut read: R, mut write: W) -> Joined<T, R, W, B>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         // The session needs a copy of the settings, not ownership of storage.

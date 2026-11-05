@@ -182,10 +182,18 @@ fn a_session_cancelled_mid_descent_leaves_both_replicas_intact() {
     let (a, b) = block_on(divergent_pair());
     let (a_before, b_before) = (a.snapshot(), b.snapshot());
     let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let (mut a_read, mut a_write, a_report) =
-        wrap_io(IoSide::Left, IoPlan::default(), a_end.read, a_end.write);
-    let (mut b_read, mut b_write, b_report) =
-        wrap_io(IoSide::Right, IoPlan::default(), b_end.read, b_end.write);
+    let (mut a_read, mut a_write, a_report) = wrap_io(
+        IoSide::Left,
+        IoPlan::default(),
+        a_end.read.into_inner(),
+        a_end.write,
+    );
+    let (mut b_read, mut b_write, b_report) = wrap_io(
+        IoSide::Right,
+        IoPlan::default(),
+        b_end.read.into_inner(),
+        b_end.write,
+    );
 
     {
         let mut cx = Context::from_waker(noop_waker_ref());
@@ -281,8 +289,12 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
     let clean_read_bytes = {
         let (a, b) = block_on(divergent_pair());
         let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-        let (b_read, b_write, report) =
-            wrap_io(IoSide::Right, IoPlan::default(), b_end.read, b_end.write);
+        let (b_read, b_write, report) = wrap_io(
+            IoSide::Right,
+            IoPlan::default(),
+            b_end.read.into_inner(),
+            b_end.write,
+        );
         let (a_out, b_out) = block_on(async {
             tokio::join!(
                 a.gossip_once(a_end.read, a_end.write),
@@ -312,7 +324,8 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
         }),
         ..IoPlan::default()
     };
-    let (b_read, b_write, _report) = wrap_io(IoSide::Right, plan, b_end.read, b_end.write);
+    let (b_read, b_write, _report) =
+        wrap_io(IoSide::Right, plan, b_end.read.into_inner(), b_end.write);
     let (a_out, b_out) = block_on(async {
         // Each future owns its halves: A's teardown after its `Ok` surfaces
         // as end-of-stream to B if it wins the race against the injected

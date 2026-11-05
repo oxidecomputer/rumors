@@ -15,7 +15,7 @@ use crate::testing::run_to_quiescence;
 use before::Party;
 use futures::future::BoxFuture;
 use proptest::prelude::*;
-use tokio::io::{duplex, split};
+use tokio::io::{BufReader, duplex, split};
 
 use super::{COMPLETION_MARKER, SessionDefect, epilogue};
 use crate::error::Phase;
@@ -324,13 +324,13 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
 
 proptest! {
     /// Identity transfer and completion decode through the pipe's read half
-    /// however their bytes arrive, leaving bytes from a following session
-    /// unread in the live transport.
+    /// however their bytes arrive, leaving a following session's bytes
+    /// unconsumed for the next reader.
     ///
-    /// Half the cases first fill the read half's lookahead with the closing
-    /// items' first bytes, as the demultiplexer leaves it when it stops:
-    /// as many as the transport has ready, up to a frame opener's worth,
-    /// which the transport's capacity bounds.
+    /// Half the cases first peek at the closing items' first byte, as the
+    /// demultiplexer does when it stops: the peek fills the read half's
+    /// buffer with as many bytes as the transport has ready, which its
+    /// capacity bounds, and consumes none of them.
     #[test]
     fn trailing_items_leave_the_next_session_unread(
         forks in 0usize..32,
@@ -357,11 +357,11 @@ proptest! {
             let (local, remote) = duplex(capacity);
             let (local_read, mut local_write) = split(local);
             let (mut remote_read, mut remote_write) = split(remote);
-            let mut read = streaming_remote::PipeRead::new(local_read);
+            let mut read = streaming_remote::PipeRead::new(BufReader::new(local_read));
             let receive = async {
                 if peeked {
                     let first = read.peek().await.unwrap();
-                    assert_eq!(first, Some(wire[0]), "the lookahead starts at the first closing byte");
+                    assert_eq!(first, Some(wire[0]), "the peek shows the first closing byte");
                 }
                 if donation {
                     let received = party::receive(&mut read, &observe).await.unwrap();
@@ -391,6 +391,59 @@ proptest! {
             };
             tokio::join!(receive, send);
         }).expect("trailing items must decode without consuming the next session");
+    }
+}
+
+proptest! {
+    /// A following session's bytes that arrive together with the closing
+    /// items stay in the read half's buffer, unconsumed, once the closing
+    /// exchange completes.
+    ///
+    /// The peer writes its closing items and the following bytes in one
+    /// write before this side reads anything, so the read half's first fill
+    /// takes all of them; afterwards the buffer holds exactly the following
+    /// bytes.
+    #[test]
+    fn following_bytes_stay_buffered_after_the_closing_items(
+        forks in 0usize..32,
+        donation in any::<bool>(),
+        peeked in any::<bool>(),
+        following in prop::collection::vec(any::<u8>(), 1..32),
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let buffered = run_to_quiescence(async {
+            let observe = SessionHandle::default();
+            let mut identity = Party::seed();
+            for _ in 0..forks {
+                let _ = identity.fork();
+            }
+            let mut wire = Vec::new();
+            if donation {
+                party::send(&identity, &mut wire, &observe).await.unwrap();
+            }
+            wire.extend_from_slice(&COMPLETION_MARKER);
+            wire.extend_from_slice(&following);
+            let (local, remote) = duplex(MEMORY_CAPACITY);
+            let (local_read, mut local_write) = split(local);
+            let (mut remote_read, mut remote_write) = split(remote);
+            remote_write.write_all(&wire).await.unwrap();
+            let mut read = streaming_remote::PipeRead::new(BufReader::new(local_read));
+            if peeked {
+                let first = read.peek().await.unwrap();
+                assert_eq!(first, Some(wire[0]), "the peek shows the first closing byte");
+            }
+            if donation {
+                let received = party::receive(&mut read, &observe).await.unwrap();
+                assert_eq!(received.as_bytes(), identity.as_bytes());
+            }
+            super::finish_session(&mut read, &mut local_write, &observe).await.unwrap();
+            let mut marker = [0; COMPLETION_MARKER.len()];
+            remote_read.read_exact(&mut marker).await.unwrap();
+            assert_eq!(marker, COMPLETION_MARKER);
+            read.into_inner().buffer().to_vec()
+        })
+        .expect("the closing exchange completes over a roomy duplex");
+        prop_assert_eq!(buffered, following);
     }
 }
 

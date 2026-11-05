@@ -9,7 +9,7 @@ use std::{
 
 use before::Party;
 use rand::RngCore;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark, Reservation, Reservations};
@@ -66,9 +66,11 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// let counterparty = Peer::<String>::seed().into_rumors();
 /// let (near, far) = tokio::io::duplex(64 * 1024);
 /// let (near_read, near_write) = tokio::io::split(near);
+/// let near_read = tokio::io::BufReader::new(near_read);
 /// # let serve = counterparty.clone();
 /// # tokio::spawn(async move {
 /// #     let (far_read, far_write) = tokio::io::split(far);
+/// #     let far_read = tokio::io::BufReader::new(far_read);
 /// #     serve.gossip_once(far_read, far_write).await.unwrap();
 /// # });
 /// // Join through an established peer. The new peer receives its full set.
@@ -94,8 +96,10 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// // one we joined through.
 /// let (near, far) = tokio::io::duplex(64 * 1024);
 /// let (near_read, near_write) = tokio::io::split(near);
+/// let near_read = tokio::io::BufReader::new(near_read);
 /// # tokio::spawn(async move {
 /// #     let (far_read, far_write) = tokio::io::split(far);
+/// #     let far_read = tokio::io::BufReader::new(far_read);
 /// #     counterparty.gossip_once(far_read, far_write).await.unwrap();
 /// # });
 /// let retry = match peer.retire(near_read, near_write).await {
@@ -507,7 +511,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [what a session promises](crate#what-a-session-promises).
     pub async fn retire<R, W>(self, read: R, write: W) -> Retire<T, R, W, B>
     where
-        R: AsyncRead + Unpin + Send,
+        R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         self.retire_inner(read, write).await
@@ -588,6 +592,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// let (connection, _remote) = tokio::io::duplex(64 * 1024);
     /// let (read, write) = tokio::io::split(connection);
+    /// let read = tokio::io::BufReader::new(read);
     /// let handle = rumors.clone();
     /// let drive = async move {
     ///     let mut sessions = handle.gossip(read, write);

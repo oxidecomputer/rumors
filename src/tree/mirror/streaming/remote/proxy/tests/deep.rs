@@ -472,10 +472,18 @@ impl Session {
         let sent = [SentFrames::default(), SentFrames::default()];
         let (left_end, right_end) = memory_connection(self.capacity);
         let [left_plan, right_plan] = plans;
-        let (left_read, left_write, left_io) =
-            wrap_io(IoSide::Left, left_plan, left_end.read, left_end.write);
-        let (right_read, right_write, right_io) =
-            wrap_io(IoSide::Right, right_plan, right_end.read, right_end.write);
+        let (left_read, left_write, left_io) = wrap_io(
+            IoSide::Left,
+            left_plan,
+            left_end.read.into_inner(),
+            left_end.write,
+        );
+        let (right_read, right_write, right_io) = wrap_io(
+            IoSide::Right,
+            right_plan,
+            right_end.read.into_inner(),
+            right_end.write,
+        );
         let [left, right] = roots;
         let (roots, queues) = with_observation(|| {
             run_to_quiescence(async {

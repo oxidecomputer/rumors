@@ -12,18 +12,24 @@ use std::sync::{Arc, Mutex};
 use rumors::Peer;
 use rumors::observe::{Observer, Role, SessionInfo, SessionObserver, StreamInfo, StreamObserver};
 use rumors_tracing::TracingObserver;
-use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
+use tokio::io::{BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
 
-/// One in-memory connection, split into each end's read and write halves.
+/// One in-memory connection, split into each end's read and write halves,
+/// each read half buffered as a session requires.
 #[allow(clippy::type_complexity)]
 fn connection() -> (
-    (ReadHalf<DuplexStream>, WriteHalf<DuplexStream>),
-    (ReadHalf<DuplexStream>, WriteHalf<DuplexStream>),
+    (BufReader<ReadHalf<DuplexStream>>, WriteHalf<DuplexStream>),
+    (BufReader<ReadHalf<DuplexStream>>, WriteHalf<DuplexStream>),
 ) {
     let (near, far) = tokio::io::duplex(64 * 1024);
-    (tokio::io::split(near), tokio::io::split(far))
+    let ((near_read, near_write), (far_read, far_write)) =
+        (tokio::io::split(near), tokio::io::split(far));
+    (
+        (BufReader::new(near_read), near_write),
+        (BufReader::new(far_read), far_write),
+    )
 }
 
 /// One captured span: its name, recorded fields, and explicit parent.

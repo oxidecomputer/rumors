@@ -198,7 +198,7 @@ async fn reconcile_with_stacked_failures(
         } else {
             IoPlan::default()
         },
-        a_end.read,
+        a_end.read.into_inner(),
         a_end.write,
     );
     let (b_read, b_write, b_io) = wrap_io(
@@ -208,7 +208,7 @@ async fn reconcile_with_stacked_failures(
         } else {
             io_plan
         },
-        b_end.read,
+        b_end.read.into_inner(),
         b_end.write,
     );
     let sound = || Failing::after(Local, usize::MAX);

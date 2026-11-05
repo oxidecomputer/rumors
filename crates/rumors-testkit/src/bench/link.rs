@@ -86,7 +86,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Wake, Waker};
 
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
 /// The most bytes the wire takes from the unsent queue as one segment:
 /// 1,448, the TCP payload of a 1,500-byte Ethernet frame with timestamps.
@@ -459,10 +459,10 @@ impl Link {
     /// Returns `side`'s two halves.
     pub fn end(&self, side: Side) -> End {
         End {
-            read: Reader {
+            read: BufReader::new(Reader {
                 shared: self.shared.clone(),
                 from: side.peer().index(),
-            },
+            }),
             write: Writer {
                 shared: self.shared.clone(),
                 into: side.index(),
@@ -511,8 +511,9 @@ impl Link {
 /// One side's halves of a link.
 #[derive(Debug)]
 pub struct End {
-    /// The read half: bytes the peer wrote, after their delay.
-    pub read: Reader,
+    /// The read half, buffered as a session requires: bytes the peer
+    /// wrote, after their delay.
+    pub read: BufReader<Reader>,
     /// The write half.
     pub write: Writer,
 }
