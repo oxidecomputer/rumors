@@ -80,10 +80,12 @@
 
 use std::future::poll_fn;
 use std::io;
+use std::mem;
 use std::pin::Pin;
 #[cfg(any(test, feature = "test-internals"))]
 use std::sync::OnceLock;
-use std::task::{Context, Poll};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Context, Poll, Wake, Waker};
 
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -394,13 +396,104 @@ struct OutgoingLane {
     frames: Option<Receiver<Frame>>,
     /// The next frame, taken from the channel and awaiting its turn.
     staged: Option<Frame>,
+    /// Whether the channel must be polled: it has never been polled, or
+    /// it has woken the multiplexer or yielded a frame since its last poll
+    /// ([`Wakes`]).
+    marked: bool,
+    /// The waker the channel is polled with, which records this lane in
+    /// the multiplexer's [`Wakes`].
+    waker: Waker,
+}
+
+/// The lanes whose channels have woken the multiplexer since its last
+/// poll, and the task to wake: the state every lane's waker shares.
+///
+/// The multiplexer polls a lane's channel only while the lane is marked
+/// ([`OutgoingLane::marked`]). Each poll begins, under this state's lock,
+/// by registering the polling task here and moving every lane recorded
+/// here onto its mark. It unmarks a lane just before polling the lane's
+/// channel, and marks it again unless the poll returns `Pending`, which
+/// registers the lane's waker ([`LaneWaker`]) with the channel. At the
+/// channel's next frame or close, that waker records the lane here and
+/// takes the registered task to wake, under the same lock.
+///
+/// So an unmarked lane's channel found nothing at its last poll, and has
+/// received nothing since that its waker has not recorded: every lane
+/// whose channel received a frame or its close before a poll begins is
+/// marked once the poll has collected the records. A poll that polls only
+/// marked lanes therefore stages exactly the frames, and observes exactly
+/// the closes, that polling every open lane with nothing staged would,
+/// while an idle lane costs it one flag instead of a channel poll and a
+/// waker registration. A lane recorded after the poll has collected the
+/// records finds the poll's task registered, and wakes it for the next
+/// poll.
+#[derive(Default)]
+struct Wakes {
+    /// Whether each lane's channel has woken the multiplexer since the
+    /// last poll collected the records, by lane index.
+    woken: Vec<bool>,
+    /// The task that last polled the multiplexer, until a lane's wake
+    /// takes it.
+    task: Option<Waker>,
+}
+
+/// One lane's waker: it records the lane in the multiplexer's [`Wakes`],
+/// then wakes the task registered there.
+struct LaneWaker {
+    /// The lane's index among the multiplexer's lanes.
+    index: usize,
+    /// The state every lane's waker shares.
+    wakes: Arc<Mutex<Wakes>>,
+}
+
+/// Record the lane, then wake the multiplexer's task.
+impl Wake for LaneWaker {
+    /// Wakes as [`wake_by_ref`](Wake::wake_by_ref) does, then drops this
+    /// reference.
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    /// Records the lane and takes the registered task under the lock, then
+    /// wakes the task after releasing it, so nothing the wake runs can
+    /// wait on the lock.
+    fn wake_by_ref(self: &Arc<Self>) {
+        let task = {
+            let mut wakes = lock(&self.wakes);
+            wakes.woken[self.index] = true;
+            wakes.task.take()
+        };
+        if let Some(task) = task {
+            task.wake();
+        }
+    }
+}
+
+/// Lock the state every lane's waker shares.
+///
+/// A poisoned lock still guards consistent state: each critical section
+/// sets flags and moves or clones a waker, and a panic there, which only a
+/// waker's own clone can raise, leaves every flag and waker whole.
+fn lock(wakes: &Mutex<Wakes>) -> MutexGuard<'_, Wakes> {
+    wakes.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Writes every local logical stream's frames to the pipe's write half.
+///
+/// Each lane's channel wakes the multiplexer through the lane's own waker,
+/// which records the lane ([`Wakes`]) and then wakes the task that last
+/// polled the multiplexer. Each poll registers the polling task and
+/// collects the recorded lanes, then polls only marked lanes' channels.
+/// The multiplexer's task is polled for every wake of the session's
+/// work, but it polls a lane's channel only when that channel may have
+/// something to give.
 #[derive(Default)]
 pub struct Multiplexer {
     /// One lane per logical stream an encoder was created for.
     lanes: Vec<OutgoingLane>,
+    /// The lanes whose channels have woken the multiplexer, and the task
+    /// they wake.
+    wakes: Arc<Mutex<Wakes>>,
 }
 
 impl Multiplexer {
@@ -411,10 +504,20 @@ impl Multiplexer {
             QueueRole::new(QueueKind::PipeOutgoing, height),
             LANE_CAPACITY,
         );
+        let index = self.lanes.len();
+        lock(&self.wakes).woken.push(false);
+        let waker = Waker::from(Arc::new(LaneWaker {
+            index,
+            wakes: Arc::clone(&self.wakes),
+        }));
         self.lanes.push(OutgoingLane {
             stream,
             frames: Some(receiver),
             staged: None,
+            // A new lane's channel must be polled once to register its
+            // waker.
+            marked: true,
+            waker,
         });
         Outgoing {
             frames,
@@ -428,10 +531,11 @@ impl Multiplexer {
     /// not flush: the write half is flushed whenever no frame is ready,
     /// before waiting for one, and before returning. Frames ready together
     /// therefore share a flush, and the multiplexer never waits while a
-    /// frame it wrote sits unflushed, so every frame handed to it reaches
-    /// the peer without waiting on anything but the pipe. The write half is
-    /// borrowed, and rests flushed at a frame boundary on success, ready
-    /// for the closing exchange.
+    /// frame it wrote sits unflushed. A frame handed to a lane wakes the
+    /// waiting multiplexer through that lane's waker, so every frame handed
+    /// to it reaches the peer without waiting on anything but the pipe.
+    /// The write half is borrowed, and rests flushed at a frame boundary on
+    /// success, ready for the closing exchange.
     pub async fn run<W: AsyncWrite + Unpin>(
         mut self,
         write: &mut W,
@@ -464,11 +568,29 @@ impl Multiplexer {
     /// to write: `Ready(None)` once every lane has closed with nothing
     /// staged, and `Pending`, with a wakeup registered, while open lanes
     /// have nothing staged.
+    ///
+    /// Only marked lanes' channels are polled ([`Wakes`]), which stages
+    /// the same frames as polling every open lane with nothing staged.
     fn poll_next(
         &mut self,
         cx: &mut Context<'_>,
         cursors: &mut [usize; Class::ORDER.len()],
     ) -> Poll<Option<(Stream, Frame)>> {
+        {
+            // Register and collect under one lock: a lane recorded after
+            // this finds this task registered, and wakes it.
+            let mut wakes = lock(&self.wakes);
+            if !wakes
+                .task
+                .as_ref()
+                .is_some_and(|task| task.will_wake(cx.waker()))
+            {
+                wakes.task = Some(cx.waker().clone());
+            }
+            for (lane, woken) in self.lanes.iter_mut().zip(&mut wakes.woken) {
+                lane.marked |= mem::take(woken);
+            }
+        }
         let mut open = false;
         let mut tally = MultiplexerPoll::default();
         for lane in &mut self.lanes {
@@ -476,11 +598,19 @@ impl Multiplexer {
                 && let Some(frames) = &mut lane.frames
             {
                 tally.unstaged += 1;
-                tally.polled += 1;
-                match frames.poll_next_unpin(cx) {
-                    Poll::Ready(Some(frame)) => lane.staged = Some(frame),
-                    Poll::Ready(None) => lane.frames = None,
-                    Poll::Pending => {}
+                if mem::take(&mut lane.marked) {
+                    tally.polled += 1;
+                    match frames.poll_next_unpin(&mut Context::from_waker(&lane.waker)) {
+                        Poll::Ready(Some(frame)) => {
+                            lane.staged = Some(frame);
+                            // A channel that yields a frame registers no
+                            // waker, so nothing else would mark the lane for
+                            // its next frame or its close.
+                            lane.marked = true;
+                        }
+                        Poll::Ready(None) => lane.frames = None,
+                        Poll::Pending => {}
+                    }
                 }
             }
             open |= lane.staged.is_some() || lane.frames.is_some();
@@ -526,9 +656,10 @@ impl Multiplexer {
 /// sees it.
 ///
 /// A poll stages frames from lane channels, then returns at most one frame
-/// to write. Each lane that is open with nothing staged is a lane the poll
-/// may need to poll, since its channel may hold a frame or its close; the
-/// lanes it polls are some or all of those.
+/// to write. Each lane that is open with nothing staged is a lane whose
+/// channel may hold a frame or its close; the poll polls those of them
+/// whose channels have woken the multiplexer, or yielded a frame, since
+/// their last poll.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MultiplexerPoll {
     /// The lanes whose channels the poll polled.

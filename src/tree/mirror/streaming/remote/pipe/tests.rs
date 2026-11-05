@@ -2,6 +2,9 @@
 //! buffers under the closed-world poller.
 
 use std::pin::pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::task::{Wake, Waker};
 
 use futures::{StreamExt, future::Either};
 use proptest::prelude::*;
@@ -234,6 +237,210 @@ proptest! {
                 modeled_choice(&staged, &mut modeled)
             );
         }
+    }
+}
+
+/// One step of a [`polls_match_the_full_scan`] case.
+#[derive(Clone, Copy, Debug)]
+enum Step {
+    /// Hand a frame of this kind to the lane at this index, modulo the lane
+    /// count, if its channel is open and has room: an encoder whose send
+    /// completes.
+    Send(usize, Kind),
+    /// Drop the sender of the lane at this index, modulo the lane count: an
+    /// encoder that finishes.
+    Close(usize),
+    /// Poll the multiplexer once, as a wake of its task does, whether or
+    /// not anything woke it.
+    Poll,
+}
+
+/// One lane as a multiplexer that polls every lane's channel sees it.
+#[derive(Default)]
+struct ModeledLane {
+    /// The frame in the lane's channel, if any: its capacity is one.
+    queued: Option<(Kind, Frame)>,
+    /// Whether the lane's sender has gone.
+    closed: bool,
+    /// Whether a poll has found the channel closed and empty.
+    ended: bool,
+    /// The frame taken from the channel and awaiting its turn.
+    staged: Option<(Kind, Frame)>,
+}
+
+/// A multiplexer that polls every lane's channel on every poll: the
+/// reference [`polls_match_the_full_scan`] holds the multiplexer to.
+struct FullScan {
+    /// Every lane, in creation order.
+    lanes: Vec<ModeledLane>,
+    /// Each class's round-robin cursor, as [`modeled_choice`] keeps it.
+    cursors: [usize; Class::ORDER.len()],
+}
+
+impl FullScan {
+    /// Whether a poll now would stage a frame or observe a close: what a
+    /// multiplexer that returned `Pending` must be woken for.
+    fn has_news(&self) -> bool {
+        self.lanes.iter().any(|lane| {
+            lane.staged.is_none() && !lane.ended && (lane.queued.is_some() || lane.closed)
+        })
+    }
+
+    /// Stage every lane's waiting frame, observe every close, and return
+    /// the frame to write as [`Multiplexer::poll_next`] would.
+    ///
+    /// That is the lane's index and the frame, `Ready(None)` once every
+    /// lane has ended with nothing staged, and `Pending` otherwise.
+    fn poll(&mut self) -> Poll<Option<(usize, Frame)>> {
+        for lane in &mut self.lanes {
+            if lane.staged.is_none() && !lane.ended {
+                match lane.queued.take() {
+                    Some(frame) => lane.staged = Some(frame),
+                    None => lane.ended = lane.closed,
+                }
+            }
+        }
+        let staged: Vec<Option<Kind>> = self
+            .lanes
+            .iter()
+            .map(|lane| lane.staged.as_ref().map(|(kind, _)| *kind))
+            .collect();
+        match modeled_choice(&staged, &mut self.cursors) {
+            Some(index) => {
+                let (_, frame) = self.lanes[index]
+                    .staged
+                    .take()
+                    .expect("chosen lanes are staged");
+                Poll::Ready(Some((index, frame)))
+            }
+            None if self.lanes.iter().all(|lane| lane.ended) => Poll::Ready(None),
+            None => Poll::Pending,
+        }
+    }
+}
+
+/// Counts the wakes of the task a test polls the multiplexer in.
+#[derive(Default)]
+struct WakeCount(AtomicUsize);
+
+/// Count each wake.
+impl Wake for WakeCount {
+    /// Counts the wake, then drops this reference.
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    /// Counts the wake.
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// The frame kinds a step can send.
+fn kind() -> impl Strategy<Value = Kind> {
+    prop::sample::select(vec![Kind::Match, Kind::ReplyEnd, Kind::Supply])
+}
+
+/// A step, weighted toward sends and polls so that lanes carry several
+/// frames before they close.
+fn step() -> impl Strategy<Value = Step> {
+    prop_oneof![
+        4 => (0usize..8, kind()).prop_map(|(lane, kind)| Step::Send(lane, kind)),
+        1 => (0usize..8).prop_map(Step::Close),
+        4 => Just(Step::Poll),
+    ]
+}
+
+proptest! {
+    /// Under any interleaving of sends, closes, and polls, the multiplexer
+    /// returns what one polling every lane on every poll returns, and is
+    /// woken after `Pending` before any lane has news for it.
+    ///
+    /// The reference is [`FullScan`], on up to five lanes. After a poll
+    /// returns `Pending`, the task has been woken by the time any lane's
+    /// channel holds a frame or a close the multiplexer has not taken.
+    ///
+    /// So polling only marked lanes changes neither the frames the
+    /// multiplexer writes nor their order, and never leaves a frame
+    /// waiting with the multiplexer unwoken. After the generated steps
+    /// every lane closes and the multiplexer is polled until it returns
+    /// `Ready(None)`, so every case also checks the drain.
+    #[test]
+    fn polls_match_the_full_scan(
+        lanes in 1usize..=5,
+        steps in prop::collection::vec(step(), 0..64),
+    ) {
+        let mut multiplexer = Multiplexer::default();
+        let mut senders: Vec<Option<Outgoing>> = (1..=lanes)
+            .map(|index| Some(multiplexer.lane(interior(u8::try_from(index).unwrap()), 0)))
+            .collect();
+        let mut full_scan = FullScan {
+            lanes: (0..lanes).map(|_| ModeledLane::default()).collect(),
+            cursors: [0; Class::ORDER.len()],
+        };
+        let wakes = Arc::new(WakeCount::default());
+        let waker = Waker::from(Arc::clone(&wakes));
+        let mut cx = Context::from_waker(&waker);
+        let mut cursors = [0; Class::ORDER.len()];
+        // The wake count when the multiplexer last returned `Pending`, until
+        // it is polled again.
+        let mut waiting_since: Option<usize> = None;
+        let mut tag = 0;
+        let close_all = (0..lanes).map(Step::Close);
+        let drain = std::iter::repeat_n(Step::Poll, 2 * lanes + 1);
+        for step in steps.into_iter().chain(close_all).chain(drain) {
+            match step {
+                Step::Send(lane, kind) => {
+                    let lane = lane % lanes;
+                    let modeled = &mut full_scan.lanes[lane];
+                    if let Some(out) = &mut senders[lane]
+                        && modeled.queued.is_none()
+                    {
+                        tag += 1;
+                        let sent = Frame::from(frame(kind, tag));
+                        prop_assert!(
+                            out.frames.try_send(sent.clone()).is_ok(),
+                            "an open channel with room accepts a frame"
+                        );
+                        modeled.queued = Some((kind, sent));
+                    }
+                }
+                Step::Close(lane) => {
+                    let lane = lane % lanes;
+                    if senders[lane].take().is_some() {
+                        full_scan.lanes[lane].closed = true;
+                    }
+                }
+                Step::Poll => {
+                    let polled = multiplexer.poll_next(&mut cx, &mut cursors);
+                    let expected = full_scan.poll();
+                    let done = matches!(expected, Poll::Ready(None));
+                    let pending = expected.is_pending();
+                    prop_assert_eq!(
+                        polled.map(|next| next.map(|(stream, frame)| (stream.index(), frame))),
+                        expected.map(|next| next.map(|(lane, frame)| {
+                            (u8::try_from(lane + 1).unwrap(), frame)
+                        })),
+                    );
+                    waiting_since = pending.then(|| wakes.0.load(Ordering::Relaxed));
+                    if done {
+                        break;
+                    }
+                }
+            }
+            if let Some(since) = waiting_since
+                && full_scan.has_news()
+            {
+                prop_assert!(
+                    wakes.0.load(Ordering::Relaxed) > since,
+                    "a lane has news for a multiplexer that is waiting unwoken"
+                );
+            }
+        }
+        prop_assert!(
+            full_scan.lanes.iter().all(|lane| lane.ended && lane.staged.is_none()),
+            "the drain ran to the end"
+        );
     }
 }
 
