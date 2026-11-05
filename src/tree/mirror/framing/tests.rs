@@ -222,3 +222,100 @@ fn a_prefix_longer_than_the_declared_length_is_invalid_data() {
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
     assert_eq!(cursor, b"unused");
 }
+
+/// The most a `len`-byte [`read_payload`] holds at once, by its growth
+/// policy.
+///
+/// Its first reservation is `len` itself when that is at most one
+/// [`PAYLOAD_CHUNK_LEN`] granule, and otherwise one granule, doubled each
+/// time it fills and clamped to `len`, so its peak is the moment its last
+/// reallocation holds the `len`-byte block beside the one it outgrew.
+fn payload_read_peak(len: usize) -> usize {
+    if len <= PAYLOAD_CHUNK_LEN {
+        return len;
+    }
+    let mut outgrown = PAYLOAD_CHUNK_LEN;
+    while outgrown * 2 < len {
+        outgrown *= 2;
+    }
+    len + outgrown
+}
+
+/// The granules within which [`payload_read_peak`]'s tests probe lengths.
+const PEAK_GRANULES: usize = 8;
+
+/// Read a whole `len`-byte payload through [`read_payload`], polled once,
+/// and require it to hold exactly [`payload_read_peak`] at its peak: its
+/// length alone within one granule, and less than twice its length beyond.
+///
+/// # Panics
+///
+/// Panics if the read does not complete in one poll, returns other bytes,
+/// or peaks elsewhere.
+fn assert_payload_read_peak(len: usize) {
+    let payload = pattern(len, 7);
+    let mut source = payload.as_slice();
+    let mut reading = std::pin::pin!(read_payload(&mut source, len));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    let (stats, polled) = alloc_meter::measure(|| reading.as_mut().poll(&mut cx));
+    let Poll::Ready(read) = polled else {
+        panic!("an in-memory reader never waits");
+    };
+    let read = read.expect("the whole payload is delivered");
+    assert_eq!(read.as_slice(), payload.as_slice());
+    assert_eq!(
+        stats.peak_bytes,
+        payload_read_peak(len),
+        "a {len}-byte read"
+    );
+    assert!(
+        len <= PAYLOAD_CHUNK_LEN || stats.peak_bytes < 2 * len,
+        "a {len}-byte read peaked at {} B, twice its length or more",
+        stats.peak_bytes
+    );
+}
+
+/// A whole payload read peaks as its growth policy says at every length
+/// within a byte of a granule boundary, up to [`PEAK_GRANULES`] granules.
+///
+/// At one byte short of each boundary, exactly on it, and one byte past
+/// it, the read holds exactly its length when that is at most one granule,
+/// and otherwise its length beside the buffer it last outgrew.
+///
+/// The boundaries are where the growth policy changes what it reserves, so
+/// the test exhausts them; [`a_payload_read_holds_its_length_beside_the_buffer_it_outgrew`]
+/// samples the lengths between.
+#[test]
+fn a_payload_read_peaks_by_its_policy_at_every_granule_boundary() {
+    for granules in 1..=PEAK_GRANULES {
+        for len in [-1isize, 0, 1]
+            .map(|offset| (granules * PAYLOAD_CHUNK_LEN).saturating_add_signed(offset))
+        {
+            assert_payload_read_peak(len);
+        }
+    }
+}
+
+proptest! {
+    /// A whole payload read holds exactly its length at once when that is
+    /// at most one granule, and otherwise its length beside the buffer it
+    /// last outgrew, which is less than its length: never as much as twice
+    /// its length.
+    ///
+    /// The greeting and the party hand-off read their bodies this way,
+    /// before anything bounds their declared lengths, and no part of the
+    /// memory budget sets their reads aside. This bounds what each holds:
+    /// a body of at most [`PAYLOAD_CHUNK_LEN`] costs one block of its own
+    /// length, and only a larger one, such as a greeting whose version has
+    /// grown past about a granule, pays the doubling's transient. The
+    /// lengths are drawn within [`PEAK_GRANULES`] granules, and the meter
+    /// counts both blocks of each reallocation, so the peak is exact;
+    /// [`a_payload_read_peaks_by_its_policy_at_every_granule_boundary`]
+    /// exhausts the boundaries.
+    #[test]
+    fn a_payload_read_holds_its_length_beside_the_buffer_it_outgrew(
+        len in 0..=PEAK_GRANULES * PAYLOAD_CHUNK_LEN,
+    ) {
+        assert_payload_read_peak(len);
+    }
+}
