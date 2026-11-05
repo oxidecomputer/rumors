@@ -111,7 +111,7 @@ use crate::tree::{
         Backend, ErasedNode, Leaf, Node as _, Root,
         erased::{self, Reaction, Reply},
         ledger::{Charge, DEFAULT_SYNC_MEMORY_BUDGET, Ledger, ReplyBound},
-        message::{Grandchildren, Greeting, Listed},
+        message::{CountError, Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
     },
@@ -527,10 +527,22 @@ pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
 /// In particular, the greeting and the initiator's opening question
 /// ([`Work::initiator_level`]) are paired positionally by the remote proxy.
 /// Deriving every listing here keeps those representations identical.
-pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<Listed> {
-    fan.iter()
-        .map(|(radix, node)| Listed::of(*radix, node))
-        .collect()
+///
+/// The listing holds exactly one entry per node of the fan, as every
+/// listing's price counts it.
+///
+/// # Errors
+///
+/// Returns a [`CountError`] if the backend reports a count no node can
+/// have for any node of the fan ([`Listed::of`]).
+pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Result<Vec<Listed>, CountError> {
+    // Collecting results into a vector cannot size it from the iterator,
+    // which may stop early, so it would grow past the fan's length.
+    let mut listing = Vec::with_capacity(fan.len());
+    for (radix, node) in fan {
+        listing.push(Listed::of(*radix, node)?);
+    }
+    Ok(listing)
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
@@ -557,7 +569,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
             // send, so an in-process participant carries the default.
             payload_depth_limit: PayloadDepthLimit::default().get(),
             target_message_size: self.target_message_size,
-            listing: fan_listing(&fan),
+            listing: fan_listing(&fan).map_err(Error::Count)?,
         };
         let next = Handshaking {
             backend: self.backend,

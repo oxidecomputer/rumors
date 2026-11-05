@@ -13,10 +13,11 @@ use crate::testing::run_to_quiescence;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
-        Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, ReplyCorruption,
-        Root as StreamingRoot,
+        Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, Miscount,
+        ReplyCorruption, Root as StreamingRoot,
         channel::{with_observation, with_schedule},
         materialized::{Error as MaterializedError, Handshaking, Start, Violation},
+        message::CountError,
         mirror as drive_streaming,
     },
 };
@@ -160,6 +161,70 @@ proptest! {
             prop_assert_eq!(actual, Some(expected));
         } else {
             prop_assert!(result.is_ok(), "session failed without injection: {result:?}");
+        }
+    }
+}
+
+/// The typed height of the root's children, which every greeting lists.
+const ROOT_CHILDREN_HEIGHT: usize = 31;
+
+proptest! {
+    /// A grandchild count above 65,536, which a backend reading corrupted
+    /// storage could report, fails the session with that count on the side
+    /// whose backend reported it, and neither panics nor stalls.
+    ///
+    /// The count is misreported for every node one side's backend lists as
+    /// a child at one height. The session reads a node's count only to
+    /// list it, and then fails at once, so it fails exactly when it read a
+    /// misreported count and completes otherwise. The root's children are
+    /// listed by every greeting, so a misreported count there always fails
+    /// the session; deeper heights fail only where a disputed scope's
+    /// question lists them.
+    #[test]
+    fn out_of_range_grandchild_counts_fail_the_session(
+        (client_root, server_root) in arb_wide_divergent_pair(),
+        height in 1..=ROOT_CHILDREN_HEIGHT,
+        grandchildren in prop_oneof![Just(65_537usize), 65_537usize..=1 << 24, Just(usize::MAX)],
+        miscount_client in any::<bool>(),
+        schedule in proptest::collection::vec(0_u8..=2, 0..128),
+    ) {
+        let miscounting = Failing::miscounting(Local, Miscount { height, grandchildren });
+        let sound = Failing::after(Local, usize::MAX);
+        let lists_root_children = if miscount_client {
+            client_root.node.is_some()
+        } else {
+            server_root.node.is_some()
+        };
+        let (client_backend, server_backend) = if miscount_client {
+            (miscounting.clone(), sound)
+        } else {
+            (sound, miscounting.clone())
+        };
+        let client = failing_start(client_backend, client_root);
+        let server = failing_start(server_backend, server_root);
+        let result = with_schedule(schedule, || {
+            run_to_quiescence(drive_streaming(client, server))
+        })
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "a misreported count left reconciliation quiescent: {stopped:?}",
+            )))?;
+        let read = miscounting.miscounts_read();
+        match result {
+            Err(MirrorError::Client(MaterializedError::Count(error))) if miscount_client => {
+                prop_assert_eq!(error, CountError::Grandchildren(grandchildren));
+                prop_assert!(read > 0, "the session failed on a count it never read");
+            }
+            Err(MirrorError::Server(MaterializedError::Count(error))) if !miscount_client => {
+                prop_assert_eq!(error, CountError::Grandchildren(grandchildren));
+                prop_assert!(read > 0, "the session failed on a count it never read");
+            }
+            Ok(_) => prop_assert_eq!(read, 0, "the session completed past a misreported count"),
+            Err(other) => return Err(TestCaseError::fail(format!(
+                "a misreported count was misattributed: {other:?}",
+            ))),
+        }
+        if height == ROOT_CHILDREN_HEIGHT && lists_root_children {
+            prop_assert!(read > 0, "the greeting must list the root's children");
         }
     }
 }

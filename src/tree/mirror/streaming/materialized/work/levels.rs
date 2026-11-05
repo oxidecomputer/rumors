@@ -181,8 +181,9 @@ where
             progress.wire(root_scope);
             let bound = ReplyBound::of(root_scope.height(), fan.len(), responder);
             let listing = held_by(Holding::OutgoingReplies, || {
-                vec![Reaction::Query(fan_listing(&fan))]
-            });
+                fan_listing(&fan).map(|listing| vec![Reaction::Query(listing)])
+            })
+            .map_err(Error::Count)?;
             let record = charges::record(&mut grant, fan.len());
             let room = charges::room::<B::Erased>(&mut grant, bound, fan.len());
             let query = charges::query(&mut grant, root_scope, fan, bound, copies);

@@ -316,6 +316,7 @@ fn reported_violation<H: Height>(
     match error {
         Error::Violation(violation) => violation,
         Error::Backend(error) => match error {},
+        Error::Count(error) => panic!("the in-memory backend keeps every count in range: {error}"),
     }
 }
 

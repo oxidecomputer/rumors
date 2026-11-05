@@ -166,15 +166,42 @@ const _: () = assert!(
 
 impl Listed {
     /// The entry for `node`, listed by this side at `radix`.
-    pub(crate) fn of<E: ErasedNode>(radix: u8, node: &E) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CountError`] if the backend reports more children or
+    /// grandchildren for `node` than any node can have, which no listing
+    /// can carry.
+    pub(crate) fn of<E: ErasedNode>(radix: u8, node: &E) -> Result<Self, CountError> {
+        let children = node.child_count();
+        let children_less_one =
+            u8::try_from(children.saturating_sub(1)).map_err(|_| CountError::Children(children))?;
+        Ok(Self {
             radix,
             hash: node.hash(),
-            grandchildren: Grandchildren::of(node),
-            children_less_one: u8::try_from(node.child_count().saturating_sub(1))
-                .expect("a node has at most a fan of children"),
-        }
+            grandchildren: Grandchildren::of(node)?,
+            children_less_one,
+        })
     }
+}
+
+/// A count the backend reported for a node that no node can have.
+///
+/// A node has at most a fan of 256 children, and its children at most a fan
+/// of fans, 65,536, among them. The in-memory backend keeps both counts by
+/// construction, but a backend that loads nodes from storage reads them
+/// there, so storage corrupted at rest can report a count outside those
+/// ranges. A listing cannot carry such a count, and every price and bound
+/// the session derives from one would be wrong, so the session fails
+/// instead of listing the node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum CountError {
+    /// The node's child count exceeded a fan.
+    #[error("the backend reported {0} children for a node, more than a fan of 256")]
+    Children(usize),
+    /// The node's grandchild count exceeded a fan of fans.
+    #[error("the backend reported {0} grandchildren for a node, more than 65,536")]
+    Grandchildren(usize),
 }
 
 /// A grandchild count as a listing carries it: how many children a listed
@@ -198,9 +225,14 @@ impl Grandchildren {
     pub const MAX: Self = Self(u16::MAX);
 
     /// The count of `node`'s grandchildren, a leaf counting one.
-    pub fn of(node: &impl ErasedNode) -> Self {
-        Self::new(node.grandchild_count().max(1))
-            .expect("a node has at most 256 children of at most 256 children")
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CountError::Grandchildren`] if the backend reports more
+    /// than 65,536, more than any node's children can have.
+    pub fn of(node: &impl ErasedNode) -> Result<Self, CountError> {
+        let count = node.grandchild_count();
+        Self::new(count.max(1)).ok_or(CountError::Grandchildren(count))
     }
 
     /// The count `count`, or `None` outside 1..=65,536.
@@ -397,3 +429,6 @@ pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// unambiguous; it can only mean the sender lacks the node.
     Query(Vec<Listed>),
 }
+
+#[cfg(test)]
+mod tests;

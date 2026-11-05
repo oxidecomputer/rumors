@@ -14,7 +14,7 @@ use crate::{
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound},
             materialized::{
-                Query, Resolve, Violation, fan_listing,
+                Error, Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
             },
             message::{Carried, Grandchildren, Listed},
@@ -267,7 +267,7 @@ pub(super) async fn question<B>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
     question: Question<B::Erased>,
-) -> Result<Built<B::Erased, Query<B::Erased>>, B::Error>
+) -> Result<Built<B::Erased, Query<B::Erased>>, Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
 {
@@ -285,8 +285,9 @@ where
         Question::Request { radix, theirs } => (prefix.push(radix), Vec::new(), theirs, 0),
     };
     let reaction = held_by(Holding::OutgoingReplies, || {
-        Reaction::Query(fan_listing(&ours))
-    });
+        fan_listing(&ours).map(Reaction::Query)
+    })
+    .map_err(Error::Count)?;
     let record = charges::record(grant, ours.len());
     let bound = ReplyBound::of(child.height(), ours.len(), theirs);
     let room = charges::room::<B::Erased>(grant, bound, ours.len());

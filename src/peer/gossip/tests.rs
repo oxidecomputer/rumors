@@ -15,6 +15,7 @@ use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
 use super::{COMPLETION_MARKER, SessionDefect, epilogue};
+use crate::error::Phase;
 use crate::observe::SessionHandle;
 use crate::testing::{MEMORY_CAPACITY, MemoryEnd, memory_connection};
 use crate::tree::mirror::{
@@ -156,9 +157,11 @@ async fn claim_bootstrap_with_root(
     );
     let handshaken = streaming::handshake(local, proxy)
         .await
-        .map_err(streaming_remote::streaming_error)?;
+        .map_err(streaming_remote::streaming_error(Phase::Greeting))?;
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-    let (root, (mut read, mut write)) = descent.await.map_err(streaming_remote::streaming_error)?;
+    let (root, (mut read, mut write)) = descent
+        .await
+        .map_err(streaming_remote::streaming_error(Phase::Reconciliation))?;
     let party = party::receive(&mut read, &SessionHandle::default()).await?;
     epilogue(&mut read, &mut write, &SessionHandle::default()).await?;
     Ok((party, Tree::from_root(root.into())))

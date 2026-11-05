@@ -91,3 +91,41 @@ proptest! {
         prop_assert!(error.source.downcast_ref::<proxy::Error<Infallible>>().is_some());
     }
 }
+
+/// Generates a phase a local walk failure can arise in: the greeting, whose
+/// listing the walk builds, or reconciliation.
+fn arb_walk_phase() -> impl Strategy<Value = Phase> {
+    prop::sample::select(vec![Phase::Greeting, Phase::Reconciliation])
+}
+
+/// Generates a count no node can have, of either kind.
+fn arb_count_error() -> impl Strategy<Value = CountError> {
+    prop_oneof![
+        (257..=usize::MAX).prop_map(CountError::Children),
+        (65_537..=usize::MAX).prop_map(CountError::Grandchildren),
+    ]
+}
+
+proptest! {
+    /// A count the local backend reports out of range crosses the public
+    /// boundary as a protocol violation with the count as its source.
+    ///
+    /// It is located in the phase its call site names, and a violation the
+    /// local walk detects is located the same way.
+    #[test]
+    fn local_walk_failures_keep_their_phase_and_source(
+        phase in arb_walk_phase(),
+        count in arb_count_error(),
+    ) {
+        let public = streaming_error(phase)(mirror::Error::Client(materialized::Error::Count(count)));
+        let Error::Protocol(error) = public else { prop_assert!(false, "a count error was misclassified: {public:?}"); return Ok(()); };
+        prop_assert_eq!(error.context, Context::new(phase));
+        prop_assert_eq!(error.source.downcast_ref::<CountError>(), Some(&count));
+
+        let violation = materialized::Violation::UnexpectedQuery;
+        let public = streaming_error(phase)(mirror::Error::Client(materialized::Error::Violation(violation)));
+        let Error::Protocol(error) = public else { prop_assert!(false, "a local violation was misclassified: {public:?}"); return Ok(()); };
+        prop_assert_eq!(error.context, Context::new(phase));
+        prop_assert_eq!(error.source.downcast_ref::<materialized::Violation>(), Some(&violation));
+    }
+}

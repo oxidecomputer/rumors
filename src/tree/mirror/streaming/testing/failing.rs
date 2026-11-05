@@ -1,4 +1,6 @@
-//! A composable test backend which injects one source failure after N operations.
+//! A composable test backend which injects one source failure after N
+//! operations, or misreports the grandchild count of the nodes it lists at
+//! one height, as a backend reading corrupted storage would.
 
 use std::{
     fmt,
@@ -56,6 +58,20 @@ pub enum Failure<E> {
 struct State {
     remaining: Option<usize>,
     operations: Vec<Operation>,
+    /// The grandchild count to report for the nodes listed at a height.
+    miscount: Option<Miscount>,
+    /// How many times a session read a misreported count.
+    miscounts_read: usize,
+}
+
+/// A grandchild count a [`Failing`] backend misreports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Miscount {
+    /// The typed height of the nodes whose count is misreported: every
+    /// node the backend lists as a child at this height.
+    pub height: usize,
+    /// The grandchild count those nodes report.
+    pub grandchildren: usize,
 }
 
 /// A backend handle which delegates N operations, then injects one failure.
@@ -82,29 +98,58 @@ impl<B: Clone> Clone for Failing<B> {
 impl<B> Failing<B> {
     /// Wrap `inner`, allowing `operations` delegated calls before failing.
     pub fn after(inner: B, operations: usize) -> Self {
+        Self::with(inner, Some(operations), None)
+    }
+
+    /// Wrap `inner`, never failing an operation, but reporting `miscount`'s
+    /// grandchild count for every child it lists at `miscount`'s height.
+    pub fn miscounting(inner: B, miscount: Miscount) -> Self {
+        Self::with(inner, None, Some(miscount))
+    }
+
+    /// Wrap `inner` with a countdown of `remaining` operations and an
+    /// optional misreported count.
+    fn with(inner: B, remaining: Option<usize>, miscount: Option<Miscount>) -> Self {
         Self {
             inner,
             state: Arc::new(Mutex::new(State {
-                remaining: Some(operations),
+                remaining,
                 operations: Vec::new(),
+                miscount,
+                miscounts_read: 0,
             })),
         }
     }
 
-    /// Return every operation attempted through this wrapper, in call order.
-    pub fn history(&self) -> Vec<Operation> {
+    /// Return how many times a session read a misreported count.
+    pub fn miscounts_read(&self) -> usize {
+        self.lock().miscounts_read
+    }
+
+    /// The count to report for a child listed at `height`, if this wrapper
+    /// misreports there.
+    fn miscount_at(&self, height: usize) -> Option<Miscounted> {
+        let miscount = self.lock().miscount?;
+        (miscount.height == height).then(|| Miscounted {
+            grandchildren: miscount.grandchildren,
+            state: Arc::clone(&self.state),
+        })
+    }
+
+    /// Lock the shared state.
+    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state
             .lock()
             .expect("the failing-backend state mutex is not poisoned")
-            .operations
-            .clone()
+    }
+
+    /// Return every operation attempted through this wrapper, in call order.
+    pub fn history(&self) -> Vec<Operation> {
+        self.lock().operations.clone()
     }
 
     fn checkpoint<E>(&self, operation: Operation) -> Result<(), Failure<E>> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("the failing-backend state mutex is not poisoned");
+        let mut state = self.lock();
         state.operations.push(operation);
         match state.remaining {
             Some(0) => {
@@ -122,12 +167,33 @@ impl<B> Failing<B> {
 
 /// A node handle translated through a [`Failing`] backend layer.
 #[derive(Clone, Debug)]
-pub struct FailingNode<N>(N);
+pub struct FailingNode<N>(N, Option<Miscounted>);
+
+/// The grandchild count a [`FailingNode`] misreports, and the backend state
+/// that counts each read of it.
+#[derive(Clone, Debug)]
+struct Miscounted {
+    /// The count reported.
+    grandchildren: usize,
+    /// The listing backend's state.
+    state: Arc<Mutex<State>>,
+}
+
+impl Miscounted {
+    /// Count one read and return the misreported count.
+    fn read(&self) -> usize {
+        self.state
+            .lock()
+            .expect("the failing-backend state mutex is not poisoned")
+            .miscounts_read += 1;
+        self.grandchildren
+    }
+}
 
 impl<N> FailingNode<N> {
     /// Wrap an inner backend's node without changing its contents.
     pub fn new(inner: N) -> Self {
-        Self(inner)
+        Self(inner, None)
     }
 
     /// Remove this test backend's node wrapper.
@@ -154,9 +220,11 @@ where
         self.0.len()
     }
 
-    /// Read the wrapped node's grandchild count.
+    /// Read the wrapped node's grandchild count, or the misreported one.
     fn grandchild_count(&self) -> usize {
-        self.0.grandchild_count()
+        self.1
+            .as_ref()
+            .map_or_else(|| self.0.grandchild_count(), Miscounted::read)
     }
 
     /// Read the wrapped node's largest encoded version bound.
@@ -178,9 +246,11 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
         self.0.len()
     }
 
-    /// Read the wrapped node's grandchild count.
+    /// Read the wrapped node's grandchild count, or the misreported one.
     fn grandchild_count(&self) -> usize {
-        self.0.grandchild_count()
+        self.1
+            .as_ref()
+            .map_or_else(|| self.0.grandchild_count(), Miscounted::read)
     }
 
     /// Read the wrapped node's explosion cost.
@@ -215,7 +285,7 @@ where
     ) -> Result<Self, Failure<<N::Backend as Backend>::Error>> {
         N::leaf(version, message)
             .await
-            .map(Self)
+            .map(Self::new)
             .map_err(Failure::Inner)
     }
 }
@@ -237,11 +307,11 @@ where
     type Error = Failure<B::Error>;
 
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
-        FailingNode(B::erase(node.0))
+        FailingNode(B::erase(node.0), node.1)
     }
 
     fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
-        FailingNode(B::assume(erased.0))
+        FailingNode(B::assume(erased.0), erased.1)
     }
     async fn parent<H>(
         self,
@@ -278,10 +348,11 @@ where
                 yield Err(error);
                 return;
             }
+            let miscounted = self.miscount_at(H::HEIGHT);
             let mut children = pin!(self.inner.children(prefix, parent.into_inner()));
             while let Some(child) = children.next().await {
                 yield child
-                    .map(|(prefix, node)| (prefix, FailingNode::new(node)))
+                    .map(|(prefix, node)| (prefix, FailingNode(node, miscounted.clone())))
                     .map_err(Failure::Inner);
             }
         }

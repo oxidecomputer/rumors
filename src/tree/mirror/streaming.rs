@@ -77,7 +77,8 @@ pub use backend::NodeStream;
 pub(crate) use erased::ops;
 #[cfg(test)]
 pub use testing::{
-    Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Operation, ReplyCorruption,
+    Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Miscount, Operation,
+    ReplyCorruption,
 };
 
 use futures::future::BoxFuture;

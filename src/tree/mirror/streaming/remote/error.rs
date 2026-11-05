@@ -6,38 +6,51 @@ use super::{codec, pipe, proxy};
 use crate::{
     Error,
     error::{Context, Mismatch, Phase, ProtocolViolation, TransportError, TransportOperation},
-    tree::mirror::{self, streaming::materialized},
+    tree::mirror::{
+        self,
+        streaming::{materialized, message::CountError},
+    },
 };
 
 /// A production reconciliation failure after removing impossible backend cases.
 pub(crate) enum MirrorError {
-    /// The local tree rejected the protocol exchange.
-    Local(materialized::Violation),
+    /// The local tree rejected the protocol exchange during the phase.
+    Local(Phase, materialized::Violation),
+    /// The local backend reported a count no node can have, for a node the
+    /// walk was listing during the phase.
+    Count(Phase, CountError),
     /// The wire-bound participant failed.
     Remote(proxy::Error<Infallible>),
 }
 
-/// Remove the production mirror's uninhabited backend error.
-impl From<mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>>
-    for MirrorError
-{
-    /// Preserve the only two failures a production reconciliation can produce.
-    fn from(
+impl MirrorError {
+    /// Classify a raw production mirror failure, locating failures of the
+    /// local walk, which carry no location of their own, in `phase`.
+    fn new(
         error: mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>,
+        phase: Phase,
     ) -> Self {
         match error {
             mirror::Error::Client(materialized::Error::Backend(never)) => match never {},
-            mirror::Error::Client(materialized::Error::Violation(error)) => Self::Local(error),
+            mirror::Error::Client(materialized::Error::Violation(error)) => {
+                Self::Local(phase, error)
+            }
+            mirror::Error::Client(materialized::Error::Count(error)) => Self::Count(phase, error),
             mirror::Error::Server(error) => Self::Remote(error),
         }
     }
 }
 
-/// Translate the raw production mirror result at the peer boundary.
+/// Translate raw production mirror failures at the peer boundary, during
+/// `phase`.
+///
+/// The phase locates the local walk's failures; the wire-bound
+/// participant's carry their own location.
 pub(crate) fn streaming_error(
-    error: mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>,
-) -> Error {
-    MirrorError::from(error).into()
+    phase: Phase,
+) -> impl FnOnce(mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>) -> Error
+{
+    move |error| MirrorError::new(error, phase).into()
 }
 
 impl From<MirrorError> for Error {
@@ -47,9 +60,12 @@ impl From<MirrorError> for Error {
         use codec::{DecodeErrorKind, EncodeErrorKind};
         use pipe::PipeError;
         let remote = match error {
-            MirrorError::Local(error) => {
-                return Self::violation(Phase::Reconciliation, error);
-            }
+            MirrorError::Local(phase, error) => return Self::violation(phase, error),
+            // The only production backend, the in-memory replica, keeps
+            // every count by construction, so a count out of range is an
+            // implementation defect: a protocol violation in the public
+            // classification.
+            MirrorError::Count(phase, error) => return Self::violation(phase, error),
             MirrorError::Remote(error) => error,
         };
         let (context, operation, source) = match remote {
