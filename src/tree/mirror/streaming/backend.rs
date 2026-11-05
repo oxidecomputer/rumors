@@ -1,12 +1,12 @@
-//! Node storage and pricing for streaming reconciliation.
+//! Node storage for streaming reconciliation.
 //!
-//! A [`Backend`] defines the node handles used by a session, the operations
-//! over those handles, and what holding them costs beyond the replica at
-//! rest. This boundary is crate-internal; [`Local`] is its production
-//! implementation and stores handles into the crate's in-memory tree.
+//! A [`Backend`] defines the node handles used by a session and the
+//! operations over those handles. This boundary is crate-internal; [`Local`]
+//! is its production implementation and stores handles into the crate's
+//! in-memory tree.
 //!
-//! The backend conformance suite checks the behavioral and pricing contracts
-//! against each implementation used by the crate.
+//! The backend conformance suite checks the behavioral contracts against
+//! each implementation used by the crate.
 
 use std::pin::Pin;
 
@@ -83,31 +83,6 @@ where
     /// a mispairing — every wire node decodes through height-typed
     /// readers before it is ever erased.
     fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H>;
-
-    /// Bytes one node value with `children` child entries keeps resident
-    /// beyond the replica's own storage, its version bounds (ceiling and
-    /// floor together) encoding within `version_bound` bytes.
-    ///
-    /// [`Local`]'s nodes are handles into a tree that is resident
-    /// regardless, so its price is one pointer at every argument; a
-    /// backend without an always-resident tree must charge everything its
-    /// `Node` values own — at minimum the hash, the child table, and the
-    /// two endpoints of the bounds span [`Node::span`] borrows from the
-    /// node.
-    ///
-    /// A leaf is priced at `children = 0`: what its handle keeps resident
-    /// after [`Leaf::leaf`] has had its chance to persist the payload.
-    /// Payload bytes still in flight inside one wire message are bounded
-    /// by [`target_message_size`](crate::Peer::target_message_size), not
-    /// here.
-    ///
-    /// The result must be an **upper bound**, monotone in both arguments,
-    /// so that a price taken at bounds on several nodes' fans and version
-    /// bounds covers each of them. The backend conformance suite checks
-    /// monotonicity and compares prices with measured nodes. No session
-    /// reads the price, so it compiles only for the tests that check it.
-    #[cfg(test)]
-    fn node_bytes(children: usize, version_bound: usize) -> usize;
 
     /// Assemble one parent node at `prefix` from one radix-keyed child group.
     ///

@@ -78,7 +78,7 @@ impl ErasedNode for typed::untyped::Node {
         self.grandchildren()
     }
 
-    /// Price the copy that peeling a shared compressed node makes.
+    /// Report the copy that peeling a shared compressed node makes.
     fn explosion_bytes(&self) -> usize {
         self.explosion_bytes()
     }
@@ -133,16 +133,6 @@ impl Backend for Local {
     /// Restore a node's phantom height tag.
     fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
         typed::Node::from_untyped(erased)
-    }
-
-    /// Price one in-flight node reference as one pointer.
-    ///
-    /// The `Arc` handle has the same layout at every height. Its children,
-    /// hash, and version bounds belong to the tree rather than the session,
-    /// so neither argument changes the price.
-    #[cfg(test)]
-    fn node_bytes(_children: usize, _version_bound: usize) -> usize {
-        std::mem::size_of::<typed::Node<Z>>()
     }
 
     /// Stream one branch's children in radix order.

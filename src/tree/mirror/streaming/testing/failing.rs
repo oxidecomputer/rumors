@@ -238,13 +238,6 @@ where
     fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
         FailingNode(B::assume(erased.0))
     }
-
-    // The wrapper adds no resident state: a failing node is the inner
-    // backend's node plus fault bookkeeping shared behind it.
-    fn node_bytes(children: usize, version_bound: usize) -> usize {
-        B::node_bytes(children, version_bound)
-    }
-
     async fn parent<H>(
         self,
         prefix: Prefix<S<H>>,

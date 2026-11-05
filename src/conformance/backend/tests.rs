@@ -11,15 +11,14 @@ use proptest::prelude::*;
 
 use before::Span;
 
-use super::{BOUND_SWEEP_CEILING, Measure, check, histories, ledger, node_bytes_monotone, run};
+use super::{Measure, check, histories, ledger, run};
 use crate::{
     Version,
     message::Message,
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, FAN, Leaf, Local, Node, NodeStream,
-            convert::Convert,
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, convert::Convert,
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -30,9 +29,9 @@ use crate::{
 
 /// Serializes the tests in this module.
 ///
-/// The census ledger and every honesty knob are process-global, so tests
+/// The census ledger and every knob are process-global, so tests
 /// overlapping in one process (plain `cargo test` runs tests as threads)
-/// would reprice each other's in-flight sessions and drain each other's
+/// would change each other's in-flight sessions and drain each other's
 /// violations. Every test holds this lock for its whole body — through
 /// [`serialized`] directly or through a [`Knob`] guard — which makes
 /// plain `cargo test` sound, not merely nextest's process-per-test.
@@ -137,8 +136,9 @@ impl Measure for Local {
     }
 }
 
-/// Local handle prices cover measured nodes, and reconciliation at
-/// [`CENSUS_BUDGET`] stays within its peak-increase allowance.
+/// The in-memory backend's operations keep their contracts, and
+/// reconciliation at [`CENSUS_BUDGET`] stays within its peak-increase
+/// allowance.
 #[test]
 fn local_backend_conforms() {
     let _serial = serialized();
@@ -149,28 +149,10 @@ fn local_backend_conforms() {
 ///
 /// Each node value owns a buffer sized like the row it would keep
 /// resident (header, child table, version bounds), on top of a `Local`
-/// handle standing in for the store.
-///
-/// The priced header is the honesty knob ([`PRICED_HEADER`]): the real
-/// row header is [`ROW_HEADER`] bytes and the cost function prices the
-/// knob's value, so the knob's honest resting value is the real header
-/// and anything less underprices — what the lying tests opt into
-/// through the knob's guard.
-///
-/// Its handle is wider and more aligned than a pointer
-/// ([`MaterializedNode`]), so the queue elements the session holds it in,
-/// sized at this backend's own types, are wider than the in-memory
-/// backend's.
+/// handle standing in for the store. Its handle is wider and more aligned
+/// than a pointer ([`MaterializedNode`]).
 #[derive(Clone, Copy, Debug)]
 struct Materializing;
-
-/// The header bytes [`Materializing::node_bytes`] prices: honest at the
-/// real [`ROW_HEADER`], lying below it.
-static PRICED_HEADER: Knob = Knob::new(ROW_HEADER);
-
-/// Extra bytes the bulk walk's yielded rows keep resident: honest at
-/// zero, over-holding above it.
-static WALK_SLACK: Knob = Knob::new(0);
 
 /// Leaves the bulk walk silently drops: honest at zero.
 static WALK_SKIPS: Knob = Knob::new(0);
@@ -183,11 +165,6 @@ static LEAVES_SWAP: Knob = Knob::new(0);
 /// walked subtree: honest at zero, escaping above it.
 static WALK_ESCAPES: Knob = Knob::new(0);
 
-/// Extra bytes the exploded interior child rows keep resident (leaf
-/// children stay honest, so the walk's leaf check is silent): honest at
-/// zero, over-holding above it.
-static CHILDREN_SLACK: Knob = Knob::new(0);
-
 /// Interior `parent` calls (a fan of at least one real child) answered
 /// with `Ok(None)`, spent one per call: honest at zero.
 static PARENT_DROPS: Knob = Knob::new(0);
@@ -195,10 +172,6 @@ static PARENT_DROPS: Knob = Knob::new(0);
 /// Whether an empty group presented to `parent` is answered with a
 /// conjured node instead of `None`: honest at zero.
 static PARENT_CONJURES: Knob = Knob::new(0);
-
-/// Extra bytes bulk-assembled rows keep resident: honest at zero,
-/// over-holding above it.
-static ASSEMBLE_SLACK: Knob = Knob::new(0);
 
 /// Leaves bulk assembly silently drops: honest at zero.
 static ASSEMBLE_SKIPS: Knob = Knob::new(0);
@@ -228,25 +201,6 @@ static GRANDCHILDREN_SKEW: Knob = Knob::new(0);
 /// it.
 static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 
-/// Bytes [`Materializing::node_bytes`] subtracts at [`DIP_FAN`] alone:
-/// honest at zero, a monotonicity dip above it.
-static PRICED_DIP: Knob = Knob::new(0);
-
-/// The version bound above which [`Materializing::node_bytes`] prices
-/// [`STEP_DROP`] fewer header bytes: honest at zero (no step), a
-/// step-shaped monotonicity dip above it.
-static PRICED_BOUND_STEP: Knob = Knob::new(0);
-
-/// The one version bound at which [`Materializing::node_bytes`] prices
-/// one byte less than at the bound before it: honest at zero (no dip),
-/// a point dip above it.
-static PRICED_BOUND_DIP: Knob = Knob::new(0);
-
-/// The bound the point-dip control dips at: inside the dense sweep and
-/// off every power of two and its neighbors, so only a sweep dense
-/// through it compares across the dip.
-const DIP_BOUND: usize = 101;
-
 /// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
 /// at zero, a residency-changing re-tag above it.
 static ASSUME_SLACK: Knob = Knob::new(0);
@@ -254,21 +208,6 @@ static ASSUME_SLACK: Knob = Knob::new(0);
 /// Extra bytes a row keeps after [`Backend::erase`] re-tags it: honest
 /// at zero, a residency-changing re-tag above it.
 static ERASE_SLACK: Knob = Knob::new(0);
-
-/// The threshold bound the step control places strictly inside the
-/// sweep grid's widest gap, between the neighbors of the two largest
-/// powers of two: no adjacent grid pair straddles it, so the grid alone
-/// cannot see the step.
-const STEP_THRESHOLD: usize = (BOUND_SWEEP_CEILING / 2 + 1 + BOUND_SWEEP_CEILING - 1) / 2;
-
-/// The header bytes the step drops: the width of that gap, the largest
-/// drop the gap's two grid endpoints tolerate; across it they price
-/// equal, which the sweep's non-strict comparison accepts.
-const STEP_DROP: usize = (BOUND_SWEEP_CEILING - 1) - (BOUND_SWEEP_CEILING / 2 + 1);
-
-/// The one fan [`PRICED_DIP`] carves the dip at: an arbitrary interior
-/// value the monotonicity sweep's adjacent-fan comparisons must cross.
-const DIP_FAN: usize = 7;
 
 /// The bytes a materialized row spends beyond its child table and bounds.
 const ROW_HEADER: usize = 64;
@@ -284,8 +223,7 @@ const CENSUS_BUDGET: usize = 4 * 1024 * 1024;
 /// A node value that owns its simulated row.
 ///
 /// Aligned wider than a pointer, as a handle carrying a 16-byte row id
-/// would be: a handle whose queue elements outgrow the in-memory
-/// backend's.
+/// would be.
 #[derive(Clone, Debug)]
 #[repr(align(16))]
 struct MaterializedNode<N> {
@@ -355,8 +293,7 @@ impl Leaf for MaterializedNode<typed::Node<Z>> {
     async fn leaf(version: Version, message: Message) -> Result<Self, Infallible> {
         // Eager persistence at the conversion boundary: the payload is
         // written to the store here, so the resident row keeps only the
-        // header and bounds — the thin-handle shape the leaf seam prices
-        // at `node_bytes(0, bounds)`.
+        // header and bounds.
         let node = typed::Node::leaf(version, message);
         let row = ROW_HEADER + bounds_of(&node);
         Ok(Self::wrap(node, row))
@@ -424,33 +361,6 @@ impl Backend for Materializing {
         }
     }
 
-    fn node_bytes(children: usize, version_bound: usize) -> usize {
-        let priced = std::mem::size_of::<MaterializedNode<typed::Node<Z>>>()
-            + PRICED_HEADER.get()
-            + ROW_ENTRY * children
-            + version_bound;
-        // The monotonicity-lying knobs: a dip at one fan, invisible to
-        // every check that does not compare across it, and a step in
-        // the bound, invisible to a grid whose points all sit on one
-        // side of it.
-        let priced = if children == DIP_FAN {
-            priced.saturating_sub(PRICED_DIP.get())
-        } else {
-            priced
-        };
-        let priced = if version_bound != 0 && version_bound == PRICED_BOUND_DIP.get() {
-            priced.saturating_sub(2)
-        } else {
-            priced
-        };
-        let step = PRICED_BOUND_STEP.get();
-        if step != 0 && version_bound > step {
-            priced.saturating_sub(STEP_DROP)
-        } else {
-            priced
-        }
-    }
-
     async fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -498,13 +408,8 @@ impl Backend for Materializing {
             while let Some(child) = children.next().await {
                 yield child.map(|(prefix, node)| {
                     // A lazily loaded row: header and bounds, its child
-                    // table not yet materialized. The over-holding knob
-                    // ([`CHILDREN_SLACK`]) inflates interior rows only:
-                    // leaf-height children re-enter the walk's own leaf
-                    // check through `leaves`, and the control's subject
-                    // is the check on exploded interior references.
-                    let slack = if H::HEIGHT > 0 { CHILDREN_SLACK.get() } else { 0 };
-                    let row = ROW_HEADER + bounds_of(&node) + slack;
+                    // table not yet materialized.
+                    let row = ROW_HEADER + bounds_of(&node);
                     (prefix, MaterializedNode::wrap(node, row))
                 });
             }
@@ -517,8 +422,7 @@ impl Backend for Materializing {
         node: Self::Node<H>,
     ) -> impl NodeStream<Self, Z> {
         // The reference bulk walk: the default explosion behind knobs
-        // that drop leaves ([`WALK_SKIPS`]), inflate the yielded rows
-        // ([`WALK_SLACK`]), re-tag the first leaf out of the walked
+        // that drop leaves ([`WALK_SKIPS`]), re-tag the first leaf out of the walked
         // subtree ([`WALK_ESCAPES`]), and swap the first two leaves
         // ([`LEAVES_SWAP`]) — honest at rest, the negative controls'
         // subject when set.
@@ -529,8 +433,7 @@ impl Backend for Materializing {
         .skip(WALK_SKIPS.get())
         .enumerate()
         .map(|(index, item)| {
-            item.map(|(prefix, mut leaf)| {
-                leaf.row.resize(leaf.row.len() + WALK_SLACK.get(), 0);
+            item.map(|(prefix, leaf)| {
                 let prefix = if index == 0 && WALK_ESCAPES.get() != 0 {
                     escaped(prefix)
                 } else {
@@ -547,8 +450,7 @@ impl Backend for Materializing {
         leaves: BoxNodeStream<'a, Self, Z>,
     ) -> impl NodeStream<Self, H> + 'a {
         // The reference bulk assembly: the default fold behind knobs
-        // that drop supplied leaves ([`ASSEMBLE_SKIPS`]), inflate the
-        // assembled rows ([`ASSEMBLE_SLACK`]), swallow one assembled
+        // that drop supplied leaves ([`ASSEMBLE_SKIPS`]), swallow one assembled
         // node ([`ASSEMBLED_DROPS`]), re-tag one to its neighbor's
         // prefix ([`ASSEMBLE_RETAGS`]), and swap the first two
         // ([`ASSEMBLE_SWAP`]) — honest at rest, the negative controls'
@@ -560,8 +462,7 @@ impl Backend for Materializing {
                 (index + 1 != ASSEMBLED_DROPS.get()).then_some((index, item))
             })
             .map(|(index, item)| {
-                item.map(|(prefix, mut node)| {
-                    node.row.resize(node.row.len() + ASSEMBLE_SLACK.get(), 0);
+                item.map(|(prefix, node)| {
                     let prefix = if index + 1 == ASSEMBLE_RETAGS.get() {
                         neighbor(prefix)
                     } else {
@@ -623,8 +524,8 @@ fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
     Prefix::<H>::containing(&Path::from(Prefix::<Z>::from(path)))
 }
 
-/// Row prices cover owned buffers, and reconciliation stays within the
-/// fixture's peak-increase allowance.
+/// The row store's operations keep their contracts, and reconciliation
+/// stays within the fixture's peak-increase allowance.
 #[test]
 fn materializing_backend_conforms() {
     let _serial = serialized();
@@ -657,40 +558,10 @@ fn a_larger_budget_need_not_increase_the_peak() {
     });
 }
 
-/// An underpricing cost function fails the run by name.
-///
-/// The same backend with a header priced below the row's real header
-/// must be caught by the pointwise check the moment a session assembles
-/// a node — this is the suite's reason to exist, so its detection is
-/// itself pinned.
-#[test]
-#[should_panic(expected = "underpriced node")]
-fn underpricing_fails_the_pointwise_check() {
-    let _dishonest = PRICED_HEADER.set(0);
-    pollster::block_on(check(Materializing, CENSUS_BUDGET));
-}
-
-/// Row slack that clears the assembly seam's fan headroom.
-///
-/// The capped pointwise check prices at the run's widest fan, which
-/// exceeds the honest row's own fan by at most the radix's worth of
-/// entries ([`FAN`](crate::tree::mirror::streaming::FAN) ×
-/// [`ROW_ENTRY`] bytes, 6 KiB); 64 KiB of slack is unambiguously past
-/// it.
+/// Row slack far past any row the reference backend builds: a full fan's
+/// child table is [`FAN`](crate::tree::mirror::streaming::FAN) ×
+/// [`ROW_ENTRY`] bytes, 6 KiB.
 const BULK_OVERHOLD: usize = 64 * 1024;
-
-/// A bulk walk that over-holds memory in its yielded rows is caught by
-/// the walk seam's pointwise check: the negative control proving the
-/// suite exercises and prices the backend's own `leaves` override.
-///
-/// One extra byte per row suffices: the honest reference walk is priced
-/// exactly, so the check is tight at this seam.
-#[test]
-#[should_panic(expected = "underpriced walked leaf")]
-fn overholding_walk_fails_the_pointwise_check() {
-    let _dishonest = WALK_SLACK.set(1);
-    pollster::block_on(check(Materializing, CENSUS_BUDGET));
-}
 
 /// A bulk walk that silently drops a leaf is caught by the walk seam's
 /// count against the walked node's exact `len` aggregate.
@@ -698,16 +569,6 @@ fn overholding_walk_fails_the_pointwise_check() {
 #[should_panic(expected = "mis-sized leaf walk")]
 fn short_walk_fails_the_len_check() {
     let _dishonest = WALK_SKIPS.set(1);
-    pollster::block_on(check(Materializing, CENSUS_BUDGET));
-}
-
-/// A bulk assembly whose nodes over-hold memory is caught by the
-/// assembly seam's capped pointwise check: the negative control proving
-/// the suite exercises and prices the backend's own `assemble` override.
-#[test]
-#[should_panic(expected = "bulk-assembled node over-holds")]
-fn overholding_bulk_assembly_fails_the_capped_check() {
-    let _dishonest = ASSEMBLE_SLACK.set(BULK_OVERHOLD);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
@@ -745,8 +606,8 @@ fn a_parent_conjured_from_an_empty_group_fails_the_presence_check() {
 }
 
 /// A bulk walk that yields two leaves out of path order is convicted by
-/// name at the walk's order check: count and prices are unchanged, so
-/// nothing else would notice.
+/// name at the walk's order check: the count is unchanged, so nothing else
+/// would notice.
 #[test]
 #[should_panic(expected = "unordered leaf walk")]
 fn a_swapped_walk_fails_the_order_check() {
@@ -762,18 +623,6 @@ fn a_swapped_walk_fails_the_order_check() {
 #[should_panic(expected = "escaped leaf walk")]
 fn an_escaping_walk_fails_the_containment_check() {
     let _dishonest = WALK_ESCAPES.set(1);
-    pollster::block_on(check(Materializing, CENSUS_BUDGET));
-}
-
-/// A `children` override whose exploded interior rows over-hold memory
-/// is convicted by name at the explosion's pointwise check.
-///
-/// The walk's leaf check never sees an interior child, so this check is
-/// the only one that prices a materialized interior child.
-#[test]
-#[should_panic(expected = "underpriced child")]
-fn overholding_children_fail_the_pointwise_check() {
-    let _dishonest = CHILDREN_SLACK.set(BULK_OVERHOLD);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
@@ -882,47 +731,6 @@ fn a_residency_changing_erase_fails_the_re_tag_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A cost function with a dip at one fan is caught by the monotonicity
-/// sweep before any session runs.
-///
-/// The dip is the smallest adjacent fans reveal: one byte more than the
-/// per-child entry, so [`DIP_FAN`] prices one byte below the fan before
-/// it. The sweep runs first and catches it a priori — no session has to
-/// happen to assemble a node at the dipped fan for the lie to surface.
-#[test]
-#[should_panic(expected = "monotone in children")]
-fn dipping_node_bytes_fails_the_monotonicity_sweep() {
-    let _dishonest = PRICED_DIP.set(ROW_ENTRY + 1);
-    pollster::block_on(check(Materializing, CENSUS_BUDGET));
-}
-
-/// A leaf priced below its post-custody residency is caught at
-/// construction: the negative control for the leaf seam of the account.
-///
-/// The contract prices a leaf at `node_bytes(0, bounds)`, so a backend
-/// whose leaf handles keep more resident than that price must fail the
-/// pointwise check the moment one is constructed — before any parent
-/// assembles.
-#[test]
-#[should_panic(expected = "underpriced leaf")]
-fn leaf_underpricing_fails_at_construction() {
-    let _dishonest = PRICED_HEADER.set(0);
-    let leaf = pollster::block_on(
-        <super::ChargedNode<MaterializedNode<typed::Node<Z>>> as Leaf>::leaf(
-            Version::new(),
-            Message::new(7),
-        ),
-    )
-    .expect("the reference backend constructs leaves infallibly");
-    drop(leaf);
-    let violations = ledger::take_violations();
-    assert!(
-        !violations.is_empty(),
-        "a lying leaf price must land a violation on the ledger",
-    );
-    panic!("{}", violations.join("\n"));
-}
-
 /// Leaf construction and cloning charge both handles; dropping them restores
 /// the live balance while preserving the peak until it is reset.
 #[test]
@@ -985,77 +793,4 @@ proptest! {
         ledger::reset_peak();
         prop_assert_eq!(ledger::peak(), before, "every charge must settle exactly once");
     }
-}
-
-/// One case of the bound-monotonicity property: the price at `bound`
-/// does not exceed the price at any larger bound, at one fan.
-fn assert_monotone_in_bound<B: Backend<Node<Z>: Leaf>>(fan: usize, bound: usize, delta: usize) {
-    let there = bound.saturating_add(delta);
-    let here_priced = B::node_bytes(fan, bound);
-    let there_priced = B::node_bytes(fan, there);
-    assert!(
-        here_priced <= there_priced,
-        "node_bytes must be monotone in version bound: bound {bound} prices {here_priced} B, \
-         bound {there} prices {there_priced} B, at fan {fan}",
-    );
-}
-
-proptest! {
-    /// Local prices do not fall when a sampled version bound grows, including
-    /// pairs between the deterministic sweep's grid points.
-    #[test]
-    fn local_node_bytes_is_monotone_in_the_version_bound(
-        fan in 0..=FAN,
-        bound in 0..=BOUND_SWEEP_CEILING,
-        delta in 0..=BOUND_SWEEP_CEILING,
-    ) {
-        let _serial = serialized();
-        assert_monotone_in_bound::<Local>(fan, bound, delta);
-    }
-
-    /// Row prices do not fall when a sampled version bound grows, including
-    /// pairs between the deterministic sweep's grid points.
-    #[test]
-    fn materializing_node_bytes_is_monotone_in_the_version_bound(
-        fan in 0..=FAN,
-        bound in 0..=BOUND_SWEEP_CEILING,
-        delta in 0..=BOUND_SWEEP_CEILING,
-    ) {
-        let _serial = serialized();
-        assert_monotone_in_bound::<Materializing>(fan, bound, delta);
-    }
-
-    /// A step-shaped dip strictly inside a grid gap fails the
-    /// bound-monotonicity property by name: the case the grid sweep
-    /// cannot see, which the sibling control shows it passing.
-    ///
-    /// The committed seed supplies a failing pair even if random draws miss it.
-    #[test]
-    #[should_panic(expected = "monotone in version bound")]
-    fn a_step_dip_fails_the_monotonicity_property(
-        fan in 0..=FAN,
-        bound in 0..=BOUND_SWEEP_CEILING,
-        delta in 0..=BOUND_SWEEP_CEILING,
-    ) {
-        let _dishonest = PRICED_BOUND_STEP.set(STEP_THRESHOLD);
-        assert_monotone_in_bound::<Materializing>(fan, bound, delta);
-    }
-}
-
-/// A point dip at one bound inside the dense sweep is caught by the
-/// sweep's adjacent-bound comparison before any session runs: the
-/// price at [`DIP_BOUND`] falls one byte below the bound before it.
-#[test]
-#[should_panic(expected = "monotone in version bound")]
-fn a_point_dip_fails_the_dense_sweep() {
-    let _dishonest = PRICED_BOUND_DIP.set(DIP_BOUND);
-    pollster::block_on(check(Materializing, CENSUS_BUDGET));
-}
-
-/// A price drop between sparse grid points can pass the sweep; the property
-/// test can detect it by sampling a closer pair that straddles the drop.
-#[test]
-fn a_step_dip_hides_from_the_grid_sweep() {
-    let _dishonest = PRICED_BOUND_STEP.set(STEP_THRESHOLD);
-    node_bytes_monotone::<Materializing>();
 }

@@ -1,13 +1,12 @@
 //! Conformance checks for storage backends used by streaming reconciliation.
 //!
-//! [`Backend::node_bytes`] states, as an upper bound, what a backend's node
-//! value keeps resident. This suite checks those prices against an
-//! independent [`Measure`] oracle, then reconciles concrete fixtures at a
+//! This suite wraps a backend so that every node value it builds is counted
+//! at the size an independent [`Measure`] oracle reports, checks the
+//! backend's operations as they run, then reconciles concrete fixtures at a
 //! budget of zero and a larger budget. It checks:
 //!
-//! - **Prices:** monotonicity over a grid of child counts and version bounds;
-//!   and measured residency of constructed, walked, and assembled nodes.
-//!   Height erasure and restoration must preserve residency.
+//! - **Residency:** height erasure and restoration preserve a node's
+//!   measured residency.
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, and one assembled node per supplied prefix run.
 //! - **Reconciliation:** both replicas converge to a set of the expected union
@@ -24,8 +23,8 @@
 //! The peak comparison is fixture-specific. Changing the budget can change
 //! when nodes are created and released, so subtracting the zero-budget run's
 //! peak does not isolate the budgeted work, and a larger budget need not
-//! produce a higher peak. Neither this comparison nor the sampled price
-//! checks prove a hard memory bound.
+//! produce a higher peak. The comparison does not prove a hard memory
+//! bound.
 //!
 //! The ledger is process-global. Tests must hold the suite's serialization
 //! lock so their charges and violation reports cannot interfere.
@@ -50,7 +49,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, ErasedNode, FAN, Leaf, Node, NodeStream, Root,
+            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root,
             convert::Convert, materialized, ops,
         },
         typed::{
@@ -64,9 +63,8 @@ use crate::{
 ///
 /// `measure` reports the actual bytes one node value keeps resident
 /// beyond the replica's shared storage — everything the handle owns or
-/// keeps alive per session reference. It is the ground truth the
-/// [`node_bytes`](Backend::node_bytes) contract is checked against, so
-/// it must not consult the cost function it validates.
+/// keeps alive per session reference. The census counts every node at
+/// it, and the re-tag clause is checked against it.
 pub(crate) trait Measure: Backend<Node<Z>: Leaf> {
     /// The actual resident bytes of one node value, measured.
     fn measure<H: Height>(node: &Self::Node<H>) -> usize;
@@ -145,7 +143,7 @@ fn fail(reason: &str) -> ! {
 /// same assembly and leaf-walk implementations that wire sessions use.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Charged<B> {
-    /// The backend whose operations and node prices are being checked.
+    /// The backend whose operations are being checked.
     inner: B,
 }
 
@@ -287,27 +285,8 @@ where
     ) -> Result<Self, <N::Backend as Backend>::Error> {
         let node = N::leaf(version, message).await?;
         let measured = <N::Backend as Measure>::measure::<N::Height>(&node);
-        // The pointwise contract at the leaf seam: after construction has
-        // had its chance to persist the payload, the cost function at
-        // `children = 0` and the node's own bounds must cover what the
-        // handle keeps resident.
-        let priced = <N::Backend as Backend>::node_bytes(0, bound_bytes(&node));
-        if measured > priced {
-            ledger::violation(format!(
-                "underpriced leaf: measured {measured} B, node_bytes priced {priced} B",
-            ));
-        }
         Ok(Self::wrap(node, measured))
     }
-}
-
-/// The two encoded version bounds a node keeps resident, in bytes.
-fn bound_bytes<N>(node: &N) -> usize
-where
-    N: Node,
-{
-    let bounds = node.span();
-    bounds.hi().as_bytes().len() + bounds.lo().as_bytes().len()
 }
 
 impl<B> Backend for Charged<B>
@@ -351,10 +330,6 @@ where
         ChargedNode::wrap(node, measured)
     }
 
-    fn node_bytes(children: usize, version_bound: usize) -> usize {
-        B::node_bytes(children, version_bound)
-    }
-
     async fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -388,15 +363,6 @@ where
         }
         Ok(parent.map(|node| {
             let measured = B::measure(&node);
-            // The pointwise contract: the cost function evaluated at this
-            // node's own fan and bounds must cover its measured bytes.
-            let priced = B::node_bytes(fan, bound_bytes(&node));
-            if measured > priced {
-                ledger::violation(format!(
-                    "underpriced node: fan {fan} measured {measured} B, \
-                     node_bytes priced {priced} B",
-                ));
-            }
             // The aggregate contract: a parent answers the sum of its
             // children's leaves, and the max of their version bytes and
             // its own two bounds' encodings — interior ceilings and
@@ -451,19 +417,6 @@ where
                 }
                 yield child.map(|(prefix, node)| {
                     let measured = B::measure(&node);
-                    // The pointwise contract at the explosion: an exploded
-                    // child is a reference the session holds. Its own
-                    // fan is invisible here, so the price is taken at the
-                    // widest fan it can have (its leaf count, capped at the
-                    // radix), which the contract's monotonicity in fan
-                    // makes an upper bound on the price at its own fan.
-                    let priced = B::node_bytes(node.len().min(FAN), bound_bytes(&node));
-                    if measured > priced {
-                        ledger::violation(format!(
-                            "underpriced child: measured {measured} B, node_bytes at the \
-                             widest fan prices {priced} B",
-                        ));
-                    }
                     (prefix, ChargedNode::wrap(node, measured))
                 });
             }
@@ -512,15 +465,6 @@ where
                         ));
                     }
                     let measured = B::measure(&leaf);
-                    // The pointwise contract at the walk: a walked leaf
-                    // is priced at `children = 0`.
-                    let priced = B::node_bytes(0, bound_bytes(&leaf));
-                    if measured > priced {
-                        ledger::violation(format!(
-                            "underpriced walked leaf: measured {measured} B, node_bytes \
-                             priced {priced} B",
-                        ));
-                    }
                     // Every version bound under the walked node is in its
                     // aggregate, each walked leaf's own included.
                     let encoded = leaf.version_bytes();
@@ -594,7 +538,7 @@ where
                             "unsupplied assembly: a node yielded at {prefix:?} \
                              without a leaf run",
                         )),
-                        Some(run) => check_assembled::<B, H>(&node, measured, &run),
+                        Some(run) => check_assembled::<B, H>(&node, &run),
                     }
                     (prefix, ChargedNode::wrap(node, measured))
                 });
@@ -629,7 +573,7 @@ struct Run {
 }
 
 /// Hold one bulk-assembled node to its run's account.
-fn check_assembled<B, H>(node: &B::Node<H>, measured: usize, run: &Run)
+fn check_assembled<B, H>(node: &B::Node<H>, run: &Run)
 where
     B: Backend<Node<Z>: Leaf>,
     H: Height,
@@ -658,89 +602,6 @@ where
             node.version_bytes(),
         ));
     }
-    // The pointwise contract, evaluated at the widest fan the run
-    // admits: the node's own fan is invisible here but never exceeds
-    // the radix (`FAN`) or the run's leaf count, and the contract
-    // requires `node_bytes` monotone in fan, so a measurement above
-    // this price is above the price at the node's own fan too. A leaf
-    // count no `usize` holds is past `FAN` as well.
-    let widest_fan = usize::try_from(run.leaves).map_or(FAN, |leaves| leaves.min(FAN));
-    let priced = B::node_bytes(widest_fan, bound_bytes(node));
-    if measured > priced {
-        ledger::violation(format!(
-            "bulk-assembled node over-holds: measured {measured} B, \
-             node_bytes at the run's widest fan prices {priced} B",
-        ));
-    }
-}
-
-/// Every version bound up to this many bytes is swept pairwise.
-///
-/// Far past the encodings the suite's corpora exchange (tens of bytes),
-/// so a dip at any one bound a session at this scale can evaluate is a
-/// grid point's neighbor. Dense costs nothing here: the cost function
-/// is pure arithmetic.
-const BOUND_DENSE_CEILING: usize = 4096;
-
-/// The sweep's largest version bound: 1 MiB, far past any canonical
-/// encoding the suite's corpus scale reaches, sampled at powers of two.
-const BOUND_SWEEP_CEILING: usize = 1 << 20;
-
-/// The monotonicity sweep's version-bound grid, ascending.
-///
-/// Dense to [`BOUND_DENSE_CEILING`], then each power of two with both
-/// neighbors (the neighbors catch a cost function that special-cases
-/// round sizes) up to [`BOUND_SWEEP_CEILING`].
-fn sweep_bounds() -> Vec<usize> {
-    let mut bounds: Vec<usize> = (0..=BOUND_DENSE_CEILING).collect();
-    let mut power = BOUND_DENSE_CEILING << 1;
-    while power <= BOUND_SWEEP_CEILING {
-        bounds.extend([power - 1, power, power + 1]);
-        power <<= 1;
-    }
-    bounds
-}
-
-/// Sweep one cost function for monotonicity in both arguments.
-///
-/// A price taken at upper bounds on several nodes' fans and version sizes
-/// covers each of those nodes only if the cost function is monotone.
-///
-/// Compare every adjacent fan up to [`FAN`] at each [`sweep_bounds`] value,
-/// and every adjacent bound at each fan. Bounds are sampled sparsely above
-/// [`BOUND_DENSE_CEILING`], so a dip between grid points can go undetected.
-/// The property tests also sample pairs between those points; neither check
-/// proves monotonicity for every possible bound.
-fn node_bytes_monotone<B>()
-where
-    B: Measure,
-{
-    let bounds = sweep_bounds();
-    for &bound in &bounds {
-        for fan in 0..FAN {
-            let here = B::node_bytes(fan, bound);
-            let there = B::node_bytes(fan + 1, bound);
-            assert!(
-                here <= there,
-                "node_bytes must be monotone in children: fan {fan} prices {here} B, \
-                 fan {} prices {there} B, at version bound {bound}",
-                fan + 1,
-            );
-        }
-    }
-    for pair in bounds.windows(2) {
-        for fan in 0..=FAN {
-            let here = B::node_bytes(fan, pair[0]);
-            let there = B::node_bytes(fan, pair[1]);
-            assert!(
-                here <= there,
-                "node_bytes must be monotone in version bound: bound {} prices {here} B, \
-                 bound {} prices {there} B, at fan {fan}",
-                pair[0],
-                pair[1],
-            );
-        }
-    }
 }
 
 /// Messages each side holds before the fork: the shared corpus.
@@ -749,7 +610,8 @@ const COMMON: usize = 512;
 /// Messages each side originates alone: the mutual divergence.
 const DIVERGENT: usize = 1_024;
 
-/// Check node prices, bulk operations, and reconciliation under two budgets.
+/// Check node residency, bulk operations, and reconciliation under two
+/// budgets.
 ///
 /// Reconciles the same divergent corpora at a budget of zero and at
 /// `budget_bytes`. Any increase in the measured peak must fit the budget,
@@ -761,10 +623,7 @@ const DIVERGENT: usize = 1_024;
 ///
 /// Panics with the violated clause if:
 ///
-/// - the cost function dips anywhere on the swept fan and version-bound
-///   grid;
-/// - any constructed, walked, exploded, or assembled node was
-///   underpriced;
+/// - a re-tag changed a node's measured residency;
 /// - a bulk seam mis-answered an aggregate, yielded out of order or
 ///   outside its prefix, merged, split, or swallowed a run, or
 ///   `parent` answered a real child with no parent or an empty group
@@ -777,8 +636,6 @@ where
     B: Measure,
     B::Error: std::fmt::Debug,
 {
-    node_bytes_monotone::<B>();
-
     let floor_peak = run(backend.clone(), 0, 0).await;
     let budget_peak = run(backend, budget_bytes, 0).await;
     eprintln!(
@@ -789,7 +646,7 @@ where
     let violations = ledger::take_violations();
     assert!(
         violations.is_empty(),
-        "the backend's node_bytes contract failed pointwise:\n{}",
+        "the backend's contract failed pointwise:\n{}",
         violations.join("\n"),
     );
 
@@ -922,7 +779,7 @@ where
 /// Explode one corpus's root into its children and drain each child's
 /// bulk leaf walk at the child's own prefix.
 ///
-/// The explosion prices every child; the walk's containment clause has
+/// The explosion counts every child; the walk's containment clause has
 /// content only when the walked prefix is not the root's empty one.
 async fn walk_children<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
 where
