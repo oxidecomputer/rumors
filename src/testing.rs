@@ -1,5 +1,6 @@
 //! Executor-agnostic test support shared across protocol and API suites.
 
+pub mod property;
 pub(crate) mod schedule;
 mod transport;
 

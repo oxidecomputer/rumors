@@ -25,14 +25,12 @@ use std::task::{Context, Poll};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
 
 use rumors::observe::{
     Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
 use rumors::{
-    Peer, Rumors,
+    Rumors,
     testing::{
         HookCapture, HookStream, MemoryEnd, PipeCapture, assert_items_account_for,
         memory_connection, render_hook_capture,
@@ -40,15 +38,22 @@ use rumors::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
 
+use crate::common::seed::NetworkSeed;
 use crate::common::wire::block_on;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-/// Create a peer from the snapshots' stable deterministic random stream.
+/// The network seed of every snapshot fixture: the snapshots pin exact bytes,
+/// which hold for one secret.
+pub const SNAPSHOT_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0);
+
+/// Create the snapshots' first peer from [`SNAPSHOT_NETWORK_SEED`].
 pub fn seeded<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static>() -> Rumors<T> {
-    let mut rng = ChaChaRng::seed_from_u64(0);
-    Peer::seed_rng(&mut rng).sync_memory_budget(0).into_rumors()
+    SNAPSHOT_NETWORK_SEED
+        .peer()
+        .sync_memory_budget(0)
+        .into_rumors()
 }
 
 /// Short byte-payload collections, including empty sets, for wire tests.

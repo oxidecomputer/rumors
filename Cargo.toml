@@ -150,7 +150,7 @@ bench = false
 # Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
-test-internals = ["tokio/rt", "dep:cbor-diag"]
+test-internals = ["tokio/rt", "dep:cbor-diag", "dep:proptest", "dep:rand_chacha"]
 # A conformance suite for caller-built bookmark storage. Enable from a
 # dev-dependency to validate an application's storage adapter.
 conformance = []
@@ -180,6 +180,12 @@ tempfile = { workspace = true, optional = true }
 # The wire-capture renderer behind `test-internals` renders every captured
 # item in diagnostic notation through this crate.
 cbor-diag = { workspace = true, optional = true }
+# The property-test support behind `test-internals` (`testing::property`)
+# draws each test network's seed as a proptest input and derives the
+# network's secret from a ChaCha stream, whose output for a seed is fixed
+# across platforms and Rand versions.
+proptest = { workspace = true, optional = true }
+rand_chacha = { workspace = true, optional = true }
 
 [dev-dependencies]
 rumors = { workspace = true, features = ["test-internals", "conformance"] }

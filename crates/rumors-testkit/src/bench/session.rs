@@ -38,22 +38,21 @@ use std::ops::Range;
 use std::pin::pin;
 use std::thread;
 
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
+use rumors::Rumors;
 use rumors::testing::{
     Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, floor_allowance,
     observe_admissions, observe_ledgers,
 };
-use rumors::{Peer, Rumors};
 
 use crate::bench::link::{Link, LinkConfig, Report, SEGMENT_BYTES, Side, drive};
+use crate::common::seed::NetworkSeed;
 use crate::common::{
     budget::BudgetChoice,
     wire::{block_on, bootstrap_fork_with_budget_async},
 };
 
-/// The ChaCha seed of every fixture's network.
-const NETWORK_SEED: u64 = 7;
+/// The seed of every fixture's network.
+const NETWORK_SEED: NetworkSeed = NetworkSeed::new(7);
 
 /// A LAN: 1 Gb/s with a 1 ms round trip, a 125 kB bandwidth-delay product.
 pub const LAN_BDP: u64 = 125_000;
@@ -252,8 +251,7 @@ pub fn admitting(bytes: usize) -> usize {
 /// then redacts its own, numbered after the shared ones.
 pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
     block_on(async {
-        let mut rng = ChaChaRng::seed_from_u64(NETWORK_SEED);
-        let root = Peer::<String>::seed_rng(&mut rng).into_rumors();
+        let root = NETWORK_SEED.peer::<String>().into_rumors();
         if shape.draw > 0 {
             root.send_all((0..shape.draw).map(|index| message('d', index, shape.message_bytes)))
                 .expect("fixture messages encode");

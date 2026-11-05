@@ -25,6 +25,9 @@
 //!   that sweep it.
 //! - [`crate::common::gossip_snapshot`] captures a session's exact bytes for the `insta`
 //!   pins.
+//! - [`crate::common::seed`] creates every test network from a reproducible
+//!   seed, and [`crate::common::property`] scales the case counts of
+//!   properties whose cases are expensive.
 
 pub mod action;
 pub mod budget;
@@ -36,7 +39,9 @@ pub mod observer;
 pub mod oracle;
 pub mod overlap;
 pub mod peer;
+pub mod property;
 pub mod schedule;
+pub mod seed;
 pub mod shape;
 pub mod sim;
 pub mod tcp;
