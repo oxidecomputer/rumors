@@ -166,6 +166,20 @@ proptest! {
         prop_assert!(set.iter().rev().eq(model.iter().rev().copied()));
         prop_assert_eq!(set, model.iter().copied().collect::<ByteSet>());
     }
+
+    /// The union of two sets holds exactly the values either holds, so its
+    /// count is the sum of theirs less the values they share.
+    #[test]
+    fn a_union_holds_exactly_what_either_set_holds(ours in any_set(), theirs in any_set()) {
+        let union = ours
+            .iter()
+            .copied()
+            .collect::<ByteSet>()
+            .union(theirs.iter().copied().collect());
+        prop_assert!(union.iter().eq(ours.union(&theirs).copied()));
+        let shared = ours.intersection(&theirs).count();
+        prop_assert_eq!(union.len(), ours.len() + theirs.len() - shared);
+    }
 }
 
 /// A set encodes as a list exactly below 32 elements and as the bitmap from

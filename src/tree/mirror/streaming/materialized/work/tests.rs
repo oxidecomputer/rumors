@@ -25,7 +25,8 @@ use crate::{
     tree::{
         arb::nth_party,
         mirror::streaming::{
-            Backend, FAN, Failing, Failure, Local, Operation, Radices,
+            Backend, FAN, Failing, Failure, Local, Operation,
+            byte_set::ByteSet,
             erased::{Reaction, Reply},
             holding::Holding,
             ledger::{Charge, Ledger, ReplyBound},
@@ -432,7 +433,7 @@ proptest! {
         prop_assert_eq!(resolved.len(), children);
         // The price reads this side's radices from a node holding exactly
         // these children, as the walk reads them before exploding it.
-        let reported: Radices = ours.iter().copied().collect();
+        let reported: ByteSet = ours.iter().copied().collect();
         let priced = charges::answer_children(reported, &theirs_listing);
         prop_assert_eq!(priced, children);
         prop_assert!(priced <= FAN);

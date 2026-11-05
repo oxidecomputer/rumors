@@ -6,7 +6,7 @@ use proptest::prelude::*;
 
 use super::{CountError, Listed};
 use crate::Version;
-use crate::tree::mirror::streaming::ErasedNode;
+use crate::tree::mirror::streaming::{ErasedNode, byte_set::ByteSet};
 use crate::tree::typed::Hash;
 
 /// A node whose child and grandchild counts the test chooses, as a backend
@@ -45,8 +45,8 @@ impl ErasedNode for Counted {
     }
 
     /// None: listing reads no radix.
-    fn child_radices(&self) -> crate::tree::mirror::streaming::Radices {
-        crate::tree::mirror::streaming::Radices::default()
+    fn child_radices(&self) -> ByteSet {
+        ByteSet::EMPTY
     }
 }
 

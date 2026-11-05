@@ -19,7 +19,9 @@ use crate::{
     Version,
     message::Message,
     tree::{
-        mirror::streaming::{Backend, ErasedNode, Leaf, Node, backend::NodeStream},
+        mirror::streaming::{
+            Backend, ErasedNode, Leaf, Node, backend::NodeStream, byte_set::ByteSet,
+        },
         typed::{
             Hash, Path, Prefix,
             height::{Height, Root, S, Z},
@@ -292,7 +294,7 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     }
 
     /// Read the wrapped node's child radices.
-    fn child_radices(&self) -> crate::tree::mirror::streaming::Radices {
+    fn child_radices(&self) -> ByteSet {
         self.0.child_radices()
     }
 

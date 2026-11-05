@@ -24,7 +24,8 @@
 use std::mem::size_of;
 
 use crate::tree::mirror::streaming::{
-    Backend, ErasedNode, FAN, Leaf, Radices,
+    Backend, ErasedNode, FAN, Leaf,
+    byte_set::ByteSet,
     erased::{Reaction, Reply},
     holding::Holding,
     ledger::{Charge, ReplyBound, Unit, buffer, max, min, queued, shared},
@@ -411,7 +412,7 @@ pub(super) fn unasked_chunk_bound<E, Err>(unasked: Option<Held>) -> usize {
 ///
 /// Each side's children sit at distinct radices, so the children either
 /// holds ([`answer_children`]) count each shared child once.
-pub(crate) fn shared_children(ours: Radices, theirs: &[Listed]) -> usize {
+pub(crate) fn shared_children(ours: ByteSet, theirs: &[Listed]) -> usize {
     ours.len() + theirs.len() - answer_children(ours, theirs)
 }
 
@@ -423,7 +424,7 @@ pub(crate) fn shared_children(ours: Radices, theirs: &[Listed]) -> usize {
 /// reads this side's radices from the backend before it explodes the node
 /// ([`ErasedNode::child_radices`]), since the answer's grant prices that
 /// explosion.
-pub(crate) fn answer_children(ours: Radices, theirs: &[Listed]) -> usize {
+pub(crate) fn answer_children(ours: ByteSet, theirs: &[Listed]) -> usize {
     ours.union(theirs.iter().map(|listed| listed.radix).collect())
         .len()
 }

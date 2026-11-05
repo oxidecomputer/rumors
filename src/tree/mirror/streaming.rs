@@ -53,7 +53,6 @@ pub(crate) mod ledger;
 pub mod materialized;
 pub(crate) mod message;
 mod protocol;
-mod radices;
 pub mod remote;
 pub mod stats;
 pub(crate) mod tasks;
@@ -73,7 +72,6 @@ pub use channel::{EdgeSend, EdgeSendHook, QueueKind, observe_edge_sends};
 // The backend conformance suite runs one fixture with an edge capped.
 #[cfg(test)]
 pub(crate) use channel::with_kind_capacity;
-pub use radices::Radices;
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.
 #[cfg(any(test, feature = "test-internals"))]

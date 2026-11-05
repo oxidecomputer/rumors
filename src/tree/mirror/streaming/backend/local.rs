@@ -12,8 +12,9 @@ use crate::{
     tree::{
         self,
         mirror::streaming::{
-            Backend, ErasedNode, Leaf, Node, Radices, Root,
+            Backend, ErasedNode, Leaf, Node, Root,
             backend::{BoxNodeStream, NodeStream},
+            byte_set::ByteSet,
             convert::Convert,
             holding::{Holding, held_by},
         },
@@ -90,7 +91,7 @@ impl ErasedNode for typed::untyped::View {
 
     /// Collect the radices listing this node yields, from its fan or its
     /// compressed path, in one pass with no handle cloned.
-    fn child_radices(&self) -> Radices {
+    fn child_radices(&self) -> ByteSet {
         self.child_radices().collect()
     }
 }

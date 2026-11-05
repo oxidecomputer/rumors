@@ -18,8 +18,8 @@ use crate::{
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, QueueKind, Radices,
-            convert::Convert, with_kind_capacity,
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, QueueKind,
+            byte_set::ByteSet, convert::Convert, with_kind_capacity,
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -347,9 +347,9 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
 
     /// Read the wrapped node's child radices, dropped to exercise a backend
     /// whose radices disagree with its listing.
-    fn child_radices(&self) -> Radices {
+    fn child_radices(&self) -> ByteSet {
         if RADICES_DROP.get() > 0 {
-            return Radices::default();
+            return ByteSet::EMPTY;
         }
         self.inner.child_radices()
     }

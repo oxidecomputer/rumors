@@ -1,10 +1,18 @@
 //! Sets of bytes, and their one canonical encoding.
 //!
-//! A [`ByteSet`] holds any subset of the 256 values a `u8` can take. The
-//! protocol uses it for sets of radixes, the bytes that place children
-//! under their parent, so a set of them names any choice of a node's
-//! children. In memory a set is always a 256-bit bitmap. On the wire it is
-//! one CBOR byte string, in whichever of two spellings is shorter:
+//! A [`ByteSet`] holds any subset of the 256 values a `u8` can take. Its
+//! values here are radixes: a child sits under its parent at a *radix*, the
+//! byte that extends the parent's prefix to the child's, so a node has at
+//! most a fan of 256 children, each at its own radix, and a set of radixes
+//! names any choice of a node's children exactly. A backend reports the
+//! radixes of a node's children as one
+//! ([`ErasedNode::child_radices`](super::ErasedNode::child_radices)), so the
+//! children either of two sides holds are the [`union`](ByteSet::union) of
+//! two sets, and a reply's first match carries the later children it covers
+//! as one.
+//!
+//! In memory a set is always a 256-bit bitmap. On the wire it is one CBOR
+//! byte string, in whichever of two spellings is shorter:
 //!
 //! | Elements | Byte string |
 //! | --- | --- |
@@ -77,6 +85,11 @@ impl ByteSet {
     /// Whether the set has no elements.
     pub fn is_empty(&self) -> bool {
         self.0.not_any()
+    }
+
+    /// The values in this set or in `other`.
+    pub fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
     }
 
     /// The elements in ascending order.

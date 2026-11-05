@@ -18,7 +18,7 @@ use crate::{
     counter::widen,
     message::Message,
     tree::{
-        mirror::streaming::{Radices, convert::Convert},
+        mirror::streaming::{byte_set::ByteSet, convert::Convert},
         typed::{
             Hash, Prefix,
             height::{self, Height, S, Z},
@@ -284,7 +284,7 @@ pub trait ErasedNode {
     /// in-memory backend reads its fan's radices, or a compressed node's
     /// one. A radix missing from the answer leaves the answer's resolution
     /// and plan costing more than its grant.
-    fn child_radices(&self) -> Radices;
+    fn child_radices(&self) -> ByteSet;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

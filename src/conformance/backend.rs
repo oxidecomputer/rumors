@@ -53,8 +53,8 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Radices, Root,
-            convert::Convert, materialized, ops,
+            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root,
+            byte_set::ByteSet, convert::Convert, materialized, ops,
         },
         typed::{
             Hash, Path, Prefix,
@@ -283,7 +283,7 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
     }
 
     /// Read the wrapped node's child radices.
-    fn child_radices(&self) -> Radices {
+    fn child_radices(&self) -> ByteSet {
         self.inner().child_radices()
     }
 }
@@ -436,7 +436,7 @@ where
         stream! {
             let mut counted = 0_u64;
             let mut listed = 0_u64;
-            let mut radices = Radices::default();
+            let mut radices = ByteSet::EMPTY;
             let mut failed = false;
             let (mut allocated, children) = allocated_by(|| self.inner.children(prefix, parent));
             let mut rows = 0_u64;
