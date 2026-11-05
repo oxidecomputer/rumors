@@ -9,7 +9,7 @@
 //! sides hold beneath it. A *stage* reconciles scopes at one tree height.
 //!
 //! Each stage pairs pending [`Query`]s with the peer's replies, in order.
-//! [`Work::assemble`] rebuilds the tree from the results. Three bounded streams
+//! [`Work::assemble`] rebuilds the tree from the results. Three streams
 //! connect adjacent stages:
 //!
 //! - **queries** flow down: one queue item per question asked, in question

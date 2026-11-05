@@ -12,6 +12,11 @@
 //! and to send that peer the network's secret (the [`secret`](super::secret)
 //! item) before the greeting.
 //!
+//! A bootstrapping peer sends its key item right after its preamble, in the
+//! same write, and the exchange reads the key item of any counterparty
+//! whose preamble declares bootstrapping, returning it with who the
+//! counterparty is ([`Counterparty`]).
+//!
 //! The preamble is one self-described CBOR item, so each direction of a
 //! session's byte stream is a CBOR sequence from its very first byte —
 //! `55799(["rumors", version: uint, network: bstr, intent: uint])`.

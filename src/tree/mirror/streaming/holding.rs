@@ -46,6 +46,11 @@ pub enum Holding {
     ParkedReplies,
     /// The decode fans that carry supplied leaves from a reply's decoder to
     /// their assembly.
+    ///
+    /// The charge leaves these out. Each logical stream's fan holds at most
+    /// a fan of decoded leaves, and its decoder one more, whatever the
+    /// budget, so together they cost a fixed amount whatever the budget and
+    /// the sets' sizes.
     DecodedLeaves,
     /// Replies this side builds and hands toward the wire, supplies
     /// included, before they are encoded: the charge's outgoing-replies
