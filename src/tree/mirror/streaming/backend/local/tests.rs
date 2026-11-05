@@ -24,9 +24,11 @@ use crate::{
     message::Message,
     tree::{
         arb::{arb_leaf_paths, nth_party},
-        mirror::streaming::{Backend, ErasedNode, backend::BoxNodeStream, convert::Convert},
+        mirror::streaming::{
+            Backend, ErasedNode, Summary, backend::BoxNodeStream, convert::Convert, ops,
+        },
         typed::{
-            self, HashKey, Path, Prefix,
+            self, ErasedPrefix, HashKey, Path, Prefix,
             height::{self, S, Z},
         },
     },
@@ -270,4 +272,37 @@ fn reading_at_a_coordinate_off_the_nodes_path_panics() {
     );
     let (parent, _) = at.pop();
     let _wrong = erased.hash(&parent.push(TOP ^ 1).erase(), &HashKey::fixture());
+}
+
+proptest! {
+    /// At every level of every tree, the in-memory backend's one-placement
+    /// listing summary agrees with the three queries it stands for: the
+    /// digest, the child count and the grandchild count at that coordinate.
+    #[test]
+    fn the_summary_agrees_with_its_three_queries(
+        root in crate::tree::arb::arb_tree_root(0, 1..32),
+    ) {
+        let key = HashKey::fixture();
+        let root: crate::tree::mirror::streaming::Root<Local> = root.into();
+        let mut stack: Vec<(ErasedPrefix, <Local as Backend>::Erased)> = root
+            .root
+            .into_iter()
+            .map(|node| (Prefix::<height::Root>::new().erase(), Local::erase(node)))
+            .collect();
+        while let Some((at, node)) = stack.pop() {
+            prop_assert_eq!(
+                node.summary(&at, &key),
+                Summary {
+                    hash: node.hash(&at, &key),
+                    child_count: node.child_count(&at),
+                    grandchildren: node.grandchild_count(&at),
+                }
+            );
+            if at.height() > 0 {
+                let children = pollster::block_on(ops::children_of(&Local, at, node))
+                    .expect("the in-memory backend lists exactly the children it reports");
+                stack.extend(children.into_iter().map(|(radix, child)| (at.push(radix), child)));
+            }
+        }
+    }
 }

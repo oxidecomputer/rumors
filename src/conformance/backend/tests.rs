@@ -18,7 +18,7 @@ use crate::{
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, QueueKind,
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, QueueKind, Summary,
             byte_set::ByteSet, convert::Convert, with_kind_capacity,
         },
         typed::{
@@ -328,6 +328,16 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
 
     fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
         self.inner.hash(at, key)
+    }
+
+    /// Read the wrapped node's summary, its child count skewed as
+    /// [`child_count`](ErasedNode::child_count) skews it.
+    fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
+        let summary = self.inner.summary(at, key);
+        Summary {
+            child_count: summary.child_count + CHILDREN_SKEW.get(),
+            ..summary
+        }
     }
 
     fn len(&self) -> usize {

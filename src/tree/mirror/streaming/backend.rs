@@ -304,6 +304,27 @@ pub trait ErasedNode {
     /// ([`Node::grandchild_count`]), for the node at `at`.
     fn grandchild_count(&self, at: &ErasedPrefix) -> usize;
 
+    /// What a listing records of this node at `at`, in one read: its digest
+    /// under `key`, its child count and its grandchild count.
+    ///
+    /// Each field equals what its own query answers: [`hash`](Self::hash),
+    /// [`child_count`](Self::child_count) and
+    /// [`grandchild_count`](Self::grandchild_count). A node that overrides this
+    /// keeps that agreement: one that wraps another node's summary applies
+    /// whatever its own queries change about the wrapped node's answers.
+    ///
+    /// A session reads this once per child it lists. The default asks the
+    /// three queries in turn; a backend whose queries each first locate the
+    /// node's view at `at`, as the in-memory backend's do, answers all three
+    /// from one placement instead.
+    fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
+        Summary {
+            hash: self.hash(at, key),
+            child_count: self.child_count(at),
+            grandchildren: self.grandchild_count(at),
+        }
+    }
+
     /// The radices of the children [`Backend::children`] lists for this
     /// node at `at`, exact: [`child_count`](Self::child_count) of them, and
     /// none for a leaf.
@@ -316,6 +337,19 @@ pub trait ErasedNode {
     /// one. A radix missing from the answer leaves the answer's resolution
     /// and plan costing more than its grant.
     fn child_radices(&self, at: &ErasedPrefix) -> ByteSet;
+}
+
+/// What a listing records of one node at its coordinate, as the backend
+/// reports it ([`ErasedNode::summary`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Summary {
+    /// The node's digest at its coordinate ([`ErasedNode::hash`]).
+    pub hash: Hash,
+    /// The number of children it lists there ([`ErasedNode::child_count`]).
+    pub child_count: usize,
+    /// The number of children its children have there
+    /// ([`ErasedNode::grandchild_count`]).
+    pub grandchildren: usize,
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

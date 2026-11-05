@@ -20,7 +20,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            Backend, ErasedNode, Leaf, Node, backend::NodeStream, byte_set::ByteSet,
+            Backend, ErasedNode, Leaf, Node, Summary, backend::NodeStream, byte_set::ByteSet,
         },
         typed::{
             ErasedPrefix, Hash, HashKey, Path, Prefix,
@@ -279,6 +279,21 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
 
     fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
         self.0.hash(at, key)
+    }
+
+    /// Read the wrapped node's summary, with the misreported count, if
+    /// any, in place of the wrapped one, as the count queries report it.
+    fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
+        let mut summary = self.0.summary(at, key);
+        if let Some(miscounted) = &self.1 {
+            if let Some(children) = miscounted.children() {
+                summary.child_count = children;
+            }
+            if let Some(grandchildren) = miscounted.grandchild_count() {
+                summary.grandchildren = grandchildren;
+            }
+        }
+        summary
     }
 
     fn len(&self) -> usize {

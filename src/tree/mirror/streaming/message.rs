@@ -24,7 +24,9 @@ use std::marker::PhantomData;
 use crate::{
     Version,
     tree::{
-        mirror::streaming::{Backend, ErasedNode, Leaf, byte_set::ByteSet, ledger::Charge},
+        mirror::streaming::{
+            Backend, ErasedNode, Leaf, Summary, byte_set::ByteSet, ledger::Charge,
+        },
         typed::{
             ErasedPrefix, Hash, HashKey,
             height::{Height, Z},
@@ -178,7 +180,9 @@ impl Listed {
     ///
     /// The digest is the one the node caches, so listing a whole node
     /// computes no hash; a node viewed from inside its compressed path
-    /// computes its digest at that level ([`ErasedNode::hash`]).
+    /// computes its digest at that level ([`ErasedNode::hash`]). The
+    /// backend reports the digest and both counts in one read
+    /// ([`ErasedNode::summary`]).
     ///
     /// # Errors
     ///
@@ -191,14 +195,17 @@ impl Listed {
         node: &E,
         key: &HashKey,
     ) -> Result<Self, CountError> {
-        let at = scope.push(radix);
-        let children = node.child_count(&at);
-        let children_less_one =
-            u8::try_from(children.saturating_sub(1)).map_err(|_| CountError::Children(children))?;
+        let Summary {
+            hash,
+            child_count,
+            grandchildren,
+        } = node.summary(&scope.push(radix), key);
+        let children_less_one = u8::try_from(child_count.saturating_sub(1))
+            .map_err(|_| CountError::Children(child_count))?;
         Ok(Self {
             radix,
-            hash: node.hash(&at, key),
-            grandchildren: Grandchildren::of(node, &at)?,
+            hash,
+            grandchildren: Grandchildren::counted(grandchildren)?,
             children_less_one,
         })
     }
@@ -258,20 +265,8 @@ impl Grandchildren {
     /// The largest count: a full fan of children, each with a full fan.
     pub const MAX: Self = Self(u16::MAX);
 
-    /// The count of the grandchildren of `node`, at the coordinate `at`, a
-    /// leaf counting one.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`CountError::Grandchildren`] if the backend reports more
-    /// than 65,536, more than any node's children can have.
-    pub fn of(node: &impl ErasedNode, at: &ErasedPrefix) -> Result<Self, CountError> {
-        Self::counted(node.grandchild_count(at))
-    }
-
     /// The grandchild count a backend reported for a node, `count`, a leaf
-    /// counting one: the check [`of`](Self::of) applies, for counts read
-    /// through a node's typed interface, such as the greeting's root.
+    /// counting one.
     ///
     /// # Errors
     ///

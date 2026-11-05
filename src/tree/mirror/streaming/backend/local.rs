@@ -12,7 +12,7 @@ use crate::{
     tree::{
         self,
         mirror::streaming::{
-            Backend, ErasedNode, Leaf, Node, Root,
+            Backend, ErasedNode, Leaf, Node, Root, Summary,
             backend::{BoxNodeStream, NodeStream},
             byte_set::ByteSet,
             convert::Convert,
@@ -90,6 +90,23 @@ impl ErasedNode for typed::ErasedView {
     /// shape.
     fn child_count(&self, at: &ErasedPrefix) -> usize {
         self.at(at).child_count()
+    }
+
+    /// Read the digest, child count and grandchild count at `at` from one
+    /// view of the stored node, placed once.
+    ///
+    /// For the session-budget meter, the whole read is hashing's own work
+    /// ([`Holding::Hashing`]), as [`hash`](ErasedNode::hash) is: the counts
+    /// beside the digest allocate nothing.
+    fn summary(&self, at: &ErasedPrefix, key: &typed::HashKey) -> Summary {
+        held_by(Holding::Hashing, || {
+            let view = self.at(at);
+            Summary {
+                hash: view.hash(key),
+                child_count: view.child_count(),
+                grandchildren: view.grandchild_count(),
+            }
+        })
     }
 
     /// Collect the radices listing this node at `at` yields, from its fan

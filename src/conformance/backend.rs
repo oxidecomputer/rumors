@@ -53,7 +53,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root,
+            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root, Summary,
             byte_set::ByteSet, convert::Convert, materialized, ops,
         },
         typed::{
@@ -266,6 +266,11 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
 
     fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
         self.inner().hash(at, key)
+    }
+
+    /// Read the wrapped node's listing summary.
+    fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
+        self.inner().summary(at, key)
     }
 
     fn len(&self) -> usize {
