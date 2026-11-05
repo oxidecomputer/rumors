@@ -146,12 +146,14 @@ proptest! {
     /// pauses only choose where the test looks. At every
     /// pause, the room the chunks have not taken is the price of what the
     /// reply can still deliver, restated here from the reply so far: later
-    /// reactions at most the bound leaves and one per radix above the
-    /// latest, later queries only at positions not yet reached and not
-    /// covered, later listing entries at most what the peer's count leaves
-    /// beside the listings and matched or covered shares so far and a fan
-    /// per later query, chunks at most one per query to come and one more,
-    /// and the covered set its match carries, ready or still to come.
+    /// reactions at most the slots the bound leaves, a covered child taking
+    /// one beside each frame, and one per radix above the latest that the
+    /// match does not cover, later queries only at positions not yet
+    /// reached and not covered, later listing entries at most what the
+    /// peer's count leaves beside the listings and matched or covered
+    /// shares so far and a fan per later query, chunks at most one per
+    /// query to come and one more, and the covered set its match carries,
+    /// ready, with its covered children's slots, or still to come.
     /// That bound must cover what the reply then actually delivers, so no
     /// chunk falls short; each chunk's charge is its price, its vectors at
     /// capacities equal to their lengths; and once decoded, the place holds
@@ -262,20 +264,28 @@ proptest! {
                 .collect();
             let ready_questions = ready.iter().flatten().count();
             let ready_listing: usize = ready.iter().flatten().map(|&entries| usize::from(entries)).sum();
-            let ready_sets = usize::from(ready.contains(&None) && !covered.is_empty());
-            // What can still come: later reactions at radices above this
-            // position's, later queries at the positions left that a match
-            // received so far does not cover, and a covered set only with
-            // the match, which needs two positions left.
-            let reactions = (bound.reactions - sent).min(FAN - (position + 1));
+            let ready_covered = if ready.contains(&None) { covered.len() } else { 0 };
+            // What can still come: later reactions in the slots the frames
+            // and covered children so far leave, at radices above this
+            // position's that a match received so far does not cover, later
+            // queries at the positions left that such a match does not
+            // cover, and a covered set only with the match, which needs two
+            // positions left.
+            let (slots, covered_above) = if matched {
+                let above = covered.iter().filter(|&radix| usize::from(radix) > position).count();
+                (sent + covered.len(), above)
+            } else {
+                (sent, 0)
+            };
+            let reactions = (bound.reactions - slots).min(FAN - (position + 1) - covered_above);
             let left = if matched { framed.len() - sent } else { positions - (position + 1) };
             let questions = left.min(reactions);
             let listing = bound.listing.saturating_sub(spent).min(FAN * questions);
             let still = Deliverable {
                 chunks: ready_questions + questions + 1,
-                reactions: ready.len() + reactions,
+                reactions: ready.len() + ready_covered + reactions,
                 listing: ready_listing + listing,
-                sets: ready_sets + usize::from(!matched && left >= 2),
+                sets: usize::from(ready_covered > 0) + usize::from(!matched && left >= 2),
             };
             prop_assert_eq!(room, parked_price::<E>(still), "the room is the price of what can still come");
             boundaries.push((chunks.len(), room));

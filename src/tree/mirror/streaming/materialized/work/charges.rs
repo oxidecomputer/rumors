@@ -159,7 +159,9 @@ pub(crate) const fn parent_resolution<E>(bound: ReplyBound) -> usize {
 /// at most `listed.min(bound.reactions)` since a query sits only at a
 /// position the asker listed, and they hold the reply's reactions and
 /// listing entries, and the set of later matches its one match covers,
-/// which needs a listed child for the match and one more to cover.
+/// which needs a listed child for the match and one more to cover. The
+/// bound's reactions count a slot for each child the set covers, so the
+/// set is priced net of those slots ([`covered_set_price`]).
 ///
 /// The decoder charges each chunk its own part ([`parked_bytes`]), which
 /// prices the chunk's vectors at their capacities. It allocates each
@@ -182,27 +184,73 @@ const fn covered_sets(listed: usize) -> usize {
     if listed >= 2 { 1 } else { 0 }
 }
 
+/// The price of a covered set beyond the reaction slots of the children it
+/// covers: its size less one reaction's, or nothing when a reaction is at
+/// least as large.
+///
+/// Every price that uses it already counts a slot of
+/// `size_of::<Reaction<E>>()` bytes for each child the set covers.
+///
+/// A set exists only by covering at least one later child, and a covered
+/// child takes no reaction of its own: the match stands for it. Priced at
+/// `k` covered children, then, a set holds `size_of::<ByteSet>()` bytes
+/// and frees `k` slots of `size_of::<Reaction<E>>()` bytes, so it adds at
+/// most its size less `k` reactions' beyond them. That is greatest at
+/// `k = 1`, the fewest a set covers, and every price that relies on it is
+/// set before the reply shows how many children its set covers, so each
+/// prices the set at that worst case.
+///
+/// The slots are freed wherever the reply's reactions are held or counted:
+///
+/// - An answer's plan holds no entry for a covered child, so the chunks it
+///   hands out hold no reaction for one, each allocated at exactly its
+///   reactions and one spare slot for its question
+///   ([`Chunks::next_part`](super::answer::Chunks::next_part)); the
+///   answer's bound counts a slot for every child either side holds
+///   ([`answer_bound`]).
+/// - The decoder never pushes a reaction for a covered child, and
+///   allocates each parked chunk at exactly its reactions
+///   ([`parked_bytes`]). The room for a reply's parked chunks is priced at
+///   the reply's bound ([`parked_room`]), which counts a slot for every
+///   child either side holds, covered children among them, and the
+///   decoder holds every reply to that count, a covered child taking its
+///   slot as the match arrives. What it then can still deliver counts the
+///   ready match's covered children as slots until the match's chunk takes
+///   its price, and no later reaction can take their slots: none sits at a
+///   covered radix, and the bound has counted them.
+///
+/// A price that counts a chunk's actual reactions, as a question's chunk
+/// bound does ([`question_bound`]), has no covered child's slot to spend,
+/// and prices a set at its whole size.
+pub(crate) const fn covered_set_price<E>() -> usize {
+    LATER_MATCHES_HEAP_BYTES.saturating_sub(size_of::<Reaction<E>>())
+}
+
 /// The most a reply can still deliver to its parked chunks: the chunks,
-/// their reactions, and the listing entries their queries carry.
+/// their reactions, the listing entries their queries carry, and the
+/// covered set their match carries.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Deliverable {
     /// The chunks it can still park.
     pub(crate) chunks: usize,
-    /// The reactions those chunks can hold together.
+    /// The reaction slots those chunks can fill together: one per reaction,
+    /// and one per child a counted set covers, which takes no reaction.
     pub(crate) reactions: usize,
     /// The listing entries their queries can carry together.
     pub(crate) listing: usize,
     /// The covered sets their match can carry: at most one, a reply
-    /// carrying at most one match.
+    /// carrying at most one match, and each covering children whose slots
+    /// [`reactions`](Self::reactions) counts.
     pub(crate) sets: usize,
 }
 
 /// The bytes the parked chunks `still` describes can hold, priced as each
-/// chunk is ([`parked_bytes`]).
+/// chunk is ([`parked_bytes`]), each covered set net of the slots of the
+/// children it covers ([`covered_set_price`]).
 pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
     still.chunks * queued::<Parked<E>>()
         + still.reactions * size_of::<Reaction<E>>()
-        + still.sets * LATER_MATCHES_HEAP_BYTES
+        + still.sets * covered_set_price::<E>()
         + still.listing * size_of::<Listed>()
 }
 
@@ -356,7 +404,9 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 /// nothing, one per such child at most ([`answer_children`] counts them),
 /// with the set of later matches its match covers, if the `shared` children
 /// both sides hold, the only ones it can match, number two or more
-/// ([`shared_children`] counts them).
+/// ([`shared_children`] counts them). The reactions' slots count each
+/// child the set covers, which takes no reaction, so the set is priced net
+/// of them ([`covered_set_price`]).
 ///
 /// A plan entry is priced at an internal answer's: a leaf parent's, which
 /// plans each question by its radix alone, is no larger.
@@ -369,10 +419,11 @@ pub(crate) const fn answer_bound<E, Err>(children: usize, shared: usize) -> usiz
         + chunk_bound::<E, Err>(
             with_question(Held {
                 reactions: children,
-                sets: covered_sets(shared),
+                sets: 0,
             }),
             0,
         )
+        + covered_sets(shared) * covered_set_price::<E>()
 }
 
 /// A child a supply answer lists is no larger than the supply reaction its

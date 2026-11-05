@@ -143,8 +143,9 @@ proptest! {
     /// Any sequence of insertions and removals leaves the set holding what
     /// an ordered set of bytes holds.
     ///
-    /// The two agree on every byte's membership, the count, the ascending
-    /// elements, and each insertion's and removal's answer.
+    /// The two agree on every byte's membership, the count, the count above
+    /// every byte, the ascending elements, and each insertion's and
+    /// removal's answer.
     #[test]
     fn operations_agree_with_an_ordered_set(
         operations in proptest::collection::vec(operation(), 0..600),
@@ -164,6 +165,9 @@ proptest! {
         }
         prop_assert!(set.iter().eq(model.iter().copied()));
         prop_assert!(set.iter().rev().eq(model.iter().rev().copied()));
+        for value in 0..=u8::MAX {
+            prop_assert_eq!(set.len_above(value), model.iter().filter(|&&element| element > value).count(), "value {}", value);
+        }
         prop_assert_eq!(set, model.iter().copied().collect::<ByteSet>());
     }
 

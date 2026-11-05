@@ -134,6 +134,10 @@ pub(super) mod transcript;
 pub(crate) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
+/// Named for the documentation of the decoder, which counts the slots this
+/// price relies on, and of the covered set it prices.
+#[cfg(doc)]
+pub(crate) use work::covered_set_price;
 pub(crate) use work::floor_allowance;
 /// Named for the ledger's documentation, which bounds a charge by it.
 #[cfg(doc)]

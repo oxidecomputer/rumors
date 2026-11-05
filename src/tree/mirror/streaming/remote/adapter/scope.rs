@@ -358,6 +358,15 @@ impl Positions<'_> {
         self.covered.contains(radix)
     }
 
+    /// The children the reply's match covers at radixes above `after`, or
+    /// all of them when `after` is `None`: none before the match.
+    ///
+    /// No reaction can sit at a covered radix, so these are radixes no
+    /// later reaction takes, whether or not the cursor has passed them.
+    pub fn covered_above(&self, after: Option<u8>) -> usize {
+        after.map_or(self.covered.len(), |radix| self.covered.len_above(radix))
+    }
+
     /// Where the replay stands, for the reply's next chunk to resume from.
     pub fn replayed(&self) -> Replay {
         Replay {

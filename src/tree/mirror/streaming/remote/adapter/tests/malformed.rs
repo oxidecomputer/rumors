@@ -1,7 +1,7 @@
 //! Ingress validation: malformed replies and the boundaries they must admit.
 
 use crate::tree::mirror::streaming::message::LaterMatches;
-use crate::tree::mirror::streaming::message::listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, listed};
 use std::convert::Infallible;
 
 use before::Version;
@@ -19,7 +19,7 @@ use crate::tree::{
 
 use super::{
     super::{
-        DecodeError, EncodeError, LeafEdge, Replay, ReplyLevel, Scope, ScopeError,
+        BoundedPart, DecodeError, EncodeError, LeafEdge, Replay, ReplyLevel, Scope, ScopeError,
         decode_whole_reply, derive_questions, encode_leaf_reply, encode_reply,
     },
     LeafCase, ascending_leaves, codec, colliding_leaves, hash, leaf_run, runtime, unbounded,
@@ -380,6 +380,74 @@ proptest! {
             .err()
             .expect("a supply at a covered radix cannot decode");
         prop_assert_eq!(decode_scope_error(error), ScopeError::CoveredSupply { radix });
+    }
+}
+
+proptest! {
+    /// Each child a match covers takes a slot of the reply's reaction
+    /// bound, as a reaction does.
+    ///
+    /// A reply whose reactions fit the bound but whose reactions and
+    /// covered children together exceed it is rejected at the frame that
+    /// overruns, and the same reply decodes under a bound one larger.
+    ///
+    /// The opening question lists root children at radixes 0 and 1, so
+    /// the peer's root count `g` makes the bound `2 + g`. The reply matches
+    /// radix 0 covering radix 1, then supplies `s` leaves at distinct
+    /// greater root radixes: `s + 1` reactions in `s + 2` slots. At
+    /// `g = s - 1` the reactions fit and the slots do not; at `g = s` both
+    /// fit.
+    #[test]
+    fn covered_children_take_slots_of_the_reaction_bound(
+        value in any::<u64>(),
+        supplies in 2..=5_usize,
+    ) {
+        // Leaves at distinct root radixes above the listed ones, ascending.
+        let root_radix = |leaf: &LeafCase| <[u8; 32]>::from(leaf.path())[0];
+        let mut leaves: Vec<LeafCase> = Vec::new();
+        for step in 0.. {
+            let leaf = LeafCase::new(value.wrapping_add(step), 1);
+            let radix = root_radix(&leaf);
+            if radix > 1 && leaves.iter().all(|other| root_radix(other) != radix) {
+                leaves.push(leaf);
+                if leaves.len() == supplies {
+                    break;
+                }
+            }
+        }
+        leaves.sort_by_key(root_radix);
+        let listing = [listed(0, hash(0)), listed(1, hash(1))];
+        let mut frames = vec![Frame::Reaction(
+            WireReaction::Match(LaterMatches::new(std::iter::once(1).collect())),
+            Flow::Continue,
+        )];
+        for (index, leaf) in leaves.iter().enumerate() {
+            let flow = if index + 1 == supplies { Flow::End } else { Flow::Continue };
+            frames.push(Frame::Reaction(
+                WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
+                flow,
+            ));
+        }
+
+        let short = Grandchildren::new(supplies - 1).expect("a handful fits a count");
+        let short = Scope::opening(&listing, short);
+        prop_assert_eq!(short.reply_bound().reactions, supplies + 1, "the reactions fit");
+        let error = decode_frames(ReplyLevel::Branch, &short, frames.clone())
+            .err()
+            .expect("a covered child over the bound cannot decode");
+        prop_assert!(
+            matches!(
+                error,
+                DecodeError::ExceedsBound { part: BoundedPart::Reactions, bound } if bound == supplies + 1
+            ),
+            "unexpected rejection: {:?}",
+            error,
+        );
+
+        let enough = Scope::opening(&listing, Grandchildren::new(supplies).expect("a handful fits a count"));
+        let reply = decode_frames(ReplyLevel::Branch, &enough, frames)
+            .expect("a reply whose slots fit the bound decodes");
+        prop_assert_eq!(reply.reactions.len(), supplies + 1);
     }
 }
 

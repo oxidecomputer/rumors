@@ -23,12 +23,14 @@ mod queues;
 mod resolver;
 
 pub(crate) use charges::floor_allowance;
-/// Named for the ledger's documentation, which bounds a charge by it.
-#[cfg(doc)]
-pub(crate) use charges::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
 pub(crate) use charges::{Deliverable, parked_bytes, room_beyond};
+/// Named for the documentation of the ledger, which bounds a charge by the
+/// largest grant, and of the decoder, which counts the slots a covered
+/// set's price relies on.
+#[cfg(doc)]
+pub(crate) use charges::{covered_set_price, largest_grant};
 #[cfg(test)]
 pub(crate) use charges::{parked_price, parked_room};
 pub(crate) use queues::OUTGOING_REPLY_CHUNKS;

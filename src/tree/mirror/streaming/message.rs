@@ -472,7 +472,10 @@ pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
 /// takes the room of the pointer alone, within the room a reaction already
 /// has, and is allocated only by a reply with two matches or more, which
 /// it saves a reaction for each match after the first. Every place that
-/// prices a reaction prices the box as well ([`heap_bytes`](Self::heap_bytes)).
+/// prices a reaction prices the box as well ([`heap_bytes`](Self::heap_bytes)):
+/// a price that already counts a slot for each child the set covers counts
+/// the box net of those slots
+/// ([`covered_set_price`](crate::tree::mirror::streaming::materialized::covered_set_price)).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LaterMatches(Option<Box<ByteSet>>);
 

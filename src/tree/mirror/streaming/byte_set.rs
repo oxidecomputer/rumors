@@ -87,6 +87,11 @@ impl ByteSet {
         self.0.not_any()
     }
 
+    /// The number of elements greater than `value`.
+    pub fn len_above(&self, value: u8) -> usize {
+        self.0[usize::from(value) + 1..].count_ones()
+    }
+
     /// The values in this set or in `other`.
     pub fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)

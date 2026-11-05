@@ -383,8 +383,10 @@ where
     bound: ReplyBound,
     /// The listing entries the reply's queries have carried so far.
     listed: usize,
-    /// The reactions the reply has carried so far, delivered or not.
-    reactions: usize,
+    /// The reaction slots the reply has taken so far, delivered or not:
+    /// one per reaction, and one per child its match covers
+    /// ([`count`](Self::count)).
+    slots: usize,
     /// Ordering and scope state for supplied leaves.
     supplies: SupplyRuns,
     /// The leaves' edge to assembly.
@@ -406,9 +408,9 @@ where
     positions_left: usize,
     /// Whether the reply has carried its one match.
     matched: bool,
-    /// The covered sets among the ready reactions: at most one, the
-    /// match's.
-    ready_sets: usize,
+    /// The children the ready reactions' match covers: none unless the
+    /// match is ready and carries a covered set.
+    ready_covered: usize,
     /// The radix of the reply's latest reaction: every later reaction sits
     /// at a greater one.
     after: Option<u8>,
@@ -453,7 +455,7 @@ where
             scope,
             bound: scope.reply_bound(),
             listed: 0,
-            reactions: 0,
+            slots: 0,
             supplies: SupplyRuns::new(version_bytes),
             leaves,
             assembled,
@@ -464,7 +466,7 @@ where
             group: Vec::new(),
             positions_left: scope.positions().remaining(),
             matched: false,
-            ready_sets: 0,
+            ready_covered: 0,
             after: None,
             supplied_children: 0,
             matched_children: 0,
@@ -490,7 +492,7 @@ where
             };
             let (reaction, flow) = match frame {
                 Frame::Reaction(reaction, flow) => (reaction, flow),
-                Frame::End(End::Reply) if self.reactions == 0 => {
+                Frame::End(End::Reply) if self.slots == 0 => {
                     positions.end()?;
                     break;
                 }
@@ -509,8 +511,9 @@ where
                     self.reach(&matched.prefix, &positions);
                     self.matched = true;
                     self.matched_children += matched.children;
-                    self.count()?;
-                    self.ready_sets += usize::from(later.get().is_some());
+                    let covered = later.set().len();
+                    self.count(1 + covered)?;
+                    self.ready_covered = covered;
                     self.ready.push(ProtocolReaction::Match(later));
                 }
                 WireReaction::Query(listing) => {
@@ -526,7 +529,7 @@ where
                             bound: self.bound.listing,
                         });
                     }
-                    self.count()?;
+                    self.count(1)?;
                     self.ready_questions += 1;
                     self.ready_listing += listing.len();
                     self.ready.push(ProtocolReaction::Query(listing));
@@ -561,7 +564,7 @@ where
                             }
                             self.after = Some(run.0);
                             self.group.push(run);
-                            self.count()?;
+                            self.count(1)?;
                         }
                         // Charge the peer's declared set length before the
                         // payload enters backend custody.
@@ -584,7 +587,7 @@ where
                 }
             }
 
-            self.release();
+            self.release(&positions);
             if flow == Flow::End {
                 // The end is never inferred, only checked: every listed
                 // child after the last frame must be covered.
@@ -598,16 +601,27 @@ where
         Ok(())
     }
 
-    /// Count one more reaction, failing unless the reply still fits its
-    /// bound.
+    /// Count `slots` more reaction slots, failing unless the reply still
+    /// fits its bound.
     ///
-    /// A peer that lists a child with its true grandchild count cannot
-    /// exceed the bound its own count sets, so a reply over it reveals a
-    /// miscounting peer at the reaction that overruns, before the reply
-    /// holds more than its question reserved.
-    fn count(&mut self) -> Result<(), DecodeError<B::Error>> {
-        self.reactions += 1;
-        if self.reactions > self.bound.reactions {
+    /// A reaction takes one slot, and so does each child a match covers:
+    /// it takes no reaction, but the bound counts it as one, and the room
+    /// the reply's chunks park in counts on its slot to pay for the
+    /// covered set ([`covered_set_price`]). Counting it keeps every slot
+    /// the room prices for a covered child out of the reach of a later
+    /// reaction.
+    ///
+    /// A conforming peer never exceeds the bound, which allows one slot
+    /// per child either side holds ([`ReplyBound`]): a reaction is about
+    /// one such child, a covered child is one both sides hold, and no two
+    /// of them share a radix. A reply over the bound therefore reveals a
+    /// miscounting peer at the frame that overruns, before the reply holds
+    /// more than its question reserved.
+    ///
+    /// [`covered_set_price`]: crate::tree::mirror::streaming::materialized::covered_set_price
+    fn count(&mut self, slots: usize) -> Result<(), DecodeError<B::Error>> {
+        self.slots += slots;
+        if self.slots > self.bound.reactions {
             return Err(DecodeError::ExceedsBound {
                 part: BoundedPart::Reactions,
                 bound: self.bound.reactions,
@@ -653,26 +667,37 @@ where
     /// The most the reply can still deliver to parked chunks, its ready
     /// reactions and open group included.
     ///
-    /// Later reactions number at most what the bound leaves and one per
-    /// radix above the latest; later queries sit only at positions not yet
-    /// reached that the reply's match does not cover. Later listing entries
-    /// number at most what the peer's grandchild count of the scope leaves,
-    /// less the child counts of the children it matched or covered and of
-    /// the nodes it supplied, which that count includes and whose listings
-    /// never come, and at most a fan per later query. Every non-last chunk
-    /// holds a query, so the chunks number at most the queries to come and
-    /// one more. A reply carries one match at most, so it carries one
-    /// covered set at most: the ready match's, or, before the match
-    /// arrives, one more if two positions are left for the match and a
-    /// child it covers.
+    /// Its reaction slots ([`Deliverable::reactions`]) are those of the
+    /// ready reactions and the open group, the ready match's covered
+    /// children, and those of the reactions to come. Later reactions number
+    /// at most the slots the bound leaves ([`count`](Self::count)) and one
+    /// per radix above the latest that the match does not cover; later
+    /// queries sit only at positions not yet reached that the match does
+    /// not cover. Later listing entries number at most what the peer's
+    /// grandchild count of the scope leaves, less the child counts of the
+    /// children it matched or covered and of the nodes it supplied, which
+    /// that count includes and whose listings never come, and at most a
+    /// fan per later query. Every non-last chunk holds a query, so the
+    /// chunks number at most the queries to come and one more. A reply
+    /// carries one match at most, so it carries one covered set at most:
+    /// the ready match's, or, before the match arrives, one more if two
+    /// positions are left for the match and a child it covers. Either way
+    /// the set's covered children are among the slots counted: the ready
+    /// match's as its covered children, a set still to come's among the
+    /// slots of the reactions to come, whose bound and radixes both still
+    /// count them.
     ///
-    /// No term grows as the reply goes on: each reaction moves from what
-    /// can come to what is ready, and each chunk delivered takes its
-    /// reactions out of what is ready and its own price out of the room.
-    fn deliverable(&self) -> Deliverable {
-        let radices =
-            usize::from(u8::MAX) + 1 - self.after.map_or(0, |radix| usize::from(radix) + 1);
-        let reactions = (self.bound.reactions - self.reactions).min(radices);
+    /// No term grows as the reply goes on: each reaction moves its slot
+    /// from what can come to what is ready, and so does the match for
+    /// itself and for each child it covers, whose radixes leave what can
+    /// come as they join what is ready; each chunk delivered takes its
+    /// reactions and covered children out of what is ready and its own
+    /// price out of the room.
+    fn deliverable(&self, positions: &Positions<'_>) -> Deliverable {
+        let radices = FAN
+            - self.after.map_or(0, |radix| usize::from(radix) + 1)
+            - positions.covered_above(self.after);
+        let reactions = (self.bound.reactions - self.slots).min(radices);
         let questions = self.positions_left.min(reactions);
         let listing = self
             .bound
@@ -682,30 +707,35 @@ where
         let sets = usize::from(!self.matched && self.positions_left >= 2);
         Deliverable {
             chunks: self.ready_questions + questions + 1,
-            reactions: self.ready.len() + self.group.len() + reactions,
+            reactions: self.ready.len() + self.group.len() + self.ready_covered + reactions,
             listing: self.ready_listing + listing,
-            sets: self.ready_sets + sets,
+            sets: usize::from(self.ready_covered > 0) + sets,
         }
     }
 
-    /// Return the room beyond what the reply can still deliver.
+    /// Return the room beyond what the reply can still deliver, its
+    /// replay standing at `positions`.
     ///
     /// The room covers that much at every moment, which is what lets every
     /// chunk take its whole price from it: it starts at the reply's bound,
     /// what the reply can still deliver never grows, and each release
     /// returns only the excess.
-    fn release(&mut self) {
-        let beyond = room_beyond::<B::Erased>(self.room.bytes(), self.deliverable());
+    fn release(&mut self, positions: &Positions<'_>) {
+        let beyond = room_beyond::<B::Erased>(self.room.bytes(), self.deliverable(positions));
         drop(self.room.split(Holding::ParkedReplies, beyond));
     }
 
     /// The ready reactions as one chunk, allocated at exactly their count:
     /// a chunk can park, and the reservation for its reply prices each
     /// reaction at its size, which growth slack would exceed.
+    ///
+    /// A chunk that does not end the reply leaves the room beyond what the
+    /// reply can still deliver for the caller to release, as it does after
+    /// every frame.
     fn chunk(&mut self, last: bool) -> Reply<B::Erased> {
         self.ready_questions = 0;
         self.ready_listing = 0;
-        self.ready_sets = 0;
+        self.ready_covered = 0;
         let mut chunk = Reply {
             reactions: self.ready.drain(..).collect(),
             charge: Charge::default(),
@@ -716,8 +746,6 @@ where
         if last {
             // The reply is whole: nothing more can come.
             drop(std::mem::take(&mut self.room));
-        } else {
-            self.release();
         }
         chunk
     }
