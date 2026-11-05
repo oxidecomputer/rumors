@@ -49,6 +49,7 @@ default-members = [
 
 [workspace.dependencies]
 alloc-meter = { path = "crates/alloc-meter" }
+aes-gcm = { version = "0.11", default-features = false }
 async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
@@ -77,6 +78,9 @@ focused-fuel-protocol = { path = "crates/before/focused-fuel/protocol" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 fuzzfit-harness = { path = "crates/before/fuzzfit/harness" }
 hex = "0.4"
+# HPKE (RFC 9180), rozbb/rust-hpke on RustCrypto's `p256`, `hkdf` and
+# `aes-gcm`: the bootstrap's sealed exchange.
+hpke = { version = "0.15", default-features = false }
 indicatif = "0.18"
 insta = "1.47"
 itertools = "0.14"
@@ -122,6 +126,7 @@ tracing = "0.1"
 wasm-bindgen = "0.2"
 wasm32-pins-protocol = { path = "crates/before/wasm32-pins/protocol" }
 wasmtime = { version = "48.0.8", default-features = false }
+zeroize = "1.9"
 
 [package]
 name = "rumors"
@@ -163,6 +168,15 @@ bitvec.workspace = true
 bytes.workspace = true
 sha2.workspace = true
 sha3.workspace = true
+zeroize.workspace = true
+# The bootstrap's sealed secret: HPKE base mode with DHKEM(P-256,
+# HKDF-SHA256), HKDF-SHA256 and AES-256-GCM, drawing its keys from the
+# operating system.
+hpke = { workspace = true, features = ["nistp", "aes", "getrandom"] }
+# Not used directly: `hpke` builds `aes-gcm` without its `zeroize` feature,
+# and enabling it here makes the AES key schedule inside each HPKE
+# context clear when the context drops.
+aes-gcm = { workspace = true, features = ["zeroize"] }
 itertools.workspace = true
 serde = { workspace = true, default-features = true, features = ["derive"] }
 ciborium.workspace = true
@@ -217,6 +231,9 @@ rand_chacha.workspace = true
 pollster.workspace = true
 # The allocation-pricing suites read per-thread allocator traffic from it.
 alloc-meter.workspace = true
+# The sealed exchange's tests seal and open through `hpke` directly, as an
+# oracle for the documented bindings, with its allocating API.
+hpke = { workspace = true, features = ["alloc"] }
 
 [profile.dev]
 debug = "line-tables-only"
