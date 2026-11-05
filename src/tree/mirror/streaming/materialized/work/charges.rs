@@ -406,6 +406,49 @@ pub(crate) const fn leaf_question_bound<E, Err>(leading: usize) -> usize {
         + record_bytes(0)
 }
 
+/// The need of a question whose reply lies within `bound`: the bytes
+/// processing the reply is predicted to admit one level below the node it
+/// is about.
+///
+/// The question's claim in the invitation share weighs it
+/// ([`Ledger::invite`](crate::tree::mirror::streaming::ledger::Ledger::invite)).
+///
+/// Processing a reply builds an answer one level below the node for each
+/// query the reply carries, each answering at least the children its query
+/// lists, and the listing entries of all its queries together are at most
+/// `bound.listing`. What those answers take beyond their entries depends
+/// on this side's children of the node's children and the copies exploding
+/// them, which the walk reads only as it builds the question, after
+/// admitting it. Until then only the type maximum bounds the answers from
+/// above, so the prediction is the least they can be granted when the
+/// reply lists every entry its bound allows: as few answers as can hold the
+/// entries, a fan each, each answering only the children its entries name
+/// and exploding nothing. It is a lower bound on what any such reply's
+/// processing admits there.
+///
+/// The questions processing sends two levels down are not part of it: each
+/// claims its own room and need at its own depth when it is asked, so no
+/// byte counts toward two depths' claims. They are priced by the peer's
+/// counts of the grandchildren, which only the reply carries.
+///
+/// A reply that lists nothing, about a leaf's parent or answering a request,
+/// is predicted to need nothing; the bound already says so
+/// ([`ReplyBound::of`]), so the node's height adds nothing. The prediction falls short of what
+/// processing keeps wherever this side holds children the peer lacks or
+/// exploding a node copies it, and exceeds it wherever the reply lists less
+/// than its bound allows or the answers return room they did not use; the
+/// share's pace corrects it from what the answers keep.
+pub(crate) const fn processing_need<E, Err>(bound: ReplyBound) -> usize {
+    let entries = bound.listing;
+    if entries == 0 {
+        return 0;
+    }
+    // An answer's bound grows by the same bytes with each child it answers.
+    let answer = answer_bound::<E, Err>(0, 0);
+    let per_child = answer_bound::<E, Err>(1, 0) - answer;
+    entries.div_ceil(FAN) * answer + entries * per_child
+}
+
 /// The most a whole reply of at most `reactions` reactions that asks
 /// nothing holds, with `copies` of node copies its building makes: the unit
 /// of an answer that supplies a whole node, or a leaf.

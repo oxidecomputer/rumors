@@ -544,3 +544,72 @@ proptest! {
         prop_assert!(held <= room, "{held} B of records over a records part of {room} B");
     }
 }
+
+/// One answer processing a reply builds about a child the reply queries:
+/// the entries the query lists, the children this side holds beyond them,
+/// and the node copies exploding the child makes.
+type ChildAnswer = (usize, usize, usize);
+
+/// The answers processing a fully disputed reply builds one level down,
+/// one for each query the reply carries, each listing at least one entry.
+fn arb_child_answers() -> impl Strategy<Value = Vec<ChildAnswer>> {
+    proptest::collection::vec((1..=FAN, 0..=FAN, 0..4_096usize), 1..=6)
+}
+
+/// The listing entries the queries behind `answers` carry together: the
+/// listing a reply's bound must allow for processing to build them.
+fn listing(answers: &[ChildAnswer]) -> usize {
+    answers.iter().map(|&(entries, ..)| entries).sum()
+}
+
+/// What processing admits one level down for `answers`: each answer's grant
+/// as the walk prices it, answering the children its query lists and those
+/// this side holds beyond them, at most a fan.
+fn answers_cost(answers: &[ChildAnswer]) -> usize {
+    answers
+        .iter()
+        .map(|&(entries, extra, copies)| {
+            charges::answer_bound::<Erased, Infallible>((entries + extra).min(FAN), copies)
+        })
+        .sum()
+}
+
+proptest! {
+    /// A question's need is a lower bound on what processing any fully
+    /// disputed reply within its bound admits one level down.
+    ///
+    /// A fully disputed reply lists every entry its bound allows, and
+    /// processing builds an answer one level down for each query it
+    /// carries, answering at least the children the query lists, whatever
+    /// this side holds beyond them and whatever exploding the child copies;
+    /// each costs at least what the need prices it at. The questions that
+    /// processing sends two levels down are no part of the need: they claim
+    /// at their own depth.
+    #[test]
+    fn the_need_bounds_a_fully_disputed_replys_answers_below(answers in arb_child_answers()) {
+        let bound = ReplyBound { reactions: FAN, listing: listing(&answers) };
+        let need = charges::processing_need::<Erased, Infallible>(bound);
+        let cost = answers_cost(&answers);
+        prop_assert!(need <= cost, "a need of {need} B over {cost} B admitted one level down");
+    }
+
+    /// A question's need is exactly what processing the cheapest fully
+    /// disputed reply within its bound admits one level down, computed
+    /// answer by answer, and nothing more.
+    ///
+    /// That reply makes as few answers as hold its entries, a fan each,
+    /// answering only those children and exploding nothing. The need prices
+    /// those answers alone: the questions two levels down, which claim at
+    /// their own depth, add nothing to it. A reply that lists nothing is
+    /// predicted to need nothing.
+    #[test]
+    fn the_need_prices_only_the_cheapest_disputed_replys_answers(listing in 0..=65_536usize) {
+        let bound = ReplyBound { reactions: FAN, listing };
+        let need = charges::processing_need::<Erased, Infallible>(bound);
+        let answers: Vec<ChildAnswer> = (0..listing)
+            .step_by(FAN)
+            .map(|first| ((listing - first).min(FAN), 0, 0))
+            .collect();
+        prop_assert_eq!(need, answers_cost(&answers));
+    }
+}

@@ -169,7 +169,9 @@ where
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
             // The opening question is the one question no answer asks; it
-            // asks about the root.
+            // asks about the root. As its depth's only question it takes its
+            // floor slot, so the invitation share, which only limits
+            // admissions against the budget, has nothing to decide for it.
             let bytes = charges::question_bound::<B::Erased, B::Error>(
                 root_scope.height(),
                 responder,
@@ -317,7 +319,8 @@ where
                         let bytes = question
                             .bound::<B::Error>(root_scope, leading.len())
                             .map_err(Error::Count)?;
-                        let mut grant = account.admit(Unit::Question, 1, bytes).await;
+                        let need = question.need::<B::Error>(root_scope);
+                        let mut grant = account.invite(1, bytes, need).await;
                         let built =
                             answer::question(&backend, &mut grant, root_scope, question).await?;
                         (Some(built), grant)
@@ -429,6 +432,15 @@ where
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let mut chunk = next_chunk(&mut requests).await?;
+                // The reply's need, recomputed from the bound its query
+                // carries as its question computed it when admitted: the
+                // question withdraws its claim, if it took no floor slot,
+                // and the pace weighs the need, once the reply is finished.
+                let floor = query.charge.is_floor();
+                let (reply_depth, need) = (
+                    depth(query.prefix),
+                    charges::processing_need::<B::Erased, B::Error>(query.bound),
+                );
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
@@ -510,8 +522,9 @@ where
                                 let bytes = question
                                     .bound::<B::Error>(child_prefix, leading.len())
                                     .map_err(Error::Count)?;
+                                let need = question.need::<B::Error>(child_prefix);
                                 let mut grant =
-                                    account.admit(Unit::Question, depth + 1, bytes).await;
+                                    account.invite(depth + 1, bytes, need).await;
                                 let built = answer::question(
                                     &backend,
                                     &mut grant,
@@ -547,6 +560,7 @@ where
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
+                account.processed(reply_depth, need, floor);
                 progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {
                     return;
@@ -605,6 +619,15 @@ where
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let mut chunk = next_chunk(&mut requests).await?;
+                // The reply's need, recomputed from the bound its query
+                // carries as its question computed it when admitted: the
+                // question withdraws its claim, if it took no floor slot,
+                // and the pace weighs the need, once the reply is finished.
+                let floor = query.charge.is_floor();
+                let (reply_depth, need) = (
+                    depth(query.prefix),
+                    charges::processing_need::<B::Erased, B::Error>(query.bound),
+                );
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
@@ -680,6 +703,12 @@ where
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {
                         let (question, mut grant) = match ask {
                             Some(radix) => {
+                                // A leaf request's reply supplies one leaf,
+                                // which processing turns into nothing more:
+                                // it would claim no need, so the invitation
+                                // share would hold back nothing the budget
+                                // admits, and the request is admitted by
+                                // the budget alone.
                                 let bytes = charges::leaf_question_bound::<B::Erased, B::Error>(
                                     leading.len(),
                                 );
@@ -714,6 +743,7 @@ where
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
+                account.processed(reply_depth, need, floor);
                 progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {
                     return;
@@ -764,6 +794,9 @@ where
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let mut chunk = next_chunk(&mut requests).await?;
+                // A reply about a leaf's parent lists nothing, so it is
+                // predicted to need nothing processed, and the invitation
+                // share's pace has nothing to learn from it.
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {

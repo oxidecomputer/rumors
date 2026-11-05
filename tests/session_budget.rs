@@ -258,6 +258,15 @@
 //! unit of the session's work waited for admission. Each side's session
 //! report must count exactly the units its ledger counted waiting
 //! ([`SessionStats::budget_waits`]), the user's view of the same constraint.
+//!
+//! # Hops against the budget
+//!
+//! A larger budget must never make a session slower. One test sweeps a
+//! fixed fixture across budgets on the held link, releasing every byte at
+//! every stall, where each release is one hop and the count is exact,
+//! independent of time and load
+//! ([`hops_never_rise_with_the_budget`]). The sweep needs no trace, so it
+//! runs untraced, at the schedule search's size.
 
 #[path = "session_budget/link.rs"]
 mod link;
@@ -1368,15 +1377,19 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// 8 MiB.
 ///
-/// Admission fills each side's budget with work, and the floor slots hold
-/// one more unit per depth and kind beside it: each peak is the 8 MiB
-/// budget plus at most its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [9_889_748, 8_472_240];
+/// Admission fills each side's budget with work, as far as each depth's
+/// claims under the invitation share let its questions take it, and the
+/// floor slots hold one more unit per depth and kind beside it: each peak
+/// is at most the 8 MiB budget plus its slots' largest grants.
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_388_108, 8_469_184];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
-/// [`WIDE_BUDGET`]: the budget filled with admitted work, beside the floor
-/// slots' grants, as at 8 MiB.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [34_401_168, 33_574_192];
+/// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
+/// beside the floor slots' grants.
+///
+/// A claim reserves room for processing still to come, so a side's peak
+/// can stay below its budget.
+const WIDE_LEDGER_PEAKS: [usize; 2] = [28_376_588, 33_568_044];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.
@@ -1853,5 +1866,105 @@ fn joining_from_empty_bounds_assembly() {
         run.ledgers.map(|ledger| ledger.peak),
         JOINING_LEDGER_PEAKS,
         "the joining session's ledger peaks moved"
+    );
+}
+
+/// Messages each side of the hop sweep's fixture holds that the other
+/// lacks: enough that the budget binds across a wide range of budgets,
+/// small enough that the sweep's sessions run in seconds together.
+const SWEEP_MESSAGES: u64 = SEARCH_MESSAGES;
+
+/// The hop sweep's smallest budget above zero: 64 KiB.
+const SWEEP_FIRST: usize = 64 << 10;
+
+/// The hop sweep's budgets above zero rise by a factor of `2^(1/STEPS)`.
+const SWEEP_STEPS_PER_DOUBLING: u32 = 2;
+
+/// The doublings the hop sweep spans above [`SWEEP_FIRST`]: to 64 MiB,
+/// which the sweep requires to run the fixture as with no budget.
+const SWEEP_DOUBLINGS: u32 = 10;
+
+/// The hop sweep's budgets, rising: zero, then from [`SWEEP_FIRST`] by a
+/// factor of `2^(1/SWEEP_STEPS_PER_DOUBLING)` for [`SWEEP_DOUBLINGS`]
+/// doublings, each rounded down to a byte.
+fn sweep_budgets() -> Vec<usize> {
+    let steps = SWEEP_STEPS_PER_DOUBLING * SWEEP_DOUBLINGS;
+    std::iter::once(0)
+        .chain((0..=steps).map(|step| {
+            let factor = 2f64.powf(f64::from(step) / f64::from(SWEEP_STEPS_PER_DOUBLING));
+            (SWEEP_FIRST as f64 * factor) as usize
+        }))
+        .collect()
+}
+
+/// One session of the hop sweep, untraced: its hops, the releases the held
+/// link made with every byte released at every stall, and the units both
+/// sides report waiting.
+fn sweep_session(budget: usize) -> (usize, u64) {
+    let Fixture { peers: [a, b], .. } = fixture([SWEEP_MESSAGES; 2], 0, budget);
+    let link = Link::new();
+    prepare_pacing();
+    let (mut a_read, mut a_write) = (link.reader(Side::A), link.writer(Side::A));
+    let (mut b_read, mut b_write) = (link.reader(Side::B), link.writer(Side::B));
+    let (a_out, b_out, drive) = drive(
+        &link,
+        a.gossip_once(&mut a_read, &mut a_write),
+        b.gossip_once(&mut b_read, &mut b_write),
+        release_everything,
+    );
+    let waits = [a_out, b_out].map(|out| {
+        out.expect("the sweep's session completes")
+            .0
+            .stats
+            .budget_waits
+    });
+    (drive.releases, waits.iter().sum())
+}
+
+/// A session never takes more hops at a larger budget.
+///
+/// On the held link, releasing every byte at every stall, each release is
+/// one hop: everything either side sent since the last stall crosses at
+/// once, so the releases count the session's serialized round trips
+/// exactly, whatever the machine's load. The sweep runs one fixed fixture
+/// at zero and at budgets rising geometrically past its no-cost point, and
+/// the hops must never rise from one budget to the next.
+///
+/// The sweep must span the budgets that matter: at zero some unit waits
+/// and the session takes more hops than with no budget, and at the largest
+/// budget no unit waits and the session takes exactly the hops it takes
+/// with no budget.
+#[test]
+fn hops_never_rise_with_the_budget() {
+    let (unlimited, unlimited_waits) = sweep_session(usize::MAX);
+    assert_eq!(unlimited_waits, 0, "no unit waits with no budget");
+    let runs: Vec<(usize, usize, u64)> = sweep_budgets()
+        .into_iter()
+        .map(|budget| {
+            let (hops, waits) = sweep_session(budget);
+            println!("budget {budget} B: {hops} hops, {waits} units waited");
+            (budget, hops, waits)
+        })
+        .collect();
+    println!("no budget: {unlimited} hops");
+    for pair in runs.windows(2) {
+        let [(smaller, smaller_hops, _), (larger, larger_hops, _)] = pair else {
+            unreachable!("windows of two hold two runs");
+        };
+        assert!(
+            larger_hops <= smaller_hops,
+            "{larger_hops} hops at {larger} B exceed {smaller_hops} at {smaller} B"
+        );
+    }
+    let (_, first_hops, first_waits) = runs[0];
+    let &(top, top_hops, top_waits) = runs.last().expect("the sweep runs budgets");
+    assert!(
+        first_waits > 0 && first_hops > unlimited,
+        "at zero the budget must cost the session hops: {first_hops} against {unlimited}"
+    );
+    assert!(
+        top_waits == 0 && top_hops == unlimited,
+        "at {top} B the session must run as with no budget: {top_hops} hops against \
+         {unlimited}, {top_waits} units waited"
     );
 }

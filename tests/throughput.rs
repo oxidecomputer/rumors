@@ -18,7 +18,7 @@
 #[path = "throughput/model.rs"]
 mod model;
 
-/// A budget of the unlimited-budget peak against no budget at all.
+/// A budget at the no-cost point against no budget at all.
 #[path = "throughput/no_slowdown.rs"]
 mod no_slowdown;
 

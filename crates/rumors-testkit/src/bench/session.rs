@@ -357,6 +357,9 @@ pub struct LedgerReading {
     /// The sum over floor slots of the largest grant each admitted: the
     /// `Σ F` its bound adds to its budget.
     pub floor_bound: usize,
+    /// The largest sum any of its invitation share checks weighed: the
+    /// share peak.
+    pub share_peak: usize,
     /// Units that waited for admission, as the ledger counts them.
     pub waited: u64,
     /// The bytes it held outside its floor slots, integrated over the
@@ -413,6 +416,7 @@ impl Default for LedgerReading {
             held_peak: 0,
             floor_peak: 0,
             floor_bound: 0,
+            share_peak: 0,
             waited: 0,
             budget_area: 0,
             charged: 0,
@@ -475,6 +479,30 @@ impl Admitted {
             .map(|ledger| ledger.budget_peak)
             .max()
             .unwrap_or(0)
+    }
+
+    /// The largest sum any ledger's invitation share checks weighed: the
+    /// share peak ([`LedgerReading::share_peak`]).
+    pub fn share_peak(&self) -> usize {
+        self.ledgers
+            .iter()
+            .map(|ledger| ledger.share_peak)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The session's no-cost point, read from an unlimited session: the
+    /// least budget at which it runs as the unlimited session does.
+    ///
+    /// That is the larger of `Λ`, every ledger's peak outside its floor
+    /// slots, and the [`share_peak`](Self::share_peak).
+    ///
+    /// Below `Λ` some admission the unlimited session made would not fit,
+    /// and below the share peak some question it asked would not fit beside
+    /// its depth's claims, so some unit waits. At or above both, every check
+    /// the unlimited session made passes, by induction along its schedule.
+    pub fn no_cost_budget(&self) -> usize {
+        self.budget_peak().max(self.share_peak())
     }
 
     /// Units that waited for admission, over every ledger.
@@ -649,6 +677,7 @@ fn record_change(change: LedgerChange) {
         reading.held_peak = reading.held_peak.max(change.held);
         reading.floor_peak = reading.floor_peak.max(change.floor + change.carried);
         reading.floor_bound = reading.floor_bound.max(change.floor_bound);
+        reading.share_peak = reading.share_peak.max(change.share_peak);
         reading.waited = reading.waited.max(change.waited);
         // The runner observes on one thread, so changes arrive in the order
         // they happened and each rise is exactly one charge.

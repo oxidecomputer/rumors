@@ -317,6 +317,30 @@ impl<E: ErasedNode> Question<E> {
     }
 }
 
+impl<E: ErasedNode> Question<E> {
+    /// The need of this question, asked about a child of `prefix`: the bytes
+    /// processing its reply is predicted to admit one level down
+    /// ([`charges::processing_need`]).
+    ///
+    /// A disputed child lists this side's children of it, so the peer's
+    /// reply lists the grandchildren the peer holds under the children it
+    /// disputes; a request lists nothing, and its reply supplies the child's
+    /// children, needing nothing processed.
+    ///
+    /// The stage that processes the reply recomputes the need from the bound
+    /// the question's query carries, to withdraw the question's claim. The
+    /// two agree: building the question lists exactly the child count read
+    /// here, or fails the session ([`ops::children_of`]).
+    pub(super) fn need<Err>(&self, prefix: ErasedPrefix) -> usize {
+        let height = prefix.height() - 1;
+        let (listed, theirs) = match self {
+            Self::Dispute { node, theirs, .. } => (node.child_count().min(FAN), *theirs),
+            Self::Request { theirs, .. } => (0, *theirs),
+        };
+        charges::processing_need::<E, Err>(ReplyBound::of(height, listed, theirs))
+    }
+}
+
 /// One question, built: its reaction, the item it sends down, and what the
 /// chunk ending at it carries to its encoder ([`Carried::Question`]): the
 /// charge for its record, and the room its reply parks in.

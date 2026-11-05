@@ -1,5 +1,5 @@
-//! A budget at least the session's unlimited-budget peak costs it nothing:
-//! the session runs exactly as it would with no budget at all.
+//! A budget at the session's no-cost point costs it nothing: the session
+//! runs exactly as it would with no budget at all.
 //!
 //! # The claim
 //!
@@ -7,12 +7,25 @@
 //! first takes its depth's floor slot if that slot is free, whatever the
 //! budget, and otherwise is admitted against the budget if the bytes the
 //! ledger holds outside its floor slots, with the unit's grant added, fit
-//! within it. Let `Λ` be the most bytes either side's ledger holds outside
-//! its floor slots when the budget is unlimited. With a budget `B ≥ Λ`,
-//! every admission the unlimited session makes against the budget fits
-//! within `B` as well, so no unit waits that did not wait there. The floor
-//! slots' use does not depend on the budget, so every admission decision,
-//! and with them the session, is the unlimited session's, event for event.
+//! within it. A question under the invitation share must also keep its
+//! depth's claims within the budget: the room the depth's questions hold,
+//! with its own grant, beside the predicted needs of their unfinished
+//! replies and its own, scaled by the depth's pace,
+//! `I_d + c + α · (N_d + n) ≤ B`.
+//!
+//! Let `Λ` be the most bytes either side's ledger holds outside its floor
+//! slots when the budget is unlimited, and the *share peak* the largest sum
+//! any share check of that session weighs. The session's *no-cost point* is
+//! the larger of the two. At a budget at least that, every admission the
+//! unlimited session makes against the budget fits within it, every share
+//! check it makes passes, and the floor slots' use does not depend on the
+//! budget, so no unit waits that did not wait there. Every admission
+//! decision, and with them the session, is then the unlimited session's,
+//! event for event: an induction along the unlimited session's schedule.
+//! The share peak exceeds `Λ` wherever a depth asks more questions at once
+//! than the budget could also process their replies with; between the two,
+//! the share holds questions back, and identity is promised only at the
+//! no-cost point.
 //!
 //! The budget here is the ledger's: a peer's memory budget less the floor
 //! allowance it sets aside for the floor slots, so the suite configures
@@ -26,13 +39,16 @@
 //! so a session's timeline is an exact function of its pair, link, and
 //! budgets:
 //!
-//! - the oracle, with an unlimited budget, which reads `Λ` from the ledgers
-//!   and must have kept every unit from waiting;
-//! - the session with both budgets at `Λ`, which must carry the oracle's
-//!   every segment at the oracle's every instant.
+//! - the oracle, with an unlimited budget, which reads the no-cost point
+//!   from the ledgers and must have kept every unit from waiting;
+//! - the session with both budgets at the no-cost point, which must carry
+//!   the oracle's every segment at the oracle's every instant, and keep
+//!   every unit from waiting, as the oracle does.
 //!
-//! The comparison is an identity, with no tolerance: any admission the
-//! budget refused would reorder the session's work and move its segments.
+//! The comparison is an identity, with no tolerance. The segments alone
+//! would not show every admission the budget refused: computation takes no
+//! link time, so a unit that waits and is admitted within the instant it
+//! asked moves no segment. The count of units that waited shows it.
 
 use std::array;
 
@@ -69,36 +85,43 @@ fn cases(budget: impl Fn(usize) -> usize) -> [Case; SIZES.len() * OVERLAPS.len()
     })
 }
 
-/// Prints one pair's oracle beside its session at `Λ`.
+/// Prints one pair's oracle beside its session at the no-cost point.
 fn report(oracle: &Session, at_peak: &Session) {
     let Case { shape, link, .. } = oracle.case;
     let messages = shape.shared + shape.a;
     let peak = oracle.admitted.budget_peak();
+    let no_cost = oracle.admitted.no_cost_budget();
     println!(
         "{messages} messages a side, {} shared, BDP {} B: Λ = {peak} B ({:.1} B per \
-         message), {} units waited at Λ; {} byte-times unlimited, {} at Λ",
+         message), no-cost point {no_cost} B ({:.3} Λ), {} units waited there; {} \
+         byte-times unlimited, {} there",
         shape.shared,
         link.bdp(),
         peak as f64 / messages as f64,
+        no_cost as f64 / peak as f64,
         at_peak.admitted.waited(),
         oracle.duration(),
         at_peak.duration(),
     );
 }
 
-/// A budget equal to the session's unlimited-budget peak leaves every
-/// session unchanged, event for event.
+/// A budget at the session's no-cost point leaves every session
+/// unchanged, event for event.
 ///
 /// Across sizes, disjoint and mostly shared pairs, and a LAN and a
-/// long-haul link, a session with both budgets at `Λ` carries the same
-/// segments at the same instants as the same session with an unlimited
-/// budget, under which no unit waited.
+/// long-haul link, a session with both budgets at the larger of `Λ` and the
+/// share peak carries the same segments at the same instants as the same
+/// session with an unlimited budget, and like it keeps every unit from
+/// waiting. Each
+/// oracle must have admitted work against the budget and made a share
+/// check, so that neither term of the no-cost point reads zero because its
+/// counter stopped counting.
 #[test]
-fn a_budget_of_the_unlimited_peak_is_identical_to_no_budget() {
+fn a_budget_of_the_no_cost_point_is_identical_to_no_budget() {
     let oracles = fixture::run_all(cases(|_| ORACLE_BUDGET));
     let peaks = oracles
         .each_ref()
-        .map(|oracle| oracle.admitted.budget_peak());
+        .map(|oracle| oracle.admitted.no_cost_budget());
     let at_peaks = fixture::run_all(cases(|index| fixture::admitting(peaks[index])));
     for (oracle, at_peak) in oracles.iter().zip(&at_peaks) {
         report(oracle, at_peak);
@@ -118,9 +141,24 @@ fn a_budget_of_the_unlimited_peak_is_identical_to_no_budget() {
              nothing: {:?}",
             oracle.case,
         );
+        assert!(
+            oracle.admitted.share_peak() > 0,
+            "some question must be checked against its depth's claims, or the \
+             share peak reads nothing: {:?}",
+            oracle.case,
+        );
         assert_eq!(
-            at_peak.report, oracle.report,
-            "a budget of Λ = {peak} changes the session: {:?}",
+            at_peak.admitted.waited(),
+            0,
+            "a unit waited under a budget admitting the no-cost point {}: {:?}",
+            oracle.admitted.no_cost_budget(),
+            oracle.case,
+        );
+        assert_eq!(
+            at_peak.report,
+            oracle.report,
+            "a budget at the no-cost point {} (Λ = {peak}) changes the session: {:?}",
+            oracle.admitted.no_cost_budget(),
             oracle.case,
         );
     }

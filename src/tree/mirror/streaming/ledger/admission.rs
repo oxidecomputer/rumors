@@ -59,18 +59,29 @@
 //!    against the budget. The floor part also counts what slots carry for
 //!    units admitted against the budget ([below](#carrying)).
 //! 2. **Otherwise, it is admitted against the budget** if no deeper unit is
-//!    waiting and its grant fits beside everything else the ledger holds
-//!    outside its floor slots, `L − F + c ≤ B`. Otherwise it waits,
-//!    reconsidered whenever the ledger releases bytes, a slot comes free,
-//!    or a slot starts carrying.
+//!    waiting for room and its grant fits beside everything else the ledger
+//!    holds outside its floor slots, `L − F + c ≤ B`.
+//! 3. **A question under the invitation share is admitted only while its
+//!    depth's claims, with its own, fit the budget:**
+//!    `I_d + c + α · (N_d + n) ≤ B` (see [below](#the-invitation-share)).
+//!
+//! A unit refused at step 2 or 3 waits, reconsidered whenever the ledger
+//! releases bytes, a slot comes free, a slot starts carrying, or a reply
+//! finishes. One refused at
+//! step 2 waits for room, and keeps every shallower unit from the budget
+//! meanwhile, so deeper work comes first; one refused at step 3 waits for
+//! its depth's replies to be processed, not for room, and keeps no other
+//! unit waiting.
 //!
 //! So every depth always has room for one unit of each kind, and the budget
 //! adds pipelining on top; a larger budget only ever adds capacity, since
-//! the floor's use does not depend on it, and a check of step 2 that passes
-//! at one budget passes, in the same state, at every larger one. The ledger
-//! then holds at most the budget plus one grant per slot:
+//! the floor's use does not depend on it, and a check of step 2 or 3 that
+//! passes at one budget passes, in the same state, at every larger one.
+//! The ledger then holds at most the budget plus one grant per slot:
 //! `L ≤ B + Σ_d (F_d^answer + F_d^question)`, where each `F` is the largest
-//! grant admitted to a unit of that slot's kind and depth.
+//! grant admitted to a unit of that slot's kind and depth. The invitation
+//! share takes nothing from this bound: it governs no floor slot, and it
+//! only refuses admissions that step 2 would allow.
 //!
 //! A session that may hold `M` in all, as a peer's memory budget sets it,
 //! gives its ledger the budget `B = M − A`, where `A` is the walk's *floor
@@ -124,34 +135,128 @@
 //!   kind and depth is admitted against the budget, since step 1 takes it
 //!   first.
 //!
-//! Carrying reads the schedule and never the budget, so along a schedule in
-//! which no unit waits, every check reads the same state at every budget: a
-//! budget at least the most an unlimited ledger holds outside its floor
-//! slots along that schedule admits every unit as the unlimited one does.
-//! Nor does carrying change
-//! [why every unit is admitted](#why-every-unit-is-admitted). At a zero
-//! budget nothing is held against the budget, so nothing is carried. At any
-//! budget, a slot starts carrying only while no unit of its kind and depth
-//! waits, and carries no more than the units of its kind and depth then
-//! hold against the budget, all admitted before any unit that waits for the
-//! slot later; and every byte of its kind and depth that returns goes to
-//! the carry first. So the slot frees no later than those units have
-//! released their charges, which needs nothing of a unit admitted after
-//! them, as a slot held by its own unit frees once that unit has.
+//! Carrying reads the schedule and never the budget, so the states every
+//! check reads along a schedule in which nothing waits are the same at
+//! every budget: the [no-cost point](#the-no-cost-point) holds with `Λ` and
+//! the share peak read from a session carrying as every session does. Nor
+//! does it change [why every unit is admitted](#why-every-unit-is-admitted).
+//! At a zero budget nothing is held against the budget, so nothing is
+//! carried. At any budget, a slot starts carrying only while no unit of its
+//! kind and depth waits, and carries no more than the units of its kind and
+//! depth then hold against the budget, all admitted before any unit that
+//! waits for the slot later; and every byte of its kind and depth that
+//! returns goes to the carry first. So the slot frees no later than those
+//! units have released their charges, which needs nothing of a unit admitted
+//! after them, as a slot held by its own unit frees once that unit has.
 //!
-//! # One lock for every decision
+//! The units of an invitation the slot carries keep their claims: a claim
+//! withdraws as its reply finishes, and the share's room `I_d` counts only
+//! what the budget still holds of the depth's questions.
 //!
-//! Every value a decision reads lives in the queue's locked state
-//! ([`Slots`]) or changes only under its lock: whether each slot is taken
-//! ([`Slot`]), the bytes the budget counts, what each kind and depth holds
-//! against the budget, and what each slot carries. Every change to them is
-//! made under the same lock: a charge is
-//! built there ([`decide`]), an item's shortfall joins there
-//! ([`shortfall`]), and a charge's drop returns its bytes, leaves its slot,
-//! and reconsiders the waiting units in one critical section ([`release`]).
-//! So no decision reads a total beside a part of it that a concurrent drop
-//! has changed and the total has not yet: the budget's count is a count of
-//! its own, never the difference of counts that change apart.
+//! # The invitation share
+//!
+//! A question *invites* its reply: it holds the reply's room from the
+//! moment it is admitted until this side's stage has processed the reply.
+//! A stage processes its replies one at a time, in the order its questions
+//! were asked, and processing a reply admits units of its own: an answer
+//! one level down for each child the reply disputes, and a question two
+//! levels down for each grandchild it lists that this side does not match.
+//! Room held by a reply that waits its turn overlaps no round trip, and
+//! takes the budget from the processing that would let the stage reach it.
+//! Without a limit, the answers at the top of a session ask their questions
+//! all at once, before any deeper work exists; with a budget smaller than
+//! the session's whole need, their replies fill it and then wait behind
+//! one stage, while the rest of the session runs in what is left. So a
+//! depth should invite no more replies than the budget would also let it
+//! process.
+//!
+//! Each question the share admits against the budget therefore carries a
+//! *claim*: what it holds of its grant, `c`, and `α · n`, where `n` is the
+//! bytes processing its reply is predicted to admit and `α` the depth's
+//! *pace* (both below). A depth admits a question only while its
+//! outstanding claims, the new one included, fit in the budget together:
+//!
+//! > `I_d + c + α · (N_d + n) ≤ B`
+//!
+//! where `I_d` is the bytes the depth's questions hold against the budget
+//! and `N_d` the predicted needs of those of them whose replies this side's
+//! stage has not finished, the depth's *outstanding claims*. The check
+//! follows Dijkstra's banker in its simplest form, lending only while every
+//! customer's declared credit fits in the capital at once: a question is
+//! admitted only if its depth could also afford to process every reply it
+//! has invited. A
+//! question's room returns as its reply is processed, and its need
+//! withdraws as the stage finishes the reply
+//! ([`Ledger::processed`](super::Ledger::processed)), so the depth's claims
+//! shrink as its stage reaches them.
+//!
+//! No term depends on round trips, delays, or scheduling. A claim states
+//! what an invitation could cost the budget, never how long it holds it, so
+//! the check reads the same on every link.
+//!
+//! - **The predicted need, `n`, is a lower bound.** The answers a reply's
+//!   processing builds one level down are sized by this side's children of
+//!   the node's children and the copies exploding them, which the walk
+//!   reads only as it builds the question, after admitting it, and by the
+//!   reply's entries, which only the reply carries. So the counts known at
+//!   admission bound the need only at the type maximum. The
+//!   walk predicts the least it can be instead: the answers that a reply
+//!   listing every grandchild its bound allows must make processing build,
+//!   as few as can hold the entries, each at the least it can cost (the
+//!   walk's `charges::processing_need`, which the walk passes to
+//!   [`Ledger::invite`](super::Ledger::invite)).
+//!   A reply that can list nothing, such as one answering a request, is
+//!   predicted to need nothing, which leaves its depth the budget's whole
+//!   room.
+//! - **The pace, `α`, corrects the prediction from what processing admits**
+//!   ([`Pace`], [`Share::pace`]): per depth, the bytes the answers one
+//!   level down have kept out of their grants over the needs predicted for the
+//!   replies that built them, both read as each reply finishes. It is a
+//!   ratio of sums, one until the first reply finishes. It falls below one
+//!   where replies list less than their bounds allow, or where the answers
+//!   return room they did not use, and rises above one where this side
+//!   holds children the peer lacks, or where exploding the children the
+//!   answers concern copies nodes. Since `n` bounds below, `α = 1` takes the
+//!   prediction as it stands and bounds nothing.
+//! - **The claims nest.** A depth-`d` claim prices only the answers at
+//!   `d + 1` its reply's processing builds. The questions at `d + 2` that
+//!   processing sends claim their own room, and their own replies'
+//!   processing, at their own depth when they are asked. So each byte
+//!   counts toward one depth's sum at most: a question's toward its own
+//!   depth's, an answer's toward the depth above it. Pooling the depths
+//!   into one check fails by construction rather than by degree: a claim
+//!   would have to cover the whole subtree its reply leads to, since the
+//!   questions it covers carry claims of their own two levels further down,
+//!   so the pooled sum outgrows the budget, refuses every later question at
+//!   every depth, and leaves the session to its floor slots. The per-depth
+//!   check is the structure the claims have.
+//! - **It applies at every budget.** The share governs every question an
+//!   internal answer asks ([`Ledger::invite`](super::Ledger::invite)).
+//!   Each depth's check stops binding by its own form, at the depth's
+//!   *endpoint*: the sum, over every question the depth would have
+//!   outstanding at once, of `c + α · n`, its questions beside the
+//!   processing of all their replies. A budget at or above it admits
+//!   every question at that depth that fits the budget. For the root's
+//!   questions, which a session asks together, the endpoint is about a fan
+//!   of them, each beside its reply's predicted processing.
+//!
+//! # The no-cost point
+//!
+//! A budget large enough never meets the share. Let `Λ` be the most the
+//! ledger holds outside its floor slots in a session with no budget, and
+//! the *share peak* the largest `I_d + c + α · (N_d + n)` any share check
+//! of that session weighs. The session's *no-cost point* is the larger of
+//! the two. At any budget at or above it, every check that session makes
+//! would pass in the same state, so no unit waits and every admission
+//! decision is the same, and by induction along its schedule the session
+//! is the one with no budget, event for event. Below it, the first check
+//! along that schedule that fails refuses a unit, so some unit waits.
+//!
+//! Identity is promised at the no-cost point, not at `Λ`. A rule that holds
+//! back the first round's questions, the burst it exists to stop, refuses
+//! some question that fits; to stay identical at every budget of at least
+//! `Λ` it would have to know, at the first round trip, that the budget lies
+//! below `Λ`, which the session cannot know until it has run.
 //!
 //! # Why every unit is admitted
 //!
@@ -180,6 +285,12 @@
 //!   above, and for deeper units, which waiters at greater depths precede
 //!   for the budget but never for the floor.
 //!
+//! The invitation share only refuses admissions against the budget, never
+//! a floor slot, and a unit it refuses keeps no other unit from the budget
+//! or from a slot, so the argument, which uses no budget above zero, covers
+//! it unchanged; and every grant it admits against the budget still fits
+//! beside what the ledger holds, so the bound above holds with it.
+//!
 //! Every part of a question's reservation returns no later than the scope
 //! it asks about is assembled, when its parent resolution's part returns,
 //! so a slot frees at that assembly however early the parked room returns.
@@ -205,6 +316,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 
 use super::{Account, Charge, widen};
+use crate::counter;
 use crate::tree::mirror::streaming::holding::{Holding, held_by};
 
 /// The depths a scope can sit at, the root's 0 through the leaves' 32,
@@ -242,8 +354,9 @@ impl Unit {
     }
 }
 
-/// The units waiting for one ledger's admission, and the state of its
-/// floor slots and its budget, which every decision reads.
+/// The units waiting for one ledger's admission, the bytes the budget
+/// counts, what each kind and depth of unit holds against the budget, what
+/// its floor slots carry, and the invitation share's claims and pace.
 ///
 /// Its lock also orders the taking and freeing of floor slots: a slot's
 /// count of sharers moves to or from zero only under it ([`Slot`]).
@@ -255,11 +368,14 @@ pub(super) struct Queue {
     /// The bytes the budget counts, and the state of each floor slot's kind
     /// and depth, which only admission's critical sections touch.
     slots: Slots,
+    /// The invitation share's state, which only admission's critical
+    /// sections touch.
+    share: Share,
 }
 
 impl Default for Queue {
-    /// Returns a queue with no unit waiting, no slot carrying, and nothing
-    /// held against the budget.
+    /// Returns a queue with no unit waiting, no slot carrying, and no
+    /// claim or finished reply.
     fn default() -> Self {
         Self {
             waiting: Vec::new(),
@@ -269,6 +385,11 @@ impl Default for Queue {
                 budgeted: [0; SLOTS],
                 carried: [0; SLOTS],
                 largest: [0; SLOTS],
+            },
+            share: Share {
+                claimed: [0; DEPTHS],
+                predicted: [0; DEPTHS],
+                actual: [0; DEPTHS],
             },
         }
     }
@@ -314,18 +435,21 @@ pub(super) struct Slots {
     /// budget, by the kind and depth of their unit, the bytes floor slots
     /// carry for them included.
     ///
-    /// Each count is what a freed slot of its kind and depth can carry. A
-    /// charge admitted against the budget is built under the lock
-    /// ([`decide`]), an item's shortfall joins under it ([`shortfall`]),
-    /// and a charge's drop returns its bytes under it ([`release`]), so each
-    /// carry reads exactly what the budget holds of its kind and depth.
+    /// Less what its slot carries, the questions' count at a depth is the
+    /// room that depth's invitations hold against the budget, `I_d` in the
+    /// invitation share's check; each count is what a freed slot of its kind
+    /// and depth can carry. A charge admitted against the budget is built
+    /// under the lock ([`decide`]), an item's shortfall joins under it
+    /// ([`shortfall`]), and a charge's drop returns its bytes under it
+    /// ([`release`]), so each check and carry reads exactly what the budget
+    /// holds of each kind and depth.
     budgeted: [usize; SLOTS],
     /// The bytes each slot carries for charges of its kind and depth
     /// admitted against the budget; the account's `carried` is their sum.
     carried: [usize; SLOTS],
     /// The largest grant admitted to a unit of each slot's kind and depth,
     /// through the slot or against the budget: the most the slot carries.
-    largest: [usize; SLOTS],
+    largest: [u32; SLOTS],
 }
 
 impl Slots {
@@ -337,7 +461,7 @@ impl Slots {
 
     /// Note a grant of `bytes` admitted to a unit of `slot`'s kind and
     /// depth.
-    fn admitted(&mut self, slot: Slot, bytes: usize) {
+    fn admitted(&mut self, slot: Slot, bytes: u32) {
         let largest = &mut self.largest[slot.index()];
         *largest = (*largest).max(bytes);
     }
@@ -352,6 +476,145 @@ struct Request {
     depth: usize,
     /// The most its items can hold.
     bytes: u32,
+    /// For a question under the invitation share, its need: the bytes
+    /// processing its reply is predicted to admit one level down, which its
+    /// claim weighs ([`decide`]); `None` for every other unit.
+    need: Option<usize>,
+}
+
+/// What the rule decides for one unit.
+enum Decision {
+    /// The unit is admitted with this grant.
+    Grant(Charge),
+    /// The unit waits for room in the budget, and keeps every shallower
+    /// unit waiting for it too.
+    Room,
+    /// The unit's grant fits the budget, but its claim does not fit beside
+    /// its depth's outstanding claims.
+    ///
+    /// The invitation share holds it back until the depth's stage processes
+    /// more of its replies; shallower units may still take the budget.
+    Share,
+}
+
+/// The pace, `α`, of one depth's replies: the factor that scales each
+/// predicted need in the depth's claims, as a ratio of two byte totals
+/// ([`Share::pace`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Pace {
+    /// The bytes the answers built by processing the depth's finished
+    /// replies have kept.
+    pub(super) actual: u64,
+    /// The needs predicted for those replies; never zero.
+    pub(super) predicted: u64,
+}
+
+impl Pace {
+    /// α of one: the prediction taken as it stands.
+    pub(super) const PREDICTED: Self = Self {
+        actual: 1,
+        predicted: 1,
+    };
+
+    /// `need` scaled by α, rounded down.
+    pub(super) fn scale(self, need: usize) -> u128 {
+        need as u128 * u128::from(self.actual) / u128::from(self.predicted)
+    }
+}
+
+/// The invitation share's state for each depth: its outstanding claims and
+/// the two sums of its pace
+/// ([The invitation share](self#the-invitation-share)).
+///
+/// It lives in the queue, so every change and every check holds the queue's
+/// lock: a check reads a depth's claims and pace as whole admissions and
+/// whole finished replies left them, never a finish half applied.
+struct Share {
+    /// The needs of each depth's questions the invitation share admitted
+    /// against the budget, whose replies this side's stage has not
+    /// finished: each depth's outstanding claims, `N_d` in the share's check.
+    ///
+    /// A need joins as its question is admitted and withdraws as the stage
+    /// finishes the reply ([`processed`]). A question admitted but never
+    /// built, which happens only as its session ends, leaves its need behind
+    /// in a ledger nothing admits against again.
+    claimed: [usize; DEPTHS],
+    /// The needs predicted for the replies to questions about scopes at
+    /// each depth, over the replies this side's stage has finished: the
+    /// pace's predicted bytes for each depth.
+    predicted: [u64; DEPTHS],
+    /// Bytes the answers one level below each depth had kept as its latest
+    /// reply finished: what processing its finished replies built, the
+    /// pace's actual bytes for each depth.
+    actual: [u64; DEPTHS],
+}
+
+impl Share {
+    /// Add a question's `need` to the outstanding claims at `depth`, as the
+    /// invitation share admits it against the budget.
+    ///
+    /// The sum saturates rather than wraps: reaching `usize::MAX` takes more
+    /// live questions than an address space holds, and a saturated sum only
+    /// holds every later question at the depth to its floor slot.
+    fn claim(&mut self, depth: usize, need: usize) {
+        self.claimed[depth] = self.claimed[depth].saturating_add(need);
+    }
+
+    /// Note that this side's stage has finished a reply to a question about
+    /// a scope at `depth`, whose need was `need`.
+    ///
+    /// The question took its floor slot if `floor`, and the answers one
+    /// level down have kept `answers` bytes
+    /// ([`Ledger::processed`](super::Ledger::processed)).
+    ///
+    /// A question on its floor slot claimed nothing; any other withdraws its
+    /// need. A need withdraws only after it was claimed, both under the
+    /// queue's lock, so the claims never fall below it; the subtraction
+    /// saturates so that a saturated sum ([`claim`](Self::claim)) cannot
+    /// wrap on its way down. The predicted sum saturates too, for the same
+    /// reason.
+    fn finish(&mut self, depth: usize, need: usize, floor: bool, answers: u64) {
+        if !floor {
+            let claimed = &mut self.claimed[depth];
+            debug_assert!(
+                *claimed >= need,
+                "a finished reply withdraws only a need its question claimed",
+            );
+            *claimed = claimed.saturating_sub(need);
+        }
+        self.predicted[depth] = self.predicted[depth].saturating_add(counter::widen(need));
+        self.actual[depth] = answers;
+    }
+
+    /// The pace of the replies to questions about scopes at `depth`: the one
+    /// place `α` is chosen ([`Pace`]).
+    ///
+    /// A need predicts the answers one level down that processing a reply
+    /// builds, and nothing but that processing builds answers there. So `α`
+    /// is the bytes those answers had kept out of their grants as the latest
+    /// reply finished, over the needs predicted for the replies finished so
+    /// far ([`Ledger::processed`](super::Ledger::processed)): a ratio of
+    /// sums, the mean and not a typical reply, since memory adds. Reading
+    /// both at a reply's finish keeps a reply in progress out of both sums,
+    /// so its prediction never stands against answers it has yet to build.
+    /// `α` is one until a reply has finished, the prediction taken as it
+    /// stands, and may exceed one: the prediction is a lower bound only for
+    /// replies that list every grandchild their bounds allow, and answers
+    /// can keep more than their least.
+    ///
+    /// It follows only what this side's own processing admits, so it is
+    /// deterministic wherever the session is, and it paces admissions only:
+    /// the bound and the liveness argument never read it.
+    fn pace(&self, depth: usize) -> Pace {
+        let predicted = self.predicted[depth];
+        if predicted == 0 {
+            return Pace::PREDICTED;
+        }
+        Pace {
+            actual: self.actual[depth],
+            predicted,
+        }
+    }
 }
 
 /// One unit waiting for admission.
@@ -487,28 +750,36 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// build and send, or `None` to keep it waiting.
 ///
 /// The unit `request` names is of its kind, concerns a scope at its depth,
-/// and holds at most its bytes. The two steps are the module's rule;
+/// and holds at most its bytes. The steps are the module's rule;
 /// `budget_open` is false once a deeper unit must keep waiting.
 ///
 /// The caller holds the queue's lock, which makes this one of the two
-/// places a free slot is taken ([`Slot`]), and passes the slots' state it
-/// keeps. Every value the steps read lives in that state, the bytes the
-/// budget counts included, so each is one the ledger has held.
+/// places a free slot is taken ([`Slot`]), and passes the slots' and the
+/// share's state it keeps. Every value the steps read is one the ledger has
+/// held: whether the slot is taken changes only under the lock, and every
+/// other value, the bytes the budget counts included, lives in the state
+/// the lock guards.
 fn decide(
     account: &Arc<Account>,
     slots: &mut Slots,
+    share: &mut Share,
     budget_open: bool,
     request: Request,
-) -> Option<Charge> {
-    let Request { unit, depth, bytes } = request;
+) -> Decision {
+    let Request {
+        unit,
+        depth,
+        bytes,
+        need,
+    } = request;
     let slot = Slot::new(unit, depth);
     // 1. If the unit's floor slot is free, it takes the slot.
     if !slot.taken(account, slots) {
         slot.take(account, slots);
-        slots.admitted(slot, widen(bytes));
+        slots.admitted(slot, bytes);
         #[cfg(any(test, feature = "test-internals"))]
         account.slot_peaks[unit.row()][depth].fetch_max(widen(bytes), Ordering::Relaxed);
-        return Some(Charge::granted(
+        return Decision::Grant(Charge::granted(
             account,
             slots,
             unit.place(),
@@ -518,13 +789,33 @@ fn decide(
         ));
     }
     // 2. Otherwise it is admitted against the budget if no deeper unit
-    // waits and its grant fits beside what the ledger holds outside its
-    // floor slots, or it waits.
+    // waits for room and its grant fits beside what the ledger holds
+    // outside its floor slots, or it waits.
     if !budget_open || slots.normal.saturating_add(widen(bytes)) > account.budget {
-        return None;
+        return Decision::Room;
     }
-    slots.admitted(slot, widen(bytes));
-    Some(Charge::granted(
+    // 3. A question under the invitation share is admitted only while its
+    // depth's claims, with its own, fit the budget: the room its depth's
+    // questions hold and the needs of their unfinished replies, scaled by
+    // the depth's pace, beside its own grant and need.
+    if let Some(need) = need {
+        let invited = slots.budgeted[slot.index()] - slots.carried[slot.index()];
+        let claimed = share.claimed[depth];
+        let sum = invited as u128
+            + widen(bytes) as u128
+            + share.pace(depth).scale(claimed.saturating_add(need));
+        #[cfg(any(test, feature = "test-internals"))]
+        account.share_peak.fetch_max(
+            usize::try_from(sum).unwrap_or(usize::MAX),
+            Ordering::Relaxed,
+        );
+        if sum > account.budget as u128 {
+            return Decision::Share;
+        }
+        share.claim(depth, need);
+    }
+    slots.admitted(slot, bytes);
+    Decision::Grant(Charge::granted(
         account,
         slots,
         unit.place(),
@@ -624,6 +915,23 @@ pub(super) fn fold(account: &Arc<Account>, slot: Slot) {
     }
 }
 
+/// Note that this side's stage has finished a reply to a question about a
+/// scope at `depth`, then admit every waiting unit the ledger has room for.
+///
+/// The question's need was `need`, and it took its floor slot if `floor`
+/// ([`Ledger::processed`](super::Ledger::processed)). The claims and the pace change under the queue's lock ([`Share`]), the
+/// pace's actual bytes read as the reply finishes: what the answers one
+/// level down have kept.
+pub(super) fn processed(account: &Arc<Account>, depth: usize, need: usize, floor: bool) {
+    let mut queue = lock(&account.admission);
+    let answers = account
+        .kept
+        .get(depth + 1)
+        .map_or(0, |kept| kept.load(Ordering::Relaxed));
+    queue.share.finish(depth, need, floor, answers);
+    held_by(Holding::Admission, || admit_waiting(account, queue, None));
+}
+
 /// Add the `bytes` an item for `place` needed beyond the grant it was built
 /// out of, through a floor slot if `floor`, for a charge of `unit`
 /// ([`Charge::take`](super::Charge::take)).
@@ -669,6 +977,18 @@ pub(super) fn budgeted(account: &Account, unit: Unit, depth: usize) -> usize {
     lock(&account.admission).slots.budgeted[Slot::new(unit, depth).index()]
 }
 
+/// The outstanding claims of the questions about scopes at `depth`.
+#[cfg(test)]
+pub(super) fn claimed(account: &Account, depth: usize) -> usize {
+    lock(&account.admission).share.claimed[depth]
+}
+
+/// The invitation share's pace at `depth` ([`Share::pace`]).
+#[cfg(test)]
+pub(super) fn pace(account: &Account, depth: usize) -> Pace {
+    lock(&account.admission).share.pace(depth)
+}
+
 /// The bytes the floor slot of `unit` kind at `depth` carries
 /// ([Carrying](self#carrying)).
 #[cfg(test)]
@@ -679,7 +999,7 @@ pub(super) fn carried(account: &Account, unit: Unit, depth: usize) -> usize {
 /// The largest grant admitted to a unit of `unit` kind at `depth`.
 #[cfg(test)]
 pub(super) fn largest(account: &Account, unit: Unit, depth: usize) -> usize {
-    lock(&account.admission).slots.largest[Slot::new(unit, depth).index()]
+    widen(lock(&account.admission).slots.largest[Slot::new(unit, depth).index()])
 }
 
 /// Let the free `slot` carry what its kind and depth hold against the
@@ -710,7 +1030,7 @@ fn carry(account: &Account, queue: &mut Queue, slot: Slot) {
     // A free slot carries nothing, so every byte of its kind and depth held
     // against the budget is the budget's.
     let held = queue.slots.budgeted[slot.index()];
-    let bytes = held.min(queue.slots.largest[slot.index()]);
+    let bytes = held.min(widen(queue.slots.largest[slot.index()]));
     if bytes == 0 {
         return;
     }
@@ -727,22 +1047,28 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>, freed
         carry(account, &mut queue, slot);
     }
     let mut woken = Vec::new();
-    let Queue { waiting, slots, .. } = &mut *queue;
+    let Queue {
+        waiting,
+        slots,
+        share,
+        ..
+    } = &mut *queue;
     if !waiting.is_empty() {
         waiting.sort_by_key(|waiter| (Reverse(waiter.request.depth), waiter.order));
         let mut budget_open = true;
         waiting.retain(
-            |waiter| match decide(account, slots, budget_open, waiter.request) {
-                Some(grant) => {
+            |waiter| match decide(account, slots, share, budget_open, waiter.request) {
+                Decision::Grant(grant) => {
                     let mut state = lock(&waiter.state);
                     state.grant = Some(grant);
                     woken.extend(state.waker.take());
                     false
                 }
-                None => {
+                Decision::Room => {
                     budget_open = false;
                     true
                 }
+                Decision::Share => true,
             },
         );
     }
@@ -825,7 +1151,9 @@ pub fn observe_admissions(hook: AdmissionHook) -> bool {
 #[cfg(any(test, feature = "test-internals"))]
 fn waiting(account: &Account, waiter: &Waiter) {
     if let Some(hook) = ADMISSION_HOOK.get() {
-        let Request { unit, depth, bytes } = waiter.request;
+        let Request {
+            unit, depth, bytes, ..
+        } = waiter.request;
         hook(Admission {
             ledger: std::ptr::from_ref(account) as usize,
             order: Some(waiter.order),
@@ -926,9 +1254,23 @@ impl Admit {
     ///
     /// For the session-budget meter, a waiting unit is admission's own
     /// ([`Holding::Admission`]); a unit admitted at once allocates nothing.
-    pub(super) fn new(account: Arc<Account>, unit: Unit, depth: usize, bytes: u32) -> Self {
+    ///
+    /// A question whose `need` is given is governed by the invitation share,
+    /// its reply predicted to need that many bytes processed.
+    pub(super) fn new(
+        account: Arc<Account>,
+        unit: Unit,
+        depth: usize,
+        bytes: u32,
+        need: Option<usize>,
+    ) -> Self {
         assert!(depth < DEPTHS, "a scope sits at most 32 bytes deep");
-        let request = Request { unit, depth, bytes };
+        let request = Request {
+            unit,
+            depth,
+            bytes,
+            need,
+        };
         held_by(Holding::Admission, || Self::queue(account, request))
     }
 
@@ -941,9 +1283,14 @@ impl Admit {
             // admits exactly what queueing it would, without building a
             // waiter. The lock is held from the decision to the queueing,
             // so a unit this refuses queues as if it had never been tried.
-            let Queue { waiting, slots, .. } = &mut *queue;
+            let Queue {
+                waiting,
+                slots,
+                share,
+                ..
+            } = &mut *queue;
             if waiting.is_empty()
-                && let Some(grant) = decide(&account, slots, true, request)
+                && let Decision::Grant(grant) = decide(&account, slots, share, true, request)
             {
                 drop(queue);
                 return Self {

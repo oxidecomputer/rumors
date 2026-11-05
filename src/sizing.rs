@@ -48,11 +48,12 @@
 //!
 //! Start from the default of 512 MiB if you can afford it. Lower it when
 //! memory is scarce: a smaller budget is still correct, and only limits how
-//! much work overlaps each round trip, though a budget no larger than the
-//! floor allowance overlaps none. Raise it when your sets are large, your
-//! links have a large bandwidth-delay product (fast links with a long round
-//! trip), and measured synchronizations between very different replicas
-//! spend their time waiting for replies. A higher budget has little benefit
+//! much work overlaps each round trip, so a session that runs short of
+//! budget takes longer, more so on a link with a long round trip. Raise it
+//! when your sets are large, your links have a large bandwidth-delay
+//! product (fast links with a long round trip), and measured
+//! synchronizations between very different replicas spend their time
+//! waiting for replies. A higher budget has little benefit
 //! when the session already keeps the link busy, or when processing speed
 //! limits progress.
 //!

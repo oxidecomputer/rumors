@@ -681,20 +681,20 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Set the memory budget for each synchronization session: the memory
     /// a session may spend on pipelining.
     ///
-    /// A session compares the two replicas by asking questions about parts
-    /// of their sets, and each question it keeps in flight costs memory:
-    /// what it built to ask, and room set aside for the answer it invites.
-    /// The budget caps that memory. Within it the session keeps as many
-    /// questions in flight as it can use, overlapping its round trips;
-    /// when a question does not fit, the session waits for earlier answers
-    /// to free memory before asking it. A smaller budget therefore makes a
-    /// session slower, never failed: at a budget of zero it asks one
-    /// question at a time at each level of its comparison, the declared
-    /// behavior of a zero budget, and still completes.
+    /// A session overlaps its round trips by keeping work in flight while
+    /// replies cross the link, and that work costs memory: what the session
+    /// has built, and room set aside for the replies on their way. The
+    /// budget caps that memory. Within it, a session keeps in flight as much
+    /// as it can put to use. A smaller budget therefore makes a session
+    /// slower, never failed: at a budget of zero it keeps one piece of work
+    /// in flight at each level of its comparison, the declared behavior of
+    /// a zero budget, and still completes.
     ///
     /// More budget keeps more in flight, up to the point where nothing
-    /// waits; beyond it, more budget changes nothing. A session reports
-    /// what waited in
+    /// waits; beyond it, more budget changes nothing. That point can lie
+    /// somewhat above the most memory the session would use with no budget
+    /// at all, since the budget counts room for work before the session
+    /// knows whether it needs it. A session reports what waited in
     /// [`SessionStats::budget_waits`](crate::SessionStats::budget_waits),
     /// zero when the budget did not limit it. Most sessions come nowhere
     /// near the budget: a session's need grows with how much of the two
@@ -703,10 +703,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// two peers accumulated many messages apart. A peer joining with an
     /// empty replica receives the set as a stream and needs little.
     ///
-    /// The budget counts room set aside for answers not yet received, which
-    /// an answer may not use in full. So a session can slow slightly before
-    /// its memory use reaches the budget, most of all between nearly
-    /// identical replicas.
+    /// The budget counts the room set aside for each reply on its way at
+    /// that room's full size, though the reply may fill less of it. A
+    /// session also keeps no more in flight than the budget would let it act
+    /// on as the replies arrive, since work beyond that would only wait its
+    /// turn. So a session can wait for budget before its memory use reaches
+    /// the budget, most of all between nearly identical replicas.
     ///
     /// Each peer's budget bounds its own side of a session: your peer's
     /// budget, smaller or larger, does not change what your side holds,

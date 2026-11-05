@@ -47,11 +47,13 @@
 //! Each test runs fully divergent pairs on a LAN, first with an unlimited
 //! budget, which reads `Λ`, the most either
 //! side's ledger holds outside its floor slots when nothing waits for
-//! admission (see the [no-slowdown suite](crate::no_slowdown)). Each
-//! session then runs at a budget of `Λ`, where no unit waits, and at half
-//! of it, where units wait for admission, once with an unsent limit of zero
-//! and once with one bandwidth-delay product. Each such budget is what the
-//! ledgers admit against, configured beside the floor allowance
+//! admission, and the session's no-cost point, at or above which it runs as
+//! the unlimited session (see the [no-slowdown suite](crate::no_slowdown)).
+//! Each session then runs at the no-cost point, where no unit waits, and at
+//! half of `Λ`, where units wait for admission, once with an unsent limit
+//! of zero and once with one bandwidth-delay product.
+//! Each such budget is what the ledgers admit against, configured beside
+//! the floor allowance
 //! ([`admitting`](rumors_testkit::bench::session::admitting)).
 //!
 //! # Thresholds
@@ -126,8 +128,12 @@ fn assert_unharmed(without: &Session, with: &Session, allowance: u64) {
 }
 
 /// A fully divergent session takes no longer with a bandwidth-delay
-/// product of unsent bytes than with none, both at a budget of `Λ` and at
-/// half of it, where units wait for admission.
+/// product of unsent bytes than with none, both at the no-cost point and at
+/// half of `Λ`, where units wait for admission.
+///
+/// At the no-cost point, the session on the bare link is the unlimited
+/// one, event for event, so the comparison there starts from a session no
+/// budget slowed.
 ///
 /// At half of `Λ` the budget binds, which is where the analysis in the
 /// module docs predicts that queued requests cost the session.
@@ -142,6 +148,7 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
     };
     let [oracle] = fixture::run_all([case(ORACLE_BUDGET, bare)]);
     let peak = oracle.admitted.budget_peak();
+    let no_cost = oracle.admitted.no_cost_budget();
     let [
         critical_path,
         full_bare,
@@ -150,15 +157,15 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
         half_buffered,
     ] = fixture::run_all([
         case(ORACLE_BUDGET, bare.latency_only()),
-        case(fixture::admitting(peak), bare),
-        case(fixture::admitting(peak), buffered),
+        case(fixture::admitting(no_cost), bare),
+        case(fixture::admitting(no_cost), buffered),
         case(fixture::admitting(peak / 2), bare),
         case(fixture::admitting(peak / 2), buffered),
     ]);
     let allowance = resolution(&critical_path);
     for (label, session) in [
-        ("Λ, no unsent", &full_bare),
-        ("Λ, unsent", &full_buffered),
+        ("no-cost point, no unsent", &full_bare),
+        ("no-cost point, unsent", &full_buffered),
         ("Λ / 2, no unsent", &half_bare),
         ("Λ / 2, unsent", &half_buffered),
     ] {
@@ -172,9 +179,8 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
          of {allowance}, so the verdict does not rest on the allowance",
     );
     assert_eq!(
-        full_bare.admitted.waited(),
-        0,
-        "no unit waits at a budget of Λ on the bare link",
+        full_bare.report, oracle.report,
+        "the session at the no-cost point is the unlimited session on the bare link",
     );
     assert!(
         half_bare.admitted.waited() > 0 && half_buffered.admitted.waited() > 0,
