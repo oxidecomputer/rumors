@@ -2,6 +2,7 @@
 //! question queue closes, and how it charges the chunks it parks out of the
 //! room each question set aside.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use std::future::Future;
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
@@ -15,6 +16,7 @@ use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::{
     FAN, Local,
+    byte_set::ByteSet,
     channel::{QueueKind, QueueRole, channel},
     erased::Reaction,
     holding::Holding,
@@ -135,17 +137,21 @@ proptest! {
     /// The question lists one child per position, each with this side's
     /// child count of it, and the peer's count is the sum of each child's
     /// share: its query's listing, or for a matched child, that child
-    /// count. The decoder ends a chunk at each query but the reply's last,
+    /// count. The peer sends a frame per position but the matches after
+    /// the first, which the first match covers, so its last frame may come
+    /// before its last position. The decoder ends a chunk at each query
+    /// but the reply's last,
     /// whatever the pauses, so the test predicts the chunks from the reply
     /// alone: one per query before the last reaction, and one more. The
     /// pauses only choose where the test looks. At every
     /// pause, the room the chunks have not taken is the price of what the
     /// reply can still deliver, restated here from the reply so far: later
     /// reactions at most the bound leaves and one per radix above the
-    /// latest, later queries only at positions not yet reached, later
-    /// listing entries at most what the peer's count leaves beside the
-    /// listings and matched shares so far and a fan per later query, and
-    /// chunks at most one per query to come and one more.
+    /// latest, later queries only at positions not yet reached and not
+    /// covered, later listing entries at most what the peer's count leaves
+    /// beside the listings and matched or covered shares so far and a fan
+    /// per later query, chunks at most one per query to come and one more,
+    /// and the covered set its match carries, ready or still to come.
     /// That bound must cover what the reply then actually delivers, so no
     /// chunk falls short; each chunk's charge is its price, its vectors at
     /// capacities equal to their lengths; and once decoded, the place holds
@@ -195,19 +201,40 @@ proptest! {
         let mut chunks = Vec::new();
         let mut boundaries = Vec::new();
         let mut expected = 1;
-        // What the reply so far has carried: reactions, and the listing
-        // entries and matched shares of the peer's count.
-        let (mut sent, mut spent) = (0, 0);
-        for (index, ((reaction, pause), share)) in
-            reply.reactions.iter().zip(&reply.pauses).zip(shares(&reply)).enumerate()
-        {
-            spent += share;
+        // A conforming peer sends a frame per position but for the matches
+        // after the first, which the first match covers.
+        let radix = |position: usize| u8::try_from(position).expect("a dozen positions fit a radix");
+        let first_match = reply.reactions.iter().position(Option::is_none);
+        let covered: ByteSet = (0..positions)
+            .filter(|&position| reply.reactions[position].is_none() && Some(position) != first_match)
+            .map(radix)
+            .collect();
+        let framed: Vec<usize> = (0..positions)
+            .filter(|&position| !covered.contains(radix(position)))
+            .collect();
+        let shares: Vec<usize> = shares(&reply).collect();
+        let covered_shares: usize = (0..positions)
+            .filter(|&position| covered.contains(radix(position)))
+            .map(|position| shares[position])
+            .sum();
+        let last_frame = *framed.last().expect("a reply of one position or more sends a frame");
+        // What the reply so far has carried: frames, the listing entries and
+        // matched or covered shares of the peer's count, and its match.
+        let (mut spent, mut matched) = (0, false);
+        for (index, &position) in framed.iter().enumerate() {
+            let reaction = reply.reactions[position];
+            let pause = reply.pauses[position];
+            let sent = index + 1;
+            spent += shares[position];
             let wire = match reaction {
-                None => WireReaction::Match,
-                Some(entries) => WireReaction::Query(listing(*entries)),
+                None => {
+                    matched = true;
+                    spent += covered_shares;
+                    WireReaction::Match(LaterMatches::new(covered))
+                }
+                Some(entries) => WireReaction::Query(listing(entries)),
             };
-            sent += 1;
-            let last = index + 1 == positions;
+            let last = position == last_frame;
             if reaction.is_some() && !last {
                 expected += 1;
             }
@@ -215,7 +242,7 @@ proptest! {
             frames
                 .try_send(Frame::Reaction(wire, flow))
                 .unwrap_or_else(|_| panic!("the stream has room for every frame"));
-            if !(last || *pause) {
+            if !(last || pause) {
                 continue;
             }
             prop_assert!(decoder.as_mut().poll(&mut context).is_pending(), "the decoder awaits more");
@@ -229,17 +256,26 @@ proptest! {
             let charged: usize = chunks.iter().map(|parked| parked.chunk.charge.bytes()).sum();
             let room = ledger.held_for(Holding::ParkedReplies) - charged;
             // What is decoded but not yet delivered.
-            let ready = &reply.reactions[delivered..sent];
+            let ready: Vec<Option<u8>> = framed[delivered..sent]
+                .iter()
+                .map(|&position| reply.reactions[position])
+                .collect();
             let ready_questions = ready.iter().flatten().count();
             let ready_listing: usize = ready.iter().flatten().map(|&entries| usize::from(entries)).sum();
-            // What can still come.
-            let reactions = (bound.reactions - sent).min(FAN - sent);
-            let questions = (positions - sent).min(reactions);
+            let ready_sets = usize::from(ready.contains(&None) && !covered.is_empty());
+            // What can still come: later reactions at radices above this
+            // position's, later queries at the positions left that a match
+            // received so far does not cover, and a covered set only with
+            // the match, which needs two positions left.
+            let reactions = (bound.reactions - sent).min(FAN - (position + 1));
+            let left = if matched { framed.len() - sent } else { positions - (position + 1) };
+            let questions = left.min(reactions);
             let listing = bound.listing.saturating_sub(spent).min(FAN * questions);
             let still = Deliverable {
                 chunks: ready_questions + questions + 1,
                 reactions: ready.len() + reactions,
                 listing: ready_listing + listing,
+                sets: ready_sets + usize::from(!matched && left >= 2),
             };
             prop_assert_eq!(room, parked_price::<E>(still), "the room is the price of what can still come");
             boundaries.push((chunks.len(), room));

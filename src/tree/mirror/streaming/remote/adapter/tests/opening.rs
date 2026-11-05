@@ -7,6 +7,7 @@
 //! since one side builds it from its own message and the other from the
 //! listing that crossed the wire.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::listed;
 use before::Version;
 
@@ -113,7 +114,7 @@ fn opening_accepts_exactly_one_query() {
                 .iter()
                 .map(|symbol| match symbol {
                     Symbol::Query => Reaction::Query(vec![listed(3, hash(1))]),
-                    Symbol::Match => Reaction::Match,
+                    Symbol::Match => Reaction::Match(LaterMatches::NONE),
                     Symbol::Supply => Reaction::Supply(5, <Local as Backend>::erase(node.clone())),
                 })
                 .collect(),

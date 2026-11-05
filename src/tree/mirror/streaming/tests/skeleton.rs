@@ -471,7 +471,8 @@ enum Question {
 ///
 /// The reconstruction replays the protocol's positional pairing. Each reply
 /// answers the oldest unanswered question on its stream. `Match` and `Query`
-/// consume the asker's radices in order, while `Supply` carries its own radix.
+/// consume the asker's radices in order, passing over the radices the
+/// reply's match covers, while `Supply` carries its own radix.
 /// A nonempty query announces a deeper dispute; an empty one requests a whole
 /// subtree, or a leaf at leaf height. The transcript's causal order keeps each
 /// question ahead of its answer.
@@ -515,17 +516,33 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
             .unwrap_or_else(|| panic!("reply without a pending question: {sent:?}"));
         match question {
             Question::Dispute { prefix, radices } => {
+                // The radices the reply's match covers: matches that take
+                // no label, which the positional pairing passes over.
+                let mut covered = BTreeSet::new();
                 let mut fan = radices.iter().copied();
                 for label in &sent.labels {
                     match label {
-                        // A match or an answerer-only supply is `M`: dropped
-                        // from the skeleton, zero further channel ops.
-                        Label::Match => {
-                            fan.next().expect("Match beyond the announced listing");
+                        // A match, with the later matches it covers, or an
+                        // answerer-only supply is `M`: dropped from the
+                        // skeleton, zero further channel ops.
+                        Label::Match(later) => {
+                            assert!(covered.is_empty(), "a reply carries one match");
+                            let radix = fan
+                                .find(|radix| !covered.contains(radix))
+                                .expect("Match beyond the announced listing");
+                            assert!(
+                                later
+                                    .iter()
+                                    .all(|covered| *covered > radix && radices.contains(covered)),
+                                "a match covers only later announced radices"
+                            );
+                            covered.extend(later.iter().copied());
                         }
                         Label::Supply(_) => {}
                         Label::Query(listing) => {
-                            let radix = fan.next().expect("Query beyond the announced listing");
+                            let radix = fan
+                                .find(|radix| !covered.contains(radix))
+                                .expect("Query beyond the announced listing");
                             let mut child = prefix.clone();
                             child.push(radix);
                             if sent.height == 0 {
@@ -558,8 +575,8 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
                     }
                 }
                 assert!(
-                    fan.next().is_none(),
-                    "every announced radix draws a Match or Query reaction"
+                    fan.find(|radix| !covered.contains(radix)).is_none(),
+                    "every announced radix draws a Match or Query reaction, or is covered"
                 );
             }
             Question::Request => {

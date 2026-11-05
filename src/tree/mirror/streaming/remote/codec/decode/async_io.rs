@@ -15,9 +15,10 @@ use super::super::{
     signal::{FRAME_OPENER_LEN, Signal, Speaker},
 };
 use super::{
-    OpenerItem, check_arity, classify, decode_signal, frame_arity, head_error, listing_issue,
-    opener_item, query_listing, run_head,
+    BODY_FREE_ARITY, OpenerItem, check_arity, classify, decode_signal, frame_arity, head_error,
+    later_matches, listing_issue, match_set_len, opener_item, query_listing, run_head,
 };
+use crate::tree::mirror::streaming::{byte_set::MAX_ENCODED_LEN, message::LaterMatches};
 use crate::tree::{
     mirror::cbor::{self, HeadError, HeadReadError},
     mirror::framing::{read_payload, resume_payload},
@@ -189,7 +190,7 @@ async fn read_frame<R: AsyncRead + Unpin>(
     };
     let frame = async {
         check_arity(signal, arity)?;
-        decoder.body(signal).await
+        decoder.body(signal, arity).await
     }
     .await
     .map_err(|kind| DecodeError::stream(speaker, stream, kind))?;
@@ -388,9 +389,12 @@ enum Entry {
 }
 
 impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
-    async fn body(&mut self, signal: Signal) -> Result<Frame, DecodeErrorKind> {
+    async fn body(&mut self, signal: Signal, arity: u64) -> Result<Frame, DecodeErrorKind> {
         let frame = match signal {
-            Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
+            Signal::Match(flow) if arity == BODY_FREE_ARITY => {
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), flow)
+            }
+            Signal::Match(flow) => Frame::Reaction(Reaction::Match(self.match_set().await?), flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
             Signal::Query(flow) => Frame::Reaction(Reaction::Query(self.query().await?), flow),
             Signal::Supply(flow) => Frame::Reaction(Reaction::Supply(self.supply().await?), flow),
@@ -460,6 +464,18 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             "a canonical listing's bulk reads take exactly its entries' bytes"
         );
         Ok(listing.finish())
+    }
+
+    /// Read a match's body: a byte string head, judged before any content
+    /// is read, then the set's encoding, at most a bitmap's bytes.
+    async fn match_set(&mut self) -> Result<LaterMatches, DecodeErrorKind> {
+        let head = self.exact.fresh_head(FramePart::MatchSet).await?;
+        let len = match_set_len(head)?;
+        let mut bytes = [0; MAX_ENCODED_LEN];
+        self.exact
+            .fill_exact(&mut bytes[..len], FramePart::MatchSet)
+            .await?;
+        later_matches(&bytes[..len])
     }
 
     async fn supply(&mut self) -> Result<LeafRun, DecodeErrorKind> {

@@ -13,6 +13,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::observe::{Attachment, SessionKind};
 use crate::testing::{Quiescence, memory_connection, run_to_quiescence};
 use crate::tree::Root;
 use crate::tree::mirror::Error as MirrorError;
@@ -46,7 +47,24 @@ pub fn over_pipe<T>(
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
+    observed_over_pipe::<T>(pair, budgets, buffer, &Attachment::default())
+}
+
+/// [`over_pipe`], with both endpoints' sessions observed by `observers`.
+pub fn observed_over_pipe<T>(
+    pair: (Root, Root),
+    budgets: [usize; 2],
+    buffer: usize,
+    observers: &Attachment,
+) -> Result<(Endpoint, Endpoint), Quiescence>
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
     let (a, b) = pair;
+    let (a_observe, b_observe) = (
+        observers.begin(SessionKind::Gossip),
+        observers.begin(SessionKind::Gossip),
+    );
     let (a_end, b_end) = memory_connection(buffer);
     let [a_budget, b_budget] = budgets;
     let codec = PayloadCodec::new::<T>(PayloadDepthLimit::default());
@@ -54,8 +72,12 @@ where
         let size = DEFAULT_TARGET_MESSAGE_SIZE as u64;
         let a_walk = Handshaking::start(Local, a.into(), size).budget(a_budget);
         let b_walk = Handshaking::start(Local, b.into(), size).budget(b_budget);
-        let a_proxy = RemoteHandshaking::start(Local, a_end.read, a_end.write, codec);
-        let b_proxy = RemoteHandshaking::start(Local, b_end.read, b_end.write, codec);
+        let a_proxy =
+            RemoteHandshaking::start(Local, a_end.read, a_end.write, codec).observe(a_observe);
+        let b_proxy =
+            RemoteHandshaking::start(Local, b_end.read, b_end.write, codec).observe(b_observe);
+        // Each endpoint's walk and proxy run inside its own future, so the
+        // channel observation can tell the two sides' queues apart.
         let (a, b) = join!(
             Box::pin(mirror(a_walk, a_proxy)),
             Box::pin(mirror(b_walk, b_proxy)),

@@ -6,6 +6,7 @@
 //! errors through unchanged. Counterparty-fault classification lives in
 //! [`violations`].
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use std::{collections::BTreeSet, convert::Infallible, future};
 
 use futures::stream::{self, StreamExt, TryStreamExt};
@@ -15,7 +16,7 @@ use super::{Work, answer, assembly::assemble, charges, resolver::Resolver};
 
 mod violations;
 
-use crate::tree::mirror::streaming::remote::{ReplyLevel, Scope, derive_questions};
+use crate::tree::mirror::streaming::remote::{Replay, ReplyLevel, Scope, derive_questions};
 use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
@@ -372,12 +373,11 @@ fn finished_resolution_keeps_no_charge_for_its_question() {
     let supplies = SupplyLedger::new(u64::MAX);
     let stats = Recorder::default();
     let mut resolver = Resolver::<Local>::new(query, &version, &supplies, &stats);
-    for _ in 0..children {
-        let dispute = resolver
-            .react(Reaction::Match)
-            .expect("each match pairs with a child");
-        assert!(dispute.is_none(), "a match resolves its child here");
-    }
+    // One match at the first child, covering the rest.
+    let dispute = resolver
+        .react(Reaction::Match(LaterMatches::new((2..=3).collect())))
+        .expect("the match pairs with the first child and covers the rest");
+    assert!(dispute.is_none(), "a match resolves its children here");
     let resolution = resolver.finish().expect("every child was answered");
 
     assert_eq!(
@@ -518,10 +518,22 @@ proptest! {
         let bound = scope.reply_bound();
         // The peer's queries list at most what its count allows.
         let mut left = bound.listing;
+        // A match at the first matching position covers the later ones,
+        // which take no reaction.
+        let first_match = reactions.iter().position(Option::is_none);
+        let later_matches = reactions
+            .iter()
+            .enumerate()
+            .filter(|&(position, reaction)| reaction.is_none() && Some(position) != first_match)
+            .map(|(position, _)| u8::try_from(position).expect("a few radices fit a byte"))
+            .collect();
+        let mut later_matches = Some(LaterMatches::new(later_matches));
         let replied: Vec<Reaction<Erased>> = reactions
             .iter()
-            .map(|reaction| match reaction {
-                None => Reaction::Match,
+            .enumerate()
+            .filter(|&(position, reaction)| reaction.is_some() || Some(position) == first_match)
+            .map(|(_, reaction)| match reaction {
+                None => Reaction::Match(later_matches.take().expect("one first match")),
                 Some(entries) => {
                     let entries = (*entries).min(left);
                     left -= entries;
@@ -538,7 +550,7 @@ proptest! {
             })
             .collect();
         let level = if height == 1 { ReplyLevel::Leaf } else { ReplyLevel::Branch };
-        let derived = derive_questions(level, &scope, &mut 0, &replied)
+        let derived = derive_questions(level, &scope, &mut Replay::default(), &replied)
             .expect("a reply at its positions derives");
         let listings = replied.iter().filter_map(|reaction| match reaction {
             Reaction::Query(listing) => Some(listing.len()),
@@ -571,13 +583,16 @@ fn listing(answers: &[ChildAnswer]) -> usize {
 }
 
 /// What processing admits one level down for `answers`: each answer's grant
-/// as the walk prices it, answering the children its query lists and those
-/// this side holds beyond them, at most a fan.
+/// as the walk prices it.
+///
+/// Each answers the children its query lists and those this side holds
+/// beyond them, at most a fan, sharing none of the listed children, which
+/// prices no covered set: the least such an answer costs.
 fn answers_cost(answers: &[ChildAnswer]) -> usize {
     answers
         .iter()
         .map(|&(entries, extra, copies)| {
-            charges::answer_bound::<Erased, Infallible>((entries + extra).min(FAN), copies)
+            charges::answer_bound::<Erased, Infallible>((entries + extra).min(FAN), 0, copies)
         })
         .sum()
 }

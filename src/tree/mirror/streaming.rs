@@ -43,10 +43,6 @@
 #![allow(clippy::type_complexity)]
 
 mod backend;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "only the module's own tests use a set so far")
-)]
 pub(crate) mod byte_set;
 mod channel;
 pub(crate) mod convert;

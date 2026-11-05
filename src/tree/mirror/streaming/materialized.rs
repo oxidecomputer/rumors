@@ -28,7 +28,9 @@
 //! and every producer produces items 1..k in that order: replies pair with
 //! queries, returns pair with queries, and level items arrive in resolution
 //! order. Completeness travels *inside* message and item boundaries, never in
-//! their absence.
+//! their absence. A reply's match covers the later children that also
+//! match, which carry no reaction; the resolver resolves each as it reaches
+//! it, so covering awaits nothing and changes no pairing.
 //!
 //! Within one pairing loop, the query is dequeued *before* its wire reply is
 //! awaited. Either order pairs the same k-th items — the argument above is

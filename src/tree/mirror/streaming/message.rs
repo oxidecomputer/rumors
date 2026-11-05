@@ -23,7 +23,7 @@ use std::cmp::Ordering;
 use crate::{
     Version,
     tree::{
-        mirror::streaming::{Backend, ErasedNode, Leaf, ledger::Charge},
+        mirror::streaming::{Backend, ErasedNode, Leaf, byte_set::ByteSet, ledger::Charge},
         typed::{
             Hash,
             height::{Height, Z},
@@ -454,6 +454,12 @@ const _: () = assert!(
 /// The exception is [`Reaction::Supply`], which indicates its radix because
 /// it represents information that the counterparty could not have known to
 /// ask about.
+///
+/// A reply carries at most one [`Reaction::Match`]: its first, which names
+/// every later listed child that also matches ([`LaterMatches`]). Those
+/// children take no reaction of their own; a receiver pairing reactions
+/// with its listing passes over them as matched, so the next positional
+/// reaction pairs with the next listed child the match did not cover.
 pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The sender supplies a node absent from the counterparty's listing, at
     /// this radix.
@@ -461,8 +467,9 @@ pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The radix is explicit because the counterparty did not know the node
     /// existed and therefore could not ask about it positionally.
     Supply(u8, B::Node<H>),
-    /// Both sides hold the node with the same hash.
-    Match,
+    /// Both sides hold the node with the same hash, and so they do every
+    /// later listed child the reaction covers.
+    Match(LaterMatches),
     /// The sender asks to compare the node's children because the hashes
     /// differ, or asks for the whole node with an empty listing.
     ///
@@ -474,6 +481,61 @@ pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// unambiguous; it can only mean the sender lacks the node.
     Query(Vec<Listed>),
 }
+
+/// The later listed children a [`Reaction::Match`] covers: every child the
+/// reply's question listed after the match's own position that also
+/// matches, by radix.
+///
+/// Absent when no later child matches, so a reply with one match carries
+/// nothing beyond it, and present only when nonempty. The set is boxed: a
+/// reaction is a queue element, priced at its size wherever it waits, and
+/// an inline set would raise the price of every reaction, the queries and
+/// supplies that make up a divergent session's replies included. A box
+/// takes the room of the pointer alone, within the room a reaction already
+/// has, and is allocated only by a reply with two matches or more, which
+/// it saves a reaction for each match after the first. Every place that
+/// prices a reaction prices the box as well ([`heap_bytes`](Self::heap_bytes)).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LaterMatches(Option<Box<ByteSet>>);
+
+impl LaterMatches {
+    /// No later matches: the match covers no other child.
+    pub const NONE: Self = Self(None);
+
+    /// The later matches `set` names; none when it is empty.
+    pub fn new(set: ByteSet) -> Self {
+        Self((!set.is_empty()).then(|| Box::new(set)))
+    }
+
+    /// The radixes covered, or `None` when there are none.
+    pub fn get(&self) -> Option<&ByteSet> {
+        self.0.as_deref()
+    }
+
+    /// The radixes covered, as a set, empty when there are none.
+    pub fn set(&self) -> ByteSet {
+        self.get().copied().unwrap_or_default()
+    }
+
+    /// The bytes the covered set holds on the heap beyond the reaction
+    /// carrying it: a set's, when there is one, and none otherwise.
+    pub const fn heap_bytes(&self) -> usize {
+        match self.0 {
+            Some(_) => LATER_MATCHES_HEAP_BYTES,
+            None => 0,
+        }
+    }
+}
+
+/// The bytes one present [`LaterMatches`] holds on the heap: one set.
+pub(crate) const LATER_MATCHES_HEAP_BYTES: usize = size_of::<ByteSet>();
+
+/// A covered set rides in the room of one pointer, so carrying it raises
+/// no reaction's price.
+const _: () = assert!(
+    size_of::<LaterMatches>() == size_of::<usize>(),
+    "the later matches must take one pointer's room",
+);
 
 #[cfg(test)]
 mod tests;

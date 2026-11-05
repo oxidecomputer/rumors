@@ -3,6 +3,7 @@
 #[cfg(test)]
 use std::io::Write;
 
+use crate::counter::widen;
 use crate::tree::mirror::cbor::{self, MAJOR_ARRAY, MAJOR_BSTR, MAJOR_UINT, TAG_CBOR_SEQUENCE};
 
 mod async_io;
@@ -11,6 +12,8 @@ pub use async_io::FrameWrite;
 
 #[cfg(test)]
 use super::{error::EncodeError, frame::WireFrame, signal::Speaker};
+use crate::tree::mirror::streaming::byte_set::{Encoded, MAX_ENCODED_LEN};
+
 use super::{
     error::{EncodeErrorKind, FramePart},
     frame::{Frame, LeafRun, Reaction, SUPPLY_HEAD_LEN, listing_len, write_listing},
@@ -80,6 +83,12 @@ struct FrameEncoding<'a> {
 
 enum BodyEncoding<'a> {
     Empty,
+    /// A match's later matches: the byte-string head and the set's
+    /// encoding, fully rendered on the stack.
+    MatchSet {
+        head: Heads<MATCH_SET_HEAD_LEN>,
+        set: Encoded,
+    },
     /// A nonempty query's child-listing map, fully rendered.
     Listing(Vec<u8>),
     /// A supply run behind its rendered embedded-sequence head.
@@ -92,7 +101,18 @@ enum BodyEncoding<'a> {
 impl<'a> FrameEncoding<'a> {
     fn new(stream: Stream, frame: &'a Frame) -> Result<Self, EncodeErrorKind> {
         let (signal, body) = match frame {
-            Frame::Reaction(Reaction::Match, flow) => (Signal::Match(*flow), BodyEncoding::Empty),
+            Frame::Reaction(Reaction::Match(later), flow) => {
+                let body = match later.get() {
+                    None => BodyEncoding::Empty,
+                    Some(set) => {
+                        let set = set.encoded();
+                        let mut head = Heads::new();
+                        head.put(MAJOR_BSTR, widen(set.as_bytes().len()));
+                        BodyEncoding::MatchSet { head, set }
+                    }
+                };
+                (Signal::Match(*flow), body)
+            }
             Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {
                 (Signal::QueryEmpty(*flow), BodyEncoding::Empty)
             }
@@ -112,7 +132,9 @@ impl<'a> FrameEncoding<'a> {
         };
         let arity = match &body {
             BodyEncoding::Empty => 2,
-            BodyEncoding::Listing(_) | BodyEncoding::Supply { .. } => 3,
+            BodyEncoding::MatchSet { .. }
+            | BodyEncoding::Listing(_)
+            | BodyEncoding::Supply { .. } => 3,
         };
         let mut head = Heads::new();
         head.put(MAJOR_ARRAY, arity);
@@ -121,13 +143,18 @@ impl<'a> FrameEncoding<'a> {
         Ok(Self { head, body })
     }
 
-    /// The frame's pieces in wire order, each with the part it carries:
-    /// the opener, then the listing, or the supply run's head and its
-    /// records. Every piece is nonempty, and there are at most
-    /// [`MAX_PIECES`].
+    /// The frame's pieces in wire order, each with the part it carries.
+    ///
+    /// They are the opener, then a match's set head and encoding, the
+    /// listing, or the supply run's head and its records. Every piece is
+    /// nonempty, and there are at most [`MAX_PIECES`].
     fn pieces(&self) -> impl Iterator<Item = (FramePart, &[u8])> {
         let body = match &self.body {
             BodyEncoding::Empty => [None, None],
+            BodyEncoding::MatchSet { head, set } => [
+                Some((FramePart::MatchSet, head.as_slice())),
+                Some((FramePart::MatchSet, set.as_bytes())),
+            ],
             BodyEncoding::Listing(listing) => {
                 [Some((FramePart::QueryChildren, &listing[..])), None]
             }
@@ -162,8 +189,12 @@ impl<'a> FrameEncoding<'a> {
 }
 
 /// The most pieces one frame has: a supply frame's opener, run head, and
-/// records.
+/// records, or a match's opener, set head, and set.
 const MAX_PIECES: usize = 3;
+
+/// The widest byte-string head ahead of a match's set: one for the longest
+/// encoding.
+const MATCH_SET_HEAD_LEN: usize = cbor::head_len(widen(MAX_ENCODED_LEN));
 
 #[cfg(test)]
 mod tests;

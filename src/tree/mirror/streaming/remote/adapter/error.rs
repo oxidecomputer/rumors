@@ -16,6 +16,31 @@ pub enum ScopeError {
     /// A nonempty query cannot descend below leaf height.
     #[error("a leaf-height reply contains a nonempty query")]
     NonemptyLeafQuery,
+    /// A reply carried a second match: its first match covers every later
+    /// listed child that also matches, so no later match takes a frame.
+    #[error("a reply carries a match after its first")]
+    RepeatedMatch,
+    /// A match covers a radix that is not a position after its own: one
+    /// the question did not list, or one the reply has already passed.
+    #[error("a match covers radix {radix:#04x}, which is not a later listed child")]
+    UnlistedCover {
+        /// The radix covered.
+        radix: u8,
+    },
+    /// A reply ended with a listed child it neither took a reaction for
+    /// nor covered by its match.
+    #[error("a reply ends without answering or covering listed radix {radix:#04x}")]
+    UncoveredEnd {
+        /// The first listed radix left.
+        radix: u8,
+    },
+    /// A reply supplied a node at a radix its match covers, which both
+    /// sides hold.
+    #[error("a reply supplies radix {radix:#04x}, which its match covers")]
+    CoveredSupply {
+        /// The radix supplied.
+        radix: u8,
+    },
 }
 
 /// The initiator's distinguished opening reply violated its canonical

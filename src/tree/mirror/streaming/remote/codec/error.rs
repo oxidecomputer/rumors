@@ -2,7 +2,10 @@
 
 use std::fmt;
 
-use crate::tree::mirror::cbor::{Head, HeadError};
+use crate::tree::mirror::{
+    cbor::{Head, HeadError},
+    streaming::byte_set::ByteSetError,
+};
 
 use super::frame::{LeafRunError, ListingIssue};
 use super::signal::{DecodeSignalError, Speaker, Stream};
@@ -65,6 +68,9 @@ pub enum FramePart {
     /// The signal that identifies the frame's operation.
     #[error("signal")]
     Signal,
+    /// The set of later matches carried by a match.
+    #[error("later matches")]
+    MatchSet,
     /// The child map carried by a query.
     #[error("query child listing")]
     QueryChildren,
@@ -257,6 +263,21 @@ pub enum DecodeErrorKind {
         /// Head found where its unsigned integer belongs.
         actual: Head,
     },
+    /// A match's body is not a byte string.
+    #[error("match body has head {actual:?}; expected a byte string of later matches")]
+    MatchSetType {
+        /// Head found where the byte string belongs.
+        actual: Head,
+    },
+    /// A match's body names no later matches: a match covering none is
+    /// body-free.
+    #[error(
+        "a match frame carries an empty set of later matches; a match covering none has no body"
+    )]
+    EmptyMatchSet,
+    /// A match's body is not a set's canonical encoding.
+    #[error("a match's later matches are not canonically encoded: {0}")]
+    InvalidMatchSet(#[source] ByteSetError),
     /// A query body does not begin with a child-listing map.
     #[error("query body has head {actual:?}; expected a child-listing map")]
     QueryType {

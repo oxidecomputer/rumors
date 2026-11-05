@@ -29,7 +29,7 @@ use crate::tree::mirror::streaming::{
     holding::Holding,
     ledger::{Charge, ReplyBound, Unit, buffer, max, min, queued, shared},
     materialized::{Error, Query, Reserved, Resolution, Resolve},
-    message::{Carried, Grandchildren, Listed},
+    message::{Carried, Grandchildren, LATER_MATCHES_HEAP_BYTES, Listed},
     remote::{Outstanding, Parked, RecordedChild, Scope},
 };
 use crate::tree::typed::{
@@ -39,24 +39,32 @@ use crate::tree::typed::{
 };
 
 use super::LeafRequest;
-use super::answer::{Planned, Question};
+use super::answer::{Held, Planned, Question};
+
+/// The bytes the reactions own beyond their own slots: the listing each
+/// query carries, at its capacity, and the set a match carries of the later
+/// children it covers.
+fn owned_bytes<E>(reactions: &[Reaction<E>]) -> usize {
+    reactions
+        .iter()
+        .map(|reaction| match reaction {
+            Reaction::Query(listing) => buffer(listing),
+            Reaction::Match(later) => later.heap_bytes(),
+            Reaction::Supply(..) => 0,
+        })
+        .sum()
+}
 
 /// The bytes an outgoing reply holds while it waits for its consumer: its
-/// slot in the response queue, its reactions, and the listing each query
-/// carries.
+/// slot in the response queue, its reactions, and what they own
+/// ([`owned_bytes`]).
 fn reply_bytes<B>(reply: &Reply<B::Erased>) -> usize
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let listings: usize = reply
-        .reactions
-        .iter()
-        .map(|reaction| match reaction {
-            Reaction::Query(listing) => buffer(listing),
-            Reaction::Match | Reaction::Supply(..) => 0,
-        })
-        .sum();
-    queued::<Result<Reply<B::Erased>, Error<B::Error>>>() + buffer(&reply.reactions) + listings
+    queued::<Result<Reply<B::Erased>, Error<B::Error>>>()
+        + buffer(&reply.reactions)
+        + owned_bytes(&reply.reactions)
 }
 
 /// `reactions` as a whole outgoing reply, one last chunk, built out of
@@ -90,12 +98,34 @@ where
     reply
 }
 
-/// The most a chunk of `reactions` reactions holds, its queries listing at
-/// most `listing` entries together, before it is built.
-const fn chunk_bound<E, Err>(reactions: usize, listing: usize) -> usize {
+/// The most a chunk holding `held` reactions and covered sets holds, its
+/// queries listing at most `listing` entries together, before it is built.
+const fn chunk_bound<E, Err>(held: Held, listing: usize) -> usize {
     queued::<Result<Reply<E>, Error<Err>>>()
-        + reactions * size_of::<Reaction<E>>()
+        + held.reactions * size_of::<Reaction<E>>()
+        + held.sets * LATER_MATCHES_HEAP_BYTES
         + listing * size_of::<Listed>()
+}
+
+/// What `reactions` hold before their chunk is built: their count, and the
+/// covered sets among them.
+pub(super) fn held<E>(reactions: &[Reaction<E>]) -> Held {
+    Held {
+        reactions: reactions.len(),
+        sets: reactions
+            .iter()
+            .filter(|reaction| matches!(reaction, Reaction::Match(later) if later.get().is_some()))
+            .count(),
+    }
+}
+
+/// `held` with one slot spare for the question its chunk ends at, as every
+/// chunk's reactions keep one ([`Chunks::next_part`](super::answer::Chunks::next_part)).
+const fn with_question(held: Held) -> Held {
+    Held {
+        reactions: held.reactions + 1,
+        sets: held.sets,
+    }
 }
 
 /// A resolution of `resolved` at `prefix`, exploded from `original`, built
@@ -130,7 +160,8 @@ pub(crate) const fn parent_resolution<E>(bound: ReplyBound) -> usize {
 /// They are at most one chunk more than the reply's questions, which number
 /// at most `listed.min(bound.reactions)` since a query sits only at a
 /// position the asker listed, and they hold the reply's reactions and
-/// listing entries.
+/// listing entries, and the set of later matches its one match covers,
+/// which needs a listed child for the match and one more to cover.
 ///
 /// The decoder charges each chunk its own part ([`parked_bytes`]), which
 /// prices the chunk's vectors at their capacities. It allocates each
@@ -143,7 +174,14 @@ pub(crate) const fn parked_room<E>(bound: ReplyBound, listed: usize) -> usize {
         chunks: min(listed, bound.reactions) + 1,
         reactions: bound.reactions,
         listing: bound.listing,
+        sets: covered_sets(listed),
     })
+}
+
+/// The covered sets a reply about `listed` of the asker's children can
+/// carry: its one match's, if it can match one child and cover another.
+const fn covered_sets(listed: usize) -> usize {
+    if listed >= 2 { 1 } else { 0 }
 }
 
 /// The most a reply can still deliver to its parked chunks: the chunks,
@@ -156,6 +194,9 @@ pub(crate) struct Deliverable {
     pub(crate) reactions: usize,
     /// The listing entries their queries can carry together.
     pub(crate) listing: usize,
+    /// The covered sets their match can carry: at most one, a reply
+    /// carrying at most one match.
+    pub(crate) sets: usize,
 }
 
 /// The bytes the parked chunks `still` describes can hold, priced as each
@@ -163,6 +204,7 @@ pub(crate) struct Deliverable {
 pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
     still.chunks * queued::<Parked<E>>()
         + still.reactions * size_of::<Reaction<E>>()
+        + still.sets * LATER_MATCHES_HEAP_BYTES
         + still.listing * size_of::<Listed>()
 }
 
@@ -176,23 +218,17 @@ pub(crate) fn room_beyond<E>(room: usize, still: Deliverable) -> usize {
     room.saturating_sub(parked_price::<E>(still))
 }
 
-/// The bytes a decoded chunk holds while it parks: its node in the parking
-/// queue, its reactions, and the listing each of its queries carries, every
-/// vector at its capacity.
+/// The bytes a decoded chunk holds while it parks.
+///
+/// That is its node in the parking queue, its reactions, and what they own
+/// ([`owned_bytes`]): the listing each of its queries carries and the set
+/// its match covers, every vector at its capacity.
 ///
 /// The decoder takes this from the room the question set aside for the
 /// chunk's reply ([`room`]) as the chunk decodes, and the chunk returns it
 /// once its stage has used the chunk.
 pub(crate) fn parked_bytes<E>(chunk: &Reply<E>) -> usize {
-    let listings: usize = chunk
-        .reactions
-        .iter()
-        .map(|reaction| match reaction {
-            Reaction::Query(listing) => buffer(listing),
-            Reaction::Match | Reaction::Supply(..) => 0,
-        })
-        .sum();
-    queued::<Parked<E>>() + buffer(&chunk.reactions) + listings
+    queued::<Parked<E>>() + buffer(&chunk.reactions) + owned_bytes(&chunk.reactions)
 }
 
 /// The bytes the take's record of one question a reply asks holds while it
@@ -323,18 +359,27 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 /// That is the copies exploding its scope makes, `copies`, its resolution,
 /// with a slot for each of the `children` either side holds, its plan, with
 /// an entry for each such child at most, and its reactions that ask
-/// nothing, one per such child at most ([`answer_children`] counts them).
+/// nothing, one per such child at most ([`answer_children`] counts them),
+/// with the set of later matches its match covers, if the `shared` children
+/// both sides hold, the only ones it can match, number two or more
+/// ([`shared_children`] counts them).
 ///
 /// A plan entry is priced at an internal answer's: a leaf parent's, which
 /// plans each question by its radix alone, is no larger.
-pub(crate) const fn answer_bound<E, Err>(children: usize, copies: usize) -> usize {
+pub(crate) const fn answer_bound<E, Err>(children: usize, shared: usize, copies: usize) -> usize {
     // A chunk's reactions keep one slot spare for a question
     // ([`Chunks::next_part`](super::answer::Chunks::next_part)).
     copies
         + queued::<Resolution<E>>()
         + children * size_of::<(u8, Resolve<E>)>()
         + children * size_of::<Planned<E, Question<E>>>()
-        + chunk_bound::<E, Err>(children + 1, 0)
+        + chunk_bound::<E, Err>(
+            with_question(Held {
+                reactions: children,
+                sets: covered_sets(shared),
+            }),
+            0,
+        )
 }
 
 /// A child a supply answer lists is no larger than the supply reaction its
@@ -359,12 +404,23 @@ const _: () = assert!(
 /// built.
 ///
 /// That is the reply's last chunk if it asks nothing, holding `unasked`
-/// reactions ([`Chunks::unasked_last`](super::answer::Chunks::unasked_last)),
-/// and nothing if it ends at a question, whose own grant builds it.
+/// reactions and covered sets
+/// ([`Chunks::unasked_last`](super::answer::Chunks::unasked_last)), and
+/// nothing if it ends at a question, whose own grant builds it.
 ///
 /// The chunk's reactions keep one slot spare, as every chunk's do.
-pub(super) fn unasked_chunk_bound<E, Err>(unasked: Option<usize>) -> usize {
-    unasked.map_or(0, |reactions| chunk_bound::<E, Err>(reactions + 1, 0))
+pub(super) fn unasked_chunk_bound<E, Err>(unasked: Option<Held>) -> usize {
+    unasked.map_or(0, |held| chunk_bound::<E, Err>(with_question(held), 0))
+}
+
+/// The children both sides hold of an answer's scope, when this side holds
+/// the children at `ours` and the peer listed `theirs`: the children the
+/// answer can match, exact.
+///
+/// Each side's children sit at distinct radices, so the children either
+/// holds ([`answer_children`]) count each shared child once.
+pub(crate) fn shared_children(ours: Radices, theirs: &[Listed]) -> usize {
+    ours.len() + theirs.len() - answer_children(ours, theirs)
 }
 
 /// The children an answer's scope holds when this side holds the children
@@ -385,30 +441,30 @@ pub(crate) fn answer_children(ours: Radices, theirs: &[Listed]) -> usize {
 /// That is a query listing at most `listed` of this side's children, the
 /// copies exploding the child asked about makes, `copies`, the reservation
 /// for the reply that the peer's count of the child, `theirs`, bounds at
-/// the child's typed `height`, the chunk ending at the question behind
-/// `leading` reactions, and the record.
+/// the child's typed `height`, the chunk ending at the question behind the
+/// `leading` reactions and covered sets, and the record.
 pub(crate) const fn question_bound<E, Err>(
     height: usize,
     theirs: Grandchildren,
     copies: usize,
-    leading: usize,
+    leading: Held,
     listed: usize,
 ) -> usize {
     queued::<Query<E>>()
         + listed * size_of::<(u8, E)>()
         + copies
         + reservation::<E>(height, ReplyBound::of(height, listed, theirs), listed)
-        + chunk_bound::<E, Err>(leading + 1, listed)
+        + chunk_bound::<E, Err>(with_question(leading), listed)
         + record_bytes(listed)
 }
 
 /// The most a leaf request's unit holds, before it is built: the request
-/// with the room for its reply, the chunk ending at it behind `leading`
-/// reactions, and its record.
-pub(crate) const fn leaf_question_bound<E, Err>(leading: usize) -> usize {
+/// with the room for its reply, the chunk ending at it behind the `leading`
+/// reactions and covered sets, and its record.
+pub(crate) const fn leaf_question_bound<E, Err>(leading: Held) -> usize {
     queued::<LeafRequest>()
         + reservation::<E>(0, ReplyBound::LEAF, 0)
-        + chunk_bound::<E, Err>(leading + 1, 0)
+        + chunk_bound::<E, Err>(with_question(leading), 0)
         + record_bytes(0)
 }
 
@@ -450,8 +506,8 @@ pub(crate) const fn processing_need<E, Err>(bound: ReplyBound) -> usize {
         return 0;
     }
     // An answer's bound grows by the same bytes with each child it answers.
-    let answer = answer_bound::<E, Err>(0, 0);
-    let per_child = answer_bound::<E, Err>(1, 0) - answer;
+    let answer = answer_bound::<E, Err>(0, 0, 0);
+    let per_child = answer_bound::<E, Err>(1, 0, 0) - answer;
     entries.div_ceil(FAN) * answer + entries * per_child
 }
 
@@ -459,7 +515,7 @@ pub(crate) const fn processing_need<E, Err>(bound: ReplyBound) -> usize {
 /// nothing holds, with `copies` of node copies its building makes: the unit
 /// of an answer that supplies a whole node, or a leaf.
 pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usize {
-    copies + chunk_bound::<E, Err>(reactions, 0)
+    copies + chunk_bound::<E, Err>(Held { reactions, sets: 0 }, 0)
 }
 
 /// The most any unit's grant holds, in a walk over nodes `E` whose backend
@@ -483,7 +539,8 @@ pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usi
 /// - A chunk's reactions ahead of its question are entries of its answer's
 ///   plan, one per child either side holds. Each side lists at most a fan,
 ///   as this side's nodes hold and as the peer's listings decode, in
-///   strictly ascending radices, so at most two fans lead a question.
+///   strictly ascending radices, so at most two fans lead a question, and
+///   the answer's one match among them may carry a covered set.
 /// - An answer's scope holds at most a fan of children, and a supplying
 ///   answer supplies at most a fan.
 ///
@@ -493,7 +550,10 @@ pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usi
 /// bytes a charge counts in ([`assert_grants_fit`]).
 pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
     let copies = E::MAX_EXPLOSION_BYTES;
-    let leading = 2 * FAN;
+    let leading = Held {
+        reactions: 2 * FAN,
+        sets: 1,
+    };
     let question = question_bound::<E, Err>(
         height::Root::HEIGHT,
         Grandchildren::MAX,
@@ -502,7 +562,7 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
         FAN,
     );
     let leaf_question = leaf_question_bound::<E, Err>(leading);
-    let answer = answer_bound::<E, Err>(FAN, copies);
+    let answer = answer_bound::<E, Err>(FAN, FAN, copies);
     let supply = supply_bound::<E, Err>(FAN, copies);
     max(max(question, leaf_question), max(answer, supply))
 }
@@ -519,18 +579,25 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
 ///   reaction leads in its chunk.
 /// - Every other question lists at most a fan of children, about a node
 ///   whose peer counts at most [`Grandchildren::MAX`] grandchildren, behind
-///   at most two fans of reactions. A question about a leaf is a leaf
-///   request.
-/// - An answer explores its scope, against a listing of at most a fan of
-///   the peer's children, or supplies at most a fan of children; an answer
-///   about a leaf supplies that one leaf.
+///   at most two fans of reactions, one of them a match that may carry a
+///   covered set. A question about a leaf is a leaf request.
+/// - An answer explores its scope, at most a fan of children either side
+///   holds, or supplies at most a fan of them; an answer about a leaf
+///   supplies that one leaf.
 const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
     let copies = E::MAX_EXPLOSION_BYTES;
-    let leading = 2 * FAN;
+    let leading = Held {
+        reactions: 2 * FAN,
+        sets: 1,
+    };
     let height = height::Root::HEIGHT - depth;
     match unit {
         Unit::Question if depth == 0 => {
-            question_bound::<E, Err>(height, Grandchildren::MAX, copies, 0, FAN)
+            let unled = Held {
+                reactions: 0,
+                sets: 0,
+            };
+            question_bound::<E, Err>(height, Grandchildren::MAX, copies, unled, FAN)
         }
         Unit::Question if height == 0 => leaf_question_bound::<E, Err>(leading),
         Unit::Question => {
@@ -538,7 +605,7 @@ const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
         }
         Unit::Answer if height == 0 => supply_bound::<E, Err>(1, 0),
         Unit::Answer => max(
-            answer_bound::<E, Err>(FAN, copies),
+            answer_bound::<E, Err>(FAN, FAN, copies),
             supply_bound::<E, Err>(FAN, copies),
         ),
     }
@@ -613,8 +680,9 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 ///   one; its records two, the decoder's queue and the take's scopes.
 /// - [`Holding::OutgoingReplies`]: a chunk's reactions, allocated before
 ///   its question is admitted with one slot spare, at most two fans and
-///   one; and a question's listing, a fan of entries, built before the
-///   chunk carrying it is charged.
+///   one, with the set of later matches the answer's match carries; and a
+///   question's listing, a fan of entries, built before the chunk carrying
+///   it is charged.
 /// - [`Holding::ParkedReplies`]: a decoder's ready reactions and its open
 ///   group's runs, a fan of each, in vectors at most twice their length.
 /// - [`Holding::QuestionRecords`]: a take's derived scopes for one chunk, a
@@ -633,6 +701,7 @@ pub(crate) fn scratch<E, Err>(place: Holding) -> usize {
         Holding::OutgoingReplies => {
             queued::<Result<Reply<E>, Error<Err>>>()
                 + (2 * FAN + 1) * size_of::<Reaction<E>>()
+                + LATER_MATCHES_HEAP_BYTES
                 + FAN * size_of::<Listed>()
         }
         Holding::ParkedReplies => {

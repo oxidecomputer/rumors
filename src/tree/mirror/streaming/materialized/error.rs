@@ -47,6 +47,14 @@ pub enum Violation {
     /// The reply confirmed a child that the question did not list.
     #[error("reply attempted to match unknown child")]
     UnexpectedMatch,
+    /// The reply carried a match after its first, whose covered set names
+    /// every later matching child.
+    #[error("reply matched a child after its first match")]
+    RepeatedMatch,
+    /// The reply's match covered a child that the question did not list
+    /// after the match's own.
+    #[error("reply's match covered a child that is not a later listed child")]
+    UnlistedCover,
     /// The peer asked about a child that the question did not list.
     #[error("reply attempted to query unknown child")]
     UnexpectedQuery,

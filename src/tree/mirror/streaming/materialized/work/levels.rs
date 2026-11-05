@@ -15,7 +15,7 @@ use futures::{Stream, StreamExt, future::BoxFuture};
 
 use super::{
     LeafRequest, Work,
-    answer::{self, Part},
+    answer::{self, Held, Part},
     assembly::assemble,
     charges,
     queues::*,
@@ -180,7 +180,7 @@ where
                 root_scope.height(),
                 responder,
                 copies,
-                0,
+                Held::default(),
                 fan.len(),
             );
             let mut grant = account.admit(Unit::Question, 0, bytes).await;
@@ -274,7 +274,7 @@ where
                         }
                         theirs = Some(listing);
                     }
-                    Reaction::Match => return violation(Violation::UnexpectedMatch)?,
+                    Reaction::Match(_) => return violation(Violation::UnexpectedMatch)?,
                     Reaction::Supply(radix, _) => {
                         if fan.iter().any(|(held, _)| *held == radix) {
                             return violation(Violation::UnexpectedSupply)?;
@@ -295,11 +295,10 @@ where
                 return violation(Violation::UnfinishedReply)?;
             };
             let ours = fan;
-            let children = charges::answer_children(
-                ours.iter().map(|(radix, _)| *radix).collect(),
-                &theirs,
-            );
-            let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
+            let held = ours.iter().map(|(radix, _)| *radix).collect();
+            let children = charges::answer_children(held, &theirs);
+            let shared = charges::shared_children(held, &theirs);
+            let bytes = charges::answer_bound::<B::Erased, B::Error>(children, shared, copies);
             let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
             let kept = answer_grant.take(Holding::ExplodedNodes, copies);
             let (mut chunks, resolved) = answer::internal(
@@ -325,7 +324,7 @@ where
                 let (question, mut grant) = match ask {
                     Some(question) => {
                         let bytes = question
-                            .bound::<B::Error>(root_scope, leading.len())
+                            .bound::<B::Error>(root_scope, charges::held(&leading))
                             .map_err(Error::Count)?;
                         let need = question.need::<B::Error>(root_scope);
                         let mut grant = account.invite(1, bytes, need).await;
@@ -504,8 +503,11 @@ where
                     // must copy one the walk keeps.
                     let original = node.clone();
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
-                    let children = charges::answer_children(node.child_radices(), &listing);
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
+                    let held = node.child_radices();
+                    let children = charges::answer_children(held, &listing);
+                    let shared = charges::shared_children(held, &listing);
+                    let bytes =
+                        charges::answer_bound::<B::Erased, B::Error>(children, shared, copies);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
@@ -539,7 +541,7 @@ where
                         let (question, mut grant) = match ask {
                             Some(question) => {
                                 let bytes = question
-                                    .bound::<B::Error>(child_prefix, leading.len())
+                                    .bound::<B::Error>(child_prefix, charges::held(&leading))
                                     .map_err(Error::Count)?;
                                 let need = question.need::<B::Error>(child_prefix);
                                 let mut grant =
@@ -702,8 +704,11 @@ where
                     // must copy one the walk keeps.
                     let original = node.clone();
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
-                    let children = charges::answer_children(node.child_radices(), &listing);
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
+                    let held = node.child_radices();
+                    let children = charges::answer_children(held, &listing);
+                    let shared = charges::shared_children(held, &listing);
+                    let bytes =
+                        charges::answer_bound::<B::Erased, B::Error>(children, shared, copies);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
@@ -740,7 +745,7 @@ where
                                 // admits, and the request is admitted by
                                 // the budget alone.
                                 let bytes = charges::leaf_question_bound::<B::Erased, B::Error>(
-                                    leading.len(),
+                                    charges::held(&leading),
                                 );
                                 let mut grant =
                                     account.admit(Unit::Question, depth + 1, bytes).await;

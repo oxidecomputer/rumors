@@ -27,7 +27,7 @@ use super::{
     super::codec::{End, Flow, Frame, Reaction as WireReaction},
     error::BoundedPart,
     error::{DecodeError, ScopeError},
-    scope::{ReplyLevel, Scope},
+    scope::{Positions, ReplyLevel, Scope},
 };
 
 /// Leaf records each reply decoder holds at once at most: a full fan in its
@@ -401,8 +401,14 @@ where
     ready_listing: usize,
     /// The runs of the open group of supplies, each awaiting its node.
     group: Vec<(u8, ErasedPrefix)>,
-    /// The record's positions the reply has not reached.
+    /// The record's positions the reply has not reached and its match
+    /// does not cover: those a later reaction must take.
     positions_left: usize,
+    /// Whether the reply has carried its one match.
+    matched: bool,
+    /// The covered sets among the ready reactions: at most one, the
+    /// match's.
+    ready_sets: usize,
     /// The radix of the reply's latest reaction: every later reaction sits
     /// at a greater one.
     after: Option<u8>,
@@ -410,10 +416,12 @@ where
     /// child of the peer's whose count its grandchild count of the scope
     /// includes, and whose listing therefore never arrives.
     supplied_children: usize,
-    /// This side's child counts of the children the reply has matched:
-    /// each matched child is identical on both sides, so the peer's
-    /// grandchild count of the scope includes the same count for it, and
-    /// its listing never arrives.
+    /// This side's child counts of the children the reply has matched or
+    /// its match covers.
+    ///
+    /// Each such child is identical on both sides, so the peer's grandchild
+    /// count of the scope includes the same count for it, and its listing
+    /// never arrives.
     matched_children: usize,
     /// The part of the room the question set aside for the reply's chunks
     /// that the chunks delivered so far did not take.
@@ -455,6 +463,8 @@ where
             ready_listing: 0,
             group: Vec::new(),
             positions_left: scope.positions().remaining(),
+            matched: false,
+            ready_sets: 0,
             after: None,
             supplied_children: 0,
             matched_children: 0,
@@ -480,29 +490,35 @@ where
             };
             let (reaction, flow) = match frame {
                 Frame::Reaction(reaction, flow) => (reaction, flow),
-                Frame::End(End::Reply) if self.reactions == 0 => break,
+                Frame::End(End::Reply) if self.reactions == 0 => {
+                    positions.end()?;
+                    break;
+                }
                 Frame::End(End::Stream) => return Err(DecodeError::UnexpectedStreamEnd),
                 Frame::End(_) => return Err(DecodeError::BareEndAfterReaction),
             };
 
             match reaction {
-                WireReaction::Match => {
+                WireReaction::Match(later) => {
                     self.close_group().await;
-                    // Reject the overrun at its frame rather than retaining an
-                    // unbounded reply for later walk validation.
-                    let children = positions.upcoming_children();
-                    let (prefix, _) = positions.next().ok_or(ScopeError::UnpositionedMatch)?;
-                    self.reach(&prefix);
-                    self.matched_children += children;
+                    // Reject the overrun, a second match, or a cover of
+                    // anything but later listed children at its frame,
+                    // rather than retaining a reply for later walk
+                    // validation.
+                    let matched = positions.matched(&later)?;
+                    self.reach(&matched.prefix, &positions);
+                    self.matched = true;
+                    self.matched_children += matched.children;
                     self.count()?;
-                    self.ready.push(ProtocolReaction::Match);
+                    self.ready_sets += usize::from(later.get().is_some());
+                    self.ready.push(ProtocolReaction::Match(later));
                 }
                 WireReaction::Query(listing) => {
                     self.close_group().await;
                     // Validate the question's position now, at its frame;
                     // the scope it creates is derived at the take.
                     let (prefix, _) = self.level.check(&mut positions, &listing)?;
-                    self.reach(&prefix);
+                    self.reach(&prefix, &positions);
                     self.listed += listing.len();
                     if self.listed > self.bound.listing {
                         return Err(DecodeError::ExceedsBound {
@@ -539,6 +555,10 @@ where
                             .supplies
                             .observe::<B::Error>(self.scope.parent(), &version)?;
                         if let Some(run) = run {
+                            // A covered child is one both sides hold.
+                            if positions.covers(run.0) {
+                                return Err(ScopeError::CoveredSupply { radix: run.0 }.into());
+                            }
                             self.after = Some(run.0);
                             self.group.push(run);
                             self.count()?;
@@ -566,6 +586,9 @@ where
 
             self.release();
             if flow == Flow::End {
+                // The end is never inferred, only checked: every listed
+                // child after the last frame must be covered.
+                positions.end()?;
                 break;
             }
         }
@@ -620,9 +643,10 @@ where
         }
     }
 
-    /// Note that the reply has reached the record's position at `prefix`.
-    fn reach(&mut self, prefix: &ErasedPrefix) {
-        self.positions_left -= 1;
+    /// Note that the reply has reached the record's position at `prefix`,
+    /// leaving `positions` to take.
+    fn reach(&mut self, prefix: &ErasedPrefix, positions: &Positions<'_>) {
+        self.positions_left = positions.remaining();
         self.after = prefix.as_bytes().last().copied();
     }
 
@@ -631,13 +655,16 @@ where
     ///
     /// Later reactions number at most what the bound leaves and one per
     /// radix above the latest; later queries sit only at positions not yet
-    /// reached. Later listing entries number at most what the peer's
-    /// grandchild count of the scope leaves, less the child counts of the
-    /// children it matched and of the nodes it supplied, which that count
-    /// includes and whose listings never come, and at most a fan per later
-    /// query. Every non-last chunk
+    /// reached that the reply's match does not cover. Later listing entries
+    /// number at most what the peer's grandchild count of the scope leaves,
+    /// less the child counts of the children it matched or covered and of
+    /// the nodes it supplied, which that count includes and whose listings
+    /// never come, and at most a fan per later query. Every non-last chunk
     /// holds a query, so the chunks number at most the queries to come and
-    /// one more.
+    /// one more. A reply carries one match at most, so it carries one
+    /// covered set at most: the ready match's, or, before the match
+    /// arrives, one more if two positions are left for the match and a
+    /// child it covers.
     ///
     /// No term grows as the reply goes on: each reaction moves from what
     /// can come to what is ready, and each chunk delivered takes its
@@ -652,10 +679,12 @@ where
             .listing
             .saturating_sub(self.listed + self.matched_children + self.supplied_children)
             .min(FAN * questions);
+        let sets = usize::from(!self.matched && self.positions_left >= 2);
         Deliverable {
             chunks: self.ready_questions + questions + 1,
             reactions: self.ready.len() + self.group.len() + reactions,
             listing: self.ready_listing + listing,
+            sets: self.ready_sets + sets,
         }
     }
 
@@ -676,6 +705,7 @@ where
     fn chunk(&mut self, last: bool) -> Reply<B::Erased> {
         self.ready_questions = 0;
         self.ready_listing = 0;
+        self.ready_sets = 0;
         let mut chunk = Reply {
             reactions: self.ready.drain(..).collect(),
             charge: Charge::default(),

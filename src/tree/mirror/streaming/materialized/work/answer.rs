@@ -10,6 +10,7 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, ErasedNode, FAN, Leaf,
+            byte_set::ByteSet,
             erased::{Reaction, ops},
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound, buffer},
@@ -17,7 +18,7 @@ use crate::{
                 Error, Query, Resolve, Violation, explosion_bytes, fan_listing,
                 unknown::{known, unknown},
             },
-            message::{Carried, CountError, Grandchildren, Listed},
+            message::{Carried, CountError, Grandchildren, LaterMatches, Listed},
             stats::Recorder,
         },
         typed::{ErasedPrefix, height::Z},
@@ -58,9 +59,15 @@ pub(super) enum Question<E> {
 /// An answer classified: its planned reactions in radix order, and the
 /// resolution of its scope's children, whose questions' slots are
 /// [`Resolve::Pending`].
+///
+/// The plan holds one match at most, at the first matching child, and no
+/// reaction for any later one: the first match covers them, by the radixes
+/// `later` holds, which the match carries once its chunk is handed out.
 pub(super) struct Answer<E, Q> {
     /// The reactions, questions unbuilt.
     planned: Vec<Planned<E, Q>>,
+    /// The matching children after the first, which its match covers.
+    later: ByteSet,
     /// The charge for the plan's buffer, built out of the answer's grant.
     plan: Charge,
     /// The scope's child resolutions.
@@ -73,6 +80,7 @@ impl<E, Q> Answer<E, Q> {
         (
             Chunks {
                 planned: self.planned.into_iter(),
+                later: self.later,
                 plan: self.plan,
                 done: false,
             },
@@ -112,6 +120,9 @@ fn union<E>(ours: &[(u8, E)], theirs: &[Listed]) -> usize {
 pub(super) struct Chunks<E, Q> {
     /// The planned reactions not yet handed out.
     planned: std::vec::IntoIter<Planned<E, Q>>,
+    /// The children the plan's match covers, until the match is handed
+    /// out carrying them; empty after.
+    later: ByteSet,
     /// The charge for the plan's buffer, which the iterator keeps until the
     /// chunks are dropped.
     #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
@@ -131,23 +142,41 @@ pub(super) struct Part<E, Q> {
 }
 
 impl<E, Q> Chunks<E, Q> {
-    /// The reactions the reply's last chunk holds if it asks nothing, or
-    /// `None` if it ends at a question; read before any chunk is handed out.
+    /// The reactions the reply's last chunk holds if it asks nothing, with
+    /// the covered sets among them, or `None` if it ends at a question;
+    /// read before any chunk is handed out.
     ///
     /// Only such a chunk is built out of the answer's own grant: every
     /// chunk that ends at a question is built out of that question's.
-    pub(super) fn unasked_last(&self) -> Option<usize> {
+    pub(super) fn unasked_last(&self) -> Option<Held> {
         let planned = self.planned.as_slice();
         match planned.last() {
             Some(Planned::Ask(_)) => None,
-            _ => Some(
-                planned
+            _ => {
+                let unasked = planned
                     .iter()
                     .rev()
-                    .take_while(|planned| matches!(planned, Planned::Ready(_)))
-                    .count(),
-            ),
+                    .take_while(|planned| matches!(planned, Planned::Ready(_)));
+                Some(self.held(unasked))
+            }
         }
+    }
+
+    /// The reactions `planned` holds, and the covered set among them: the
+    /// one the match carries once handed out, if it is among them.
+    fn held<'a>(&self, planned: impl Iterator<Item = &'a Planned<E, Q>>) -> Held
+    where
+        E: 'a,
+        Q: 'a,
+    {
+        let mut held = Held::default();
+        for planned in planned {
+            held.reactions += 1;
+            if matches!(planned, Planned::Ready(Reaction::Match(_))) && !self.later.is_empty() {
+                held.sets += 1;
+            }
+        }
+        held
     }
 
     /// The next chunk, or `None` once the last chunk has been handed out.
@@ -170,6 +199,15 @@ impl<E, Q> Chunks<E, Q> {
         let mut leading = held_by(Holding::OutgoingReplies, || Vec::with_capacity(ready + 1));
         for planned in self.planned.by_ref() {
             match planned {
+                // The plan's one match carries the children it covers, set
+                // aside until now so that the plan holds no allocation for
+                // them.
+                Planned::Ready(Reaction::Match(_)) => {
+                    let later = std::mem::take(&mut self.later);
+                    held_by(Holding::OutgoingReplies, || {
+                        leading.push(Reaction::Match(LaterMatches::new(later)));
+                    });
+                }
                 Planned::Ready(reaction) => {
                     held_by(Holding::OutgoingReplies, || leading.push(reaction));
                 }
@@ -190,6 +228,40 @@ impl<E, Q> Chunks<E, Q> {
             last: true,
         })
     }
+}
+
+/// The matches an answer has classified so far: whether its first is
+/// planned, and the later ones, which that first match covers.
+#[derive(Default)]
+struct Matches {
+    /// Whether the plan holds the answer's first match.
+    first: bool,
+    /// The matching children after the first, by radix.
+    later: ByteSet,
+}
+
+impl Matches {
+    /// Classify the child at `radix` as a match: the answer's first match
+    /// takes a reaction in `planned`, and every later one is covered by it.
+    fn plan<E, Q>(&mut self, planned: &mut Vec<Planned<E, Q>>, radix: u8) {
+        if self.first {
+            self.later.insert(radix);
+        } else {
+            self.first = true;
+            planned.push(Planned::Ready(Reaction::Match(LaterMatches::NONE)));
+        }
+    }
+}
+
+/// What a chunk of an answer holds before it is built: its reactions, and
+/// the covered sets among them, one at most.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Held {
+    /// The chunk's reactions.
+    pub(crate) reactions: usize,
+    /// The covered sets its match carries: one if it holds the answer's
+    /// match and that match covers a later child, none otherwise.
+    pub(crate) sets: usize,
 }
 
 /// Classify one nonempty internal query's children by merge-joining both
@@ -226,6 +298,7 @@ where
     let mut resolved = Vec::with_capacity(children);
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
+    let mut matches = Matches::default();
 
     for pair in ours
         .into_iter()
@@ -233,7 +306,7 @@ where
     {
         match pair {
             EitherOrBoth::Both((radix, node), theirs) if node.hash() == theirs.hash => {
-                planned.push(Planned::Ready(Reaction::Match));
+                matches.plan(&mut planned, radix);
                 resolved.push((radix, Resolve::Ready(Some(node))));
             }
             EitherOrBoth::Both((radix, node), theirs) => {
@@ -279,6 +352,7 @@ where
 
     Ok(Answer {
         planned,
+        later: matches.later,
         plan,
         resolved,
     })
@@ -286,8 +360,8 @@ where
 
 impl<E: ErasedNode + Clone> Question<E> {
     /// The most this question's unit holds, before it is built, asked about
-    /// a child of `prefix` in a chunk behind `leading` reactions
-    /// ([`charges::question_bound`]).
+    /// a child of `prefix` in a chunk behind the `leading` reactions and
+    /// covered sets ([`charges::question_bound`]).
     ///
     /// A disputed child lists this side's children of it, exactly its
     /// child count, which is at most a fan; a request lists none.
@@ -305,7 +379,7 @@ impl<E: ErasedNode + Clone> Question<E> {
     pub(super) fn bound<Err>(
         &self,
         prefix: ErasedPrefix,
-        leading: usize,
+        leading: Held,
     ) -> Result<usize, CountError> {
         let (copies, theirs, listed) = match self {
             Self::Dispute { node, theirs, .. } => {
@@ -432,6 +506,7 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     let mut resolved = Vec::with_capacity(children);
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
+    let mut matches = Matches::default();
 
     for pair in ours
         .into_iter()
@@ -439,7 +514,7 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     {
         match pair {
             EitherOrBoth::Both((radix, leaf), _) => {
-                planned.push(Planned::Ready(Reaction::Match));
+                matches.plan(&mut planned, radix);
                 resolved.push((radix, Resolve::Ready(Some(leaf))));
             }
             EitherOrBoth::Left((radix, leaf)) => {
@@ -466,6 +541,7 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
 
     Answer {
         planned,
+        later: matches.later,
         plan,
         resolved,
     }

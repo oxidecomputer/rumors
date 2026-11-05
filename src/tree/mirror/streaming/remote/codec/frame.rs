@@ -1,7 +1,7 @@
 //! Semantic wire frames after signal decoding.
 
 use crate::tree::mirror::streaming::FAN;
-use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
+use crate::tree::mirror::streaming::message::{Grandchildren, LaterMatches, Listed};
 use crate::{
     Version,
     counter::widen,
@@ -65,8 +65,12 @@ const VERSION_TAG_LEN: usize = cbor::head_len(crate::tags::VERSION_TAG);
 /// The body of one complete reaction frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reaction {
-    Match,
+    /// A match, and the later listed children it covers: body-free when it
+    /// covers none, else a byte string holding the covered radixes' set.
+    Match(LaterMatches),
+    /// A question: empty, or listing the asker's children.
     Query(Vec<Listed>),
+    /// A run of supplied leaves.
     Supply(LeafRun),
 }
 

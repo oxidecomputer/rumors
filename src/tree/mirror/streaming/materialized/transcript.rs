@@ -24,8 +24,9 @@ use crate::tree::mirror::streaming::erased::{Reaction, Reply};
 pub enum Label {
     /// [`Reaction::Supply`]: the announced radix, the node dropped.
     Supply(u8),
-    /// [`Reaction::Match`].
-    Match,
+    /// [`Reaction::Match`]: the radixes of the later children it covers,
+    /// ascending.
+    Match(Vec<u8>),
     /// [`Reaction::Query`]: the listing's radices, the hashes dropped.
     Query(Vec<u8>),
 }
@@ -104,7 +105,7 @@ pub fn with_transcript<R>(f: impl FnOnce() -> R) -> (R, Transcript) {
 pub(super) fn reply<E>(work: usize, height: usize, chunk: &Reply<E>) {
     let labels = chunk.reactions.iter().map(|reaction| match reaction {
         Reaction::Supply(radix, _) => Label::Supply(*radix),
-        Reaction::Match => Label::Match,
+        Reaction::Match(later) => Label::Match(later.set().iter().collect()),
         Reaction::Query(listing) => {
             Label::Query(listing.iter().map(|listed| listed.radix).collect())
         }

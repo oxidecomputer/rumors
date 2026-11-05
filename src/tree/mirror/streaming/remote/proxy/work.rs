@@ -26,7 +26,7 @@ use crate::{
             materialized::SupplyLedger,
             protocol::BoxResponses,
             remote::{
-                adapter::{ReplyLevel, Scope, derive_questions},
+                adapter::{Replay, ReplyLevel, Scope, derive_questions},
                 codec::{Frame, RunBudget, Speaker, Stream as LogicalStream},
                 pipe::{self, Demultiplexer, Multiplexer, Outgoing, PipeRead},
                 proxy::{Error, send_or_cancel},
@@ -229,7 +229,7 @@ where
                 while let Some(Parked { chunk, opens }) = parked.recv().await {
                     let opening = opens.is_some();
                     if let Some((answered, record)) = opens {
-                        taking = Some(Taking { answered, taken: 0, _record: record });
+                        taking = Some(Taking { answered, replay: Replay::default(), _record: record });
                     }
                     let Some(open) = &mut taking else {
                         unreachable!("the pump parks the record with each reply's first chunk");
@@ -239,7 +239,7 @@ where
                         let questions = match derive_questions(
                             level,
                             &open.answered,
-                            &mut open.taken,
+                            &mut open.replay,
                             &chunk.reactions,
                         ) {
                             Ok(questions) => questions,
@@ -367,14 +367,14 @@ pub(crate) struct Parked<E> {
     opens: Option<(Arc<Scope>, Charge)>,
 }
 
-/// The reply the take is part way through: the record it answers, the
-/// record's positions its chunks have taken, and the record's charge,
+/// The reply the take is part way through: the record it answers, how far
+/// its taken chunks replayed against the record, and the record's charge,
 /// which returns once the take has read the reply's last chunk.
 struct Taking {
     /// The record of the question the reply answers.
     answered: Arc<Scope>,
-    /// The positions the reply's taken chunks took.
-    taken: usize,
+    /// How far the reply's taken chunks replayed against the record.
+    replay: Replay,
     /// The record's charge.
     _record: Charge,
 }

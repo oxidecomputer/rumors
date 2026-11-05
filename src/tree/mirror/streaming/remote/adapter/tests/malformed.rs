@@ -1,5 +1,6 @@
 //! Ingress validation: malformed replies and the boundaries they must admit.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::listed;
 use std::convert::Infallible;
 
@@ -8,17 +9,18 @@ use futures::{TryStreamExt, stream};
 use proptest::prelude::*;
 
 use crate::tree::{
-    mirror::streaming::{Backend, Local},
+    arb::arb_radixes,
+    mirror::streaming::{Backend, Local, byte_set::ByteSet},
     typed::{
-        Path, Prefix,
+        ErasedPrefix, Path, Prefix,
         height::{S, Z},
     },
 };
 
 use super::{
     super::{
-        DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_whole_reply,
-        derive_questions, encode_leaf_reply, encode_reply,
+        DecodeError, EncodeError, LeafEdge, Replay, ReplyLevel, Scope, ScopeError,
+        decode_whole_reply, derive_questions, encode_leaf_reply, encode_reply,
     },
     LeafCase, ascending_leaves, codec, colliding_leaves, hash, leaf_run, runtime, unbounded,
 };
@@ -33,7 +35,7 @@ fn bare_end_cannot_follow_reactions() {
     let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
     let frames: Vec<Frame> = vec![
-        Frame::Reaction(WireReaction::Match, Flow::Continue),
+        Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::Continue),
         Frame::End(End::Reply),
     ];
 
@@ -64,7 +66,10 @@ fn bare_end_cannot_follow_reactions() {
 fn stream_exhaustion_before_a_boundary_is_truncation() {
     let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<Z>>::containing(&path);
-    let mut frames = stream::iter([Frame::Reaction(WireReaction::Match, Flow::Continue)]);
+    let mut frames = stream::iter([Frame::Reaction(
+        WireReaction::Match(LaterMatches::NONE),
+        Flow::Continue,
+    )]);
 
     let error = runtime().block_on(async {
         decode_whole_reply(
@@ -90,18 +95,19 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
 /// A match past the question's fan fails at its own frame, in both directions.
 ///
 /// The scope walk is symmetric with the query arm: every positional
-/// reaction consumes one listed child, so excess `Match` frames are
+/// reaction consumes one listed child, so a match after the last is
 /// rejected eagerly — at the offending frame, before the skeleton grows
 /// past the fan — rather than after the whole reply decodes.
 #[test]
 fn an_unpositioned_match_is_rejected_in_both_directions() {
     let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<S<Z>>>::containing(&path);
-    // One listed child admits one positional reaction; the second Match
-    // must fail at its own frame with the reply still unterminated.
+    // One listed child admits one positional reaction; the request takes
+    // it, so the match must fail at its own frame with the reply still
+    // unterminated.
     let frames: Vec<Frame> = vec![
-        Frame::Reaction(WireReaction::Match, Flow::Continue),
-        Frame::Reaction(WireReaction::Match, Flow::Continue),
+        Frame::Reaction(WireReaction::Query(Vec::new()), Flow::Continue),
+        Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::Continue),
     ];
 
     let decode_error = runtime().block_on(async {
@@ -126,7 +132,10 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
     );
 
     let reply = Reply::<<Local as Backend>::Erased> {
-        reactions: vec![Reaction::Match, Reaction::Match],
+        reactions: vec![
+            Reaction::Query(Vec::new()),
+            Reaction::Match(LaterMatches::NONE),
+        ],
         charge: Default::default(),
         last: true,
         carried: Default::default(),
@@ -147,6 +156,231 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
         encode_scope_error(encode_error),
         ScopeError::UnpositionedMatch,
     );
+}
+
+/// The parent of a test question at branch level: a node two levels above
+/// the leaves, whose replies may match, query, and request.
+fn branch_parent() -> ErasedPrefix {
+    Prefix::<S<S<Z>>>::containing(&Path::for_leaf(&Version::new())).erase()
+}
+
+/// A question about `parent` listing a child at each of `radixes`.
+fn question(parent: ErasedPrefix, radixes: &[u8]) -> Scope {
+    let listing: Vec<_> = radixes
+        .iter()
+        .map(|&radix| listed(radix, hash(radix)))
+        .collect();
+    Scope::unbounded(parent, &listing)
+}
+
+/// Decode `frames` as one reply at `level` to `scope`.
+fn decode_frames(
+    level: ReplyLevel,
+    scope: &Scope,
+    frames: Vec<Frame>,
+) -> Result<Reply<<Local as Backend>::Erased>, DecodeError<Infallible>> {
+    runtime().block_on(async {
+        let mut frames = stream::iter(frames);
+        decode_whole_reply::<Local, _>(
+            &mut LeafEdge::new(),
+            Local,
+            u64::MAX,
+            unbounded(),
+            level,
+            scope,
+            &mut frames,
+            codec(),
+        )
+        .await
+    })
+}
+
+/// Encode `reactions` as one whole reply at branch level to `scope`.
+fn encode_reactions(
+    scope: Scope,
+    reactions: Vec<Reaction<<Local as Backend>::Erased>>,
+) -> Result<Vec<Frame>, EncodeError<Infallible>> {
+    let reply = Reply {
+        reactions,
+        charge: Default::default(),
+        last: true,
+        carried: Default::default(),
+    };
+    runtime().block_on(async {
+        encode_reply(Local, RunBudget::default(), scope, reply)
+            .map_ok(|encoded| encoded.into_parts().0)
+            .try_collect()
+            .await
+    })
+}
+
+/// A reply's second match is rejected at its frame, in both directions.
+///
+/// The reply's first match covers every later listed child that also
+/// matches, so a conforming reply carries one match at most; a second is
+/// a defect even where a listed child is left for it to take.
+#[test]
+fn a_second_match_is_rejected_in_both_directions() {
+    let scope = question(branch_parent(), &[1, 2]);
+    let frames = vec![
+        Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::Continue),
+        Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::End),
+    ];
+    let error = decode_frames(ReplyLevel::Branch, &scope, frames)
+        .err()
+        .expect("a second match cannot decode");
+    assert_eq!(decode_scope_error(error), ScopeError::RepeatedMatch);
+
+    let reactions = vec![
+        Reaction::Match(LaterMatches::NONE),
+        Reaction::Match(LaterMatches::NONE),
+    ];
+    let error =
+        encode_reactions(scope, reactions).expect_err("a second match cannot be put on the wire");
+    assert_eq!(encode_scope_error(error), ScopeError::RepeatedMatch);
+}
+
+/// Listed radixes, two to eight, and a position among them for a match
+/// that is not the last.
+fn listing_with_match() -> impl Strategy<Value = (Vec<u8>, usize)> {
+    arb_radixes(2..=8).prop_flat_map(|radixes| {
+        let radixes: Vec<u8> = radixes.into_iter().collect();
+        let positions = 0..radixes.len() - 1;
+        (Just(radixes), positions)
+    })
+}
+
+/// The frames of a reply that requests every listed child before
+/// `position`, then matches there, covering `later`, and ends.
+fn match_after_requests(position: usize, later: ByteSet) -> Vec<Frame> {
+    let mut frames: Vec<Frame> = (0..position)
+        .map(|_| Frame::Reaction(WireReaction::Query(Vec::new()), Flow::Continue))
+        .collect();
+    frames.push(Frame::Reaction(
+        WireReaction::Match(LaterMatches::new(later)),
+        Flow::End,
+    ));
+    frames
+}
+
+proptest! {
+    /// A match covering a radix that is not a listed child after its own
+    /// is rejected at its frame, in both directions, naming that radix,
+    /// whether the radix is unlisted, the match's own, or before it.
+    ///
+    /// Every other radix the match covers is a valid later child, so the
+    /// one defect is what fails the reply.
+    #[test]
+    fn a_cover_of_anything_but_a_later_listed_child_is_rejected(
+        (radixes, position) in listing_with_match(),
+        unlisted in any::<u8>(),
+        earlier in any::<prop::sample::Index>(),
+        use_unlisted in any::<bool>(),
+    ) {
+        let bad = if use_unlisted && !radixes.contains(&unlisted) {
+            unlisted
+        } else {
+            radixes[earlier.index(position + 1)]
+        };
+        let mut later: ByteSet = radixes[position + 1..].iter().copied().collect();
+        later.insert(bad);
+        let scope = question(branch_parent(), &radixes);
+        let error = decode_frames(ReplyLevel::Branch, &scope, match_after_requests(position, later))
+            .err()
+            .expect("a cover of anything but a later listed child cannot decode");
+        prop_assert_eq!(decode_scope_error(error), ScopeError::UnlistedCover { radix: bad });
+
+        let mut reactions: Vec<_> = (0..position).map(|_| Reaction::Query(Vec::new())).collect();
+        reactions.push(Reaction::Match(LaterMatches::new(later)));
+        let error = encode_reactions(scope, reactions)
+            .expect_err("a cover of anything but a later listed child cannot be put on the wire");
+        prop_assert_eq!(encode_scope_error(error), ScopeError::UnlistedCover { radix: bad });
+    }
+
+    /// A reply may end on its match while listed children remain after it,
+    /// when the match covers every one of them.
+    ///
+    /// The end is checked, never inferred, and the reply decodes to exactly
+    /// its frames' reactions, the match carrying its cover.
+    #[test]
+    fn a_reply_may_end_before_the_children_its_match_covers(
+        (radixes, position) in listing_with_match(),
+    ) {
+        let later: ByteSet = radixes[position + 1..].iter().copied().collect();
+        let scope = question(branch_parent(), &radixes);
+        let reply = decode_frames(ReplyLevel::Branch, &scope, match_after_requests(position, later))
+            .expect("a match covering every child left may end the reply");
+        prop_assert_eq!(reply.reactions.len(), position + 1);
+        let Some(Reaction::Match(covered)) = reply.reactions.last() else {
+            return Err(TestCaseError::fail("the reply ends on its match"));
+        };
+        prop_assert_eq!(covered.set(), later);
+        let questions = derive_questions(
+            ReplyLevel::Branch,
+            &scope,
+            &mut Replay::default(),
+            &reply.reactions,
+        )
+        .expect("decoding validated positions");
+        prop_assert_eq!(questions.len(), position);
+    }
+
+    /// A reply that ends while a listed child after its last frame is
+    /// neither answered nor covered is rejected at its end, naming the
+    /// first such child: whether the reply ends on a match that leaves one
+    /// out, or is empty.
+    #[test]
+    fn a_reply_ending_before_an_uncovered_child_is_rejected(
+        (radixes, position) in listing_with_match(),
+        omitted in any::<prop::sample::Index>(),
+        empty in any::<bool>(),
+    ) {
+        let scope = question(branch_parent(), &radixes);
+        let (frames, first) = if empty {
+            (vec![Frame::End(End::Reply)], radixes[0])
+        } else {
+            let left = &radixes[position + 1..];
+            let first = left[omitted.index(left.len())];
+            let later: ByteSet = left.iter().copied().filter(|radix| *radix != first).collect();
+            (match_after_requests(position, later), first)
+        };
+        let error = decode_frames(ReplyLevel::Branch, &scope, frames)
+            .err()
+            .expect("a reply leaving a listed child uncovered cannot decode");
+        prop_assert_eq!(decode_scope_error(error), ScopeError::UncoveredEnd { radix: first });
+    }
+
+    /// A supply at a radix the reply's match covers is rejected at its
+    /// frame: the covered child is one both sides hold.
+    ///
+    /// The supplied leaf sits under the question's node, at the radix the
+    /// match covers, after a match at a smaller listed radix: the first leaf
+    /// from `value` on whose radix leaves room for one.
+    #[test]
+    fn a_supply_at_a_covered_radix_is_rejected(value in any::<u64>(), ticks in 1..=8_u8) {
+        let (leaf, parent, radix) = (0..)
+            .map(|step| LeafCase::new(value.wrapping_add(step), ticks))
+            .find_map(|leaf| {
+                let (parent, radix) = Prefix::<Z>::containing(&leaf.path()).pop();
+                (radix > 0).then_some((leaf, parent, radix))
+            })
+            .expect("leaf radixes are uniform, so one above zero comes quickly");
+        let scope = question(parent.erase(), &[radix - 1, radix]);
+        let frames = vec![
+            Frame::Reaction(
+                WireReaction::Match(LaterMatches::new(std::iter::once(radix).collect())),
+                Flow::Continue,
+            ),
+            Frame::Reaction(
+                WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
+                Flow::End,
+            ),
+        ];
+        let error = decode_frames(ReplyLevel::Leaf, &scope, frames)
+            .err()
+            .expect("a supply at a covered radix cannot decode");
+        prop_assert_eq!(decode_scope_error(error), ScopeError::CoveredSupply { radix });
+    }
 }
 
 /// Prefix-free queries require a remaining positional child in both conversion directions.
@@ -292,7 +526,7 @@ fn leaf_query_matrix_is_exhaustive() {
                     let questions = derive_questions(
                         ReplyLevel::Leaf,
                         &Scope::unbounded(parent.erase(), &scope_listing),
-                        &mut 0,
+                        &mut Replay::default(),
                         &reply.reactions,
                     )
                     .expect("decoding validated positions");
@@ -611,7 +845,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             WireReaction::Supply(leaf_run(&[(&leaves[0].version, &leaves[0].message)])),
             Flow::Continue,
         ),
-        Frame::Reaction(WireReaction::Match, Flow::Continue),
+        Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::Continue),
         Frame::Reaction(
             WireReaction::Supply(leaf_run(&[(&leaves[1].version, &leaves[1].message)])),
             Flow::End,

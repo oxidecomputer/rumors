@@ -1,6 +1,7 @@
 //! Error selection and shutdown behavior for the proxy work executor.
 
 use crate::tree::mirror::streaming::message::Grandchildren;
+use crate::tree::mirror::streaming::message::LaterMatches;
 use std::{
     future,
     io::ErrorKind,
@@ -223,9 +224,9 @@ proptest! {
     /// parked.
     ///
     /// Each reply answers a record with one position, and the failing reply
-    /// matches twice, so its second match has no position to take. The
-    /// terminal step never finishes, so only the failure can end the
-    /// session.
+    /// matches twice, which no reply may: its first match covers every later
+    /// one. The terminal step never finishes, so only the failure can end
+    /// the session.
     #[test]
     fn response_failure_does_not_wait_for_its_consumer(
         buffered in any::<bool>(),
@@ -242,11 +243,11 @@ proptest! {
         let mut frames = Vec::new();
         if buffered {
             records.try_send(uncharged(record.clone())).expect("room for two records");
-            frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::End)));
+            frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End)));
         }
         records.try_send(uncharged(record)).expect("room for two records");
-        frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::Continue)));
-        frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::End)));
+        frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue)));
+        frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End)));
         let responses = work.respond::<UnderRoot>(questions, None, Progress::new());
         let _responses = (!dropped).then_some(responses);
         let result = run_to_quiescence(async {
@@ -256,7 +257,7 @@ proptest! {
         prop_assert!(
             matches!(
                 result,
-                Ok(Err(Error::Decode(DecodeError::Scope(ScopeError::UnpositionedMatch))))
+                Ok(Err(Error::Decode(DecodeError::Scope(ScopeError::RepeatedMatch))))
             ),
             "response error was lost: {:?}", result
         );
@@ -373,7 +374,7 @@ fn a_frame_after_completion_is_unasked() {
     let ParkedSession { work, mut peer } = parked_session();
     let frame = remote_frame(
         Stream::new(1).unwrap(),
-        Frame::Reaction(Reaction::Match, Flow::End),
+        Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
     );
     let error = run_to_quiescence(async {
         peer.write.write_all(&frame).await.unwrap();

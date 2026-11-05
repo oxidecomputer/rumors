@@ -1,5 +1,6 @@
 //! Source-error propagation across the backend traversal operations used by the adapter.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::listed;
 use std::convert::Infallible;
 
@@ -125,8 +126,8 @@ where
                 ),
                 Reply {
                     reactions: vec![
-                        Reaction::Match,
-                        Reaction::Match,
+                        Reaction::Match(LaterMatches::NONE),
+                        Reaction::Query(Vec::new()),
                         Reaction::Supply(
                             supply_radix,
                             <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf))),
@@ -142,7 +143,7 @@ where
                     .next()
                     .await
                     .expect("the first completed frame is published")
-                    .expect("the first match needs no backend traversal")
+                    .expect("the match needs no backend traversal")
                     .into_parts();
                 let error = match encoded.next().await {
                     Some(Err(error)) => error,
@@ -157,7 +158,10 @@ where
             });
             assert_eq!(
                 yielded,
-                (Frame::Reaction(WireReaction::Match, Flow::Continue), None,),
+                (
+                    Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::Continue),
+                    None,
+                ),
             );
             assert_encode_failure(
                 error,

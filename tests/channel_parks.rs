@@ -171,23 +171,23 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 fn sends_parked_per_edge_match_the_baseline() {
     let Session { tally, .. } = session();
     let baseline = BTreeMap::from([
-        (QueueKind::OutgoingResponses, sends(2_497, 1_055, 1_233)),
+        (QueueKind::OutgoingResponses, sends(2_454, 1_024, 1_218)),
         (QueueKind::AssemblyLevelReturns, sends(1_348, 0, 0)),
         (QueueKind::InitiatorRootQuery, sends(1, 0, 0)),
         (QueueKind::InitiatorRootReturn, sends(1, 0, 0)),
         (QueueKind::ResponderChildQueries, sends(256, 0, 0)),
         (QueueKind::ResponderRootResolution, sends(1, 0, 0)),
-        (QueueKind::ResponderRootReturns, sends(256, 3, 16)),
+        (QueueKind::ResponderRootReturns, sends(256, 3, 17)),
         (QueueKind::InternalChildQueries, sends(1_043, 0, 0)),
         (QueueKind::InternalParentResolutions, sends(1_300, 0, 0)),
         (QueueKind::InternalChildResolutions, sends(305, 0, 0)),
-        (QueueKind::DecodedLeaves, sends(5_010, 0, 0)),
+        (QueueKind::DecodedLeaves, sends(4_930, 0, 0)),
         (QueueKind::AssembledSupplies, sends(1_995, 0, 0)),
-        (QueueKind::ProxyResponses, sends(2_496, 0, 0)),
+        (QueueKind::ProxyResponses, sends(2_453, 0, 0)),
         (QueueKind::ProxyLocalQuestions, sends(1_300, 0, 0)),
         (QueueKind::ProxyNextScopes, sends(1_300, 0, 0)),
-        (QueueKind::PipeOutgoing, sends(4_292, 1_293, 1_916)),
-        (QueueKind::PipeIncoming, sends(4_288, 1_353, 2_147)),
+        (QueueKind::PipeOutgoing, sends(3_587, 982, 1_602)),
+        (QueueKind::PipeIncoming, sends(3_583, 905, 1_769)),
     ]);
     assert_eq!(tally, baseline);
 }

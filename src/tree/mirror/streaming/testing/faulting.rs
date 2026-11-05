@@ -317,7 +317,9 @@ where
 
         match corruption {
             ReplyCorruption::UnfinishedReply => reply.reactions.clear(),
-            ReplyCorruption::UnexpectedMatch => reply.reactions.push(message::Reaction::Match),
+            ReplyCorruption::UnexpectedMatch => reply
+                .reactions
+                .push(message::Reaction::Match(message::LaterMatches::NONE)),
             ReplyCorruption::UnexpectedQuery => {
                 reply.reactions.push(message::Reaction::Query(Vec::new()));
             }

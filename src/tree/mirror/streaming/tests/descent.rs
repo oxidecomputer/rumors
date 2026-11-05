@@ -8,7 +8,9 @@
 //! reads. The suite then runs real sessions, in process and over a pipe,
 //! records every reply each walk publishes ([`with_transcript`]), and
 //! requires the two to agree exactly: per endpoint and logical stream, the
-//! same replies in the same order, each with the same reactions.
+//! same replies in the same order, each with the same reactions. Over a
+//! pipe, it also observes every frame each endpoint sends, and holds each
+//! reply to the frames the model predicts for it.
 //!
 //! The model rests on four facts about the protocol:
 //!
@@ -17,8 +19,10 @@
 //! - Two subtrees match exactly when their key sets match, since a node's
 //!   hash covers exactly its leaves.
 //! - The reply about a node held by both sides holds one reaction per child
-//!   either side holds, in radix order: a match where both sides' subtrees
-//!   are equal; a query listing the replier's children of the child where
+//!   either side holds, in radix order, but for the matches after its first:
+//!   a match where both sides' subtrees are equal, the first one naming the
+//!   radixes of every later one, which take no reaction of their own; a
+//!   query listing the replier's children of the child where
 //!   both hold it with different contents; a supply where only the replier
 //!   holds it and some leaf beneath it is unknown to the asker, and nothing
 //!   where every such leaf is known; and an empty query where only the asker
@@ -37,12 +41,17 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
 
 use super::pipe::placed_over_pipe;
 use super::skeleton::Party;
 use super::{LocalSession, left_initiates};
+use crate::observe::{
+    Attachment, Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo,
+    StreamObserver,
+};
 use crate::tree::Root;
 use crate::tree::arb::{
     arb_deep_divergent_pair, arb_divergent_pair, arb_wide_divergent_pair, nth_party,
@@ -52,7 +61,12 @@ use crate::tree::mirror::streaming::materialized::transcript::{
     Label, Transcript, with_transcript,
 };
 use crate::tree::mirror::streaming::protocol::split::with_split_replies;
-use crate::tree::mirror::streaming::testing::session::{AMPLE, completed, over_pipe};
+use crate::tree::mirror::streaming::remote::codec::{
+    End, Flow, Frame, Reaction as WireReaction, RunBudget, Speaker, Stream, decode_exact,
+};
+use crate::tree::mirror::streaming::testing::session::{
+    AMPLE, completed, observed_over_pipe, over_pipe,
+};
 use crate::tree::typed::{Node as TreeNode, Path};
 use crate::tree::{Action, Tree};
 use crate::{causally, message::Message};
@@ -201,6 +215,9 @@ fn dispute_reply<'k>(
     let ours = children(replier, depth);
     let theirs = children(asker, depth);
     let mut labels = Vec::new();
+    // The reply's first match, by its label's index, and the radixes of
+    // the later matches it covers, which take no label of their own.
+    let (mut first_match, mut later_matches) = (None, Vec::new());
     let (mut ours, mut theirs) = (ours.into_iter().peekable(), theirs.into_iter().peekable());
     loop {
         let child = |radix: u8| {
@@ -221,7 +238,12 @@ fn dispute_reply<'k>(
                 let (mine, held) = ours.next().expect("peeked");
                 let (_, asked) = theirs.next().expect("peeked");
                 if same_keys(held, asked) {
-                    labels.push(Label::Match);
+                    if first_match.is_none() {
+                        first_match = Some(labels.len());
+                        labels.push(Label::Match(Vec::new()));
+                    } else {
+                        later_matches.push(mine);
+                    }
                 } else {
                     // Below a leaf's parent every child is a leaf, and
                     // equal paths are equal leaves, so `depth + 1` is a
@@ -252,6 +274,9 @@ fn dispute_reply<'k>(
                 replies.push(request_reply(asked, child(yours), by.other()));
             }
         }
+    }
+    if let Some(first) = first_match {
+        labels[first] = Label::Match(later_matches);
     }
     Predicted {
         by,
@@ -540,6 +565,204 @@ proptest! {
             if let Some(node) = root.node {
                 let miscounted = node.into_untyped().miscounted_grandchildren();
                 prop_assert!(miscounted.is_none(), "{miscounted:?}");
+            }
+        }
+    }
+}
+
+/// Every data frame both endpoints of an observed session sent, per
+/// logical stream, keyed by the stream's speaking role and wire index, each
+/// stream's frames in order.
+type SentFrames = BTreeMap<(Role, u8), Vec<Vec<u8>>>;
+
+/// An observer that records every data frame its sessions send.
+///
+/// Both endpoints share one recorder: their sent streams have different
+/// speaking roles, so their keys never collide.
+#[derive(Clone, Default)]
+struct FrameRecorder(Arc<Mutex<SentFrames>>);
+
+/// Observe every session this recorder is attached to.
+impl Observer for FrameRecorder {
+    fn session(&self, _: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
+        Some(Box::new(self.clone()))
+    }
+}
+
+/// Record the data streams a session sends, and nothing it receives.
+impl SessionObserver for FrameRecorder {
+    fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
+        match (stream.id, stream.direction) {
+            (StreamId::Data { speaker, index }, Direction::Sent) => {
+                Some(Box::new(StreamRecorder {
+                    key: (speaker, index),
+                    frames: self.0.clone(),
+                }))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// One sent data stream's recorder.
+struct StreamRecorder {
+    /// The stream's speaking role and wire index.
+    key: (Role, u8),
+    /// Where the stream's frames go.
+    frames: Arc<Mutex<SentFrames>>,
+}
+
+/// Append each sent frame to its stream's record.
+impl StreamObserver for StreamRecorder {
+    fn message(&mut self, bytes: &[u8]) {
+        self.frames
+            .lock()
+            .expect("no recorder panics while holding the lock")
+            .entry(self.key)
+            .or_default()
+            .push(bytes.to_vec());
+    }
+}
+
+/// The frames each endpoint of a session between `left` and `right`
+/// sends, over an ample pipe with no budget limit.
+fn sent_frames(left: Root, right: Root) -> SentFrames {
+    let recorder = FrameRecorder::default();
+    let mut observers = Attachment::default();
+    observers.attach(Arc::new(recorder.clone()));
+    completed(
+        observed_over_pipe::<()>((left, right), [usize::MAX; 2], AMPLE, &observers)
+            .expect("the session completes under the closed-world poller"),
+    );
+    std::mem::take(&mut *recorder.0.lock().expect("the session is over"))
+}
+
+/// What one reply put on the wire: its frames by kind, and the radixes its
+/// match frame covers.
+#[derive(Debug, Default)]
+struct WireReply {
+    /// Its match frames: at most one in a conforming reply.
+    matches: usize,
+    /// Its query frames.
+    queries: usize,
+    /// Its supply frames: one or more runs per supplied node.
+    supplies: usize,
+    /// Its bare reply-end frames: one for an empty reply, none otherwise.
+    ends: usize,
+    /// The radixes its match frames cover, ascending.
+    covered: Vec<u8>,
+}
+
+impl WireReply {
+    /// The frames it sent.
+    fn frames(&self) -> usize {
+        self.matches + self.queries + self.supplies + self.ends
+    }
+}
+
+/// Split one sent stream's frames, spoken by `role`, into its replies:
+/// each ends at a frame marking its end, and the stream's closing frame
+/// belongs to none.
+fn wire_replies(role: Role, frames: &[Vec<u8>]) -> Vec<WireReply> {
+    let speaker = match role {
+        Role::Initiator => Speaker::Initiator,
+        Role::Responder => Speaker::Responder,
+    };
+    let mut replies = Vec::new();
+    let mut reply = WireReply::default();
+    for bytes in frames {
+        let (_, frame) = decode_exact(speaker, RunBudget::default(), bytes)
+            .expect("every frame a session sends decodes");
+        let ends = match frame {
+            Frame::End(End::Stream) => continue,
+            Frame::End(End::Reply) => {
+                reply.ends += 1;
+                true
+            }
+            Frame::Reaction(reaction, flow) => {
+                match reaction {
+                    WireReaction::Match(later) => {
+                        reply.matches += 1;
+                        reply.covered.extend(later.set().iter());
+                    }
+                    WireReaction::Query(_) => reply.queries += 1,
+                    WireReaction::Supply(_) => reply.supplies += 1,
+                }
+                flow == Flow::End
+            }
+        };
+        if ends {
+            replies.push(std::mem::take(&mut reply));
+        }
+    }
+    replies
+}
+
+proptest! {
+    /// Over the wire, every reply sends at most the frames it would send
+    /// with one frame per reaction, and strictly fewer whenever it holds two
+    /// matches or more.
+    ///
+    /// The model predicts each reply from the two trees alone: which listed
+    /// children match, which it queries, and which nodes it supplies. Each
+    /// observed reply must carry at most one match frame, covering exactly
+    /// the matches after its first; one query frame per query; and as many
+    /// supply frames as its runs need, which the format change leaves as
+    /// they were. With one frame per reaction, the same reply would send a
+    /// frame for every match, so the covered ones are exactly the frames
+    /// saved. The initiator's opening question rides the greeting, so no
+    /// stream carries it.
+    #[test]
+    fn frames_per_reply_never_increase(
+        (left, right) in prop_oneof![arb_divergent_pair(), arb_wide_divergent_pair()],
+    ) {
+        let Some(prediction) = predict_pair(&left, &right) else {
+            return Ok(());
+        };
+        let sent = sent_frames(left, right);
+        for ((party, height), predicted) in &prediction {
+            let role = match party {
+                Party::I => Role::Initiator,
+                Party::R => Role::Responder,
+            };
+            if *party == Party::I && *height == reply_height(0) {
+                continue;
+            }
+            let speaker = match role {
+                Role::Initiator => Speaker::Initiator,
+                Role::Responder => Speaker::Responder,
+            };
+            let index = Stream::at_height(speaker, *height)
+                .expect("a reply height maps to its speaker's stream")
+                .index();
+            let observed = sent
+                .get(&(role, index))
+                .map(|frames| wire_replies(role, frames))
+                .unwrap_or_default();
+            prop_assert_eq!(observed.len(), predicted.len(), "{:?} replies at height {}", party, height);
+            for (labels, wire) in predicted.iter().zip(&observed) {
+                let later: &[u8] = labels
+                    .iter()
+                    .find_map(|label| match label {
+                        Label::Match(later) => Some(later.as_slice()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let matches = labels.iter().filter(|label| matches!(label, Label::Match(_))).count()
+                    + later.len();
+                let queries = labels.iter().filter(|label| matches!(label, Label::Query(_))).count();
+                prop_assert!(wire.matches <= 1, "a reply carries one match frame at most: {:?}", wire);
+                prop_assert_eq!(wire.matches, usize::from(matches > 0), "{:?}", wire);
+                prop_assert_eq!(wire.queries, queries, "{:?}", wire);
+                prop_assert_eq!(&wire.covered, later, "the match covers the later matches");
+                // One frame per reaction: every match and query, the same
+                // supply runs, and a bare end for an empty reply.
+                let reactions = matches + queries + wire.supplies;
+                let one_per_reaction = reactions.max(1);
+                prop_assert!(wire.frames() <= one_per_reaction, "{:?} against {}", wire, one_per_reaction);
+                if matches >= 2 {
+                    prop_assert!(wire.frames() < one_per_reaction, "{:?} against {}", wire, one_per_reaction);
+                }
             }
         }
     }

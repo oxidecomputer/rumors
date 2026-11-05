@@ -19,6 +19,7 @@
 //! prune its `EXEMPT_MARKERS` entry by hand.
 
 use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::listed;
 use std::{
     error::Error,
@@ -38,6 +39,7 @@ use super::super::{
     signal::{Signal, WireSignal},
 };
 use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_TAG, TAG_CBOR_SEQUENCE};
+use crate::tree::mirror::streaming::byte_set::MAX_ENCODED_LEN;
 use crate::{Version, message::Message, tree::typed::Hash};
 
 use serde::Serialize;
@@ -70,6 +72,7 @@ const WITNESS_MARKERS: &[&str] = &[
     "kind: FrameShape(",
     "kind: FrameArity(",
     "kind: Malformed(part=",
+    "kind: InvalidMatchSet(",
     // DecodeLeafError (describe_leaf_kind).
     "kind: Record::Version(",
     "kind: Record::Message(io=",
@@ -81,6 +84,7 @@ const WITNESS_MARKERS: &[&str] = &[
     // added by hand alongside its witnesses.
     "part=FrameHead",
     "part=Signal",
+    "part=MatchSet",
     "part=QueryChildren",
     "part=SupplyLength",
     "part=SupplyRun",
@@ -223,7 +227,20 @@ fn decode_errors(atlas: &mut String) {
     );
     let matched = encoded(
         Speaker::Initiator,
-        (stream, Frame::Reaction(Reaction::Match, Flow::Continue)),
+        (
+            stream,
+            Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue),
+        ),
+    );
+    let matched_set = encoded(
+        Speaker::Initiator,
+        (
+            stream,
+            Frame::Reaction(
+                Reaction::Match(LaterMatches::new([1, 2].into_iter().collect())),
+                Flow::Continue,
+            ),
+        ),
     );
 
     for speaker in [Speaker::Initiator, Speaker::Responder] {
@@ -307,9 +324,18 @@ fn decode_errors(atlas: &mut String) {
         let error = decode_exact(speaker, RunBudget::default(), &[0x00]).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/frame/not-an-array"), &error);
 
+        // An empty query takes no body, so an opener of three items
+        // contradicts it; a match may take one, so it cannot witness this.
+        let empty_query = encoded(
+            Speaker::Initiator,
+            (
+                stream,
+                Frame::Reaction(Reaction::Query(Vec::new()), Flow::Continue),
+            ),
+        );
         let mut mismatched = Vec::new();
         cbor::write_head(&mut mismatched, cbor::MAJOR_ARRAY, 3);
-        mismatched.extend_from_slice(&matched[1..]);
+        mismatched.extend_from_slice(&empty_query[1..]);
         let error = decode_exact(speaker, RunBudget::default(), &mismatched).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/frame/arity"), &error);
 
@@ -405,6 +431,33 @@ fn decode_errors(atlas: &mut String) {
         .unwrap();
         let error = decode_exact(speaker, RunBudget::from_bytes(0), &batched).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/run/overbatched"), &error);
+
+        // A match's body: a head other than a byte string, an empty set,
+        // which a body-free match spells, each non-canonical spelling of a
+        // set, and a body cut short.
+        let mut sparse = [0u8; MAX_ENCODED_LEN];
+        sparse[..3].fill(0xff);
+        sparse[3] = 0x7f;
+        for (label, body) in [
+            ("not-bytes", raw_match(stream, &[0x00])),
+            ("empty", raw_match_set(stream, &[])),
+            ("unordered", raw_match_set(stream, &[2, 1])),
+            ("sparse-bitmap", raw_match_set(stream, &sparse)),
+            ("too-long", raw_match(stream, &[0x58, 0x21])),
+        ] {
+            let error = decode_exact(speaker, RunBudget::default(), &body)
+                .expect_err("the defective match body cannot decode");
+            record_decode(atlas, &format!("{speaker:?}/match/{label}"), &error);
+        }
+        let error = decode_exact(speaker, RunBudget::default(), &matched_set[..5]).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/truncated/match-set"), &error);
+        let error = decode(
+            speaker,
+            RunBudget::default(),
+            &mut FailAfterReader::new(matched_set.clone(), 5),
+        )
+        .unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/read/match-set"), &error);
 
         let mut trailing = matched.clone();
         trailing.push(0);
@@ -514,7 +567,7 @@ fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame); 3] {
             "placement/unused-opening-stream",
             Speaker::Initiator,
             Stream::new(0).unwrap(),
-            Frame::Reaction(Reaction::Match, Flow::Continue),
+            Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue),
         ),
         (
             "placement/leaf-parent",
@@ -529,7 +582,7 @@ fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame); 3] {
             "placement/terminal-leaf",
             Speaker::Responder,
             Stream::new(Stream::MAX).unwrap(),
-            Frame::Reaction(Reaction::Match, Flow::Continue),
+            Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue),
         ),
     ]
 }
@@ -538,6 +591,29 @@ fn encoded(speaker: Speaker, frame: WireFrame) -> Vec<u8> {
     let mut bytes = Vec::new();
     encode(speaker, &frame, &mut bytes).unwrap();
     bytes
+}
+
+/// A continuing match frame on `stream` whose body is the raw bytes `body`.
+fn raw_match(stream: Stream, body: &[u8]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 3);
+    cbor::write_head(&mut encoded, cbor::MAJOR_UINT, u64::from(stream.index()));
+    cbor::write_head(
+        &mut encoded,
+        cbor::MAJOR_UINT,
+        u64::from(Signal::Match(Flow::Continue).state()),
+    );
+    encoded.extend_from_slice(body);
+    encoded
+}
+
+/// A continuing match frame on `stream` whose body is a byte string of
+/// `set`, whatever its spelling.
+fn raw_match_set(stream: Stream, set: &[u8]) -> Vec<u8> {
+    let mut body = Vec::new();
+    cbor::write_head(&mut body, MAJOR_BSTR, set.len() as u64);
+    body.extend_from_slice(set);
+    raw_match(stream, &body)
 }
 
 fn raw_supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
@@ -557,7 +633,7 @@ fn raw_supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
 
 fn frame_signal(frame: &Frame) -> Signal {
     match frame {
-        Frame::Reaction(Reaction::Match, flow) => Signal::Match(*flow),
+        Frame::Reaction(Reaction::Match(_), flow) => Signal::Match(*flow),
         Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {
             Signal::QueryEmpty(*flow)
         }
@@ -681,6 +757,13 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
             write!(out, "Malformed(part=QueryChildren, actual={actual:?})").unwrap()
         }
         DecodeErrorKind::EmptyQuery => write!(out, "Malformed(part=QueryChildren, empty)").unwrap(),
+        DecodeErrorKind::MatchSetType { actual } => {
+            write!(out, "Malformed(part=MatchSet, actual={actual:?})").unwrap()
+        }
+        DecodeErrorKind::EmptyMatchSet => write!(out, "Malformed(part=MatchSet, empty)").unwrap(),
+        DecodeErrorKind::InvalidMatchSet(error) => {
+            write!(out, "InvalidMatchSet({error:?})").unwrap()
+        }
         DecodeErrorKind::SupplyTag { actual } => {
             write!(out, "Malformed(part=SupplyLength, tag={actual:?})").unwrap()
         }

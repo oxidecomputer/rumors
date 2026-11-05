@@ -21,7 +21,7 @@ use crate::{
             materialized::{
                 Error, Query, SupplyLedger, Violation, Work, work::queues::internal_child_queries,
             },
-            message::{Reaction, Reply},
+            message::{LaterMatches, Reaction, Reply},
             protocol::BoxResponses,
             stats::Recorder,
         },
@@ -48,8 +48,12 @@ enum ScriptedViolation {
     UnansweredQuery,
     /// Leave at least one held child unanswered.
     UnfinishedReply,
-    /// Match after exhausting the held children.
+    /// Match a child of a question that holds none.
     UnexpectedMatch,
+    /// Match again after a match that covers every later held child.
+    RepeatedMatch,
+    /// Cover the match's own child as a later one.
+    UnlistedCover,
     /// Query after exhausting the held children.
     UnexpectedQuery,
     /// Supply a child already held locally.
@@ -71,6 +75,8 @@ impl From<ScriptedViolation> for Violation {
             ScriptedViolation::UnansweredQuery => Violation::UnansweredQuery,
             ScriptedViolation::UnfinishedReply => Violation::UnfinishedReply,
             ScriptedViolation::UnexpectedMatch => Violation::UnexpectedMatch,
+            ScriptedViolation::RepeatedMatch => Violation::RepeatedMatch,
+            ScriptedViolation::UnlistedCover => Violation::UnlistedCover,
             ScriptedViolation::UnexpectedQuery => Violation::UnexpectedQuery,
             ScriptedViolation::UnexpectedSupply => Violation::UnexpectedSupply,
             ScriptedViolation::InvalidSupply => Violation::InvalidSupply,
@@ -87,6 +93,8 @@ fn arb_scripted_violation() -> impl Strategy<Value = ScriptedViolation> {
         Just(ScriptedViolation::UnansweredQuery),
         Just(ScriptedViolation::UnfinishedReply),
         Just(ScriptedViolation::UnexpectedMatch),
+        Just(ScriptedViolation::RepeatedMatch),
+        Just(ScriptedViolation::UnlistedCover),
         Just(ScriptedViolation::UnexpectedQuery),
         Just(ScriptedViolation::UnexpectedSupply),
         Just(ScriptedViolation::InvalidSupply),
@@ -154,11 +162,16 @@ where
         reservation: Default::default(),
     };
 
-    let matches = || {
-        std::iter::repeat_with(|| Reaction::Match)
-            .take(ours.len())
-            .collect::<Vec<_>>()
+    // A conforming match of the first `held` children: one reaction at the
+    // first, covering the rest.
+    let held: Vec<u8> = radixes.iter().copied().collect();
+    let matching = |held: &[u8]| match held.split_first() {
+        None => Vec::new(),
+        Some((_, later)) => vec![Reaction::Match(LaterMatches::new(
+            later.iter().copied().collect(),
+        ))],
     };
+    let matches = || matching(&held);
     let (query, replies) = match injection {
         ScriptedViolation::UnaskedReply => (
             None,
@@ -173,17 +186,27 @@ where
         ScriptedViolation::UnfinishedReply => (
             Some(query),
             vec![Reply {
-                reactions: std::iter::repeat_with(|| Reaction::Match)
-                    .take(ours.len() - 1)
-                    .collect(),
+                reactions: matching(&held[..held.len() - 1]),
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
             }],
         ),
-        ScriptedViolation::UnexpectedMatch => {
+        ScriptedViolation::UnexpectedMatch => (
+            Some(Query {
+                ours: Vec::new(),
+                ..query
+            }),
+            vec![Reply {
+                reactions: vec![Reaction::Match(LaterMatches::NONE)],
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+            }],
+        ),
+        ScriptedViolation::RepeatedMatch => {
             let mut reactions = matches();
-            reactions.push(Reaction::Match);
+            reactions.push(Reaction::Match(LaterMatches::NONE));
             (
                 Some(query),
                 vec![Reply {
@@ -194,6 +217,17 @@ where
                 }],
             )
         }
+        ScriptedViolation::UnlistedCover => (
+            Some(query),
+            vec![Reply {
+                reactions: vec![Reaction::Match(LaterMatches::new(
+                    held[..1].iter().copied().collect(),
+                ))],
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+            }],
+        ),
         ScriptedViolation::UnexpectedQuery => {
             let mut reactions = matches();
             reactions.push(Reaction::Query(Vec::new()));
@@ -561,8 +595,12 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),
-        OpeningInjection::Match { trailing: false } => one(vec![Reaction::Match]),
-        OpeningInjection::Match { trailing: true } => one(vec![question(), Reaction::Match]),
+        OpeningInjection::Match { trailing: false } => {
+            one(vec![Reaction::Match(LaterMatches::NONE)])
+        }
+        OpeningInjection::Match { trailing: true } => {
+            one(vec![question(), Reaction::Match(LaterMatches::NONE)])
+        }
         OpeningInjection::Supply {
             trailing,
             held: is_held,

@@ -1,7 +1,8 @@
+use crate::tree::mirror::streaming::byte_set::ByteSet;
 use crate::tree::mirror::streaming::ledger::ReplyBound;
 #[cfg(test)]
 use crate::tree::mirror::streaming::ledger::{buffer, queued};
-use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
+use crate::tree::mirror::streaming::message::{Grandchildren, LaterMatches, Listed};
 use std::slice;
 
 use crate::tree::{
@@ -16,35 +17,35 @@ use super::error::ScopeError;
 
 /// Derive the scopes a chunk of a reply's queries create, in wire order.
 ///
-/// `answered` is the record of the question the reply answers, and `taken`
-/// counts the record's positions the reply's earlier chunks took, which
-/// this chunk's continue from; it returns counting this chunk's too.
-/// Matches and queries take a position; supplies name their own radix and
-/// take none. At [`ReplyLevel::Branch`] a query opens a scope one level
-/// down; at [`ReplyLevel::Leaf`] every query must be empty and requests its
-/// leaf. The decoder validated the same positions when the reply arrived,
-/// so a failure here means the reply or the record changed in between.
+/// `answered` is the record of the question the reply answers, and
+/// `replay` how far the reply's earlier chunks replayed against it, which
+/// this chunk continues; it returns covering this chunk too. Matches and
+/// queries take a position, passing over the positions the reply's match
+/// covers; supplies name their own radix and take none. At
+/// [`ReplyLevel::Branch`] a query opens a scope one level down; at
+/// [`ReplyLevel::Leaf`] every query must be empty and requests its leaf.
+/// The decoder validated the same positions when the reply arrived, so a
+/// failure here means the reply or the record changed in between.
 pub fn derive_questions<E>(
     level: ReplyLevel,
     answered: &Scope,
-    taken: &mut usize,
+    replay: &mut Replay,
     reactions: &[Reaction<E>],
 ) -> Result<Vec<Scope>, ScopeError> {
-    let mut positions = answered.positions_from(*taken);
+    let mut positions = answered.replay(*replay);
     let mut questions = Vec::new();
     for reaction in reactions {
         match reaction {
-            Reaction::Match => {
-                positions.next().ok_or(ScopeError::UnpositionedMatch)?;
-                *taken += 1;
+            Reaction::Match(later) => {
+                positions.matched(later)?;
             }
             Reaction::Query(listing) => {
                 questions.push(level.derive(&mut positions, listing)?);
-                *taken += 1;
             }
             Reaction::Supply(_, _) => {}
         }
     }
+    *replay = positions.replayed();
     Ok(questions)
 }
 
@@ -127,7 +128,29 @@ pub struct Scope {
     parent: ErasedPrefix,
     children: Vec<RecordedChild>,
     bound: Grandchildren,
+    /// How the reply pairs with `children`.
+    pairing: Pairing,
 }
+
+/// How the reply a record awaits pairs with the record's children.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pairing {
+    /// The children are a question's listing: the reply takes a reaction
+    /// for each, or its match covers it, so at the reply's end every one
+    /// left must be covered.
+    Positional,
+    /// The one child is the leaf a terminal request asks for: the reply
+    /// supplies it by its radix, or omits it when the replier's deletion
+    /// filter drops it, and takes no position.
+    Requested,
+}
+
+/// How a record's reply pairs rides in the record's padding, so it raises
+/// no record's price, which counts a record at its size.
+const _: () = assert!(
+    size_of::<Scope>() == size_of::<(ErasedPrefix, Vec<RecordedChild>, Grandchildren)>(),
+    "a record's pairing must fit its padding",
+);
 
 /// One child a record names: its radix, the count its lister gave it, and,
 /// in the record of a question this side asked, this side's child count of
@@ -166,6 +189,7 @@ impl Scope {
                 })
                 .collect(),
             bound,
+            pairing: Pairing::Positional,
         }
     }
 
@@ -206,16 +230,33 @@ impl Scope {
     /// Begin replaying a reply's positional reactions against this
     /// question, from its first listed child.
     pub fn positions(&self) -> Positions<'_> {
-        self.positions_from(0)
+        self.replay(Replay::default())
     }
 
     /// Resume replaying a reply's positional reactions against this
-    /// question after the first `taken` positions, which earlier reactions
-    /// took; past the last position, the cursor is exhausted.
-    pub fn positions_from(&self, taken: usize) -> Positions<'_> {
+    /// question where `replay` left off.
+    ///
+    /// The cursor starts after the positions earlier reactions took or
+    /// their match covered, and passes over the later positions that match
+    /// covers. Past the last position, it is exhausted.
+    pub fn replay(&self, replay: Replay) -> Positions<'_> {
+        let Replay {
+            taken,
+            covered,
+            matched,
+        } = replay;
+        let children = self.children.get(taken..).unwrap_or_default();
         Positions {
             parent: self.parent,
-            children: self.children.get(taken..).unwrap_or_default().iter(),
+            pairing: self.pairing,
+            children: children.iter(),
+            taken,
+            covered,
+            covered_ahead: children
+                .iter()
+                .filter(|child| covered.contains(child.radix))
+                .count(),
+            matched,
         }
     }
 
@@ -243,6 +284,7 @@ impl Scope {
                 children_less_one: 0,
             }],
             bound: Grandchildren::ONE,
+            pairing: Pairing::Requested,
         }
     }
 
@@ -253,47 +295,174 @@ impl Scope {
     }
 }
 
+/// How far a reply's positional reactions have replayed against the record
+/// of the question it answers, carried from one chunk of the reply to the
+/// next.
+///
+/// The [`Default`] replay is a reply's start: nothing taken, nothing
+/// covered, no match yet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Replay {
+    /// The positions passed, taken by a reaction or covered by the match.
+    taken: usize,
+    /// The radixes the reply's match covers.
+    covered: ByteSet,
+    /// Whether the reply has carried its one match.
+    matched: bool,
+}
+
+/// What a match took: its own position, and the child counts of the
+/// children it matched.
+pub(crate) struct Matched {
+    /// The matched child's prefix.
+    pub(crate) prefix: ErasedPrefix,
+    /// This side's child counts of the matched child and of every child
+    /// the match covers, in the record of a question this side asked
+    /// ([`Listed`]); one for each of them in any other record.
+    pub(crate) children: usize,
+}
+
 /// A cursor over one [`Scope`]'s positional children.
 ///
-/// `Match` and `Query` reactions each consume the next position; supplies
-/// are self-keying and consume none. The cursor yields each position's
-/// child prefix.
+/// `Match` and `Query` reactions each consume the next position the reply's
+/// match does not cover, and the cursor passes over the covered positions
+/// before it, as matched; supplies are self-keying and consume none. The
+/// cursor yields each position's child prefix.
 pub(crate) struct Positions<'a> {
     /// The scope's parent prefix, which each child radix extends.
     parent: ErasedPrefix,
-    /// The child radices not yet consumed, each with its lister's count.
+    /// How the reply pairs with the record's children.
+    pairing: Pairing,
+    /// The child radices not yet passed, each with its lister's count.
     children: slice::Iter<'a, RecordedChild>,
+    /// The positions passed.
+    taken: usize,
+    /// The radixes the reply's match covers.
+    covered: ByteSet,
+    /// The covered positions not yet passed.
+    covered_ahead: usize,
+    /// Whether the reply has carried its one match.
+    matched: bool,
 }
 
 /// Resolve positional reactions to child prefixes in listing order.
 impl Positions<'_> {
-    /// The positions the cursor has not consumed.
+    /// The positions not yet passed that a later reaction must take: every
+    /// one the match does not cover.
     pub fn remaining(&self) -> usize {
-        self.children.len()
+        self.children.len() - self.covered_ahead
     }
 
-    /// This side's child count of the next position's child, in the
-    /// record of a question this side asked ([`Listed`]); one for any
+    /// Whether the reply's match covers `radix`.
+    pub fn covers(&self, radix: u8) -> bool {
+        self.covered.contains(radix)
+    }
+
+    /// Where the replay stands, for the reply's next chunk to resume from.
+    pub fn replayed(&self) -> Replay {
+        Replay {
+            taken: self.taken,
+            covered: self.covered,
+            matched: self.matched,
+        }
+    }
+
+    /// Take the next position for a match, and cover the later positions
+    /// it names, `later`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScopeError::RepeatedMatch`] if the reply already carried
+    /// a match, [`ScopeError::UnpositionedMatch`] if no position is left,
+    /// and [`ScopeError::UnlistedCover`] if `later` names a radix that is
+    /// not a position after the match's own: one the question did not
+    /// list, or one at or before the match.
+    pub fn matched(&mut self, later: &LaterMatches) -> Result<Matched, ScopeError> {
+        if self.matched {
+            return Err(ScopeError::RepeatedMatch);
+        }
+        let own = self.upcoming_children();
+        let (prefix, _) = self.next().ok_or(ScopeError::UnpositionedMatch)?;
+        self.matched = true;
+        let mut matched = Matched {
+            prefix,
+            children: own,
+        };
+        let mut covered = 0;
+        let Some(set) = later.get() else {
+            return Ok(matched);
+        };
+        let mut unlisted = *set;
+        for child in self.children.as_slice() {
+            if unlisted.remove(child.radix) {
+                matched.children += usize::from(child.children_less_one) + 1;
+                covered += 1;
+            }
+        }
+        if let Some(radix) = unlisted.iter().next() {
+            return Err(ScopeError::UnlistedCover { radix });
+        }
+        self.covered = *set;
+        self.covered_ahead = covered;
+        Ok(matched)
+    }
+
+    /// Pass over every position left, which the reply's end requires the
+    /// match to cover, unless the record is a leaf request, whose reply
+    /// takes no position.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ScopeError::UncoveredEnd`] naming the first position left
+    /// that the match does not cover.
+    pub fn end(mut self) -> Result<(), ScopeError> {
+        if self.pairing == Pairing::Requested {
+            return Ok(());
+        }
+        self.pass_covered();
+        match self.children.next() {
+            Some(child) => Err(ScopeError::UncoveredEnd { radix: child.radix }),
+            None => Ok(()),
+        }
+    }
+
+    /// This side's child count of the next uncovered position's child, in
+    /// the record of a question this side asked ([`Listed`]); one for any
     /// other record.
-    pub fn upcoming_children(&self) -> usize {
+    fn upcoming_children(&mut self) -> usize {
+        self.pass_covered();
         self.children
             .as_slice()
             .first()
             .map_or(0, |child| usize::from(child.children_less_one) + 1)
+    }
+
+    /// Pass over the covered positions ahead of the next uncovered one.
+    fn pass_covered(&mut self) {
+        while let Some(child) = self.children.as_slice().first()
+            && self.covered.contains(child.radix)
+        {
+            self.children.next();
+            self.taken += 1;
+            self.covered_ahead -= 1;
+        }
     }
 }
 
 impl Iterator for Positions<'_> {
     type Item = (ErasedPrefix, Grandchildren);
 
-    /// Consume the next position and return its child prefix, with the
-    /// grandchild count its lister gave it.
+    /// Pass over the covered positions ahead, consume the next one, and
+    /// return its child prefix, with the grandchild count its lister gave
+    /// it.
     fn next(&mut self) -> Option<(ErasedPrefix, Grandchildren)> {
+        self.pass_covered();
         let RecordedChild {
             radix,
             grandchildren,
             ..
         } = *self.children.next()?;
+        self.taken += 1;
         Some((self.parent.push(radix), grandchildren))
     }
 }

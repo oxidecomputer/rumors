@@ -47,7 +47,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::{QueueRole, Receiver, Sender, channel},
         ledger::Charge,
-        message::{self, Carried},
+        message::{self, Carried, LaterMatches},
     },
     typed::height::{Height, Z},
 };
@@ -71,8 +71,9 @@ pub(crate) struct Reply<E> {
 pub(crate) enum Reaction<E> {
     /// A supplied subtree at its explicit radix.
     Supply(u8, E),
-    /// Agreement with the corresponding queried child.
-    Match,
+    /// Agreement with the corresponding queried child, and with every
+    /// later listed child it covers.
+    Match(LaterMatches),
     /// A request to compare the corresponding child's listing.
     Query(Vec<Listed>),
 }
@@ -90,7 +91,7 @@ where
             .into_iter()
             .map(|reaction| match reaction {
                 message::Reaction::Supply(radix, node) => Reaction::Supply(radix, B::erase(node)),
-                message::Reaction::Match => Reaction::Match,
+                message::Reaction::Match(later) => Reaction::Match(later),
                 message::Reaction::Query(listing) => Reaction::Query(listing),
             })
             .collect(),
@@ -112,7 +113,7 @@ where
             .into_iter()
             .map(|reaction| match reaction {
                 Reaction::Supply(radix, node) => message::Reaction::Supply(radix, B::assume(node)),
-                Reaction::Match => message::Reaction::Match,
+                Reaction::Match(later) => message::Reaction::Match(later),
                 Reaction::Query(listing) => message::Reaction::Query(listing),
             })
             .collect(),

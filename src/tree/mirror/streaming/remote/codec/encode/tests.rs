@@ -1,3 +1,4 @@
+use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::listed;
 use proptest::prelude::*;
 use std::{
@@ -86,11 +87,17 @@ fn body_free_frames_are_exhaustive() {
     let stream = stream(4);
     let cases: Vec<(WireFrame, Signal)> = vec![
         (
-            (stream, Frame::Reaction(Reaction::Match, Flow::Continue)),
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue),
+            ),
             Signal::Match(Flow::Continue),
         ),
         (
-            (stream, Frame::Reaction(Reaction::Match, Flow::End)),
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
+            ),
             Signal::Match(Flow::End),
         ),
         ((stream, Frame::End(End::Reply)), Signal::End(End::Reply)),

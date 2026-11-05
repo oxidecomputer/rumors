@@ -17,6 +17,14 @@
 //!
 //! Reply and stream ends are separate events. A reaction or bare `ReplyEnd`
 //! completes a reply; a later bare `StreamEnd` closes the logical stream.
+//!
+//! A reply's first match carries the radixes of every later listed child
+//! that also matches, and those children take no frame of their own. Every
+//! side that pairs a reply's reactions with the question's listing passes
+//! over the covered children as it reaches them, so none infers them ahead
+//! of the reaction that reaches them: the encoder, the decoder, and the
+//! take here, through the one cursor [`adapter`] gives them, and the walk's
+//! resolver over its own children.
 //! The pipe consumes that control instead of exposing it to the protocol
 //! adapter as an empty reply.
 //!
@@ -72,7 +80,7 @@ pub(crate) use codec::{prepare_frame, write_prepared_frame};
 pub(crate) use adapter::SUPPLY_DECODE_ENVELOPE_BYTES;
 pub(crate) use adapter::{RecordedChild, Scope};
 #[cfg(test)]
-pub(crate) use adapter::{ReplyLevel, derive_questions};
+pub(crate) use adapter::{Replay, ReplyLevel, derive_questions};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::STREAM_COUNT;
 pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};

@@ -1,7 +1,6 @@
 //! Pair a peer's reply with one outstanding materialized query.
 
 use crate::tree::mirror::streaming::message::Listed;
-use std::iter::Peekable;
 
 use crate::{
     Version,
@@ -10,6 +9,7 @@ use crate::{
         mirror::contained,
         mirror::streaming::{
             Backend, ErasedNode, Leaf,
+            byte_set::ByteSet,
             erased::Reaction,
             ledger::{self, Charge, ReplyBound},
             materialized::{
@@ -29,14 +29,25 @@ use super::charges;
 /// accumulates the scope's [`Resolution`], and reports each semantic fault as
 /// its exact [`Violation`]. A query reaction returns a [`Dispute`] for the
 /// caller to resolve at the next level; matches and supplies resolve locally.
+///
+/// The reply's one match names the later held children that also match,
+/// which take no reaction. The resolver resolves each of them as matched
+/// when it reaches it: before pairing the next positional reaction, before
+/// a supply at a greater radix, and at the reply's end. So it infers them
+/// one at a time as it advances, keeping its resolution in radix order.
 pub struct Resolver<'session, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
     /// The scope being resolved.
     prefix: ErasedPrefix,
-    /// Held children still awaiting a reaction.
-    fan: Peekable<std::vec::IntoIter<(u8, B::Erased)>>,
+    /// Held children still awaiting a reaction, or covered by the reply's
+    /// match and awaiting their turn.
+    fan: std::vec::IntoIter<(u8, B::Erased)>,
+    /// The held children the reply's match covers.
+    covered: ByteSet,
+    /// Whether the reply has carried its one match.
+    matched: bool,
     /// The node those children were listed from, which the resolution
     /// carries to assembly.
     original: Option<B::Erased>,
@@ -109,7 +120,9 @@ where
     ) -> Self {
         Self {
             prefix,
-            fan: ours.into_iter().peekable(),
+            fan: ours.into_iter(),
+            covered: ByteSet::EMPTY,
+            matched: false,
             original,
             // Sized at the reservation's slots, so the resolution holds
             // exactly what its part of the reservation prices.
@@ -138,17 +151,33 @@ where
     ) -> Result<Option<Dispute<B::Erased>>, Error<B::Error>> {
         self.held.reactions += 1;
         match reaction {
-            Reaction::Match => {
-                let Some((radix, node)) = self.fan.next() else {
+            Reaction::Match(later) => {
+                if self.matched {
+                    return violation(Violation::RepeatedMatch);
+                }
+                self.matched = true;
+                let Some((radix, node)) = self.next_uncovered() else {
                     return violation(Violation::UnexpectedMatch);
                 };
                 self.resolved.push((radix, Resolve::Ready(Some(node))));
+                let covered = later.set();
+                let held = self
+                    .fan
+                    .as_slice()
+                    .iter()
+                    .filter(|(radix, _)| covered.contains(*radix))
+                    .count();
+                if held != covered.len() {
+                    return violation(Violation::UnlistedCover);
+                }
+                self.covered = covered;
             }
             Reaction::Supply(radix, node) => {
+                self.pass_covered(Some(radix));
                 if self.resolved.last().is_some_and(|(last, _)| radix <= *last) {
                     return violation(Violation::InvalidSupply);
                 }
-                match self.fan.peek() {
+                match self.fan.as_slice().first() {
                     Some((next, _)) if radix == *next => {
                         return violation(Violation::UnexpectedSupply);
                     }
@@ -175,7 +204,7 @@ where
             Reaction::Query(listing) => {
                 self.held.listing += listing.len();
                 self.derived += charges::derived_record_bytes(self.prefix.height(), listing.len());
-                let Some((radix, node)) = self.fan.next() else {
+                let Some((radix, node)) = self.next_uncovered() else {
                     return violation(Violation::UnexpectedQuery);
                 };
                 return Ok(Some(Dispute {
@@ -190,6 +219,29 @@ where
         Ok(None)
     }
 
+    /// Resolve, as matched, the covered children ahead of the next one the
+    /// match does not cover, and take that next child.
+    fn next_uncovered(&mut self) -> Option<(u8, B::Erased)> {
+        self.pass_covered(None);
+        self.fan.next()
+    }
+
+    /// Resolve, as matched, the covered children at the front of the fan,
+    /// stopping at the first the match does not cover or, if `before` is
+    /// given, at the first at or above that radix.
+    fn pass_covered(&mut self, before: Option<u8>) {
+        while let Some((radix, _)) = self.fan.as_slice().first()
+            && self.covered.contains(*radix)
+            && before.is_none_or(|before| *radix < before)
+        {
+            let (radix, node) = self
+                .fan
+                .next()
+                .expect("the fan's first child was just read");
+            self.resolved.push((radix, Resolve::Ready(Some(node))));
+        }
+    }
+
     /// Record a child resolved immediately by the caller.
     pub fn ready(&mut self, radix: u8, node: Option<B::Erased>) {
         self.resolved.push((radix, Resolve::Ready(node)));
@@ -202,6 +254,7 @@ where
 
     /// Finish the scope after verifying that every held child was answered.
     pub fn finish(mut self) -> Result<Resolution<B::Erased>, Error<B::Error>> {
+        self.pass_covered(None);
         if self.fan.next().is_some() {
             violation(Violation::UnfinishedReply)
         } else {

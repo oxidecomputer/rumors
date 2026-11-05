@@ -1,4 +1,6 @@
 use super::signal::{InvalidSignalPlacement, StreamClass};
+use crate::tree::mirror::streaming::byte_set::ByteSet;
+use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::Listed;
 use crate::tree::mirror::streaming::message::{Grandchildren, listed};
 use std::fmt::Write;
@@ -30,13 +32,13 @@ mod error_atlas;
 const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
 
 /// Frames produced by the bounded exhaustive enumeration.
-const EXHAUSTIVE_FRAME_CASES: usize = 1_118_600;
+const EXHAUSTIVE_FRAME_CASES: usize = 1_118_668;
 
 /// Bounded exhaustive frames admitted in the initiator direction.
-const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 987_008;
+const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 987_072;
 
 /// Bounded exhaustive frames admitted in the responder direction.
-const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_052_803;
+const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_052_867;
 
 /// Elected speaker directions represented by the codec.
 const SPEAKER_COUNT: usize = 2;
@@ -108,6 +110,24 @@ fn arb_query() -> impl Strategy<Value = Vec<Listed>> {
         })
 }
 
+/// Generate the later matches a match covers: none, or any nonempty set,
+/// every size likely enough to reach both of a set's spellings.
+fn arb_later_matches() -> impl Strategy<Value = LaterMatches> {
+    (0..=256usize).prop_flat_map(|len| {
+        proptest::sample::subsequence((0..=u8::MAX).collect::<Vec<_>>(), len)
+            .prop_map(|radixes| LaterMatches::new(radixes.into_iter().collect()))
+    })
+}
+
+/// The covered sets the read plan, the atlas and the corpus spell for a
+/// match: one in a list's spelling and one in a bitmap's.
+fn spelled_sets() -> [ByteSet; 2] {
+    [
+        [1, 2].into_iter().collect(),
+        (0..=u8::MAX).step_by(2).collect(),
+    ]
+}
+
 /// Generate either continuation state for a reaction.
 fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
@@ -116,8 +136,10 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
 /// Generate a frame on an arbitrary stream before speaker validation.
 fn arb_frame() -> impl Strategy<Value = WireFrame> {
     prop_oneof![
-        (arb_stream(), arb_flow())
-            .prop_map(|(stream, flow)| (stream, Frame::Reaction(Reaction::Match, flow))),
+        (arb_stream(), arb_later_matches(), arb_flow()).prop_map(|(stream, later, flow)| (
+            stream,
+            Frame::Reaction(Reaction::Match(later), flow)
+        )),
         (arb_stream(), arb_query(), arb_flow()).prop_map(|(stream, children, flow)| (
             stream,
             Frame::Reaction(Reaction::Query(children), flow)
@@ -459,6 +481,29 @@ fn canonical_frame_atlas_snapshot() {
                             .unwrap();
                         write_hex(&mut atlas, &encoded);
                         atlas.push('\n');
+                        // A match covering later matches carries them as
+                        // its body, in either of a set's spellings.
+                        if let Signal::Match(flow) = signal {
+                            for set in spelled_sets() {
+                                let frame =
+                                    Frame::Reaction(Reaction::Match(LaterMatches::new(set)), flow);
+                                let mut encoded = Vec::new();
+                                encode(speaker, &(stream, frame.clone()), &mut encoded).unwrap();
+                                assert_eq!(
+                                    decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
+                                    (stream, frame)
+                                );
+                                write!(
+                                    atlas,
+                                    "    {signal:?} covering {}: accepted len {} hex ",
+                                    set.len(),
+                                    encoded.len()
+                                )
+                                .unwrap();
+                                write_hex(&mut atlas, &encoded);
+                                atlas.push('\n');
+                            }
+                        }
                     }
                     Err(invalid) => {
                         let mut rejected = Vec::new();
@@ -508,7 +553,7 @@ fn write_hex(out: &mut impl Write, bytes: &[u8]) {
 
 fn representative_frame(signal: Signal) -> Frame {
     match signal {
-        Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
+        Signal::Match(flow) => Frame::Reaction(Reaction::Match(LaterMatches::NONE), flow),
         Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
         Signal::Query(flow) => {
             Frame::Reaction(Reaction::Query(vec![listed(0, Hash::default())]), flow)
@@ -532,11 +577,25 @@ fn bounded_corpus_manifest_snapshot() {
         let stream = Stream::new(index).unwrap();
         for flow in [Flow::Continue, Flow::End] {
             check_both(
-                (stream, Frame::Reaction(Reaction::Match, flow)),
+                (
+                    stream,
+                    Frame::Reaction(Reaction::Match(LaterMatches::NONE), flow),
+                ),
                 &mut accepted,
                 &mut buckets,
             );
             frames += 1;
+            for set in spelled_sets() {
+                check_both(
+                    (
+                        stream,
+                        Frame::Reaction(Reaction::Match(LaterMatches::new(set)), flow),
+                    ),
+                    &mut accepted,
+                    &mut buckets,
+                );
+                frames += 1;
+            }
 
             check_both(
                 (
@@ -679,7 +738,7 @@ fn check_both(frame: WireFrame, accepted: &mut [usize; 2], buckets: &mut [Corpus
 
 fn frame_signal(frame: &Frame) -> Signal {
     match frame {
-        Frame::Reaction(Reaction::Match, flow) => Signal::Match(*flow),
+        Frame::Reaction(Reaction::Match(_), flow) => Signal::Match(*flow),
         Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {
             Signal::QueryEmpty(*flow)
         }
@@ -808,6 +867,13 @@ fn read_plan(frame: &WireFrame) -> usize {
                 + extension_reads(run.encoded_len() as u64)
                 + 1;
         }
+        // A match covering later matches reads its set's byte-string head,
+        // then the set's encoding in one read.
+        Frame::Reaction(Reaction::Match(later), _) => {
+            if let Some(set) = later.get() {
+                reads += 1 + extension_reads(set.encoded().as_bytes().len() as u64) + 1;
+            }
+        }
         _ => {}
     }
     reads
@@ -861,19 +927,40 @@ proptest! {
 /// The read plan at the wire's reference shapes, pinned as numbers so a
 /// change to the reader's batching shows in this diff.
 ///
-/// The match reaction is the frame the reader meets most often; the
-/// full-fan query is the widest listing; the lone-record supply is the
-/// smallest run. Each case checks the decoder's actual reads against the
+/// The body-free match is the frame the reader meets most often; a match
+/// covering later matches carries a set in either spelling; the full-fan
+/// query is the widest listing; the lone-record supply is the smallest
+/// run. Each case checks the decoder's actual reads against the
 /// pinned number and the pinned number against the plan formula, so the
 /// formula and the reader are held to each other.
 #[test]
 fn read_plan_at_reference_shapes() {
     let stream = Stream::new(4).unwrap();
-    let cases: [(&str, WireFrame, usize); 3] = [
+    let [listed_set, bitmap_set] = spelled_sets();
+    let cases: [(&str, WireFrame, usize); 5] = [
         (
             "match ending its reply",
-            (stream, Frame::Reaction(Reaction::Match, Flow::End)),
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
+            ),
             1,
+        ),
+        (
+            "match covering a list's spelling",
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::new(listed_set)), Flow::End),
+            ),
+            3,
+        ),
+        (
+            "match covering a bitmap's spelling",
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::new(bitmap_set)), Flow::End),
+            ),
+            4,
         ),
         (
             "full-fan query",

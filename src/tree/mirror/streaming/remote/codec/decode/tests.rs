@@ -1,3 +1,4 @@
+use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::Listed;
 use crate::tree::mirror::streaming::message::listed;
 use std::pin::Pin;
@@ -12,6 +13,7 @@ use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::{arb_radixes, arb_version};
 use crate::tree::mirror::cbor::{HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, TAG_CBOR_SEQUENCE};
+use crate::tree::mirror::streaming::byte_set::{ByteSet, ByteSetError, MAX_ENCODED_LEN};
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 use super::super::{
@@ -194,8 +196,9 @@ fn frame_shape_is_enforced() {
             let error = decode_exact(speaker, RunBudget::default(), &[head]).unwrap_err();
             assert!(matches!(error.kind, DecodeErrorKind::FrameLength { .. }));
         }
-        // A body-free signal inside a three-item array.
-        let encoded = frame_head(3, stream, Signal::Match(Flow::Continue));
+        // A body-free signal inside a three-item array: an empty query's
+        // signal takes no body, unlike a match's, which may.
+        let encoded = frame_head(3, stream, Signal::QueryEmpty(Flow::Continue));
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
@@ -215,6 +218,110 @@ fn frame_shape_is_enforced() {
                 found: 2
             }
         ));
+    }
+}
+
+/// A match frame on `stream` whose body is a byte string holding `set`, a
+/// set's spelling whether or not it is canonical.
+fn match_with_set(stream: Stream, flow: Flow, set: &[u8]) -> Vec<u8> {
+    let mut encoded = frame_head(3, stream, Signal::Match(flow));
+    cbor::write_head(&mut encoded, MAJOR_BSTR, set.len() as u64);
+    encoded.extend_from_slice(set);
+    encoded
+}
+
+/// A match covering no later child is body-free, so a match frame whose
+/// body is the empty set is not canonical: both decoders reject it.
+#[test]
+fn an_empty_match_set_is_rejected() {
+    let stream = stream(4);
+    for (speaker, flow) in SPEAKERS
+        .into_iter()
+        .flat_map(|speaker| [Flow::Continue, Flow::End].map(|flow| (speaker, flow)))
+    {
+        let error = decode_both(
+            speaker,
+            RunBudget::default(),
+            &match_with_set(stream, flow, &[]),
+        )
+        .expect_err("an empty set of later matches cannot decode");
+        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert!(
+            matches!(error.kind, DecodeErrorKind::EmptyMatchSet),
+            "{:?}",
+            error.kind
+        );
+    }
+}
+
+/// A match's body must be a byte string no longer than a set's encoding.
+///
+/// Both decoders reject a head of another major type before anything
+/// behind it is read, and a longer byte string at its head, before its
+/// content is read.
+#[test]
+fn a_match_body_is_held_to_a_set_encoding_at_its_head() {
+    let stream = stream(4);
+    for speaker in SPEAKERS {
+        for head in [&[0x00][..], &[0xa1][..], &[0x60][..]] {
+            let mut encoded = frame_head(3, stream, Signal::Match(Flow::End));
+            encoded.extend_from_slice(head);
+            let error = decode_both(speaker, RunBudget::default(), &encoded)
+                .expect_err("a match body that is not a byte string cannot decode");
+            assert!(
+                matches!(error.kind, DecodeErrorKind::MatchSetType { .. }),
+                "{:?}",
+                error.kind
+            );
+        }
+        let mut encoded = frame_head(3, stream, Signal::Match(Flow::End));
+        cbor::write_head(&mut encoded, MAJOR_BSTR, MAX_ENCODED_LEN as u64 + 1);
+        let error = decode_both(speaker, RunBudget::default(), &encoded)
+            .expect_err("a body longer than any set cannot decode");
+        assert!(
+            matches!(
+                error.kind,
+                DecodeErrorKind::InvalidMatchSet(ByteSetError::TooLong { len })
+                    if len == MAX_ENCODED_LEN + 1
+            ),
+            "{:?}",
+            error.kind
+        );
+    }
+}
+
+proptest! {
+    /// A match frame's body decodes exactly when it is a nonempty set's
+    /// canonical encoding, to that set, in both decoders.
+    ///
+    /// Every other spelling up to a few bytes past a bitmap is rejected
+    /// with the error the set's own decoding gives it.
+    #[test]
+    fn match_bodies_decode_exactly_the_canonical_sets(
+        content in proptest::collection::vec(any::<u8>(), 1..=MAX_ENCODED_LEN + 4),
+        speaker in arb_speaker(),
+        flow in arb_flow(),
+    ) {
+        let stream = stream(4);
+        let decoded = decode_both(speaker, RunBudget::default(), &match_with_set(stream, flow, &content));
+        match ByteSet::decode(&content) {
+            Ok(set) => {
+                let (_, frame) = decoded.expect("a canonical nonempty set decodes");
+                prop_assert_eq!(
+                    frame,
+                    Frame::Reaction(Reaction::Match(LaterMatches::new(set)), flow)
+                );
+            }
+            Err(expected) => {
+                let error = decoded.expect_err("a non-canonical set cannot decode");
+                prop_assert!(
+                    matches!(error.kind, DecodeErrorKind::InvalidMatchSet(actual) if actual == expected),
+                    "{:?} for {:?}",
+                    error.kind,
+                    expected
+                );
+            }
+        }
     }
 }
 
@@ -732,7 +839,10 @@ fn exact_decode_rejects_trailing_frame() {
         let frame = decode(speaker, RunBudget::default(), &mut rest).unwrap();
         assert_eq!(
             frame,
-            (stream, Frame::Reaction(Reaction::Match, Flow::Continue))
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue)
+            )
         );
         assert_eq!(rest, second.as_slice());
     }

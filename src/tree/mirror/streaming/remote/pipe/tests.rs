@@ -1,6 +1,7 @@
 //! The pipe's multiplexer and demultiplexer, driven against in-memory byte
 //! buffers under the closed-world poller.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use std::collections::VecDeque;
 use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -38,7 +39,7 @@ enum Kind {
 /// one kind stay distinguishable after decoding.
 fn frame(kind: Kind, tag: u64) -> ReplyFrame {
     match kind {
-        Kind::Match => ReplyFrame::reaction(Reaction::Match, Flow::End),
+        Kind::Match => ReplyFrame::reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
         Kind::ReplyEnd => ReplyFrame::reply_end(),
         Kind::Supply => {
             let mut run = LeafRun::new();

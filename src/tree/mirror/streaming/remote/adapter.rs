@@ -19,7 +19,11 @@
 //! A [`Scope`] is the durable part of one sent `Query`: its parent prefix and
 //! the listed child radices. `Match` and `Query` reactions consume those radices
 //! positionally; a nested `Query` thereby creates the lower scope which will
-//! interpret its future reply. `Supply` does not consume the positional cursor:
+//! interpret its future reply. A reply's one `Match` also names the later
+//! radices it covers, which take no reaction: each positional reaction
+//! passes over the covered radices before it, and [`Replay`] carries how far
+//! a reply has replayed, covered radices included, from one chunk to the
+//! next. `Supply` does not consume the positional cursor:
 //! its version-derived path recovers its child radix independently. The
 //! leaf-height exception is an empty `Query`: it consumes its leaf position and
 //! requests that leaf itself, creating a terminal scope at the same height
@@ -91,7 +95,7 @@ pub use encode::{encode_leaf_reply, encode_reply};
 pub use error::BoundedPart;
 pub use error::{DecodeError, EncodeError, OpeningError, ScopeError};
 pub(crate) use scope::RecordedChild;
-pub use scope::{ReplyLevel, Scope, derive_questions};
+pub use scope::{Replay, ReplyLevel, Scope, derive_questions};
 
 #[cfg(test)]
 mod tests;

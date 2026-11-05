@@ -7,6 +7,7 @@
 //! so it gets its own scripted counterparty here, for the accepted shape
 //! and for every malformed one.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use std::convert::Infallible;
 
 use futures::stream;
@@ -252,7 +253,7 @@ impl Injection {
                     carried: Default::default(),
                 },
             ],
-            Self::Match { after_supply } => one(after_supply, Reaction::Match),
+            Self::Match { after_supply } => one(after_supply, Reaction::Match(LaterMatches::NONE)),
             Self::Query { after_supply } => one(after_supply, Reaction::Query(Vec::new())),
             Self::DuplicateSupply => one(true, requested()),
             Self::ForeignSupply { after_supply } => {

@@ -19,8 +19,8 @@ use crate::tree::{
 use super::super::codec::Frame;
 use super::{
     super::codec::{Flow, LeafRun, Reaction as WireReaction, ReplyFrame, RunBudget},
-    error::{EncodeError, OpeningError, ScopeError},
-    scope::{ReplyLevel, Scope},
+    error::{EncodeError, OpeningError},
+    scope::{Replay, ReplyLevel, Scope},
 };
 
 /// A wire frame and the lower question it makes publishable once written.
@@ -79,8 +79,8 @@ pub fn opening_listing<E>(
 }
 
 /// One outgoing reply's encoding, carried across its chunks: the record of
-/// the question it answers, how many of that record's positions its
-/// reactions have taken, and whether any of its frames has been written.
+/// the question it answers, how far its reactions have replayed against
+/// that record, and whether any of its frames has been written.
 ///
 /// Every frame but the reply's last is flagged [`Flow::Continue`], and a
 /// chunk's frames are all released by the time its stream ends, so a chunk
@@ -97,8 +97,9 @@ pub struct ReplyEncoder<B> {
     scope: Scope,
     /// How the reply's queries pair with positions.
     level: ReplyLevel,
-    /// The record's positions the reply's reactions have taken so far.
-    taken: usize,
+    /// How far the reply's reactions have replayed against the record:
+    /// the positions they took, and the later positions its match covers.
+    replay: Replay,
     /// Whether the reply has yielded any frame.
     written: bool,
 }
@@ -125,7 +126,7 @@ where
             budget,
             scope,
             level,
-            taken: 0,
+            replay: Replay::default(),
             written: false,
         }
     }
@@ -152,12 +153,12 @@ where
             budget,
             scope,
             level,
-            taken,
+            replay,
             written,
         } = self;
         let (backend, budget, level) = (backend.clone(), *budget, *level);
         try_stream! {
-            let mut positions = scope.positions_from(*taken);
+            let mut positions = scope.replay(*replay);
             let mut pending = None;
             // The chunk's charge returns once every frame is out, when the
             // stream ends; its reactions are consumed as they are encoded.
@@ -169,16 +170,14 @@ where
             } = chunk;
             for reaction in reactions {
                 let (wire, question) = match reaction {
-                    ProtocolReaction::Match => {
-                        positions.next().ok_or(ScopeError::UnpositionedMatch)?;
-                        *taken += 1;
-                        (WireReaction::Match, None)
+                    ProtocolReaction::Match(later) => {
+                        positions.matched(&later)?;
+                        (WireReaction::Match(later), None)
                     }
                     ProtocolReaction::Query(listing) => {
                         let question = held_by(Holding::QuestionRecords, || {
                             level.derive(&mut positions, &listing)
                         })?;
-                        *taken += 1;
                         (WireReaction::Query(listing), Some(question))
                     }
                     ProtocolReaction::Supply(radix, node) => {
@@ -236,6 +235,7 @@ where
                     }
                 }
             }
+            *replay = positions.replayed();
 
             match pending {
                 Some((reaction, question)) => {

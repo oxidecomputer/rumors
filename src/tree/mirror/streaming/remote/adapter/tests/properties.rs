@@ -1,6 +1,6 @@
 //! Laws which hold uniformly across the adapter's type-level height ladder.
 
-use crate::tree::mirror::streaming::message::{Grandchildren, Listed, listed};
+use crate::tree::mirror::streaming::message::{Grandchildren, LaterMatches, Listed, listed};
 use std::{collections::BTreeSet, convert::Infallible, pin::pin};
 
 use futures::{StreamExt, TryStreamExt, stream};
@@ -9,6 +9,7 @@ use proptest::{collection::vec, prelude::*, test_runner::TestCaseResult};
 use crate::tree::{
     mirror::streaming::{
         Backend, Local,
+        byte_set::ByteSet,
         convert::Convert,
         erased::{Reaction, Reply},
     },
@@ -23,7 +24,7 @@ type Erased = <Local as Backend>::Erased;
 
 use super::{
     super::{
-        DecodeError, LeafEdge, ReplyEncoder, ReplyLevel, Scope, decode_whole_reply,
+        DecodeError, LeafEdge, Replay, ReplyEncoder, ReplyLevel, Scope, decode_whole_reply,
         derive_questions, encode_leaf_reply, encode_reply,
     },
     LeafCase, NodeAt, codec, hash, leaf_run, reply_frames, runtime, unbounded,
@@ -59,6 +60,37 @@ impl PositionalCase {
             .collect()
     }
 
+    /// The positional reaction a conforming sender sends at `position`: a
+    /// query, the reply's first match carrying the later matches it
+    /// covers, or nothing for a later match, which that first match covers.
+    fn sent(&self, position: usize) -> Option<Sent> {
+        if self.is_query(position) {
+            return Some(Sent::Query);
+        }
+        let matches = (0..self.radixes.len()).filter(|&position| !self.is_query(position));
+        let mut matches = matches.map(|position| (position, self.radixes[position]));
+        let (first, _) = matches.next().expect("this position is a match");
+        (first == position).then(|| Sent::Match(matches.map(|(_, radix)| radix).collect()))
+    }
+
+    /// The protocol reaction sent at `position`, if any, a query listing
+    /// `nested`.
+    fn protocol(&self, position: usize, nested: &[Listed]) -> Option<Reaction<Erased>> {
+        self.sent(position).map(|sent| match sent {
+            Sent::Query => Reaction::Query(nested.to_vec()),
+            Sent::Match(later) => Reaction::Match(LaterMatches::new(later)),
+        })
+    }
+
+    /// The wire reaction sent at `position`, if any, a query listing
+    /// `nested`.
+    fn wire(&self, position: usize, nested: &[Listed]) -> Option<WireReaction> {
+        self.sent(position).map(|sent| match sent {
+            Sent::Query => WireReaction::Query(nested.to_vec()),
+            Sent::Match(later) => WireReaction::Match(LaterMatches::new(later)),
+        })
+    }
+
     /// Remove the supplied radix and return its merge position.
     fn with_supply(&self, supply_radix: u8) -> (Self, usize) {
         let mut case = self.clone();
@@ -66,6 +98,14 @@ impl PositionalCase {
         let supply_at = case.radixes.partition_point(|radix| *radix < supply_radix);
         (case, supply_at)
     }
+}
+
+/// One positional reaction a conforming sender sends.
+enum Sent {
+    /// A question about the position's child.
+    Query,
+    /// The reply's first match, with the later matching radixes it covers.
+    Match(ByteSet),
 }
 
 /// A decoded reply with the scopes a take derives from it.
@@ -116,13 +156,7 @@ where
         let nested = Self::nested(case);
         let reply = Reply::<Erased> {
             reactions: (0..case.radixes.len())
-                .map(|position| {
-                    if case.is_query(position) {
-                        Reaction::Query(nested.to_vec())
-                    } else {
-                        Reaction::Match
-                    }
-                })
+                .filter_map(|position| case.protocol(position, nested))
                 .collect(),
             charge: Default::default(),
             last: true,
@@ -142,6 +176,7 @@ where
             case.radixes
                 .iter()
                 .enumerate()
+                .filter(|(position, _)| case.sent(*position).is_some())
                 .map(|(position, &radix)| {
                     case.is_query(position).then(|| {
                         Self::question(parent.push(radix).erase(), nested, count_at(radix))
@@ -363,7 +398,7 @@ impl AdapterHeight for Z {
             codec(),
         )
         .await?;
-        let questions = derive_questions(level, &scope, &mut 0, &reply.reactions)
+        let questions = derive_questions(level, &scope, &mut Replay::default(), &reply.reactions)
             .expect("decoding validated positions");
         Ok(Decoded { reply, questions })
     }
@@ -415,7 +450,7 @@ where
             codec(),
         )
         .await?;
-        let questions = derive_questions(level, &scope, &mut 0, &reply.reactions)
+        let questions = derive_questions(level, &scope, &mut Replay::default(), &reply.reactions)
             .expect("decoding validated positions");
         Ok(Decoded { reply, questions })
     }
@@ -485,11 +520,7 @@ fn mixed_reply<H: Height>(
             ));
         }
         if position < case.radixes.len() {
-            reactions.push(if case.is_query(position) {
-                Reaction::Query(query_listing.to_vec())
-            } else {
-                Reaction::Match
-            });
+            reactions.extend(case.protocol(position, query_listing));
         }
     }
     Reply {
@@ -543,11 +574,7 @@ fn expected_mixed_frames(
             )])));
         }
         if position < case.radixes.len() {
-            reactions.push(if case.is_query(position) {
-                WireReaction::Query(query_listing.to_vec())
-            } else {
-                WireReaction::Match
-            });
+            reactions.extend(case.wire(position, query_listing));
         }
     }
     reply_frames(reactions)
@@ -564,7 +591,7 @@ fn mixed_publications<Q>(
         if position == supply_at {
             publications.push(None);
         }
-        if position < case.radixes.len() {
+        if position < case.radixes.len() && case.sent(position).is_some() {
             publications.push(
                 case.is_query(position)
                     .then(|| question(case.radixes[position])),
@@ -574,7 +601,8 @@ fn mixed_publications<Q>(
     publications
 }
 
-/// Require a decoded mixed reply to preserve every reaction and supplied leaf.
+/// Require a decoded mixed reply to preserve every reaction and supplied
+/// leaf, its reactions allocated at exactly their count.
 fn assert_mixed_reply<H: Convert>(
     reply: &Reply<Erased>,
     case: &PositionalCase,
@@ -587,7 +615,11 @@ fn assert_mixed_reply<H: Convert>(
 where
     S<H>: Height,
 {
-    prop_assert_eq!(reply.reactions.len(), case.radixes.len() + 1);
+    let sent = (0..case.radixes.len())
+        .filter(|&position| case.sent(position).is_some())
+        .count();
+    prop_assert_eq!(reply.reactions.len(), sent + 1);
+    prop_assert_eq!(reply.reactions.capacity(), reply.reactions.len());
     let mut reaction = 0;
     for position in 0..=case.radixes.len() {
         if position == supply_at {
@@ -601,10 +633,15 @@ where
             assert_node_leaf::<H>(node, leaf, runtime)?;
             reaction += 1;
         }
-        if position < case.radixes.len() {
-            match (case.is_query(position), &reply.reactions[reaction]) {
-                (false, Reaction::Match) => {}
-                (true, Reaction::Query(actual)) => {
+        if let Some(sent) = (position < case.radixes.len())
+            .then(|| case.sent(position))
+            .flatten()
+        {
+            match (sent, &reply.reactions[reaction]) {
+                (Sent::Match(later), Reaction::Match(actual)) => {
+                    prop_assert_eq!(actual.set(), later, "height {}", H::HEIGHT);
+                }
+                (Sent::Query, Reaction::Query(actual)) => {
                     prop_assert_eq!(actual, query_listing, "height {}", H::HEIGHT);
                 }
                 _ => {
@@ -652,32 +689,39 @@ where
 
 /// Build the canonical frames for a positional reply.
 fn expected_positional_frames(case: &PositionalCase, nested: &[Listed]) -> Vec<Frame> {
-    reply_frames((0..case.radixes.len()).map(|position| {
-        if case.is_query(position) {
-            WireReaction::Query(nested.to_vec())
-        } else {
-            WireReaction::Match
-        }
-    }))
+    reply_frames((0..case.radixes.len()).filter_map(|position| case.wire(position, nested)))
 }
 
-/// Require a decoded positional reply to preserve its reaction sequence.
+/// Require a decoded positional reply to preserve its reaction sequence,
+/// allocated at exactly its length.
 fn assert_positional_reply(
     reply: &Reply<Erased>,
     case: &PositionalCase,
     nested: &[Listed],
     height: usize,
 ) -> TestCaseResult {
+    let sent: Vec<(usize, Sent)> = (0..case.radixes.len())
+        .filter_map(|position| case.sent(position).map(|sent| (position, sent)))
+        .collect();
+    prop_assert_eq!(reply.reactions.len(), sent.len(), "height {}", height);
     prop_assert_eq!(
+        reply.reactions.capacity(),
         reply.reactions.len(),
-        case.radixes.len(),
         "height {}",
         height
     );
-    for (position, reaction) in reply.reactions.iter().enumerate() {
-        match (case.is_query(position), reaction) {
-            (false, Reaction::Match) => {}
-            (true, Reaction::Query(actual)) => {
+    for ((position, sent), reaction) in sent.into_iter().zip(&reply.reactions) {
+        match (sent, reaction) {
+            (Sent::Match(later), Reaction::Match(actual)) => {
+                prop_assert_eq!(
+                    actual.set(),
+                    later,
+                    "height {}, position {}",
+                    height,
+                    position
+                );
+            }
+            (Sent::Query, Reaction::Query(actual)) => {
                 prop_assert_eq!(actual, nested, "height {}, position {}", height, position);
             }
             _ => {
@@ -754,6 +798,10 @@ proptest! {
     /// decode exactly; leaf queries are empty and publish terminal scopes at
     /// the same height, while higher queries publish lower positional scopes.
     ///
+    /// A decoded reply's reactions are allocated at exactly their count: a
+    /// decoded reply can park, and its question's reservation prices it per
+    /// reaction, which a growth buffer's slack would exceed.
+    ///
     /// The generators explicitly include the all-match case.
     #[test]
     fn positional_reactions_are_lossless_at_every_height(
@@ -785,7 +833,8 @@ proptest! {
     }
 
     /// At every height, a version-derived supply remains correctly keyed when
-    /// merge-ordered among arbitrary positional matches and queries.
+    /// merge-ordered among arbitrary positional matches and queries, and the
+    /// decoded reactions are allocated at exactly their count.
     ///
     /// The generators explicitly include the single-supply case.
     #[test]

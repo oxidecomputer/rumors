@@ -33,7 +33,9 @@ use crate::{
 };
 
 use super::{
-    super::{LeafEdge, ReplyLevel, Scope, decode_whole_reply, derive_questions, encode_reply},
+    super::{
+        LeafEdge, Replay, ReplyLevel, Scope, decode_whole_reply, derive_questions, encode_reply,
+    },
     codec, hash, runtime, unbounded,
 };
 
@@ -132,9 +134,14 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     // Pure supplies ask nothing: the parked form is the handle vector alone.
     assert!(
-        derive_questions(ReplyLevel::Branch, &scope, &mut 0, &decoded.reactions)
-            .expect("decoding validated positions")
-            .is_empty()
+        derive_questions(
+            ReplyLevel::Branch,
+            &scope,
+            &mut Replay::default(),
+            &decoded.reactions
+        )
+        .expect("decoding validated positions")
+        .is_empty()
     );
     // The parked cost is one handle per supplied node — the fan's width,
     // never the leaf count the run streamed through assembly.
@@ -232,7 +239,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let questions = derive_questions(
         ReplyLevel::Branch,
         &Scope::opening_unbounded(&listing),
-        &mut 0,
+        &mut Replay::default(),
         &decoded.reactions,
     )
     .expect("decoding validated positions");

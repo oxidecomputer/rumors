@@ -14,14 +14,27 @@
 //! that the speaker, stream, and state belong together before reading the
 //! frame body.
 //!
-//! Reply and stream lifetimes are deliberately orthogonal. Every nonempty
-//! reply ends on its final reaction; an empty reply is one bare reply-end
-//! frame. A producer that sent any reply ends its logical stream with a
+//! Reply and stream lifetimes are deliberately orthogonal. The last frame a
+//! sender transmits for a nonempty reply carries the reply's end; an empty
+//! reply is one bare reply-end frame. That last frame is the reply's last
+//! reaction, which sits before the end of the question's listing when the
+//! reply's match covers every listed child after it: the receiver then
+//! checks, at the end, that every listed child after the last frame is
+//! covered, so the end is never inferred, only checked. A supply after the
+//! last listed child is a frame of its own and carries the end itself. A producer that sent any reply ends its logical stream with a
 //! separate bare stream-end frame after its final reply. The session
 //! demultiplexer consumes that frame and closes the logical receiver, so the
 //! protocol adapter sees only complete replies. This lets a producer hand
 //! each reply to the pipe as soon as it is built, without looking ahead to
 //! discover whether that reply is also the stream's last.
+//!
+//! A match that covers no later child is body-free. A reply's one match
+//! names every later listed child that also matches, and those children
+//! take no frame; a match covering any carries them as its body, one CBOR
+//! byte string holding the covered radixes in [`ByteSet`]'s canonical
+//! encoding (the ascending radixes below 32 of them, the 32-byte bitmap
+//! from 32 on). A body naming no radix is not canonical, so ingress rejects
+//! it, as it does any body that is not a set's canonical encoding.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query's
 //! body is a `{radix: [hash, count − 1]}` map with one entry per reported
@@ -48,9 +61,14 @@
 //! Encoding trusts the protocol and adapter to produce phase-correct,
 //! canonically ordered frames; it performs no redundant semantic validation.
 //! Decoding is the trust boundary and validates every peer-controlled signal,
-//! query, and supply-run structure before returning a frame. [`FrameRead`]
+//! match body, query, and supply-run structure before returning a frame;
+//! the reply decoder then validates each match's covered radixes against
+//! the question's listing. [`FrameRead`]
 //! and [`FrameWrite`] apply that same grammar directly to Tokio byte streams
 //! without buffering a complete outgoing frame.
+
+#[cfg(doc)]
+use crate::tree::mirror::streaming::byte_set::ByteSet;
 
 mod budget;
 #[cfg(any(test, feature = "test-internals"))]
@@ -212,11 +230,11 @@ impl std::fmt::Debug for PreparedFrame {
 /// where every reaction form is admissible.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
-    use crate::tree::mirror::streaming::message::listed;
+    use crate::tree::mirror::streaming::message::{LaterMatches, listed};
     use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
     let stream = Stream::new(4).expect("stream 4 is within the stream range");
     let frame = match shape {
-        FrameShape::BodyFree => Frame::Reaction(Reaction::Match, Flow::End),
+        FrameShape::BodyFree => Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
         FrameShape::Query { children } => {
             let children = (0..children)
                 .map(|radix| {

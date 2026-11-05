@@ -67,6 +67,31 @@
 //! question a side sends reaches the peer's stage, whatever that side's
 //! walk is waiting for.
 //!
+//! # Covered matches
+//!
+//! A reply's first match names every later listed child that also matches,
+//! and those children take no frame. The argument above holds for it
+//! premise by premise:
+//!
+//! - A reply sends a frame per reaction it holds, and it holds no reaction
+//!   for a covered child, so it sends at most one frame per child it reacts
+//!   to, and never more frames than it would with a frame per match. Every
+//!   lane and channel therefore holds a subset of the frames it would hold
+//!   then, under the same capacities.
+//! - The demultiplexer still holds at most one frame for the whole
+//!   direction, while it waits for a full channel.
+//! - The decoder infers nothing. It checks the covered radixes against the
+//!   question's record at the match's frame and parks the match with them;
+//!   the covered children are resolved by whoever consumes the reply, the
+//!   take as it derives the reply's questions and the walk's resolver as it
+//!   pairs reactions with its children, each as it reaches them. No queue
+//!   fills with inferred matches.
+//! - The decoder's one new step, telling a covered position from one a
+//!   frame must take, waits for nothing: an uncovered position's frame is
+//!   one it waits for anyway, and a covered position needs none. At the
+//!   reply's end it checks that every position left is covered, which
+//!   reads only the record.
+//!
 //! # Lazy streams
 //!
 //! A logical stream carries answers to questions its receiver asked, and
