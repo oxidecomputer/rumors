@@ -20,13 +20,12 @@
 use rumors_testkit::common;
 
 use bytes::Bytes;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors, Version};
+use rumors::{Rumors, Version};
+use rumors_testkit::common::seed::NetworkSeed;
 
 /// The seed of every independently built network, fixed so the pinned byte
 /// counts are measured on the same networks every run.
-const NETWORK_SEED: u64 = 0x4f56_4552_4845_4144;
+const NETWORK_SEED: NetworkSeed = NetworkSeed::new(0x4f56_4552_4845_4144);
 
 /// The message changes made after the replicas fork.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,9 +113,7 @@ fn build(shape: Shape) -> (Rumors<Bytes>, Rumors<Bytes>) {
         shape.left_redacts + shape.right_redacts <= shape.shared,
         "redaction sets must be disjoint subsets of the shared set",
     );
-    let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(NETWORK_SEED))
-        .sync_memory_budget(0)
-        .into_rumors();
+    let left = NETWORK_SEED.peer().sync_memory_budget(0).into_rumors();
     left.send_all((0..shape.shared).map(|_| Bytes::new()))
         .expect("send shared messages");
     let mut shared: Vec<Version> = left

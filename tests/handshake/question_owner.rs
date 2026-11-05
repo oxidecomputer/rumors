@@ -5,18 +5,21 @@
 //! the observable consequence on the wire: a divergent root child draws
 //! exactly one nonempty `Query` frame in the whole session.
 
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors};
+use rumors::Rumors;
 
 use rumors_testkit::common::gossip_snapshot::capture_gossip_returning;
+use rumors_testkit::common::seed::NetworkSeed;
 use rumors_testkit::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_async};
 
-/// A peer seeded from a fixed RNG so the capture is deterministic.
+/// The network of every pin: a capture's exact frames hold for one tree shape
+/// and so for one secret.
+const NETWORK: NetworkSeed = NetworkSeed::new(0);
+
+/// A peer founding [`NETWORK`], so the capture is deterministic.
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
 -> Rumors<T> {
-    Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0)).into_rumors()
+    NETWORK.peer().into_rumors()
 }
 
 /// Pool size for the one-byte path search staging the disputed sibling.

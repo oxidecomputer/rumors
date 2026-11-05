@@ -42,8 +42,13 @@ use tokio::time::Instant;
 
 use latency::{DelayedReader, DelayedWriter, delayed_pair};
 
+use rumors_testkit::common::seed::NetworkSeed;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+/// The network of every traced session: the traces pin exact hop counts, which
+/// hold for one tree shape and so for one secret.
+const NETWORK: NetworkSeed = NetworkSeed::new(0);
+
 /// One-way delay; whole milliseconds per the timer wheel's grain.
 const DELAY: Duration = Duration::from_millis(10);
 
@@ -401,7 +406,8 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     const COMMON: usize = 2_048;
     const DIVERGENT_PER_SIDE: usize = 512;
 
-    let left = Peer::seed()
+    let left = NETWORK
+        .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     // Fixed, so the pinned hop count is measured on the same corpus every run.
@@ -419,7 +425,8 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     const COMMON: usize = 2_048;
     const REDACT_PER_SIDE: usize = 256;
 
-    let left = Peer::seed()
+    let left = NETWORK
+        .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     // Fixed, as is the shuffle below, so the pinned hop count is measured on
@@ -507,7 +514,8 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         rumors.redact_all(&losers);
     };
 
-    let left = Peer::seed()
+    let left = NETWORK
+        .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let right = bootstrap_fork(&left);
@@ -599,7 +607,8 @@ fn trace_bulk_initiator_session() {
 /// either way, so no further hop exists to pay.
 #[test]
 fn trace_empty_session() {
-    let left = Peer::seed()
+    let left = NETWORK
+        .peer()
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     // Fixed, so the pinned hop count is measured on the same corpus every run.
