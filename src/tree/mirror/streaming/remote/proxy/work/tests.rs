@@ -12,7 +12,7 @@ use proptest::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::sync::oneshot;
 
-use super::{Ingress, Physical, Work, progress::Progress};
+use super::{Ingress, Outstanding, Physical, Work, progress::Progress};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::{MemoryEnd, memory_connection, run_to_quiescence};
 use crate::tree::mirror::cbor;
@@ -207,6 +207,16 @@ fn a_write_failure_stands_beside_departure() {
     );
 }
 
+/// `scope` as a published question whose record and room no ledger
+/// charges.
+fn uncharged(scope: Scope) -> Outstanding {
+    Outstanding {
+        scope,
+        record: Default::default(),
+        room: Default::default(),
+    }
+}
+
 proptest! {
     /// A decode failure reaches the executor without waiting for an unread
     /// or dropped response consumer, whether or not an earlier reply waits
@@ -231,10 +241,10 @@ proptest! {
             .expect("the responder replies to the opening");
         let mut frames = Vec::new();
         if buffered {
-            records.try_send((record.clone(), Default::default())).expect("room for two records");
+            records.try_send(uncharged(record.clone())).expect("room for two records");
             frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::End)));
         }
-        records.try_send((record, Default::default())).expect("room for two records");
+        records.try_send(uncharged(record)).expect("room for two records");
         frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::Continue)));
         frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::End)));
         let responses = work.respond::<UnderRoot>(questions, None, Progress::new());

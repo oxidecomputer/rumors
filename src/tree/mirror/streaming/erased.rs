@@ -47,7 +47,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::{QueueRole, Receiver, Sender, channel},
         ledger::Charge,
-        message,
+        message::{self, Carried},
     },
     typed::height::{Height, Z},
 };
@@ -62,13 +62,9 @@ pub(crate) struct Reply<E> {
     pub charge: Charge,
     /// Whether these reactions end the reply.
     pub last: bool,
-    /// The charge for the record of the question these reactions end at,
-    /// which the encoder publishes the record with; on chunks that ask
-    /// nothing, or that this side decoded, it holds nothing.
-    pub record: Charge,
-    /// The charge for the node copies the chunk's supplies made, returned
-    /// with the chunk's own charge.
-    pub copies: Charge,
+    /// What the chunk carries for its encoder beyond its own items
+    /// ([`Carried`]); a chunk this side decoded carries nothing.
+    pub carried: Carried,
 }
 
 /// [`message::Reaction`] with its height forgotten.
@@ -100,8 +96,7 @@ where
             .collect(),
         charge: reply.charge,
         last: reply.last,
-        record: reply.record,
-        copies: reply.copies,
+        carried: reply.carried,
     }
 }
 
@@ -123,8 +118,7 @@ where
             .collect(),
         charge: reply.charge,
         last: reply.last,
-        record: reply.record,
-        copies: reply.copies,
+        carried: reply.carried,
     }
 }
 

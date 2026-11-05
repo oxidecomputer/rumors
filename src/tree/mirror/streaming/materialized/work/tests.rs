@@ -95,7 +95,7 @@ proptest! {
         let buffered = buffered && !dropped;
         let messages = stream::iter(
             buffered.then_some(Ok(Reply {
-                reactions: Vec::new(), charge: Default::default(), last: true, record: Default::default(), copies: Default::default(),
+                reactions: Vec::new(), charge: Default::default(), last: true, carried: Default::default(),
             })).into_iter().chain([Err(Error::Violation(Violation::UnaskedReply))]),
         );
         let responses = work.respond::<Z>(messages);

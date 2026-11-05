@@ -202,7 +202,7 @@ where
     /// take, so the two cannot disagree on it.
     fn respond<H>(
         &mut self,
-        questions: Receiver<(Scope, Charge)>,
+        questions: Receiver<Outstanding>,
         mut publish: Option<Sender<Scope>>,
         progress: Progress,
     ) -> BoxResponses<B, H, Error<B::Error>>
@@ -364,6 +364,26 @@ where
 fn stream_at<H: Height>(speaker: Speaker) -> LogicalStream {
     LogicalStream::at_height(speaker, H::HEIGHT)
         .expect("the typestate binds each speaker only at heights on its parity")
+}
+
+/// A question this side asked, from its encoder's publication until the
+/// decoder has decoded its reply.
+///
+/// The question's chunk carried its record's charge and its reply's room to
+/// the encoder ([`Carried::Question`]), which publishes them here with the
+/// record once the question's frame is in the multiplexer's channel.
+///
+/// [`Carried::Question`]: crate::tree::mirror::streaming::message::Carried::Question
+pub(crate) struct Outstanding {
+    /// The record the question's reply is validated against.
+    pub(crate) scope: Scope,
+    /// The charge for the record, which returns once the take has read the
+    /// reply's last chunk.
+    pub(crate) record: Charge,
+    /// The room the reply's chunks take while they park: the decoder
+    /// charges each chunk its part out of it and returns the rest once the
+    /// reply is decoded.
+    pub(crate) room: Charge,
 }
 
 /// A decoded chunk of a reply, parked until its stage takes it.

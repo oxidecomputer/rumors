@@ -133,6 +133,9 @@ pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
 pub(crate) use work::floor_allowance;
+pub(crate) use work::parked_bytes;
+#[cfg(test)]
+pub(crate) use work::parked_room;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
 use work::{LeafRequest, Resolver, Work};
@@ -232,20 +235,23 @@ pub struct Query<E> {
     /// The node copies listing its children made, which the parent
     /// resolution keeps until its assembly.
     pub(crate) copies: Charge,
-    /// The room set aside for what the peer's reply becomes ([`ledger`]).
+    /// The parts of the room set aside for what the peer's reply becomes
+    /// that stay with the question ([`ledger`]).
     ///
     /// [`ledger`]: super::ledger
     pub(crate) reservation: Reserved,
 }
 
-/// The room a question sets aside for the peer's reply, in one charge per
-/// place the reply's items take, so each place's charges cover exactly what
-/// that place holds.
+/// The parts of the room a question sets aside for the peer's reply that
+/// stay with the question, in one charge per place the reply's items take,
+/// so each place's charges cover exactly what that place holds.
+///
+/// The third part, the room the reply's chunks park in, travels with the
+/// question's record to the decoder instead
+/// ([`Carried::Question`](super::message::Carried::Question)), which
+/// charges each chunk its part as it decodes.
 #[derive(Default)]
 pub(crate) struct Reserved {
-    /// The reply's chunks while they park and their stage reads them.
-    #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
-    pub(crate) parked: Charge,
     /// The records the take derives from the reply's questions.
     #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
     pub(crate) records: Charge,
@@ -883,8 +889,7 @@ where
                 reactions,
                 charge: received,
                 last,
-                record,
-                copies,
+                carried,
             } = chunk;
             for reaction in reactions {
                 if let Reaction::Supply(radix, _) = &reaction
@@ -901,7 +906,7 @@ where
             // The chunk is used up, so its charges return now, before the
             // loop waits for the next one: the peer's admission may wait on
             // them.
-            drop((received, record, copies));
+            drop((received, carried));
             if last {
                 break;
             }

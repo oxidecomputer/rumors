@@ -58,8 +58,9 @@ where
     question: Charge,
     /// The question's node copies, which the resolution keeps as well.
     copies: Charge,
-    /// The room the question set aside for the reply: the resolution takes
-    /// its slots' part, and the rest returns when the resolver is done.
+    /// The parts of the room the question set aside for the reply that
+    /// stayed with it: the resolution takes its slots' part, and the
+    /// records' part returns when the resolver is done.
     reservation: Reserved,
     /// What the reply has held so far: its reactions and the listing
     /// entries its queries carried.
@@ -192,7 +193,7 @@ where
             violation(Violation::UnfinishedReply)
         } else {
             ledger::fitted(self.bound, self.held);
-            // The question's own charge and the reservation's other parts
+            // The question's own charge and the reservation's records part
             // return as the resolver drops here; the resolution keeps its
             // slots' part and the question's node copies.
             Ok(Resolution {

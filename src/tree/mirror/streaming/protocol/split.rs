@@ -66,26 +66,24 @@ fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
         reactions,
         charge,
         last,
-        record,
-        copies,
+        carried,
     } = chunk;
     if reactions.is_empty() {
         return vec![Reply {
             reactions,
             charge,
             last,
-            record,
-            copies,
+            carried,
         }];
     }
     let count = reactions.len();
-    let mut ending = Some((charge, record, copies));
+    let mut ending = Some((charge, carried));
     reactions
         .into_iter()
         .enumerate()
         .map(|(index, reaction)| {
             let ends = index + 1 == count;
-            let (charge, record, copies) = if ends {
+            let (charge, carried) = if ends {
                 ending.take().unwrap_or_default()
             } else {
                 Default::default()
@@ -94,8 +92,7 @@ fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
                 reactions: vec![reaction],
                 charge,
                 last: last && ends,
-                record,
-                copies,
+                carried,
             }
         })
         .collect()

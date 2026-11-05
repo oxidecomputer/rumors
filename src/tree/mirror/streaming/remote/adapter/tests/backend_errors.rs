@@ -81,8 +81,7 @@ where
                         reactions,
                         charge: Default::default(),
                         last: true,
-                        record: Default::default(),
-                        copies: Default::default(),
+                        carried: Default::default(),
                     },
                 );
                 let (yielded, error, ended) = runtime.block_on(async {
@@ -134,8 +133,7 @@ where
                     ],
                     charge: Default::default(),
                     last: true,
-                    record: Default::default(),
-                    copies: Default::default(),
+                    carried: Default::default(),
                 },
             );
             let (yielded, error) = runtime.block_on(async {

@@ -79,4 +79,4 @@ pub use pipe::PipeRead;
 #[cfg(test)]
 pub use proxy::Error;
 pub use proxy::Handshaking;
-pub(crate) use proxy::Parked;
+pub(crate) use proxy::{Outstanding, Parked};

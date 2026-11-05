@@ -15,8 +15,9 @@
 //! - local questions, each published once the frame carrying it is in the
 //!   multiplexer's channel, flow into decoding through an unbounded queue;
 //! - decoded replies park, chunk by chunk as their reactions decode, until
-//!   their stage takes them, and parking never waits, so decoding never
-//!   waits on the walk;
+//!   their stage takes them, each chunk charged its part of the room its
+//!   question set aside, and parking never waits, so decoding never waits
+//!   on the walk;
 //! - at each take, the scopes the chunk's questions create flow into the
 //!   next phase, before the stage receives the chunk.
 //!
@@ -29,14 +30,14 @@ use std::sync::Arc;
 use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use super::{Ingress, Parked, Work, encode, queues};
+use super::{Ingress, Outstanding, Parked, Work, encode, queues};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{Receiver, Sender, TrySendError},
         erased,
         holding::{Holding, held_by, holding},
-        ledger::Charge,
+        materialized::parked_bytes,
         protocol::{BoxResponses, Requests},
         remote::{
             adapter::{LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply},
@@ -63,6 +64,13 @@ where
     /// very record the decoder validated it against. Every reply crosses one
     /// [`LeafEdge`], which the pump owns for its whole run.
     ///
+    /// Each chunk is charged its own part of the room the question set
+    /// aside for its reply's chunks ([`parked_bytes`]), which returns once
+    /// the chunk's stage has used it; once the reply is decoded, the part
+    /// of the room its chunks did not take returns. So the room a reply
+    /// parked behind a busy stage holds is what its chunks hold, not what
+    /// its bound allowed.
+    ///
     /// Parking never waits, so decoding never waits on the walk: its queue
     /// holds whatever arrives, all of it within the room the questions it
     /// answers set aside. A closed queue means the stage is gone, and the
@@ -71,20 +79,26 @@ where
     pub(super) async fn decode_and_park(
         self,
         level: ReplyLevel,
-        mut questions: Receiver<(Scope, Charge)>,
+        mut questions: Receiver<Outstanding>,
         mut incoming: Receiver<Frame>,
         mut parking: Sender<Parked<B::Erased>>,
     ) -> Result<(), Error<B::Error>> {
         let mut asked = false;
         let mut edge = LeafEdge::new();
-        while let Some((answered, record)) = questions.recv().await {
+        while let Some(Outstanding {
+            scope,
+            record,
+            mut room,
+        }) = questions.recv().await
+        {
             asked = true;
             // The record's shared allocation is the record's own, charged
             // with it.
-            let answered = held_by(Holding::QuestionRecords, || Arc::new(answered));
+            let answered = held_by(Holding::QuestionRecords, || Arc::new(scope));
             let mut opens = Some((answered.clone(), record));
             let mut gone = false;
-            let mut deliver = |chunk| {
+            let mut deliver = |mut chunk: erased::Reply<B::Erased>| {
+                chunk.charge = room.take(Holding::ParkedReplies, parked_bytes(&chunk));
                 let parked = Parked {
                     chunk,
                     opens: opens.take(),
@@ -109,6 +123,9 @@ where
                 &mut deliver,
             )
             .await?;
+            // The reply is decoded: the room its chunks did not take
+            // returns now, before its stage reaches it.
+            drop(room);
             if gone {
                 cancelled().await;
             }

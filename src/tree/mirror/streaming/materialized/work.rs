@@ -23,12 +23,16 @@ mod queues;
 mod resolver;
 
 pub(crate) use charges::floor_allowance;
+pub(crate) use charges::parked_bytes;
+#[cfg(test)]
+pub(crate) use charges::parked_room;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
 pub(super) use resolver::Resolver;
 
 /// One leaf request in its queue: the leaf's path, with the charge for the
-/// request's queue slot and the room its reply sets aside.
+/// request's queue slot and the parts of the room its reply sets aside that
+/// stay with it.
 pub(crate) type LeafRequest = (Prefix<Z>, Charge, Reserved);
 
 use super::progress::Progress;

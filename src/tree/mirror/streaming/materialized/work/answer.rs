@@ -17,7 +17,7 @@ use crate::{
                 Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
             },
-            message::{Grandchildren, Listed},
+            message::{Carried, Grandchildren, Listed},
             stats::Recorder,
         },
         typed::{ErasedPrefix, height::Z},
@@ -246,13 +246,14 @@ impl<E: ErasedNode> Question<E> {
     }
 }
 
-/// One question, built: its reaction, the item it sends down, and the
-/// charge for the record its encoder publishes.
-pub(super) type Built<E, Q> = (Reaction<E>, Q, Charge);
+/// One question, built: its reaction, the item it sends down, and what the
+/// chunk ending at it carries to its encoder ([`Carried::Question`]): the
+/// charge for its record, and the room its reply parks in.
+pub(super) type Built<E, Q> = (Reaction<E>, Q, Carried);
 
 /// Build the question an internal answer asks about one child of `prefix`
 /// out of `grant`: its reaction, the query it sends down, and its record's
-/// charge.
+/// charge and its reply's room.
 ///
 /// A disputed child is explored here, when its question is asked, so a
 /// chunk holds only its own question's children.
@@ -287,10 +288,11 @@ where
     });
     let record = charges::record(grant, ours.len());
     let bound = ReplyBound::of(child.height(), ours.len(), theirs);
+    let room = charges::room::<B::Erased>(grant, bound, ours.len());
     let query = held_by(Holding::Questions, || {
         charges::query(grant, child, ours, bound, copies)
     });
-    Ok((reaction, query, record))
+    Ok((reaction, query, Carried::Question { record, room }))
 }
 
 /// Classify one leaf-parent query's leaves by merge-joining both leaf
@@ -353,7 +355,7 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
 
 /// Build the request a leaf-parent answer makes for the leaf at `radix`
 /// under `prefix` out of `grant`: its empty query reaction, the leaf
-/// request it sends down, and its record's charge.
+/// request it sends down, and its record's charge and its reply's room.
 pub(super) fn leaf_question<E>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
@@ -363,11 +365,11 @@ pub(super) fn leaf_question<E>(
     let record = charges::record(grant, 0);
     // A leaf-parent scope's child prefix is a full 32-byte path: the length
     // witness makes the leaf-height re-tag exact.
-    let request = held_by(Holding::Questions, || {
-        let (slot, reservation) = charges::leaf_request::<E>(grant);
-        (prefix.push(radix).assume::<Z>(), slot, reservation)
+    let (request, room) = held_by(Holding::Questions, || {
+        let (slot, reservation, room) = charges::leaf_request::<E>(grant);
+        ((prefix.push(radix).assume::<Z>(), slot, reservation), room)
     });
-    (reaction, request, record)
+    (reaction, request, Carried::Question { record, room })
 }
 
 /// Answer one terminal leaf query.

@@ -13,8 +13,7 @@ use crate::tree::mirror::streaming::{
     remote::adapter::Scope,
 };
 
-use super::Parked;
-use crate::tree::mirror::streaming::ledger::Charge;
+use super::{Outstanding, Parked};
 
 /// Carry the records of asked-but-unanswered questions to the decoder,
 /// labeled at the questions' height.
@@ -24,8 +23,9 @@ use crate::tree::mirror::streaming::ledger::Charge;
 /// [`stages`](mod@super::stages) takes one per decoded wire reply, a round
 /// trip later. The queue is [`UNBOUNDED`], so publishing never stops an
 /// encoder before the rest of its reply reaches the peer; what it holds is
-/// already charged, each record on the endpoint's ledger as it publishes.
-pub fn local_questions(height: usize) -> (Sender<(Scope, Charge)>, Receiver<(Scope, Charge)>) {
+/// already charged, each record on the endpoint's ledger as it publishes,
+/// beside the room its reply parks in.
+pub fn local_questions(height: usize) -> (Sender<Outstanding>, Receiver<Outstanding>) {
     channel(
         QueueRole::new(QueueKind::ProxyLocalQuestions, height),
         UNBOUNDED,
@@ -37,8 +37,8 @@ pub fn local_questions(height: usize) -> (Sender<(Scope, Charge)>, Receiver<(Sco
 ///
 /// The queue is [`UNBOUNDED`]: the decoder that fills it must never wait on
 /// the walk that drains it, and what it holds needs no count of its own,
-/// since every chunk lies within the room the question its reply answers
-/// set aside on the endpoint's ledger before that question left.
+/// since every chunk carries its part of the room the question its reply
+/// answers set aside on the endpoint's ledger before that question left.
 pub fn parked_replies<E>(height: usize) -> (Sender<Parked<E>>, Receiver<Parked<E>>) {
     channel(QueueRole::new(QueueKind::ProxyResponses, height), UNBOUNDED)
 }

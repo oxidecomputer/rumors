@@ -14,7 +14,7 @@ use crate::{
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound},
             materialized::SupplyLedger,
-            message::{Grandchildren, Listed},
+            message::{Carried, Grandchildren, Listed},
         },
         typed::{
             ErasedPrefix, Path, Prefix,
@@ -158,8 +158,7 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
             reactions: vec![ProtocolReaction::Query(listing)],
             charge: Charge::default(),
             last: true,
-            record: Charge::default(),
-            copies: Charge::default(),
+            carried: Carried::Nothing,
         },
         scope,
     )
@@ -283,8 +282,7 @@ where
         reactions,
         charge: Charge::default(),
         last: true,
-        record: Charge::default(),
-        copies: Charge::default(),
+        carried: Carried::Nothing,
     })
 }
 
@@ -597,15 +595,14 @@ where
     /// a chunk can park, and the reservation for its reply prices each
     /// reaction at its size, which growth slack would exceed.
     fn chunk(&mut self, last: bool) -> Reply<B::Erased> {
-        // A decoded chunk is held within the room its question set aside,
-        // which its asker's walk carries; it carries no charge of its own.
+        // A decoded chunk is charged by whoever parks it, out of the room
+        // its question set aside, so it leaves here with no charge.
         self.ready_asks = false;
         Reply {
             reactions: self.ready.drain(..).collect(),
             charge: Charge::default(),
             last,
-            record: Charge::default(),
-            copies: Charge::default(),
+            carried: Carried::Nothing,
         }
     }
 }

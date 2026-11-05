@@ -165,8 +165,7 @@ where
                 reactions: Vec::new(),
                 charge: Default::default(),
                 last: true,
-                record: Default::default(),
-                copies: Default::default(),
+                carried: Default::default(),
             }],
         ),
         ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
@@ -178,8 +177,7 @@ where
                     .collect(),
                 charge: Default::default(),
                 last: true,
-                record: Default::default(),
-                copies: Default::default(),
+                carried: Default::default(),
             }],
         ),
         ScriptedViolation::UnexpectedMatch => {
@@ -191,8 +189,7 @@ where
                     reactions,
                     charge: Default::default(),
                     last: true,
-                    record: Default::default(),
-                    copies: Default::default(),
+                    carried: Default::default(),
                 }],
             )
         }
@@ -205,8 +202,7 @@ where
                     reactions,
                     charge: Default::default(),
                     last: true,
-                    record: Default::default(),
-                    copies: Default::default(),
+                    carried: Default::default(),
                 }],
             )
         }
@@ -219,8 +215,7 @@ where
                 )],
                 charge: Default::default(),
                 last: true,
-                record: Default::default(),
-                copies: Default::default(),
+                carried: Default::default(),
             }],
         ),
         ScriptedViolation::InvalidSupply => {
@@ -241,8 +236,7 @@ where
                     ],
                     charge: Default::default(),
                     last: true,
-                    record: Default::default(),
-                    copies: Default::default(),
+                    carried: Default::default(),
                 }],
             )
         }
@@ -259,8 +253,7 @@ where
                 reactions: vec![Reaction::Supply(7, supplied)],
                 charge: Default::default(),
                 last: true,
-                record: Default::default(),
-                copies: Default::default(),
+                carried: Default::default(),
             }],
         ),
         ScriptedViolation::UncontainedSupply => {
@@ -280,8 +273,7 @@ where
                     reactions: vec![Reaction::Supply(radix, escaped)],
                     charge: Default::default(),
                     last: true,
-                    record: Default::default(),
-                    copies: Default::default(),
+                    carried: Default::default(),
                 }],
             )
         }
@@ -544,8 +536,7 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
             reactions,
             charge: Default::default(),
             last: true,
-            record: Default::default(),
-            copies: Default::default(),
+            carried: Default::default(),
         }]
     };
     let requests = match injection {
@@ -555,15 +546,13 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
                 reactions: vec![question()],
                 charge: Default::default(),
                 last: true,
-                record: Default::default(),
-                copies: Default::default(),
+                carried: Default::default(),
             },
             Reply {
                 reactions: Vec::new(),
                 charge: Default::default(),
                 last: true,
-                record: Default::default(),
-                copies: Default::default(),
+                carried: Default::default(),
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),

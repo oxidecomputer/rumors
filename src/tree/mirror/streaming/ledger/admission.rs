@@ -126,7 +126,9 @@
 //!
 //! - A question slot at depth `d` frees once the question's items and
 //!   reservation are released: its chunk when encoded, its record when the
-//!   reply's last chunk is taken, its reservation as this side's stage
+//!   reply's last chunk is taken, the room its reply parks in chunk by
+//!   chunk as this side's stage uses the reply's chunks and the rest once
+//!   the reply is decoded, and the reservation's other parts as the stage
 //!   finishes the reply and assembles the scope asked about. That takes the
 //!   peer's answer and questions about the scope, at depth `d` and below on
 //!   the peer's side, this side's answers to those questions, at `d + 1`,
@@ -140,6 +142,14 @@
 //!   only for units ahead of it at `d`, whose slots free by the two cases
 //!   above, and for deeper units, which waiters at greater depths precede
 //!   for the budget but never for the floor.
+//!
+//! Every part of a question's reservation returns no later than the scope
+//! it asks about is assembled, when its parent resolution's part returns,
+//! so a slot frees at that assembly however early the parked room returns.
+//! Returning bytes earlier only adds room against the budget: a grant
+//! admitted against the budget fit beside everything the ledger held, and
+//! the charges built out of it hold no more than it did, so the bound
+//! above holds however early its parts return.
 //!
 //! An answer's own items cannot share a slot with its questions: at a zero
 //! budget the answer's resolution would hold the slot until its scope is

@@ -36,7 +36,7 @@ use crate::tree::{
     typed::height::{Height, UnderRoot, Z},
 };
 
-use super::progress::Progress;
+use super::{Outstanding, progress::Progress};
 
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
 pub async fn terminal<B>(
@@ -124,11 +124,14 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut reactions = Vec::new();
-    let mut record = Charge::default();
+    let (mut record, mut room) = (Charge::default(), Charge::default());
     loop {
-        let chunk = requests.next().await.ok_or(Error::MissingOpening)?;
+        let mut chunk = requests.next().await.ok_or(Error::MissingOpening)?;
+        if let Some((asked, parking)) = chunk.carried.take_question() {
+            record.absorb(asked);
+            room.absorb(parking);
+        }
         reactions.extend(chunk.reactions);
-        record.absorb(chunk.record);
         if chunk.last {
             break;
         }
@@ -137,7 +140,7 @@ where
     progress.wire_frame(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
     questions
-        .publish(Scope::opening(&listing, responder), record)
+        .publish(Scope::opening(&listing, responder), record, room)
         .await;
     if requests.next().await.is_some() {
         return Err(Error::ExtraOpening);
@@ -165,7 +168,7 @@ where
     loop {
         let mut chunk = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let last = chunk.last;
-        let mut record = std::mem::take(&mut chunk.record);
+        let mut asked = chunk.carried.take_question();
         let mut frames = encoder.chunk(chunk);
         while let Some(frame) = frames.next().await {
             let Some(question) = write_encoded(outgoing, frame?).await? else {
@@ -176,9 +179,8 @@ where
             };
             progress.wire_frame(height, 1);
             progress.local_question(height);
-            questions
-                .publish(question, std::mem::take(&mut record))
-                .await;
+            let (record, room) = asked.take().unwrap_or_default();
+            questions.publish(question, record, room).await;
         }
         if last {
             return Ok(());
@@ -190,21 +192,28 @@ where
 /// ask.
 pub struct Records {
     /// The decoder's queue of records.
-    sender: Sender<(Scope, Charge)>,
+    sender: Sender<Outstanding>,
 }
 
 impl Records {
     /// Publish records through `sender`.
-    pub fn new(sender: Sender<(Scope, Charge)>) -> Self {
+    pub fn new(sender: Sender<Outstanding>) -> Self {
         Self { sender }
     }
 
-    /// Publish one question's record with `charge`, which the walk built
-    /// out of the question's grant and the chunk carrying the question
-    /// handed over, or await cancellation if the record's consumer has
-    /// gone.
-    async fn publish(&mut self, question: Scope, charge: Charge) {
-        if self.sender.send((question, charge)).await.is_err() {
+    /// Publish one question's record, `scope`, with its charge and the
+    /// room its reply parks in, or await cancellation if the record's
+    /// consumer has gone.
+    ///
+    /// The walk built `record` and `room` out of the question's grant, and
+    /// the chunk carrying the question handed them over.
+    async fn publish(&mut self, scope: Scope, record: Charge, room: Charge) {
+        let outstanding = Outstanding {
+            scope,
+            record,
+            room,
+        };
+        if self.sender.send(outstanding).await.is_err() {
             cancelled().await;
         }
     }

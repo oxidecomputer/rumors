@@ -266,7 +266,7 @@ where
                 reactions: Vec::new(),
                 charge: Default::default(),
                 last: true,
-                record: Default::default(), copies: Default::default(),
+                carried: Default::default(),
             });
             return;
         }

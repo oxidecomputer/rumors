@@ -8,6 +8,17 @@
 //! covers exists, at the bound the peer's grandchild count sets
 //! ([`ReplyBound`]), in the same element sizes the reply's items have
 //! when they arrive.
+//!
+//! A reservation is three charges, one per place the reply's items take.
+//! The query keeps two: the records part, which returns when the stage
+//! has finished the reply, and the parent resolution's part, which moves
+//! into that resolution and returns at its assembly. The third, the room
+//! the reply's chunks park in ([`room`]), travels with the question's
+//! record to the decoder, which charges each chunk its own part as it
+//! decodes ([`parked_bytes`]) and returns the rest once the reply is
+//! decoded: whatever the bound allowed beyond what the reply holds returns
+//! as soon as the reply is known, and each chunk's part as soon as its
+//! stage has used it.
 
 use std::mem::size_of;
 
@@ -17,8 +28,8 @@ use crate::tree::mirror::streaming::{
     holding::Holding,
     ledger::{Charge, ReplyBound, Unit, buffer, queued, shared},
     materialized::{Error, Query, Reserved, Resolution, Resolve},
-    message::{Grandchildren, Listed},
-    remote::{Parked, Scope},
+    message::{Carried, Grandchildren, Listed},
+    remote::{Outstanding, Parked, Scope},
 };
 use crate::tree::typed::{
     ErasedPrefix,
@@ -53,17 +64,17 @@ pub(super) fn reply<B>(grant: &mut Charge, reactions: Vec<Reaction<B::Erased>>) 
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    chunk::<B>(grant, reactions, true, Charge::default())
+    chunk::<B>(grant, reactions, true, Carried::Nothing)
 }
 
 /// `reactions` as one outgoing chunk, ending its reply if `last`, built out
-/// of `grant`, and carrying `record`, the charge for the record of the
-/// question it ends at, if any.
+/// of `grant`, and carrying `carried` for its encoder: what the question it
+/// ends at sets aside, if any.
 pub(super) fn chunk<B>(
     grant: &mut Charge,
     reactions: Vec<Reaction<B::Erased>>,
     last: bool,
-    record: Charge,
+    carried: Carried,
 ) -> Reply<B::Erased>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -72,8 +83,7 @@ where
         reactions,
         charge: Charge::default(),
         last,
-        record,
-        copies: Charge::default(),
+        carried,
     };
     reply.charge = grant.take(Holding::OutgoingReplies, reply_bytes::<B>(&reply));
     reply
@@ -118,10 +128,36 @@ pub(crate) fn parent_resolution<E>(bound: ReplyBound) -> usize {
 /// at most `listed.min(bound.reactions)` since a query sits only at a
 /// position the asker listed, and they hold the reply's reactions and
 /// listing entries.
+///
+/// The decoder charges each chunk its own part ([`parked_bytes`]), which
+/// prices the chunk's vectors at their capacities. It allocates each
+/// chunk's reactions, and each listing a query carries, at exactly their
+/// lengths, so the chunks of a reply within its bound take no more than
+/// this room together; a chunk that took more would be charged in full
+/// and counted as a shortfall ([`Charge::take`]).
 pub(crate) fn parked_room<E>(bound: ReplyBound, listed: usize) -> usize {
     (listed.min(bound.reactions) + 1) * queued::<Parked<E>>()
         + bound.reactions * size_of::<Reaction<E>>()
         + bound.listing * size_of::<Listed>()
+}
+
+/// The bytes a decoded chunk holds while it parks: its node in the parking
+/// queue, its reactions, and the listing each of its queries carries, every
+/// vector at its capacity.
+///
+/// The decoder takes this from the room the question set aside for the
+/// chunk's reply ([`room`]) as the chunk decodes, and the chunk returns it
+/// once its stage has used the chunk.
+pub(crate) fn parked_bytes<E>(chunk: &Reply<E>) -> usize {
+    let listings: usize = chunk
+        .reactions
+        .iter()
+        .map(|reaction| match reaction {
+            Reaction::Query(listing) => buffer(listing),
+            Reaction::Match | Reaction::Supply(..) => 0,
+        })
+        .sum();
+    queued::<Parked<E>>() + buffer(&chunk.reactions) + listings
 }
 
 /// The part of a reservation the records the take derives take: one queue
@@ -139,25 +175,35 @@ pub(crate) fn reservation<E>(bound: ReplyBound, listed: usize) -> usize {
     parked_room::<E>(bound, listed) + records_room(bound, listed) + parent_resolution::<E>(bound)
 }
 
-/// The room, built out of `grant`, a question listing `listed` children
-/// sets aside for the reply `bound` bounds, each part charged to the place
-/// its items take.
+/// The parts of the room, built out of `grant`, a question listing
+/// `listed` children sets aside for the reply `bound` bounds that its query
+/// keeps, each charged to the place its items take.
 fn reserve<E>(grant: &mut Charge, bound: ReplyBound, listed: usize) -> Reserved {
     Reserved {
-        parked: grant.take(Holding::ParkedReplies, parked_room::<E>(bound, listed)),
         records: grant.take(Holding::QuestionRecords, records_room(bound, listed)),
         slots: grant.take(Holding::Resolutions, parent_resolution::<E>(bound)),
     }
 }
 
+/// The room, built out of `grant`, the chunks of the reply `bound` bounds
+/// take while they park, for a question listing `listed` children
+/// ([`parked_room`]).
+///
+/// The chunk ending at the question carries it to the encoder, which
+/// publishes it with the question's record ([`Carried::Question`]).
+pub(super) fn room<E>(grant: &mut Charge, bound: ReplyBound, listed: usize) -> Charge {
+    grant.take(Holding::ParkedReplies, parked_room::<E>(bound, listed))
+}
+
 /// The bytes the record of a question listing `listed` children holds.
 ///
-/// The record waits in the decoder's queue, then in the allocation the
-/// decoder shares with the take until the take reads its reply's last
-/// chunk, so it is priced at the larger of the two, beside one radix and
-/// count per listed child.
+/// The record waits in the decoder's queue beside its charge and its
+/// reply's room ([`Outstanding`]), then in the allocation the decoder
+/// shares with the take until the take reads its reply's last chunk, so it
+/// is priced at the larger of the two, beside one radix and count per
+/// listed child.
 pub(crate) fn record_bytes(listed: usize) -> usize {
-    queued::<(Scope, Charge)>().max(shared::<Scope>()) + listed * size_of::<(u8, Grandchildren)>()
+    queued::<Outstanding>().max(shared::<Scope>()) + listed * size_of::<(u8, Grandchildren)>()
 }
 
 /// The charge, built out of `grant`, for the record of a question listing
@@ -168,8 +214,11 @@ pub(super) fn record(grant: &mut Charge, listed: usize) -> Charge {
 }
 
 /// The question about `prefix` that lists `ours`, whose reply `bound`
-/// bounds, built out of `grant` for what it holds, `copies` of node copies
-/// listing its children made included, and for its reply's reservation.
+/// bounds, built out of `grant`.
+///
+/// It is charged for what it holds, `copies` of node copies listing its
+/// children made included, and for the parts of its reply's reservation it
+/// keeps ([`reserve`]).
 pub(super) fn query<E>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
@@ -188,12 +237,14 @@ pub(super) fn query<E>(
     }
 }
 
-/// The charges, built out of `grant`, for one leaf request's queue slot and
-/// the room its reply, one supplied leaf, sets aside.
-pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved) {
+/// The charges, built out of `grant`, for one leaf request's queue slot,
+/// the parts of its reply's reservation it keeps, and the room its reply,
+/// one supplied leaf, parks in ([`room`]).
+pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) {
     (
         grant.take(Holding::Questions, queued::<LeafRequest>()),
         reserve::<E>(grant, ReplyBound::LEAF, 0),
+        room::<E>(grant, ReplyBound::LEAF, 0),
     )
 }
 
@@ -374,7 +425,7 @@ pub(crate) fn scratch<E, Err>(place: Holding) -> usize {
                 + 2 * FAN * (size_of::<Reaction<E>>() + size_of::<(u8, ErasedPrefix)>())
         }
         Holding::QuestionRecords => {
-            queued::<(Scope, Charge)>()
+            queued::<Outstanding>()
                 + queued::<Scope>()
                 + 2 * FAN * size_of::<Scope>()
                 + size_of::<Scope>()

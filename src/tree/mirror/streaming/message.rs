@@ -278,12 +278,62 @@ pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     pub(crate) charge: Charge,
     /// Whether this chunk ends the reply.
     pub(crate) last: bool,
-    /// The charge for the record of the question the chunk ends at, if
-    /// any.
-    pub(crate) record: Charge,
-    /// The charge for the node copies the chunk's supplies made.
-    pub(crate) copies: Charge,
+    /// What the chunk carries for its consumer beyond its own items.
+    pub(crate) carried: Carried,
 }
+
+/// What an outgoing chunk carries for its encoder beyond its own items,
+/// charged to the endpoint that built the chunk.
+///
+/// A chunk ends at a question only partway through an answer that explores
+/// its scope, and only a reply that answers a whole scope with supplies
+/// alone copies nodes for them, so no chunk carries both. A chunk this side
+/// decoded carries nothing.
+#[derive(Debug, Default)]
+pub(crate) enum Carried {
+    /// Nothing beyond the chunk's own items.
+    #[default]
+    Nothing,
+    /// The node copies the chunk's supplies made, which return with the
+    /// chunk once its encoder has used it.
+    Copies(#[expect(dead_code, reason = "held for its bytes, which return when it drops")] Charge),
+    /// What the question the chunk ends at sets aside for its reply.
+    Question {
+        /// The charge for the question's record, which the encoder
+        /// publishes the record with.
+        record: Charge,
+        /// The room the reply's chunks take while they park, which
+        /// travels with the record to the decoder: it charges each chunk
+        /// its part as the chunk decodes and returns the rest once the
+        /// reply is decoded.
+        room: Charge,
+    },
+}
+
+impl Carried {
+    /// Take out the record's charge and the reply's room of the question
+    /// the chunk ends at, if it ends at one, leaving any node copies to
+    /// return with the chunk.
+    pub(crate) fn take_question(&mut self) -> Option<(Charge, Charge)> {
+        match std::mem::take(self) {
+            Self::Question { record, room } => Some((record, room)),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+}
+
+/// The charges a chunk carries take two charges' room, what a question's
+/// carry needs.
+///
+/// Every chunk is priced at its size, so a wider variant would raise the
+/// price of every chunk, carrying or not.
+const _: () = assert!(
+    size_of::<Carried>() == 2 * size_of::<Charge>(),
+    "a chunk's carried charges must fit in a question's two charges",
+);
 
 /// Reactions are positionally keyed against the corresponding
 /// [`Reaction::Query`] query.

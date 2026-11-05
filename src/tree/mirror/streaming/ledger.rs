@@ -25,10 +25,13 @@
 //!   resolution the stage builds from it. Each question is charged, when
 //!   it is asked, a *reservation*: the most those items can hold, from the
 //!   bound the peer's grandchild count of the node asked about sets
-//!   ([`ReplyBound`]). The reservation
-//!   travels with the question and is released in two parts: the parent
-//!   resolution's part moves into that resolution and returns at assembly,
-//!   and the rest returns when the stage has finished the reply.
+//!   ([`ReplyBound`]). Each part of the reservation returns as soon as it
+//!   is known to be unused. The room the reply's chunks park in travels
+//!   with the question's record to the decoder, which charges each chunk
+//!   its own part as it decodes, returned once the chunk's stage has used
+//!   it, and returns the rest once the reply is decoded. The records part
+//!   returns when the stage has finished the reply, and the parent
+//!   resolution's part moves into that resolution and returns at assembly.
 //! - **Fixed state**, which every session sets up whatever it compares:
 //!   wire buffering, decode fans, assembly's queues and spines, and tasks.
 //!   The ledger charges none of it; it is a constant beside the ledger.

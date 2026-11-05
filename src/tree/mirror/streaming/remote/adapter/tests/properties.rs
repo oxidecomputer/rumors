@@ -125,8 +125,7 @@ where
                 .collect(),
             charge: Default::default(),
             last: true,
-            record: Default::default(),
-            copies: Default::default(),
+            carried: Default::default(),
         };
         let expected_questions = case
             .radixes
@@ -496,8 +495,7 @@ fn mixed_reply<H: Height>(
         reactions,
         charge: Default::default(),
         last: true,
-        record: Default::default(),
-        copies: Default::default(),
+        carried: Default::default(),
     }
 }
 
@@ -515,8 +513,7 @@ fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
                 reactions: std::mem::take(&mut current),
                 charge: Default::default(),
                 last: false,
-                record: Default::default(),
-                copies: Default::default(),
+                carried: Default::default(),
             });
         }
     }
@@ -524,8 +521,7 @@ fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
         reactions: current,
         charge: reply.charge,
         last: true,
-        record: Default::default(),
-        copies: Default::default(),
+        carried: Default::default(),
     });
     chunks
 }

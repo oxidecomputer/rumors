@@ -28,7 +28,7 @@ mod work;
 pub use error::Error;
 pub use start::Handshaking;
 pub use state::Connected;
-pub(crate) use work::Parked;
+pub(crate) use work::{Outstanding, Parked};
 
 #[cfg(test)]
 mod tests;
