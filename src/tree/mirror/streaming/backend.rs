@@ -18,7 +18,7 @@ use crate::{
     counter::widen,
     message::Message,
     tree::{
-        mirror::streaming::convert::Convert,
+        mirror::streaming::{Radices, convert::Convert},
         typed::{
             Hash, Prefix,
             height::{self, Height, S, Z},
@@ -252,6 +252,19 @@ pub trait ErasedNode {
     /// The number of children this node's children have, exact
     /// ([`Node::grandchild_count`]).
     fn grandchild_count(&self) -> usize;
+
+    /// The radices of the children [`Backend::children`] lists for this
+    /// node, exact: [`child_count`](Self::child_count) of them, and none
+    /// for a leaf.
+    ///
+    /// A session reads this before it explodes a node it answers about,
+    /// and prices the answer at the children either side holds: these
+    /// radices joined with those the peer listed. A backend can answer it
+    /// from what it stores for the node without listing the children; the
+    /// in-memory backend reads its fan's radices, or a compressed node's
+    /// one. A radix missing from the answer leaves the answer's resolution
+    /// and plan costing more than its grant.
+    fn child_radices(&self) -> Radices;
 
     /// The bytes listing this node's children with [`Backend::children`]
     /// allocates beyond the handles it yields.

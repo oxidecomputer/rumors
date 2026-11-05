@@ -623,6 +623,24 @@ impl Node {
         }
     }
 
+    /// The radices [`child_iter`](Self::child_iter) would list, in ascending
+    /// order: a bare branch's fan, a compressed node's one, the last byte
+    /// of its path, and none for a bare leaf.
+    ///
+    /// Reads them in place: no handle is cloned and no node is peeled.
+    pub fn child_radices(&self) -> impl Iterator<Item = u8> + '_ {
+        let fan = match (self.inner.prefix.last(), &self.inner.body) {
+            (None, Body::Branch { children, .. }) => Some(children.iter().map(|(radix, _)| radix)),
+            _ => None,
+        };
+        self.inner
+            .prefix
+            .last()
+            .copied()
+            .into_iter()
+            .chain(fan.into_iter().flatten())
+    }
+
     /// How many children this node has, as [`child_iter`](Self::child_iter)
     /// would list them, counting a bare leaf as one: what it contributes to
     /// its parent's grandchild count.

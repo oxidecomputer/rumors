@@ -24,7 +24,7 @@ use crate::{
     tree::{
         arb::nth_party,
         mirror::streaming::{
-            Backend, FAN, Failing, Failure, Local, Operation,
+            Backend, FAN, Failing, Failure, Local, Operation, Radices,
             erased::{Reaction, Reply},
             holding::Holding,
             ledger::{Charge, Ledger, ReplyBound},
@@ -387,16 +387,16 @@ fn finished_resolution_keeps_no_charge_for_its_question() {
 }
 
 proptest! {
-    /// An answer's resolution has a slot per child either side holds, and no
-    /// more capacity than its unit's grant prices: the two listings' sum, at
-    /// most a fan.
+    /// An answer's resolution has a slot per child either side holds, and
+    /// exactly the capacity its unit's grant prices: the union of this side's
+    /// radices, as the backend reports them, and the peer's listing.
     ///
-    /// Every child sits at its own radix, so the listings' union is at most
-    /// their sum and at most a fan.
-    /// Each side's radices are drawn with repeats and deduplicated here, so
-    /// the sides range from empty to nearly full.
+    /// A child both sides hold sits at one radix and takes one slot, so the
+    /// price counts it once, and every price is at most a fan. Each side's
+    /// radices are drawn with repeats and deduplicated here, so the sides
+    /// range from empty to full and from disjoint to identical.
     #[test]
-    fn answer_resolution_holds_at_most_a_fan(
+    fn answer_resolution_holds_exactly_its_price(
         ours in prop::collection::vec(any::<u8>(), 0..=2 * FAN),
         theirs in prop::collection::vec(any::<u8>(), 0..=2 * FAN),
     ) {
@@ -429,9 +429,13 @@ proptest! {
         )
         .into_parts();
         prop_assert_eq!(resolved.len(), children);
-        let priced = charges::answer_children(ours.len(), theirs.len());
+        // The price reads this side's radices from a node holding exactly
+        // these children, as the walk reads them before exploding it.
+        let reported: Radices = ours.iter().copied().collect();
+        let priced = charges::answer_children(reported, &theirs_listing);
+        prop_assert_eq!(priced, children);
         prop_assert!(priced <= FAN);
-        prop_assert!(resolved.capacity() <= priced, "a leaf parent's slots: {}", resolved.capacity());
+        prop_assert_eq!(resolved.capacity(), priced, "a leaf parent's slots");
 
         let internal = pollster::block_on(answer::internal(
             &Local,
@@ -445,7 +449,7 @@ proptest! {
         .expect("the in-memory backend lists exactly the children it reports");
         let (_, resolved) = internal.into_parts();
         prop_assert_eq!(resolved.len(), children);
-        prop_assert!(resolved.capacity() <= priced, "an internal scope's slots: {}", resolved.capacity());
+        prop_assert_eq!(resolved.capacity(), priced, "an internal scope's slots");
     }
 }
 

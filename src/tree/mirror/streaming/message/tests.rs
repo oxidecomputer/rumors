@@ -44,6 +44,11 @@ impl ErasedNode for Counted {
         self.children
     }
 
+    /// None: listing reads no radix.
+    fn child_radices(&self) -> crate::tree::mirror::streaming::Radices {
+        crate::tree::mirror::streaming::Radices::default()
+    }
+
     /// Nothing: listing explodes nothing.
     fn explosion_bytes(&self) -> usize {
         0

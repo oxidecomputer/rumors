@@ -285,7 +285,11 @@ where
                 return violation(Violation::UnfinishedReply)?;
             };
             let ours = fan;
-            let bytes = charges::answer_bound::<B::Erased, B::Error>(ours.len(), theirs.len(), copies);
+            let children = charges::answer_children(
+                ours.iter().map(|(radix, _)| *radix).collect(),
+                &theirs,
+            );
+            let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
             let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
             let kept = answer_grant.take(Holding::ExplodedNodes, copies);
             let (mut chunks, resolved) = answer::internal(
@@ -475,13 +479,8 @@ where
                     }
 
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
-                    // A count above a fan fails the explosion below, before
-                    // anything is sized by it; the price clamps it first.
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(
-                        node.child_count().min(FAN),
-                        listing.len(),
-                        copies,
-                    );
+                    let children = charges::answer_children(node.child_radices(), &listing);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
@@ -656,13 +655,8 @@ where
                     }
 
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
-                    // A count above a fan fails the explosion below, before
-                    // anything is sized by it; the price clamps it first.
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(
-                        node.child_count().min(FAN),
-                        listing.len(),
-                        copies,
-                    );
+                    let children = charges::answer_children(node.child_radices(), &listing);
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(children, copies);
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;

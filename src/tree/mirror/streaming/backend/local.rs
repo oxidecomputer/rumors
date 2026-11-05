@@ -12,7 +12,7 @@ use crate::{
     tree::{
         self,
         mirror::streaming::{
-            Backend, ErasedNode, Leaf, Node, Root,
+            Backend, ErasedNode, Leaf, Node, Radices, Root,
             backend::{BoxNodeStream, NodeStream},
             convert::Convert,
         },
@@ -90,6 +90,12 @@ impl ErasedNode for typed::untyped::Node {
     /// Count the children listing this node yields, from its shape.
     fn child_count(&self) -> usize {
         self.child_count()
+    }
+
+    /// Collect the radices listing this node yields, from its fan or its
+    /// compressed path, in one pass with no handle cloned.
+    fn child_radices(&self) -> Radices {
+        self.child_radices().collect()
     }
 }
 

@@ -313,6 +313,11 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     /// The wrapped node's bound on its explosion cost.
     const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
 
+    /// Read the wrapped node's child radices.
+    fn child_radices(&self) -> crate::tree::mirror::streaming::Radices {
+        self.0.child_radices()
+    }
+
     /// Read the wrapped node's child count, or the misreported one.
     fn child_count(&self) -> usize {
         self.1

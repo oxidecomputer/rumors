@@ -81,17 +81,25 @@ impl<E, Q> Answer<E, Q> {
     }
 }
 
-/// An empty plan, its buffer sized for every child of a scope that holds
-/// `ours` children on this side and `theirs` on the peer's, and its charge
-/// built out of `grant`.
+/// An empty plan, its buffer sized for the `children` a scope holds on
+/// either side, and its charge built out of `grant`.
 ///
 /// Each child takes at most one entry, so the plan never grows past this
 /// buffer, which its charge covers from before the first entry until the
 /// plan's chunks are dropped.
-fn plan<E, Q>(grant: &mut Charge, ours: usize, theirs: usize) -> (Vec<Planned<E, Q>>, Charge) {
-    let planned = Vec::with_capacity(charges::answer_children(ours, theirs));
+fn plan<E, Q>(grant: &mut Charge, children: usize) -> (Vec<Planned<E, Q>>, Charge) {
+    let planned = Vec::with_capacity(children);
     let charge = grant.take(Holding::Resolutions, buffer(&planned));
     (planned, charge)
+}
+
+/// The children a scope holds on either side, this side's `ours` and the
+/// peer's listing `theirs`, counted from the children themselves.
+///
+/// The answer's price counted the same union from this side's reported
+/// radices ([`charges::answer_children`]).
+fn union<E>(ours: &[(u8, E)], theirs: &[Listed]) -> usize {
+    charges::answer_children(ours.iter().map(|(radix, _)| *radix).collect(), theirs)
 }
 
 /// An answer's reactions in chunks: each chunk ends at a question, and the
@@ -211,10 +219,11 @@ pub(super) async fn internal<B>(
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let (mut planned, plan) = plan(grant, ours.len(), theirs.len());
+    let children = union(&ours, &theirs);
+    let (mut planned, plan) = plan(grant, children);
     // Every child either side holds takes one slot: sized now, the
-    // resolution holds no more than its unit's bound prices.
-    let mut resolved = Vec::with_capacity(charges::answer_children(ours.len(), theirs.len()));
+    // resolution holds what its unit's bound prices.
+    let mut resolved = Vec::with_capacity(children);
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
 
@@ -380,10 +389,11 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     stats: &Recorder,
     grant: &mut Charge,
 ) -> Answer<E, u8> {
-    let (mut planned, plan) = plan(grant, ours.len(), theirs.len());
+    let children = union(&ours, &theirs);
+    let (mut planned, plan) = plan(grant, children);
     // Every child either side holds takes one slot: sized now, the
-    // resolution holds no more than its unit's bound prices.
-    let mut resolved = Vec::with_capacity(charges::answer_children(ours.len(), theirs.len()));
+    // resolution holds what its unit's bound prices.
+    let mut resolved = Vec::with_capacity(children);
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
 

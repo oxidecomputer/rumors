@@ -18,7 +18,8 @@ use crate::{
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, convert::Convert,
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, Radices,
+            convert::Convert,
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -205,6 +206,10 @@ static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 /// overcount of the children listing it yields above it.
 static CHILDREN_SKEW: Knob = Knob::new(0);
 
+/// Whether every node's `child_radices` answer drops its radices: honest
+/// at zero, an answer of no radices for a node with children above it.
+static RADICES_DROP: Knob = Knob::new(0);
+
 /// Bytes subtracted from every node's `explosion_bytes` answer: honest at
 /// zero, an undercount of the copies listing its children makes above it.
 static EXPLOSION_DEFLATE: Knob = Knob::new(0);
@@ -354,6 +359,15 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     /// whose count disagrees with its listing.
     fn child_count(&self) -> usize {
         self.inner.child_count() + CHILDREN_SKEW.get()
+    }
+
+    /// Read the wrapped node's child radices, dropped to exercise a backend
+    /// whose radices disagree with its listing.
+    fn child_radices(&self) -> Radices {
+        if RADICES_DROP.get() > 0 {
+            return Radices::default();
+        }
+        self.inner.child_radices()
     }
 }
 
@@ -761,6 +775,19 @@ fn miscounted_grandchildren_fails_the_listing_check() {
 #[should_panic(expected = "miscounted children")]
 fn miscounted_children_fail_the_listing_check() {
     let _dishonest = CHILDREN_SKEW.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A node whose `child_radices` answer disagrees with the radices listing
+/// it yields is convicted by name where the session lists its children.
+///
+/// Dropped to nothing, every branch's answer misses every child, so the
+/// root's listing alone, which the suite makes before the session, shows
+/// it.
+#[test]
+#[should_panic(expected = "misreported child radices")]
+fn misreported_radices_fail_the_listing_check() {
+    let _dishonest = RADICES_DROP.set(1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 

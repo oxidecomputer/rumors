@@ -9,7 +9,8 @@
 //!   measured residency.
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, one assembled node per supplied prefix run,
-//!   child counts equal to the children listing a node yields, and
+//!   child counts and child radices equal to the children listing a node
+//!   yields, and
 //!   explosion reports that cover what listing a node's children
 //!   allocates, by the allocation meter, within the backend's bound on
 //!   them.
@@ -54,7 +55,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root,
+            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Radices, Root,
             convert::Convert, materialized, ops,
         },
         typed::{
@@ -302,6 +303,11 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
     fn child_count(&self) -> usize {
         self.inner().child_count()
     }
+
+    /// Read the wrapped node's child radices.
+    fn child_radices(&self) -> Radices {
+        self.inner().child_radices()
+    }
 }
 
 impl<N> Leaf for ChargedNode<N>
@@ -444,11 +450,13 @@ where
         // The child-count contract: listing yields exactly the children the
         // parent reports, read as the walk reads it before listing.
         let children_reported = erased.child_count();
+        let radices_reported = erased.child_radices();
         let parent = B::assume::<S<H>>(erased);
         let counter = self.inner.clone();
         stream! {
             let mut counted = 0_u64;
             let mut listed = 0_u64;
+            let mut radices = Radices::default();
             let mut failed = false;
             let (mut allocated, children) = allocated_by(|| self.inner.children(prefix, parent));
             let mut rows = 0_u64;
@@ -460,8 +468,11 @@ where
             })
             .await
             {
-                if child.is_ok() {
+                if let Ok((child_prefix, _)) = &child {
                     listed += 1;
+                    if let Some(&radix) = child_prefix.erase().as_bytes().last() {
+                        radices.insert(radix);
+                    }
                 }
                 match &child {
                     Ok(_) if H::HEIGHT == 0 => counted += 1,
@@ -490,6 +501,12 @@ where
                 ledger::violation(format!(
                     "miscounted children: the parent answers {children_reported}, \
                      its listing yields {listed}",
+                ));
+            }
+            if !failed && radices != radices_reported {
+                ledger::violation(format!(
+                    "misreported child radices: the parent answers {radices_reported:?}, \
+                     its listing yields {radices:?}",
                 ));
             }
             if !failed && counted != widen(stored) {
@@ -707,7 +724,7 @@ const DIVERGENT: usize = 1_024;
 ///   `parent` answered a real child with no parent or an empty group
 ///   with one;
 /// - a node listed a different number of children than its child count
-///   reports;
+///   reports, or children at other radices than its child radices report;
 /// - a node's explosion report fell short of what listing its children
 ///   allocated, or exceeded the backend's bound on every report;
 /// - the measured peak increase exceeds the budget; or

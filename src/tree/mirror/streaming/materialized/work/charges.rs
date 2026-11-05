@@ -24,7 +24,7 @@
 use std::mem::size_of;
 
 use crate::tree::mirror::streaming::{
-    Backend, ErasedNode, FAN, Leaf,
+    Backend, ErasedNode, FAN, Leaf, Radices,
     erased::{Reaction, Reply},
     holding::Holding,
     ledger::{Charge, ReplyBound, Unit, buffer, max, min, queued, shared},
@@ -315,16 +315,13 @@ pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) 
 /// The most an answer's own unit holds, before its scope is explored.
 ///
 /// That is the copies exploding its scope makes, `copies`, its resolution,
-/// with a slot for each child either side holds, its plan, with an entry
-/// for each such child at most, and its reactions that ask nothing, one per
-/// such child at most. This side holds `ours` children of the scope and the
-/// peer listed `theirs`; their union is at most their sum and, since each
-/// sits at its own radix, at most a fan ([`answer_children`]).
+/// with a slot for each of the `children` either side holds, its plan, with
+/// an entry for each such child at most, and its reactions that ask
+/// nothing, one per such child at most ([`answer_children`] counts them).
 ///
 /// A plan entry is priced at an internal answer's: a leaf parent's, which
 /// plans each question by its radix alone, is no larger.
-pub(crate) const fn answer_bound<E, Err>(ours: usize, theirs: usize, copies: usize) -> usize {
-    let children = answer_children(ours, theirs);
+pub(crate) const fn answer_bound<E, Err>(children: usize, copies: usize) -> usize {
     // A chunk's reactions keep one slot spare for a question
     // ([`Chunks::next_part`](super::answer::Chunks::next_part)).
     copies
@@ -364,15 +361,17 @@ pub(super) fn unasked_chunk_bound<E, Err>(unasked: Option<usize>) -> usize {
     unasked.map_or(0, |reactions| chunk_bound::<E, Err>(reactions + 1, 0))
 }
 
-/// The most children an answer's scope can hold when this side holds
-/// `ours` of them and the peer listed `theirs`: their sum, at most a fan.
+/// The children an answer's scope holds when this side holds the children
+/// at `ours` and the peer listed `theirs`: the size of their union, exact,
+/// and so at most a fan.
 ///
-/// The sum is exact when the two sides share no child of the scope and
-/// counts each shared child twice otherwise. The exact union needs this
-/// side's radices, which only exploding the node lists, and the answer's
-/// grant prices that explosion, so it is admitted before them.
-pub(crate) const fn answer_children(ours: usize, theirs: usize) -> usize {
-    min(ours + theirs, FAN)
+/// A child both sides hold sits at one radix, so it counts once. The walk
+/// reads this side's radices from the backend before it explodes the node
+/// ([`ErasedNode::child_radices`]), since the answer's grant prices that
+/// explosion.
+pub(crate) fn answer_children(ours: Radices, theirs: &[Listed]) -> usize {
+    ours.union(theirs.iter().map(|listed| listed.radix).collect())
+        .len()
 }
 
 /// The most a question's unit holds, before it is built.
@@ -454,7 +453,7 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
         FAN,
     );
     let leaf_question = leaf_question_bound::<E, Err>(leading);
-    let answer = answer_bound::<E, Err>(FAN, FAN, copies);
+    let answer = answer_bound::<E, Err>(FAN, copies);
     let supply = supply_bound::<E, Err>(FAN, copies);
     max(max(question, leaf_question), max(answer, supply))
 }
@@ -490,7 +489,7 @@ const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
         }
         Unit::Answer if height == 0 => supply_bound::<E, Err>(1, 0),
         Unit::Answer => max(
-            answer_bound::<E, Err>(FAN, FAN, copies),
+            answer_bound::<E, Err>(FAN, copies),
             supply_bound::<E, Err>(FAN, copies),
         ),
     }

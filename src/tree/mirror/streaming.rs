@@ -52,6 +52,7 @@ pub(crate) mod ledger;
 pub mod materialized;
 pub(crate) mod message;
 mod protocol;
+mod radices;
 pub mod remote;
 pub mod stats;
 pub(crate) mod tasks;
@@ -65,6 +66,7 @@ mod testing;
 pub(crate) const FAN: usize = u8::MAX as usize + 1;
 
 pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
+pub use radices::Radices;
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.
 #[cfg(any(test, feature = "test-internals"))]
