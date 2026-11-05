@@ -19,6 +19,7 @@ use crate::tree::{
     mirror::streaming::{
         FAN, Fault, Faulting, ReplyCorruption,
         channel::{HANDOFF_CAPACITY, QueueKind, UNBOUNDED, with_kind_capacity, with_observation},
+        materialized::OUTGOING_REPLY_CHUNKS,
         mirror as drive_streaming,
     },
 };
@@ -168,10 +169,11 @@ const MATERIALIZED_ONE_SLOT_KINDS: [QueueKind; 5] = [
 /// slot ([`ONE_SLOT_KINDS`]) capped at one, in both orientations and under
 /// every standard poll schedule.
 ///
-/// Those edges have a second slot only so that a send into an empty edge
-/// does not park; their progress arguments rest on one. At the documented
-/// capacities the second slot could hide a wait the arguments miss, so this
-/// runs the cases at the floor the arguments state.
+/// Those edges have slots beyond the first only for speed, so that a send
+/// into an empty edge does not park, or so that one input's outputs enqueue
+/// together; their progress arguments rest on one. At the documented
+/// capacities the further slots could hide a wait the arguments miss, so
+/// this runs the cases at the floor the arguments state.
 #[test]
 fn capacity_stress_matrix_drains_at_one_slot() {
     for (name, pair) in stress_cases() {
@@ -217,6 +219,9 @@ fn capacity_stress_covers_every_queue_role() {
             | QueueKind::LeafRequests
             | QueueKind::LeafParentResolutions
             | QueueKind::LeafChildResolutions => UNBOUNDED,
+            // The outgoing replies hold what one taken chunk's answers
+            // hand on together (see `work::queues`).
+            QueueKind::OutgoingResponses => OUTGOING_REPLY_CHUNKS,
             kind if ONE_SLOT_KINDS.contains(&kind) => HANDOFF_CAPACITY,
             kind => unreachable!("{kind:?} is not a materialized queue role"),
         };

@@ -18,10 +18,13 @@
 //! ledger when admission grants it
 //! ([`ledger`](crate::tree::mirror::streaming::ledger)), so they are
 //! [`UNBOUNDED`]. The constructors below document the separate cardinality
-//! or flow argument for every remaining edge that one slot would serve;
-//! each has [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge
-//! does not park its producer. Only the inter-level return boundary needs a
-//! fan.
+//! or flow argument for every remaining edge that one slot would serve.
+//! An edge that hands its consumer one item at a time has
+//! [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge does not
+//! park its producer. The outgoing replies' edge holds as many chunks as
+//! one taken chunk can make its stage hand on ([`OUTGOING_REPLY_CHUNKS`]),
+//! for batching alone. Only the inter-level return boundary needs a fan
+//! for progress.
 
 use futures::{StreamExt as _, stream};
 
@@ -46,21 +49,36 @@ fn ok_channel<T, E>(role: QueueRole, capacity: usize) -> (Sender<T>, OkReceiverS
 }
 
 /// The reply chunks the outgoing replies' edge holds
-/// ([`outgoing_responses`]).
+/// ([`outgoing_responses`]): a fan, [`FAN`].
+///
+/// The capacity follows from what one input makes a walk stage produce. A
+/// stage takes one chunk of the peer's reply at a time, at most a fan of
+/// reactions, and answers every reaction of it that disputes a child
+/// before it takes the next chunk, so it hands on at most a fan of answers
+/// per taken chunk. Each answer ends in one last chunk, and an answer that
+/// asks nothing is that chunk alone, so with a fan of slots a stage hands
+/// on all of a taken chunk's answers of that kind without waiting on the
+/// edge's consumer. An answer that asks questions ends a chunk at each
+/// question, handed on once its question is admitted. A smaller edge would
+/// hand a taken chunk's answers over in several waves, each a few chunks
+/// for the encoder and a small write for the pipe.
+///
+/// A channel allocates a node for each chunk it holds, never for a slot it
+/// leaves empty, so the capacity reserves no memory by itself.
 ///
 /// The remote proxy's scope queue counts these beside a fan: its encoder
 /// dequeues a reply's scope before it takes the reply's chunks from this
 /// edge, so each chunk queued here can stand for one scope not yet
 /// dequeued.
-pub(crate) const OUTGOING_REPLY_CHUNKS: usize = HANDOFF_CAPACITY;
+pub(crate) const OUTGOING_REPLY_CHUNKS: usize = FAN;
 
 /// Buffer outgoing protocol replies, [`OUTGOING_REPLY_CHUNKS`] chunks deep.
 ///
 /// A blocked producer has already made a reply available to the
 /// counterparty, and consuming that reply is sufficient to release the
 /// producer, so one slot is the liveness floor. More slots retain whole
-/// messages without breaking another dependency; the second keeps a chunk
-/// sent into an empty edge from parking the walk.
+/// messages without breaking another dependency, so the edge holds as many
+/// chunks as one taken chunk's answers can hand on together.
 pub(super) fn outgoing_responses<B, H>() -> (
     Sender<Result<Reply<B::Erased>, Error<B::Error>>>,
     ReplyResultStream<B, H, Error<B::Error>>,

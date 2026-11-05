@@ -273,9 +273,10 @@ fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
 /// pipe's lanes. Each fixture runs at the budget of zero, in both
 /// orientations and under every standard poll schedule.
 ///
-/// Those edges have a second slot only so that a send into an empty edge
-/// does not park; the pipe's argument, and the walk's, rest on one. At the
-/// documented capacities the second slot could hide a wait the arguments
+/// Those edges have slots beyond the first only for speed, so that a send
+/// into an empty edge does not park, or so that one input's outputs enqueue
+/// together; the pipe's argument, and the walk's, rest on one. At the
+/// documented capacities the further slots could hide a wait the arguments
 /// miss, so this runs the fixtures at the floor the arguments state.
 #[test]
 fn capacity_stress_fixtures_complete_over_a_one_byte_pipe_at_one_slot() {

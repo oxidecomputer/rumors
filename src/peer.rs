@@ -866,10 +866,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// The target is the unit of wire-message buffering on both sides.
     /// A session carries each tree level's replies separately, and buffers
-    /// at most four runs per level it sends at (one being built or handed
-    /// over, two queued, and one waiting for or undergoing its write) and at
-    /// most three per level it receives at (two queued and one being
-    /// decoded), plus one run per direction that the reader holds while a
+    /// at most 258 runs per level it sends at (one being built or handed
+    /// over, up to 256 queued, and one waiting for or undergoing its write)
+    /// and at most 257 per level it receives at (up to 256 queued and one
+    /// being decoded), plus one run per direction that the reader holds while a
     /// level's queue is full. Each of those runs holds at most the target's
     /// worth of bytes, framing aside, unless its one leaf alone outgrows the
     /// target. A run whose frame (the run and a few bytes of framing) is

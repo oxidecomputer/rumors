@@ -21,6 +21,8 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+#[cfg(doc)]
+use rumors::testing::LANE_CAPACITY;
 use rumors::testing::{
     EdgeSend, MEMORY_CAPACITY, MemoryEnd, QueueKind, memory_connection, observe_edge_sends,
 };
@@ -145,23 +147,29 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 /// The fixed session's sends, waits, and parks per kind of edge equal the
 /// committed baseline.
 ///
-/// A send parks exactly when it fills its edge. No send on an edge of a fan
-/// or more parks, since none fills it. The edges whose progress needs only
-/// one slot have a second, so a send parks there only when it finds the
-/// item before it still queued, and the parks show which end of each such
-/// edge runs ahead:
+/// A send parks exactly when it fills its edge, so the parks show which end
+/// of an edge runs ahead. The edges whose progress needs only one slot have
+/// a second, so a send parks there only when it finds the item before it
+/// still queued:
 ///
 /// - The three edges that carry one item a session never park: their one
 ///   send finds them empty.
-/// - The responder's root assembler takes each root return as it arrives,
-///   so few of those sends park.
-/// - Nearly half the frames on either kind of lane park, and about half
-///   the chunks on the outgoing replies. An encoder builds its next frame
-///   while the multiplexer writes the one it staged, and takes the lane's
-///   next only once that write is done; a walk runs ahead of its encoder in
-///   the same way one stage further back; and the demultiplexer can read a
-///   frame while its decoder is still on the one before. Each of those
-///   producers sometimes finds two items queued, and waits.
+/// - The responder's root assembler takes each root return soon after it
+///   arrives, yet about half of those sends park: frames arrive a flush's
+///   worth at a time, and the decoder can hand over the next root return
+///   before the assembler has run.
+///
+/// The lanes ([`LANE_CAPACITY`]) and the outgoing replies hold a fan: the
+/// frames closing one chunk's reactions, which an encoder hands over
+/// together, and the answers a walk stage hands on for one chunk it takes.
+/// Each of those producers takes its next input without waiting for its
+/// edge to drain, so such an edge fills only when its producer runs more
+/// than a fan of items ahead of its consumer. Few of the encoders' frames
+/// or the walks' chunks park, but about one frame in six on the incoming
+/// lanes does: the demultiplexer reads the peer's frames as fast as the
+/// transport delivers them, and waits on a decoder only once that decoder's
+/// lane is full. Every other edge holds a fan or more, or is unbounded, and
+/// none fills.
 ///
 /// The counts are deterministic: the fixture's network is seeded, the
 /// runtime polls its tasks in a fixed order, and nothing in a session reads
@@ -171,13 +179,13 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 fn sends_parked_per_edge_match_the_baseline() {
     let Session { tally, .. } = session();
     let baseline = BTreeMap::from([
-        (QueueKind::OutgoingResponses, sends(2_482, 1_019, 1_226)),
+        (QueueKind::OutgoingResponses, sends(2_482, 5, 6)),
         (QueueKind::AssemblyLevelReturns, sends(1_369, 0, 0)),
         (QueueKind::InitiatorRootQuery, sends(1, 0, 0)),
         (QueueKind::InitiatorRootReturn, sends(1, 0, 0)),
         (QueueKind::ResponderChildQueries, sends(256, 0, 0)),
         (QueueKind::ResponderRootResolution, sends(1, 0, 0)),
-        (QueueKind::ResponderRootReturns, sends(256, 10, 23)),
+        (QueueKind::ResponderRootReturns, sends(256, 109, 119)),
         (QueueKind::InternalChildQueries, sends(1_053, 0, 0)),
         (QueueKind::InternalParentResolutions, sends(1_310, 0, 0)),
         (QueueKind::InternalChildResolutions, sends(316, 0, 0)),
@@ -186,8 +194,8 @@ fn sends_parked_per_edge_match_the_baseline() {
         (QueueKind::ProxyResponses, sends(2_481, 0, 0)),
         (QueueKind::ProxyLocalQuestions, sends(1_310, 0, 0)),
         (QueueKind::ProxyNextScopes, sends(1_310, 0, 0)),
-        (QueueKind::PipeOutgoing, sends(3_591, 982, 1_602)),
-        (QueueKind::PipeIncoming, sends(3_587, 882, 1_771)),
+        (QueueKind::PipeOutgoing, sends(3_591, 9, 9)),
+        (QueueKind::PipeIncoming, sends(3_587, 574, 574)),
     ]);
     assert_eq!(tally, baseline);
 }

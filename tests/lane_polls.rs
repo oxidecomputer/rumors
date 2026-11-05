@@ -154,13 +154,15 @@ fn every_frame_costs_at_least_one_lane_poll() {
 /// The unstaged lanes count what polling every open lane with nothing
 /// staged would cost instead. Each side has one lane per level it answers
 /// at, and nearly every lane is open with nothing staged at nearly every
-/// poll, because a lane holds at most [`LANE_CAPACITY`] frames and the
-/// multiplexer writes each frame soon after staging it. The multiplexer is
-/// polled a few times per frame. Having written a frame, it polls once for
-/// the next, which is ready when some lane's channel already holds one;
-/// otherwise the encoder that handed over the last one must run again
-/// before it can hand over another. Finding none, it flushes and polls once
-/// more before it waits, and is polled again by the wake that brings the
+/// poll, because the multiplexer stages at most one frame per lane and
+/// writes each frame soon after staging it. The multiplexer is polled little
+/// more than once per frame. Having written a frame, it polls once for the
+/// next, which is ready when some lane's channel already holds one, as it
+/// usually does: a lane holds up to [`LANE_CAPACITY`] frames, a fan, so an
+/// encoder hands over every frame closing a chunk's reactions without
+/// waiting for the multiplexer to take them. Otherwise the encoder that
+/// handed over the last one must run again before it can hand over
+/// another. Finding none, it flushes and polls once more before it waits, and is polled again by the wake that brings the
 /// next frame. The session polls it as one member of a task set that polls
 /// each member only for its own wakes, so nothing else polls it.
 ///
@@ -174,10 +176,10 @@ fn lane_polls_per_frame_match_the_baseline() {
     assert_eq!(
         tally,
         Tally {
-            polls: 7_312,
+            polls: 4_219,
             frames: 3_591,
-            polled: 5_642,
-            unstaged: 117_151,
+            polled: 3_965,
+            unstaged: 67_404,
         }
     );
 }

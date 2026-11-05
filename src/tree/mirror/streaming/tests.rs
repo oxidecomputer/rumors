@@ -20,8 +20,6 @@ use crate::tree::arb::{
     uncontained_supply_pair,
 };
 use crate::tree::mirror::streaming::backend::with_local_schedule;
-#[cfg(doc)]
-use crate::tree::mirror::streaming::channel::HANDOFF_CAPACITY;
 use crate::tree::mirror::streaming::channel::{
     QueueKind, with_kind_capacity, with_observation, with_schedule,
 };
@@ -31,6 +29,10 @@ use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, S
 use crate::tree::mirror::streaming::message::RoleKey;
 use crate::tree::mirror::streaming::stats::{Recorder, SessionStats};
 use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror as drive_streaming};
+#[cfg(doc)]
+use crate::tree::mirror::streaming::{
+    channel::HANDOFF_CAPACITY, materialized::OUTGOING_REPLY_CHUNKS, remote::LANE_CAPACITY,
+};
 use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
 mod announced;
@@ -46,9 +48,12 @@ mod reassembly;
 mod skeleton;
 mod stats;
 
-/// Every edge whose progress needs only one slot, each built with
-/// [`HANDOFF_CAPACITY`] slots so that a send into it while empty does not
-/// park.
+/// Every edge whose progress needs only one slot, each built with more.
+///
+/// Most have [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge
+/// does not park; the reply path's edges ([`LANE_CAPACITY`],
+/// [`OUTGOING_REPLY_CHUNKS`]) hold a fan, so that the outputs of one input
+/// enqueue together.
 const ONE_SLOT_KINDS: [QueueKind; 7] = [
     QueueKind::OutgoingResponses,
     QueueKind::InitiatorRootQuery,

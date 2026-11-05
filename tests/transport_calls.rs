@@ -321,14 +321,16 @@ const SIDES: u64 = 2;
 /// flush, and before any frame that does not fit beside the buffered ones;
 /// a frame at least the buffer's size goes to the write half directly, as
 /// one vectored write where the half takes them whole. It flushes only
-/// after writing an item. No fixture here sends a frame near the buffer's
-/// size or readies that much between flushes, so on both kinds of write
-/// half every write is one plain write followed by its own flush: the
-/// plain writes equal the flushes, no vectored write reaches either half,
-/// and the two kinds see the same calls. Those equalities rest on the
-/// fixtures as well as on how the session writes, and fail once a fixture
-/// outgrows the buffer. Every flush follows at least one item, so the
-/// writes number at most the items, and at least the control items. A
+/// after writing an item, and each flush writes out what the buffer holds.
+/// No fixture here sends a frame near the buffer's size, so on both kinds
+/// of write half every write is a plain one: no vectored write reaches
+/// either half, and the two kinds see the same calls. Those equalities
+/// rest on the fixtures as well as on how the session writes, and fail
+/// once a fixture sends a frame that large. Every flush writes the buffer
+/// out, so the plain writes number at least the flushes, and more wherever
+/// the frames a session readies between flushes outgrow the buffer, as the
+/// catch-up's supply runs do. Every write carries at least one item, so
+/// the writes number at most the items, and at least the control items. A
 /// session that sends frames flushes them, so the counters are counting.
 ///
 /// The read half's buffer reads the transport only within one of the
@@ -342,7 +344,7 @@ fn calls_follow_from_how_a_session_writes() {
         let whole = session(shape, true);
         let sliced = session(shape, false);
         for calls in [whole, sliced] {
-            assert_eq!(calls.writes, calls.flushes, "{name}: {calls:?}");
+            assert!(calls.writes >= calls.flushes, "{name}: {calls:?}");
             assert_eq!(calls.vectored_writes, 0, "{name}: {calls:?}");
             assert!(calls.writes <= calls.frames + controls, "{name}: {calls:?}");
             assert!(calls.writes >= controls, "{name}: {calls:?}");
@@ -362,9 +364,13 @@ fn calls_follow_from_how_a_session_writes() {
 /// The fixed sessions' calls equal the committed baseline.
 ///
 /// The multiplexer flushes whenever it finds no frame ready, so frames
-/// ready together share a flush, about two per flush in these sessions,
-/// and its buffer reaches the transport as one plain write per flush,
-/// whichever kind of write half it is. The demultiplexer looks at each
+/// ready together share a flush. An encoder hands its lane every frame
+/// closing a chunk's reactions at once, so about ten frames share each
+/// flush in the disjoint session, and in the catch-up, whose supply runs
+/// average about 4.4 KB, frames keep coming ready between the few flushes.
+/// Its buffer reaches the transport as one plain write per flush, and
+/// once more each time the frames readied since the last write outgrow
+/// it, whichever kind of write half it is. The demultiplexer looks at each
 /// item's first byte in the read half's buffer (`poll_fill_buf`), without
 /// consuming it, and the session then reads each item's parts with calls
 /// of their own, a few per frame received, which consume what they copy:
@@ -406,26 +412,23 @@ fn calls_match_the_baseline() {
             calls(4, 14, 0, 6, 0, 6, 11_536, 0),
         ),
         (
-            calls(68, 1_427, 336, 160, 0, 160, 86_058, 335),
-            calls(68, 1_427, 336, 160, 0, 160, 86_058, 335),
+            calls(39, 1_435, 336, 33, 0, 33, 86_058, 335),
+            calls(39, 1_435, 336, 33, 0, 33, 86_058, 335),
         ),
         (
-            calls(142, 1_688, 258, 135, 0, 135, 1_129_236, 257),
-            calls(142, 1_688, 258, 135, 0, 135, 1_129_236, 257),
+            calls(142, 1_688, 258, 26, 0, 8, 1_129_236, 257),
+            calls(142, 1_688, 258, 26, 0, 8, 1_129_236, 257),
         ),
         (
-            calls(5_842, 66_329, 15_289, 8_039, 0, 8_039, 1_342_271, 15_288),
-            calls(5_842, 66_329, 15_289, 8_039, 0, 8_039, 1_342_271, 15_288),
+            calls(453, 66_471, 15_289, 1_581, 0, 1_580, 1_342_271, 15_288),
+            calls(453, 66_471, 15_289, 1_581, 0, 1_580, 1_342_271, 15_288),
         ),
     ];
-    for ((name, shape), (whole, sliced)) in fixtures().into_iter().zip(baseline) {
-        assert_eq!(
-            session(shape, true),
-            whole,
-            "{name}, vectored writes taken whole"
-        );
-        assert_eq!(session(shape, false), sliced, "{name}, first slices only");
-    }
+    let actual = fixtures().map(|(_, shape)| (session(shape, true), session(shape, false)));
+    assert_eq!(
+        actual, baseline,
+        "per fixture, in order: vectored writes taken whole, then first slices only"
+    );
 }
 
 /// Hundredths in one: frames per flush are compared in hundredths, so the
@@ -457,9 +460,10 @@ const FRAMES_PER_FLUSH_CEILING: u64 = LANE_CAPACITY as u64 * HUNDREDTHS;
 /// Taking a frame from a lane wakes that lane's encoder, but the encoder
 /// runs only once the multiplexer's poll returns, after the flush. So a
 /// flush carries what the lanes held when the poll began: at most
-/// [`LANE_CAPACITY`] frames for each lane that held any. Nearly always one
-/// lane holds frames at a time here, which puts the figure just under the
-/// ceiling: the counts in `calls_match_the_baseline` put it at about 1.9.
+/// [`LANE_CAPACITY`] frames for each lane that held any. A lane holds a fan,
+/// and an encoder hands it every frame closing a chunk's reactions at once,
+/// so a flush carries several frames: the counts in
+/// `calls_match_the_baseline` put the figure at about 9.7.
 ///
 /// A figure below the floor means a flush carried no frame, or the frame
 /// count stopped counting. A figure above the ceiling means frames from

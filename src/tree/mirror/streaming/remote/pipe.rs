@@ -134,7 +134,8 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufWriter,
 use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
-    channel::{HANDOFF_CAPACITY, QueueKind, QueueRole, Receiver, Sender, channel},
+    FAN,
+    channel::{QueueKind, QueueRole, Receiver, Sender, channel},
     ledger::Charge,
     stats::{CountedRead, CountedWrite, Recorder},
     tasks::cancelled,
@@ -147,16 +148,32 @@ use super::codec::{
 };
 
 /// Frames each logical stream's channel holds between the pipe and a
-/// stage's encoder or decoder: [`HANDOFF_CAPACITY`].
+/// stage's encoder or decoder: a fan, [`FAN`].
 ///
-/// Nothing in this module's argument needs more than one slot. The second
-/// keeps a frame handed into an empty lane, by an encoder or by the
-/// demultiplexer, from parking its sender. Beyond the lane, the
-/// multiplexer holds at most one frame per stream, staged or being
-/// written, and copies the frames smaller than [`WRITE_BUFFER_BYTES`] into a
-/// buffer of that size; the demultiplexer holds at most one frame for the
-/// whole direction, while it waits for a full channel.
-pub(crate) const LANE_CAPACITY: usize = HANDOFF_CAPACITY;
+/// The capacity follows from what one input makes an encoder produce. An
+/// encoder takes one chunk of a reply at a time, and a chunk holds at most
+/// a fan of reactions. Each reaction ends in exactly one frame: a match, a
+/// query, or a supply's last run; an empty reply's one chunk is one bare
+/// end. A supply whose leaves fill more than one run hands over its
+/// earlier runs as they fill, so only the frames closing a chunk's
+/// reactions are bounded per chunk, at a fan. With that many slots, an
+/// encoder hands over every closing frame of a chunk into an empty lane
+/// without waiting on the multiplexer, and the demultiplexer delivers a peer's chunk of thin
+/// frames without waiting on the decoder. A smaller lane would finish a
+/// chunk over several polls, each pushing a few frames toward the
+/// multiplexer, which writes them in as many small batches; a deep lane
+/// also lets the encoders keep producing while the multiplexer waits on a
+/// full write half, so a backed-up pipe takes larger writes.
+///
+/// Nothing in this module's progress argument needs more than one slot.
+/// A channel allocates a node for each frame it holds, never for a slot it
+/// leaves empty, so the capacity reserves no memory by itself. Beyond the
+/// lane, the multiplexer holds at most one frame per stream, staged or
+/// being written, and copies the frames smaller than
+/// [`WRITE_BUFFER_BYTES`] into a buffer of that size; the demultiplexer
+/// holds at most one frame for the whole direction, while it waits for a
+/// full channel.
+pub(crate) const LANE_CAPACITY: usize = FAN;
 
 /// The bits of a CBOR initial byte that hold its major type.
 const MAJOR_TYPE_SHIFT: u32 = 5;

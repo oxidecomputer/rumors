@@ -602,11 +602,11 @@ fn materializing_backend_conforms() {
 /// A larger budget can reconcile a clustered fixture without increasing its
 /// peak, with the outgoing replies' edge at one slot.
 ///
-/// The edge's progress argument needs one slot; its second slot lets a
-/// budgeted walk queue a second reply chunk ahead of its encoder, and the
-/// rows that chunk's nodes keep alive raise this fixture's budgeted peak
-/// above the zero-budget run's, by 12,216 bytes on the row store, well
-/// within the budget the check allows. At one slot both runs peak alike,
+/// The edge's progress argument needs one slot; its further slots let a
+/// budgeted walk queue more reply chunks ahead of its encoder, and the
+/// rows those chunks' nodes keep alive raise this fixture's budgeted peak
+/// above the zero-budget run's, within the budget the check allows
+/// ([`materializing_backend_conforms`]). At one slot both runs peak alike,
 /// which is the witness this test needs: the census comparison must accept
 /// a budgeted peak no higher than the zero-budget run's.
 #[test]
