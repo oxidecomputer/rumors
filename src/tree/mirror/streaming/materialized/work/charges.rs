@@ -24,7 +24,7 @@
 use std::mem::size_of;
 
 use crate::tree::mirror::streaming::{
-    Backend, ErasedNode, FAN, Leaf,
+    Backend, ErasedNode, FAN, Leaf, Local,
     byte_set::ByteSet,
     erased::{Reaction, Reply},
     holding::Holding,
@@ -36,7 +36,6 @@ use crate::tree::mirror::streaming::{
 use crate::tree::typed::{
     ErasedPrefix,
     height::{self, Height, Z},
-    untyped,
 };
 
 use super::LeafRequest;
@@ -427,20 +426,21 @@ pub(crate) const fn answer_bound<E, Err>(children: usize, shared: usize) -> usiz
 }
 
 /// A child a supply answer lists is no larger than the supply reaction its
-/// chunk charges for it, for the in-memory backend's nodes.
+/// chunk charges for it, for the in-memory backend's handles.
 ///
 /// That is the premise of the session-budget suite's floor on outgoing
 /// replies' charges (`testing::OUTGOING_REPLIES_FLOOR_DIVISOR`).
 const _: () = assert!(
-    size_of::<(u8, untyped::Node)>() <= size_of::<Reaction<untyped::Node>>(),
+    size_of::<(u8, <Local as Backend>::Erased)>()
+        <= size_of::<Reaction<<Local as Backend>::Erased>>(),
     "a listed child must be no larger than its supply reaction",
 );
 
 /// A leaf parent's plan entry is no larger than an internal answer's, at
-/// which [`answer_bound`] prices both, for the in-memory backend's nodes.
+/// which [`answer_bound`] prices both, for the in-memory backend's handles.
 const _: () = assert!(
-    size_of::<Planned<untyped::Node, u8>>()
-        <= size_of::<Planned<untyped::Node, Question<untyped::Node>>>(),
+    size_of::<Planned<<Local as Backend>::Erased, u8>>()
+        <= size_of::<Planned<<Local as Backend>::Erased, Question<<Local as Backend>::Erased>>>(),
     "a leaf parent's plan entry must fit an internal answer's price",
 );
 

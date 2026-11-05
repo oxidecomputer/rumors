@@ -578,11 +578,11 @@ pub fn assembly_allowance() -> usize {
     use std::mem::size_of;
     let heights = Root::HEIGHT + 1;
     let fan = FAN;
-    let returned = size_of::<Option<untyped::Node>>();
-    let child = size_of::<(u8, Option<untyped::Node>)>();
+    let returned = size_of::<Option<<Local as Backend>::Erased>>();
+    let child = size_of::<(u8, Option<<Local as Backend>::Erased>)>();
     let terminal = size_of::<Resolution<<Local as Backend>::Erased>>()
         + size_of::<(u8, Resolve<<Local as Backend>::Erased>)>();
-    let supplied = size_of::<(ErasedPrefix, untyped::Node)>();
+    let supplied = size_of::<(ErasedPrefix, <Local as Backend>::Erased)>();
     let levels = 2 * (heights * fan * (returned + child) + fan * terminal);
     let decoders = SESSION_STREAMS * (ASSEMBLY_SPINE_BYTES + 2 * fan * supplied);
     levels + decoders
