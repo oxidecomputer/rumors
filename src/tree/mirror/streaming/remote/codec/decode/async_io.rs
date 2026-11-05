@@ -1,5 +1,6 @@
 //! Exact asynchronous input for the self-delimiting frame grammar.
 
+use crate::tree::mirror::streaming::message::Listed;
 use std::io::ErrorKind;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -20,7 +21,7 @@ use super::{
 use crate::tree::{
     mirror::cbor::{self, HeadError, HeadReadError},
     mirror::framing::{read_payload, resume_payload},
-    typed::{Hash, hash::MERKLE_HASH_LEN},
+    typed::hash::MERKLE_HASH_LEN,
 };
 
 /// Bytes a listed child occupies when its radix takes a one-byte key
@@ -405,7 +406,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
     /// bytes arrive; a defect is reported before any later entry is
     /// examined, and a delivery that ends mid-entry is a truncation only
     /// once everything whole before it has passed.
-    async fn query(&mut self) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
+    async fn query(&mut self) -> Result<Vec<Listed>, DecodeErrorKind> {
         const PART: FramePart = FramePart::QueryChildren;
         let head = self.exact.fresh_head(PART).await?;
         let mut listing = query_listing(head)?;

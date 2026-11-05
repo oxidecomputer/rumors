@@ -3,6 +3,9 @@
 #[cfg(test)]
 use std::io::{ErrorKind, Read};
 
+#[cfg(test)]
+use crate::tree::mirror::streaming::message::Listed;
+
 use crate::tree::mirror::cbor::{self, HeadReadError, MAJOR_ARRAY, MAJOR_UINT};
 
 mod async_io;
@@ -20,7 +23,7 @@ use super::{
 };
 use crate::tree::mirror::streaming::holding::{Holding, held_by};
 #[cfg(test)]
-use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
+use crate::tree::typed::hash::MERKLE_HASH_LEN;
 
 /// Decode one frame from `read`, leaving subsequent bytes untouched.
 #[cfg(test)]
@@ -126,7 +129,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         Ok(frame)
     }
 
-    fn query(&mut self) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
+    fn query(&mut self) -> Result<Vec<Listed>, DecodeErrorKind> {
         let head = self.head(FramePart::QueryChildren)?;
         let mut listing = query_listing(head)?;
         let count = head.value;

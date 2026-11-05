@@ -7,6 +7,7 @@
 //! since one side builds it from its own message and the other from the
 //! listing that crossed the wire.
 
+use crate::tree::mirror::streaming::message::listed;
 use before::Version;
 
 use crate::message::Message;
@@ -53,7 +54,7 @@ where
 /// replays from the listing carried in the greeting.
 #[test]
 fn opening_listing_agrees_with_greeting_replay() {
-    let listing = vec![(3, hash(1)), (9, hash(2))];
+    let listing = vec![listed(3, hash(1)), listed(9, hash(2))];
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: vec![Reaction::Query(listing.clone())],
     };
@@ -108,7 +109,7 @@ fn opening_accepts_exactly_one_query() {
             reactions: word
                 .iter()
                 .map(|symbol| match symbol {
-                    Symbol::Query => Reaction::Query(vec![(3, hash(1))]),
+                    Symbol::Query => Reaction::Query(vec![listed(3, hash(1))]),
                     Symbol::Match => Reaction::Match,
                     Symbol::Supply => Reaction::Supply(5, <Local as Backend>::erase(node.clone())),
                 })

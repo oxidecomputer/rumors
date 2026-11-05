@@ -7,6 +7,7 @@
 //! walk; each take publishes the scopes its reply's questions create before
 //! the stage receives the reply.
 
+use crate::tree::mirror::streaming::message::Listed;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -28,10 +29,7 @@ use crate::tree::{
         stats::Recorder,
         window::Window,
     },
-    typed::{
-        Hash,
-        height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
-    },
+    typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
 /// A proxy holding exchanged premises until the driver selects its path.
@@ -46,7 +44,7 @@ where
     /// The pipe's write half, retained until role dispatch.
     pub(super) write: W,
     /// Root-fan listing sent by the remote endpoint.
-    pub(super) remote_listing: Vec<(u8, Hash)>,
+    pub(super) remote_listing: Vec<Listed>,
     /// The session window, adopted from the local walk that resolved it
     /// from both greetings ([`ShareWindow`](protocol::ShareWindow)); `None`
     /// until the driver hands it over.

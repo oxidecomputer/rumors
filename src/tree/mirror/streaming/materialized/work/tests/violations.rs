@@ -4,6 +4,7 @@
 //! counterparty cannot cheaply select a type-level height. Connected-session
 //! tests separately check that these violations cross the public driver.
 
+use crate::tree::mirror::streaming::message::{Listed, listed};
 use std::{collections::BTreeSet, convert::Infallible};
 
 use futures::stream::{self, StreamExt};
@@ -26,7 +27,7 @@ use crate::{
             window::Window,
         },
         typed::{
-            self, Hash, Path, Prefix,
+            self, Path, Prefix,
             height::{Height, Root, S, UnderRoot, Z},
         },
     },
@@ -468,8 +469,8 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         .collect::<Vec<_>>();
     let theirs = ours
         .iter()
-        .map(|(radix, node)| (*radix, node.hash()))
-        .collect::<Vec<(u8, Hash)>>();
+        .map(|(radix, node)| listed(*radix, node.hash()))
+        .collect::<Vec<Listed>>();
     let fan = ours
         .into_iter()
         .map(|(radix, node)| (radix, <Local as Backend>::erase(node)))

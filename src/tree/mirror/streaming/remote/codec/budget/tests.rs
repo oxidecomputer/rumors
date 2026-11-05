@@ -1,4 +1,6 @@
 use super::*;
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
 
 /// The default budget equals the documented derivation: 256 full-fan
 /// query frames, the decode side's largest non-supply reply, pinned by
@@ -22,8 +24,8 @@ fn full_fan_frame_len_matches_an_actual_encode() {
     use super::super::signal::{Flow, Speaker, Stream};
     use super::super::{Frame, Reaction, WireFrame, encode};
 
-    let children: Vec<(u8, Hash)> = (0..=u8::MAX)
-        .map(|radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
+    let children: Vec<Listed> = (0..=u8::MAX)
+        .map(|radix| listed(radix, Hash::from([radix; MERKLE_HASH_LEN])))
         .collect();
     let frame: WireFrame = (
         Stream::new(8).expect("an interior stream exists"),

@@ -77,6 +77,7 @@ use super::remote::STREAM_COUNT;
 use super::{
     Backend, Local,
     materialized::{Query, Resolution, Resolve},
+    message::Listed,
 };
 use crate::tree::typed::{
     self, Prefix,
@@ -129,7 +130,7 @@ impl ReplicaSize {
 /// `(u8, node-handle)` query slot; the `(u8, Resolve)` resolution
 /// slot (`Option<Node>` consumes the handle's only null niche, so
 /// the `Ready`/`Pending` tag sits out of line and the pair outgrows the
-/// query slot by a word); and the byte-packed `(u8, Hash)` listing
+/// query slot by a word); and the byte-packed [`Listed`] listing
 /// entry. `Resolve`'s layout does not depend on the height or payload
 /// parameters, so the leaf instantiation prices every level. Exact for
 /// pointer-class node handles; a backend whose `Node` demands a wider
@@ -137,7 +138,7 @@ impl ReplicaSize {
 /// its own `node_bytes` price.
 pub(crate) const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<Z>)>()
     + std::mem::size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
-    + std::mem::size_of::<(u8, typed::Hash)>();
+    + std::mem::size_of::<Listed>();
 
 /// Fixed bytes held for one buffered scope, excluding its child allocations.
 ///

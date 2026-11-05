@@ -94,7 +94,7 @@ pub(super) fn reply<E>(work: usize, height: usize, reply: &Reply<E>) {
             Reaction::Supply(radix, _) => Label::Supply(*radix),
             Reaction::Match => Label::Match,
             Reaction::Query(listing) => {
-                Label::Query(listing.iter().map(|(radix, _)| *radix).collect())
+                Label::Query(listing.iter().map(|listed| listed.radix).collect())
             }
         })
         .collect();

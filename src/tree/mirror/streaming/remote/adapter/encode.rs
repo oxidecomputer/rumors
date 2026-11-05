@@ -1,3 +1,4 @@
+use crate::tree::mirror::streaming::message::Listed;
 use std::{future::Future, mem, pin::Pin, pin::pin};
 
 use async_stream::try_stream;
@@ -9,7 +10,7 @@ use crate::tree::{
         erased::{Reaction as ProtocolReaction, Reply, ops},
         holding::{Holding, held_by},
     },
-    typed::{ErasedPrefix, Hash, Path, Prefix, height::Z},
+    typed::{ErasedPrefix, Path, Prefix, height::Z},
 };
 
 #[cfg(test)]
@@ -57,7 +58,7 @@ pub type Frames<E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> 
 /// reduces to checking the canonical shape, exactly one query, and
 /// returning the listing whose scope will interpret the responder's
 /// top-level reply.
-pub fn opening_listing<E>(reply: Reply<E>) -> Result<Vec<(u8, Hash)>, OpeningError> {
+pub fn opening_listing<E>(reply: Reply<E>) -> Result<Vec<Listed>, OpeningError> {
     let mut reactions = reply.reactions.into_iter();
     let Some(first) = reactions.next() else {
         return Err(OpeningError::Empty);

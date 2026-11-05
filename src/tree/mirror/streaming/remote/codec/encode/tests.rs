@@ -1,3 +1,4 @@
+use crate::tree::mirror::streaming::message::listed;
 use proptest::prelude::*;
 use std::{
     pin::Pin,
@@ -55,7 +56,7 @@ fn query_count_covers_every_fan_and_flow() {
         let children = (0..count)
             .map(|radix| {
                 let radix = radix as u8;
-                (radix, Hash::from([radix; MERKLE_HASH_LEN]))
+                listed(radix, Hash::from([radix; MERKLE_HASH_LEN]))
             })
             .collect::<Vec<_>>();
         for flow in FLOWS {

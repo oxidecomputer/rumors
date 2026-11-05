@@ -1,5 +1,6 @@
 //! Frame boundaries and error context under partial delivery.
 
+use crate::tree::mirror::streaming::message::listed;
 use std::collections::BTreeMap;
 
 use super::*;
@@ -84,7 +85,7 @@ fn arb_frame_case() -> impl Strategy<Value = FrameCase> {
             .prop_map(|children| Reaction::Query(
                 children
                     .into_iter()
-                    .map(|(r, h)| (r, Hash::from(h)))
+                    .map(|(r, h)| listed(r, Hash::from(h)))
                     .collect()
             )),
         prop::collection::vec(contents, 1..=3).prop_map(|records| {

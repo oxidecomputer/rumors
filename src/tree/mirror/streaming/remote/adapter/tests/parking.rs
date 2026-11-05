@@ -13,8 +13,9 @@
 //! that decoded skeleton is pinned here by
 //! [`DISPUTED_REPLY_TRANSIENT_CEILING`]: the encoded half is measured from
 //! the codec, and the decoded half is derived from
-//! `FAN² × size_of::<(u8, Hash)>()`.
+//! `FAN² × size_of::<Listed>()`.
 
+use crate::tree::mirror::streaming::message::{Listed, listed};
 use std::mem;
 
 use futures::{TryStreamExt, stream};
@@ -161,8 +162,8 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 /// decoded size so growth in either half fails loudly.
 #[test]
 fn maximally_disputed_reply_parks_bounded_skeleton() {
-    let listing: Vec<(u8, Hash)> = (0..FAN)
-        .map(|radix| (radix as u8, hash(radix as u8)))
+    let listing: Vec<Listed> = (0..FAN)
+        .map(|radix| listed(radix as u8, hash(radix as u8)))
         .collect();
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
@@ -193,7 +194,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             wire.len()
         })
         .sum();
-    let decoded_skeleton = FAN * FAN * mem::size_of::<(u8, Hash)>();
+    let decoded_skeleton = FAN * FAN * mem::size_of::<Listed>();
     let transient = encoded_bytes + decoded_skeleton;
     eprintln!(
         "disputed-reply transient: {encoded_bytes} B encoded + \

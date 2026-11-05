@@ -403,7 +403,7 @@ impl<W> ScriptedWrite<W> {
                     // violation, exactly like a descent.
                     children.push(children[0]);
                 } else {
-                    children[1].0 = children[0].0;
+                    children[1].radix = children[0].radix;
                 }
                 let mut listing = Vec::new();
                 write_listing(&mut listing, &children);

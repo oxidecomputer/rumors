@@ -19,6 +19,7 @@
 //! prune its `EXEMPT_MARKERS` entry by hand.
 
 use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::tree::mirror::streaming::message::listed;
 use std::{
     error::Error,
     fmt::Write as _,
@@ -164,7 +165,7 @@ fn encode_errors(atlas: &mut String) {
     let query: WireFrame = (
         stream,
         Frame::Reaction(
-            Reaction::Query(vec![(1, Hash::default()), (2, Hash::default())]),
+            Reaction::Query(vec![listed(1, Hash::default()), listed(2, Hash::default())]),
             Flow::Continue,
         ),
     );
@@ -205,7 +206,7 @@ fn decode_errors(atlas: &mut String) {
         (
             stream,
             Frame::Reaction(
-                Reaction::Query(vec![(1, Hash::default()), (2, Hash::default())]),
+                Reaction::Query(vec![listed(1, Hash::default()), listed(2, Hash::default())]),
                 Flow::Continue,
             ),
         ),
@@ -333,7 +334,7 @@ fn decode_errors(atlas: &mut String) {
             (
                 stream,
                 Frame::Reaction(
-                    Reaction::Query(vec![(2, Hash::default()), (1, Hash::default())]),
+                    Reaction::Query(vec![listed(2, Hash::default()), listed(1, Hash::default())]),
                     Flow::Continue,
                 ),
             ),
@@ -519,7 +520,10 @@ fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame); 3] {
             "placement/leaf-parent",
             Speaker::Initiator,
             Stream::new(Stream::MAX).unwrap(),
-            Frame::Reaction(Reaction::Query(vec![(0, Hash::default())]), Flow::Continue),
+            Frame::Reaction(
+                Reaction::Query(vec![listed(0, Hash::default())]),
+                Flow::Continue,
+            ),
         ),
         (
             "placement/terminal-leaf",

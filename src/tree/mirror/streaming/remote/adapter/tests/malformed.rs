@@ -1,5 +1,6 @@
 //! Ingress validation: malformed replies and the boundaries they must admit.
 
+use crate::tree::mirror::streaming::message::listed;
 use std::convert::Infallible;
 
 use before::Version;
@@ -44,7 +45,7 @@ fn bare_end_cannot_follow_reactions() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[(0, hash(0))]),
+            &Scope::new(parent.erase(), &[listed(0, hash(0))]),
             &mut frames,
             codec(),
         )
@@ -72,7 +73,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[(0, hash(0))]),
+            &Scope::new(parent.erase(), &[listed(0, hash(0))]),
             &mut frames,
             codec(),
         )
@@ -111,7 +112,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::new(parent.erase(), &[(1, hash(1))]),
+            &Scope::new(parent.erase(), &[listed(1, hash(1))]),
             &mut frames,
             codec(),
         )
@@ -131,7 +132,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
         encode_reply(
             Local,
             RunBudget::default(),
-            Scope::new(parent.erase(), &[(1, hash(1))]),
+            Scope::new(parent.erase(), &[listed(1, hash(1))]),
             reply,
         )
         .try_collect::<Vec<_>>()
@@ -150,7 +151,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
 fn an_unpositioned_query_is_rejected_in_both_directions() {
     let path = Path::for_leaf(&Version::new());
     let parent = Prefix::<S<S<Z>>>::containing(&path);
-    let listing = vec![(1, hash(1))];
+    let listing = vec![listed(1, hash(1))];
     let frames: Vec<Frame> = vec![Frame::Reaction(
         WireReaction::Query(listing.clone()),
         Flow::End,
@@ -209,12 +210,12 @@ fn leaf_query_matrix_is_exhaustive() {
     for positioned in [false, true] {
         for nonempty in [false, true] {
             let scope_listing = if positioned {
-                vec![(radix, hash(1))]
+                vec![listed(radix, hash(1))]
             } else {
                 Vec::new()
             };
             let query_listing = if nonempty {
-                vec![(1, hash(2))]
+                vec![listed(1, hash(2))]
             } else {
                 Vec::new()
             };
@@ -615,7 +616,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[(1, hash(1))]),
+            &Scope::opening(&[listed(1, hash(1))]),
             &mut input,
             codec(),
         )

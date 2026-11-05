@@ -6,6 +6,7 @@
 //! capacities. The terminal operation drives these tasks together with the
 //! pipe's multiplexer and demultiplexer.
 
+use crate::tree::mirror::streaming::message::Listed;
 use std::pin::{Pin, pin};
 use std::task::Poll;
 
@@ -33,10 +34,7 @@ use crate::{
             tasks::{cancelled, complete},
             window::Window,
         },
-        typed::{
-            Hash,
-            height::{Height, Z},
-        },
+        typed::height::{Height, Z},
     },
 };
 
@@ -97,7 +95,7 @@ where
     /// The remote greeting's root-fan listing, which
     /// [`initiator`](Self::initiator) replays as the remote's opening
     /// question when the remote initiates.
-    remote_listing: Vec<(u8, Hash)>,
+    remote_listing: Vec<Listed>,
     /// The pipe and the tasks that connect logical streams to it.
     physical: Physical<R, W>,
     /// Tasks driven concurrently when the protocol reaches its terminal step.
@@ -138,7 +136,7 @@ where
         ingress: Ingress<B>,
         window: Window,
         budget: RunBudget,
-        remote_listing: Vec<(u8, Hash)>,
+        remote_listing: Vec<Listed>,
         physical: Physical<R, W>,
         stats: Recorder,
         observe: SessionHandle,

@@ -1,5 +1,6 @@
 //! Semantic wire frames after signal decoding.
 
+use crate::tree::mirror::streaming::message::Listed;
 use crate::tree::mirror::streaming::window::FAN;
 use crate::{
     Version,
@@ -50,7 +51,7 @@ const VERSION_TAG_LEN: usize = cbor::head_len(crate::tags::VERSION_TAG);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reaction {
     Match,
-    Query(Vec<(u8, Hash)>),
+    Query(Vec<Listed>),
     Supply(LeafRun),
 }
 
@@ -530,7 +531,7 @@ pub enum ListingStructureError {
 /// equal adjacent pair is rejected exactly like a descent
 /// ([`ListingIssue::Order`]).
 pub(super) struct ListingBuilder {
-    children: Vec<(u8, Hash)>,
+    children: Vec<Listed>,
     previous: Option<u8>,
 }
 
@@ -584,19 +585,22 @@ impl ListingBuilder {
     /// Record one entry whose key and value heads were accepted; later
     /// keys must ascend past its radix.
     pub(super) fn entry(&mut self, radix: u8, hash: [u8; MERKLE_HASH_LEN]) {
-        self.children.push((radix, Hash::from(hash)));
+        self.children.push(Listed {
+            radix,
+            hash: Hash::from(hash),
+        });
         self.previous = Some(radix);
     }
 
     /// Yield the validated children.
-    pub(super) fn finish(self) -> Vec<(u8, Hash)> {
+    pub(super) fn finish(self) -> Vec<Listed> {
         self.children
     }
 }
 
 /// Parse one complete child-listing map off the front of `input`,
 /// advancing past it.
-pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<(u8, Hash)>, ListingIssue> {
+pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<Listed>, ListingIssue> {
     let head = cbor::read_head(input).map_err(ListingIssue::Head)?;
     if head.major != MAJOR_MAP {
         return Err(ListingIssue::Structure(ListingStructureError::Map {
@@ -625,9 +629,9 @@ pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<(u8, Hash)>, Li
 ///
 /// The encoder is not a trust boundary — callers guarantee canonical
 /// child order — so this writes without revalidating it.
-pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[(u8, Hash)]) {
+pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[Listed]) {
     cbor::write_head(out, MAJOR_MAP, widen(children.len()));
-    for (radix, hash) in children {
+    for Listed { radix, hash } in children {
         cbor::write_head(out, MAJOR_UINT, u64::from(*radix));
         cbor::write_head(out, MAJOR_BSTR, widen(MERKLE_HASH_LEN));
         out.extend_from_slice(hash.as_bytes());
@@ -635,9 +639,9 @@ pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[(u8, Hash)]) {
 }
 
 /// Bytes a whole child listing occupies as a map: its head plus entries.
-pub(crate) fn listing_len(children: &[(u8, Hash)]) -> usize {
+pub(crate) fn listing_len(children: &[Listed]) -> usize {
     let mut total = cbor::head_len(widen(children.len()));
-    for (radix, _) in children {
+    for Listed { radix, .. } in children {
         total += listing_entry_len(*radix);
     }
     total

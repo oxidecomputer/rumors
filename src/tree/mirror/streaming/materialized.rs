@@ -98,13 +98,13 @@ use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Root,
         erased::{self, Reaction, Reply},
-        message::Greeting,
+        message::{Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
         window::{ReplicaSize, Window, WindowConfig},
     },
     typed::{
-        ErasedPrefix, Hash, Prefix,
+        ErasedPrefix, Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
@@ -421,9 +421,12 @@ pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
 /// In particular, the greeting and the initiator's opening question
 /// ([`Work::initiator_level`]) are paired positionally by the remote proxy.
 /// Deriving every listing here keeps those representations identical.
-pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<(u8, Hash)> {
+pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<Listed> {
     fan.iter()
-        .map(|(radix, node)| (*radix, node.hash()))
+        .map(|(radix, node)| Listed {
+            radix: *radix,
+            hash: node.hash(),
+        })
         .collect()
 }
 

@@ -1,5 +1,6 @@
 //! Pair a peer's reply with one outstanding materialized query.
 
+use crate::tree::mirror::streaming::message::Listed;
 use std::iter::Peekable;
 
 use crate::{
@@ -13,7 +14,7 @@ use crate::{
             materialized::{Error, Query, Resolution, Resolve, SupplyLedger, Violation, violation},
             stats::Recorder,
         },
-        typed::{ErasedPrefix, Hash, height::Z},
+        typed::{ErasedPrefix, height::Z},
     },
 };
 
@@ -56,7 +57,7 @@ pub struct Dispute<E> {
     /// This replica's child node.
     pub(super) node: E,
     /// The peer's listing for the child.
-    pub(super) listing: Vec<(u8, Hash)>,
+    pub(super) listing: Vec<Listed>,
 }
 
 impl<'session, B> Resolver<'session, B>

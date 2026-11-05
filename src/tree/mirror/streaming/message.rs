@@ -116,7 +116,27 @@ pub struct Greeting {
     pub payload_depth_limit: u64,
     /// The sender's root children as `(radix, hash)` pairs in strictly
     /// ascending radix order; empty when the sender's tree is empty.
-    pub listing: Vec<(u8, Hash)>,
+    pub listing: Vec<Listed>,
+}
+
+/// One child a listing names: a question's listing of the asker's children
+/// of the node it asks about, or a greeting's listing of the sender's root
+/// children.
+///
+/// A listing names its children in strictly ascending radix order, so a
+/// replier compares it with its own children in one merge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Listed {
+    /// The child's radix under the listed node.
+    pub radix: u8,
+    /// The child's subtree hash.
+    pub hash: Hash,
+}
+
+/// A listing entry for the child at `radix` with subtree hash `hash`.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) fn listed(radix: u8, hash: Hash) -> Listed {
+    Listed { radix, hash }
 }
 
 /// The greeting fields used to elect the session initiator.
@@ -207,5 +227,5 @@ pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// ask about). An empty listing is the request for the whole node: an
     /// internal node always has at least one child, so emptiness is
     /// unambiguous; it can only mean the sender lacks the node.
-    Query(Vec<(u8, Hash)>),
+    Query(Vec<Listed>),
 }

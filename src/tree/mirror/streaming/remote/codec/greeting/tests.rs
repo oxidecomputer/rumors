@@ -1,3 +1,5 @@
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
 use std::collections::BTreeMap;
 
 use super::*;
@@ -7,7 +9,7 @@ use proptest::prelude::*;
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 /// A greeting with a real version and a caller-chosen root listing.
-fn sample(listing: Vec<(u8, Hash)>) -> Greeting {
+fn sample(listing: Vec<Listed>) -> Greeting {
     let mut version = crate::Version::new();
     version.tick(&crate::tree::arb::nth_party(1));
     Greeting {
@@ -63,7 +65,7 @@ proptest::proptest! {
     ) {
         let greeting = Greeting {
             version,
-            listing: listing.into_iter().map(|(radix, hash)| (radix, Hash::from(hash))).collect(),
+            listing: listing.into_iter().map(|(radix, hash)| listed(radix, Hash::from(hash))).collect(),
             set_len,
             max_version_bytes,
             payload_depth_limit,
@@ -191,7 +193,7 @@ proptest::proptest! {
 /// panic and never a partial listing.
 #[test]
 fn truncated_listing_hash_is_a_typed_listing_issue() {
-    let greeting = sample(vec![(4, Hash::from([7; MERKLE_HASH_LEN]))]);
+    let greeting = sample(vec![listed(4, Hash::from([7; MERKLE_HASH_LEN]))]);
     let item = encode_greeting(&greeting);
     let mut input = item.as_slice();
     cbor::read_head(&mut input).expect("tag head");
@@ -279,8 +281,8 @@ fn greeting_listing_order_is_enforced() {
     // The encoder trusts its caller, so an unsorted listing synthesizes
     // the wire violation directly.
     let greeting = sample(vec![
-        (9, Hash::from([1; MERKLE_HASH_LEN])),
-        (5, Hash::from([2; MERKLE_HASH_LEN])),
+        listed(9, Hash::from([1; MERKLE_HASH_LEN])),
+        listed(5, Hash::from([2; MERKLE_HASH_LEN])),
     ]);
     let item = encode_greeting(&greeting);
     let mut input = item.as_slice();

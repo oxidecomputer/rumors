@@ -1,5 +1,7 @@
 //! Laws which hold uniformly across the adapter's type-level height ladder.
 
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
 use std::{collections::BTreeSet, convert::Infallible};
 
 use futures::{StreamExt, TryStreamExt, stream};
@@ -12,7 +14,7 @@ use crate::tree::{
         erased::{Reaction, Reply},
     },
     typed::{
-        self, Hash, Prefix,
+        self, Prefix,
         height::{Height, S, Z},
     },
 };
@@ -36,7 +38,7 @@ use crate::tree::mirror::streaming::remote::codec::{
 struct PositionalCase {
     radixes: Vec<u8>,
     queries: u64,
-    nested: Vec<(u8, Hash)>,
+    nested: Vec<Listed>,
 }
 
 impl PositionalCase {
@@ -46,10 +48,10 @@ impl PositionalCase {
     }
 
     /// Build the parent listing from the selected radixes.
-    fn listing(&self) -> Vec<(u8, Hash)> {
+    fn listing(&self) -> Vec<Listed> {
         self.radixes
             .iter()
-            .map(|&radix| (radix, hash(radix)))
+            .map(|&radix| listed(radix, hash(radix)))
             .collect()
     }
 
@@ -84,10 +86,10 @@ where
     fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible>;
 
     /// Return the query listing valid at this height.
-    fn nested(case: &PositionalCase) -> &[(u8, Hash)];
+    fn nested(case: &PositionalCase) -> &[Listed];
 
     /// Build the question below one listed child at this height.
-    fn question(parent: crate::tree::typed::ErasedPrefix, nested: &[(u8, Hash)]) -> Scope;
+    fn question(parent: crate::tree::typed::ErasedPrefix, nested: &[Listed]) -> Scope;
 
     /// Check positional matches and queries in both adapter directions.
     fn positioned_reactions_are_lossless(
@@ -309,11 +311,11 @@ impl AdapterHeight for Z {
         encode_leaf_reply(Local, RunBudget::default(), scope, reply)
     }
 
-    fn nested(_case: &PositionalCase) -> &[(u8, Hash)] {
+    fn nested(_case: &PositionalCase) -> &[Listed] {
         &[]
     }
 
-    fn question(parent: crate::tree::typed::ErasedPrefix, _nested: &[(u8, Hash)]) -> Scope {
+    fn question(parent: crate::tree::typed::ErasedPrefix, _nested: &[Listed]) -> Scope {
         Scope::leaf(parent)
     }
 }
@@ -350,11 +352,11 @@ where
         encode_reply(Local, RunBudget::default(), scope, reply)
     }
 
-    fn nested(case: &PositionalCase) -> &[(u8, Hash)] {
+    fn nested(case: &PositionalCase) -> &[Listed] {
         &case.nested
     }
 
-    fn question(parent: crate::tree::typed::ErasedPrefix, nested: &[(u8, Hash)]) -> Scope {
+    fn question(parent: crate::tree::typed::ErasedPrefix, nested: &[Listed]) -> Scope {
         Scope::new(parent, nested)
     }
 }
@@ -378,7 +380,7 @@ fn duplicate_frames(leaf: &LeafCase) -> [Frame; 2] {
 /// Merge one supplied node into the positional reactions for `case`.
 fn mixed_reply<H: Height>(
     case: &PositionalCase,
-    query_listing: &[(u8, Hash)],
+    query_listing: &[Listed],
     supply_at: usize,
     supply_radix: u8,
     supply: typed::Node<H>,
@@ -406,7 +408,7 @@ fn mixed_reply<H: Height>(
 /// Build the canonical frames for a mixed reply independently of the encoder.
 fn expected_mixed_frames(
     case: &PositionalCase,
-    query_listing: &[(u8, Hash)],
+    query_listing: &[Listed],
     supply_at: usize,
     leaf: &LeafCase,
 ) -> Vec<Frame> {
@@ -454,7 +456,7 @@ fn mixed_publications<Q>(
 fn assert_mixed_reply<H: Convert>(
     reply: &Reply<Erased>,
     case: &PositionalCase,
-    query_listing: &[(u8, Hash)],
+    query_listing: &[Listed],
     supply_at: usize,
     supply_radix: u8,
     leaf: &LeafCase,
@@ -527,7 +529,7 @@ where
 }
 
 /// Build the canonical frames for a positional reply.
-fn expected_positional_frames(case: &PositionalCase, nested: &[(u8, Hash)]) -> Vec<Frame> {
+fn expected_positional_frames(case: &PositionalCase, nested: &[Listed]) -> Vec<Frame> {
     reply_frames((0..case.radixes.len()).map(|position| {
         if case.is_query(position) {
             WireReaction::Query(nested.to_vec())
@@ -541,7 +543,7 @@ fn expected_positional_frames(case: &PositionalCase, nested: &[(u8, Hash)]) -> V
 fn assert_positional_reply(
     reply: &Reply<Erased>,
     case: &PositionalCase,
-    nested: &[(u8, Hash)],
+    nested: &[Listed],
     height: usize,
 ) -> TestCaseResult {
     prop_assert_eq!(
@@ -649,7 +651,7 @@ proptest! {
             queries,
             nested: nested
                 .into_iter()
-                .map(|radix| (radix, hash(radix ^ salt)))
+                .map(|radix| listed(radix, hash(radix ^ salt)))
                 .collect(),
         };
         let runtime = runtime();
@@ -682,7 +684,7 @@ proptest! {
             queries,
             nested: nested
                 .into_iter()
-                .map(|radix| (radix, hash(radix ^ salt)))
+                .map(|radix| listed(radix, hash(radix ^ salt)))
                 .collect(),
         };
         let runtime = runtime();

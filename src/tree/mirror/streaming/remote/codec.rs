@@ -209,6 +209,7 @@ impl std::fmt::Debug for PreparedFrame {
 /// where every reaction form is admissible.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
+    use crate::tree::mirror::streaming::message::listed;
     use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
     let stream = Stream::new(4).expect("stream 4 is within the stream range");
     let frame = match shape {
@@ -217,7 +218,7 @@ pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
             let children = (0..children)
                 .map(|radix| {
                     let radix = u8::try_from(radix).expect("a listing fits the radix space");
-                    (radix, Hash::from([radix; MERKLE_HASH_LEN]))
+                    listed(radix, Hash::from([radix; MERKLE_HASH_LEN]))
                 })
                 .collect();
             Frame::Reaction(Reaction::Query(children), Flow::End)

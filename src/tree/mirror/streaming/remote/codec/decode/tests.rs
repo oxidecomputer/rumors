@@ -1,3 +1,5 @@
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -62,7 +64,7 @@ fn supply_declaring(stream: Stream, flow: Flow, declared: usize, body: &[u8]) ->
 /// A whole query frame carrying `children` as its listing map, written
 /// raw (no canonical-order validation) so tests can synthesize
 /// violations.
-fn query(stream: Stream, flow: Flow, children: &[(u8, Hash)]) -> Vec<u8> {
+fn query(stream: Stream, flow: Flow, children: &[Listed]) -> Vec<u8> {
     let mut encoded = frame_head(3, stream, Signal::Query(flow));
     super::super::frame::write_listing(&mut encoded, children);
     encoded
@@ -561,7 +563,7 @@ proptest! {
             .prop_map(|(a, b)| (a.max(b), a.min(b))),
     ) {
         let stream = stream(index);
-        let children = vec![(previous, Hash::default()), (radix, Hash::default())];
+        let children = vec![listed(previous, Hash::default()), listed(radix, Hash::default())];
         let encoded = query(stream, Flow::Continue, &children);
         let error = decode_both(speaker, RunBudget::default(), &encoded)
             .expect_err("a non-ascending listing cannot decode");
@@ -609,9 +611,9 @@ proptest! {
         radixes in arb_radixes(1..=32),
     ) {
         let stream = stream(index);
-        let children: Vec<(u8, Hash)> = radixes
+        let children: Vec<Listed> = radixes
             .iter()
-            .map(|&radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
+            .map(|&radix| listed(radix, Hash::from([radix; MERKLE_HASH_LEN])))
             .collect();
         let encoded = query(stream, flow, &children);
         let expected = (stream, Frame::Reaction(Reaction::Query(children), flow));

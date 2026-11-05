@@ -1,3 +1,4 @@
+use crate::tree::mirror::streaming::message::Listed;
 use std::pin::Pin;
 
 use futures::{Stream, StreamExt, future::try_join, stream};
@@ -16,7 +17,7 @@ use crate::{
             window::FAN,
         },
         typed::{
-            ErasedPrefix, Hash, Path, Prefix,
+            ErasedPrefix, Path, Prefix,
             height::{Height, Z},
         },
     },
@@ -103,7 +104,7 @@ where
 /// validated the listing's canonical order, so synthesizing the one-query
 /// reply and its root scope is infallible. An empty listing replays an empty
 /// opening `Query` — the empty-tree initiator's "send everything".
-pub fn opening_reply<E>(listing: Vec<(u8, Hash)>) -> (Reply<E>, Scope) {
+pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
     let scope = Scope::opening(&listing);
     (
         Reply {
@@ -434,7 +435,7 @@ enum Skeleton {
     /// A positional match.
     Match,
     /// A positional query with its child listing.
-    Query(Vec<(u8, Hash)>),
+    Query(Vec<Listed>),
     /// A supplied node awaiting the assembler's output at `prefix`.
     Supply { radix: u8, prefix: ErasedPrefix },
 }

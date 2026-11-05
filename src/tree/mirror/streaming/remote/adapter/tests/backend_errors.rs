@@ -1,5 +1,6 @@
 //! Source-error propagation across the backend traversal operations used by the adapter.
 
+use crate::tree::mirror::streaming::message::listed;
 use std::convert::Infallible;
 
 use futures::{StreamExt, stream};
@@ -49,7 +50,7 @@ where
             // reaction. Neither ordering may publish the pending frame.
             for (listing, reactions) in [
                 (
-                    vec![(supply_radix + 1, hash(supply_radix + 1))],
+                    vec![listed(supply_radix + 1, hash(supply_radix + 1))],
                     vec![
                         Reaction::Supply(
                             supply_radix,
@@ -59,7 +60,7 @@ where
                     ],
                 ),
                 (
-                    vec![(supply_radix - 1, hash(supply_radix - 1))],
+                    vec![listed(supply_radix - 1, hash(supply_radix - 1))],
                     vec![
                         Reaction::Query(Vec::new()),
                         Reaction::Supply(
@@ -110,7 +111,10 @@ where
             let mut encoded = encode_reply(
                 backend.clone(),
                 RunBudget::default(),
-                Scope::new(parent.erase(), &lower.map(|radix| (radix, hash(radix)))),
+                Scope::new(
+                    parent.erase(),
+                    &lower.map(|radix| listed(radix, hash(radix))),
+                ),
                 Reply {
                     reactions: vec![
                         Reaction::Match,

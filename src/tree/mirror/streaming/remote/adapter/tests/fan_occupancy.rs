@@ -8,6 +8,7 @@
 //! One edge carries every reply a decode pump decodes, so a sequence of
 //! replies through one edge must decode each reply as a fresh edge would.
 
+use crate::tree::mirror::streaming::message::{Listed, listed};
 use futures::{Stream, StreamExt, stream};
 use proptest::{collection::vec, prelude::*};
 
@@ -23,7 +24,7 @@ use crate::{
             remote::codec::{Frame, LeafRun, Reaction as WireReaction},
             window::{FAN, SUPPLY_RECORDS_PER_STREAM},
         },
-        typed::{Hash, Path},
+        typed::Path,
     },
 };
 
@@ -161,12 +162,12 @@ fn paced_decode_stays_under_the_ceiling() {
 }
 
 /// The radix and node hash of each supply in a pure-supply reply, in order.
-fn supplies(reply: &Reply<<Local as Backend>::Erased>) -> Vec<(u8, Hash)> {
+fn supplies(reply: &Reply<<Local as Backend>::Erased>) -> Vec<Listed> {
     reply
         .reactions
         .iter()
         .map(|reaction| match reaction {
-            Reaction::Supply(radix, node) => (*radix, node.hash()),
+            Reaction::Supply(radix, node) => listed(*radix, node.hash()),
             _ => panic!("a pure-supply reply decodes to supplies only"),
         })
         .collect()
@@ -174,7 +175,7 @@ fn supplies(reply: &Reply<<Local as Backend>::Erased>) -> Vec<(u8, Hash)> {
 
 /// Decode consecutive pure-supply replies of the given sizes from one frame
 /// stream, each through `edge` if given, else through a fresh edge.
-fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec<(u8, Hash)>> {
+fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec<Listed>> {
     let mut input = stream::iter(counts.iter().flat_map(|&count| frames(&leaves(count))));
     run_to_quiescence(async {
         let mut decoded = Vec::new();

@@ -36,6 +36,7 @@
 //! height label for the instrumented diagnostics. The behavioral tests exercise
 //! exactly these pairings.
 
+use crate::tree::mirror::streaming::message::Listed;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -47,10 +48,7 @@ use crate::tree::{
         channel::{QueueRole, Receiver, Sender, channel},
         message,
     },
-    typed::{
-        Hash,
-        height::{Height, Z},
-    },
+    typed::height::{Height, Z},
 };
 
 /// [`message::Reply`] with its height forgotten: what the walk's workers
@@ -67,7 +65,7 @@ pub(crate) enum Reaction<E> {
     /// Agreement with the corresponding queried child.
     Match,
     /// A request to compare the corresponding child's listing.
-    Query(Vec<(u8, Hash)>),
+    Query(Vec<Listed>),
 }
 
 /// Erase one typed reply where a schedule-typed request stream enters a

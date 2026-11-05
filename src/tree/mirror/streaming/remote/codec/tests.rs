@@ -1,4 +1,6 @@
 use super::signal::{InvalidSignalPlacement, StreamClass};
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
 use std::fmt::Write;
 use std::io::Cursor;
 use std::pin::Pin;
@@ -91,13 +93,19 @@ fn arb_hash() -> impl Strategy<Value = Hash> {
 }
 
 /// Generate an ascending query listing at every supported fan width.
-fn arb_query() -> impl Strategy<Value = Vec<(u8, Hash)>> {
+fn arb_query() -> impl Strategy<Value = Vec<Listed>> {
     arb_radixes(0..=MAX_QUERY_CHILDREN)
         .prop_flat_map(|radixes| {
             let count = radixes.len();
             (Just(radixes), vec(arb_hash(), count))
         })
-        .prop_map(|(radixes, hashes)| radixes.into_iter().zip(hashes).collect())
+        .prop_map(|(radixes, hashes)| {
+            radixes
+                .into_iter()
+                .zip(hashes)
+                .map(|(radix, hash)| listed(radix, hash))
+                .collect()
+        })
 }
 
 /// Generate either continuation state for a reaction.
@@ -382,8 +390,8 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
             stream,
             Frame::Reaction(
                 Reaction::Query(vec![
-                    (1, Hash::from([1; MERKLE_HASH_LEN])),
-                    (2, Hash::from([2; MERKLE_HASH_LEN])),
+                    listed(1, Hash::from([1; MERKLE_HASH_LEN])),
+                    listed(2, Hash::from([2; MERKLE_HASH_LEN])),
                 ]),
                 Flow::Continue,
             ),
@@ -502,7 +510,9 @@ fn representative_frame(signal: Signal) -> Frame {
     match signal {
         Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
         Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
-        Signal::Query(flow) => Frame::Reaction(Reaction::Query(vec![(0, Hash::default())]), flow),
+        Signal::Query(flow) => {
+            Frame::Reaction(Reaction::Query(vec![listed(0, Hash::default())]), flow)
+        }
         Signal::Supply(flow) => {
             Frame::Reaction(Reaction::Supply(leaf_run(&[(Version::new(), ())])), flow)
         }
@@ -628,17 +638,13 @@ fn corpus_bucket(direction: usize, stream: u8, signal: usize) -> usize {
     (direction * usize::from(Stream::COUNT) + usize::from(stream)) * SIGNAL_COUNT + signal
 }
 
-fn enumerate_queries(
-    next: u16,
-    children: &mut Vec<(u8, Hash)>,
-    visit: &mut impl FnMut(&[(u8, Hash)]),
-) {
+fn enumerate_queries(next: u16, children: &mut Vec<Listed>, visit: &mut impl FnMut(&[Listed])) {
     visit(children);
     if children.len() == MAX_EXHAUSTIVE_BRANCHING {
         return;
     }
     for radix in next..=u16::from(u8::MAX) {
-        children.push((radix as u8, Hash::default()));
+        children.push(listed(radix as u8, Hash::default()));
         enumerate_queries(radix + 1, children, visit);
         children.pop();
     }
@@ -744,10 +750,10 @@ fn extension_reads(value: u64) -> usize {
 /// been recorded, the wide width after), or what the entry cut short by
 /// the previous read still needs once its key head has arrived,
 /// whichever is more; each parses every entry it completes.
-fn listing_bulk_reads(children: &[(u8, Hash)]) -> usize {
+fn listing_bulk_reads(children: &[Listed]) -> usize {
     let widths: Vec<usize> = children
         .iter()
-        .map(|(radix, _)| listing_entry_len(*radix))
+        .map(|listed| listing_entry_len(listed.radix))
         .collect();
     let (mut reads, mut buffered, mut next, mut wide, mut need) = (0, 0usize, 0usize, false, 0);
     while next < widths.len() {
@@ -759,11 +765,11 @@ fn listing_bulk_reads(children: &[(u8, Hash)]) -> usize {
         buffered += owed;
         while next < widths.len() && widths[next] <= buffered {
             buffered -= widths[next];
-            wide |= children[next].0 >= 24;
+            wide |= children[next].radix >= 24;
             next += 1;
         }
         if next < widths.len() {
-            let key_head = cbor::head_len(u64::from(children[next].0));
+            let key_head = cbor::head_len(u64::from(children[next].radix));
             need = if buffered < key_head {
                 key_head - buffered
             } else {
@@ -876,7 +882,7 @@ fn read_plan_at_reference_shapes() {
                 Frame::Reaction(
                     Reaction::Query(
                         (0..=u8::MAX)
-                            .map(|radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
+                            .map(|radix| listed(radix, Hash::from([radix; MERKLE_HASH_LEN])))
                             .collect(),
                     ),
                     Flow::Continue,

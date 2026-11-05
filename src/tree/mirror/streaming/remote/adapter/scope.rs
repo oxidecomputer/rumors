@@ -1,9 +1,10 @@
+use crate::tree::mirror::streaming::message::Listed;
 use std::slice;
 
 use crate::tree::{
     mirror::streaming::erased::{Reaction, Reply},
     typed::{
-        ErasedPrefix, Hash, Prefix,
+        ErasedPrefix, Prefix,
         height::{Height, Z},
     },
 };
@@ -69,7 +70,7 @@ impl ReplyLevel {
     pub(super) fn check(
         self,
         positions: &mut Positions<'_>,
-        listing: &[(u8, Hash)],
+        listing: &[Listed],
     ) -> Result<ErasedPrefix, ScopeError> {
         if matches!(self, Self::Leaf) && !listing.is_empty() {
             return Err(ScopeError::NonemptyLeafQuery);
@@ -82,7 +83,7 @@ impl ReplyLevel {
     pub(super) fn derive(
         self,
         positions: &mut Positions<'_>,
-        listing: &[(u8, Hash)],
+        listing: &[Listed],
     ) -> Result<Scope, ScopeError> {
         let prefix = self.check(positions, listing)?;
         Ok(match self {
@@ -109,10 +110,10 @@ pub struct Scope {
 
 impl Scope {
     /// Record the question represented by `listing` at `parent`.
-    pub fn new(parent: ErasedPrefix, listing: &[(u8, Hash)]) -> Self {
+    pub fn new(parent: ErasedPrefix, listing: &[Listed]) -> Self {
         Self {
             parent,
-            children: listing.iter().map(|(radix, _)| *radix).collect(),
+            children: listing.iter().map(|listed| listed.radix).collect(),
         }
     }
 
@@ -153,7 +154,7 @@ impl Scope {
     }
 
     /// Record the initiator's opening question about the root's children.
-    pub fn opening(listing: &[(u8, Hash)]) -> Self {
+    pub fn opening(listing: &[Listed]) -> Self {
         Self::new(Prefix::new().erase(), listing)
     }
 }

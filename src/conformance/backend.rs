@@ -56,6 +56,7 @@ use crate::{
             self, Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, Root,
             convert::Convert,
             materialized::{self, Resolve},
+            message::Listed,
             ops,
             stats::{Recorder, SessionStats},
             window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, WindowConfig},
@@ -126,7 +127,7 @@ const _: () = assert!(
     LOCAL_REFERENCE_PADDING
         + size_of::<typed::Node<Z>>()
         + size_of::<<Local as Backend>::Erased>()
-        + size_of::<(u8, Hash)>()
+        + size_of::<Listed>()
         == REFERENCE_SLOT_BYTES,
     "the reference-slot padding decomposes the window's constant",
 );

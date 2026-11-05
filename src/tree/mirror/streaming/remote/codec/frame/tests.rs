@@ -1,5 +1,7 @@
 use super::*;
 use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
 
 use crate::tree::mirror::cbor::HeadError;
 
@@ -130,9 +132,9 @@ fn listings_round_trip_and_hold_canonical_order() {
     use proptest::prelude::*;
     let radixes = proptest::collection::vec(any::<u8>(), 0..=64).prop_map(BTreeSet::from_iter);
     proptest!(|(radixes in radixes)| {
-        let children: Vec<(u8, Hash)> = radixes
+        let children: Vec<Listed> = radixes
             .iter()
-            .map(|&radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
+            .map(|&radix| listed(radix, Hash::from([radix; MERKLE_HASH_LEN])))
             .collect();
         let mut bytes = Vec::new();
         write_listing(&mut bytes, &children);
@@ -151,8 +153,8 @@ fn listings_round_trip_and_hold_canonical_order() {
 fn unordered_listings_are_rejected() {
     for (previous, radix) in [(3u8, 3u8), (5, 2)] {
         let children = [
-            (previous, Hash::from([0; MERKLE_HASH_LEN])),
-            (radix, Hash::from([1; MERKLE_HASH_LEN])),
+            listed(previous, Hash::from([0; MERKLE_HASH_LEN])),
+            listed(radix, Hash::from([1; MERKLE_HASH_LEN])),
         ];
         let mut bytes = Vec::new();
         write_listing(&mut bytes, &children);

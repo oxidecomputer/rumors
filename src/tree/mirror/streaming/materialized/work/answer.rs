@@ -13,9 +13,10 @@ use crate::{
                 Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
             },
+            message::Listed,
             stats::Recorder,
         },
-        typed::{ErasedPrefix, Hash, Prefix, height::Z},
+        typed::{ErasedPrefix, Prefix, height::Z},
     },
 };
 
@@ -40,7 +41,7 @@ pub(super) async fn internal<B>(
     their_version: &Version,
     prefix: ErasedPrefix,
     ours: Vec<(u8, B::Erased)>,
-    theirs: Vec<(u8, Hash)>,
+    theirs: Vec<Listed>,
     stats: &Recorder,
 ) -> Result<
     (
@@ -61,10 +62,10 @@ where
 
     for pair in ours
         .into_iter()
-        .merge_join_by(theirs, |(ours, _), (theirs, _)| ours.cmp(theirs))
+        .merge_join_by(theirs, |(ours, _), theirs| ours.cmp(&theirs.radix))
     {
         match pair {
-            EitherOrBoth::Both((radix, node), (_, hash)) if node.hash() == hash => {
+            EitherOrBoth::Both((radix, node), theirs) if node.hash() == theirs.hash => {
                 held_by(Holding::OutgoingReplies, || reactions.push(Reaction::Match));
                 resolved.push((radix, Resolve::Ready(Some(node))));
             }
@@ -94,7 +95,7 @@ where
                 }
                 resolved.push((radix, Resolve::Ready(survivor)));
             }
-            EitherOrBoth::Right((radix, _)) => {
+            EitherOrBoth::Right(Listed { radix, .. }) => {
                 differed = true;
                 held_by(Holding::OutgoingReplies, || {
                     reactions.push(Reaction::Query(Vec::new()));
@@ -129,7 +130,7 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     their_version: &Version,
     prefix: ErasedPrefix,
     ours: Vec<(u8, E)>,
-    theirs: Vec<(u8, Hash)>,
+    theirs: Vec<Listed>,
     stats: &Recorder,
 ) -> (Vec<Reaction<E>>, Vec<Prefix<Z>>, Vec<(u8, Resolve<E>)>) {
     let mut reactions = Vec::new();
@@ -140,7 +141,7 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
 
     for pair in ours
         .into_iter()
-        .merge_join_by(theirs, |(ours, _), (theirs, _)| ours.cmp(theirs))
+        .merge_join_by(theirs, |(ours, _), theirs| ours.cmp(&theirs.radix))
     {
         match pair {
             EitherOrBoth::Both((radix, leaf), _) => {
@@ -159,7 +160,7 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
                 }
                 resolved.push((radix, Resolve::Ready(survivor)));
             }
-            EitherOrBoth::Right((radix, _)) => {
+            EitherOrBoth::Right(Listed { radix, .. }) => {
                 differed = true;
                 held_by(Holding::OutgoingReplies, || {
                     reactions.push(Reaction::Query(Vec::new()));
@@ -193,7 +194,7 @@ pub(super) fn leaf<E: ErasedNode + Clone>(
     their_version: &Version,
     radix: u8,
     node: E,
-    listing: Vec<(u8, Hash)>,
+    listing: Vec<Listed>,
     stats: &Recorder,
 ) -> Result<(Vec<Reaction<E>>, Option<E>), Violation> {
     if !listing.is_empty() {
