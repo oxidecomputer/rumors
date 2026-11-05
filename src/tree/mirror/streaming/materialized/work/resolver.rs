@@ -72,17 +72,20 @@ where
     /// once that buffer is gone and every child sits in a slot.
     #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
     question: Charge,
-    /// The parts of the room the question set aside for the reply that
-    /// stayed with it: the resolution takes its slots' part, and the
-    /// records' part returns when the resolver is done.
+    /// The part of the room the question set aside for the reply that
+    /// stayed with it, which the resolution takes: its slots.
     reservation: Reserved,
+    /// The bytes the records part of the question's reservation holds
+    /// ([`charges::records_room`]), which the take's records of the
+    /// reply's questions must fit.
+    records: usize,
     /// What the reply has held so far: its reaction slots, one per
     /// reaction and one per child its match covers, as its bound counts
     /// them, and the listing entries its queries carried.
     held: ReplyBound,
     /// The bytes the records the take derives from the reply's questions
     /// so far hold ([`charges::derived_record_bytes`]), which the
-    /// reservation's records part covers.
+    /// reservation's records part pays for.
     derived: usize,
 }
 
@@ -116,6 +119,7 @@ where
         ledger: &'session SupplyLedger,
         stats: &'session Recorder,
     ) -> Self {
+        let records = charges::records_room(prefix.height(), bound, ours.len());
         Self {
             prefix,
             fan: ours.into_iter(),
@@ -131,6 +135,7 @@ where
             bound,
             question: charge,
             reservation,
+            records,
             held: ReplyBound::default(),
             derived: 0,
         }
@@ -258,15 +263,9 @@ where
         if self.fan.next().is_some() {
             violation(Violation::UnfinishedReply)
         } else {
-            ledger::fitted(
-                self.bound,
-                self.held,
-                self.reservation.records.bytes(),
-                self.derived,
-            );
-            // The question's own charge and the reservation's records part
-            // return as the resolver drops here; the resolution keeps its
-            // slots' part.
+            ledger::fitted(self.bound, self.held, self.records, self.derived);
+            // The question's own charge returns as the resolver drops here;
+            // the resolution keeps its slots' part.
             Ok(Resolution {
                 prefix: self.prefix,
                 resolved: self.resolved,

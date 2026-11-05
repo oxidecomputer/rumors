@@ -29,8 +29,10 @@
 //!   its own part as it decodes, returned once the chunk's stage has used
 //!   it, and returns the rest as soon as the reply shows it cannot use it:
 //!   whatever exceeds what the reply can still deliver. The records part
-//!   returns when the stage has finished the reply, and the parent
-//!   resolution's part moves into that resolution and returns at assembly.
+//!   rides the question's record to the take, which charges each record it
+//!   derives its part, returned once this side's encoder has answered that
+//!   record's question, and the parent resolution's part moves into that
+//!   resolution and returns at assembly.
 //! - **Fixed state**, which every session sets up whatever it compares:
 //!   wire buffering, decode fans, assembly's queues and spines, and tasks.
 //!   The ledger charges none of it; it is a constant beside the ledger.

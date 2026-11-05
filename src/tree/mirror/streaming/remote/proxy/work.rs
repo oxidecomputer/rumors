@@ -24,7 +24,7 @@ use crate::{
             channel::{Receiver, Sender},
             erased,
             holding::{Holding, holding, holding_stream},
-            materialized::SupplyLedger,
+            materialized::{SupplyLedger, derived_bytes},
             protocol::BoxResponses,
             remote::{
                 adapter::{Replay, ReplyLevel, Scope, derive_questions},
@@ -213,7 +213,7 @@ where
     fn respond<H>(
         &mut self,
         questions: Receiver<Outstanding>,
-        mut publish: Option<Sender<Scope>>,
+        mut publish: Option<Sender<Derived>>,
         progress: Progress,
     ) -> BoxResponses<B, H, Error<B::Error>>
     where
@@ -239,7 +239,7 @@ where
                 while let Some(Parked { chunk, opens }) = parked.recv().await {
                     let opening = opens.is_some();
                     if let Some((answered, record)) = opens {
-                        taking = Some(Taking { answered, replay: Replay::default(), _record: record });
+                        taking = Some(Taking { answered, replay: Replay::default(), record });
                     }
                     let Some(open) = &mut taking else {
                         unreachable!("the pump parks the record with each reply's first chunk");
@@ -260,9 +260,15 @@ where
                         };
                         scopes = questions.len();
                         progress.taken(H::HEIGHT, opening, scopes);
-                        for question in questions {
+                        for scope in questions {
+                            // Each record pays for itself out of the
+                            // records part the question's record carries,
+                            // until the encoder has answered it.
+                            let charge = open
+                                .record
+                                .split(Holding::QuestionRecords, derived_bytes(scope.recorded()));
                             progress.next_scope(H::HEIGHT);
-                            send_or_cancel(next_scopes, question).await;
+                            send_or_cancel(next_scopes, Derived { scope, charge }).await;
                         }
                     } else {
                         progress.taken(H::HEIGHT, opening, scopes);
@@ -359,7 +365,8 @@ pub(crate) struct Outstanding {
     /// The record the question's reply is validated against.
     pub(crate) scope: Scope,
     /// The charge for the record, which returns once the take has read the
-    /// reply's last chunk.
+    /// reply's last chunk, and for the records the take derives from the
+    /// reply's questions, each of which takes its part.
     pub(crate) record: Charge,
     /// The room the reply's chunks take while they park.
     ///
@@ -380,15 +387,33 @@ pub(crate) struct Parked<E> {
 }
 
 /// The reply the take is part way through: the record it answers, how far
-/// its taken chunks replayed against the record, and the record's charge,
-/// which returns once the take has read the reply's last chunk.
+/// its taken chunks replayed against the record, and the record's charge.
 struct Taking {
     /// The record of the question the reply answers.
     answered: Arc<Scope>,
     /// How far the reply's taken chunks replayed against the record.
     replay: Replay,
-    /// The record's charge.
-    _record: Charge,
+    /// The charge for the record and for the records the reply's questions
+    /// derive: each derived record takes its part as the take derives it,
+    /// and the rest returns once the take has read the reply's last chunk.
+    record: Charge,
+}
+
+/// A record the take derived from a question in the peer's reply, on its
+/// way to the encoder that answers it, with its charge.
+///
+/// The charge is the record's part of the records part of the reservation
+/// of the question whose reply asked it
+/// ([`derived_bytes`]).
+/// It returns once the encoder drops the record, having handed the last
+/// frame of its answer to the multiplexer, so a record waiting in the
+/// queue to the encoder is charged whatever the walk that derived it has
+/// finished.
+pub(crate) struct Derived {
+    /// The record of the peer's question.
+    pub(crate) scope: Scope,
+    /// The charge for the record.
+    pub(crate) charge: Charge,
 }
 
 #[cfg(test)]

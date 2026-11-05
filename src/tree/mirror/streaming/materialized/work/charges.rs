@@ -9,17 +9,20 @@
 //! ([`ReplyBound`]), in the same element sizes the reply's items have
 //! when they arrive.
 //!
-//! A reservation is three charges, one per place the reply's items take.
-//! The query keeps two: the records part, which returns when the stage
-//! has finished the reply, and the parent resolution's part, which moves
-//! into that resolution and returns at its assembly. The third, the room
-//! the reply's chunks park in ([`room`]), travels with the question's
-//! record to the decoder, which charges each chunk its own part as it
-//! decodes ([`parked_bytes`]) and returns whatever exceeds what the reply
-//! can still deliver as soon as the reply shows it ([`Allowance`]):
-//! whatever the bound allowed beyond what the reply holds returns as the
-//! reply narrows it, and each chunk's part as soon as its stage has used
-//! it.
+//! A reservation is three parts, one per place the reply's items take.
+//! The query keeps the parent resolution's part, which moves into that
+//! resolution and returns at its assembly. The records part rides the
+//! question's record charge ([`record`]) to the take, which splits each
+//! record it derives from the reply's questions its own price out of it
+//! ([`derived_bytes`]); that record carries its charge to the encoder,
+//! which drops it with the record once it has finished the reply to the
+//! question. The room the reply's chunks park in ([`room`]) travels with
+//! the question's record to the decoder, which charges each chunk its own
+//! part as it decodes ([`parked_bytes`]) and returns whatever exceeds what
+//! the reply can still deliver as soon as the reply shows it
+//! ([`Allowance`]): whatever the bound allowed beyond what the reply holds
+//! returns as the reply narrows it, and each chunk's part as soon as its
+//! stage has used it.
 
 use std::mem::size_of;
 
@@ -31,7 +34,7 @@ use crate::tree::mirror::streaming::{
     ledger::{Charge, ReplyBound, Unit, buffer, max, queued, shared},
     materialized::{Error, Query, Reserved, Resolution, Resolve},
     message::{Carried, Grandchildren, LATER_MATCHES_HEAP_BYTES, Listed},
-    remote::{Outstanding, Parked, RecordedChild, Scope},
+    remote::{Derived, Outstanding, Parked, RecordedChild, Scope},
 };
 use crate::tree::typed::{
     ErasedPrefix,
@@ -220,15 +223,22 @@ pub(crate) fn parked_bytes<E>(chunk: &Reply<E>) -> usize {
 /// waits, the question listing `listing` entries in a reply about a node
 /// at `height`.
 ///
-/// That is its node in the channel it waits in, and one recorded child per
-/// listing entry, or, at height 1, a leaf's parent, the one leaf the
-/// question requests, its listing being empty.
-///
-/// The take derives each record, a [`Scope`], at exactly that many
-/// children.
+/// That is the price of a record of one recorded child per listing entry,
+/// or, at height 1, a leaf's parent, of the one leaf the question requests,
+/// its listing being empty ([`derived_bytes`]).
 pub(crate) const fn derived_record_bytes(height: usize, listing: usize) -> usize {
-    let recorded = if height == 1 { 1 } else { listing };
-    queued::<Scope>() + recorded * size_of::<RecordedChild>()
+    derived_bytes(if height == 1 { 1 } else { listing })
+}
+
+/// The bytes a record the take derives holds while it waits, with
+/// `recorded` children: its node in the channel it waits in, carrying its
+/// charge ([`Derived`]), and its children.
+///
+/// The take derives each record, a [`Scope`], at exactly its recorded
+/// children, and charges it this much out of the records part of the
+/// reservation of the question whose reply asked it.
+pub(crate) const fn derived_bytes(recorded: usize) -> usize {
+    queued::<Derived>() + recorded * size_of::<RecordedChild>()
 }
 
 /// The part of a reservation the records the take derives take: the most
@@ -249,7 +259,7 @@ pub(crate) const fn records_room(height: usize, bound: ReplyBound, listed: usize
     } else {
         still.listing
     };
-    still.questions * queued::<Scope>() + recorded * size_of::<RecordedChild>()
+    still.questions * queued::<Derived>() + recorded * size_of::<RecordedChild>()
 }
 
 /// The room a question about a node at `height` listing `listed` children
@@ -263,15 +273,11 @@ pub(crate) const fn reservation<E>(height: usize, bound: ReplyBound, listed: usi
         + parent_resolution::<E>(bound)
 }
 
-/// The parts of the room, built out of `grant`, a question about a node at
-/// `height` listing `listed` children sets aside for the reply `bound`
-/// bounds that its query keeps, each charged to the place its items take.
-fn reserve<E>(grant: &mut Charge, height: usize, bound: ReplyBound, listed: usize) -> Reserved {
+/// The part of the room, built out of `grant`, the question the reply
+/// `bound` bounds sets aside that its query keeps: the parent
+/// resolution's slots.
+fn reserve<E>(grant: &mut Charge, bound: ReplyBound) -> Reserved {
     Reserved {
-        records: grant.take(
-            Holding::QuestionRecords,
-            records_room(height, bound, listed),
-        ),
         slots: grant.take(Holding::Resolutions, parent_resolution::<E>(bound)),
     }
 }
@@ -297,11 +303,27 @@ pub(crate) const fn record_bytes(listed: usize) -> usize {
     max(queued::<Outstanding>(), shared::<Scope>()) + listed * size_of::<RecordedChild>()
 }
 
-/// The charge, built out of `grant`, for the record of a question listing
-/// `listed` children, which the chunk carrying the question hands its
-/// encoder ([`record_bytes`]).
-pub(super) fn record(grant: &mut Charge, listed: usize) -> Charge {
-    grant.take(Holding::QuestionRecords, record_bytes(listed))
+/// The charge, built out of `grant`, for the record of a question and for
+/// the records the take derives from its reply's questions.
+///
+/// The question is about a node at `height` and lists `listed` children
+/// ([`record_bytes`]); its reply is bounded by `bound` ([`records_room`]).
+/// The chunk carrying the question hands the charge to its encoder.
+///
+/// Both are records, charged to one place, so one charge carries them:
+/// with the record to the decoder and then to the take, which splits each
+/// derived record's price out of it ([`derived_bytes`]), and keeps the
+/// record's own part until it has taken the reply's last chunk.
+pub(super) fn record(
+    grant: &mut Charge,
+    height: usize,
+    bound: ReplyBound,
+    listed: usize,
+) -> Charge {
+    grant.take(
+        Holding::QuestionRecords,
+        record_bytes(listed) + records_room(height, bound, listed),
+    )
 }
 
 /// The question about `prefix` that lists `ours`, the children of
@@ -322,7 +344,7 @@ pub(super) fn query<E>(
     Query {
         prefix,
         charge: grant.take(Holding::Questions, held),
-        reservation: reserve::<E>(grant, prefix.height(), bound, ours.len()),
+        reservation: reserve::<E>(grant, bound),
         ours,
         original,
         bound,
@@ -335,7 +357,7 @@ pub(super) fn query<E>(
 pub(super) fn leaf_request<E>(grant: &mut Charge) -> (Charge, Reserved, Charge) {
     (
         grant.take(Holding::Questions, queued::<LeafRequest>()),
-        reserve::<E>(grant, 0, ReplyBound::LEAF, 0),
+        reserve::<E>(grant, ReplyBound::LEAF),
         room::<E>(grant, ReplyBound::LEAF, 0),
     )
 }
@@ -660,9 +682,10 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 /// - [`Holding::ParkedReplies`]: a decoder's ready reactions and its open
 ///   group's runs, a fan of each, in vectors at most twice their length.
 /// - [`Holding::QuestionRecords`]: a take's derived scopes for one chunk, a
-///   fan, in a vector at most twice its length; and the record an encoder
-///   still holds for the reply it writes after its asker's reservation
-///   returned, a scope with a fan of radices and counts.
+///   fan, in a vector at most twice its length; and the one record an
+///   encoder holds that no charge covers, the opening question's, which the
+///   peer asked in its greeting and this side reserved nothing for, a
+///   scope with a fan of radices and counts.
 pub(crate) const fn scratch<E, Err>(place: Holding) -> usize {
     match place {
         Holding::Questions => max(queued::<Query<E>>(), queued::<LeafRequest>()),

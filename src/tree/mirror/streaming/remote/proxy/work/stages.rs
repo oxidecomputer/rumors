@@ -30,7 +30,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 
-use super::{Ingress, Outstanding, Parked, Work, encode, queues};
+use super::{Derived, Ingress, Outstanding, Parked, Work, encode, queues};
 use crate::network::NetworkKeys;
 use crate::tree::{
     mirror::streaming::{
@@ -38,9 +38,10 @@ use crate::tree::{
         channel::{Receiver, Sender, TrySendError},
         erased,
         holding::{Holding, held_by, holding},
+        ledger::Charge,
         protocol::{BoxResponses, Requests},
         remote::{
-            adapter::{LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply},
+            adapter::{LeafEdge, ReplyLevel, decode_reply, opening_reply},
             codec::Frame,
             pipe::PipeRead,
             proxy::{Error, send_or_cancel},
@@ -148,7 +149,12 @@ where
     ///
     /// Nothing is decoded, so nothing parks: like any take, the replayed
     /// opening publishes its one scope before the stage receives it.
-    pub fn initiator(&mut self) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
+    pub fn initiator(
+        &mut self,
+    ) -> (
+        BoxResponses<B, UnderRoot, Error<B::Error>>,
+        Receiver<Derived>,
+    ) {
         let (mut next_scopes, scopes) = queues::next_scopes(UnderRoot::HEIGHT);
         let progress = self.progress;
         let listing = std::mem::take(&mut self.remote_listing);
@@ -156,6 +162,10 @@ where
             let (reply, scope) = opening_reply::<B::Erased>(listing);
             progress.taken(RootHeight::HEIGHT, true, 1);
             progress.next_scope(RootHeight::HEIGHT);
+            // The opening is the peer's question, asked in its greeting, and
+            // reserves nothing on this side: its record rides uncharged, as
+            // one of the encoders' working buffers.
+            let scope = Derived { scope, charge: Charge::default() };
             send_or_cancel(&mut next_scopes, scope).await;
             yield Ok(erased::assume_reply::<B, UnderRoot>(reply));
         };
@@ -166,7 +176,10 @@ where
     pub fn opening_responder(
         &mut self,
         requests: impl Requests<B, UnderRoot>,
-    ) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
+    ) -> (
+        BoxResponses<B, UnderRoot, Error<B::Error>>,
+        Receiver<Derived>,
+    ) {
         let requests = requests.erase();
         let (local_questions, questions) = queues::local_questions(UnderRoot::HEIGHT);
         self.spawn(TaskRole::Encoder.paced(holding(
@@ -187,8 +200,8 @@ where
     pub fn internal_replies<H>(
         &mut self,
         requests: impl Requests<B, S<S<H>>>,
-        scopes: Receiver<Scope>,
-    ) -> (BoxResponses<B, S<H>, Error<B::Error>>, Receiver<Scope>)
+        scopes: Receiver<Derived>,
+    ) -> (BoxResponses<B, S<H>, Error<B::Error>>, Receiver<Derived>)
     where
         H: Height,
         S<H>: Height,
@@ -219,8 +232,8 @@ where
     pub fn leaf_replies(
         &mut self,
         requests: impl Requests<B, S<Z>>,
-        scopes: Receiver<Scope>,
-    ) -> (BoxResponses<B, Z, Error<B::Error>>, Receiver<Scope>) {
+        scopes: Receiver<Derived>,
+    ) -> (BoxResponses<B, Z, Error<B::Error>>, Receiver<Derived>) {
         let requests = requests.erase();
         let outgoing = self.outgoing::<S<Z>>();
         let (local_questions, questions) = queues::local_questions(Z::HEIGHT);
@@ -246,7 +259,7 @@ where
     pub async fn complete_initiator(
         mut self,
         requests: impl Requests<B, Z>,
-        scopes: Receiver<Scope>,
+        scopes: Receiver<Derived>,
     ) -> Result<(PipeRead<R>, W), Error<B::Error>>
     where
         R: AsyncBufRead + Unpin + Send,
@@ -274,7 +287,7 @@ where
     pub fn complete_responder(
         mut self,
         requests: impl Requests<B, Z>,
-        scopes: Receiver<Scope>,
+        scopes: Receiver<Derived>,
     ) -> (
         BoxResponses<B, Z, Error<B::Error>>,
         impl Future<Output = Result<(PipeRead<R>, W), Error<B::Error>>> + Send,

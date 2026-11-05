@@ -147,7 +147,7 @@ pub(crate) use work::floor_allowance;
 pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
-pub(crate) use work::{Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, parked_bytes};
+pub(crate) use work::{Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, derived_bytes, parked_bytes};
 use work::{LeafRequest, OpeningAdvance, Resolver, Work};
 #[cfg(test)]
 pub(crate) use work::{Left, Ready, parked_price, parked_room};
@@ -288,19 +288,16 @@ pub struct Query<E> {
     pub(crate) reservation: Reserved,
 }
 
-/// The parts of the room a question sets aside for the peer's reply that
-/// stay with the question, in one charge per place the reply's items take,
-/// so each place's charges cover exactly what that place holds.
+/// The part of the room a question sets aside for the peer's reply that
+/// stays with the question: the parent resolution's slots.
 ///
-/// The third part, the room the reply's chunks park in, travels with the
-/// question's record to the decoder instead
-/// ([`Carried::Question`](super::message::Carried::Question)), which
-/// charges each chunk its part as it decodes.
+/// The other parts travel with the question's record instead
+/// ([`Carried::Question`](super::message::Carried::Question)): the room the
+/// reply's chunks park in, to the decoder, which charges each chunk its
+/// part as it decodes, and the records part, in the record's own charge,
+/// to the take, which charges each record it derives its part.
 #[derive(Default)]
 pub(crate) struct Reserved {
-    /// The records the take derives from the reply's questions, held for
-    /// its bytes, which return when it drops.
-    pub(crate) records: Charge,
     /// The parent resolution's slots, which the resolution keeps until its
     /// assembly.
     pub(crate) slots: Charge,

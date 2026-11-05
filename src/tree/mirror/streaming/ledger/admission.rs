@@ -274,13 +274,15 @@
 //!   whatever the walk waits for), its record when the reply's last chunk
 //!   is taken, the reply's room chunk by chunk as this
 //!   side's stage uses the reply's chunks and the rest as the reply shows
-//!   it cannot be used, and the reservation's other parts as the stage
-//!   finishes the reply and assembles the scope asked about.
-//!   That takes the peer's answer and questions about the scope, at depth
-//!   `d` and below on the peer's side, this side's answers to those
-//!   questions, at `d + 1`, and the subtree's assembly: work at depths the
-//!   induction already grants, apart from the peer's answer at `d`, whose
-//!   own slot frees without anything at `d` on this side.
+//!   it cannot be used, the records part split over the records the take
+//!   derives from the reply's questions, each as this side's encoder hands
+//!   over the last frame of its answer to that question, and the parent
+//!   resolution's part as the stage assembles the scope asked about. That
+//!   takes the peer's answer and questions about the scope, at depth `d`
+//!   and below on the peer's side, this side's answers to those questions,
+//!   at `d + 1`, and the subtree's assembly: work at depths the induction
+//!   already grants, apart from the peer's answer at `d`, whose own slot
+//!   frees without anything at `d` on this side.
 //! - An answer slot at depth `d` frees once the answer's scope is
 //!   assembled, which takes its questions, at question depth `d + 1`, and
 //!   their subtrees, and once its chunks' last frames are written, which
@@ -296,9 +298,11 @@
 //! it unchanged; and every grant it admits against the budget still fits
 //! beside what the ledger holds, so the bound above holds with it.
 //!
-//! Every part of a question's reservation returns no later than the scope
-//! it asks about is assembled, when its parent resolution's part returns,
-//! so a slot frees at that assembly however early the parked room returns.
+//! Every part of a question's reservation returns no later than both the
+//! scope it asks about is assembled, when its parent resolution's part
+//! returns, and this side's encoder has handed over its answers to the
+//! reply's questions, when the last records part returns, so a slot frees
+//! then however early the parked room returns.
 //! Returning bytes earlier only adds room against the budget: a grant
 //! admitted against the budget fit beside everything the ledger held, and
 //! the charges built out of it hold no more than it did, so the bound

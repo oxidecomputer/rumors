@@ -92,4 +92,4 @@ pub use pipe::{PipeRead, WriteBatch};
 #[cfg(test)]
 pub use proxy::Error;
 pub use proxy::Handshaking;
-pub(crate) use proxy::{Outstanding, Parked};
+pub(crate) use proxy::{Derived, Outstanding, Parked};

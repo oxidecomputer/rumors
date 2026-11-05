@@ -36,14 +36,14 @@ use crate::tree::{
     typed::height::{Height, UnderRoot, Z},
 };
 
-use super::{Outstanding, progress::Progress};
+use super::{Derived, Outstanding, progress::Progress};
 
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
 pub async fn terminal<B>(
     backend: B,
     budget: RunBudget,
     mut requests: BoxRequests<B::Erased>,
-    mut scopes: Receiver<Scope>,
+    mut scopes: Receiver<Derived>,
     mut outgoing: Outgoing,
     mut questions: Option<Records>,
     progress: Progress,
@@ -55,7 +55,7 @@ where
     // reply frees its channel slot one reply earlier, so a K-slot edge
     // admits K truly in-flight scopes (the walk's stage loops make the
     // same choice; see the materialized module docs).
-    while let Some(scope) = scopes.recv().await {
+    while let Some(Derived { scope, charge }) = scopes.recv().await {
         let encoder = ReplyEncoder::leaf(backend.clone(), budget, scope);
         // Only replies which can ask questions participate in the trace.
         // The initiator's final answers have no publication dependency.
@@ -68,6 +68,9 @@ where
             Z::HEIGHT,
         )
         .await?;
+        // The encoder has handed the reply's last frame over and dropped
+        // the record, whose charge returns with it.
+        drop(charge);
     }
     finish(requests, outgoing).await
 }
@@ -83,7 +86,7 @@ pub async fn replies<B>(
     backend: B,
     budget: RunBudget,
     mut requests: BoxRequests<B::Erased>,
-    mut scopes: Receiver<Scope>,
+    mut scopes: Receiver<Derived>,
     mut outgoing: Outgoing,
     mut questions: Records,
     progress: Progress,
@@ -92,7 +95,7 @@ pub async fn replies<B>(
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    while let Some(scope) = scopes.recv().await {
+    while let Some(Derived { scope, charge }) = scopes.recv().await {
         let encoder = ReplyEncoder::branch(backend.clone(), budget, scope);
         write_reply(
             &mut outgoing,
@@ -103,6 +106,9 @@ where
             question_height,
         )
         .await?;
+        // The encoder has handed the reply's last frame over and dropped
+        // the record, whose charge returns with it.
+        drop(charge);
     }
     finish(requests, outgoing).await
 }

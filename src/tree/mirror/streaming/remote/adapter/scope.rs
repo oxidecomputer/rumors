@@ -215,11 +215,14 @@ impl Scope {
     }
 
     /// The bytes this record holds while it waits in a channel, as the
-    /// take's record of a question the peer asked: its node in the channel
-    /// and its children's buffer, at its capacity.
+    /// take's record of a question the peer asked.
+    ///
+    /// That is its node in the channel, beside the charge it carries there
+    /// ([`Derived`](crate::tree::mirror::streaming::remote::Derived)), and
+    /// its children's buffer, at its capacity.
     #[cfg(test)]
     pub(crate) fn held_bytes(&self) -> usize {
-        queued::<Self>() + buffer(&self.children)
+        queued::<crate::tree::mirror::streaming::remote::Derived>() + buffer(&self.children)
     }
 
     /// The bound on the reply this record awaits: the one a question
@@ -238,6 +241,12 @@ impl Scope {
     /// The parent prefix against which keyed supplies are validated.
     pub fn parent(&self) -> ErasedPrefix {
         self.parent
+    }
+
+    /// The children this record names: the ones the question listed, or
+    /// the one leaf a terminal request asks for.
+    pub(crate) fn recorded(&self) -> usize {
+        self.children.len()
     }
 
     /// Begin replaying a reply's positional reactions against this

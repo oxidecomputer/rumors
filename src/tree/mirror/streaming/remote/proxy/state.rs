@@ -1,6 +1,6 @@
 //! Typed protocol states over an open session pipe.
 //!
-//! Each proxy stage owns the one [`Scope`] queue needed to interpret the local
+//! Each proxy stage owns the one [`Derived`] queue needed to interpret the local
 //! reply it will receive at that height. Background tasks write local replies
 //! while decoding the remote replies which answer local questions. Decoded
 //! replies park until their stage takes them, so decoding never waits on the
@@ -18,11 +18,10 @@ use crate::tree::{
         channel::Receiver,
         protocol::{self, BoxResponses, Requests},
         remote::{
-            adapter::Scope,
             codec::{RunBudget, Speaker},
             pipe::{Demultiplexer, Multiplexer, PipeRead, WriteBatch},
             proxy::{
-                Error,
+                Derived, Error,
                 work::{Ingress, Physical, Work},
             },
         },
@@ -115,7 +114,7 @@ where
     /// The next local reply's scopes, erased: the typestate's `H` is what
     /// pins this queue to the stage that consumes it at the right height,
     /// and every scope's parent prefix carries the runtime witness.
-    scopes: Receiver<Scope>,
+    scopes: Receiver<Derived>,
     /// The stage's height, phantom (`fn() -> H` for the auto-trait
     /// shortcut; see [`typed::Node`](crate::tree::typed::Node)).
     height: PhantomData<fn() -> H>,
@@ -129,7 +128,7 @@ where
     /// The session's pipe and the work accumulated through the descent.
     work: Work<B, R, W>,
     /// The leaf scopes awaiting the local terminal replies.
-    scopes: Receiver<Scope>,
+    scopes: Receiver<Derived>,
 }
 
 /// A wire descent phase processes the height carried by its state.

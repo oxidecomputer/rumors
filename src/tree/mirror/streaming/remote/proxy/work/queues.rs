@@ -8,10 +8,9 @@ use crate::tree::mirror::streaming::{
     FAN,
     channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, channel},
     materialized::OUTGOING_REPLY_CHUNKS,
-    remote::adapter::Scope,
 };
 
-use super::{Outstanding, Parked};
+use super::{Derived, Outstanding, Parked};
 
 /// Carry the records of asked-but-unanswered questions to the decoder,
 /// labeled at the questions' height.
@@ -42,7 +41,7 @@ pub fn parked_replies<E>(height: usize) -> (Sender<Parked<E>>, Receiver<Parked<E
 }
 
 /// Carry the scopes a taken chunk's questions create, labeled at the
-/// scopes' height.
+/// scopes' height, each with its charge ([`Derived`]).
 ///
 /// `FAN + OUTGOING_REPLY_CHUNKS` slots mean a take never waits, whatever
 /// the encoder consuming this queue is doing. The encoder dequeues an
@@ -66,7 +65,7 @@ pub fn parked_replies<E>(height: usize) -> (Sender<Parked<E>>, Receiver<Parked<E
 /// below `FAN + OUTGOING_REPLY_CHUNKS`, such a take can complete only once
 /// the encoder dequeues, so it waits on whatever the encoder waits on, the
 /// peer included.
-pub fn next_scopes(height: usize) -> (Sender<Scope>, Receiver<Scope>) {
+pub fn next_scopes(height: usize) -> (Sender<Derived>, Receiver<Derived>) {
     channel(
         QueueRole::new(QueueKind::ProxyNextScopes, height),
         FAN + OUTGOING_REPLY_CHUNKS,

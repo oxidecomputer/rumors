@@ -494,8 +494,8 @@ where
         fan_listing(child, &ours, keys).map(Reaction::Query)
     })
     .map_err(Error::Count)?;
-    let record = charges::record(grant, ours.len());
     let bound = ReplyBound::of(child.height(), ours.len(), theirs);
+    let record = charges::record(grant, child.height(), bound, ours.len());
     let room = charges::room::<B::Erased>(grant, bound, ours.len());
     let query = held_by(Holding::Questions, || {
         charges::query(grant, child, original, ours, bound)
@@ -579,7 +579,7 @@ pub(super) fn leaf_question<E>(
     radix: u8,
 ) -> Built<E, LeafRequest> {
     let reaction = held_by(Holding::OutgoingReplies, || Reaction::Query(Vec::new()));
-    let record = charges::record(grant, 0);
+    let record = charges::record(grant, 0, ReplyBound::LEAF, 0);
     // A leaf-parent scope's child prefix is a full 32-byte path: the length
     // witness makes the leaf-height re-tag exact.
     let (request, room) = held_by(Holding::Questions, || {

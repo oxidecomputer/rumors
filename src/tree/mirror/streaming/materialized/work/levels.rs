@@ -228,7 +228,7 @@ where
                 fan_listing(root_scope, &fan, keys.as_deref()).map(|listing| vec![Reaction::Query(listing)])
             })
             .map_err(Error::Count)?;
-            let record = charges::record(&mut grant, fan.len());
+            let record = charges::record(&mut grant, root_scope.height(), bound, fan.len());
             let query = charges::query(&mut grant, root_scope, root, fan, bound);
             yield held_by(Holding::OutgoingReplies, || {
                 charges::chunk::<B>(&mut grant, listing, true, Carried::Question { record, room })
