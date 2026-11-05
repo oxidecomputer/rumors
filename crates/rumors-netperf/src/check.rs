@@ -10,6 +10,14 @@
 //!   `environment.json`, and a `run.json` that records the run's end; the
 //!   directories' plans are one grid's, and their shards make up the whole
 //!   run exactly once.
+//! - **The shards measured one thing.** Every directory's environment
+//!   matches the first's in all but the host's name
+//!   ([`Environment::differences_beyond_host`]): the same build of the
+//!   tool, by its executable's digest, and the same operating system and
+//!   kernel, processors, memory, TCP settings, and congestion control.
+//!   Shards may run on different hosts, but a point's repetitions fall to
+//!   different shards, so its median mixes them, and only hosts that agree
+//!   in all of these measure alike.
 //! - **Every planned session has exactly one row, and every row a plan:**
 //!   each point the plan lists at every repetition, and each raised-limit
 //!   rerun a shard planned, has one row, and no row but a sentinel's
@@ -46,7 +54,7 @@ use std::path::{Path, PathBuf};
 use rumors::{MIN_SYNC_MEMORY_BUDGET, default};
 use serde::Deserialize;
 
-use crate::env::TcpLimits;
+use crate::env::{Difference, Environment};
 use crate::grid::{Kind, Shard, raised_buffer};
 use crate::point::Link;
 use crate::record::{self, Row};
@@ -62,17 +70,10 @@ pub struct Results {
     pub plan: Option<Plan>,
     /// Its `run.json`, which records the run's end once it finished.
     pub run: Option<RunRecord>,
-    /// The TCP limits its `environment.json` records, if present.
-    pub tcp: Option<TcpLimits>,
+    /// Its `environment.json`, if present.
+    pub environment: Option<Environment>,
     /// Its `sessions.csv`.
     pub rows: Vec<Row>,
-}
-
-/// The part of `environment.json` the check reads.
-#[derive(Deserialize)]
-struct EnvironmentTcp {
-    /// The host's TCP limits.
-    tcp: TcpLimits,
 }
 
 /// One fact a run's results fail to satisfy.
@@ -107,6 +108,17 @@ pub enum Failure {
         dir: PathBuf,
         /// The first directory, whose plan it was compared against.
         first: PathBuf,
+    },
+    /// A directory's environment differs from the first directory's in more
+    /// than the host's name, so its sessions measured something else.
+    Environments {
+        /// The directory.
+        dir: PathBuf,
+        /// The first directory, whose environment it was compared against.
+        first: PathBuf,
+        /// Each part that differs, with the first directory's value as
+        /// `ours`.
+        differences: Vec<Difference>,
     },
     /// The directories' shards do not make up one whole run exactly once.
     Shards {
@@ -235,6 +247,27 @@ impl fmt::Display for Failure {
                 dir.display(),
                 first.display()
             ),
+            Failure::Environments {
+                dir,
+                first,
+                differences,
+            } => write!(
+                f,
+                "{}: measured under another environment than {}, so the two are not shards of one run: {}",
+                dir.display(),
+                first.display(),
+                differences
+                    .iter()
+                    .map(|d| format!(
+                        "the {} is `{}` here but `{}` in {}",
+                        d.part,
+                        d.theirs,
+                        d.ours,
+                        first.display()
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
             Failure::Shards { found } => write!(f, "the shards do not make up one run: {found}"),
             Failure::Missing(session) => write!(f, "no row for the {session}"),
             Failure::Unplanned(session) => {
@@ -358,7 +391,7 @@ pub fn load(dir: &Path, failures: &mut Vec<Failure>) -> Results {
         dir: dir.to_path_buf(),
         plan: read_json(dir, "plan.json", failures),
         run: read_json(dir, "run.json", failures),
-        tcp: read_json::<EnvironmentTcp>(dir, "environment.json", failures).map(|e| e.tcp),
+        environment: read_json(dir, "environment.json", failures),
         rows,
     }
 }
@@ -375,7 +408,7 @@ pub fn verify(results: &[Results]) -> Vec<Failure> {
                 file: "plan.json",
             });
         }
-        if result.tcp.is_none() {
+        if result.environment.is_none() {
             failures.push(Failure::Absent {
                 dir: dir.clone(),
                 file: "environment.json",
@@ -391,6 +424,7 @@ pub fn verify(results: &[Results]) -> Vec<Failure> {
         .collect();
     let rows: Vec<&Row> = results.iter().flat_map(|r| &r.rows).collect();
     wholeness(&plans, &mut failures);
+    environments(results, &mut failures);
     coverage(&plans, &rows, &mut failures);
     duplicates(results, &mut failures);
     for row in rows.iter().filter(|row| !row.ok()) {
@@ -553,6 +587,30 @@ fn wholeness(plans: &[(&Path, &Plan)], failures: &mut Vec<Failure>) {
     }
 }
 
+/// Whether every directory's environment matches the first's but for the
+/// host's name ([`Environment::differences_beyond_host`]).
+///
+/// Directories without an environment are left to the check that names
+/// the file absent.
+fn environments(results: &[Results], failures: &mut Vec<Failure>) {
+    let mut recorded = results
+        .iter()
+        .filter_map(|r| Some((r.dir.as_path(), r.environment.as_ref()?)));
+    let Some((first_dir, first)) = recorded.next() else {
+        return;
+    };
+    for (dir, environment) in recorded {
+        let differences = first.differences_beyond_host(environment);
+        if !differences.is_empty() {
+            failures.push(Failure::Environments {
+                dir: dir.to_path_buf(),
+                first: first_dir.to_path_buf(),
+                differences,
+            });
+        }
+    }
+}
+
 /// Whether every planned session has a row, every row a planned session,
 /// and every skip a reason.
 ///
@@ -682,7 +740,8 @@ fn budgets(rows: &[&Row], failures: &mut Vec<Failure>) {
 fn raised(results: &[Results], rows: &[&Row], failures: &mut Vec<Failure>) {
     let mut bound = None;
     for result in results {
-        let (Some(plan), Some(tcp)) = (&result.plan, &result.tcp) else {
+        let (Some(plan), Some(tcp)) = (&result.plan, result.environment.as_ref().map(|e| &e.tcp))
+        else {
             continue;
         };
         match tcp.usable_window {

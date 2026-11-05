@@ -2,6 +2,8 @@ use proptest::prelude::*;
 use rumors::default;
 
 use super::*;
+use crate::env::tests::changed;
+use crate::env::{Build, HOST_NAME, TcpLimits};
 use crate::grid::{Grid, Session, sessions};
 use crate::record::{Placement, Writer};
 
@@ -39,6 +41,31 @@ fn limits(window: u64) -> TcpLimits {
         payload_share: 0.5,
         usable_window: Some(window),
         ..TcpLimits::default()
+    }
+}
+
+/// The fixture's host, whose usable window is `window` bytes: one
+/// environment, named `fixture`, for every directory of a run.
+fn host(window: u64) -> Environment {
+    Environment {
+        build: Build {
+            version: "0.0.0".into(),
+            revision: "0123456789ab".into(),
+            rustc: "rustc 0.0.0".into(),
+            target: "fixture-target".into(),
+            profile: "release".into(),
+            executable: Some("f".repeat(64)),
+        },
+        hostname: "fixture".into(),
+        os: "FixtureOS".into(),
+        kernel_release: "1.0".into(),
+        kernel_version: "#1".into(),
+        cpu_model: "fixture processor".into(),
+        logical_cpus: 8,
+        memory_bytes: Some(1 << 34),
+        tcp: limits(window),
+        congestion_control: None,
+        load_average: None,
     }
 }
 
@@ -84,9 +111,10 @@ fn clean_run(count: u32, window: u64) -> Vec<Results> {
                 plan: Some(Plan::new(2, shard, points.clone(), skipped.clone(), &mine)),
                 run: Some(RunRecord {
                     ended: Some(1),
+                    shard,
                     ..RunRecord::default()
                 }),
-                tcp: Some(tcp.clone()),
+                environment: Some(host(window)),
                 rows: mine.iter().map(clean_row).collect(),
             }
         })
@@ -220,6 +248,79 @@ fn mismatched_plans_are_named() {
             dir: results[1].dir.clone(),
             first: results[0].dir.clone(),
         }]
+    );
+}
+
+/// Shards measured on different hosts make one run when their
+/// environments agree in all but the host's name, and a shard whose
+/// environment differs in any other part is named with exactly that part.
+///
+/// Every part of the identity is changed on the second shard alone, the
+/// build by its executable's digest alone, as a change to the library
+/// alone makes.
+#[test]
+fn shards_agree_in_all_but_the_host() {
+    let base = host(SMALL_WINDOW);
+    for (part, _) in base.identity() {
+        let mut results = clean_run(2, SMALL_WINDOW);
+        results[1].environment = Some(changed(&base, part));
+        let failures = verify(&results);
+        if part == HOST_NAME {
+            assert_eq!(failures, vec![], "{part}");
+            continue;
+        }
+        match failures.as_slice() {
+            [
+                Failure::Environments {
+                    dir,
+                    first,
+                    differences,
+                },
+            ] => {
+                assert_eq!(dir, &results[1].dir, "{part}");
+                assert_eq!(first, &results[0].dir, "{part}");
+                let parts: Vec<&str> = differences.iter().map(|d| d.part).collect();
+                assert_eq!(parts, vec![part]);
+            }
+            other => panic!("{part}: {other:?}"),
+        }
+    }
+}
+
+/// The shards of one run on two hosts, written to disk, pass every check
+/// and render one report.
+///
+/// The report names both hosts in its title, gives each shard's summary
+/// and host under its own label, and names the one build that measured
+/// them once.
+#[test]
+fn shards_on_two_hosts_render_one_report() {
+    let mut results = clean_run(2, SMALL_WINDOW);
+    let environment = results[1].environment.as_mut().unwrap();
+    environment.hostname = "fixture-2".into();
+    let (root, dirs) = store(&results, "two-hosts");
+    let out = root.join("report");
+    let outcome = check(&dirs, &out);
+    let report = fs::read_to_string(out.join("report.md")).unwrap();
+    fs::remove_dir_all(&root).unwrap();
+    assert_eq!(outcome.failures, vec![]);
+    assert_eq!(
+        report.lines().next(),
+        Some("# Rumors network benchmark on fixture and fixture-2")
+    );
+    for (index, host) in [(1, "fixture"), (2, "fixture-2")] {
+        let label = format!(
+            "**shard {index} of 2 (`{}`)**: {host} ",
+            dirs[index - 1].display()
+        );
+        assert!(report.contains(&label), "no `{label}` in:\n{report}");
+        let summary = format!("- `{}` on {host}: ", dirs[index - 1].display());
+        assert!(report.contains(&summary), "no `{summary}` in:\n{report}");
+    }
+    assert_eq!(
+        report.matches("\nBuild: rumors-netperf 0.0.0").count(),
+        1,
+        "{report}"
     );
 }
 
@@ -402,7 +503,7 @@ fn no_rerun_needed_when_window_covers() {
 #[test]
 fn unknown_window_is_named() {
     let mut results = clean_run(0, LARGE_WINDOW);
-    results[0].tcp.as_mut().unwrap().usable_window = None;
+    results[0].environment.as_mut().unwrap().tcp.usable_window = None;
     assert_eq!(
         verify(&results),
         vec![Failure::UnknownWindow {
@@ -429,7 +530,7 @@ fn store(results: &[Results], test: &str) -> (PathBuf, Vec<PathBuf>) {
             write("run.json", serde_json::to_string(&result.run).unwrap());
             write(
                 "environment.json",
-                serde_json::json!({ "tcp": result.tcp }).to_string(),
+                serde_json::to_string(&result.environment).unwrap(),
             );
             dir
         })

@@ -188,16 +188,44 @@ During the run it repeats the heaviest session as a sentinel and flags
 drift if the host slows down. Calibrations are cached per host and
 build, a build being identified by a digest of its executable, so a
 change to the library or to the tool calibrates afresh; `--jobs N`
-skips calibration, and `--recalibrate` discards the cache. `rumors-netperf calibrate --grid` calibrates without running
-the grid and predicts how long a run of it takes.
+skips calibration, and `--recalibrate` discards the cache.
+`rumors-netperf calibrate --grid` calibrates without running the grid
+and predicts how long a run of it takes.
+
+## Splitting a run across hosts
 
 When the emulator itself saturates while processors sit idle, the
 kernel's shaping is the limit, and the tool says so. Split a large run
-across hosts with `--shard k/n` (the same grid on every host, `k` from
-1 to `n`), then render one report from all the results directories:
+across hosts with `--shard k/n`: the same grid on every host, `k` from 1
+to `n`. Each shard calibrates on its own host and writes its own results
+directory, and `check` and `report` read the directories as one run.
+
+A point's repetitions fall to different shards, so the hosts must
+measure alike: they must agree in everything `environment.json` records
+but their names and their load, which is the operating system and
+kernel, the processors, the memory, the TCP settings and congestion
+control, and the build of the tool, by its executable's digest.
+Two builds of one revision can differ, so build once and copy the
+executable. For two hosts, `host-1` with a checkout and `host-2` with
+none:
 
 ```text
-rumors-netperf report netperf-shard-1 netperf-shard-2 --out combined
+host-1$ cargo build --release --locked -p rumors-netperf
+host-1$ scp target/release/rumors-netperf crates/rumors-netperf/grids/reference.toml host-2:
+host-1$ target/release/rumors-netperf doctor
+host-2$ ./rumors-netperf doctor
+host-1$ target/release/rumors-netperf run --grid crates/rumors-netperf/grids/reference.toml --shard 1/2 --out reference-1
+host-2$ ./rumors-netperf run --grid reference.toml --shard 2/2 --out reference-2
+host-1$ scp -r host-2:reference-2 .
+host-1$ target/release/rumors-netperf check reference-1 reference-2
+```
+
+Each `doctor` prints its host's build, whose executable digests must
+match. `check` judges the two directories as one run and renders their
+one report into `reference-1/check/`; `report` renders it anywhere else:
+
+```text
+rumors-netperf report reference-1 reference-2 --out reference
 ```
 
 ## Checking a run
@@ -209,6 +237,9 @@ hold:
 
 - the results are whole: the shards given make up one run exactly once,
   and each finished;
+- the shards measured alike: every directory's environment matches the
+  first's in all but the host's name, the build's executable digest
+  included;
 - every session the run planned has exactly one row, across every part
   of a run that was cut short and resumed, and every point the grid
   skips is recorded with its reason;

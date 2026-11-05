@@ -615,7 +615,16 @@ impl Part {
     /// recorded rows are not the run's.
     pub fn resume(dir: &Path, environment: &Environment) -> Result<Self> {
         let recorded: Environment = read_json(dir, "environment.json")?;
-        let differences = environment.differences(&recorded);
+        let differences: Vec<String> = environment
+            .differences(&recorded)
+            .into_iter()
+            .map(|d| {
+                format!(
+                    "the {} is `{}` here but `{}` in the run",
+                    d.part, d.ours, d.theirs
+                )
+            })
+            .collect();
         anyhow::ensure!(
             differences.is_empty(),
             "{} holds a run measured under another environment, and rows measured under two \

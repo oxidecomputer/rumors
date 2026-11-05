@@ -31,7 +31,7 @@ use rumors::{MIN_SYNC_MEMORY_BUDGET, default};
 use serde::{Deserialize, Serialize};
 
 use crate::calibrate::Calibration;
-use crate::env::Environment;
+use crate::env::{Build, Environment};
 use crate::plot::{Chart, Series, line_chart};
 use crate::point::{self, Model, Replicas, Transport, UNLIMITED_BUDGET};
 use crate::probe::ProbeResult;
@@ -448,22 +448,94 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
 }
 
+/// One results directory's files, as the report reads them.
+struct Source {
+    /// The directory.
+    dir: PathBuf,
+    /// Its `environment.json`, if present and readable.
+    environment: Option<Environment>,
+    /// Its `run.json`, if present and readable.
+    run: Option<RunRecord>,
+    /// Its `calibration.json`, if present and readable.
+    calibration: Option<Calibration>,
+    /// Its `sessions.csv`.
+    rows: Vec<Row>,
+}
+
+impl Source {
+    /// Reads `dir`.
+    ///
+    /// # Errors
+    ///
+    /// If `dir` has no `sessions.csv`, or it cannot be read.
+    fn read(dir: &Path) -> Result<Self> {
+        Ok(Source {
+            dir: dir.to_path_buf(),
+            environment: read_json(&dir.join("environment.json")),
+            run: read_json(&dir.join("run.json")),
+            calibration: read_json(&dir.join("calibration.json")),
+            rows: read(&dir.join("sessions.csv"))?,
+        })
+    }
+
+    /// How the report names this directory among several: by its shard,
+    /// if it holds one, and by its path.
+    fn label(&self) -> String {
+        match self.run.as_ref().and_then(|run| run.shard) {
+            Some(shard) => format!(
+                "shard {} of {} (`{}`)",
+                shard.index,
+                shard.count,
+                self.dir.display()
+            ),
+            None => format!("`{}`", self.dir.display()),
+        }
+    }
+}
+
+/// The host names of `sources`, each once, in their order, joined for a
+/// sentence.
+fn hosts(sources: &[Source]) -> String {
+    let mut names: Vec<&str> = Vec::new();
+    for name in sources
+        .iter()
+        .filter_map(|s| s.environment.as_ref())
+        .map(|e| e.hostname.as_str())
+    {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    match names.as_slice() {
+        [] => "unknown host".to_string(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 /// Renders the report for the results in `dirs` (one directory, or the
-/// shards of one run) into `out`, returning the report's path.
+/// shards of one run, which may have run on several hosts) into `out`,
+/// returning the report's path.
+///
+/// The points' sections read every directory's rows together. What
+/// belongs to one directory, its run's summary, sentinels, calibration,
+/// and host, the report gives for each directory.
 ///
 /// # Errors
 ///
 /// If a directory has no `sessions.csv` or a file cannot be written.
 pub fn render(dirs: &[PathBuf], out: &Path) -> Result<PathBuf> {
-    let mut rows = Vec::new();
-    for dir in dirs {
-        rows.extend(read(&dir.join("sessions.csv"))?);
-    }
-    let first = dirs.first().context("no results directory given")?;
-    let environment: Option<Environment> = read_json(&first.join("environment.json"));
-    let run: Option<RunRecord> = read_json(&first.join("run.json"));
-    let calibration: Option<Calibration> = read_json(&first.join("calibration.json"));
-    let network: Option<Network> = read_json(&first.join("network.json"));
+    let sources = dirs
+        .iter()
+        .map(|dir| Source::read(dir))
+        .collect::<Result<Vec<_>>>()?;
+    let first = sources.first().context("no results directory given")?;
+    let rows: Vec<Row> = sources
+        .iter()
+        .flat_map(|s| s.rows.iter().cloned())
+        .collect();
+    let environment = first.environment.as_ref();
+    let network: Option<Network> = read_json(&first.dir.join("network.json"));
     fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
 
     let mut by_point: BTreeMap<(String, String, String), Vec<&Row>> = BTreeMap::new();
@@ -495,18 +567,15 @@ pub fn render(dirs: &[PathBuf], out: &Path) -> Result<PathBuf> {
         .collect();
 
     let mut md = String::new();
-    let host = environment
-        .as_ref()
-        .map_or("unknown host".to_string(), |e| e.hostname.clone());
-    writeln!(md, "# Rumors network benchmark on {host}\n")?;
-    write_summary(&mut md, &rows, run.as_ref(), environment.as_ref())?;
+    writeln!(md, "# Rumors network benchmark on {}\n", hosts(&sources))?;
+    write_summary(&mut md, &sources, &rows)?;
     write_reading_guide(&mut md)?;
     if let Some(network) = &network {
-        write_network(&mut md, network, environment.as_ref())?;
+        write_network(&mut md, network, environment)?;
     }
     write_results(&mut md, &summaries)?;
     write_budgets(&mut md, &summaries)?;
-    write_buffers(&mut md, &summaries, environment.as_ref())?;
+    write_buffers(&mut md, &summaries, environment)?;
     write_memory(&mut md, &summaries)?;
     write_charts(&mut md, &summaries, out)?;
     if !failed_points.is_empty() {
@@ -517,72 +586,72 @@ pub fn render(dirs: &[PathBuf], out: &Path) -> Result<PathBuf> {
         }
         writeln!(md)?;
     }
-    write_sentinels(&mut md, &rows, run.as_ref())?;
-    if let Some(calibration) = &calibration {
-        write_calibration(&mut md, calibration)?;
-    }
-    if let Some(environment) = &environment {
-        write_environment(&mut md, environment, network.as_ref())?;
-    }
+    write_sentinels(&mut md, &sources)?;
+    write_calibrations(&mut md, &sources)?;
+    write_environments(&mut md, &sources, network.as_ref())?;
     let path = out.join("report.md");
     fs::write(&path, md).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
-/// The opening summary.
-fn write_summary(
-    md: &mut String,
-    rows: &[Row],
-    run: Option<&RunRecord>,
-    env: Option<&Environment>,
-) -> Result<()> {
-    let finished = rows.iter().filter(|r| r.ok()).count();
-    if let Some(run) = run {
-        writeln!(
-            md,
-            "{} mode, {} sessions ({} finished, {} failed) {}, {} at once ({}).",
-            run.mode,
-            rows.len(),
-            finished,
-            rows.len() - finished,
-            match run.ended {
-                Some(_) => format!("in {}", human_seconds(run.seconds)),
-                None => "so far, in a run that has not finished".into(),
-            },
-            run.jobs,
-            run.jobs_source
-        )?;
-        if let Some(preparation) = &run.preparation {
+/// The opening summary: one paragraph for one directory, or a line for
+/// each of several, then the build or builds that measured them.
+fn write_summary(md: &mut String, sources: &[Source], rows: &[Row]) -> Result<()> {
+    match sources {
+        [source] => writeln!(md, "{}", part_summary(&source.rows, source.run.as_ref()))?,
+        _ => {
+            let finished = rows.iter().filter(|r| r.ok()).count();
             writeln!(
                 md,
-                "It prepared up to {} sessions at once ({}), only while no session was timed, with at most \
-                 {} of prepared sessions waiting by the memory model's prediction, and at most {} sessions \
-                 in one window.",
-                preparation.jobs,
-                preparation.jobs_source,
-                human_bytes(preparation.memory_bytes as f64),
-                preparation.window
+                "{} sessions ({finished} finished, {} failed) from {} results directories, each run \
+                 apart:\n",
+                rows.len(),
+                rows.len() - finished,
+                sources.len()
             )?;
+            for source in sources {
+                writeln!(
+                    md,
+                    "- `{}` on {}: {}",
+                    source.dir.display(),
+                    source
+                        .environment
+                        .as_ref()
+                        .map_or("an unknown host", |e| e.hostname.as_str()),
+                    part_summary(&source.rows, source.run.as_ref()).replace('\n', " ")
+                )?;
+            }
         }
-        match run.resumptions.len() {
-            0 => {}
-            1 => writeln!(md, "The run was cut short and resumed once.")?,
-            count => writeln!(md, "The run was cut short and resumed {count} times.")?,
+    }
+    let mut builds: Vec<&Build> = Vec::new();
+    for build in sources
+        .iter()
+        .filter_map(|s| s.environment.as_ref())
+        .map(|e| &e.build)
+    {
+        if !builds.contains(&build) {
+            builds.push(build);
         }
-        if let Some(shard) = run.shard {
+    }
+    match builds.as_slice() {
+        [] => {}
+        [build] => writeln!(md, "\nBuild: {build}.")?,
+        _ => {
             writeln!(
                 md,
-                "This directory holds shard {} of {}.",
-                shard.index, shard.count
+                "\n**The directories come from different builds**, so their sessions measured different code:\n"
             )?;
+            for source in sources {
+                if let Some(environment) = &source.environment {
+                    writeln!(md, "- {}: {}.", source.label(), environment.build)?;
+                }
+            }
         }
-    } else {
-        writeln!(md, "{} sessions, {finished} finished.", rows.len())?;
     }
-    if let Some(env) = env {
-        writeln!(md, "\nBuild: {}.", env.build)?;
-    }
-    if run.is_some_and(|r| !r.drift.is_empty()) {
+    if sources
+        .iter()
+        .any(|s| s.run.as_ref().is_some_and(|r| !r.drift.is_empty()))
+    {
         writeln!(
             md,
             "\n**The sentinel flagged drift during this run**; see [Sentinels](#sentinels) before relying on the sessions after it."
@@ -590,6 +659,53 @@ fn write_summary(
     }
     writeln!(md)?;
     Ok(())
+}
+
+/// What one directory's run did, in sentences, from its `rows` and its
+/// `run.json`.
+fn part_summary(rows: &[Row], run: Option<&RunRecord>) -> String {
+    let finished = rows.iter().filter(|r| r.ok()).count();
+    let Some(run) = run else {
+        return format!("{} sessions, {finished} finished.", rows.len());
+    };
+    let mut text = format!(
+        "{} mode, {} sessions ({} finished, {} failed) {}, {} at once ({}).",
+        run.mode,
+        rows.len(),
+        finished,
+        rows.len() - finished,
+        match run.ended {
+            Some(_) => format!("in {}", human_seconds(run.seconds)),
+            None => "so far, in a run that has not finished".into(),
+        },
+        run.jobs,
+        run.jobs_source
+    );
+    if let Some(preparation) = &run.preparation {
+        text.push_str(&format!(
+            "\nIt prepared up to {} sessions at once ({}), only while no session was timed, with at most \
+             {} of prepared sessions waiting by the memory model's prediction, and at most {} sessions \
+             in one window.",
+            preparation.jobs,
+            preparation.jobs_source,
+            human_bytes(preparation.memory_bytes as f64),
+            preparation.window
+        ));
+    }
+    match run.resumptions.len() {
+        0 => {}
+        1 => text.push_str("\nThe run was cut short and resumed once."),
+        count => text.push_str(&format!(
+            "\nThe run was cut short and resumed {count} times."
+        )),
+    }
+    if let Some(shard) = run.shard {
+        text.push_str(&format!(
+            "\nThis directory holds shard {} of {}.",
+            shard.index, shard.count
+        ));
+    }
+    text
 }
 
 /// The guide to the columns.
@@ -923,13 +1039,30 @@ fn write_charts(md: &mut String, summaries: &[(String, PointSummary)], out: &Pat
     Ok(())
 }
 
-/// The sentinel section.
-fn write_sentinels(md: &mut String, rows: &[Row], run: Option<&RunRecord>) -> Result<()> {
-    let sentinels: Vec<&Row> = rows.iter().filter(|r| r.kind == "sentinel").collect();
-    if sentinels.is_empty() {
+/// The sentinels' section: for each directory whose run interleaved
+/// sentinels, their times and any drift they flagged, under the
+/// directory's label when there are several.
+fn write_sentinels(md: &mut String, sources: &[Source]) -> Result<()> {
+    let with_sentinels: Vec<&Source> = sources
+        .iter()
+        .filter(|s| s.rows.iter().any(|r| r.kind == "sentinel"))
+        .collect();
+    if with_sentinels.is_empty() {
         return Ok(());
     }
     writeln!(md, "## Sentinels\n")?;
+    for source in with_sentinels {
+        if sources.len() > 1 {
+            writeln!(md, "### {}\n", source.label())?;
+        }
+        write_part_sentinels(md, &source.rows, source.run.as_ref())?;
+    }
+    Ok(())
+}
+
+/// One directory's sentinels: their times in run order, and any drift.
+fn write_part_sentinels(md: &mut String, rows: &[Row], run: Option<&RunRecord>) -> Result<()> {
+    let sentinels: Vec<&Row> = rows.iter().filter(|r| r.kind == "sentinel").collect();
     let bound = run.and_then(|r| r.sentinel_bound_seconds);
     writeln!(
         md,
@@ -964,9 +1097,8 @@ fn write_sentinels(md: &mut String, rows: &[Row], run: Option<&RunRecord>) -> Re
     Ok(())
 }
 
-/// The calibration section.
+/// One calibration: its verdict, its levels, and its preparation probe.
 fn write_calibration(md: &mut String, calibration: &Calibration) -> Result<()> {
-    writeln!(md, "## Calibration\n")?;
     writeln!(
         md,
         "The run used {} jobs. A job count passes when, for the noise probe's wall time (the heaviest pair on \
@@ -1024,14 +1156,52 @@ fn write_calibration(md: &mut String, calibration: &Calibration) -> Result<()> {
     Ok(())
 }
 
-/// The environment section.
-fn write_environment(md: &mut String, env: &Environment, network: Option<&Network>) -> Result<()> {
-    writeln!(md, "## Environment\n")?;
-    let hosts = std::iter::once(("this host", env)).chain(
+/// The calibration section: each directory's calibration, under the
+/// directory's label when there are several.
+fn write_calibrations(md: &mut String, sources: &[Source]) -> Result<()> {
+    let calibrated: Vec<&Source> = sources.iter().filter(|s| s.calibration.is_some()).collect();
+    if calibrated.is_empty() {
+        return Ok(());
+    }
+    writeln!(md, "## Calibration\n")?;
+    for source in calibrated {
+        if sources.len() > 1 {
+            writeln!(md, "### {}\n", source.label())?;
+        }
+        if let Some(calibration) = &source.calibration {
+            write_calibration(md, calibration)?;
+        }
+    }
+    Ok(())
+}
+
+/// The environment section: the host each directory ran on, labelled by
+/// the directory when there are several, and in pair mode the server.
+fn write_environments(
+    md: &mut String,
+    sources: &[Source],
+    network: Option<&Network>,
+) -> Result<()> {
+    let mut hosts: Vec<(String, &Environment)> = match sources {
+        [source] => source
+            .environment
+            .iter()
+            .map(|e| ("this host".to_string(), e))
+            .collect(),
+        _ => sources
+            .iter()
+            .filter_map(|s| Some((s.label(), s.environment.as_ref()?)))
+            .collect(),
+    };
+    if hosts.is_empty() {
+        return Ok(());
+    }
+    hosts.extend(
         network
             .and_then(|n| n.server.as_ref())
-            .map(|s| ("server", s)),
+            .map(|s| ("server".to_string(), s)),
     );
+    writeln!(md, "## Environment\n")?;
     for (role, e) in hosts {
         writeln!(
             md,

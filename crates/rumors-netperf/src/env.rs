@@ -162,6 +162,21 @@ pub struct TcpLimits {
     pub usable_window: Option<u64>,
 }
 
+/// One part of two environments' identities in which they differ.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Difference {
+    /// The part, as the identity names it, such as `host name` or `build`.
+    pub part: &'static str,
+    /// Its value in the environment compared.
+    pub ours: String,
+    /// Its value in the environment compared against.
+    pub theirs: String,
+}
+
+/// The identity's name for the host's name: the one part in which the
+/// shards of one run, each on a host of its own, may differ.
+pub(crate) const HOST_NAME: &str = "host name";
+
 /// Everything a run records about where it ran.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Environment {
@@ -222,14 +237,15 @@ impl Environment {
 
     /// Everything that identifies the environment a measurement holds for,
     /// each part named: the host, its kernel, its processors and memory,
-    /// its TCP settings, and the build.
+    /// its TCP settings and congestion control, and the build.
     ///
     /// The build's part is its one-line description, which names the
     /// executable's digest beside the revision. The load is left out, since
-    /// it changes from run to run on any host.
-    fn identity(&self) -> [(&'static str, String); 9] {
+    /// it changes from run to run on any host, and so are the TCP limits'
+    /// quantities computed from the settings, which the identity names whole.
+    pub(crate) fn identity(&self) -> [(&'static str, String); 10] {
         [
-            ("host name", self.hostname.clone()),
+            (HOST_NAME, self.hostname.clone()),
             ("operating system", self.os.clone()),
             ("kernel release", self.kernel_release.clone()),
             ("kernel version", self.kernel_version.clone()),
@@ -237,6 +253,10 @@ impl Environment {
             ("logical processors", self.logical_cpus.to_string()),
             ("memory", format!("{:?}", self.memory_bytes)),
             ("TCP settings", format!("{:?}", self.tcp.settings)),
+            (
+                "congestion control",
+                format!("{:?}", self.congestion_control),
+            ),
             ("build", self.build.to_string()),
         ]
     }
@@ -253,19 +273,27 @@ impl Environment {
     }
 
     /// Each part of the environment's identity in which `self` differs
-    /// from `other`, naming the part and both values.
+    /// from `other`, with both values.
     ///
     /// It is empty exactly when the two have the same
     /// [`Environment::fingerprint`], up to a collision of the digest.
-    pub fn differences(&self, other: &Environment) -> Vec<String> {
+    pub fn differences(&self, other: &Environment) -> Vec<Difference> {
         self.identity()
             .into_iter()
             .zip(other.identity())
             .filter(|((_, ours), (_, theirs))| ours != theirs)
-            .map(|((name, ours), (_, theirs))| {
-                format!("the {name} is `{ours}` here but `{theirs}` in the run")
-            })
+            .map(|((part, ours), (_, theirs))| Difference { part, ours, theirs })
             .collect()
+    }
+
+    /// Each part of the environment's identity but the host's name in which
+    /// `self` differs from `other`: what makes the sessions measured in one
+    /// measure something other than those measured in the other, wherever
+    /// each ran.
+    pub fn differences_beyond_host(&self, other: &Environment) -> Vec<Difference> {
+        let mut differences = self.differences(other);
+        differences.retain(|difference| difference.part != HOST_NAME);
+        differences
     }
 }
 
@@ -444,4 +472,4 @@ pub fn tcp_limits() -> TcpLimits {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
