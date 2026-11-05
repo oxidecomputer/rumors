@@ -203,6 +203,59 @@ fn supply_reserves_only_a_length_its_budget_judged() {
     );
 }
 
+/// The bytes of a lone-record run that
+/// [`lone_record_past_the_budget_reserves_its_length`] delivers.
+///
+/// That is two heads of the longest width a CBOR head has, nine bytes, so
+/// the run's tag and byte-string heads arrive whole whatever their widths,
+/// and at most a few bytes of the record's content follow them.
+const LONE_RECORD_HEADS_DELIVERED: usize = 2 * 9;
+
+/// A lone record past the session's run budget, of which only its heads
+/// and a few bytes of content arrive, reserves exactly the run's declared
+/// length once its heads have arrived.
+///
+/// Past the budget, the one run a conforming encoder can still produce is a
+/// single record spanning the whole body, so the reader reads the first
+/// record's heads before anything else. When they show such a record, it
+/// reserves the run's length whole, as for a run within the budget, and
+/// only then reads the body into the reservation. So the read fails as a
+/// truncated `SupplyRun` having requested the run's length and no more
+/// than the meter's slack beside it. A reader that rejected the run on its
+/// heads would request almost nothing, and one that grew the body as it
+/// arrived would request one granule ahead of the bytes it received; both
+/// fall outside the band.
+#[test]
+fn lone_record_past_the_budget_reserves_its_length() {
+    let run = run_body(HONEST_ODD_LEN);
+    let bytes = supply_frame(HONEST_ODD_LEN, &run[..LONE_RECORD_HEADS_DELIVERED]);
+    let budget = HONEST_LEN / 2;
+    let (change, result) = metered(|| {
+        pollster::block_on(rumors::testing::decode_supply_frame_budgeted(
+            &bytes[..],
+            budget,
+        ))
+    });
+    let error = result.expect_err("a lone record with its body withheld cannot complete");
+    assert!(
+        matches!(
+            error.kind,
+            CodecDecodeErrorKind::Truncated {
+                missing: FramePart::SupplyRun,
+                ..
+            }
+        ),
+        "a lone record accepted on its heads, then truncated, got: {error}"
+    );
+    assert!(
+        change.bytes_allocated >= HONEST_ODD_LEN
+            && change.bytes_allocated <= HONEST_ODD_LEN + METER_SLACK,
+        "a lone record of {HONEST_ODD_LEN} bytes past a {budget}-byte budget requested {} \
+         bytes with only its heads delivered; the band is its length, plus slack",
+        change.bytes_allocated
+    );
+}
+
 /// Ceiling: a declared 256 MiB payload with only k delivered bytes
 /// requests at most 2k plus one chunk and the meter's fixed slack.
 ///
