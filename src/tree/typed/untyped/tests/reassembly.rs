@@ -70,6 +70,8 @@ enum Change {
     /// Add a leaf no tree holds at the drawn radix, replacing the child
     /// there if there is one.
     Add(u8),
+    /// Move the child at the drawn position to another radix ([`moved`]).
+    Move(Index, u8),
 }
 
 /// Any [`Change`].
@@ -78,7 +80,44 @@ fn arb_change() -> impl Strategy<Value = Change> {
         any::<Index>().prop_map(Change::Remove),
         any::<Index>().prop_map(Change::Replace),
         any::<u8>().prop_map(Change::Add),
+        (any::<Index>(), any::<u8>()).prop_map(|(at, radix)| Change::Move(at, radix)),
     ]
+}
+
+/// `entries` with the child at `at` moved to `radix`, or to the radix after
+/// it where the child already sits at `radix`, replacing any child there.
+///
+/// The child is the same handle under another path, so the listing
+/// describes another subtree.
+fn moved(entries: &mut Listing, at: Index, radix: u8) {
+    let (from, child) = entries.remove(at.index(entries.len()));
+    let to = if radix == from {
+        radix.wrapping_add(1)
+    } else {
+        radix
+    };
+    entries.retain(|(at, _)| *at != to);
+    entries.push((to, child));
+    entries.sort_by_key(|(at, _)| *at);
+}
+
+/// The subtree `view` represents, in allocations of its own: equal to it,
+/// yet no view of any stored node a listing yields, with its hash cold, and
+/// a bare branch's bounds cold too.
+///
+/// It is the child a session hands reassembly when it rebuilds a child and
+/// arrives back at the same contents.
+fn copy_of(view: &View) -> View {
+    let copy = match view.clone().into_node().into_children() {
+        Ok(fan) => Node::branch(fan).expect("a node's listing is never empty"),
+        Err(leaf) => Node::leaf(
+            leaf.floor().clone(),
+            leaf.as_leaf()
+                .expect("a node without children is a leaf")
+                .clone(),
+        ),
+    };
+    View::from(copy)
 }
 
 /// `listing`, which is never empty, with `change` applied.
@@ -97,6 +136,7 @@ fn changed(listing: &Listing, change: Change) -> Listing {
             entries.push((radix, View::from(foreign_leaf())));
             entries.sort_by_key(|(at, _)| *at);
         }
+        Change::Move(at, radix) => moved(&mut entries, at, radix),
     }
     entries
 }
@@ -120,12 +160,14 @@ proptest! {
         }
     }
 
-    /// Reassembling a listing with one child removed, replaced, or added
-    /// builds the subtree `branch` builds from the nodes the same children
-    /// represent, and never returns the original view.
+    /// Reassembling a listing with one child removed, replaced, added, or
+    /// moved to another radix builds the subtree `branch` builds from the
+    /// nodes the same children represent, and never returns the original
+    /// view.
     ///
-    /// Removing a node's only child deletes it, as `branch` of nothing
-    /// does. The trees are at least one level deep, so each lists children.
+    /// A moved child is the very handle the listing yielded, so only its
+    /// radix tells the listing apart from the original's. Removing a node's
+    /// only child deletes it, as `branch` of nothing does. The trees are at least one level deep, so each lists children.
     #[test]
     fn reassembling_a_changed_listing_builds_its_children(
         tree in (1..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
@@ -142,9 +184,11 @@ proptest! {
     }
 }
 
-/// One edit to a listing for the seeding properties: a removal, or a leaf
-/// at a drawn version replacing the child at a drawn position or placed at
-/// a drawn radix.
+/// One edit to a listing for the seeding properties.
+///
+/// That is a removal, a leaf at a drawn version replacing the child at a
+/// drawn position or placed at a drawn radix, a child moved to another
+/// radix, or a child replaced by an equal copy.
 #[derive(Clone, Debug)]
 enum Edit {
     /// Remove the child at the drawn position, if any child is left.
@@ -153,6 +197,12 @@ enum Edit {
     Replace(Index, Version),
     /// Place a leaf at the drawn radix, replacing any child there.
     Place(u8, Version),
+    /// Move the child at the drawn position to another radix ([`moved`]),
+    /// if any child is left.
+    Move(Index, u8),
+    /// Replace the child at the drawn position with an equal subtree in
+    /// allocations of its own ([`copy_of`]), if any child is left.
+    Copy(Index),
 }
 
 /// Any [`Edit`], its versions drawn from several parties, so a new leaf
@@ -162,6 +212,8 @@ fn arb_edit() -> impl Strategy<Value = Edit> {
         any::<Index>().prop_map(Edit::Remove),
         (any::<Index>(), arb_version()).prop_map(|(at, version)| Edit::Replace(at, version)),
         (any::<u8>(), arb_version()).prop_map(|(radix, version)| Edit::Place(radix, version)),
+        (any::<Index>(), any::<u8>()).prop_map(|(at, radix)| Edit::Move(at, radix)),
+        any::<Index>().prop_map(Edit::Copy),
     ]
 }
 
@@ -186,6 +238,13 @@ fn edited(listing: &Listing, edits: &[Edit]) -> Listing {
                 entries.push((*radix, leaf(version)));
                 entries.sort_by_key(|(at, _)| *at);
             }
+            Edit::Move(at, radix) if !entries.is_empty() => moved(&mut entries, *at, *radix),
+            Edit::Move(..) => {}
+            Edit::Copy(at) if !entries.is_empty() => {
+                let at = at.index(entries.len());
+                entries[at].1 = copy_of(&entries[at].1);
+            }
+            Edit::Copy(_) => {}
         }
     }
     entries
@@ -202,6 +261,9 @@ proptest! {
     /// Edits remove children, and add or replace them with leaves whose
     /// versions come from several parties, so the changed and removed
     /// children's spans grow, shrink, and fall outside every certificate.
+    /// They also move children to other radices, and replace them with
+    /// equal copies, whose spans equal those they replace and whose cold
+    /// bounds seeding must compute.
     #[test]
     fn a_rebuilt_node_holds_exact_memos(
         tree in (1..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
