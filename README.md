@@ -296,8 +296,8 @@ The transport has these responsibilities:
 - **Confidentiality.** Session traffic (message bodies, set sizes,
   version structure, the greeting's metadata) crosses the connection in
   cleartext; the protocol adds no encryption of its own. The one exception
-  is the network's identity material that a provider hands a joining
-  peer, which travels sealed inside the session. The set's integrity
+  is the network's secret, which a provider seals with HPKE for the
+  joining peer it serves. The set's integrity
   does not rest on confidentiality: the digests and address bytes an
   observer reads on the wire do not let it compute those of versions it
   chooses (see keyed addresses).

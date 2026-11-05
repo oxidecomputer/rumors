@@ -43,7 +43,7 @@
 //!   slow.
 //! - **Coverage**: every item of a session, both directions, control
 //!   items and data frames alike. One connection carries them all: the
-//!   control items (the preamble, greeting, and closing items) form the
+//!   control items, every item before and after the data frames, form the
 //!   [`Control`](StreamId::Control) stream, and each logical stream's
 //!   frames form one [`Data`](StreamId::Data) stream. Only complete
 //!   items are observed: a session that dies mid-frame does not deliver

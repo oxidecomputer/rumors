@@ -56,8 +56,10 @@ pub struct SessionStats {
     pub messages_shed: u64,
     /// Encoded bytes sent to compare and transfer messages.
     ///
-    /// This measures the session's outgoing data frames. It excludes session
-    /// setup and completion, which share the connection with the frames. On a
+    /// This measures the session's outgoing data frames. It excludes every
+    /// item outside them that shares the connection: the session's setup
+    /// before the frames, and an identity donation and the completion
+    /// confirmation after them. On a
     /// completed session, one peer's `bytes_sent` equals the other's
     /// [`bytes_received`](Self::bytes_received).
     pub bytes_sent: u64,

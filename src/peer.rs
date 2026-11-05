@@ -40,10 +40,10 @@ use serde::{Serialize, de::DeserializeOwned};
 /// at most the larger of its budget and this minimum. It covers the room
 /// every session keeps for one piece of work in flight at each level of
 /// its comparison, which is how a session always makes progress, and room
-/// beside it for the largest single piece of work. Below it, pieces of
-/// work would race for that room, and a larger budget could make a
-/// session markedly slower; the minimum keeps every session out of that
-/// regime.
+/// beside it for the largest single piece of work. At or above this
+/// minimum, no measured session has run more than one round trip slower
+/// at a larger budget than at a smaller one; that is observed behavior,
+/// not a guarantee.
 pub const MIN_SYNC_MEMORY_BUDGET: usize = materialized::min_memory_budget::<Local>();
 
 mod bookmark;
@@ -729,10 +729,17 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// piece of work at each level of its comparison, and still completes.
     ///
     /// More budget keeps more in flight, up to the point where nothing
-    /// waits; beyond it, more budget changes nothing. That point can lie
+    /// waits; at or beyond it, a session runs exactly as it would with an
+    /// unlimited budget. That point can lie
     /// somewhat above the most memory the session would use with no budget
     /// at all, since the budget counts room for work before the session
-    /// knows whether it needs it. A session reports what waited in
+    /// knows whether it needs it. Below that point, a larger budget can
+    /// still lengthen a session, because a different budget changes the
+    /// order in which the session admits its work. In every session
+    /// measured so far, no larger budget has made a session more than one
+    /// round trip slower than a smaller one; that is observed behavior, not
+    /// a guarantee. A session reports
+    /// what waited in
     /// [`SessionStats::budget_waits`](crate::SessionStats::budget_waits),
     /// zero when the budget did not limit it. Most sessions come nowhere
     /// near the budget: a session's need grows with how much of the two

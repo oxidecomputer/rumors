@@ -232,6 +232,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// bookmark attachment begins, the session is complete and the
     /// connection rests at its boundary. See
     /// [what a session promises](crate#what-a-session-promises).
+    ///
+    /// The provider gives up the identity it donates before it starts to
+    /// send it, so cancelling a join after that point leaves the identity
+    /// held by no peer. No message is lost and no identity is duplicated,
+    /// but the identity can never be recycled, which lets versions grow as
+    /// a crashed peer's identity does (see [`Bookmark`]). To bound a join's
+    /// duration, configure [`session_deadline`](Self::session_deadline)
+    /// rather than dropping the future: a deadline that expires after the
+    /// whole identity has arrived returns the live peer in
+    /// [`Joined::Unconfirmed`], where dropping the future would discard it.
     pub async fn join<R, W>(self, mut read: R, mut write: W) -> Joined<T, R, W, B>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,

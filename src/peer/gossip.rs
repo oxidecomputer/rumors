@@ -161,6 +161,12 @@ pub struct Gossiped {
     /// What the session measured about itself; every count is local, so
     /// the two ends of one session report their own numbers.
     ///
+    /// The byte and frame counts cover only the data frames that compare
+    /// and transfer messages. The session's setup, any identity it donates,
+    /// and its completion confirmation share the connection with those
+    /// frames but are not counted, so the byte counts are less than the
+    /// bytes the session moved over the connection.
+    ///
     /// See [`SessionStats`] for each field's meaning and where it is
     /// counted at.
     pub stats: SessionStats,

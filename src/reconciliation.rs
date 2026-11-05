@@ -173,8 +173,9 @@
 //! chance that any one of them is a false-equal is about 2⁻⁷⁰.
 //!
 //! Every compared digest is a pure function of the *version set*: a leaf's
-//! digest commits its address and its version, a branch's commits its
-//! children, and message bytes appear nowhere. An author of message
+//! digest commits the part of its address below its place in the trie,
+//! and the address is the keyed hash of its version; a branch's commits
+//! its children; and message bytes appear nowhere. An author of message
 //! content therefore contributes zero bits to any compared quantity, and
 //! only authorized peers' clocks create versions. Hostile *peers* remain
 //! off-model entirely (see [when *shouldn't* you use
