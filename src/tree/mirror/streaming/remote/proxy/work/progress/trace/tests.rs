@@ -72,13 +72,13 @@ fn rejects_next_taken_reply_before_scopes() {
 fn empty_trace_fails_the_divergent_session_floor() {
     let (_, trace) = with_trace(|| ());
     trace.assert_valid();
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
     trace.assert_covers_divergent_session();
 }
 
 /// The least a divergent session records meets the floor: the responder
-/// proxy's opening wire reply and question, and the initiator proxy's
-/// greeting-seeded opening reply.
+/// proxy's opening wire reply, its question, and its take of the answer,
+/// and the initiator proxy's greeting-seeded opening reply.
 #[test]
 fn minimal_divergent_session_meets_the_floor() {
     let (_, trace) = with_trace(|| {
@@ -86,41 +86,42 @@ fn minimal_divergent_session_meets_the_floor() {
         record(0, Kind::LocalQuestion, UnderRoot::HEIGHT);
         record(1, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);
         record(1, Kind::NextScope, Root::HEIGHT);
+        record(0, Kind::TakenReply { scopes: 0 }, UnderRoot::HEIGHT);
     });
     trace.assert_valid();
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
     trace.assert_covers_divergent_session();
 }
 
-/// A decode following its published question satisfies question causality.
+/// A take following its published question answers it.
 #[test]
-fn accepts_decode_after_published_question() {
+fn accepts_take_after_published_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
         record(0, Kind::TakenReply { scopes: 0 }, 1);
     });
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
 }
 
-/// A decode with no published question at the scope's height is a causality
-/// violation: the reply arrived before its question was published.
+/// A take with no question published under its label answers nothing:
+/// the take and the encoder disagree about the question's height.
 #[test]
-#[should_panic(expected = "arrived before its question was published")]
-fn rejects_decode_before_published_question() {
+#[should_panic(expected = "has no published question to answer")]
+fn rejects_take_before_published_question() {
     let (_, trace) = with_trace(|| record(0, Kind::TakenReply { scopes: 0 }, 1));
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
 }
 
-/// Another endpoint's published question cannot scope this endpoint's decode:
-/// the registration FIFO is endpoint-local.
+/// Another endpoint's published question cannot pair with this endpoint's
+/// take: each endpoint answers only its own questions.
 #[test]
-#[should_panic(expected = "arrived before its question was published")]
-fn rejects_decode_scoped_by_the_other_endpoint() {
+#[should_panic(expected = "has no published question to answer")]
+fn rejects_take_answering_the_other_endpoints_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
         record(1, Kind::TakenReply { scopes: 0 }, 1);
     });
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
 }
 
 /// Terminal answers may complete while an internal answer still publishes
@@ -138,7 +139,7 @@ fn accepts_terminal_answer_during_internal_scope_publication() {
         record(0, Kind::NextScope, 1);
     });
     trace.assert_valid();
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
 }
 
 /// Walk and terminal leaf publications use independent ledgers even when
@@ -155,34 +156,47 @@ fn accepts_overlapping_walk_and_terminal_leaf_publications() {
 
 /// An unanswered parent question cannot stand in for a leaf question.
 #[test]
-#[should_panic(expected = "arrived before its question was published")]
-fn rejects_leaf_decode_scoped_by_parent_question() {
+#[should_panic(expected = "has no published question to answer")]
+fn rejects_leaf_take_answering_a_parent_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
         record(0, Kind::TakenReply { scopes: 0 }, 0);
     });
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
 }
 
 /// An unanswered leaf question cannot stand in for a parent question.
 #[test]
-#[should_panic(expected = "arrived before its question was published")]
-fn rejects_parent_decode_scoped_by_leaf_question() {
+#[should_panic(expected = "has no published question to answer")]
+fn rejects_parent_take_answering_a_leaf_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 0);
         record(0, Kind::TakenReply { scopes: 0 }, 1);
     });
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
 }
 
-/// Exactly one greeting-seeded opening reply per endpoint is scoped by the
-/// greeting itself; a second root decode has no question to pair with.
+/// Exactly one greeting-seeded opening reply per endpoint answers the
+/// greeting itself; a second root take has no question to answer.
 #[test]
-#[should_panic(expected = "arrived before its question was published")]
+#[should_panic(expected = "has no published question to answer")]
 fn rejects_a_second_greeting_seeded_opening() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);
         record(0, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);
     });
-    trace.assert_question_causality();
+    trace.assert_takes_answer_published_questions();
+}
+
+/// A question published and never taken leaves the session unbalanced:
+/// some endpoint asked it and never consumed an answer.
+#[test]
+#[should_panic(expected = "published 2 questions at height 1 but took 1 answers")]
+fn rejects_a_published_question_never_taken() {
+    let (_, trace) = with_trace(|| {
+        record(0, Kind::LocalQuestion, 1);
+        record(0, Kind::LocalQuestion, 1);
+        record(0, Kind::TakenReply { scopes: 0 }, 1);
+    });
+    trace.assert_takes_answer_published_questions();
 }

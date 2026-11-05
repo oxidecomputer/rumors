@@ -54,7 +54,7 @@ struct Event {
 #[derive(Debug)]
 pub struct Trace(Vec<Event>);
 
-/// Check ordering and the question registrations needed to decode replies.
+/// Check publication ordering, and that takes answer published questions.
 impl Trace {
     /// Assert wire-before-question and reply-before-scope ordering.
     pub fn assert_valid(&self) {
@@ -117,40 +117,54 @@ impl Trace {
         );
     }
 
-    /// Every decoded answer needs a previously published question on the same
-    /// endpoint. Questions and answers pair in FIFO order at each height.
-    /// The root opening is the sole exception: its scope comes from the greeting.
-    pub fn assert_question_causality(&self) {
+    /// Assert that each endpoint takes one answer per question it
+    /// published, under the same stage and height labels.
+    ///
+    /// The encoder labels each question it publishes with a runtime height,
+    /// and the take labels each answer with its stage's typed height. This
+    /// check holds the two labelings to each other: under every label, takes
+    /// never outnumber the questions published before them, and by the end
+    /// of the trace the two counts are equal. Once the labels agree, the
+    /// ordering half holds by construction, since a take consumes a reply
+    /// decoded against the dequeued record of a published question; what the
+    /// check can fail on is a label one side computes differently, or a
+    /// question published and never answered and taken. The root opening is
+    /// the one take without a question: it answers the greeting, at most
+    /// once per endpoint.
+    ///
+    /// Only a completed session's trace balances, so call this on those.
+    pub fn assert_takes_answer_published_questions(&self) {
         let mut questions = BTreeMap::<(usize, Stage, usize), usize>::new();
-        let mut decoded = BTreeMap::<(usize, Stage, usize), usize>::new();
+        let mut takes = BTreeMap::<(usize, Stage, usize), usize>::new();
         for (index, event) in self.0.iter().enumerate() {
+            let key = (event.work, event.stage, event.height);
             match event.kind {
-                Kind::LocalQuestion => {
-                    *questions
-                        .entry((event.work, event.stage, event.height))
-                        .or_insert(0) += 1;
-                }
+                Kind::LocalQuestion => *questions.entry(key).or_insert(0) += 1,
                 Kind::TakenReply { .. } => {
-                    let count = decoded
-                        .entry((event.work, event.stage, event.height))
-                        .or_insert(0);
-                    *count += 1;
-                    let available = if event.height == Root::HEIGHT {
+                    let taken = takes.entry(key).or_insert(0);
+                    *taken += 1;
+                    let published = if event.height == Root::HEIGHT {
                         1
                     } else {
-                        questions
-                            .get(&(event.work, event.stage, event.height))
-                            .copied()
-                            .unwrap_or(0)
+                        questions.get(&key).copied().unwrap_or(0)
                     };
                     assert!(
-                        *count <= available,
-                        "event {event:?} at trace index {index}: decoded reply {count} \
-                         arrived before its question was published ({available} available)",
+                        *taken <= published,
+                        "event {event:?} at trace index {index}: take {taken} has no \
+                         published question to answer ({published} published)",
                     );
                 }
                 Kind::WireReply { .. } | Kind::NextScope => {}
             }
+        }
+        for (key, published) in questions {
+            let taken = takes.get(&key).copied().unwrap_or(0);
+            assert_eq!(
+                taken, published,
+                "endpoint {} ({:?}) published {published} questions at height {} \
+                 but took {taken} answers",
+                key.0, key.1, key.2,
+            );
         }
     }
 }

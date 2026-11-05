@@ -388,8 +388,9 @@ proptest! {
     }
 
     /// For arbitrary valid divergence and scheduling, wire reconciliation
-    /// matches the in-process result, preserves question/reply causality, and
-    /// keeps every proxy queue within its bound.
+    /// matches the in-process result, takes one answer per published
+    /// question under matching labels, and keeps every proxy queue within
+    /// its bound.
     #[test]
     fn wire_reconciliation_matches_local(
         (a, b) in arb_divergent_pair(),
@@ -404,7 +405,7 @@ proptest! {
                 "wire reconciliation became quiescent: {stopped:?}",
             )))?;
         trace.assert_valid();
-        trace.assert_question_causality();
+        trace.assert_takes_answer_published_questions();
         if divergent {
             trace.assert_covers_divergent_session();
         }
