@@ -162,9 +162,16 @@ fn unordered_query_propagates_through_the_full_proxy() {
 
 /// A second reply manufactured after a valid reply has consumed the final
 /// scope reaches the proxy's reply-accounting check.
+///
+/// The pair disputes exactly one prefix at every level, and one side owns
+/// each question, so each logical stream carries at most one reply: the
+/// corrupt side's first ending reaction ends the only reply its stream
+/// owes, and the duplicate after it is unasked, wherever the leaves' paths
+/// lie. The dispute continues below that first reply, so the corrupt side
+/// cannot complete once its receiver aborts.
 #[test]
 fn duplicated_reply_is_rejected_as_unasked() {
-    let (left, right) = deep_pair();
+    let (left, right, _) = leaf_parent_dispute_pair();
     let script = Script::new(FrameSelector::EndingReaction, FrameMutation::Duplicate);
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,

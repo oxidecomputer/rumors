@@ -176,11 +176,11 @@ fn check(expected: &[Cell]) -> Vec<Cell> {
 #[test]
 fn small_reconciliation_cost_at_documented_shared_sizes() {
     let measured = check(&[
-        Cell::new(Shape::new(0, 1, 1, 0, 0), 203, 198),
-        Cell::new(Shape::new(100, 1, 1, 0, 0), 2_719, 2_973),
-        Cell::new(Shape::new(1_000, 1, 1, 0, 0), 7_767, 8_719),
-        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 8_317, 11_115),
-        Cell::new(Shape::new(65_536, 1, 1, 0, 0), 9_237, 18_865),
+        Cell::new(Shape::new(0, 1, 1, 0, 0), 194, 189),
+        Cell::new(Shape::new(100, 1, 1, 0, 0), 1_870, 2_113),
+        Cell::new(Shape::new(1_000, 1, 1, 0, 0), 5_422, 6_267),
+        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 6_047, 8_199),
+        Cell::new(Shape::new(65_536, 1, 1, 0, 0), 6_894, 13_520),
     ]);
     assert!(
         measured
@@ -194,10 +194,10 @@ fn small_reconciliation_cost_at_documented_shared_sizes() {
 #[test]
 fn insertion_batches_reduce_cost_per_change() {
     let measured = check(&[
-        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 8_317, 11_115),
-        Cell::new(Shape::new(10_000, 10, 10, 0, 0), 10_187, 27_940),
-        Cell::new(Shape::new(10_000, 100, 100, 0, 0), 26_159, 157_414),
-        Cell::new(Shape::new(10_000, 1_000, 1_000, 0, 0), 73_728, 335_221),
+        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 6_047, 8_199),
+        Cell::new(Shape::new(10_000, 10, 10, 0, 0), 8_083, 21_100),
+        Cell::new(Shape::new(10_000, 100, 100, 0, 0), 24_699, 120_358),
+        Cell::new(Shape::new(10_000, 1_000, 1_000, 0, 0), 67_124, 240_434),
     ]);
     assert!(
         measured
@@ -211,10 +211,10 @@ fn insertion_batches_reduce_cost_per_change() {
 #[test]
 fn redaction_batches_reduce_cost_per_change() {
     let measured = check(&[
-        Cell::new(Shape::new(10_000, 0, 0, 1, 0), 8_205, 10_165),
-        Cell::new(Shape::new(10_000, 0, 0, 10, 0), 9_218, 19_391),
-        Cell::new(Shape::new(10_000, 0, 0, 100, 0), 17_754, 102_122),
-        Cell::new(Shape::new(10_000, 0, 0, 1_000, 0), 39_153, 283_088),
+        Cell::new(Shape::new(10_000, 0, 0, 1, 0), 5_905, 7_317),
+        Cell::new(Shape::new(10_000, 0, 0, 10, 0), 6_849, 13_626),
+        Cell::new(Shape::new(10_000, 0, 0, 100, 0), 15_549, 72_577),
+        Cell::new(Shape::new(10_000, 0, 0, 1_000, 0), 36_238, 200_195),
     ]);
     assert!(
         measured
@@ -228,9 +228,9 @@ fn redaction_batches_reduce_cost_per_change() {
 #[test]
 fn mixed_changes_have_stable_directional_costs() {
     check(&[
-        Cell::new(Shape::new(10_000, 1, 0, 0, 1), 11_145, 8_301),
-        Cell::new(Shape::new(10_000, 100, 0, 0, 100), 164_290, 24_363),
-        Cell::new(Shape::new(10_000, 1_000, 0, 0, 1_000), 336_652, 46_845),
+        Cell::new(Shape::new(10_000, 1, 0, 0, 1), 8_074, 5_988),
+        Cell::new(Shape::new(10_000, 100, 0, 0, 100), 110_646, 20_910),
+        Cell::new(Shape::new(10_000, 1_000, 0, 0, 1_000), 241_979, 42_263),
     ]);
 }
 

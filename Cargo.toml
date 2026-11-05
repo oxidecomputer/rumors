@@ -53,6 +53,7 @@ async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
 board-fuel-harness = { path = "crates/before/board-fuel/harness" }
+sha2 = "0.11"
 sha3 = "0.12"
 borsh = "1"
 bytes = "1"
@@ -157,6 +158,7 @@ fs = ["dep:tempfile"]
 [dependencies]
 before = { workspace = true, features = ["serde"] }
 bytes.workspace = true
+sha2.workspace = true
 sha3.workspace = true
 itertools.workspace = true
 serde = { workspace = true, default-features = true, features = ["derive"] }
@@ -239,11 +241,15 @@ opt-level = 1
 [profile.dev.package.alloc-meter]
 opt-level = 2
 
-# Leaf paths and node hashes are SHA3-256. On x86_64, keccak computes them
-# in software, and unoptimized that costs about 54 µs a hash, which makes
-# the hash-heavy tests several times slower there than on aarch64, whose
-# hardware SHA3 instructions keccak uses instead. Optimizing the two hash
-# crates removes that gap from the test suite without touching release.
+# Leaf paths and node hashes are SHA-256, which every test that builds a
+# tree computes many times; bookmark checksums and the test fixtures'
+# fingerprints are SHA3-256. On x86_64, keccak computes SHA3 in software,
+# and unoptimized that costs about 54 µs a hash. Optimizing the hash crates
+# keeps hashing at release speed in the test suite without touching
+# release.
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.dev.package.keccak]
 opt-level = 3
 

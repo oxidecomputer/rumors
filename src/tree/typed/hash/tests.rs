@@ -49,7 +49,7 @@ proptest! {
     }
 
     /// Incremental leaf hashing matches the contiguous input at every accepted
-    /// length, including inputs that span more than one SHA3 block.
+    /// length, including inputs that span more than one SHA-256 block.
     #[test]
     fn leaf_hash_matches_contiguous_input(suffix in any::<[u8; 255]>()) {
         for len in 0..=u8::MAX {
@@ -77,7 +77,7 @@ fn leaf_suffix_length_must_fit_one_byte() {
 }
 
 /// The empty tree hashes as a prefixless branch with no children —
-/// `sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)` — and the memoized constant agrees with
+/// `sha256(BRANCH_TAG ‖ 0 ‖ 0u16)`, truncated — and the memoized constant agrees with
 /// the general branch rule applied to empty fields.
 #[test]
 fn empty_root_is_the_empty_branch() {

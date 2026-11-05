@@ -13,6 +13,7 @@ use tokio::sync::watch;
 
 use super::{Inner, MAX_RUN_BUDGET_BYTES, OPTIMISTIC_ATTEMPTS, Peer};
 use crate::message::Message;
+use crate::tree::mirror::streaming::remote::WRITE_BUFFER_BYTES;
 use crate::tree::{Action, Tree};
 
 /// Add one event to a tree using its owner's current identity.
@@ -92,6 +93,20 @@ fn synchronization_settings_report_effective_values() {
     assert!(rumors_debug.contains("sync_memory_budget: 1234"));
     assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
     assert!(rumors_debug.contains("payload_depth_limit: 17"));
+}
+
+/// The session's write buffer is the "about 63 KiB" the crate and peer
+/// documentation state.
+///
+/// Its size follows the wire format's full-fan query frame, not the target's
+/// pointer width, so the figure holds on every target.
+#[test]
+fn the_write_buffer_is_the_documented_figure() {
+    const KIB: usize = 1 << 10;
+    assert!(
+        (62 * KIB + KIB / 2..63 * KIB + KIB / 2).contains(&WRITE_BUFFER_BYTES),
+        "the write buffer is {WRITE_BUFFER_BYTES} B, not about 63 KiB",
+    );
 }
 
 impl Drop for OnDrop {

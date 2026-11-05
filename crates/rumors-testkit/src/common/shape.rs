@@ -10,12 +10,12 @@
 //! and each fixture's self-checks still verify the landed shape.
 
 use rumors::{Rumors, Version};
-use sha3::Digest;
+use sha2::Digest;
 
-/// A leaf's tree path: the full-width SHA3-256 hash of its version's
+/// A leaf's tree path: the full-width SHA-256 hash of its version's
 /// canonical bytes.
 pub fn leaf_path(version: &Version) -> [u8; 32] {
-    sha3::Sha3_256::digest(version.as_bytes()).into()
+    sha2::Sha256::digest(version.as_bytes()).into()
 }
 
 /// The root radix of a leaf's path: its first byte.

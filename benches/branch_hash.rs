@@ -4,10 +4,10 @@
 //! Feeding-strategy microbenchmark behind `Hash::branch`'s one-shot form.
 //!
 //! A branch preimage is `kind ‖ prefix_len ‖ prefix ‖ count ‖ (radix ‖ hash)*`
-//! — dominated by fixed-width child records, several to one of SHA3-256's
-//! 136-byte rate blocks. The shipped `Hash::branch` assembles the whole
-//! preimage in a contiguous buffer and hashes it in one shot; the
-//! alternative feeds the sponge one `update` per field. This bench measures
+//! — dominated by fixed-width child records, several to one of SHA-256's
+//! 64-byte blocks. The shipped `Hash::branch` assembles the whole preimage
+//! in a contiguous buffer and hashes it in one shot; the alternative feeds
+//! the hasher one `update` per field. This bench measures
 //! exactly that comparison over the current preimage layout, across fan-outs
 //! from the smallest representable branch to the saturated 256, so the
 //! claim at `Hash::branch` stays re-measurable: run
@@ -22,7 +22,7 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rumors::testing::MERKLE_HASH_LEN;
-use sha3::{Digest, Sha3_256};
+use sha2::{Digest, Sha256};
 
 /// Kind byte leading a branch preimage, mirrored from the documented layout.
 const BRANCH_TAG: u8 = 1;
@@ -54,10 +54,10 @@ fn contiguous(prefix: &[u8], children: &[(u8, [u8; MERKLE_HASH_LEN])]) -> [u8; M
     rumors::testing::branch_hash(prefix, children.iter().copied())
 }
 
-/// The streamed form: one `update` call per field, so the sponge sees the
+/// The streamed form: one `update` call per field, so the hasher sees the
 /// preimage in radix-byte and hash-width fragments.
 fn streamed(prefix: &[u8], children: &[(u8, [u8; MERKLE_HASH_LEN])]) -> [u8; MERKLE_HASH_LEN] {
-    let mut hasher = Sha3_256::new();
+    let mut hasher = Sha256::new();
     hasher.update([BRANCH_TAG]);
     hasher.update([u8::try_from(prefix.len()).expect("a compressed span fits in one length byte")]);
     hasher.update(prefix);
@@ -72,7 +72,7 @@ fn streamed(prefix: &[u8], children: &[(u8, [u8; MERKLE_HASH_LEN])]) -> [u8; MER
         .expect("digest prefix has the comparison width")
 }
 
-/// Compare the production contiguous hash with incremental sponge updates.
+/// Compare the production contiguous hash with incremental hasher updates.
 fn branch_hash(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("branch_hash");
     for &fanout in FANOUTS {

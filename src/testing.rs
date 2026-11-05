@@ -249,13 +249,13 @@ pub fn memo_work_reset() {
 /// `tests/dispute_wire.rs` counts all protocol writes in both directions,
 /// divides by the differing messages, and subtracts their encoded payloads.
 /// The reference fixture has 2,048 shared messages and 8,192 new ones per
-/// side. Its whole-byte mean gives 45; the unrounded mean is about 45.4.
-/// Two fully divergent 75,000-message sets instead average about 42.6,
+/// side. Its whole-byte mean gives 38; the unrounded mean is about 38.8.
+/// Two fully divergent 75,000-message sets instead average about 36.8,
 /// since supplies dominate them and listings, whose entries each carry a
 /// grandchild count, weigh less. These include hashes, versions, framing,
 /// and amortized session setup; none is a fixed header size or a bound on
 /// other workloads.
-const DISPUTE_OVERHEAD_BYTES: usize = 45;
+const DISPUTE_OVERHEAD_BYTES: usize = 38;
 
 /// The reference message: a small, round encoded payload size.
 const REFERENCE_RECORD_BYTES: usize = 100;

@@ -11,168 +11,120 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (599 bytes) / greeting /
+control item 1 (455 bytes) / greeting /
 24_0(<<{
     "listing": {
-        9: [
-            h'7fcfe5ddc79994d48121e59df4fa76b2abc10dae127871c8',
-            0,
-        ],
-        18: [
-            h'2faefee85382ec00ec6e46bee4d4e65a8e5704c704171c27',
-            0,
-        ],
-        25_0: [
-            h'033a5a5bdafdf660c15507531d90f304348728b13a6989e8',
-            0,
-        ],
-        47_0: [
-            h'f2455eb6489c2ee4b1992d50127ce15df9fe1116ae9aa81c',
-            0,
-        ],
-        55_0: [
-            h'8aa4c74db538a6640e6d368e2519a78db03eeac36619a96d',
-            0,
-        ],
-        82_0: [
-            h'b0425f1120b0c131ab72af780c67564c0340de7049ea3580',
-            0,
-        ],
-        99_0: [
-            h'4ab319add5bfe22094db37633d4d7ab3aa5d3002f8f3471f',
-            0,
-        ],
-        114_0: [
-            h'affc07ce6c37c4fc0442c25b05048afcf175156ace6bcead',
-            0,
-        ],
-        121_0: [
-            h'9602973f461003f36f18b1ccb468d352b1f1a711efc1e963',
-            0,
-        ],
-        148_0: [
-            h'fdf2e4f46197ca0b24b8461d8d83e63deedddbd3af0b6886',
-            0,
-        ],
-        154_0: [
-            h'5bd84f5aa8c02d35d684a052efc14fbf01aa946496120b18',
-            0,
-        ],
-        166_0: [
-            h'd7cc20cdaabd6f00dcd5eea4d9674d4e71eefadc66bded88',
-            0,
-        ],
-        178_0: [
-            h'3fd1810476df8f9e3bce3224af62ac29973ae1154e0f794c',
-            0,
-        ],
-        187_0: [
-            h'bc14df3d4ab8b50233aa6d692ed9cd05e44953c11310f7b1',
-            0,
-        ],
-        201_0: [
-            h'6519a416494a98ae06ff1f9ae592d7538f994d4afe68cfbd',
-            0,
-        ],
-        212_0: [
-            h'e57fcaad6bbe82b187d1b2f96b4cd384abe9243e017b9d89',
-            0,
-        ],
+        3: [h'c044285e4cb746facc5ca81cfb31af22', 0],
+        15: [h'c68bc1aae6f86506694f59c3c408fc51', 0],
+        29_0: [h'd3965eb33bac2b596c8cd8b7876382d1', 0],
+        34_0: [h'063b9e3b96236577380942c948744157', 0],
+        49_0: [h'cba5167e261fbca890350c6687493cdb', 0],
+        57_0: [h'8dc3b05aff7907bd666a880e4c0435d1', 0],
+        74_0: [h'106091758b2d0abe242d3abd10cd9e9f', 0],
+        90_0: [h'59f2e9d734de064d47ac9beb9280f987', 0],
+        105_0: [h'37f3591dd9a7b3bbb7952101459873e5', 0],
+        108_0: [h'ef74794ef1bbc11e68148dcd60cb4248', 0],
+        115_0: [h'c80d117636147b959055a426c1398228', 0],
+        119_0: [h'7eda83f094343f0a349a7995300f2116', 0],
+        203_0: [h'82bca3ed305ec2bd118e5138aa15d40d', 0],
+        234_0: [h'28eb4341723fbf4a01cf94c0d3d11969', 0],
+        240_0: [h'09a6d07596a7131e3044074485776747', 0],
+        242_0: [h'05bf4050b97e6246a092663940ba5b05', 0],
     },
     "set_len": 16,
     "version": 53846_1(h'423041'),
     "grandchildren": 16,
     "max_version_bytes": 3,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Responder stream 0 (height 31), 342 wire bytes
-  frame 0 (3 bytes) / QueryEmpty(Continue) /
-[0, 2]
-  frame 1 (3 bytes) / QueryEmpty(Continue) /
-[0, 2]
+Responder stream 0 (height 31), 338 wire bytes
+  frame 0 (17 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'454250'), 8>>)>>)]
+  frame 1 (17 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'45c290'), 9>>)>>)]
   frame 2 (3 bytes) / QueryEmpty(Continue) /
 [0, 2]
-  frame 3 (17 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'4642d0'), 10>>)>>)]
-  frame 4 (3 bytes) / QueryEmpty(Continue) /
+  frame 3 (3 bytes) / QueryEmpty(Continue) /
 [0, 2]
-  frame 5 (16 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'4f19'), 5>>)>>)]
-  frame 6 (17 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'454250'), 8>>)>>)]
+  frame 4 (17 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'46c310'), 11>>)>>)]
+  frame 5 (17 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'44c210'), 7>>)>>)]
+  frame 6 (3 bytes) / QueryEmpty(Continue) /
+[0, 2]
   frame 7 (3 bytes) / QueryEmpty(Continue) /
 [0, 2]
   frame 8 (17 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'474350'), 12>>)>>)]
   frame 9 (3 bytes) / QueryEmpty(Continue) /
 [0, 2]
-  frame 10 (17 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'44c210'), 7>>)>>)]
-  frame 11 (3 bytes) / QueryEmpty(Continue) /
-[0, 2]
-  frame 12 (16 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'5c90'), 1>>)>>)]
-  frame 13 (3 bytes) / QueryEmpty(Continue) /
-[0, 2]
-  frame 14 (34 bytes) / Query(Continue) /
+  frame 10 (25 bytes) / Query(Continue) /
 [
     0,
     4,
-    {
-        175_0: [
-            h'72dbeb62425da61f8402d848065fe9940504e4ec4ece6cb4',
-            0,
-        ],
-    },
+    {81_0: [h'a4c0fdca0cc6c417087a79eba5280537', 0]},
 ]
-  frame 15 (16 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'4b11'), 3>>)>>)]
-  frame 16 (16 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'5540'), 0>>)>>)]
-  frame 17 (17 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'423041'), 15>>)>>)]
-  frame 18 (16 bytes) / Supply(Continue) /
+  frame 11 (25 bytes) / Query(Continue) /
+[
+    0,
+    4,
+    {178_0: [h'e6801cd47521a2bc26b528e182a3b77f', 0]},
+]
+  frame 12 (3 bytes) / QueryEmpty(Continue) /
+[0, 2]
+  frame 13 (16 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'4f19'), 5>>)>>)]
+  frame 14 (3 bytes) / QueryEmpty(Continue) /
+[0, 2]
+  frame 15 (17 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'444740'), 6>>)>>)]
+  frame 16 (25 bytes) / Query(Continue) /
+[
+    0,
+    4,
+    {253_0: [h'0c4620cd147ee08be77c93d562009d2f', 0]},
+]
+  frame 17 (16 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'4934'), 2>>)>>)]
-  frame 19 (34 bytes) / Query(Continue) /
-[
-    0,
-    4,
-    {
-        221_0: [
-            h'e9a4403e50a62d20972cea377193ae1b569d5d1f352125af',
-            0,
-        ],
-    },
-]
+  frame 18 (3 bytes) / QueryEmpty(Continue) /
+[0, 2]
+  frame 19 (16 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'4b11'), 3>>)>>)]
   frame 20 (3 bytes) / QueryEmpty(Continue) /
 [0, 2]
-  frame 21 (17 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'4210f4'), 14>>)>>)]
-  frame 22 (16 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'4d15'), 4>>)>>)]
-  frame 23 (3 bytes) / QueryEmpty(Continue) /
+  frame 21 (3 bytes) / QueryEmpty(Continue) /
 [0, 2]
-  frame 24 (17 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'45c290'), 9>>)>>)]
-  frame 25 (3 bytes) / QueryEmpty(Continue) /
+  frame 22 (3 bytes) / QueryEmpty(Continue) /
 [0, 2]
+  frame 23 (25 bytes) / Query(Continue) /
+[
+    0,
+    4,
+    {235_0: [h'50b2019759567bda562056bf77db5b1a', 0]},
+]
+  frame 24 (16 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'5540'), 0>>)>>)]
+  frame 25 (16 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'5c90'), 1>>)>>)]
   frame 26 (17 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'46c310'), 11>>)>>)]
-  frame 27 (3 bytes) / QueryEmpty(Continue) /
-[0, 2]
-  frame 28 (3 bytes) / QueryEmpty(End) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'4210f4'), 14>>)>>)]
+  frame 27 (3 bytes) / QueryEmpty(End) /
 [0, 3]
-  frame 29 (3 bytes) / End(Stream) /
+  frame 28 (3 bytes) / End(Stream) /
 [0, 9]
-Responder stream 1 (height 29), 37 wire bytes
-  frame 0 (17 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'444740'), 6>>)>>)]
+Responder stream 1 (height 29), 70 wire bytes
+  frame 0 (16 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'4d15'), 4>>)>>)]
   frame 1 (17 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'423041'), 15>>)>>)]
+  frame 2 (17 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'4642d0'), 10>>)>>)]
+  frame 3 (17 bytes) / Supply(End) /
 [1, 7, 63_0(<<63_0(<<53846_1(h'47c390'), 13>>)>>)]
-  frame 2 (3 bytes) / End(Stream) /
+  frame 4 (3 bytes) / End(Stream) /
 [1, 9]
 
 direction B -> A
@@ -184,115 +136,75 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (566 bytes) / greeting /
+control item 1 (454 bytes) / greeting /
 24_0(<<{
     "listing": {
-        2: [
-            h'98ce6b5c36fe7a0218a33c8325d312de40ad00956663fcef',
-            0,
-        ],
-        3: [
-            h'0e16e3ba46d66cc627ebbf7e4c53edc3252b612f19451269',
-            0,
-        ],
-        6: [
-            h'e62c1736212d7818ba1ef6e117236c79c3c52ba6756262ae',
-            0,
-        ],
-        16: [
-            h'76673b9254ccdafd7fe01a59a0702a0108c6ea0c201c017f',
-            0,
-        ],
-        42_0: [
-            h'373cb2db2e49895b3f53deed27c14c831b1a41e2c2ee9be8',
-            0,
-        ],
-        54_0: [
-            h'baa315cab6fa94b0dd4c6d19e249f3bf33dba55c43593cc9',
-            0,
-        ],
-        57_0: [
-            h'131331730f28a4b4ba24c81f2e246f846a3d437f526c68ba',
-            0,
-        ],
-        98_0: [
-            h'73d8e46b8bdf6fe2d231fe4eb520cba7fe545ff1f2bb25c7',
-            1,
-        ],
-        99_0: [
-            h'd37d5a66a342164998f89098b66e1014ee757e14c9d7a41c',
-            0,
-        ],
-        166_0: [
-            h'cb9d7d244a3720ea5ae6d7984b229a6b1e95c6b708e2c5a0',
-            0,
-        ],
-        173_0: [
-            h'c427db6fe92e923509619eb51d8a601e31b985ac24a3baa2',
-            0,
-        ],
-        199_0: [
-            h'075fc1551304ec1fcd0a5039357ff30878164317327f1906',
-            0,
-        ],
-        202_0: [
-            h'1950ba7afb798fce15b3607511216a7ba874ade0e9f1d719',
-            0,
-        ],
-        232_0: [
-            h'a82ff6a5e3f64d4901f633ca61b549cfa54be033845641db',
-            0,
-        ],
-        241_0: [
-            h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2',
-            0,
-        ],
+        21: [h'bb39a97a1f87d8f038645a6fe08ec7f0', 0],
+        23: [h'866625f8edaa4c5a68daeed3b2e0b1b9', 0],
+        41_0: [h'f2b00f3a1193f0c44eb565f9380f9097', 0],
+        46_0: [h'0d5edd4bc1d50b15e816fe2c96b348c2', 0],
+        52_0: [h'de46946c1702936679f4c968bb67694c', 0],
+        57_0: [h'5c5d8a4ef83c9e6b53d74b6f040efb35', 0],
+        74_0: [h'd36885fb799243eff15435df75f838e2', 0],
+        80_0: [h'a36eefae6760ed0d56de1fb95bd5196e', 0],
+        95_0: [h'849236b77e779607bd2fcf39756bc383', 0],
+        108_0: [h'2cc08005de3f6d60e24d96dc3b4e9c91', 0],
+        116_0: [h'987f3ca4067398fa7d133f25d7cf33a2', 0],
+        178_0: [h'6a6fc899195cfcb8759af6cc1ee9c9b1', 0],
+        183_0: [h'38bb6863de2208cf3d4aeb79c6ccdb94', 0],
+        185_0: [h'78cbb4bc2d9ec026abc3d3778ab5dd5f', 0],
+        203_0: [h'df32e22c6a4f717c943034a8851280fb', 0],
+        244_0: [h'6e2286aec39268273ef07c5940f4885f', 0],
     },
     "set_len": 16,
     "version": 53846_1(h'7043'),
     "grandchildren": 16,
     "max_version_bytes": 2,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Initiator stream 1 (height 30), 272 wire bytes
+Initiator stream 1 (height 30), 278 wire bytes
   frame 0 (17 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'70cc'), 27_0>>)>>)]
-  frame 1 (17 bytes) / Supply(End) /
 [1, 7, 63_0(<<63_0(<<53846_1(h'70ec'), 29_0>>)>>)]
-  frame 2 (16 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'7130'), 19>>)>>)]
+  frame 1 (16 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'73c0'), 18>>)>>)]
+  frame 2 (17 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'70fc'), 30_0>>)>>)]
   frame 3 (16 bytes) / Supply(End) /
 [1, 7, 63_0(<<63_0(<<53846_1(h'708c'), 23>>)>>)]
-  frame 4 (17 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'70ac'), 25_0>>)>>)]
-  frame 5 (16 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'7170'), 20>>)>>)]
-  frame 6 (17 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'70dc'), 28_0>>)>>)]
-  frame 7 (17 bytes) / Supply(Continue) /
-[1, 6, 63_0(<<63_0(<<53846_1(h'70fc'), 30_0>>)>>)]
-  frame 8 (17 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'709c'), 24_0>>)>>)]
-  frame 9 (17 bytes) / Supply(Continue) /
-[1, 6, 63_0(<<63_0(<<53846_1(h'7043'), 31_0>>)>>)]
-  frame 10 (3 bytes) / QueryEmpty(End) /
+  frame 4 (16 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'7130'), 19>>)>>)]
+  frame 5 (3 bytes) / QueryEmpty(Continue) /
+[1, 2]
+  frame 6 (16 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'71f0'), 22>>)>>)]
+  frame 7 (16 bytes) / Supply(Continue) /
+[1, 6, 63_0(<<63_0(<<53846_1(h'72c0'), 17>>)>>)]
+  frame 8 (3 bytes) / QueryEmpty(End) /
 [1, 3]
-  frame 11 (16 bytes) / Supply(Continue) /
-[1, 6, 63_0(<<63_0(<<53846_1(h'71f0'), 22>>)>>)]
+  frame 9 (15 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'77'), 16>>)>>)]
+  frame 10 (17 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'70ac'), 25_0>>)>>)]
+  frame 11 (17 bytes) / Supply(Continue) /
+[1, 6, 63_0(<<63_0(<<53846_1(h'70dc'), 28_0>>)>>)]
   frame 12 (3 bytes) / QueryEmpty(End) /
 [1, 3]
-  frame 13 (16 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'72c0'), 17>>)>>)]
-  frame 14 (16 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'71b0'), 21>>)>>)]
+  frame 13 (17 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'70cc'), 27_0>>)>>)]
+  frame 14 (17 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'709c'), 24_0>>)>>)]
   frame 15 (17 bytes) / Supply(End) /
 [1, 7, 63_0(<<63_0(<<53846_1(h'70bc'), 26_0>>)>>)]
   frame 16 (16 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'73c0'), 18>>)>>)]
-  frame 17 (15 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'77'), 16>>)>>)]
-  frame 18 (3 bytes) / End(Stream) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'71b0'), 21>>)>>)]
+  frame 17 (16 bytes) / Supply(Continue) /
+[1, 6, 63_0(<<63_0(<<53846_1(h'7170'), 20>>)>>)]
+  frame 18 (3 bytes) / QueryEmpty(End) /
+[1, 3]
+  frame 19 (17 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'7043'), 31_0>>)>>)]
+  frame 20 (3 bytes) / End(Stream) /
 [1, 9]

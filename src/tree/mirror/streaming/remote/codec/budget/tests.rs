@@ -7,7 +7,7 @@ use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 /// assert loudly.
 #[test]
 fn default_budget_matches_its_derivation() {
-    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 2_092_544);
+    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 1_502_720);
     assert_eq!(RunBudget::default().bytes(), DEFAULT_TARGET_MESSAGE_SIZE);
 }
 

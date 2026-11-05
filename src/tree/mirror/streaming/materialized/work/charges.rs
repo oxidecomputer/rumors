@@ -487,7 +487,7 @@ pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usi
 /// - An answer's scope holds at most a fan of children, and a supplying
 ///   answer supplies at most a fan.
 ///
-/// The question at those arguments dominates, at about 2 MiB on the
+/// The question at those arguments dominates, at about 1.6 MiB on the
 /// in-memory backend, under a thousandth of `u32::MAX`: its listing entries
 /// are the one term that grows past a fan. The walk asserts at its construction that this fits the four
 /// bytes a charge counts in ([`assert_grants_fit`]).
@@ -566,7 +566,7 @@ const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
 /// which side it is, so the allowance is the larger of the two sides'
 /// sums.
 ///
-/// On the in-memory backend on 64-bit targets that is about 34 MiB, almost
+/// On the in-memory backend on 64-bit targets that is about 26 MiB, almost
 /// all of it the listings of the replies one question per depth can invite,
 /// a fan of fans of entries each.
 pub(crate) const fn floor_allowance<E: ErasedNode, Err>() -> usize {

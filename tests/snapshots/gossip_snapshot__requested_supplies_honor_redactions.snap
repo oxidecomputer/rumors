@@ -11,26 +11,21 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (154 bytes) / greeting /
+control item 1 (145 bytes) / greeting /
 24_0(<<{
-    "listing": {
-        142_0: [
-            h'3ddb8ec8897a61fed8827fda50bea5f4ec959f2ab9cf4826',
-            1,
-        ],
-    },
+    "listing": {116_0: [h'c687c44d90e28bf4b2000f687ecfc90f', 1]},
     "set_len": 2,
     "version": 53846_1(h'4002003000fff4'),
     "grandchildren": 2,
-    "max_version_bytes": 5,
+    "max_version_bytes": 6,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Initiator stream 1 (height 30), 23 wire bytes
-  frame 0 (20 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'4073403910'), 229_0>>)>>)]
+Initiator stream 1 (height 30), 25 wire bytes
+  frame 0 (22 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'401dbc00ed50'), 950_1>>)>>)]
   frame 1 (3 bytes) / End(Stream) /
 [1, 9]
 
@@ -43,39 +38,30 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (210 bytes) / greeting /
+control item 1 (182 bytes) / greeting /
 24_0(<<{
     "listing": {
-        30_0: [
-            h'ea962c263b019bd428a49dbac092f24ffb46a14a869077e0',
-            0,
-        ],
-        33_0: [
-            h'4e79398dd559d56b1b8353d7724c44d431918c96b4876923',
-            0,
-        ],
-        143_0: [
-            h'26ae24b07cd93ba2329a78559e9b77e820f8a3e9b99d928a',
-            0,
-        ],
+        0: [h'6df204e291a16d44d00cc85640e99af1', 0],
+        60_0: [h'20873e401929d2ccebf84f17efba13ff', 0],
+        110_0: [h'd855c40a696d4fd55c12880abbf20f87', 0],
     },
     "set_len": 3,
     "version": 53846_1(h'541ec0'),
     "grandchildren": 3,
     "max_version_bytes": 2,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
 Responder stream 0 (height 31), 60 wire bytes
   frame 0 (18 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'54b0'), 10000_1>>)>>)]
-  frame 1 (18 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'54f0'), 10001_1>>)>>)]
-  frame 2 (3 bytes) / QueryEmpty(Continue) /
-[0, 2]
-  frame 3 (18 bytes) / Supply(End) /
-[0, 7, 63_0(<<63_0(<<53846_1(h'544c'), 10002_1>>)>>)]
+  frame 1 (18 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'544c'), 10002_1>>)>>)]
+  frame 2 (18 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'54b0'), 10000_1>>)>>)]
+  frame 3 (3 bytes) / QueryEmpty(End) /
+[0, 3]
   frame 4 (3 bytes) / End(Stream) /
 [0, 9]

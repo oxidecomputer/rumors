@@ -9,7 +9,7 @@
 //!
 //! # One hash binds identity, causality, and placement
 //!
-//! Every message is stored at one address: the SHA3-256 hash of the
+//! Every message is stored at one address: the SHA-256 hash of the
 //! [`Version`](crate::Version) stamped on it at send time. Nothing else
 //! enters the address; it rests on the invariant the protocol already
 //! requires everywhere — no two sends ever share a version (a replica's
@@ -26,7 +26,7 @@
 //!   encodings without splitting identity — and no author of content can
 //!   steer where anything lands, or what any digest reads, by choosing
 //!   bytes. What that buys is stated under
-//!   [Twenty-four-byte digests](#twenty-four-byte-digests).
+//!   [Sixteen-byte digests](#sixteen-byte-digests).
 //!
 //! Version reuse — the only way two messages could claim one address —
 //! cannot arise: every send creates a fresh version (a tick strictly above
@@ -41,7 +41,7 @@
 //! uniformly, and the trie's shape is a pure function of its membership:
 //! two replicas holding the same set of messages hold the *same tree*,
 //! whatever order they learned it in. Each interior node memoizes two
-//! summaries of its subtree: a 24-byte digest (a truncation of SHA3-256)
+//! summaries of its subtree: a 16-byte digest (a truncation of SHA-256)
 //! and the ceiling and floor of its leaves' versions. The digest answers
 //! "do we hold the same things
 //! here?"; the version bounds answer "could anything here be news to a
@@ -138,11 +138,12 @@
 //! The outcome of a session: both replicas hold every message either held and
 //! neither had redacted when the session began.
 //!
-//! # Twenty-four-byte digests
+//! # Sixteen-byte digests
 //!
-//! The digests the descent compares are 24-byte truncations of SHA3-256
+//! The digests the descent compares are 16-byte truncations of SHA-256
 //! (truncating an approved hash is itself an approved hash of the shorter
-//! width: NIST SP 800-107 Rev. 1, §5.1).
+//! width: NIST SP 800-107 Rev. 1, §5.1). SHA-256 is the hash because
+//! current x86 and Arm processors compute it in hardware.
 //! Digest bytes dominate every dispute listing on the wire — they are the
 //! protocol's main metadata price — so the width is spent deliberately;
 //! leaf addresses in the tree remain full 32-byte hashes.
@@ -157,27 +158,25 @@
 //! holder deletes it. A landed false-equal permanently deletes the
 //! divergent messages fleet-wide.
 //!
-//! The acceptance is priced on the accident bound: a digest at prefix `P`
+//! The acceptance is priced on the accident bound. A digest at prefix `P`
 //! is only ever compared against the counterparty's digest at the same
-//! `P`, so a false-equal is a per-interior-comparison event at 2⁻¹⁹² —
-//! pairwise, never birthday-amplified across the tree's population — and
-//! at that bound it does not occur by accident at any realistic session
-//! volume.
+//! `P`, so under the uniform-hash model a false-equal is a
+//! per-comparison event at 2⁻¹²⁸, independent across comparisons:
+//! pairwise, never birthday-amplified across the tree's population. Take
+//! a deliberately absurd lifetime: a million peers, each running ten
+//! thousand sessions a day of a thousand comparisons each, for a century.
+//! That is about 2⁵⁸ comparisons, and the chance that any one of them is a
+//! false-equal is about 2⁻⁷⁰.
 //!
 //! Every compared digest is a pure function of the *version set*: a leaf's
 //! digest commits its address and its version, a branch's commits its
 //! children, and message bytes appear nowhere. An author of message
-//! content therefore contributes zero bits to any compared quantity — the
-//! offline content-grinding route to a collision is structurally gone, not
-//! merely priced. What could still contribute bits is influence over which
-//! versions get created (an actor steering gossip schedules steers the
-//! version set); against any such actor, the 24-byte width keeps the
-//! offline birthday floor at 2⁹⁶ evaluations, an unconditional bound that
-//! rests on no premise about capabilities. Hostile *peers* remain
+//! content therefore contributes zero bits to any compared quantity, and
+//! only authorized peers' clocks create versions. Hostile *peers* remain
 //! off-model entirely (see [when *shouldn't* you use
 //! it](crate#when-shouldnt-you-use-it)): peers hold write authority
-//! already, so no width buys anything against a member and none is priced
-//! here.
+//! already, so no width buys anything against a member, and the threat
+//! model leaves the accident bound as the whole calculation.
 //!
 //! # The bytes on the wire
 //!

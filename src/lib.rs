@@ -208,7 +208,7 @@
 //! keep the `BufReader` for the next session on the same connection, and
 //! never read the connection around it. The write half needs no wrapper: a
 //! session copies the messages it writes into a buffer of its own, about
-//! 64 KiB, and writes the buffer out whenever it would otherwise wait, so
+//! 63 KiB, and writes the buffer out whenever it would otherwise wait, so
 //! the messages written between flushes usually reach the write half as one
 //! write: one system call on a TCP socket, and one batch of records on a TLS
 //! stream. A session writes more often when more is ready at once than the

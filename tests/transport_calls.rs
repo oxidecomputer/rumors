@@ -311,7 +311,7 @@ const SIDES: u64 = 2;
 ///
 /// A session writes each control item with a plain write of its own,
 /// followed by a flush. It copies its frames into its write buffer, of
-/// about 64 KiB, and writes the buffer out as one plain write at each
+/// about 63 KiB, and writes the buffer out as one plain write at each
 /// flush, and before any frame that does not fit beside the buffered ones;
 /// a frame at least the buffer's size goes to the write half directly, as
 /// one vectored write where the half takes them whole. It flushes only
@@ -396,20 +396,20 @@ fn calls_match_the_baseline() {
         };
     let baseline = [
         (
-            calls(4, 14, 0, 6, 0, 6, 16_138, 0),
-            calls(4, 14, 0, 6, 0, 6, 16_138, 0),
+            calls(4, 14, 0, 6, 0, 6, 11_536, 0),
+            calls(4, 14, 0, 6, 0, 6, 11_536, 0),
         ),
         (
-            calls(203, 4_266, 3_384, 1_715, 0, 1_715, 128_718, 3_383),
-            calls(203, 4_266, 3_384, 1_715, 0, 1_715, 128_718, 3_383),
+            calls(210, 4_259, 3_381, 1_715, 0, 1_715, 96_831, 3_380),
+            calls(210, 4_259, 3_381, 1_715, 0, 1_715, 96_831, 3_380),
         ),
         (
-            calls(142, 1_686, 258, 135, 0, 135, 1_131_540, 257),
-            calls(142, 1_686, 258, 135, 0, 135, 1_131_540, 257),
+            calls(142, 1_688, 258, 135, 0, 135, 1_129_235, 257),
+            calls(142, 1_688, 258, 135, 0, 135, 1_129_235, 257),
         ),
         (
-            calls(5_919, 66_241, 15_253, 8_045, 0, 8_045, 1_392_526, 15_252),
-            calls(5_919, 66_241, 15_253, 8_045, 0, 8_045, 1_392_526, 15_252),
+            calls(5_915, 66_204, 15_254, 8_061, 0, 8_061, 1_341_502, 15_253),
+            calls(5_915, 66_204, 15_254, 8_061, 0, 8_061, 1_341_502, 15_253),
         ),
     ];
     for ((name, shape), (whole, sliced)) in fixtures().into_iter().zip(baseline) {

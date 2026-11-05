@@ -11,28 +11,23 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (151 bytes) / greeting /
+control item 1 (142 bytes) / greeting /
 24_0(<<{
-    "listing": {
-        154_0: [
-            h'fff22c04c986261bb486eb580d11a38f011b4c6b326f7a13',
-            1,
-        ],
-    },
+    "listing": {234_0: [h'127351b2f5b73d474c1b5f941b72e590', 1]},
     "set_len": 2,
     "version": 53846_1(h'40ff01f9'),
     "grandchildren": 2,
     "max_version_bytes": 3,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
 Initiator stream 1 (height 30), 37 wire bytes
-  frame 0 (18 bytes) / Supply(Continue) /
-[1, 6, 63_0(<<63_0(<<53846_1(h'437069'), 25_0>>)>>)]
-  frame 1 (16 bytes) / Supply(End) /
-[1, 7, 63_0(<<63_0(<<53846_1(h'4934'), 2>>)>>)]
+  frame 0 (16 bytes) / Supply(Continue) /
+[1, 6, 63_0(<<63_0(<<53846_1(h'5540'), 0>>)>>)]
+  frame 1 (18 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'437069'), 25_0>>)>>)]
   frame 2 (3 bytes) / End(Stream) /
 [1, 9]
 
@@ -45,39 +40,30 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (209 bytes) / greeting /
+control item 1 (181 bytes) / greeting /
 24_0(<<{
     "listing": {
-        173_0: [
-            h'c427db6fe92e923509619eb51d8a601e31b985ac24a3baa2',
-            0,
-        ],
-        232_0: [
-            h'a82ff6a5e3f64d4901f633ca61b549cfa54be033845641db',
-            0,
-        ],
-        241_0: [
-            h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2',
-            0,
-        ],
+        23: [h'866625f8edaa4c5a68daeed3b2e0b1b9', 0],
+        74_0: [h'd36885fb799243eff15435df75f838e2', 0],
+        80_0: [h'a36eefae6760ed0d56de1fb95bd5196e', 0],
     },
     "set_len": 3,
     "version": 53846_1(h'7077'),
     "grandchildren": 3,
     "max_version_bytes": 2,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
 Responder stream 0 (height 31), 59 wire bytes
-  frame 0 (3 bytes) / QueryEmpty(Continue) /
-[0, 2]
+  frame 0 (18 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'73c0'), 10002_1>>)>>)]
   frame 1 (18 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'72c0'), 10001_1>>)>>)]
-  frame 2 (18 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'73c0'), 10002_1>>)>>)]
-  frame 3 (17 bytes) / Supply(End) /
-[0, 7, 63_0(<<63_0(<<53846_1(h'77'), 10000_1>>)>>)]
+  frame 2 (17 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'77'), 10000_1>>)>>)]
+  frame 3 (3 bytes) / QueryEmpty(End) /
+[0, 3]
   frame 4 (3 bytes) / End(Stream) /
 [0, 9]

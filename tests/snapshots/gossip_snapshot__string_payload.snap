@@ -11,28 +11,23 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (149 bytes) / greeting /
+control item 1 (140 bytes) / greeting /
 24_0(<<{
-    "listing": {
-        121_0: [
-            h'9602973f461003f36f18b1ccb468d352b1f1a711efc1e963',
-            0,
-        ],
-    },
+    "listing": {234_0: [h'28eb4341723fbf4a01cf94c0d3d11969', 0]},
     "set_len": 1,
     "version": 53846_1(h'5540'),
     "grandchildren": 1,
     "max_version_bytes": 2,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
 Responder stream 0 (height 31), 27 wire bytes
-  frame 0 (21 bytes) / Supply(Continue) /
-[0, 6, 63_0(<<63_0(<<53846_1(h'5540'), "hello">>)>>)]
-  frame 1 (3 bytes) / QueryEmpty(End) /
-[0, 3]
+  frame 0 (3 bytes) / QueryEmpty(Continue) /
+[0, 2]
+  frame 1 (21 bytes) / Supply(End) /
+[0, 7, 63_0(<<63_0(<<53846_1(h'5540'), "hello">>)>>)]
   frame 2 (3 bytes) / End(Stream) /
 [0, 9]
 
@@ -45,20 +40,15 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (148 bytes) / greeting /
+control item 1 (139 bytes) / greeting /
 24_0(<<{
-    "listing": {
-        241_0: [
-            h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2',
-            0,
-        ],
-    },
+    "listing": {80_0: [h'a36eefae6760ed0d56de1fb95bd5196e', 0]},
     "set_len": 1,
     "version": 53846_1(h'77'),
     "grandchildren": 1,
     "max_version_bytes": 1,
     "payload_depth_limit": 256_1,
-    "target_message_size": 2092544_2,
+    "target_message_size": 1502720_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."

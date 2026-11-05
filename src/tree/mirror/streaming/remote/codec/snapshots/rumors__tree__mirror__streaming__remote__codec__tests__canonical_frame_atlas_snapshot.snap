@@ -19,8 +19,8 @@ Initiator
     Match(End): accepted len 3 hex 820101
     QueryEmpty(Continue): accepted len 3 hex 820102
     QueryEmpty(End): accepted len 3 hex 820103
-    Query(Continue): accepted len 33 hex 830104a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830105a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830104a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830105a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830106d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830107d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820108
@@ -30,8 +30,8 @@ Initiator
     Match(End): accepted len 3 hex 820201
     QueryEmpty(Continue): accepted len 3 hex 820202
     QueryEmpty(End): accepted len 3 hex 820203
-    Query(Continue): accepted len 33 hex 830204a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830205a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830204a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830205a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830206d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830207d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820208
@@ -41,8 +41,8 @@ Initiator
     Match(End): accepted len 3 hex 820301
     QueryEmpty(Continue): accepted len 3 hex 820302
     QueryEmpty(End): accepted len 3 hex 820303
-    Query(Continue): accepted len 33 hex 830304a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830305a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830304a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830305a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830306d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830307d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820308
@@ -52,8 +52,8 @@ Initiator
     Match(End): accepted len 3 hex 820401
     QueryEmpty(Continue): accepted len 3 hex 820402
     QueryEmpty(End): accepted len 3 hex 820403
-    Query(Continue): accepted len 33 hex 830404a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830405a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830404a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830405a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830406d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830407d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820408
@@ -63,8 +63,8 @@ Initiator
     Match(End): accepted len 3 hex 820501
     QueryEmpty(Continue): accepted len 3 hex 820502
     QueryEmpty(End): accepted len 3 hex 820503
-    Query(Continue): accepted len 33 hex 830504a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830505a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830504a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830505a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830506d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830507d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820508
@@ -74,8 +74,8 @@ Initiator
     Match(End): accepted len 3 hex 820601
     QueryEmpty(Continue): accepted len 3 hex 820602
     QueryEmpty(End): accepted len 3 hex 820603
-    Query(Continue): accepted len 33 hex 830604a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830605a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830604a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830605a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830606d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830607d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820608
@@ -85,8 +85,8 @@ Initiator
     Match(End): accepted len 3 hex 820701
     QueryEmpty(Continue): accepted len 3 hex 820702
     QueryEmpty(End): accepted len 3 hex 820703
-    Query(Continue): accepted len 33 hex 830704a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830705a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830704a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830705a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830706d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830707d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820708
@@ -96,8 +96,8 @@ Initiator
     Match(End): accepted len 3 hex 820801
     QueryEmpty(Continue): accepted len 3 hex 820802
     QueryEmpty(End): accepted len 3 hex 820803
-    Query(Continue): accepted len 33 hex 830804a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830805a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830804a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830805a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830806d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830807d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820808
@@ -107,8 +107,8 @@ Initiator
     Match(End): accepted len 3 hex 820901
     QueryEmpty(Continue): accepted len 3 hex 820902
     QueryEmpty(End): accepted len 3 hex 820903
-    Query(Continue): accepted len 33 hex 830904a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830905a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830904a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830905a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830906d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830907d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820908
@@ -118,8 +118,8 @@ Initiator
     Match(End): accepted len 3 hex 820a01
     QueryEmpty(Continue): accepted len 3 hex 820a02
     QueryEmpty(End): accepted len 3 hex 820a03
-    Query(Continue): accepted len 33 hex 830a04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830a05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830a04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830a05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830a06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830a07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820a08
@@ -129,8 +129,8 @@ Initiator
     Match(End): accepted len 3 hex 820b01
     QueryEmpty(Continue): accepted len 3 hex 820b02
     QueryEmpty(End): accepted len 3 hex 820b03
-    Query(Continue): accepted len 33 hex 830b04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830b05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830b04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830b05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830b06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830b07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820b08
@@ -140,8 +140,8 @@ Initiator
     Match(End): accepted len 3 hex 820c01
     QueryEmpty(Continue): accepted len 3 hex 820c02
     QueryEmpty(End): accepted len 3 hex 820c03
-    Query(Continue): accepted len 33 hex 830c04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830c05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830c04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830c05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830c06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830c07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820c08
@@ -151,8 +151,8 @@ Initiator
     Match(End): accepted len 3 hex 820d01
     QueryEmpty(Continue): accepted len 3 hex 820d02
     QueryEmpty(End): accepted len 3 hex 820d03
-    Query(Continue): accepted len 33 hex 830d04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830d05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830d04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830d05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830d06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830d07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820d08
@@ -162,8 +162,8 @@ Initiator
     Match(End): accepted len 3 hex 820e01
     QueryEmpty(Continue): accepted len 3 hex 820e02
     QueryEmpty(End): accepted len 3 hex 820e03
-    Query(Continue): accepted len 33 hex 830e04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830e05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830e04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830e05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830e06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830e07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820e08
@@ -173,8 +173,8 @@ Initiator
     Match(End): accepted len 3 hex 820f01
     QueryEmpty(Continue): accepted len 3 hex 820f02
     QueryEmpty(End): accepted len 3 hex 820f03
-    Query(Continue): accepted len 33 hex 830f04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830f05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830f04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830f05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830f06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830f07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820f08
@@ -196,8 +196,8 @@ Responder
     Match(End): accepted len 3 hex 820001
     QueryEmpty(Continue): accepted len 3 hex 820002
     QueryEmpty(End): accepted len 3 hex 820003
-    Query(Continue): accepted len 33 hex 830004a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830005a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830004a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830005a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830006d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830007d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820008
@@ -207,8 +207,8 @@ Responder
     Match(End): accepted len 3 hex 820101
     QueryEmpty(Continue): accepted len 3 hex 820102
     QueryEmpty(End): accepted len 3 hex 820103
-    Query(Continue): accepted len 33 hex 830104a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830105a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830104a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830105a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830106d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830107d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820108
@@ -218,8 +218,8 @@ Responder
     Match(End): accepted len 3 hex 820201
     QueryEmpty(Continue): accepted len 3 hex 820202
     QueryEmpty(End): accepted len 3 hex 820203
-    Query(Continue): accepted len 33 hex 830204a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830205a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830204a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830205a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830206d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830207d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820208
@@ -229,8 +229,8 @@ Responder
     Match(End): accepted len 3 hex 820301
     QueryEmpty(Continue): accepted len 3 hex 820302
     QueryEmpty(End): accepted len 3 hex 820303
-    Query(Continue): accepted len 33 hex 830304a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830305a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830304a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830305a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830306d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830307d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820308
@@ -240,8 +240,8 @@ Responder
     Match(End): accepted len 3 hex 820401
     QueryEmpty(Continue): accepted len 3 hex 820402
     QueryEmpty(End): accepted len 3 hex 820403
-    Query(Continue): accepted len 33 hex 830404a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830405a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830404a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830405a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830406d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830407d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820408
@@ -251,8 +251,8 @@ Responder
     Match(End): accepted len 3 hex 820501
     QueryEmpty(Continue): accepted len 3 hex 820502
     QueryEmpty(End): accepted len 3 hex 820503
-    Query(Continue): accepted len 33 hex 830504a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830505a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830504a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830505a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830506d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830507d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820508
@@ -262,8 +262,8 @@ Responder
     Match(End): accepted len 3 hex 820601
     QueryEmpty(Continue): accepted len 3 hex 820602
     QueryEmpty(End): accepted len 3 hex 820603
-    Query(Continue): accepted len 33 hex 830604a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830605a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830604a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830605a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830606d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830607d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820608
@@ -273,8 +273,8 @@ Responder
     Match(End): accepted len 3 hex 820701
     QueryEmpty(Continue): accepted len 3 hex 820702
     QueryEmpty(End): accepted len 3 hex 820703
-    Query(Continue): accepted len 33 hex 830704a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830705a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830704a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830705a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830706d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830707d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820708
@@ -284,8 +284,8 @@ Responder
     Match(End): accepted len 3 hex 820801
     QueryEmpty(Continue): accepted len 3 hex 820802
     QueryEmpty(End): accepted len 3 hex 820803
-    Query(Continue): accepted len 33 hex 830804a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830805a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830804a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830805a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830806d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830807d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820808
@@ -295,8 +295,8 @@ Responder
     Match(End): accepted len 3 hex 820901
     QueryEmpty(Continue): accepted len 3 hex 820902
     QueryEmpty(End): accepted len 3 hex 820903
-    Query(Continue): accepted len 33 hex 830904a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830905a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830904a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830905a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830906d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830907d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820908
@@ -306,8 +306,8 @@ Responder
     Match(End): accepted len 3 hex 820a01
     QueryEmpty(Continue): accepted len 3 hex 820a02
     QueryEmpty(End): accepted len 3 hex 820a03
-    Query(Continue): accepted len 33 hex 830a04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830a05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830a04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830a05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830a06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830a07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820a08
@@ -317,8 +317,8 @@ Responder
     Match(End): accepted len 3 hex 820b01
     QueryEmpty(Continue): accepted len 3 hex 820b02
     QueryEmpty(End): accepted len 3 hex 820b03
-    Query(Continue): accepted len 33 hex 830b04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830b05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830b04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830b05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830b06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830b07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820b08
@@ -328,8 +328,8 @@ Responder
     Match(End): accepted len 3 hex 820c01
     QueryEmpty(Continue): accepted len 3 hex 820c02
     QueryEmpty(End): accepted len 3 hex 820c03
-    Query(Continue): accepted len 33 hex 830c04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830c05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830c04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830c05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830c06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830c07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820c08
@@ -339,8 +339,8 @@ Responder
     Match(End): accepted len 3 hex 820d01
     QueryEmpty(Continue): accepted len 3 hex 820d02
     QueryEmpty(End): accepted len 3 hex 820d03
-    Query(Continue): accepted len 33 hex 830d04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830d05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830d04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830d05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830d06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830d07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820d08
@@ -350,8 +350,8 @@ Responder
     Match(End): accepted len 3 hex 820e01
     QueryEmpty(Continue): accepted len 3 hex 820e02
     QueryEmpty(End): accepted len 3 hex 820e03
-    Query(Continue): accepted len 33 hex 830e04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830e05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830e04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830e05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830e06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830e07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820e08
@@ -361,8 +361,8 @@ Responder
     Match(End): accepted len 3 hex 820f01
     QueryEmpty(Continue): accepted len 3 hex 820f02
     QueryEmpty(End): accepted len 3 hex 820f03
-    Query(Continue): accepted len 33 hex 830f04a10082581800000000000000000000000000000000000000000000000000
-    Query(End): accepted len 33 hex 830f05a10082581800000000000000000000000000000000000000000000000000
+    Query(Continue): accepted len 24 hex 830f04a10082500000000000000000000000000000000000
+    Query(End): accepted len 24 hex 830f05a10082500000000000000000000000000000000000
     Supply(Continue): accepted len 15 hex 830f06d83f49d83f46d9d25641e0f6
     Supply(End): accepted len 15 hex 830f07d83f49d83f46d9d25641e0f6
     End(Reply): accepted len 3 hex 820f08

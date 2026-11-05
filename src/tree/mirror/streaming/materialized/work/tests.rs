@@ -332,7 +332,7 @@ fn level_error_passes_through() {
 }
 
 /// The floor allowance of a walk over the in-memory backend is the "about
-/// 34 MiB" its documentation states, on the 64-bit targets the figure is
+/// 26 MiB" its documentation states, on the 64-bit targets the figure is
 /// measured on.
 #[cfg(target_pointer_width = "64")]
 #[test]
@@ -340,8 +340,8 @@ fn the_floor_allowance_is_the_documented_figure() {
     const MIB: usize = 1 << 20;
     let allowance = super::floor_allowance::<Erased, Infallible>();
     assert!(
-        (33 * MIB + MIB / 2..34 * MIB + MIB / 2).contains(&allowance),
-        "the floor allowance is {allowance} B, not about 34 MiB",
+        (25 * MIB + MIB / 2..26 * MIB + MIB / 2).contains(&allowance),
+        "the floor allowance is {allowance} B, not about 26 MiB",
     );
 }
 

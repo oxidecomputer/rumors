@@ -743,7 +743,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   each level of its comparison, which a session can always hold,
     ///   whatever else waits, and which is how it always makes progress.
     ///   The allowance is the most that work can hold at once, about
-    ///   34 MiB on the in-memory replica on 64-bit targets, whatever the
+    ///   26 MiB on the in-memory replica on 64-bit targets, whatever the
     ///   sets' sizes.
     ///
     /// A session admits the rest of its work against the budget less the
@@ -825,7 +825,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// decoded), plus one run per direction that the reader holds while a
     /// level's queue is full. A run whose frame (the run and a few bytes of
     /// framing) is smaller than the sending side's write buffer, about
-    /// 64 KiB, is copied into it as it is written. The receiver decodes each run's encoded bytes
+    /// 63 KiB, is copied into it as it is written. The receiver decodes each run's encoded bytes
     /// as it goes, handing each leaf to the storage backend as it is read
     /// and holding a fixed number of constructed leaves per level on their
     /// way to assembly, whatever this setting. Each session therefore runs at

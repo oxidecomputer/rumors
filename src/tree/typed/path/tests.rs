@@ -4,15 +4,15 @@ use crate::tree::arb::arb_version;
 
 use super::super::{Prefix, height};
 use super::*;
-use sha3::Digest;
+use sha2::Digest;
 
 proptest! {
-    /// A normal leaf address is SHA3-256 of its canonical version bytes.
+    /// A normal leaf address is SHA-256 of its canonical version bytes.
     #[test]
     fn for_leaf_is_the_full_width_version_hash(version in arb_version()) {
-        let expected: [u8; 32] = sha3::Sha3_256::digest(version.as_bytes()).into();
+        let expected: [u8; PATH_LEN] = sha2::Sha256::digest(version.as_bytes()).into();
         let path = Path::for_leaf(&version);
-        prop_assert_eq!(<[u8; 32]>::from(path), expected);
+        prop_assert_eq!(<[u8; PATH_LEN]>::from(path), expected);
     }
 
     /// Nested fixtures replace only their thread's mapping and restore it

@@ -380,36 +380,37 @@ fn stream_face_matches_and_terminates() {
 ///
 /// Delivery is in path order (the hash of the version), not causal
 /// order, so a stopped
-/// pass can have delivered `m2` (later version) but not `m1` (earlier);
-/// the fold then causally contains `m1`, and resuming from it skips `m1`
-/// forever — loss, not re-delivery. `UnorderedMessages::checkpoint()` (the
-/// last *completed* pass's frontier) re-delivers instead, which is why the
-/// API exposes the pass checkpoint and not a per-item fold.
+/// pass can have delivered a later version but not the earliest one; the
+/// fold then causally contains the earliest, and resuming from it skips
+/// that message forever — loss, not re-delivery.
+/// `UnorderedMessages::checkpoint()` (the last *completed* pass's frontier)
+/// re-delivers instead, which is why the API exposes the pass checkpoint
+/// and not a per-item fold.
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
-    // The counterexample shape: the *later*-created of two messages is
-    // delivered first. A leaf's path is the hash of its version, and two
-    // sends from a fresh seed make the same two versions in every universe
-    // (a universe's identifier never enters a version), so their path order
-    // is fixed; it puts the later version first.
-    let later_value = 1u64;
+    // The counterexample shape: a later-created message is delivered
+    // before the earliest. A leaf's path is the hash of its version, and
+    // successive sends from a fresh seed make the same versions in every
+    // universe (a universe's identifier never enters a version), so their
+    // path order is fixed. Send until it puts a later version first.
+    const MAX_SENDS: u64 = 16;
+    const EARLIEST: u64 = 0;
     let rumors = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-    rumors.send(0).unwrap();
-    rumors.send(later_value).unwrap();
-    let snapshot = rumors.snapshot();
-    let first_yielded = snapshot.iter().next().expect("two live messages");
-    assert_eq!(
-        *first_yielded.1, later_value,
-        "the two sends' paths must put the later version first"
-    );
-    drop(snapshot);
+    let sent = (EARLIEST..MAX_SENDS)
+        .find_map(|value| {
+            rumors.send(value).unwrap();
+            let snapshot = rumors.snapshot();
+            let (_, first) = snapshot.iter().next().expect("a live message");
+            (*first != EARLIEST).then_some(value + 1)
+        })
+        .expect("within a few sends, a later version's path sorts first");
 
-    // Deliver exactly one item — the later version — and stop mid-pass.
+    // Deliver exactly one item — a later version — and stop mid-pass.
     let mut obs = rumors.unordered_messages();
     let Step::Item((delivered_version, delivered_value)) = step(&mut obs) else {
         panic!("the populated set delivers an item");
     };
-    assert_eq!(delivered_value, later_value, "the later version came first");
+    assert_ne!(delivered_value, EARLIEST, "a later version came first");
 
     // The unsound resume: fold the delivered version into genesis.
     let fold = {
@@ -420,17 +421,17 @@ fn folding_delivered_versions_can_lose_a_message() {
     let mut resumed_from_fold = rumors.unordered_messages_since(fold);
     let (items, _) = drain(&mut resumed_from_fold);
     assert!(
-        items.is_empty(),
-        "the fold causally contains the never-delivered message: it is lost"
+        items.iter().all(|(_, value)| *value != EARLIEST),
+        "the fold causally contains the never-delivered earliest message: it is lost"
     );
 
     // The sound resume: the observer's pass checkpoint (genesis — no pass
-    // completed) re-delivers both messages. At-least-once, never loss.
+    // completed) re-delivers every message. At-least-once, never loss.
     let mut resumed_from_checkpoint = rumors.unordered_messages_since(obs.checkpoint().clone());
     let (items, _) = drain(&mut resumed_from_checkpoint);
     assert_eq!(
-        items.len(),
-        2,
+        items.len() as u64,
+        sent,
         "the pass checkpoint re-delivers the interrupted pass instead of losing"
     );
 }

@@ -1395,7 +1395,7 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// claims under the invitation share let its questions take it, and the
 /// floor slots hold one more unit per depth and kind beside it: each peak
 /// is at most the 8 MiB budget plus its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_380_172, 8_469_588];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_012_476, 8_467_888];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
@@ -1403,7 +1403,7 @@ const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_380_172, 8_469_588];
 ///
 /// A claim reserves room for processing still to come, so a side's peak
 /// can stay below its budget.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [28_336_504, 33_568_372];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [28_085_064, 33_568_076];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.

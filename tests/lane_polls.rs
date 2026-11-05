@@ -174,10 +174,10 @@ fn lane_polls_per_frame_match_the_baseline() {
     assert_eq!(
         tally,
         Tally {
-            polls: 8_802,
-            frames: 4_279,
-            polled: 6_702,
-            unstaged: 141_031,
+            polls: 8_821,
+            frames: 4_292,
+            polled: 6_730,
+            unstaged: 141_327,
         }
     );
 }

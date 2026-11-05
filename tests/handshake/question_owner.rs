@@ -7,8 +7,7 @@
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors, Version};
-use sha3::Digest;
+use rumors::{Peer, Rumors};
 
 use rumors_testkit::common::gossip_snapshot::capture_gossip_returning;
 use rumors_testkit::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
@@ -86,9 +85,7 @@ fn divergent_root_child_has_one_question_owner() {
     keep_only(&b, ballast_from, ballast_pool, &ballast);
 
     // Fixture self-checks: one shared radix, disputed; the subtree holder
-    // is the smaller set and initiates. A leaf's path is the full-width
-    // SHA3-256 hash of its version's canonical bytes.
-    let path_radix = |version: &Version| sha3::Sha3_256::digest(version.as_bytes())[0];
+    // is the smaller set and initiates.
     let apaths: Vec<u8> = a.snapshot().versions().map(path_radix).collect();
     assert_eq!(apaths.len(), 2, "the initiator holds the sibling pair");
     assert_eq!(

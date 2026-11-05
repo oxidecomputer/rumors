@@ -9,6 +9,9 @@
 //! followed by the tagged payload item. Equivalent spellings of the envelope
 //! do not affect integrity. The payload itself is opaque bytes until its hash
 //! has been checked; any change to those bytes changes the checksum input.
+//! The checksum belongs to the stored format, not to the gossip protocol, so
+//! it stays SHA3-256 whichever hash the protocol's paths and digests use:
+//! nothing stored here derives from those.
 //!
 //! The payload stores networks newest-first and identities oldest-first, with
 //! one shared write frontier per network. Serde owns the CBOR encoding at both

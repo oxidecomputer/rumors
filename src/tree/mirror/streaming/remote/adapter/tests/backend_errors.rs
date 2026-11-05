@@ -12,6 +12,7 @@ use crate::tree::{
     },
     typed::{
         Prefix,
+        hash::PATH_LEN,
         height::{Height, S},
     },
 };
@@ -229,6 +230,24 @@ fn assert_encode_failure(error: EncodeError<Failure<Infallible>>, expected: Oper
     }
 }
 
+/// The first fixture leaf whose path byte at every level lies in
+/// `2..u8::MAX`, so the supply radix at each height has two lower radixes
+/// and one higher radix beside it.
+///
+/// A leaf's path is the hash of its version, so the search is deterministic;
+/// each candidate qualifies with probability about (253/256)³², about 0.7.
+fn interior_radix_leaf() -> LeafCase {
+    const CANDIDATES: u64 = 64;
+    (0..CANDIDATES)
+        .map(|offset| LeafCase::new(0xfeed_face + offset, 7))
+        .find(|leaf| {
+            <[u8; PATH_LEN]>::from(leaf.path())
+                .iter()
+                .all(|radix| (2..u8::MAX).contains(radix))
+        })
+        .expect("some early candidate has every path byte away from both ends")
+}
+
 /// Require the exact injected operation in a decoder failure.
 fn assert_decode_failure(error: DecodeError<Failure<Infallible>>, expected: Operation) {
     match error {
@@ -242,7 +261,7 @@ fn assert_decode_failure(error: DecodeError<Failure<Infallible>>, expected: Oper
 /// later work; decoding leaves the following reply untouched.
 #[test]
 fn backend_source_failures_are_exhaustive_and_atomic() {
-    let leaf = LeafCase::new(0xfeed_face, 7);
+    let leaf = interior_radix_leaf();
     let runtime = runtime();
     for height in 1..32 {
         at_height!(

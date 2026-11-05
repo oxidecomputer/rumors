@@ -21,7 +21,7 @@
 //!   its subtree — a pure function of the version set, blind to message
 //!   bytes — so replicas can prune agreement wholesale: the engine of
 //!   the [`mirror`] protocol's divergence-proportional cost. The Merkle
-//!   hash is a 24-byte truncation, deliberately narrower than the 32-byte
+//!   hash is a 16-byte truncation, deliberately narrower than the 32-byte
 //!   version address: a comparison signal tolerates truncation that an
 //!   identity cannot (see [`typed::Hash`] for the asymmetry argument).
 //! - **Uniform spread.** Hashed paths are uniform, so the trie is

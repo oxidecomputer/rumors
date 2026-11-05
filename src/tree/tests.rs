@@ -195,7 +195,8 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
 }
 
 /// An empty tree's root hash must match the reference: the prefixless branch
-/// with no children, `sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`.
+/// with no children, `sha256(BRANCH_TAG ‖ 0 ‖ 0u16)` truncated to the
+/// comparison width.
 #[test]
 fn empty_tree_hash_matches_reference() {
     let tree: Tree<Bytes> = Tree::new();

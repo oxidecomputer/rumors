@@ -36,7 +36,7 @@ use rumors::observe::{
 };
 use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Rumors, Version};
 use rumors_testkit::bench::latency;
-use sha3::Digest;
+use rumors_testkit::common::shape::path_radix;
 use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use tokio::time::Instant;
 
@@ -487,7 +487,7 @@ fn trace_redaction_session() {
 /// The staging requires the initiator's two leaf paths to share their
 /// first byte while its ballast counterpart's three land under other root
 /// radices, so no root child is populated on both sides and the session is
-/// pure transfer in both directions. A leaf's path is the SHA3-256 hash of
+/// pure transfer in both directions. A leaf's path is the SHA-256 hash of
 /// its version's canonical bytes, so the shape is a property of the created
 /// version sequence; the self-checks below verify it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
@@ -497,7 +497,6 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     // paths land the shape, redact the rest. The left peer keeps exactly two leaves sharing a root radix;
     // the right keeps three ballast leaves outside it and advertises the
     // larger set.
-    let path_radix = |version: &Version| sha3::Sha3_256::digest(version.as_bytes())[0];
     let keep_only = |rumors: &Rumors<u64>, keep: &[u64]| {
         let losers: Vec<Version> = rumors
             .snapshot()

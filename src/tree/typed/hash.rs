@@ -1,33 +1,58 @@
 use std::fmt::{self, Debug};
 use std::sync::LazyLock;
 
-use sha3::{Digest, Sha3_256};
+use sha2::{Digest, Sha256};
 
 /// Width in bytes of the subtree comparison digests exchanged during gossip.
-pub(crate) const MERKLE_HASH_LEN: usize = 24;
+///
+/// [`struct@Hash`] gives the margin calculation that justifies this width.
+pub(crate) const MERKLE_HASH_LEN: usize = 16;
 
-/// Bytes in a leaf address: the full SHA3-256 output, one byte per tree level.
+/// Bytes in a leaf address: the full SHA-256 output, one byte per tree level.
 pub const PATH_LEN: usize = 32;
 
-/// A subtree comparison digest: the leading 24 bytes of SHA3-256.
+/// A subtree comparison digest: the leading 16 bytes of SHA-256.
 ///
 /// Peers compare these digests at the same trie position. Leaf hashes depend
 /// on version-derived paths; branch hashes combine their prefix and ordered
 /// child hashes. Message payloads do not enter either calculation.
 ///
-/// Each listed child carries a digest, so using 24 bytes instead of 32 saves
-/// eight bytes per entry. Under the crate's uniform-hash model, two unequal
-/// inputs match with probability 2⁻¹⁹² per comparison. Only corresponding
-/// subtrees are compared, so the risk grows with those comparisons, rather
-/// than with every possible pair of nodes in the tree. The margin matters:
-/// a false match skips data exchange, and advancing the shared causal history
-/// can then cause missing messages to be treated as redacted.
+/// Both these digests and leaf paths use SHA-256 because current processors
+/// compute it in hardware: the SHA extensions on x86 and the SHA-2
+/// extensions on Arm. `sha2` detects them at run time on x86, and on Arm
+/// under Linux, Android, and Apple's systems; elsewhere it uses them only
+/// when the build enables the target feature.
 ///
-/// Leaf paths instead use the full 32-byte [`PathHash`]. A path is a storage
-/// address: a collision between any two versions would make them occupy the
-/// same slot. Keeping all 256 bits makes that risk negligible across the
-/// whole population of versions, whose number of possible pairs grows
-/// quadratically.
+/// # Width
+///
+/// Each listed child carries a digest, so the width is the largest part of
+/// a listing's cost on the wire, and we choose it as narrow as the failure
+/// it risks allows. That failure is a *false match*: two differing subtrees
+/// whose digests agree. A false match is silent loss. The descent settles
+/// that comparison and skips the data exchange beneath it, so neither side
+/// learns of the messages the other holds there, and once the shared causal
+/// history advances past them, the causal sieve treats the missing messages
+/// as redacted.
+///
+/// Under the crate's uniform-hash model, a comparison between corresponding
+/// subtrees falsely matches with probability 2⁻⁸ʷ for a width of `w` bytes,
+/// independently per comparison: 2⁻¹²⁸ at 16 bytes. Only corresponding
+/// subtrees are compared, so the risk grows with the number of comparisons,
+/// not with the number of pairs of nodes in either tree. Take a deliberately
+/// absurd lifetime: 10⁶ peers, each running 10⁴ sessions a day of 10³
+/// comparisons each, for 36,500 days. That is about 3.7 × 10¹⁷ comparisons,
+/// or 2⁵⁸, so the chance of any false match over that whole lifetime is at
+/// most about 2⁵⁸ × 2⁻¹²⁸ = 2⁻⁷⁰.
+///
+/// The threat model does not change this calculation. Hostile peers are
+/// outside it, only authorized peers' clocks produce versions, and message
+/// payloads enter no digest.
+///
+/// Leaf paths instead keep the full 32-byte [`PathHash`]. A path is a storage
+/// address: a collision between *any* two versions would make them occupy
+/// the same slot, so that risk grows with the number of pairs of versions,
+/// quadratically in the number of versions. Keeping all 256 bits makes it
+/// negligible across the whole population of versions.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
 pub struct Hash([u8; MERKLE_HASH_LEN]);
@@ -89,7 +114,7 @@ impl Hash {
             u8::try_from(suffix.len()).expect("a compressed span fits in one length byte");
         // Successive updates hash the concatenated input without allocating
         // a temporary buffer for the header and suffix.
-        let mut hash = Sha3_256::new();
+        let mut hash = Sha256::new();
         hash.update([LEAF_TAG, suffix_len]);
         hash.update(suffix);
         PathHash(hash.finalize().into()).truncate()
@@ -117,7 +142,8 @@ impl Hash {
     /// Panics if `prefix` exceeds 255 bytes. Unreachable through the typed
     /// tree, whose height cap bounds compressed spans at the 32-byte path.
     pub fn branch(prefix: &[u8], children: impl IntoIterator<Item = (u8, Hash)>) -> Self {
-        // A contiguous input lets SHA3 absorb complete blocks directly.
+        // A contiguous input lets SHA-256 compress complete blocks directly
+        // from it, rather than copying each field into its block buffer.
         // `benches/branch_hash.rs` compares this with updates for each field.
         // The tree's child iterators have exact size hints, so one allocation
         // holds the prefix and every child record.
@@ -160,7 +186,7 @@ impl Hash {
     }
 
     /// The hash of the empty tree: a prefixless branch with no children,
-    /// `sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`.
+    /// `sha256(BRANCH_TAG ‖ 0 ‖ 0u16)`, truncated to the Merkle width.
     pub fn empty_root() -> Self {
         /// The fixed empty-root digest, computed on first use.
         static EMPTY_ROOT: LazyLock<Hash> = LazyLock::new(|| Hash::branch(&[], []));
@@ -189,7 +215,7 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
     }
 }
 
-/// A full-width, 32-byte SHA3-256 digest used to derive leaf paths.
+/// A full-width, 32-byte SHA-256 digest used to derive leaf paths.
 ///
 /// [`Path::for_leaf`](super::Path::for_leaf) hashes a version's canonical
 /// encoding at this width. Any two versions sharing an address would compete
@@ -209,7 +235,7 @@ impl Debug for PathHash {
 impl PathHash {
     /// One-shot full-width hash of a contiguous byte slice.
     pub fn of(bytes: &[u8]) -> Self {
-        PathHash(Sha3_256::digest(bytes).into())
+        PathHash(Sha256::digest(bytes).into())
     }
 
     /// Truncate to the Merkle width: the leading [`MERKLE_HASH_LEN`] bytes.
