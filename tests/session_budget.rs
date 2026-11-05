@@ -260,10 +260,21 @@
 //! report must count exactly the units its ledger counted waiting
 //! ([`SessionStats::budget_waits`]), the user's view of the same constraint.
 //!
+//! # Network seeds
+//!
+//! A committed figure holds for one tree shape, and so for one network
+//! secret: the ledger peaks, and the reference session's peak, which bounds
+//! every other session's setup. The tests that commit figures, the held-back
+//! fixtures built on the same sessions, and the reference session fork the
+//! network [`BUDGET_NETWORK_SEED`] names, and also check every bound there.
+//! Every other test states a claim for every network, so it draws its
+//! network's seed as a property input: the schedule search, the redacting
+//! and placed fixtures, and the hop sweep.
+//!
 //! # Hops against the budget
 //!
-//! A larger budget must never make a session slower. One test sweeps a
-//! fixed fixture across budgets on the held link, releasing every byte at
+//! A larger budget must never make a session slower. One test sweeps one
+//! fixture across budgets on the held link, releasing every byte at
 //! every stall, where each release is one hop and the count is exact,
 //! independent of time and load
 //! ([`hops_never_rise_with_the_budget`]). The sweep needs no trace, so it
@@ -284,9 +295,7 @@ use alloc_meter::{
 use link::{Drive, Held, Link, Portion, Release, Side, drive, polling, prepare_pacing};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use proptest::test_runner::TestRunner;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
+use proptest::test_runner::{Config, TestRunner};
 use rumors::testing::{
     Admission, COMPARISON_FRAME_BYTES, HASHING_SCRATCH_BYTES, Holding, LANE_CAPACITY, LedgerChange,
     OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, SESSION_STREAMS, assembly_allowance,
@@ -295,7 +304,10 @@ use rumors::testing::{
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::bench::session::admitting;
+use rumors_testkit::common::property::divided_cases;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
+use rumors_testkit::divided_proptest;
 use tokio::io::BufReader;
 
 /// Messages each side of the per-budget fixtures holds that the other
@@ -363,8 +375,12 @@ struct Fixture {
 /// The first value of side `B`'s messages; side `A`'s start at zero.
 const B_VALUES: u64 = 1_000_000;
 
-/// Builds two forks of one fresh network, holding `messages` messages, in
-/// [`Side::BOTH`] order, that the other lacks.
+/// The seed of the network every fixture with committed figures forks, and
+/// the reference session's (see [the module docs](self#network-seeds)).
+const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001);
+
+/// Builds two forks of the network `network` names, holding `messages`
+/// messages, in [`Side::BOTH`] order, that the other lacks.
 ///
 /// Each fork runs on the suite's run target and on a memory budget whose
 /// ledger admits work against `budget` ([`admitting`]).
@@ -372,34 +388,19 @@ const B_VALUES: u64 = 1_000_000;
 /// The network first holds `redacted` messages both forks receive, which
 /// side `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with
 /// leaves `A`'s version knows and `B` must not resend.
-fn fixture(messages: [u64; 2], redacted: u64, budget: usize) -> Fixture {
-    seeded_fixture(
-        || Peer::<u64>::seed().into_rumors(),
-        messages,
-        redacted,
-        budget,
-    )
-}
-
-/// Builds the forks [`fixture`] builds, of the network `seed` starts.
 ///
 /// `A`'s messages are the values from 0 and `B`'s from [`B_VALUES`], so a
 /// message's value names its side and its place among that side's sends.
-/// A seed that makes the network reproducible makes every message's
-/// version reproducible too, since forking and sending are deterministic.
-fn seeded_fixture(
-    seed: impl FnOnce() -> Rumors<u64>,
-    messages: [u64; 2],
-    redacted: u64,
-    budget: usize,
-) -> Fixture {
+/// The seed makes the network reproducible, and with it every message's
+/// version, since forking and sending are deterministic.
+fn fixture(network: NetworkSeed, messages: [u64; 2], redacted: u64, budget: usize) -> Fixture {
     let configure = |peer: Peer<u64>| {
         peer.sync_memory_budget(admitting(budget))
             .target_message_size(COMPARISON_FRAME_BYTES)
     };
     let (built, [a, b]) = measure(|| {
         block_on(async {
-            let seed = seed();
+            let seed = network.peer::<u64>().into_rumors();
             seed.send_all((0..redacted).map(|value| 2_000_000 + value))
                 .expect("the shared messages encode");
             [
@@ -751,9 +752,9 @@ fn report(holding: Holding, bytes: usize) {
     }
 }
 
-/// Runs one session between the peers [`fixture`] builds, both on
-/// `budget`, over the held link released by `schedule`, and classifies what
-/// it allocated.
+/// Runs one session between the peers [`fixture`] builds from `network`,
+/// both on `budget`, over the held link released by `schedule`, and
+/// classifies what it allocated.
 ///
 /// The peers hold `messages` messages, in [`Side::BOTH`] order, that the
 /// other lacks, and `redacted` more that both received and `A` redacted.
@@ -763,13 +764,14 @@ fn report(holding: Holding, bytes: usize) {
 /// Panics if the session fails, if a trace overflows its reservation, or if
 /// a surviving block outlives both its peer and its replica.
 fn run_session(
+    network: NetworkSeed,
     messages: [u64; 2],
     redacted: u64,
     budget: usize,
     schedule: impl FnMut([usize; 2]) -> Release,
 ) -> Run {
     run_fixture(
-        || fixture(messages, redacted, budget),
+        || fixture(network, messages, redacted, budget),
         messages,
         budget,
         schedule,
@@ -917,7 +919,7 @@ fn run_fixture(
 fn reference() -> &'static Run {
     static REFERENCE: OnceLock<Run> = OnceLock::new();
     REFERENCE.get_or_init(|| {
-        run_session([REFERENCE_MESSAGES; 2], 0, 0, |_| {
+        run_session(BUDGET_NETWORK_SEED, [REFERENCE_MESSAGES; 2], 0, 0, |_| {
             Release::bytes([Portion::All; 2])
         })
     })
@@ -946,21 +948,28 @@ struct Measured {
 
 impl Measured {
     /// Measures the session [`run_session`] runs between fully divergent
-    /// peers, beside the bounds it is judged against.
-    fn new(messages: u64, budget: usize, schedule: impl FnMut([usize; 2]) -> Release) -> Self {
-        Self::redacting(messages, 0, budget, schedule)
+    /// forks of the network `network` names, beside the bounds it is judged
+    /// against.
+    fn new(
+        network: NetworkSeed,
+        messages: u64,
+        budget: usize,
+        schedule: impl FnMut([usize; 2]) -> Release,
+    ) -> Self {
+        Self::redacting(network, messages, 0, budget, schedule)
     }
 
     /// Measures the session [`run_session`] runs with `redacted` shared
     /// messages that side `A` redacted, beside the bounds it is judged
     /// against.
     fn redacting(
+        network: NetworkSeed,
         messages: u64,
         redacted: u64,
         budget: usize,
         schedule: impl FnMut([usize; 2]) -> Release,
     ) -> Self {
-        let run = run_session([messages; 2], redacted, budget, schedule);
+        let run = run_session(network, [messages; 2], redacted, budget, schedule);
         Self::of(messages, redacted, budget, run)
     }
 
@@ -1371,12 +1380,15 @@ fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
 /// Measures one fully divergent session at `budget` under `schedule`,
 /// prints its report, and asserts it passes the bounds and `reached`, which
 /// returns why the session failed to reach the state its test targets.
+///
+/// The session's peers hold [`MESSAGES`] messages each, and are forks of the
+/// network [`BUDGET_NETWORK_SEED`] names.
 fn assert_budget_holds(
     budget: usize,
     schedule: impl FnMut([usize; 2]) -> Release,
     reached: impl Fn(&Measured) -> Option<String>,
 ) {
-    let measured = Measured::new(MESSAGES, budget, schedule);
+    let measured = Measured::new(BUDGET_NETWORK_SEED, MESSAGES, budget, schedule);
     println!("{}", measured.report());
     if let Some(violation) = violation(&measured).or_else(|| reached(&measured)) {
         panic!("{violation}");
@@ -1536,7 +1548,12 @@ fn held_back_assembly_bounds_the_transient_peak() {
 /// session [`assert_budget_holds`] measures at [`WIDE_BUDGET`] with nothing
 /// held back: the peak a held-back fixture must exceed.
 fn unheld_wide_peaks(holding: Holding) -> [usize; 2] {
-    let unheld = Measured::new(MESSAGES, WIDE_BUDGET, release_everything);
+    let unheld = Measured::new(
+        BUDGET_NETWORK_SEED,
+        MESSAGES,
+        WIDE_BUDGET,
+        release_everything,
+    );
     Side::BOTH.map(|side| unheld.holding(side, holding).transient_peak)
 }
 
@@ -1592,14 +1609,25 @@ fn arb_release() -> impl Strategy<Value = Release> {
         .prop_map(|(bytes, held)| Release { bytes, held })
 }
 
-/// Cases [`any_release_schedule_keeps_the_bound`] runs: each builds two
-/// [`SEARCH_MESSAGES`]-message replicas and runs a session, a few seconds
-/// of work, so the count is fixed rather than raised with CI's.
-const SCHEDULE_CASES: u32 = 12;
+/// The divisor of [`any_release_schedule_keeps_the_bound`]'s case count.
+///
+/// Each case builds two [`SEARCH_MESSAGES`]-message replicas and runs a
+/// traced session, a few seconds of work in a debug build, so the default
+/// count runs about a dozen cases.
+const SCHEDULE_DIVISOR: u32 = 20;
 
 /// Shrink iterations [`any_release_schedule_keeps_the_bound`] spends on a
-/// failure, for the same reason.
+/// failure: each costs a case's few seconds.
 const SCHEDULE_SHRINK_ITERS: u32 = 24;
+
+/// The divisor of the case count of a test that builds replicas of
+/// thousands of messages and runs one or more whole sessions: the redacting
+/// and placed fixtures and the hop sweep.
+///
+/// A case costs seconds to tens of seconds in a debug build, as much as the
+/// default count's whole run of ordinary cases, so the default count runs
+/// one case and a raised count one per this many.
+const WHOLE_FIXTURE_DIVISOR: u32 = 256;
 
 /// Under any release schedule, each place a peer's session keeps in-flight
 /// state stays within its bound, and each peer's whole transient peak stays
@@ -1614,21 +1642,24 @@ const SCHEDULE_SHRINK_ITERS: u32 = 24;
 /// the other, and any of a side's walk stages, assemblers, encoders, and
 /// decoders can stall while the rest run.
 ///
-/// The property runs exactly [`SCHEDULE_CASES`] cases. Its runner is built
-/// here rather than by the `proptest!` macro, which would let
-/// `PROPTEST_CASES` replace the configured count; it keeps the macro's
-/// failure persistence by naming this file.
+/// The claim holds for every network seed, drawn after the schedule.
+///
+/// The property runs the configured case count divided by
+/// [`SCHEDULE_DIVISOR`], and shrinks a failure for at most
+/// [`SCHEDULE_SHRINK_ITERS`] iterations. Its runner is built here rather
+/// than by `divided_proptest!`, which keeps proptest's shrink budget; it
+/// keeps the macro's failure persistence by naming this file.
 #[test]
 fn any_release_schedule_keeps_the_bound() {
-    let mut runner = TestRunner::new(ProptestConfig {
-        cases: SCHEDULE_CASES,
-        max_shrink_iters: SCHEDULE_SHRINK_ITERS,
-        source_file: Some(file!()),
-        ..ProptestConfig::default()
-    });
-    let result = runner.run(&vec(arb_release(), 1..=8), |releases| {
+    let mut config = Config::default();
+    config.cases = divided_cases(config.cases, SCHEDULE_DIVISOR);
+    config.max_shrink_iters = SCHEDULE_SHRINK_ITERS;
+    config.source_file = Some(file!());
+    let mut runner = TestRunner::new(config);
+    let strategy = (vec(arb_release(), 1..=8), network_seed());
+    let result = runner.run(&strategy, |(releases, network)| {
         let mut next = releases.iter().cycle();
-        let measured = Measured::new(SEARCH_MESSAGES, SEARCH_BUDGET, |_| {
+        let measured = Measured::new(network, SEARCH_MESSAGES, SEARCH_BUDGET, |_| {
             *next
                 .next()
                 .expect("a cycle over a non-empty list never ends")
@@ -1653,12 +1684,6 @@ const PLACED_HALF_FAN: u64 = 128;
 /// The placed fixture's budget, 64 KiB: room for many leaf requests at
 /// once, beside units that still wait.
 const PLACED_BUDGET: usize = 64 << 10;
-
-/// The network the placed fixture forks, from a fixed random source, so a
-/// rebuild reproduces every message's version.
-fn placed_seed() -> Rumors<u64> {
-    Peer::<u64>::seed_rng(&mut ChaChaRng::seed_from_u64(0x1eaf_0031_d15b_07e5)).into_rumors()
-}
 
 /// The placed path of the message of `value`: under placed node
 /// `index / 128`, its first byte, at a last byte from the lower half of
@@ -1713,131 +1738,146 @@ fn count_leaf_request(admission: Admission) {
     }
 }
 
-/// When the two sides differ under nodes one byte above the leaves, each
-/// place a session keeps state in stays within its bound and the ledgers
-/// keep their identities, with leaf requests in flight.
-///
-/// Hashing cannot place leaves that share 31 bytes, so the fixture places
-/// them ([`with_leaf_paths`]): under each of [`PLACED_NODES`] nodes, `A`
-/// holds the lower half of a fan of leaves and `B` the upper half. Every
-/// level above disputes, and each node's leaf-parent answer asks a leaf
-/// request for each leaf the peer listed that it lacks, half a fan per
-/// node. At [`PLACED_BUDGET`] many are in flight at once, more than the
-/// questions' scratch allows per stream, so coverage sees a leaf request's
-/// charge go missing; and every record the take derives for a leaf request
-/// is held to the records part of the question that asked about its
-/// parent.
-///
-/// Each leaf parent's peeled copy is hashed anew over its half fan of
-/// children, so each side must hash: the hashing place's bound and the
-/// outgoing replies' floor, which leaves that hashing out, then both judge
-/// work that happened.
-///
-/// A first build of the same network, outside the placement, learns each
-/// message's version, since forking and sending a reproducible network
-/// are deterministic; the placement panics on any version it does not
-/// list, so a rebuild that drifted fails loudly.
-#[test]
-fn leaf_requests_keep_the_bound() {
-    assert!(
-        observe_admissions(count_leaf_request),
-        "this suite's hook is the process's admission hook"
-    );
-    let messages = [PLACED_NODES * PLACED_HALF_FAN; 2];
-    // The reference session's leaves are hashed, so it runs outside the
-    // placement.
-    reference();
-    let dry = seeded_fixture(placed_seed, messages, 0, PLACED_BUDGET);
-    let paths: Vec<(Version, [u8; 32])> = dry
-        .peers
-        .iter()
-        .flat_map(|peer| {
-            peer.snapshot()
-                .iter()
-                .map(|(version, value)| (version.clone(), placed_path(*value)))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    drop(dry);
-    let run = with_leaf_paths(paths, || {
-        run_fixture(
-            || seeded_fixture(placed_seed, messages, 0, PLACED_BUDGET),
-            messages,
-            PLACED_BUDGET,
-            release_everything,
-        )
-    });
-    let measured = Measured::of(messages[0], 0, PLACED_BUDGET, run);
-    let leaf_requests = LEAF_REQUESTS.with_borrow(Vec::clone);
-    println!(
-        "{}; leaf requests per ledger {leaf_requests:?}",
-        measured.report()
-    );
-    if let Some(violation) = violation(&measured) {
-        panic!("{violation}");
-    }
-    for side in Side::BOTH {
+divided_proptest! {
+    #![divisor(WHOLE_FIXTURE_DIVISOR)]
+
+    /// When the two sides differ under nodes one byte above the leaves, each
+    /// place a session keeps state in stays within its bound and the ledgers
+    /// keep their identities, with leaf requests in flight.
+    ///
+    /// Hashing cannot place leaves that share 31 bytes, so the fixture places
+    /// them ([`with_leaf_paths`]): under each of [`PLACED_NODES`] nodes, `A`
+    /// holds the lower half of a fan of leaves and `B` the upper half. Every
+    /// level above disputes, and each node's leaf-parent answer asks a leaf
+    /// request for each leaf the peer listed that it lacks, half a fan per
+    /// node. At [`PLACED_BUDGET`] many are in flight at once, more than the
+    /// questions' scratch allows per stream, so coverage sees a leaf request's
+    /// charge go missing; and every record the take derives for a leaf request
+    /// is held to the records part of the question that asked about its
+    /// parent.
+    ///
+    /// Each leaf parent's peeled copy is hashed anew over its half fan of
+    /// children, so each side must hash: the hashing place's bound and the
+    /// outgoing replies' floor, which leaves that hashing out, then both judge
+    /// work that happened.
+    ///
+    /// A first build of the same network, outside the placement, learns each
+    /// message's version, since forking and sending a network from one seed
+    /// are deterministic; the placement panics on any version it does not
+    /// list, so a rebuild that drifted fails loudly.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn leaf_requests_keep_the_bound(network in network_seed()) {
         assert!(
-            measured.allocated(side, Holding::Hashing) > 0,
-            "{side:?} must hash a peeled copy: {}",
+            observe_admissions(count_leaf_request),
+            "this suite's hook is the process's admission hook"
+        );
+        // Each case counts its own session's leaf requests.
+        LEAF_REQUESTS.with_borrow_mut(Vec::clear);
+        let messages = [PLACED_NODES * PLACED_HALF_FAN; 2];
+        // The reference session's leaves are hashed, so it runs outside the
+        // placement.
+        reference();
+        let dry = fixture(network, messages, 0, PLACED_BUDGET);
+        let paths: Vec<(Version, [u8; 32])> = dry
+            .peers
+            .iter()
+            .flat_map(|peer| {
+                peer.snapshot()
+                    .iter()
+                    .map(|(version, value)| (version.clone(), placed_path(*value)))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        drop(dry);
+        let run = with_leaf_paths(paths, || {
+            run_fixture(
+                || fixture(network, messages, 0, PLACED_BUDGET),
+                messages,
+                PLACED_BUDGET,
+                release_everything,
+            )
+        });
+        let measured = Measured::of(messages[0], 0, PLACED_BUDGET, run);
+        let leaf_requests = LEAF_REQUESTS.with_borrow(Vec::clone);
+        println!(
+            "{}; leaf requests per ledger {leaf_requests:?}",
+            measured.report()
+        );
+        if let Some(violation) = violation(&measured) {
+            panic!("{violation}");
+        }
+        for side in Side::BOTH {
+            assert!(
+                measured.allocated(side, Holding::Hashing) > 0,
+                "{side:?} must hash a peeled copy: {}",
+                measured.report()
+            );
+        }
+        let most = leaf_requests
+            .iter()
+            .map(|(_, count)| *count)
+            .max()
+            .unwrap_or(0);
+        assert!(
+            most as u64 >= PLACED_NODES * PLACED_HALF_FAN / 2,
+            "the placed fixture must make leaf requests: {leaf_requests:?}"
+        );
+    }
+}
+
+divided_proptest! {
+    #![divisor(WHOLE_FIXTURE_DIVISOR)]
+
+    /// When side `A` has redacted every message the two sides shared, each
+    /// place a session keeps state in stays within its bound, and the ledgers
+    /// keep their identities.
+    ///
+    /// Each peer's whole transient peak stays within its labels' bounds, at
+    /// [`SEARCH_BUDGET`], where units wait.
+    ///
+    /// The fixture's peers share [`SEARCH_MESSAGES`] messages, which `A`
+    /// redacts, beside [`SEARCH_MESSAGES`] of each side's own, so `B`'s
+    /// subtrees mix leaves `A` lacks with leaves `A`'s version knows. The test
+    /// checks that the state was reached: `B` sheds every shared message, and
+    /// `A` sheds none.
+    ///
+    /// The fixture's size is part of what the exploded nodes' identity shows
+    /// here. The deletion filter explodes the nodes below a node whose leaves
+    /// `A` partly knows without charging them. Exploding a node copies it only
+    /// where it is a compressed node another handle shares. A copy the filter
+    /// keeps whole is the survivor, which the merged tree takes as replica
+    /// content; one it drops, or explodes in turn and rebuilds from its
+    /// survivors, is transient, at most one live per level of the filter's
+    /// descent. At this size none of the filter's explosions copies a node, so
+    /// the backend's reports, the allocations, and the charges agree, and
+    /// their agreement is the measurement that shows it. A larger fixture
+    /// would reach such copies, and the identity would then fail by design:
+    /// the reports and the allocations count copies no charge pays for.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn redacting_replicas_keep_the_bound(network in network_seed()) {
+        let measured = Measured::redacting(
+            network,
+            SEARCH_MESSAGES,
+            SEARCH_MESSAGES,
+            SEARCH_BUDGET,
+            release_everything,
+        );
+        println!("{}", measured.report());
+        if let Some(violation) = violation(&measured) {
+            panic!("{violation}");
+        }
+        let shed = Side::BOTH.map(|side| measured.stats(side).messages_shed);
+        assert_eq!(
+            shed,
+            [0, SEARCH_MESSAGES],
+            "B must shed every message A redacted: {}",
             measured.report()
         );
     }
-    let most = leaf_requests
-        .iter()
-        .map(|(_, count)| *count)
-        .max()
-        .unwrap_or(0);
-    assert!(
-        most as u64 >= PLACED_NODES * PLACED_HALF_FAN / 2,
-        "the placed fixture must make leaf requests: {leaf_requests:?}"
-    );
-}
-
-/// When side `A` has redacted every message the two sides shared, each
-/// place a session keeps state in stays within its bound, and the ledgers
-/// keep their identities.
-///
-/// Each peer's whole transient peak stays within its labels' bounds, at
-/// [`SEARCH_BUDGET`], where units wait.
-///
-/// The fixture's peers share [`SEARCH_MESSAGES`] messages, which `A`
-/// redacts, beside [`SEARCH_MESSAGES`] of each side's own, so `B`'s
-/// subtrees mix leaves `A` lacks with leaves `A`'s version knows. The test
-/// checks that the state was reached: `B` sheds every shared message, and
-/// `A` sheds none.
-///
-/// The fixture's size is part of what the exploded nodes' identity shows
-/// here. The deletion filter explodes the nodes below a node whose leaves
-/// `A` partly knows without charging them. Exploding a node copies it only
-/// where it is a compressed node another handle shares. A copy the filter
-/// keeps whole is the survivor, which the merged tree takes as replica
-/// content; one it drops, or explodes in turn and rebuilds from its
-/// survivors, is transient, at most one live per level of the filter's
-/// descent. At this size none of the filter's explosions copies a node, so
-/// the backend's reports, the allocations, and the charges agree, and
-/// their agreement is the measurement that shows it. A larger fixture
-/// would reach such copies, and the identity would then fail by design:
-/// the reports and the allocations count copies no charge pays for.
-#[test]
-fn redacting_replicas_keep_the_bound() {
-    let measured = Measured::redacting(
-        SEARCH_MESSAGES,
-        SEARCH_MESSAGES,
-        SEARCH_BUDGET,
-        release_everything,
-    );
-    println!("{}", measured.report());
-    if let Some(violation) = violation(&measured) {
-        panic!("{violation}");
-    }
-    let shed = Side::BOTH.map(|side| measured.stats(side).messages_shed);
-    assert_eq!(
-        shed,
-        [0, SEARCH_MESSAGES],
-        "B must shed every message A redacted: {}",
-        measured.report()
-    );
 }
 
 /// When one replica joins from empty, the side receiving every message as
@@ -1858,7 +1898,13 @@ fn redacting_replicas_keep_the_bound() {
 /// size with probability below 2⁻⁴⁰⁰.
 #[test]
 fn joining_from_empty_bounds_assembly() {
-    let run = run_session([0, MESSAGES], 0, WIDE_BUDGET, release_everything);
+    let run = run_session(
+        BUDGET_NETWORK_SEED,
+        [0, MESSAGES],
+        0,
+        WIDE_BUDGET,
+        release_everything,
+    );
     let place = Holding::ALL
         .iter()
         .position(|holding| *holding == Holding::Assembly)
@@ -1921,20 +1967,15 @@ fn sweep_budgets() -> Vec<usize> {
         .collect()
 }
 
-/// The network the hop sweep's fixture forks, from a fixed random source,
-/// so every budget's session runs between the same two replicas.
-fn sweep_seed() -> Rumors<u64> {
-    Peer::<u64>::seed_rng(&mut ChaChaRng::seed_from_u64(0x5ee9_0b0d_6e75_0001)).into_rumors()
-}
-
 /// One session of the hop sweep, untraced: its hops, the releases the held
 /// link made with every byte released at every stall, and the units both
 /// sides report waiting.
 ///
-/// Its peers are the sweep's fixed fixture, forked from [`sweep_seed`], on
-/// `budget`.
-fn sweep_session(budget: usize) -> (usize, u64) {
-    let Fixture { peers: [a, b], .. } = seeded_fixture(sweep_seed, [SWEEP_MESSAGES; 2], 0, budget);
+/// Its peers are the sweep's fixture, forked from the network `network`
+/// names, on `budget`. The seed makes the fixture reproducible, so every
+/// budget's session runs between the same two replicas.
+fn sweep_session(network: NetworkSeed, budget: usize) -> (usize, u64) {
+    let Fixture { peers: [a, b], .. } = fixture(network, [SWEEP_MESSAGES; 2], 0, budget);
     let link = Link::new();
     prepare_pacing();
     let (mut a_read, mut a_write) = (BufReader::new(link.reader(Side::A)), link.writer(Side::A));
@@ -1962,62 +2003,68 @@ fn joined<T>(thread: ScopedJoinHandle<'_, T>) -> T {
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
-/// A session never takes more hops at a larger budget.
-///
-/// On the held link, releasing every byte at every stall, each release is
-/// one hop: everything either side sent since the last stall crosses at
-/// once, so the releases count the session's serialized round trips
-/// exactly, whatever the machine's load. The sweep runs one fixed fixture
-/// at zero and at budgets rising geometrically past its no-cost point, and
-/// the hops must never rise from one budget to the next.
-///
-/// The sweep must span the budgets that matter: at zero some unit waits
-/// and the session takes more hops than with no budget, and at the largest
-/// budget no unit waits and the session takes exactly the hops it takes
-/// with no budget.
-#[test]
-fn hops_never_rise_with_the_budget() {
-    // Each session drives its own peers and link on the thread that runs
-    // it, and its hops are exact, so the sessions run at once, one thread
-    // each.
-    let ((unlimited, unlimited_waits), runs) = thread::scope(|scope| {
-        let unlimited = scope.spawn(|| sweep_session(usize::MAX));
-        let sweep: Vec<_> = sweep_budgets()
-            .into_iter()
-            .map(|budget| (budget, scope.spawn(move || sweep_session(budget))))
-            .collect();
-        let runs: Vec<(usize, usize, u64)> = sweep
-            .into_iter()
-            .map(|(budget, session)| {
-                let (hops, waits) = joined(session);
-                (budget, hops, waits)
-            })
-            .collect();
-        (joined(unlimited), runs)
-    });
-    assert_eq!(unlimited_waits, 0, "no unit waits with no budget");
-    for (budget, hops, waits) in &runs {
-        println!("budget {budget} B: {hops} hops, {waits} units waited");
-    }
-    println!("no budget: {unlimited} hops");
-    for pair in runs.windows(2) {
-        let [(smaller, smaller_hops, _), (larger, larger_hops, _)] = pair else {
-            unreachable!("windows of two hold two runs");
-        };
+divided_proptest! {
+    #![divisor(WHOLE_FIXTURE_DIVISOR)]
+
+    /// A session never takes more hops at a larger budget.
+    ///
+    /// On the held link, releasing every byte at every stall, each release is
+    /// one hop: everything either side sent since the last stall crosses at
+    /// once, so the releases count the session's serialized round trips
+    /// exactly, whatever the machine's load. The sweep runs one fixture at
+    /// zero and at budgets rising geometrically past its no-cost point, and
+    /// the hops must never rise from one budget to the next.
+    ///
+    /// The sweep must span the budgets that matter: at zero some unit waits
+    /// and the session takes more hops than with no budget, and at the largest
+    /// budget no unit waits and the session takes exactly the hops it takes
+    /// with no budget.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn hops_never_rise_with_the_budget(network in network_seed()) {
+        // Each session drives its own peers and link on the thread that runs
+        // it, and its hops are exact, so the sessions run at once, one thread
+        // each.
+        let ((unlimited, unlimited_waits), runs) = thread::scope(|scope| {
+            let unlimited = scope.spawn(move || sweep_session(network, usize::MAX));
+            let sweep: Vec<_> = sweep_budgets()
+                .into_iter()
+                .map(|budget| (budget, scope.spawn(move || sweep_session(network, budget))))
+                .collect();
+            let runs: Vec<(usize, usize, u64)> = sweep
+                .into_iter()
+                .map(|(budget, session)| {
+                    let (hops, waits) = joined(session);
+                    (budget, hops, waits)
+                })
+                .collect();
+            (joined(unlimited), runs)
+        });
+        assert_eq!(unlimited_waits, 0, "no unit waits with no budget");
+        for (budget, hops, waits) in &runs {
+            println!("budget {budget} B: {hops} hops, {waits} units waited");
+        }
+        println!("no budget: {unlimited} hops");
+        for pair in runs.windows(2) {
+            let [(smaller, smaller_hops, _), (larger, larger_hops, _)] = pair else {
+                unreachable!("windows of two hold two runs");
+            };
+            assert!(
+                larger_hops <= smaller_hops,
+                "{larger_hops} hops at {larger} B exceed {smaller_hops} at {smaller} B"
+            );
+        }
+        let (_, first_hops, first_waits) = runs[0];
+        let &(top, top_hops, top_waits) = runs.last().expect("the sweep runs budgets");
         assert!(
-            larger_hops <= smaller_hops,
-            "{larger_hops} hops at {larger} B exceed {smaller_hops} at {smaller} B"
+            first_waits > 0 && first_hops > unlimited,
+            "at zero the budget must cost the session hops: {first_hops} against {unlimited}"
+        );
+        assert!(
+            top_waits == 0 && top_hops == unlimited,
+            "at {top} B the session must run as with no budget: {top_hops} hops against \
+             {unlimited}, {top_waits} units waited"
         );
     }
-    let (_, first_hops, first_waits) = runs[0];
-    let &(top, top_hops, top_waits) = runs.last().expect("the sweep runs budgets");
-    assert!(
-        first_waits > 0 && first_hops > unlimited,
-        "at zero the budget must cost the session hops: {first_hops} against {unlimited}"
-    );
-    assert!(
-        top_waits == 0 && top_hops == unlimited,
-        "at {top} B the session must run as with no budget: {top_hops} hops against \
-         {unlimited}, {top_waits} units waited"
-    );
 }
