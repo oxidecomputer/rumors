@@ -28,7 +28,7 @@ use crate::tree::mirror::streaming::{
     byte_set::ByteSet,
     erased::{Reaction, Reply},
     holding::Holding,
-    ledger::{Charge, ReplyBound, Unit, buffer, max, min, queued, shared},
+    ledger::{Charge, ReplyBound, Unit, buffer, max, queued, shared},
     materialized::{Error, Query, Reserved, Resolution, Resolve},
     message::{Carried, Grandchildren, LATER_MATCHES_HEAP_BYTES, Listed},
     remote::{Outstanding, Parked, RecordedChild, Scope},
@@ -41,7 +41,7 @@ use crate::tree::typed::{
 use super::LeafRequest;
 #[cfg(doc)]
 use super::allowance::Allowance;
-use super::allowance::parked_room;
+use super::allowance::{opening, parked_room};
 use super::answer::{Held, Planned, Question};
 
 /// The bytes the reactions own beyond their own slots: the listing each
@@ -235,17 +235,21 @@ pub(crate) const fn derived_record_bytes(height: usize, listing: usize) -> usize
 /// [`derived_record_bytes`] can sum to over a reply to a question about a
 /// node at `height` that lists `listed` children, bounded by `bound`.
 ///
-/// That is one queue slot per question the reply can ask, beside a
-/// recorded child per entry of the reply's listings, or, about a leaf's
-/// parent, one per question: the leaf it requests.
+/// That is the records of what a fresh reply's allowance prices
+/// ([`opening`]), the formula the reply's parked room is priced by too: a
+/// queue slot for each question the reply can ask, beside a recorded child
+/// for each listing entry its queries can carry, at most a fan per
+/// question, or, about a leaf's parent, one per question, the leaf it
+/// requests. The reply that asks every question it can, listing every
+/// entry it can, derives exactly this much.
 pub(crate) const fn records_room(height: usize, bound: ReplyBound, listed: usize) -> usize {
-    let questions = min(listed, bound.reactions);
+    let still = opening(bound, listed);
     let recorded = if height == 1 {
-        questions
+        still.questions
     } else {
-        bound.listing
+        still.listing
     };
-    questions * queued::<Scope>() + recorded * size_of::<RecordedChild>()
+    still.questions * queued::<Scope>() + recorded * size_of::<RecordedChild>()
 }
 
 /// The room a question about a node at `height` listing `listed` children

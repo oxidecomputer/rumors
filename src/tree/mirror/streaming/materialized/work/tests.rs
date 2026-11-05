@@ -571,6 +571,48 @@ proptest! {
         let room = charges::records_room(height, bound, listed);
         prop_assert!(held <= room, "{held} B of records over a records part of {room} B");
     }
+
+    /// The records the take derives from the fullest reply within its
+    /// question's bound fill the question's records part exactly, so the
+    /// part is the least that holds every reply's records.
+    ///
+    /// The fullest reply queries every position the asker listed, and its
+    /// queries list as many entries as the peer's grandchild count allows,
+    /// a fan each at most, as the codec decodes every listing; about a
+    /// leaf's parent, each query requests its leaf. The peer's counts range
+    /// up to the type maximum, so the generated bounds include listings
+    /// beyond a fan per question, which the part holds to that many fans.
+    #[test]
+    fn the_fullest_reply_fills_the_records_part(
+        height in 1..=4_usize,
+        listed in prop_oneof![1..=4_usize, 1..=FAN],
+        count in 1..=Grandchildren::MAX.get(),
+    ) {
+        let parent = prefix_at(height, 0);
+        let entry = |index: usize| Listed {
+            radix: u8::try_from(index).expect("a fan of radices fits a byte"),
+            hash: Default::default(),
+            grandchildren: Grandchildren::ONE,
+            children_less_one: 0,
+        };
+        let asked: Vec<Listed> = (0..listed).map(entry).collect();
+        let peer_count = Grandchildren::new(count).expect("the count is in range");
+        let scope = Scope::new(parent, &asked, peer_count);
+        let bound = scope.reply_bound();
+        let mut left = bound.listing;
+        let replied: Vec<Reaction<Erased>> = (0..listed)
+            .map(|_| {
+                let entries = left.min(FAN);
+                left -= entries;
+                Reaction::Query((0..entries).map(entry).collect())
+            })
+            .collect();
+        let level = if height == 1 { ReplyLevel::Leaf } else { ReplyLevel::Branch };
+        let derived = derive_questions(level, &scope, &mut Replay::default(), &replied)
+            .expect("a reply querying every position derives");
+        let held: usize = derived.iter().map(Scope::held_bytes).sum();
+        prop_assert_eq!(held, charges::records_room(height, bound, listed));
+    }
 }
 
 /// One answer processing a reply builds about a child the reply queries:

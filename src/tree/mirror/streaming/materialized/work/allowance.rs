@@ -44,13 +44,15 @@ use super::charges::{covered_set_price, covered_sets};
 #[cfg(test)]
 mod tests;
 
-/// The most a reply can still deliver to its parked chunks: the chunks,
-/// their reactions, the listing entries their queries carry, and the
-/// covered set their match carries.
+/// The most a reply can still deliver to its parked chunks: the questions
+/// its queries ask, the reactions, the listing entries the queries carry,
+/// and the covered set the match carries.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Deliverable {
-    /// The chunks it can still park.
-    pub(crate) chunks: usize,
+    /// The queries it can still deliver: each asks one question, and every
+    /// chunk but the reply's last ends at one, so the chunks it can still
+    /// park number at most these and one more.
+    pub(crate) questions: usize,
     /// The reaction slots those chunks can fill together: one per reaction,
     /// and one per child a counted set covers, which takes no reaction.
     pub(crate) reactions: usize,
@@ -62,11 +64,14 @@ pub(crate) struct Deliverable {
     pub(crate) sets: usize,
 }
 
-/// The bytes the parked chunks `still` describes can hold, priced as each
-/// chunk is ([`parked_bytes`](super::charges::parked_bytes)), each covered
-/// set net of the slots of the children it covers ([`covered_set_price`]).
+/// The bytes the parked chunks `still` describes can hold: a chunk for
+/// each question, and one more.
+///
+/// Each is priced as each chunk is
+/// ([`parked_bytes`](super::charges::parked_bytes)), each covered set net
+/// of the slots of the children it covers ([`covered_set_price`]).
 pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
-    still.chunks * queued::<Parked<E>>()
+    (still.questions + 1) * queued::<Parked<E>>()
         + still.reactions * size_of::<Reaction<E>>()
         + still.sets * covered_set_price::<E>()
         + still.listing * size_of::<Listed>()
@@ -77,7 +82,7 @@ pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
 /// of the asker's children.
 ///
 /// That is the price of a fresh [`Allowance`] for the same bound and
-/// positions, computed by the same code ([`Left::deliverable`]): the room
+/// positions, computed by the same code ([`opening`]): the room
 /// a question sets aside is exactly what its reply's allowance first
 /// prices, and the reservation holds no parked room its reply could never
 /// use. Before its first frame, a reply can still deliver:
@@ -103,7 +108,21 @@ pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
 /// together; a chunk that took more would be charged in full and counted
 /// as a shortfall ([`Charge::take`]).
 pub(crate) const fn parked_room<E>(bound: ReplyBound, listed: usize) -> usize {
-    parked_price::<E>(Left::opening(bound, listed).deliverable(Ready::NONE))
+    parked_price::<E>(opening(bound, listed))
+}
+
+/// The most a reply within `bound`, about `listed` of the asker's
+/// children, can deliver before its first frame: what a fresh
+/// [`Allowance`] for the same bound and positions prices.
+///
+/// The two parts of a reservation that grow with the reply's listing are
+/// priced from it, by the one formula the allowance prices with
+/// ([`Left::deliverable`]): the room the reply's chunks park in
+/// ([`parked_room`]) and the records its questions derive
+/// ([`records_room`](super::charges::records_room)). Neither holds room
+/// for listing entries beyond a fan per question the reply can ask.
+pub(crate) const fn opening(bound: ReplyBound, listed: usize) -> Deliverable {
+    Left::opening(bound, listed).deliverable(Ready::NONE)
 }
 
 /// What a frame asked of an [`Allowance`] that it could not give.
@@ -215,9 +234,8 @@ impl Left {
     /// entries, as the codec decodes every listing. A later match can carry
     /// one covered set, if two positions are left, for the match and a
     /// child it covers ([`covered_sets`]); the slots of the children it
-    /// covers are among the later reactions'. Every non-last chunk ends at
-    /// a query, so the chunks number at most the queries ready and to
-    /// come, and one more.
+    /// covers are among the later reactions'. The questions are the
+    /// queries ready and those to come.
     const fn deliverable(self, ready: Ready) -> Deliverable {
         let questions = min(self.positions, self.reactions);
         let sets = if self.matchable {
@@ -226,7 +244,7 @@ impl Left {
             0
         };
         Deliverable {
-            chunks: ready.questions + questions + 1,
+            questions: ready.questions + questions,
             reactions: ready.slots + self.reactions,
             listing: ready.listing + min(self.listing, FAN * questions),
             sets: if ready.covered > 0 { 1 } else { 0 } + sets,

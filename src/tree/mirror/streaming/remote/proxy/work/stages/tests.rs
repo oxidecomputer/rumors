@@ -283,7 +283,7 @@ proptest! {
             let questions = left.min(reactions);
             let listing = bound.listing.saturating_sub(spent).min(FAN * questions);
             let still = Deliverable {
-                chunks: ready_questions + questions + 1,
+                questions: ready_questions + questions,
                 reactions: ready.len() + ready_covered + reactions,
                 listing: ready_listing + listing,
                 sets: usize::from(ready_covered > 0) + usize::from(!matched && left >= 2),
