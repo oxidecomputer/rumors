@@ -186,10 +186,12 @@ readme-check:
 # once on every page with a chart and on no other.
 
 # Build the rustdoc with warnings denied; hold the widget assets to their pages.
+# The explicit target dir, as in the recipes below, keeps the pages where the
+# asset check reads them even when CARGO_TARGET_DIR points elsewhere.
 docs:
-    RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps --target-dir target/doc-public
     ./tools/fuelscape-assets --self-test
-    ./tools/fuelscape-assets target/doc
+    ./tools/fuelscape-assets target/doc-public/doc
 
 # Rendering private items catches stale links in private modules, but
 # silences `private_intra_doc_links`, so neither pass replaces `docs`. Its
