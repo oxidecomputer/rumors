@@ -506,20 +506,50 @@ impl<B: Backend<Node<Z>: Leaf>, State: Send> protocol::Phase for Handshaking<B, 
 /// the root's children.
 ///
 /// Returns the fan with the bytes the explosion copied
-/// ([`ErasedNode::explosion_bytes`]).
+/// ([`explosion_bytes`]).
+///
+/// # Errors
+///
+/// Returns [`Error::Count`] if the backend reports the root's explosion
+/// above its bound, and [`Error::Backend`] if exploding the root fails.
 pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
     backend: &B,
     root: Option<B::Node<height::Root>>,
-) -> Result<(Vec<(u8, B::Erased)>, usize), B::Error> {
+) -> Result<(Vec<(u8, B::Erased)>, usize), Error<B::Error>> {
     match root {
         Some(node) => {
             let node = B::erase(node);
-            let copies = node.explosion_bytes();
+            let copies = explosion_bytes(&node).map_err(Error::Count)?;
             let fan = erased::ops::children_of(backend, Prefix::new().erase(), node).await?;
             Ok((fan, copies))
         }
         None => Ok((Vec::new(), 0)),
     }
+}
+
+/// The bytes the backend reports exploding `node` allocates
+/// ([`ErasedNode::explosion_bytes`]), checked against the backend's bound
+/// on every report.
+///
+/// The walk prices every explosion it charges through this, never the
+/// report itself: it bounds every grant by
+/// [`ErasedNode::MAX_EXPLOSION_BYTES`], and a ledger charge counts a grant
+/// in four bytes, so a report above the bound would make a grant the
+/// ledger cannot count.
+///
+/// # Errors
+///
+/// Returns [`CountError::ExplosionBytes`] if the report exceeds the
+/// backend's bound, as storage corrupted at rest could make it.
+pub(crate) fn explosion_bytes<E: ErasedNode>(node: &E) -> Result<usize, CountError> {
+    let reported = node.explosion_bytes();
+    if reported > E::MAX_EXPLOSION_BYTES {
+        return Err(CountError::ExplosionBytes {
+            reported,
+            max: E::MAX_EXPLOSION_BYTES,
+        });
+    }
+    Ok(reported)
 }
 
 /// Derive the wire listing for a materialized fan.
@@ -550,9 +580,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
 
     /// Build and send this participant's greeting.
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let (fan, copies) = greeting_fan(&self.backend, self.root.root.clone())
-            .await
-            .map_err(Error::Backend)?;
+        let (fan, copies) = greeting_fan(&self.backend, self.root.root.clone()).await?;
         let greeting = Greeting {
             version: self.root.ceiling.clone(),
             // The greeting's sizes come from the root's own aggregates,

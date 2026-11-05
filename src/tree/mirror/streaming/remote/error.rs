@@ -16,8 +16,8 @@ use crate::{
 pub(crate) enum MirrorError {
     /// The local tree rejected the protocol exchange during the phase.
     Local(Phase, materialized::Violation),
-    /// The local backend reported a count no node can have, for a node the
-    /// walk was listing during the phase.
+    /// The local backend reported a count no node can have, or an explosion
+    /// report above its bound, during the phase.
     Count(Phase, CountError),
     /// The wire-bound participant failed.
     Remote(proxy::Error<Infallible>),
@@ -62,9 +62,9 @@ impl From<MirrorError> for Error {
         let remote = match error {
             MirrorError::Local(phase, error) => return Self::violation(phase, error),
             // The only production backend, the in-memory replica, keeps
-            // every count by construction, so a count out of range is an
-            // implementation defect: a protocol violation in the public
-            // classification.
+            // every count, and every explosion report within its bound, by
+            // construction, so a count out of range is an implementation
+            // defect: a protocol violation in the public classification.
             MirrorError::Count(phase, error) => return Self::violation(phase, error),
             MirrorError::Remote(error) => error,
         };

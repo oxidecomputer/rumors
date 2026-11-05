@@ -396,7 +396,10 @@ pub(crate) const fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usi
 ///   above the leaves' parents bounds a reply that much; the root's is one.
 /// - Each explosion, of the scope an answer explores or of the child a
 ///   question asks about, copies at most
-///   [`ErasedNode::MAX_EXPLOSION_BYTES`].
+///   [`ErasedNode::MAX_EXPLOSION_BYTES`]: the walk prices every explosion
+///   through its checked report
+///   ([`explosion_bytes`](crate::tree::mirror::streaming::materialized::explosion_bytes)),
+///   and fails the session on a report above the bound.
 /// - A chunk's reactions ahead of its question are entries of its answer's
 ///   plan, one per child either side holds. Each side lists at most a fan,
 ///   as this side's nodes hold and as the peer's listings decode, in

@@ -30,7 +30,9 @@ use crate::{
     tree::{
         mirror::{
             contained,
-            streaming::{Backend, ErasedNode, Leaf, erased::ops, stats::Recorder},
+            streaming::{
+                Backend, ErasedNode, Leaf, erased::ops, message::CountError, stats::Recorder,
+            },
         },
         typed::{ErasedPrefix, height::Z},
     },
@@ -136,16 +138,24 @@ where
 /// with no second handle, so its bytes are read as it stands; a wholly
 /// known one is not exploded. The explosions of the recursion below a mixed
 /// node are not counted.
-pub(super) fn providing_explosion_bytes<E: ErasedNode + Clone>(node: &E, known: &Version) -> usize {
+///
+/// # Errors
+///
+/// Returns [`CountError::ExplosionBytes`] if the backend reports the
+/// explosion above its bound ([`super::explosion_bytes`]).
+pub(super) fn providing_explosion_bytes<E: ErasedNode + Clone>(
+    node: &E,
+    known: &Version,
+) -> Result<usize, CountError> {
     match knowledge(node, known) {
         Dominance::Before => {
             let second = node.clone();
-            let bytes = node.explosion_bytes();
+            let bytes = super::explosion_bytes(node);
             drop(second);
             bytes
         }
-        Dominance::Between => node.explosion_bytes(),
-        Dominance::After => 0,
+        Dominance::Between => super::explosion_bytes(node),
+        Dominance::After => Ok(0),
     }
 }
 

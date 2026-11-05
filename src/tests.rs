@@ -210,7 +210,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
 
     let root: streaming::Root<Local> = retiree.inner.borrow().tree.clone().root.into();
     let (fan, _) = pollster::block_on(materialized::greeting_fan(&Local, root.root.clone()))
-        .unwrap_or_else(|never| match never {});
+        .expect("the in-memory backend keeps its explosion reports within its bound");
     // Reassemble the greeting from the same fields as the session, then
     // measure its single wire item.
     let greeting = Greeting {

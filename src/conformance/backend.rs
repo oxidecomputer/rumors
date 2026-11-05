@@ -10,7 +10,8 @@
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, one assembled node per supplied prefix run,
 //!   and explosion reports that cover what listing a node's children
-//!   allocates, by the allocation meter.
+//!   allocates, by the allocation meter, within the backend's bound on
+//!   them.
 //! - **Reconciliation:** both replicas converge to a set of the expected union
 //!   size, and any measured peak increase over the zero-budget run must fit
 //!   within the larger budget.
@@ -275,9 +276,22 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
         self.inner().grandchild_count()
     }
 
-    /// Read the wrapped node's explosion cost.
+    /// Read the wrapped node's explosion cost, and record a violation if it
+    /// exceeds the backend's bound.
+    ///
+    /// The bound is checked at every read rather than at the listing: the
+    /// walk fails the session on a report over the bound before it lists
+    /// the node, so a listing never sees one.
     fn explosion_bytes(&self) -> usize {
-        self.inner().explosion_bytes()
+        let reported = self.inner().explosion_bytes();
+        if reported > E::MAX_EXPLOSION_BYTES {
+            ledger::violation(format!(
+                "explosion over its bound: a node answers {reported} B, over the backend's \
+                 MAX_EXPLOSION_BYTES of {} B",
+                E::MAX_EXPLOSION_BYTES,
+            ));
+        }
+        reported
     }
 
     /// The wrapped node's bound on its explosion cost.
@@ -671,6 +685,8 @@ const DIVERGENT: usize = 1_024;
 ///   outside its prefix, merged, split, or swallowed a run, or
 ///   `parent` answered a real child with no parent or an empty group
 ///   with one;
+/// - a node's explosion report fell short of what listing its children
+///   allocated, or exceeded the backend's bound on every report;
 /// - the measured peak increase exceeds the budget; or
 /// - the session failed to converge the corpora, or converged them to
 ///   less than their union.

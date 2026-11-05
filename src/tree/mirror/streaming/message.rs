@@ -194,6 +194,14 @@ impl Listed {
 /// ranges. A listing cannot carry such a count, and every price and bound
 /// the session derives from one would be wrong, so the session fails
 /// instead of listing the node.
+///
+/// The bytes a backend reports exploding a node allocates
+/// ([`ErasedNode::explosion_bytes`]) are bounded the same way, by the
+/// backend's own [`ErasedNode::MAX_EXPLOSION_BYTES`]: the session bounds
+/// every grant it asks its ledger for by that bound, and a ledger charge
+/// counts a grant in four bytes. A report above it breaks the contract as
+/// a corrupted count does, so the session fails instead of exploding the
+/// node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CountError {
     /// The node's child count exceeded a fan.
@@ -202,6 +210,14 @@ pub enum CountError {
     /// The node's grandchild count exceeded a fan of fans.
     #[error("the backend reported {0} grandchildren for a node, more than 65,536")]
     Grandchildren(usize),
+    /// The node's explosion report exceeded the backend's bound.
+    #[error("the backend reported {reported} B to explode a node, more than its bound of {max} B")]
+    ExplosionBytes {
+        /// The bytes reported.
+        reported: usize,
+        /// The backend's bound, its `MAX_EXPLOSION_BYTES`.
+        max: usize,
+    },
 }
 
 /// A grandchild count as a listing carries it: how many children a listed

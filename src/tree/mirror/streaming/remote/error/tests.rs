@@ -98,11 +98,15 @@ fn arb_walk_phase() -> impl Strategy<Value = Phase> {
     prop::sample::select(vec![Phase::Greeting, Phase::Reconciliation])
 }
 
-/// Generates a count no node can have, of either kind.
+/// Generates a count no node can have, of any kind: a child or grandchild
+/// count out of range, or an explosion report above a bound.
 fn arb_count_error() -> impl Strategy<Value = CountError> {
     prop_oneof![
         (257..=usize::MAX).prop_map(CountError::Children),
         (65_537..=usize::MAX).prop_map(CountError::Grandchildren),
+        (0..usize::MAX)
+            .prop_flat_map(|max| (Just(max), max + 1..=usize::MAX))
+            .prop_map(|(max, reported)| CountError::ExplosionBytes { reported, max }),
     ]
 }
 

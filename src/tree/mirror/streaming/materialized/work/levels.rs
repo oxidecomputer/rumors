@@ -29,7 +29,7 @@ use crate::tree::{
         holding::{Holding, held_by, holding, holding_stream},
         ledger::{ReplyBound, Unit},
         materialized::{
-            Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
+            Error, Query, Resolution, SupplyLedger, Violation, explosion_bytes, fan_listing,
             unknown::{providing_explosion_bytes, unknown_providing},
             violation,
         },
@@ -310,7 +310,9 @@ where
             while let Some(Part { leading, ask, last }) = chunks.next_part() {
                 let (question, mut grant) = match ask {
                     Some(question) => {
-                        let bytes = question.bound::<B::Error>(root_scope, leading.len());
+                        let bytes = question
+                            .bound::<B::Error>(root_scope, leading.len())
+                            .map_err(Error::Count)?;
                         let mut grant = account.admit(Unit::Question, 1, bytes).await;
                         let built =
                             answer::question(&backend, &mut grant, root_scope, question).await?;
@@ -440,7 +442,8 @@ where
 
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
-                        let copies = providing_explosion_bytes(&node, &their_version);
+                        let copies = providing_explosion_bytes(&node, &their_version)
+                            .map_err(Error::Count)?;
                         // The supplies are this side's children of the node
                         // that survive the deletion filter, at most all of
                         // them.
@@ -471,7 +474,7 @@ where
                         continue;
                     }
 
-                    let copies = node.explosion_bytes();
+                    let copies = explosion_bytes(&node).map_err(Error::Count)?;
                     let bytes = charges::answer_bound::<B::Erased, B::Error>(
                         node.child_count(),
                         listing.len(),
@@ -503,7 +506,9 @@ where
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {
                         let (question, mut grant) = match ask {
                             Some(question) => {
-                                let bytes = question.bound::<B::Error>(child_prefix, leading.len());
+                                let bytes = question
+                                    .bound::<B::Error>(child_prefix, leading.len())
+                                    .map_err(Error::Count)?;
                                 let mut grant =
                                     account.admit(Unit::Question, depth + 1, bytes).await;
                                 let built = answer::question(
@@ -616,7 +621,8 @@ where
 
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
-                        let copies = providing_explosion_bytes(&node, &their_version);
+                        let copies = providing_explosion_bytes(&node, &their_version)
+                            .map_err(Error::Count)?;
                         // The supplies are this side's children of the node
                         // that survive the deletion filter, at most all of
                         // them.
@@ -647,7 +653,7 @@ where
                         continue;
                     }
 
-                    let copies = node.explosion_bytes();
+                    let copies = explosion_bytes(&node).map_err(Error::Count)?;
                     let bytes = charges::answer_bound::<B::Erased, B::Error>(
                         node.child_count(),
                         listing.len(),

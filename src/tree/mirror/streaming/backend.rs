@@ -262,7 +262,9 @@ pub trait ErasedNode {
     /// memory the explosion will hold. It must not fall short of what the
     /// listing allocates; the session-budget suite holds the in-memory
     /// backend's answer to exactly the bytes its listings allocate. It
-    /// never exceeds [`MAX_EXPLOSION_BYTES`](Self::MAX_EXPLOSION_BYTES).
+    /// never exceeds [`MAX_EXPLOSION_BYTES`](Self::MAX_EXPLOSION_BYTES): a
+    /// session that reads a larger answer fails rather than charge it, and
+    /// the backend conformance suite reports one as a violation.
     fn explosion_bytes(&self) -> usize;
 
     /// The most [`explosion_bytes`](Self::explosion_bytes) reports for any

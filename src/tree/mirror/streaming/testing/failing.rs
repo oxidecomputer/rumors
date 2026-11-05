@@ -1,6 +1,6 @@
 //! A composable test backend which injects one source failure after N
-//! operations, or misreports the grandchild count of the nodes it lists at
-//! one height, as a backend reading corrupted storage would.
+//! operations, or misreports the grandchild count or explosion report of
+//! the nodes at one height, as a backend reading corrupted storage would.
 
 use std::{
     fmt,
@@ -20,7 +20,7 @@ use crate::{
         mirror::streaming::{Backend, ErasedNode, Leaf, Node, backend::NodeStream},
         typed::{
             Hash, Path, Prefix,
-            height::{Height, S, Z},
+            height::{Height, Root, S, Z},
         },
     },
 };
@@ -58,20 +58,30 @@ pub enum Failure<E> {
 struct State {
     remaining: Option<usize>,
     operations: Vec<Operation>,
-    /// The grandchild count to report for the nodes listed at a height.
+    /// The count to report for the nodes at a height.
     miscount: Option<Miscount>,
     /// How many times a session read a misreported count.
     miscounts_read: usize,
 }
 
-/// A grandchild count a [`Failing`] backend misreports.
+/// A count a [`Failing`] backend misreports for the nodes at one height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Miscount {
     /// The typed height of the nodes whose count is misreported: every
-    /// node the backend lists as a child at this height.
+    /// node the backend lists as a child at this height, and the root,
+    /// wrapped by [`Failing::root`], at the root's height.
     pub height: usize,
-    /// The grandchild count those nodes report.
-    pub grandchildren: usize,
+    /// The count those nodes report.
+    pub report: Misreport,
+}
+
+/// The count a [`Miscount`] replaces, and the value reported in its place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Misreport {
+    /// The node's grandchild count.
+    Grandchildren(usize),
+    /// The bytes the backend reports exploding the node allocates.
+    ExplosionBytes(usize),
 }
 
 /// A backend handle which delegates N operations, then injects one failure.
@@ -102,7 +112,7 @@ impl<B> Failing<B> {
     }
 
     /// Wrap `inner`, never failing an operation, but reporting `miscount`'s
-    /// grandchild count for every child it lists at `miscount`'s height.
+    /// count for every node at `miscount`'s height.
     pub fn miscounting(inner: B, miscount: Miscount) -> Self {
         Self::with(inner, None, Some(miscount))
     }
@@ -126,12 +136,18 @@ impl<B> Failing<B> {
         self.lock().miscounts_read
     }
 
-    /// The count to report for a child listed at `height`, if this wrapper
+    /// Wrap the root node a session starts from, misreporting its count if
+    /// this wrapper misreports at the root's height.
+    pub fn root<N>(&self, root: N) -> FailingNode<N> {
+        FailingNode(root, self.miscount_at(Root::HEIGHT))
+    }
+
+    /// The count to report for a node at `height`, if this wrapper
     /// misreports there.
     fn miscount_at(&self, height: usize) -> Option<Miscounted> {
         let miscount = self.lock().miscount?;
         (miscount.height == height).then(|| Miscounted {
-            grandchildren: miscount.grandchildren,
+            report: miscount.report,
             state: Arc::clone(&self.state),
         })
     }
@@ -169,24 +185,42 @@ impl<B> Failing<B> {
 #[derive(Clone, Debug)]
 pub struct FailingNode<N>(N, Option<Miscounted>);
 
-/// The grandchild count a [`FailingNode`] misreports, and the backend state
-/// that counts each read of it.
+/// The count a [`FailingNode`] misreports, and the backend state that
+/// counts each read of it.
 #[derive(Clone, Debug)]
 struct Miscounted {
-    /// The count reported.
-    grandchildren: usize,
-    /// The listing backend's state.
+    /// The count replaced and the value reported.
+    report: Misreport,
+    /// The wrapping backend's state.
     state: Arc<Mutex<State>>,
 }
 
 impl Miscounted {
-    /// Count one read and return the misreported count.
-    fn read(&self) -> usize {
+    /// The misreported grandchild count, if this misreports it, counting
+    /// the read.
+    fn grandchild_count(&self) -> Option<usize> {
+        match self.report {
+            Misreport::Grandchildren(count) => Some(self.read(count)),
+            Misreport::ExplosionBytes(_) => None,
+        }
+    }
+
+    /// The misreported explosion report, if this misreports it, counting
+    /// the read.
+    fn explosion_bytes(&self) -> Option<usize> {
+        match self.report {
+            Misreport::ExplosionBytes(bytes) => Some(self.read(bytes)),
+            Misreport::Grandchildren(_) => None,
+        }
+    }
+
+    /// Count one read of `value`, the misreported count, and return it.
+    fn read(&self, value: usize) -> usize {
         self.state
             .lock()
             .expect("the failing-backend state mutex is not poisoned")
             .miscounts_read += 1;
-        self.grandchildren
+        value
     }
 }
 
@@ -224,7 +258,8 @@ where
     fn grandchild_count(&self) -> usize {
         self.1
             .as_ref()
-            .map_or_else(|| self.0.grandchild_count(), Miscounted::read)
+            .and_then(Miscounted::grandchild_count)
+            .unwrap_or_else(|| self.0.grandchild_count())
     }
 
     /// Read the wrapped node's largest encoded version bound.
@@ -250,12 +285,16 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     fn grandchild_count(&self) -> usize {
         self.1
             .as_ref()
-            .map_or_else(|| self.0.grandchild_count(), Miscounted::read)
+            .and_then(Miscounted::grandchild_count)
+            .unwrap_or_else(|| self.0.grandchild_count())
     }
 
-    /// Read the wrapped node's explosion cost.
+    /// Read the wrapped node's explosion cost, or the misreported one.
     fn explosion_bytes(&self) -> usize {
-        self.0.explosion_bytes()
+        self.1
+            .as_ref()
+            .and_then(Miscounted::explosion_bytes)
+            .unwrap_or_else(|| self.0.explosion_bytes())
     }
 
     /// The wrapped node's bound on its explosion cost.

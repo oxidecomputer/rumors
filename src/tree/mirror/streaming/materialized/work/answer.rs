@@ -14,10 +14,10 @@ use crate::{
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound, buffer},
             materialized::{
-                Error, Query, Resolve, Violation, fan_listing,
+                Error, Query, Resolve, Violation, explosion_bytes, fan_listing,
                 unknown::{known, unknown},
             },
-            message::{Carried, Grandchildren, Listed},
+            message::{Carried, CountError, Grandchildren, Listed},
             stats::Recorder,
         },
         typed::{ErasedPrefix, height::Z},
@@ -282,14 +282,29 @@ impl<E: ErasedNode> Question<E> {
     ///
     /// A disputed child lists this side's children of it, exactly its
     /// child count, which is at most a fan; a request lists none.
-    pub(super) fn bound<Err>(&self, prefix: ErasedPrefix, leading: usize) -> usize {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CountError::ExplosionBytes`] if the backend reports a
+    /// disputed child's explosion above its bound ([`explosion_bytes`]).
+    pub(super) fn bound<Err>(
+        &self,
+        prefix: ErasedPrefix,
+        leading: usize,
+    ) -> Result<usize, CountError> {
         let (copies, theirs, listed) = match self {
             Self::Dispute { node, theirs, .. } => {
-                (node.explosion_bytes(), *theirs, node.child_count().min(FAN))
+                (explosion_bytes(node)?, *theirs, node.child_count().min(FAN))
             }
             Self::Request { theirs, .. } => (0, *theirs, 0),
         };
-        charges::question_bound::<E, Err>(prefix.height() - 1, theirs, copies, leading, listed)
+        Ok(charges::question_bound::<E, Err>(
+            prefix.height() - 1,
+            theirs,
+            copies,
+            leading,
+            listed,
+        ))
     }
 }
 
@@ -324,7 +339,10 @@ where
             theirs,
         } => {
             let child = prefix.push(radix);
-            let copies = node.explosion_bytes();
+            // Checked here as at the unit's bound ([`Question::bound`]): a
+            // report that changed between the two reads would otherwise be
+            // charged unchecked.
+            let copies = explosion_bytes(&node).map_err(Error::Count)?;
             let ours = holding(Holding::Questions, ops::children_of(backend, child, node)).await?;
             (child, ours, theirs, copies)
         }

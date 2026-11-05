@@ -205,6 +205,10 @@ static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 /// zero, an undercount of the copies listing its children makes above it.
 static EXPLOSION_DEFLATE: Knob = Knob::new(0);
 
+/// Bytes added to every node's `explosion_bytes` answer: honest at zero,
+/// past the backend's `MAX_EXPLOSION_BYTES` once it exceeds that bound.
+static EXPLOSION_INFLATE: Knob = Knob::new(0);
+
 /// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
 /// at zero, a residency-changing re-tag above it.
 static ASSUME_SLACK: Knob = Knob::new(0);
@@ -330,11 +334,13 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     }
 
     /// Read the wrapped node's explosion cost, deflated to exercise an
-    /// undercounting backend.
+    /// undercounting backend or inflated to exercise one that breaks its
+    /// bound.
     fn explosion_bytes(&self) -> usize {
         self.inner
             .explosion_bytes()
             .saturating_sub(EXPLOSION_DEFLATE.get())
+            .saturating_add(EXPLOSION_INFLATE.get())
     }
 
     /// The wrapped node's bound on its explosion cost.
@@ -702,6 +708,20 @@ fn a_symmetric_loss_fails_the_completeness_check() {
 #[should_panic(expected = "undercounted explosion")]
 fn an_undercounted_explosion_fails_the_explosion_check() {
     let _dishonest = EXPLOSION_DEFLATE.set(usize::MAX);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// An `explosion_bytes` answer above the backend's `MAX_EXPLOSION_BYTES`
+/// is convicted by name, since the walk bounds every grant a ledger charge
+/// counts by that bound.
+///
+/// Inflated by one byte more than the bound, every node's answer exceeds
+/// it, whatever its own explosion costs.
+#[test]
+#[should_panic(expected = "explosion over its bound")]
+fn an_explosion_over_its_bound_fails_the_bound_check() {
+    let bound = <<Materializing as Backend>::Erased as ErasedNode>::MAX_EXPLOSION_BYTES;
+    let _dishonest = EXPLOSION_INFLATE.set(bound + 1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 

@@ -13,8 +13,8 @@ use crate::testing::run_to_quiescence;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
-        Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, Miscount,
-        ReplyCorruption, Root as StreamingRoot,
+        Backend, ErasedNode, Failing, Failure, Fault, Faulting, GreetingLie, Local, Miscount,
+        Misreport, ReplyCorruption, Root as StreamingRoot,
         channel::{with_observation, with_schedule},
         materialized::{Error as MaterializedError, Handshaking, Start, Violation},
         message::CountError,
@@ -24,14 +24,16 @@ use crate::tree::mirror::{
 use crate::tree::{
     Root,
     arb::{arb_wide_divergent_pair, leaf_parent_dispute_pair},
+    typed::height::{self, Height as _},
 };
 
 /// A `Failing<Local>` endpoint at a budget of zero over `root`, its nodes
-/// wrapped for the failing backend.
+/// wrapped for the failing backend, which misreports the root's count if
+/// it misreports at the root's height.
 fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
     let root = StreamingRoot {
         ceiling: root.ceiling,
-        root: root.node.map(FailingNode::new),
+        root: root.node.map(|node| backend.root(node)),
     };
     Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64).budget(0)
 }
@@ -188,7 +190,10 @@ proptest! {
         miscount_client in any::<bool>(),
         schedule in proptest::collection::vec(0_u8..=2, 0..128),
     ) {
-        let miscounting = Failing::miscounting(Local, Miscount { height, grandchildren });
+        let miscounting = Failing::miscounting(Local, Miscount {
+            height,
+            report: Misreport::Grandchildren(grandchildren),
+        });
         let sound = Failing::after(Local, usize::MAX);
         let lists_root_children = if miscount_client {
             client_root.node.is_some()
@@ -225,6 +230,85 @@ proptest! {
         }
         if height == ROOT_CHILDREN_HEIGHT && lists_root_children {
             prop_assert!(read > 0, "the greeting must list the root's children");
+        }
+    }
+}
+
+/// The in-memory backend's bound on every explosion report.
+const LOCAL_MAX_EXPLOSION_BYTES: usize =
+    <<Local as Backend>::Erased as ErasedNode>::MAX_EXPLOSION_BYTES;
+
+proptest! {
+    /// An explosion report above the backend's bound, which a backend
+    /// reading corrupted storage could make, fails the session with that
+    /// report on the side whose backend made it, and neither panics nor
+    /// stalls.
+    ///
+    /// The report is misreported for every node one side's backend holds at
+    /// a drawn height: the root, or the children it lists at a lower height.
+    /// A session either completes or fails with exactly that report and the
+    /// bound on that side, and fails only once it has read a misreported
+    /// report. It always fails when the root is misreported and that side
+    /// holds one, since every greeting prices the root's explosion before
+    /// listing its children. A session can complete past a misreported
+    /// node only where the walk explodes it without pricing it, as the
+    /// deletion filter's recursion below a node the peer partly knows does.
+    #[test]
+    fn explosion_reports_over_the_bound_fail_the_session(
+        (client_root, server_root) in arb_wide_divergent_pair(),
+        height in 1..=height::Root::HEIGHT,
+        reported in prop_oneof![
+            Just(LOCAL_MAX_EXPLOSION_BYTES + 1),
+            LOCAL_MAX_EXPLOSION_BYTES + 1..=LOCAL_MAX_EXPLOSION_BYTES + (1 << 24),
+            Just(usize::MAX),
+        ],
+        misreport_client in any::<bool>(),
+        schedule in proptest::collection::vec(0_u8..=2, 0..128),
+    ) {
+        let misreporting = Failing::miscounting(Local, Miscount {
+            height,
+            report: Misreport::ExplosionBytes(reported),
+        });
+        let sound = Failing::after(Local, usize::MAX);
+        let holds_root = if misreport_client {
+            client_root.node.is_some()
+        } else {
+            server_root.node.is_some()
+        };
+        let (client_backend, server_backend) = if misreport_client {
+            (misreporting.clone(), sound)
+        } else {
+            (sound, misreporting.clone())
+        };
+        let client = failing_start(client_backend, client_root);
+        let server = failing_start(server_backend, server_root);
+        let result = with_schedule(schedule, || {
+            run_to_quiescence(drive_streaming(client, server))
+        })
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "a misreported explosion left reconciliation quiescent: {stopped:?}",
+            )))?;
+        let expected = CountError::ExplosionBytes { reported, max: LOCAL_MAX_EXPLOSION_BYTES };
+        let read = misreporting.miscounts_read();
+        let failed = match result {
+            Err(MirrorError::Client(MaterializedError::Count(error))) if misreport_client => {
+                prop_assert_eq!(error, expected);
+                true
+            }
+            Err(MirrorError::Server(MaterializedError::Count(error))) if !misreport_client => {
+                prop_assert_eq!(error, expected);
+                true
+            }
+            Ok(_) => false,
+            Err(other) => return Err(TestCaseError::fail(format!(
+                "a misreported explosion was misattributed: {other:?}",
+            ))),
+        };
+        if failed {
+            prop_assert!(read > 0, "the session failed on a report it never read");
+        }
+        if height == height::Root::HEIGHT && holds_root {
+            prop_assert!(failed, "every greeting prices the root's explosion");
         }
     }
 }
