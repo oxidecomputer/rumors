@@ -11,6 +11,7 @@ use crate::tree::{
         Backend, Leaf, Node,
         erased::{Reaction as ProtocolReaction, Reply, ops},
         holding::{Holding, held_by},
+        ledger::Charge,
     },
     typed::{ErasedPrefix, Path, Prefix, height::Z},
 };
@@ -23,29 +24,46 @@ use super::{
     scope::{Replay, ReplyLevel, Scope},
 };
 
-/// A wire frame and the lower question it makes publishable once written.
+/// A wire frame, the lower question it makes publishable once written, and
+/// the charge it carries to the multiplexer.
 pub struct Encoded {
     /// The reply frame ready to write.
     frame: ReplyFrame,
     /// The scope made publishable by successfully writing `frame`.
     question: Option<Scope>,
+    /// The charge of the chunk whose last frame this is, or no charge for
+    /// every earlier frame: the multiplexer drops it once `frame` is
+    /// written.
+    charge: Charge,
 }
 
 impl Encoded {
-    /// Write this frame and release its question only after a successful write.
+    /// Hand this frame and its charge to `write`, and release its question
+    /// only after a successful write.
     pub async fn write_with<E, W, F>(self, write: W) -> Result<Option<Scope>, E>
     where
-        W: FnOnce(ReplyFrame) -> F,
+        W: FnOnce(ReplyFrame, Charge) -> F,
         F: Future<Output = Result<(), E>>,
     {
-        let Self { frame, question } = self;
-        write(frame).await?;
+        let Self {
+            frame,
+            question,
+            charge,
+        } = self;
+        write(frame, charge).await?;
         Ok(question)
     }
 
+    /// Split off the frame and its question, dropping the charge.
     #[cfg(test)]
     pub fn into_parts(self) -> (Frame, Option<Scope>) {
         (self.frame.into(), self.question)
+    }
+
+    /// The bytes of the charge this frame carries.
+    #[cfg(test)]
+    pub fn charged(&self) -> usize {
+        self.charge.bytes()
     }
 }
 
@@ -88,6 +106,12 @@ pub fn opening_listing<E>(
 /// chunk exists. The reply's last reaction carries [`Flow::End`], which
 /// requires the sender to put that reaction in the reply's last chunk; an
 /// empty reply is one empty last chunk, encoded as a bare end.
+///
+/// Each frame's flow is known as soon as the frame is complete, so the
+/// encoder yields every frame then: it never holds a complete frame, a
+/// supply run included, besides the one it is yielding. Each run's buffer
+/// grows to at most the body the run budget admits, unless one record
+/// alone needs more ([`LeafRun::push`]).
 pub struct ReplyEncoder<B> {
     /// The store whose supplied nodes are flattened into leaf runs.
     backend: B,
@@ -159,16 +183,41 @@ where
         let (backend, budget, level) = (backend.clone(), *budget, *level);
         try_stream! {
             let mut positions = scope.replay(*replay);
-            let mut pending = None;
-            // The chunk's charge returns once every frame is out, when the
-            // stream ends; its reactions are consumed as they are encoded.
+            // The chunk's charge rides its last frame to the multiplexer,
+            // which drops it once that frame is written; a lane keeps its
+            // frames in order, so every earlier frame of the chunk is
+            // written by then. The reactions are consumed as they are
+            // encoded.
             let Reply {
                 reactions,
-                charge: _charge,
+                mut charge,
                 last,
                 ..
             } = chunk;
-            for reaction in reactions {
+            let mut reactions = reactions.into_iter();
+            if reactions.len() == 0 {
+                *replay = positions.replayed();
+                // A chunk without reactions encodes nothing, unless it is an
+                // empty reply's one last chunk, encoded as a bare end.
+                if last {
+                    assert!(
+                        !*written,
+                        "a reply's last chunk holds its last reaction, so frames left \
+                         flagged to continue are never followed by an empty last chunk",
+                    );
+                    yield Encoded {
+                        frame: ReplyFrame::reply_end(),
+                        question: None,
+                        charge: mem::take(&mut charge),
+                    };
+                }
+            }
+            while let Some(reaction) = reactions.next() {
+                // The frame that closes the chunk's last reaction is the
+                // chunk's last frame, and the reply's last exactly when the
+                // chunk is. So every frame is handed over as soon as it is
+                // complete, with its flow already known.
+                let closing = reactions.len() == 0;
                 let (wire, question) = match reaction {
                     ProtocolReaction::Match(later) => {
                         positions.matched(&later)?;
@@ -187,7 +236,9 @@ where
                         // One run accumulates this reaction's leaves; it flushes
                         // when the next record would push its wire frame past
                         // the budget and always at the end of the enumeration,
-                        // so a run never spans reactions.
+                        // so a run never spans reactions. A run flushed early
+                        // is never the reply's last frame, since a record
+                        // follows it.
                         let mut run = LeafRun::new();
                         while let Some(item) = leaves.next().await {
                             let (prefix, leaf) = item.map_err(EncodeError::Backend)?;
@@ -211,54 +262,33 @@ where
                                     LeafRun::record_len(version, message),
                                 )
                             {
-                                let full = mem::take(&mut run);
-                                if let Some((ready, question)) =
-                                    pending.replace((WireReaction::Supply(full), None))
-                                {
-                                    *written = true;
-                                    yield Encoded {
-                                        frame: ReplyFrame::reaction(ready, Flow::Continue),
-                                        question,
-                                    };
-                                }
+                                *written = true;
+                                yield Encoded {
+                                    frame: ReplyFrame::reaction(
+                                        WireReaction::Supply(mem::take(&mut run)),
+                                        Flow::Continue,
+                                    ),
+                                    question: None,
+                                    charge: Charge::default(),
+                                };
                             }
-                            run.push(version, message).map_err(EncodeError::Record)?;
+                            run.push(version, message, budget)
+                                .map_err(EncodeError::Record)?;
                         }
                         assert!(!run.is_empty(), "a backend node contains at least one leaf");
                         (WireReaction::Supply(run), None)
                     }
                 };
-                if let Some((previous, question)) = pending.replace((wire, question)) {
-                    *written = true;
-                    yield Encoded {
-                        frame: ReplyFrame::reaction(previous, Flow::Continue),
-                        question,
-                    }
+                if closing {
+                    *replay = positions.replayed();
                 }
-            }
-            *replay = positions.replayed();
-
-            match pending {
-                Some((reaction, question)) => {
-                    *written = true;
-                    let flow = if last { Flow::End } else { Flow::Continue };
-                    yield Encoded {
-                        frame: ReplyFrame::reaction(reaction, flow),
-                        question,
-                    }
-                }
-                None if last => {
-                    assert!(
-                        !*written,
-                        "a reply's last chunk holds its last reaction, so frames left \
-                         flagged to continue are never followed by an empty last chunk",
-                    );
-                    yield Encoded {
-                        frame: ReplyFrame::reply_end(),
-                        question: None,
-                    }
-                }
-                None => {}
+                *written = true;
+                let flow = if closing && last { Flow::End } else { Flow::Continue };
+                yield Encoded {
+                    frame: ReplyFrame::reaction(wire, flow),
+                    question,
+                    charge: if closing { mem::take(&mut charge) } else { Charge::default() },
+                };
             }
         }
     }

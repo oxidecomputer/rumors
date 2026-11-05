@@ -12,6 +12,8 @@ use crate::tree::{
         byte_set::ByteSet,
         convert::Convert,
         erased::{Reaction, Reply},
+        holding::Holding,
+        ledger::Ledger,
     },
     typed::{
         self, Prefix,
@@ -302,7 +304,8 @@ where
     }
 
     /// Check that a mixed reply encoded in the chunks `cuts` selects
-    /// yields exactly the frames and publications of its whole encoding.
+    /// yields exactly the frames and publications of its whole encoding,
+    /// and that each chunk's charge rides its last frame alone.
     fn chunked_encoding_is_whole(
         leaf: &LeafCase,
         case: &PositionalCase,
@@ -314,7 +317,8 @@ where
         let scope = Scope::unbounded(parent.erase(), &case.listing());
         let nested = Self::nested(&case);
         let reply = || mixed_reply(&case, nested, supply_at, supply_radix, Self::node(leaf));
-        let (whole, chunked) = runtime.block_on(async {
+        let ledger = Ledger::new(0);
+        let (whole, chunked, charged) = runtime.block_on(async {
             let whole = Self::encode(scope.clone(), reply())
                 .map_ok(|encoded| encoded.into_parts())
                 .try_collect::<Vec<_>>()
@@ -322,19 +326,32 @@ where
                 .expect("canonical mixed reactions encode");
             let mut encoder = Self::encoder(scope.clone());
             let mut chunked = Vec::new();
-            for chunk in chunks(reply(), cuts) {
+            let mut charged = Vec::new();
+            for chunk in chunks(reply(), cuts, &ledger) {
                 let mut frames = pin!(encoder.chunk(chunk));
+                let mut carried = Vec::new();
                 while let Some(frame) = frames.next().await {
-                    chunked.push(
-                        frame
-                            .expect("canonical mixed reactions encode")
-                            .into_parts(),
-                    );
+                    let frame = frame.expect("canonical mixed reactions encode");
+                    carried.push(frame.charged());
+                    chunked.push(frame.into_parts());
                 }
+                charged.push(carried);
             }
-            (whole, chunked)
+            (whole, chunked, charged)
         });
         prop_assert_eq!(chunked, whole, "height {}", Self::HEIGHT);
+        for (index, carried) in charged.iter().enumerate() {
+            let (last, earlier) = carried
+                .split_last()
+                .expect("every chunk holds a reaction, so it encodes a frame");
+            prop_assert_eq!(*last, chunk_charge(index), "height {}", Self::HEIGHT);
+            prop_assert!(
+                earlier.iter().all(|&bytes| bytes == 0),
+                "height {}: a chunk's earlier frame carried a charge",
+                Self::HEIGHT
+            );
+        }
+        prop_assert_eq!(ledger.held(), 0, "height {}", Self::HEIGHT);
         Ok(())
     }
 
@@ -536,7 +553,10 @@ fn mixed_reply<H: Height>(
 /// `reply`'s reactions as chunks, cut after reaction `i` wherever bit `i`
 /// of `cuts` is set but after the last, which the last chunk holds as a
 /// reply's last chunk must.
-fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
+///
+/// Chunk `i` carries a charge on `ledger` of [`chunk_charge`]`(i)` bytes,
+/// so each chunk's charge is told apart from every other's.
+fn chunks(reply: Reply<Erased>, cuts: u64, ledger: &Ledger) -> Vec<Reply<Erased>> {
     let count = reply.reactions.len();
     let mut chunks = Vec::new();
     let mut current = Vec::new();
@@ -545,7 +565,7 @@ fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
         if index + 1 < count && index < 64 && (cuts >> index) & 1 == 1 {
             chunks.push(Reply {
                 reactions: std::mem::take(&mut current),
-                charge: Default::default(),
+                charge: ledger.charge(Holding::OutgoingReplies, chunk_charge(chunks.len())),
                 last: false,
                 carried: Default::default(),
             });
@@ -553,11 +573,17 @@ fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
     }
     chunks.push(Reply {
         reactions: current,
-        charge: reply.charge,
+        charge: ledger.charge(Holding::OutgoingReplies, chunk_charge(chunks.len())),
         last: true,
         carried: Default::default(),
     });
     chunks
+}
+
+/// The bytes [`chunks`] charges its chunk at `index`: distinct for every
+/// chunk, and never zero.
+fn chunk_charge(index: usize) -> usize {
+    index + 1
 }
 
 /// Build the canonical frames for a mixed reply independently of the encoder.
@@ -878,7 +904,8 @@ proptest! {
     /// questions.
     ///
     /// Every chunk's last frame continues the reply, and only the reply's
-    /// last reaction ends it.
+    /// last reaction ends it. Each chunk's charge rides its last frame, and
+    /// every earlier frame carries none.
     #[test]
     fn chunked_replies_encode_as_whole_replies_at_every_height(
         value in any::<u64>(),

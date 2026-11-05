@@ -9,7 +9,7 @@
 //! decode → re-encode path the session uses, with the decode side fed
 //! deliberately unbatched input to prove batching is the encoder's choice.
 
-use futures::{TryStreamExt, stream};
+use futures::{StreamExt, TryStreamExt, stream};
 use proptest::prelude::*;
 
 use crate::{
@@ -17,8 +17,8 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            Backend, Local,
-            erased::Reaction,
+            Backend, Failing, FailingNode, Local,
+            erased::{Reaction, Reply},
             remote::codec::{
                 DEFAULT_TARGET_MESSAGE_SIZE, Flow, Frame, LeafRun, Reaction as WireReaction,
                 RunBudget, SUPPLY_FRAME_OVERHEAD,
@@ -59,13 +59,11 @@ fn unbatched_frames(leaves: &[LeafCase]) -> Vec<Frame> {
     )
 }
 
-/// Decode `frames` as one reply to the opening scope, then re-encode it
-/// under `budget`, returning the emitted wire frames.
-fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
-    let runtime = runtime();
-    runtime.block_on(async {
+/// Decode `frames` as one reply to the opening scope.
+fn decode_opening(frames: Vec<Frame>) -> Reply<<Local as Backend>::Erased> {
+    runtime().block_on(async {
         let mut input = stream::iter(frames);
-        let decoded = decode_whole_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -77,7 +75,15 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
             Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
-        .expect("ascending in-scope leaves assemble");
+        .expect("ascending in-scope leaves assemble")
+    })
+}
+
+/// Decode `frames` as one reply to the opening scope, then re-encode it
+/// under `budget`, returning the emitted wire frames.
+fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
+    let decoded = decode_opening(frames);
+    runtime().block_on(async {
         encode_reply(Local, budget, Scope::opening_unbounded(&[]), decoded)
             .map_ok(|encoded| encoded.into_parts().0)
             .try_collect::<Vec<_>>()
@@ -171,6 +177,64 @@ proptest! {
             prop_assert_eq!(record.0.as_bytes(), leaf.version.as_bytes());
             prop_assert_eq!(record.1.as_slice(), leaf.message.as_slice());
         }
+    }
+}
+
+proptest! {
+    /// For any budget, the encoder hands each run over as soon as it is
+    /// complete, so it never holds a complete run besides the one it is
+    /// yielding.
+    ///
+    /// When it yields a run, it has read from the backend exactly the
+    /// records of the runs yielded so far, and one more if leaves remain:
+    /// the record that did not fit, which closed the run. An encoder that
+    /// held a complete run back would have read at least the next run's
+    /// records too.
+    #[test]
+    fn each_run_is_yielded_once_complete(
+        (count, budget) in run_case(),
+    ) {
+        let leaves = colliding_leaves(count);
+        let decoded = decode_opening(unbatched_frames(&leaves));
+        let backend = Failing::after(Local, usize::MAX);
+        let reply = Reply {
+            reactions: decoded
+                .reactions
+                .into_iter()
+                .map(|reaction| match reaction {
+                    Reaction::Supply(radix, node) => Reaction::Supply(radix, FailingNode::new(node)),
+                    _ => panic!("a pure-supply reply decodes to supplies alone"),
+                })
+                .collect(),
+            charge: Default::default(),
+            last: true,
+            carried: Default::default(),
+        };
+        runtime().block_on(async {
+            let mut frames = encode_reply(
+                backend.clone(),
+                RunBudget::from_bytes(budget),
+                Scope::opening_unbounded(&[]),
+                reply,
+            );
+            let mut yielded = 0;
+            while let Some(encoded) = frames.next().await {
+                let (frame, _) = encoded.expect("the wrapped local backend never fails").into_parts();
+                let Frame::Reaction(WireReaction::Supply(run), _) = frame else {
+                    panic!("a pure-supply reply emitted {frame:?}");
+                };
+                yielded += run.record_count();
+                let closing = usize::from(yielded < count);
+                prop_assert_eq!(
+                    backend.leaves_yielded(),
+                    yielded + closing,
+                    "records read when a run of {} was yielded",
+                    run.record_count()
+                );
+            }
+            prop_assert_eq!(yielded, count);
+            Ok(())
+        })?;
     }
 }
 

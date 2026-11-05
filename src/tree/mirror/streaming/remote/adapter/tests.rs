@@ -13,7 +13,7 @@ use crate::{
         mirror::streaming::{
             convert::Convert,
             materialized::SupplyLedger,
-            remote::codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction},
+            remote::codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget},
         },
         typed::{
             self, Hash, Path,
@@ -71,7 +71,7 @@ fn uniform_version(ticks: u64) -> Version {
 fn leaf_run(records: &[(&Version, &Message)]) -> LeafRun {
     let mut run = LeafRun::new();
     for (version, message) in records {
-        run.push(version, message)
+        run.push(version, message, RunBudget::default())
             .expect("a test record fits the run framing");
     }
     run

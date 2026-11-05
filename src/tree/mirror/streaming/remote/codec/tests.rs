@@ -73,7 +73,7 @@ const MAX_ARBITRARY_RUN_RECORDS: usize = 4;
 fn leaf_run<T: Serialize + Clone + Send + Sync + 'static>(records: &[(Version, T)]) -> LeafRun {
     let mut run = LeafRun::new();
     for (version, value) in records {
-        run.push(version, &Message::new(value.clone()))
+        run.push(version, &Message::new(value.clone()), RunBudget::default())
             .expect("a test record fits the run framing");
     }
     run

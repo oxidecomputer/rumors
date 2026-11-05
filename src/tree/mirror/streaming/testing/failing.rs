@@ -66,6 +66,8 @@ struct State {
     miscount: Option<Miscount>,
     /// How many times a session read a misreported count.
     miscounts_read: usize,
+    /// How many leaves the backend's traversals have yielded.
+    leaves_yielded: usize,
 }
 
 /// A count a [`Failing`] backend misreports for the nodes at one height.
@@ -131,6 +133,7 @@ impl<B> Failing<B> {
                 operations: Vec::new(),
                 miscount,
                 miscounts_read: 0,
+                leaves_yielded: 0,
             })),
         }
     }
@@ -161,6 +164,15 @@ impl<B> Failing<B> {
         self.state
             .lock()
             .expect("the failing-backend state mutex is not poisoned")
+    }
+
+    /// Return how many leaves this wrapper's traversals have yielded.
+    ///
+    /// That is the leaves a consumer of [`Backend::leaves`] has read so far,
+    /// since the default enumeration explodes each node through `children`
+    /// and yields each leaf as its parent's traversal does.
+    pub fn leaves_yielded(&self) -> usize {
+        self.lock().leaves_yielded
     }
 
     /// Return every operation attempted through this wrapper, in call order.
@@ -405,8 +417,15 @@ where
                 return;
             }
             let miscounted = self.miscount_at(H::HEIGHT);
+            let state = Arc::clone(&self.state);
             let mut children = pin!(self.inner.children(prefix, parent.into_inner()));
             while let Some(child) = children.next().await {
+                if H::HEIGHT == Z::HEIGHT && child.is_ok() {
+                    state
+                        .lock()
+                        .expect("the failing-backend state mutex is not poisoned")
+                        .leaves_yielded += 1;
+                }
                 yield child
                     .map(|(prefix, node)| (prefix, FailingNode(node, miscounted.clone())))
                     .map_err(Failure::Inner);

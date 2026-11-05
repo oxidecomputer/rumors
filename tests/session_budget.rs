@@ -199,7 +199,8 @@
 //!   at least half the bytes it allocated for them
 //!   ([`OUTGOING_REPLIES_FLOOR_DIVISOR`] derives the share). Coverage
 //!   alone cannot see a missing charge there: a chunk's charge returns
-//!   once its frames are written, so its items never outlive it by more
+//!   once the multiplexer has written the chunk's last frame, which
+//!   carries it, so its items never outlive it by more
 //!   than the place's scratch. Computing a node's hash while an answer
 //!   lists or compares it is hashing's work, not the outgoing replies'
 //!   (above), so the placed fixture's half fans, each hashed anew on its
@@ -1331,7 +1332,7 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// claims under the invitation share let its questions take it, and the
 /// floor slots hold one more unit per depth and kind beside it: each peak
 /// is at most the 8 MiB budget plus its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_675_000, 8_467_816];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_676_828, 8_467_884];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
@@ -1339,7 +1340,7 @@ const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_675_000, 8_467_816];
 ///
 /// A claim reserves room for processing still to come, so a side's peak
 /// can stay below its budget.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [31_183_420, 33_268_704];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [31_183_644, 33_268_704];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.

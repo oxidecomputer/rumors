@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+use super::budget::RunBudget;
 use super::error::{DecodeLeafError, LengthOverflow, QueryOrderError};
 use super::signal::{End, Flow, Stream};
 
@@ -191,6 +192,12 @@ impl LeafRun {
         self.bytes.len()
     }
 
+    /// The bytes this run's buffer can hold without growing.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.bytes.capacity()
+    }
+
     /// The exact wire bytes of this run's records.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
@@ -218,19 +225,42 @@ impl LeafRun {
             .saturating_add(message.as_slice().len())
     }
 
-    /// Append one leaf record from borrowed components.
+    /// Append one leaf record from borrowed components, for a run built
+    /// within `budget`.
+    ///
+    /// The buffer grows exactly, never past the run body `budget` admits
+    /// ([`RunBudget::body`]) unless the run's bytes need more: a buffer
+    /// that must grow takes twice its capacity, or the bytes needed if
+    /// more, and at most the body. So a run built within its budget never
+    /// holds more than the budget's body, and a run that outgrows it, by
+    /// one lone record, holds exactly its own bytes. Doubling while below
+    /// the body keeps the copying linear in the bytes pushed.
     ///
     /// # Errors
     ///
     /// Rejects a record no run can carry — one whose whole record item
     /// exceeds the wire's run byte cap — leaving the run untouched.
-    pub fn push(&mut self, version: &Version, message: &Message) -> Result<(), LengthOverflow> {
+    pub fn push(
+        &mut self,
+        version: &Version,
+        message: &Message,
+        budget: RunBudget,
+    ) -> Result<(), LengthOverflow> {
         let body = Self::record_body_len(version, message);
         let item = record_item_len(body);
         checked_run_len(item)?;
         let version = version.as_bytes();
         let message = message.as_slice();
-        self.bytes.reserve(item);
+        let needed = self.bytes.len().saturating_add(item);
+        if needed > self.bytes.capacity() {
+            let grown = self
+                .bytes
+                .capacity()
+                .saturating_mul(2)
+                .min(budget.body())
+                .max(needed);
+            self.bytes.reserve_exact(grown - self.bytes.len());
+        }
         cbor::write_tag(&mut self.bytes, TAG_CBOR_SEQUENCE);
         cbor::write_head(&mut self.bytes, MAJOR_BSTR, widen(body));
         cbor::write_tag(&mut self.bytes, crate::tags::VERSION_TAG);

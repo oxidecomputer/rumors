@@ -231,15 +231,15 @@ where
     Ok(())
 }
 
-/// Hand one adapter frame to the multiplexer and release its optional
-/// question afterward.
+/// Hand one adapter frame, with the charge it carries, to the multiplexer
+/// and release its optional question afterward.
 async fn write_encoded<E>(
     outgoing: &mut Outgoing,
     encoded: Encoded,
 ) -> Result<Option<Scope>, Error<E>> {
     encoded
-        .write_with(|frame: ReplyFrame| async {
-            outgoing.frame(frame).await;
+        .write_with(|frame: ReplyFrame, charge: Charge| async {
+            outgoing.frame(frame, charge).await;
             Ok(())
         })
         .await

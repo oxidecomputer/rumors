@@ -22,7 +22,7 @@ use crate::{
         mirror::streaming::{
             Backend, ErasedNode, FAN, Local,
             erased::{Reaction, Reply},
-            remote::codec::{Frame, LeafRun, Reaction as WireReaction},
+            remote::codec::{Frame, LeafRun, Reaction as WireReaction, RunBudget},
         },
         typed::{Path, Prefix, height::Root},
     },
@@ -58,7 +58,7 @@ fn frames(leaves: &[(Version, Message)]) -> Vec<Frame> {
     reply_frames(leaves.chunks(PER_FRAME).map(|chunk| {
         let mut run = LeafRun::new();
         for (version, message) in chunk {
-            run.push(version, message)
+            run.push(version, message, RunBudget::default())
                 .expect("a test record fits the run framing");
         }
         WireReaction::Supply(run)

@@ -11,6 +11,7 @@ use crate::Version;
 use crate::message::{Message, PayloadDepthLimit};
 use crate::tree::mirror::cbor::MAJOR_BSTR;
 
+use super::super::budget::RunBudget;
 use super::super::encode::encode;
 use super::super::frame::{Frame, LeafRun, Reaction};
 use super::super::signal::Flow;
@@ -20,7 +21,7 @@ use super::super::signal::Flow;
 /// frame arrives in.
 fn supply_frame(payload: &Message) -> (Stream, Vec<u8>) {
     let mut run = LeafRun::new();
-    run.push(&Version::new(), payload)
+    run.push(&Version::new(), payload, RunBudget::default())
         .expect("one record fits a fresh run");
     let stream = Stream::new(1).expect("stream 1 names a stream");
     let frame = (stream, Frame::Reaction(Reaction::Supply(run), Flow::End));

@@ -356,7 +356,7 @@ pub fn prepare_record_run(len: usize) -> PreparedRecordRun {
     )
     .expect("the integer fixture is an admissible payload");
     for _ in 0..len {
-        run.push(&version, &message)
+        run.push(&version, &message, RunBudget::default())
             .expect("the tiny fixture record fits a supply run");
     }
     PreparedRecordRun(run)

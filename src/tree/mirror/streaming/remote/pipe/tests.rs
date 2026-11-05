@@ -17,6 +17,7 @@ use crate::Version;
 use crate::message::Message;
 use crate::testing::{IoPlan, IoSide, run_to_quiescence, wrap_io};
 use crate::tree::mirror::streaming::remote::codec::{Flow, LeafRun, encode};
+use crate::tree::mirror::streaming::{holding::Holding, ledger::Ledger};
 
 /// The speaker whose direction these tests write and read.
 const SPEAKER: Speaker = Speaker::Initiator;
@@ -43,10 +44,18 @@ fn frame(kind: Kind, tag: u64) -> ReplyFrame {
         Kind::ReplyEnd => ReplyFrame::reply_end(),
         Kind::Supply => {
             let mut run = LeafRun::new();
-            run.push(&Version::new(), &Message::new(tag))
+            run.push(&Version::new(), &Message::new(tag), RunBudget::default())
                 .expect("one small record fits a fresh run");
             ReplyFrame::reaction(Reaction::Supply(run), Flow::End)
         }
+    }
+}
+
+/// `frame` on its way to the multiplexer with no charge.
+fn bare(frame: Frame) -> Outbound {
+    Outbound {
+        frame,
+        charge: Charge::default(),
     }
 }
 
@@ -72,7 +81,7 @@ fn decode_all(bytes: &[u8]) -> Vec<(Stream, Frame)> {
 /// Hand `frames` to one lane, then end it.
 async fn produce(mut out: Outgoing, frames: Vec<ReplyFrame>) {
     for frame in frames {
-        out.frame(frame).await;
+        out.frame(frame, Charge::default()).await;
     }
     out.finish().await;
 }
@@ -189,8 +198,12 @@ fn encoded_len(stream: Stream, frame: &ReplyFrame) -> usize {
 fn supply_of_len(stream: Stream, len: usize) -> ReplyFrame {
     let build = |text: usize| {
         let mut run = LeafRun::new();
-        run.push(&Version::new(), &Message::new("x".repeat(text)))
-            .expect("a record within the run cap fits a fresh run");
+        run.push(
+            &Version::new(),
+            &Message::new("x".repeat(text)),
+            RunBudget::default(),
+        )
+        .expect("a record within the run cap fits a fresh run");
         ReplyFrame::reaction(Reaction::Supply(run), Flow::End)
     };
     let guess = len / 2;
@@ -325,7 +338,7 @@ proptest! {
         let producer = async move {
             for (batch, &sent) in handed.iter().zip(&flushed_after) {
                 for frame in batch {
-                    lane.frame(frame.clone()).await;
+                    lane.frame(frame.clone(), Charge::default()).await;
                 }
                 sink_ref.wait_for(sent).await;
             }
@@ -362,8 +375,8 @@ fn a_ready_thin_frame_precedes_a_ready_supply_run() {
     let mut bulk = multiplexer.lane(interior(1), 0);
     let mut thin = multiplexer.lane(interior(2), 0);
     let written = run_to_quiescence(async move {
-        bulk.frame(frame(Kind::Supply, 1)).await;
-        thin.frame(frame(Kind::Match, 2)).await;
+        bulk.frame(frame(Kind::Supply, 1), Charge::default()).await;
+        thin.frame(frame(Kind::Match, 2), Charge::default()).await;
         drop((bulk, thin));
         let mut written = Vec::new();
         let observe = SessionHandle::default();
@@ -379,6 +392,105 @@ fn a_ready_thin_frame_precedes_a_ready_supply_run() {
         .map(|(stream, _)| stream)
         .collect();
     assert_eq!(order, [interior(2), interior(1)]);
+}
+
+/// A write half that records, at each write it takes, how many bytes it had
+/// taken before it and how many bytes `ledger` held then.
+struct LedgerWatch<'a> {
+    /// The ledger whose holdings each write records.
+    ledger: &'a Ledger,
+    /// The bytes taken so far.
+    taken: usize,
+    /// Each write's offset and the ledger's holdings at it, in order.
+    writes: Vec<(usize, usize)>,
+}
+
+/// Take every write whole, recording the ledger's holdings first.
+impl AsyncWrite for LedgerWatch<'_> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let watch = self.get_mut();
+        if !bytes.is_empty() {
+            watch.writes.push((watch.taken, watch.ledger.held()));
+        }
+        watch.taken += bytes.len();
+        Poll::Ready(Ok(bytes.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+proptest! {
+    /// Each frame's charge returns once the multiplexer has written the
+    /// frame, and not before.
+    ///
+    /// The write half takes every byte of a frame, and of every earlier
+    /// frame, while the frame's charge is held, and every byte of a later
+    /// frame after it has returned. So a chunk's charge, which rides its
+    /// last frame, outlives every frame of the chunk and nothing after it.
+    ///
+    /// Every frame is one supply run whose record is over twice
+    /// [`WRITE_BUFFER_BYTES`] long, so each passes the write buffer during
+    /// its own write and none of its bytes wait there afterwards. At each write, the ledger therefore
+    /// holds exactly the charges of the frame being written and of the
+    /// frames after it; charges of zero bytes stand for frames that carry
+    /// none.
+    #[test]
+    fn a_charge_returns_once_its_frame_is_written(
+        charges in prop::collection::vec(0..=64usize, 1..5),
+    ) {
+        let stream = interior(1);
+        let mut run = LeafRun::new();
+        run.push(
+            &Version::new(),
+            &Message::new("x".repeat(2 * WRITE_BUFFER_BYTES)),
+            RunBudget::default(),
+        )
+        .expect("a record within the run cap fits a fresh run");
+        let frame = ReplyFrame::reaction(Reaction::Supply(run), Flow::Continue);
+        let len = encoded_len(stream, &frame);
+        let ledger = Ledger::new(0);
+        let items: Vec<(ReplyFrame, Charge)> = charges
+            .iter()
+            .map(|&bytes| (frame.clone(), ledger.charge(Holding::OutgoingReplies, bytes)))
+            .collect();
+        let mut multiplexer = Multiplexer::default();
+        let mut lane = multiplexer.lane(stream, 0);
+        let mut write = LedgerWatch {
+            ledger: &ledger,
+            taken: 0,
+            writes: Vec::new(),
+        };
+        run_to_quiescence(async {
+            // Dropping the lane closes it without an end-of-stream frame,
+            // so the write half takes the charged frames alone.
+            let producer = async move {
+                for (frame, charge) in items {
+                    lane.frame(frame, charge).await;
+                }
+            };
+            let observe = SessionHandle::default();
+            let run = multiplexer.run(&mut write, SPEAKER, Recorder::default(), &observe);
+            futures::join!(run, producer).0
+        })
+        .expect("the multiplexer drains its lane")
+        .expect("the watch takes every write");
+        prop_assert_eq!(write.taken, len * charges.len());
+        for &(at, held) in &write.writes {
+            let unwritten: usize = charges[at / len..].iter().sum();
+            prop_assert_eq!(held, unwritten, "the write at byte {}", at);
+        }
+        prop_assert_eq!(ledger.held(), 0, "every charge returns once written");
+    }
 }
 
 /// The lane the multiplexer should serve among `staged`, the frame kind
@@ -441,7 +553,7 @@ proptest! {
         let mut modeled = [0; Class::ORDER.len()];
         for staged in rounds {
             for (lane, kind) in multiplexer.lanes.iter_mut().zip(&staged) {
-                lane.staged = kind.map(|kind| frame(kind, 0).into());
+                lane.staged = kind.map(|kind| bare(frame(kind, 0).into()));
             }
             prop_assert_eq!(
                 multiplexer.choose(&mut cursors),
@@ -615,7 +727,7 @@ proptest! {
                         tag += 1;
                         let sent = Frame::from(frame(kind, tag));
                         prop_assert!(
-                            out.frames.try_send(sent.clone()).is_ok(),
+                            out.frames.try_send(bare(sent.clone())).is_ok(),
                             "an open channel with room accepts a frame"
                         );
                         modeled.queued.push_back((kind, sent));
@@ -633,7 +745,7 @@ proptest! {
                     let done = matches!(expected, Poll::Ready(None));
                     let pending = expected.is_pending();
                     prop_assert_eq!(
-                        polled.map(|next| next.map(|(stream, frame)| (stream.index(), frame))),
+                        polled.map(|next| next.map(|(stream, item)| (stream.index(), item.frame))),
                         expected.map(|next| next.map(|(lane, frame)| {
                             (u8::try_from(lane + 1).unwrap(), frame)
                         })),

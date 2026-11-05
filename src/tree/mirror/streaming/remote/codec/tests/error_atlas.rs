@@ -120,7 +120,7 @@ const INTERIOR_STREAM: u8 = 8;
 /// Build a supply run holding one leaf record.
 fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value: T) -> LeafRun {
     let mut run = LeafRun::new();
-    run.push(&version, &Message::new(value))
+    run.push(&version, &Message::new(value), RunBudget::default())
         .expect("an atlas record fits the run framing");
     run
 }
@@ -418,7 +418,7 @@ fn decode_errors(atlas: &mut String) {
         // lone-record overhang, so the ingress gate rejects the batching.
         let mut batched = Vec::new();
         let mut run = one_record_run(Version::new(), 7_u8);
-        run.push(&Version::new(), &Message::new(7_u8))
+        run.push(&Version::new(), &Message::new(7_u8), RunBudget::default())
             .expect("an atlas record fits the run framing");
         encode(
             speaker,

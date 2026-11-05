@@ -265,8 +265,10 @@
 //! budget above zero, so it covers every budget on either side.
 //!
 //! - A question slot at depth `d` frees once the question's items and
-//!   reservation are released: its chunk when encoded, its record when the
-//!   reply's last chunk is taken, the reply's room chunk by chunk as this
+//!   reservation are released: its chunk once the multiplexer has written
+//!   the chunk's last frame (a wait on the pipe alone, which drains
+//!   whatever the walk waits for), its record when the reply's last chunk
+//!   is taken, the reply's room chunk by chunk as this
 //!   side's stage uses the reply's chunks and the rest as the reply shows
 //!   it cannot be used, and the reservation's other parts as the stage
 //!   finishes the reply and assembles the scope asked about.
@@ -277,7 +279,8 @@
 //!   own slot frees without anything at `d` on this side.
 //! - An answer slot at depth `d` frees once the answer's scope is
 //!   assembled, which takes its questions, at question depth `d + 1`, and
-//!   their subtrees.
+//!   their subtrees, and once its chunks' last frames are written, which
+//!   waits on the pipe alone.
 //! - A stage takes its units in order, so a unit waiting at depth `d` waits
 //!   only for units ahead of it at `d`, whose slots free by the two cases
 //!   above, and for deeper units, which waiters at greater depths precede

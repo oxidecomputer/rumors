@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::super::{
+    budget::RunBudget,
     error::Origin,
     frame::{MAX_QUERY_CHILDREN, listing_len},
     signal::{End, Flow, Speaker, Stream},
@@ -131,7 +132,7 @@ proptest! {
         let mut body = Vec::new();
         for (version, value) in &records {
             let message = Message::new(*value);
-            run.push(version, &message).unwrap();
+            run.push(version, &message, RunBudget::default()).unwrap();
             let mut content = Vec::new();
             cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
             ciborium::ser::into_writer(version, &mut content).unwrap();

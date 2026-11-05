@@ -60,7 +60,10 @@
 //! On the sending side, encoders wait for the multiplexer and the
 //! multiplexer waits for the pipe, but no receiving stage's consumption
 //! order can stop the pipe from draining, because the peer's receive path
-//! never waits on its walk. So no cycle can pass through the pipe. The
+//! never waits on its walk. So no cycle can pass through the pipe. A
+//! chunk's charge rides its last frame ([`Outbound`]) and returns once the
+//! multiplexer has written that frame, so it too returns without waiting
+//! on the walk. The
 //! walk's own waits, for admission of the work it builds, end by the
 //! induction in the ledger's admission module
 //! ([`ledger`](super::super::ledger)), which rests on this one: every
@@ -132,6 +135,7 @@ use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
     channel::{HANDOFF_CAPACITY, QueueKind, QueueRole, Receiver, Sender, channel},
+    ledger::Charge,
     stats::{CountedRead, CountedWrite, Recorder},
     tasks::cancelled,
 };
@@ -326,39 +330,69 @@ impl PipeError {
     }
 }
 
+/// One frame on its way to the multiplexer, and the charge it carries.
+///
+/// The charge pays for what the frame's chunk holds until the frame is
+/// written: an encoder hands a chunk's charge over with the chunk's last
+/// frame, and every other frame carries no charge. The multiplexer drops
+/// the item, and so the charge, once it has written the frame, or copied
+/// it into its write buffer. A lane delivers its frames in order, so every
+/// earlier frame of the chunk is written by then.
+pub struct Outbound {
+    /// The frame to write.
+    frame: Frame,
+    /// The charge returned once `frame` is written.
+    charge: Charge,
+}
+
 /// One local encoder's logical stream into the multiplexer.
 pub struct Outgoing {
     /// The multiplexer's channel for this logical stream.
-    frames: Sender<Frame>,
+    frames: Sender<Outbound>,
     /// Whether any frame was sent, so the stream must end explicitly.
     opened: bool,
 }
 
 impl Outgoing {
-    /// Hand one reply frame to the multiplexer.
+    /// Hand one reply frame to the multiplexer, with the `charge` it
+    /// returns once written ([`Outbound`]).
     ///
     /// Returns once the frame is in the multiplexer's channel, before it
     /// reaches the pipe, so the encoder can publish the local records of
     /// the reply's questions without waiting for the write. A multiplexer
     /// that has gone failed; the session's executor reports its error, so
     /// this awaits cancellation instead.
-    pub async fn frame(&mut self, frame: ReplyFrame) {
+    pub async fn frame(&mut self, frame: ReplyFrame, charge: Charge) {
         self.opened = true;
-        send_or_cancel(&mut self.frames, frame.into()).await;
+        send_or_cancel(
+            &mut self.frames,
+            Outbound {
+                frame: frame.into(),
+                charge,
+            },
+        )
+        .await;
     }
 
     /// End this logical stream after its last reply, if it carried any.
     pub async fn finish(mut self) {
         if self.opened {
-            send_or_cancel(&mut self.frames, Frame::End(End::Stream)).await;
+            send_or_cancel(
+                &mut self.frames,
+                Outbound {
+                    frame: Frame::End(End::Stream),
+                    charge: Charge::default(),
+                },
+            )
+            .await;
         }
     }
 }
 
-/// Send one frame to the pipe's other side, or await cancellation if it has
+/// Send one item to the pipe's other side, or await cancellation if it has
 /// gone: its failure is the session's error.
-async fn send_or_cancel(frames: &mut Sender<Frame>, frame: Frame) {
-    if frames.send(frame).await.is_err() {
+async fn send_or_cancel(frames: &mut Sender<Outbound>, item: Outbound) {
+    if frames.send(item).await.is_err() {
         cancelled().await;
     }
 }
@@ -419,9 +453,9 @@ struct OutgoingLane {
     /// The logical stream every frame from this lane names.
     stream: Stream,
     /// The encoder's channel, until it closes.
-    frames: Option<Receiver<Frame>>,
+    frames: Option<Receiver<Outbound>>,
     /// The next frame, taken from the channel and awaiting its turn.
-    staged: Option<Frame>,
+    staged: Option<Outbound>,
     /// Whether the channel must be polled: it has never been polled, or
     /// it has woken the multiplexer or yielded a frame since its last poll
     /// ([`Wakes`]).
@@ -590,10 +624,13 @@ impl Multiplexer {
                     poll_fn(|cx| self.poll_next(cx, &mut cursors)).await
                 }
             };
-            let Some((stream, frame)) = next else {
+            let Some((stream, Outbound { frame, charge })) = next else {
                 break;
             };
             out.frame(&(stream, frame)).await?;
+            // The frame is written, or copied into the write buffer, so
+            // what its chunk held is no longer needed.
+            drop(charge);
             stats.frame_sent();
         }
         out.flush().await
@@ -610,7 +647,7 @@ impl Multiplexer {
         &mut self,
         cx: &mut Context<'_>,
         cursors: &mut [usize; Class::ORDER.len()],
-    ) -> Poll<Option<(Stream, Frame)>> {
+    ) -> Poll<Option<(Stream, Outbound)>> {
         {
             // Register and collect under one lock: a lane recorded after
             // this finds this task registered, and wakes it.
@@ -653,8 +690,8 @@ impl Multiplexer {
         let next = match self.choose(cursors) {
             Some(index) => {
                 let lane = &mut self.lanes[index];
-                let frame = lane.staged.take().expect("choose returns a staged lane");
-                Poll::Ready(Some((lane.stream, frame)))
+                let item = lane.staged.take().expect("choose returns a staged lane");
+                Poll::Ready(Some((lane.stream, item)))
             }
             None if open => Poll::Pending,
             None => Poll::Ready(None),
@@ -676,7 +713,7 @@ impl Multiplexer {
                     self.lanes[index]
                         .staged
                         .as_ref()
-                        .is_some_and(|frame| Class::of(frame) == class)
+                        .is_some_and(|item| Class::of(&item.frame) == class)
                 });
             if let Some(index) = found {
                 *cursor = index + 1;

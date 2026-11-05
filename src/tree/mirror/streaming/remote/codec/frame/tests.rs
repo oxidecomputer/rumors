@@ -43,7 +43,7 @@ proptest::proptest! {
         }
         let message = Message::new(payload);
         let mut run = LeafRun::new();
-        run.push(&version, &message).expect("test records fit");
+        run.push(&version, &message, RunBudget::default()).expect("test records fit");
         prop_assert_eq!(run.encoded_len(), LeafRun::record_len(&version, &message));
 
         // Skip the record heads and version tag to compare the version's
@@ -56,6 +56,38 @@ proptest::proptest! {
     }
 }
 
+proptest::proptest! {
+    /// A run's buffer never holds more than the run body its budget admits,
+    /// unless the run's own bytes need more, and then exactly those bytes.
+    ///
+    /// That is, after every push, its capacity is at most the larger of its
+    /// length and [`RunBudget::body`].
+    ///
+    /// The pushes ignore the encoder's flush rule, so runs that outgrow the
+    /// body by many records are covered as well as runs within it.
+    #[test]
+    fn a_run_buffer_grows_at_most_to_its_budget_body(
+        budget in 0usize..4096,
+        payloads in proptest::collection::vec(0usize..1024, 1..32),
+    ) {
+        use proptest::prelude::*;
+        let budget = RunBudget::from_bytes(budget);
+        let mut run = LeafRun::new();
+        for payload in payloads {
+            run.push(&crate::Version::new(), &Message::new(vec![0u8; payload]), budget)
+                .expect("test records fit");
+            prop_assert!(run.capacity() >= run.encoded_len());
+            prop_assert!(
+                run.capacity() <= run.encoded_len().max(budget.body()),
+                "capacity {} for {} bytes within a body of {}",
+                run.capacity(),
+                run.encoded_len(),
+                budget.body(),
+            );
+        }
+    }
+}
+
 /// A pushed run round-trips through `from_encoded` and yields the same
 /// records: the writer's record heads are exactly what the validator
 /// chains over, one record at a time.
@@ -65,7 +97,7 @@ fn pushed_runs_validate_and_iterate() {
     version.tick(&crate::tree::arb::nth_party(1));
     let mut run = LeafRun::new();
     for payload in [1u64, 2, 3] {
-        run.push(&version, &Message::new(payload))
+        run.push(&version, &Message::new(payload), RunBudget::default())
             .expect("test records fit");
     }
     let decoded =

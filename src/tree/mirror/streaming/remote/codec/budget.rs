@@ -102,6 +102,13 @@ impl RunBudget {
         self.bytes
     }
 
+    /// The most run-body bytes a frame within this budget carries: the
+    /// budget less [`SUPPLY_FRAME_OVERHEAD`], or zero for a budget smaller
+    /// than the overhead.
+    pub fn body(self) -> usize {
+        self.bytes.saturating_sub(SUPPLY_FRAME_OVERHEAD)
+    }
+
     /// Whether a run may absorb one more record within this budget.
     ///
     /// This charges the complete frame after adding `record`. The encoder still
