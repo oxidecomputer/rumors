@@ -1323,6 +1323,151 @@ proptest! {
     }
 }
 
+/// The lanes of [`lane_wakes_from_other_threads_reach_the_multiplexer`]:
+/// twice its runtime's workers, so that producers share workers.
+const CROSS_THREAD_LANES: usize = 2 * CROSS_THREAD_WORKERS;
+
+/// The worker threads of that test's runtime.
+const CROSS_THREAD_WORKERS: usize = 6;
+
+/// The frames each of that test's lanes carries before it ends: fewer than
+/// a lane's channel holds, so no producer ever waits for room, and every
+/// wait on a lane in the test is the multiplexer's.
+const CROSS_THREAD_FRAMES: usize = 64;
+const _: () = assert!(CROSS_THREAD_FRAMES < LANE_CAPACITY);
+
+/// A producer of that test yields its worker after every this many frames,
+/// at an offset its lane sets, so that each worker interleaves the sends of
+/// the lanes it runs.
+const CROSS_THREAD_YIELD_EVERY: usize = 7;
+
+/// The multiplexer runs of that test. The scheduler places each run's
+/// threads anew, so each run samples other interleavings of the lanes'
+/// wakes with the multiplexer's registering and polling.
+const CROSS_THREAD_ROUNDS: usize = 200;
+
+/// Lane wakes from producers on other threads reach the multiplexer: every
+/// lane's frames arrive whole and in lane order, each lane ending with one
+/// end-of-stream frame.
+///
+/// The multiplexer runs on the test's thread while producers on a
+/// multi-threaded runtime's workers hand frames to many lanes. A lane's
+/// channel wakes the multiplexer through the lane's own waker, which
+/// records the lane in the multiplexer's `Wakes` and wakes its task; here a
+/// producer calls it from another thread while the multiplexer may be
+/// registering its task, collecting the woken lanes, or polling a lane.
+///
+/// The producers hand over their frames far faster than the multiplexer
+/// writes them, so producers started with the multiplexer have usually
+/// queued every frame before it first looks, and it rarely waits on a lane
+/// at all. So the producers start only once the multiplexer's run has
+/// first returned `Pending`, having found every lane empty and registered
+/// its task: every round then completes only through at least one wake
+/// from another thread.
+///
+/// [`polls_match_the_full_scan`] checks that protocol under every
+/// interleaving on one thread; this test runs it across threads. A lost
+/// wake leaves the multiplexer waiting on a lane that holds frames, so its
+/// run never completes, and nextest's slow-timeout fails the test. The
+/// rounds cycle through the default write batch range and the ranges whose
+/// end is zero and unbounded, which change when the multiplexer flushes
+/// and so when it waits.
+#[test]
+fn lane_wakes_from_other_threads_reach_the_multiplexer() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(CROSS_THREAD_WORKERS)
+        .build()
+        .expect("a multi-threaded runtime builds");
+    let batches = [
+        WriteBatch::default(),
+        WriteBatch::from_range(..=0),
+        WriteBatch::from_range(0..),
+    ];
+    let lanes: Vec<Vec<ReplyFrame>> = (0..CROSS_THREAD_LANES)
+        .map(|lane| {
+            (0..CROSS_THREAD_FRAMES)
+                .map(|position| {
+                    let kind = if position % 3 == 0 {
+                        Kind::Supply
+                    } else {
+                        Kind::Match
+                    };
+                    frame(kind, (lane * CROSS_THREAD_FRAMES + position) as u64)
+                })
+                .collect()
+        })
+        .collect();
+    for round in 0..CROSS_THREAD_ROUNDS {
+        let mut multiplexer = Multiplexer::new(batches[round % batches.len()]);
+        let (start, started) = tokio::sync::watch::channel(false);
+        let producers: Vec<_> = lanes
+            .iter()
+            .enumerate()
+            .map(|(lane, frames)| {
+                let mut out =
+                    multiplexer.lane(interior(u8::try_from(lane + 1).expect("few lanes")), 0);
+                let frames = frames.clone();
+                let mut started = started.clone();
+                runtime.spawn(async move {
+                    started
+                        .wait_for(|&started| started)
+                        .await
+                        .expect("the round signals its start before it ends");
+                    for (position, frame) in frames.into_iter().enumerate() {
+                        if position % CROSS_THREAD_YIELD_EVERY == lane % CROSS_THREAD_YIELD_EVERY {
+                            tokio::task::yield_now().await;
+                        }
+                        out.frame(frame, Charge::default(), WirePermit::default())
+                            .await;
+                    }
+                    out.finish().await;
+                })
+            })
+            .collect();
+        let written = runtime.block_on(async {
+            let mut written = Vec::new();
+            let observe = SessionHandle::default();
+            {
+                let mut run =
+                    pin!(multiplexer.run(&mut written, SPEAKER, Recorder::default(), &observe));
+                poll_fn(|cx| {
+                    let polled = run.as_mut().poll(cx);
+                    if polled.is_pending() {
+                        start.send_replace(true);
+                    }
+                    polled
+                })
+                .await
+                .expect("writing into a vector cannot fail");
+            }
+            for producer in producers {
+                producer.await.expect("a producer runs to its end");
+            }
+            written
+        });
+        let received = decode_all(&written);
+        assert_eq!(
+            received.len(),
+            CROSS_THREAD_LANES * (CROSS_THREAD_FRAMES + 1),
+            "round {round}: every lane's frames and end-of-stream reach the pipe",
+        );
+        for (lane, frames) in lanes.iter().enumerate() {
+            let stream = interior(u8::try_from(lane + 1).expect("few lanes"));
+            let carried: Vec<Frame> = received
+                .iter()
+                .filter(|(on, _)| *on == stream)
+                .map(|(_, frame)| frame.clone())
+                .collect();
+            let mut expected: Vec<Frame> = frames.iter().cloned().map(Frame::from).collect();
+            expected.push(Frame::End(End::Stream));
+            assert_eq!(
+                carried, expected,
+                "round {round}: lane {lane}'s frames, in order"
+            );
+        }
+    }
+}
+
 /// Encode `frames` as `SPEAKER` writes them, followed by `trailer`.
 fn wire(frames: &[(Stream, Frame)], trailer: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::new();
