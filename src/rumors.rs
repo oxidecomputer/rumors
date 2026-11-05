@@ -14,7 +14,7 @@ use crate::{
 };
 use futures::Stream;
 use std::borrow::Borrow;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, PoisonError};
 use tokio::{
     io::{AsyncBufRead, AsyncWrite},
     sync::watch,
@@ -30,24 +30,88 @@ use tokio::{
 /// Call [`snapshot`](Self::snapshot) to read a consistent view of the set.
 pub struct Rumors<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// A peer view sharing this replica's state and configuration.
+    ///
+    /// Declared before `reunion`, so that dropping a handle drops its view
+    /// before its `alive` sender, as [`Reunion`] requires.
     peer: Peer<T, B>,
-    /// Tracks live handles and the exclusive reunion claim.
-    reunion: Reunion,
+    /// Tracks live handles and holds the view that reunion hands back.
+    reunion: Reunion<T, B>,
 }
 
-/// Tracks when a [`Rumors`] generation may be reunited into its [`Peer`].
+/// Tracks when a [`Rumors`] generation may be reunited into its [`Peer`], and
+/// holds the view that reunion hands back.
 ///
 /// Each handle owns one `alive` sender. Closing that channel therefore marks
 /// the point when every handle has either been dropped or begun
 /// [`try_into_peer`](Rumors::try_into_peer), and the [`Peer`] may be reclaimed.
-#[derive(Clone)]
-struct Reunion {
+///
+/// Every handle gives up its view before its `alive` sender: a reuniter
+/// parks its view or drops it, and a dropped handle drops its fields in
+/// declaration order. So once the channel closes, the parked view is the
+/// generation's only view, and the reclaimed `Peer` owns its bookmark lock
+/// alone. That is what lets reunion release a lock held by a leaked session
+/// future
+/// ([`BookmarkHandle::release_abandoned_lock`](crate::bookmark::BookmarkHandle::release_abandoned_lock)).
+struct Reunion<T: Send + Sync + 'static, B: Bookmark> {
     /// One sender per live handle; channel closure signals quiescence.
     alive: watch::Sender<()>,
-    /// The exactly-once claim on the reclaimed [`Peer`]: among reuniters
-    /// that observe quiescence concurrently, the one whose `set` fills this
-    /// cell is handed the `Peer`; the rest resolve `None`.
-    claimed: Arc<OnceLock<()>>,
+    /// Where the first reuniter parks the view the reclaimed `Peer` is made
+    /// from.
+    parked: Parked<T, B>,
+}
+
+/// Count another handle and share the parking place, without requiring
+/// `Clone` payloads or storage.
+impl<T: Send + Sync + 'static, B: Bookmark> Clone for Reunion<T, B> {
+    /// Add a sender for the new handle and share the parking place.
+    fn clone(&self) -> Self {
+        Self {
+            alive: self.alive.clone(),
+            parked: self.parked.clone(),
+        }
+    }
+}
+
+/// The view the reclaimed [`Peer`] is made from: the first reuniter of a
+/// generation parks its view here, and later reuniters drop theirs.
+///
+/// This is also the exactly-once claim: among reuniters that observe
+/// quiescence concurrently, the one whose [`claim`](Self::claim) finds the
+/// view is handed the `Peer`; the rest resolve `None`. A cancelled reuniter
+/// leaves its parked view for the others.
+struct Parked<T: Send + Sync + 'static, B: Bookmark>(Arc<Mutex<Option<Peer<T, B>>>>);
+
+/// Share the parking place, without requiring `Clone` payloads or storage.
+impl<T: Send + Sync + 'static, B: Bookmark> Clone for Parked<T, B> {
+    /// Share the same parking place.
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+/// Park and claim the view that reunion hands back.
+impl<T: Send + Sync + 'static, B: Bookmark> Parked<T, B> {
+    /// Create an empty parking place for a new generation.
+    fn new() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+
+    /// Park `peer` if no view is parked yet; otherwise return it, for the
+    /// caller to drop outside the lock, which only ever guards moving a view
+    /// in or out.
+    fn park(&self, peer: Peer<T, B>) -> Option<Peer<T, B>> {
+        let mut parked = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if parked.is_some() {
+            return Some(peer);
+        }
+        *parked = Some(peer);
+        None
+    }
+
+    /// Take the parked view, if no other reuniter has taken it.
+    fn claim(&self) -> Option<Peer<T, B>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
 }
 
 /// Share the replica, configuration, and storage while retaining a handle claim.
@@ -79,7 +143,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
             peer,
             reunion: Reunion {
                 alive: watch::Sender::new(()),
-                claimed: Arc::new(OnceLock::new()),
+                parked: Parked::new(),
             },
         }
     }
@@ -91,19 +155,29 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
 
     /// Await quiescence and restore the unique [`Peer`] handle.
     async fn try_into_peer_inner(self) -> Option<Peer<T, B>> {
-        let Self { peer, reunion } = self;
-        let mut alive = reunion.alive.subscribe();
-        let claimed = Arc::clone(&reunion.claimed);
-        drop(reunion);
+        let Self {
+            peer,
+            reunion: Reunion { alive, parked },
+        } = self;
+        let mut closed = alive.subscribe();
+        // Give up this view before this handle's `alive` sender.
+        drop(parked.park(peer));
+        drop(alive);
 
         // Nothing is sent on this channel. Closure means every handle is
         // gone, and no new sender can be cloned after that point.
-        while alive.changed().await.is_ok() {}
+        while closed.changed().await.is_ok() {}
 
-        // Concurrent reuniters observe closure together. Only the first `set`
-        // fills the cell, so exactly one restores the Peer/Rumors XOR, while
-        // the others discard their Peer values.
-        claimed.set(()).is_ok().then_some(peer)
+        // Concurrent reuniters observe closure together. Only one `take`
+        // finds the parked view, so exactly one restores the Peer/Rumors XOR.
+        let mut peer = parked.claim()?;
+        // No live future can hold the bookmark lock now: every future that
+        // borrowed a handle of this generation has ended, since the handle
+        // could not otherwise have been consumed or dropped, and a future
+        // owning a handle would have kept the channel open. A held lock
+        // belongs to a leaked future that can never run again.
+        peer.bookmark = peer.bookmark.release_abandoned_lock();
+        Some(peer)
     }
 
     /// Send a message, committing it immediately.
@@ -397,6 +471,21 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// different from having dropped the `Rumors`. If every handle goes away
     /// with no [`try_into_peer`](Self::try_into_peer) pending, the `Peer` is
     /// gone for good: observers drain the final state and stop.
+    ///
+    /// # Leaked sessions
+    ///
+    /// Leaking a session future (with [`mem::forget`](std::mem::forget), say)
+    /// instead of dropping it skips its cleanup. A session leaked while it
+    /// waits on this peer's [`Bookmark`] storage keeps that storage locked,
+    /// and every later session through this generation's handles waits
+    /// forever. Reclaiming the `Peer` releases that lock: the returned peer,
+    /// and the handles made from it, run sessions normally, as long as the
+    /// storage itself still serves them. Reclaiming cannot release a lock
+    /// inside the storage: a session leaked while a `FileBookmark` load or
+    /// store waits behind an earlier one, whose session was cancelled,
+    /// leaves every later operation on that bookmark waiting forever. A
+    /// session leaked while serving a joining peer also keeps this replica
+    /// from reclaiming old identity space until it restarts.
     pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
         self.try_into_peer_inner().await
     }

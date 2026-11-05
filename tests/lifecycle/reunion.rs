@@ -10,7 +10,8 @@ use rumors_testkit::common::seed::network_seed;
 
 proptest! {
     /// Competing reuniters wait for ordinary handles, survive cancelled
-    /// waiters, and return exactly one usable Peer in each new generation.
+    /// waiters (the first to wait included), and return exactly one usable
+    /// Peer in each new generation.
     #[test]
     fn concurrent_reuniters_return_one_peer(
         competitors in 2usize..10,
@@ -44,13 +45,17 @@ proptest! {
                             "a writable handle still exists");
                     }
                     if first {
-                        // These futures have shed their handles but still hold
-                        // internal Peer values. Cancelling them must not claim one.
+                        // These futures have shed their handles, and the first
+                        // to wait holds the view the reclaimed Peer is made
+                        // from. Cancelling any of them, that one included,
+                        // must neither claim the Peer nor lose it. The second
+                        // always survives, so that some reuniter remains.
+                        let mut decisions = cancel.iter();
                         let mut index = 0;
                         waiting.retain(|_| {
-                            let keep = index < 2 || !cancel[index - 2];
+                            let survivor = index == 1;
                             index += 1;
-                            keep
+                            survivor || !decisions.next().expect("a decision per cancellable waiter")
                         });
                         first = false;
                     }

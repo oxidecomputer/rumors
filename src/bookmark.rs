@@ -194,7 +194,11 @@ pub trait Bookmark {
     /// Never roll back the durable state of a bookmark to before a successful
     /// store. Work that continues after an error or cancellation must not
     /// overwrite a later successful store: stale records can permit version
-    /// reuse and corrupt the gossip set.
+    /// reuse and corrupt the gossip set. A future leaked instead of dropped
+    /// counts as cancelled: once the application reclaims its peer
+    /// ([`Rumors::try_into_peer`](crate::Rumors::try_into_peer)), later
+    /// stores proceed while any work the leaked store started may still be
+    /// running.
     fn store(&self, bytes: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -334,6 +338,36 @@ impl<B> BookmarkHandle<B> {
     #[cfg(test)]
     pub(crate) fn size_limit(&self) -> usize {
         self.size_limit
+    }
+
+    /// Release the lock if a session future that can never run again still
+    /// holds it.
+    ///
+    /// A session future leaked (with `mem::forget`, say) instead of dropped
+    /// never runs its lock's destructor, so the lock stays held and every
+    /// later [`lock`](Self::lock) waits forever. While other views exist, a
+    /// held lock cannot be told apart from a slow store. So call this only
+    /// where no live future can hold the lock, such as on a peer just
+    /// reclaimed from its handles, where this view is also the only one. A
+    /// rebuild needs that: only the sole owner of the lock can take the
+    /// record out of it. If another view remains, this leaves the lock as it
+    /// is.
+    ///
+    /// A fresh lock around the same record leaves what a cancellation at the
+    /// same await would leave: every change to the record happens between
+    /// awaits, and a store takes the cache out of memory as it begins (see
+    /// [`Loaded::store`]), so after a leaked store the next load rereads
+    /// storage, which [`Bookmark::store`] keeps complete.
+    pub(crate) fn release_abandoned_lock(self) -> Self {
+        if self.state.try_lock().is_ok() {
+            return self;
+        }
+        let Self { size_limit, state } = self;
+        let state = match Arc::try_unwrap(state) {
+            Ok(held) => Arc::new(Mutex::new(held.into_inner())),
+            Err(shared) => shared,
+        };
+        Self { size_limit, state }
     }
 
     /// Wait for exclusive use of the storage and record.

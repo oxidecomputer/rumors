@@ -17,6 +17,14 @@ use super::Bookmark;
 /// job onto the application's blocking executor. Stores write and sync a
 /// temporary file beside the destination, rename it over the previous record,
 /// and sync the parent directory before reporting success.
+///
+/// Jobs run one at a time, in the order they were dispatched, even when the
+/// future awaiting a job is cancelled while the job still runs. An operation
+/// waits for its turn inside its future, so a future leaked (with
+/// `mem::forget`, say) while it waits keeps its turn forever, and every later
+/// operation on this bookmark waits behind it. Reclaiming the peer does not
+/// release that wait; see
+/// [`Rumors::try_into_peer`](crate::Rumors::try_into_peer).
 pub struct FileBookmark<F> {
     /// The file replaced by each successful store.
     path: PathBuf,

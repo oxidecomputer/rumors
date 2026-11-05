@@ -13,6 +13,8 @@
 //! replicas.
 
 use rumors_testkit::common;
+#[path = "lifecycle/leak.rs"]
+mod leak;
 #[path = "lifecycle/reunion.rs"]
 mod reunion;
 
