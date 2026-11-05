@@ -199,9 +199,11 @@ pub(crate) mod ops {
     use super::*;
     use crate::tree::{
         mirror::streaming::{
-            ErasedNode,
+            ErasedNode, FAN,
             backend::BoxNodeStream,
             holding::{Holding, held_by, reported},
+            materialized::Error,
+            message::CountError,
         },
         typed::{
             ErasedPrefix, Prefix,
@@ -240,13 +242,20 @@ pub(crate) mod ops {
     }
 
     /// Collect one typed node's children, addressed by radix, into a
-    /// vector of capacity `count`, the number its backend lists.
+    /// vector of capacity `count`, the number its backend reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CountError::ChildrenListed`] if the backend lists a
+    /// different number of children than `count`. Listing stops at the
+    /// first child beyond `count`, so the vector never grows past its
+    /// capacity. Returns [`Error::Backend`] if listing fails.
     async fn children_of_typed<B, H>(
         backend: &B,
         prefix: Prefix<S<H>>,
         node: B::Node<S<H>>,
         count: usize,
-    ) -> Result<Vec<(u8, B::Node<H>)>, B::Error>
+    ) -> Result<Vec<(u8, B::Node<H>)>, Error<B::Error>>
     where
         B: Backend<Node<Z>: Leaf>,
         H: Height,
@@ -261,14 +270,21 @@ pub(crate) mod ops {
         let mut fan = Vec::with_capacity(count);
         while let Some(item) = children.next().await {
             let (prefix, child) = item?;
+            if fan.len() == count {
+                return Err(Error::Count(CountError::ChildrenListed {
+                    reported: count,
+                    listed: count + 1,
+                }));
+            }
             let (_, radix) = prefix.pop();
             fan.push((radix, child));
         }
-        debug_assert_eq!(
-            fan.len(),
-            count,
-            "a backend lists exactly its node's child count"
-        );
+        if fan.len() != count {
+            return Err(Error::Count(CountError::ChildrenListed {
+                reported: count,
+                listed: fan.len(),
+            }));
+        }
         Ok(fan)
     }
 
@@ -280,11 +296,23 @@ pub(crate) mod ops {
     /// `prefix` is the node's own prefix; its length names the height the
     /// node is re-tagged at, so a walk cannot explode a node at any level
     /// other than the one its coordinate claims.
+    ///
+    /// The backend's child count becomes the vector's capacity, so it is
+    /// checked first: a backend reading corrupted storage could report one
+    /// no node can have, or list a different number of children than it
+    /// reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CountError::Children`] if the backend reports more than a
+    /// fan of children, before listing any;
+    /// [`CountError::ChildrenListed`] if it lists a different number than
+    /// it reports; and [`Error::Backend`] if listing fails.
     pub(crate) async fn children_of<B>(
         backend: &B,
         prefix: ErasedPrefix,
         node: B::Erased,
-    ) -> Result<Vec<(u8, B::Erased)>, B::Error>
+    ) -> Result<Vec<(u8, B::Erased)>, Error<B::Error>>
     where
         B: Backend<Node<Z>: Leaf>,
     {
@@ -292,6 +320,9 @@ pub(crate) mod ops {
         // meter to hold against the allocations themselves.
         reported(Holding::ExplodedNodes, node.explosion_bytes());
         let count = node.child_count();
+        if count > FAN {
+            return Err(Error::Count(CountError::Children(count)));
+        }
         at_parent_height!(prefix.height(), H => {
             let children =
                 children_of_typed::<B, <H as Pred>::Pred>(

@@ -201,6 +201,10 @@ static GRANDCHILDREN_SKEW: Knob = Knob::new(0);
 /// it.
 static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 
+/// Children added to every node's `child_count` answer: honest at zero, an
+/// overcount of the children listing it yields above it.
+static CHILDREN_SKEW: Knob = Knob::new(0);
+
 /// Bytes subtracted from every node's `explosion_bytes` answer: honest at
 /// zero, an undercount of the copies listing its children makes above it.
 static EXPLOSION_DEFLATE: Knob = Knob::new(0);
@@ -346,9 +350,10 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     /// The wrapped node's bound on its explosion cost.
     const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
 
-    /// Read the wrapped node's child count.
+    /// Read the wrapped node's child count, skewed to exercise a backend
+    /// whose count disagrees with its listing.
     fn child_count(&self) -> usize {
-        self.inner.child_count()
+        self.inner.child_count() + CHILDREN_SKEW.get()
     }
 }
 
@@ -743,6 +748,19 @@ fn deflated_version_bytes_fails_the_assembly_floor() {
 #[should_panic(expected = "mis-propagated grandchildren")]
 fn miscounted_grandchildren_fails_the_listing_check() {
     let _dishonest = GRANDCHILDREN_SKEW.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A node whose `child_count` answer disagrees with the children listing
+/// it yields is convicted by name where the session lists its children.
+///
+/// Skewed by one, every node's answer overcounts, so the root's listing
+/// alone, which the suite makes before the session, yields one child
+/// fewer than its parent reports.
+#[test]
+#[should_panic(expected = "miscounted children")]
+fn miscounted_children_fail_the_listing_check() {
+    let _dishonest = CHILDREN_SKEW.set(1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 

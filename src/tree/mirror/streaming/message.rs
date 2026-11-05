@@ -206,6 +206,11 @@ impl Listed {
 /// counts a grant in four bytes. A report above it breaks the contract as
 /// a corrupted count does, so the session fails instead of exploding the
 /// node.
+///
+/// A backend must also list exactly the children it reports: the session
+/// lists a node's children into a vector sized by its child count, and a
+/// question is priced at that count, so a listing that differs from the
+/// report fails the session as well, before the vector can grow past it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CountError {
     /// The node's child count exceeded a fan.
@@ -214,6 +219,16 @@ pub enum CountError {
     /// The node's grandchild count exceeded a fan of fans.
     #[error("the backend reported {0} grandchildren for a node, more than 65,536")]
     Grandchildren(usize),
+    /// The backend listed a different number of children for a node than
+    /// it reported ([`ErasedNode::child_count`]).
+    #[error("the backend reported {reported} children for a node but listed {listed}")]
+    ChildrenListed {
+        /// The children reported.
+        reported: usize,
+        /// The children listed, counted up to the first beyond the report,
+        /// where listing stops.
+        listed: usize,
+    },
     /// The node's explosion report exceeded the backend's bound.
     #[error("the backend reported {reported} B to explode a node, more than its bound of {max} B")]
     ExplosionBytes {

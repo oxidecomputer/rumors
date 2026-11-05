@@ -13,7 +13,7 @@ use crate::testing::run_to_quiescence;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
-        Backend, ErasedNode, Failing, Failure, Fault, Faulting, GreetingLie, Local, Miscount,
+        Backend, ErasedNode, FAN, Failing, Failure, Fault, Faulting, GreetingLie, Local, Miscount,
         Misreport, ReplyCorruption, Root as StreamingRoot,
         channel::{with_observation, with_schedule},
         materialized::{Error as MaterializedError, Handshaking, Start, Violation},
@@ -232,6 +232,78 @@ proptest! {
         }
         if height >= ROOT_CHILDREN_HEIGHT && holds_root {
             prop_assert!(read > 0, "the greeting must carry the root's count and list its children");
+        }
+    }
+}
+
+proptest! {
+    /// A child count above a fan, which a backend reading corrupted storage
+    /// could report, fails the session with that count on the side whose
+    /// backend reported it, and neither panics nor stalls.
+    ///
+    /// The count is misreported for every node one side's backend lists as
+    /// a child at one height, or for its root at the root's height. A
+    /// session reads a node's child count to price an answer about it, to
+    /// list it, and to explode it, and fails at the listing or the
+    /// explosion, before it sizes anything by the count. So it completes or
+    /// fails with exactly that count on that side, and fails only once it
+    /// has read a misreported count. It always fails when that side holds a
+    /// root and the height is the root's or its children's, since every
+    /// greeting explodes the root and lists its children. It cannot require
+    /// failure whenever a misreported count is read: a supply answer prices
+    /// a node by its count and explodes it only if the peer lacks some of
+    /// its leaves.
+    #[test]
+    fn out_of_range_child_counts_fail_the_session(
+        (client_root, server_root) in arb_wide_divergent_pair(),
+        height in 1..=height::Root::HEIGHT,
+        children in prop_oneof![Just(FAN + 1), FAN + 1..=1 << 24, Just(usize::MAX)],
+        miscount_client in any::<bool>(),
+        schedule in proptest::collection::vec(0_u8..=2, 0..128),
+    ) {
+        let miscounting = Failing::miscounting(Local, Miscount {
+            height,
+            report: Misreport::Children(children),
+        });
+        let sound = Failing::after(Local, usize::MAX);
+        let holds_root = if miscount_client {
+            client_root.node.is_some()
+        } else {
+            server_root.node.is_some()
+        };
+        let (client_backend, server_backend) = if miscount_client {
+            (miscounting.clone(), sound)
+        } else {
+            (sound, miscounting.clone())
+        };
+        let client = failing_start(client_backend, client_root);
+        let server = failing_start(server_backend, server_root);
+        let result = with_schedule(schedule, || {
+            run_to_quiescence(drive_streaming(client, server))
+        })
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "a misreported child count left reconciliation quiescent: {stopped:?}",
+            )))?;
+        let read = miscounting.miscounts_read();
+        let failed = match result {
+            Err(MirrorError::Client(MaterializedError::Count(error))) if miscount_client => {
+                prop_assert_eq!(error, CountError::Children(children));
+                true
+            }
+            Err(MirrorError::Server(MaterializedError::Count(error))) if !miscount_client => {
+                prop_assert_eq!(error, CountError::Children(children));
+                true
+            }
+            Ok(_) => false,
+            Err(other) => return Err(TestCaseError::fail(format!(
+                "a misreported child count was misattributed: {other:?}",
+            ))),
+        };
+        if failed {
+            prop_assert!(read > 0, "the session failed on a count it never read");
+        }
+        if height >= ROOT_CHILDREN_HEIGHT && holds_root {
+            prop_assert!(failed, "the greeting must explode the root and list its children");
         }
     }
 }

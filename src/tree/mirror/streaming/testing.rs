@@ -3,10 +3,10 @@
 //!
 //! [`Faulting<P>`] injects either a greeting lie or a semantic violation in one
 //! outgoing reply phase. [`Failing<B>`] returns a typed source error from one
-//! backend operation, or misreports a grandchild count or an explosion
-//! report. The wrappers compose, allowing tests to schedule the two failure
-//! sources independently. [`session`] runs a remote session between two
-//! replicas over one in-memory pipe.
+//! backend operation, or misreports a child count, a grandchild count or
+//! an explosion report. The wrappers compose, allowing tests to schedule
+//! the two failure sources independently. [`session`] runs a remote
+//! session between two replicas over one in-memory pipe.
 
 mod failing;
 mod faulting;

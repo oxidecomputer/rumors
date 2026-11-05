@@ -9,7 +9,8 @@
 //!   measured residency.
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, one assembled node per supplied prefix run,
-//!   and explosion reports that cover what listing a node's children
+//!   child counts equal to the children listing a node yields, and
+//!   explosion reports that cover what listing a node's children
 //!   allocates, by the allocation meter, within the backend's bound on
 //!   them.
 //! - **Reconciliation:** both replicas converge to a set of the expected union
@@ -440,10 +441,14 @@ where
         // poll of it, not the grandchild count's explosions between polls.
         let erased = B::erase(parent.into_inner());
         let reported = erased.explosion_bytes();
+        // The child-count contract: listing yields exactly the children the
+        // parent reports, read as the walk reads it before listing.
+        let children_reported = erased.child_count();
         let parent = B::assume::<S<H>>(erased);
         let counter = self.inner.clone();
         stream! {
             let mut counted = 0_u64;
+            let mut listed = 0_u64;
             let mut failed = false;
             let (mut allocated, children) = allocated_by(|| self.inner.children(prefix, parent));
             let mut rows = 0_u64;
@@ -455,11 +460,21 @@ where
             })
             .await
             {
+                if child.is_ok() {
+                    listed += 1;
+                }
                 match &child {
                     Ok(_) if H::HEIGHT == 0 => counted += 1,
                     Ok((child_prefix, node)) => {
                         match ops::children_of(&counter, child_prefix.erase(), B::erase(node.clone())).await {
                             Ok(grandchildren) => counted += widen(grandchildren.len()),
+                            // A child whose own listing breaks its count is
+                            // the child-count contract's failure, not one to
+                            // pass over.
+                            Err(materialized::Error::Count(error)) => {
+                                ledger::violation(format!("miscounted children: {error}"));
+                                failed = true;
+                            }
                             Err(_) => failed = true,
                         }
                     }
@@ -470,6 +485,12 @@ where
                     rows += widen(measured);
                     (prefix, ChargedNode::wrap(node, measured))
                 });
+            }
+            if !failed && listed != widen(children_reported) {
+                ledger::violation(format!(
+                    "miscounted children: the parent answers {children_reported}, \
+                     its listing yields {listed}",
+                ));
             }
             if !failed && counted != widen(stored) {
                 ledger::violation(format!(
@@ -685,6 +706,8 @@ const DIVERGENT: usize = 1_024;
 ///   outside its prefix, merged, split, or swallowed a run, or
 ///   `parent` answered a real child with no parent or an empty group
 ///   with one;
+/// - a node listed a different number of children than its child count
+///   reports;
 /// - a node's explosion report fell short of what listing its children
 ///   allocated, or exceeded the backend's bound on every report;
 /// - the measured peak increase exceeds the budget; or

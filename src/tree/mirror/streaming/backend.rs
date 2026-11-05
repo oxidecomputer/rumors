@@ -244,8 +244,9 @@ pub trait ErasedNode {
     /// asks about, to price the question's listing at exactly that many
     /// entries, and allocates the listing at that capacity. A backend that
     /// maintains [`grandchild_count`](Self::grandchild_count) already computes it
-    /// for every child it sums over; an undercount leaves the listing
-    /// costing more than its question was charged.
+    /// for every child it sums over. A count above a fan, or one the
+    /// listing does not bear out, fails the session
+    /// ([`CountError`](super::message::CountError)).
     fn child_count(&self) -> usize;
 
     /// The number of children this node's children have, exact

@@ -475,8 +475,10 @@ where
                     }
 
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
+                    // A count above a fan fails the explosion below, before
+                    // anything is sized by it; the price clamps it first.
                     let bytes = charges::answer_bound::<B::Erased, B::Error>(
-                        node.child_count(),
+                        node.child_count().min(FAN),
                         listing.len(),
                         copies,
                     );
@@ -654,8 +656,10 @@ where
                     }
 
                     let copies = explosion_bytes(&node).map_err(Error::Count)?;
+                    // A count above a fan fails the explosion below, before
+                    // anything is sized by it; the price clamps it first.
                     let bytes = charges::answer_bound::<B::Erased, B::Error>(
-                        node.child_count(),
+                        node.child_count().min(FAN),
                         listing.len(),
                         copies,
                     );

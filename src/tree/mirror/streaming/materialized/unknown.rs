@@ -31,7 +31,8 @@ use crate::{
         mirror::{
             contained,
             streaming::{
-                Backend, ErasedNode, Leaf, erased::ops, message::CountError, stats::Recorder,
+                Backend, ErasedNode, Leaf, erased::ops, materialized::Error, message::CountError,
+                stats::Recorder,
             },
         },
         typed::{ErasedPrefix, height::Z},
@@ -84,7 +85,7 @@ pub(super) fn unknown<'a, B>(
     prefix: ErasedPrefix,
     node: B::Erased,
     stats: &'a Recorder,
-) -> BoxFuture<'a, Result<Option<B::Erased>, B::Error>>
+) -> BoxFuture<'a, Result<Option<B::Erased>, Error<B::Error>>>
 where
     B: Backend<Node<Z>: Leaf>,
 {
@@ -122,7 +123,7 @@ where
             let survivor = unknown(backend, known, prefix.push(radix), child, stats).await?;
             group.push((radix, survivor));
         }
-        ops::parent(backend.clone(), prefix, group).await
+        Ok(ops::parent(backend.clone(), prefix, group).await?)
     }
     .boxed()
 }
@@ -171,7 +172,7 @@ pub(super) async fn unknown_providing<B>(
     prefix: ErasedPrefix,
     node: B::Erased,
     stats: &Recorder,
-) -> Result<(Option<B::Erased>, Vec<(u8, B::Erased)>), B::Error>
+) -> Result<(Option<B::Erased>, Vec<(u8, B::Erased)>), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
 {

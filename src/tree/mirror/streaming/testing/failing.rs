@@ -1,6 +1,8 @@
 //! A composable test backend which injects one source failure after N
-//! operations, or misreports the grandchild count or explosion report of
-//! the nodes at one height, as a backend reading corrupted storage would.
+//! operations, or misreports a count of the nodes at one height.
+//!
+//! The misreported count is a child count, a grandchild count, or an
+//! explosion report, as a backend reading corrupted storage would give.
 
 use std::{
     fmt,
@@ -78,6 +80,8 @@ pub struct Miscount {
 /// The count a [`Miscount`] replaces, and the value reported in its place.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Misreport {
+    /// The node's child count.
+    Children(usize),
     /// The node's grandchild count.
     Grandchildren(usize),
     /// The bytes the backend reports exploding the node allocates.
@@ -201,7 +205,16 @@ impl Miscounted {
     fn grandchild_count(&self) -> Option<usize> {
         match self.report {
             Misreport::Grandchildren(count) => Some(self.read(count)),
-            Misreport::ExplosionBytes(_) => None,
+            Misreport::Children(_) | Misreport::ExplosionBytes(_) => None,
+        }
+    }
+
+    /// The misreported child count, if this misreports it, counting the
+    /// read.
+    fn children(&self) -> Option<usize> {
+        match self.report {
+            Misreport::Children(count) => Some(self.read(count)),
+            Misreport::Grandchildren(_) | Misreport::ExplosionBytes(_) => None,
         }
     }
 
@@ -210,7 +223,7 @@ impl Miscounted {
     fn explosion_bytes(&self) -> Option<usize> {
         match self.report {
             Misreport::ExplosionBytes(bytes) => Some(self.read(bytes)),
-            Misreport::Grandchildren(_) => None,
+            Misreport::Children(_) | Misreport::Grandchildren(_) => None,
         }
     }
 
@@ -300,9 +313,12 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     /// The wrapped node's bound on its explosion cost.
     const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
 
-    /// Read the wrapped node's child count.
+    /// Read the wrapped node's child count, or the misreported one.
     fn child_count(&self) -> usize {
-        self.0.child_count()
+        self.1
+            .as_ref()
+            .and_then(Miscounted::children)
+            .unwrap_or_else(|| self.0.child_count())
     }
 }
 

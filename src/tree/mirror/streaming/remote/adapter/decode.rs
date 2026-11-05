@@ -635,7 +635,10 @@ where
                 actual, prefix,
                 "assembly yields each run's node at its version-derived prefix, in run order",
             );
-            self.supplied_children += node.child_count();
+            // A supplied node has at most a fan of children, so the clamp
+            // changes nothing a conforming backend reports, and keeps a
+            // miscounting one from overflowing the sum.
+            self.supplied_children += node.child_count().min(FAN);
             self.ready.push(ProtocolReaction::Supply(radix, node));
         }
     }

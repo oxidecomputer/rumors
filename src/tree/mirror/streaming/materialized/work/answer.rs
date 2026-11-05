@@ -207,7 +207,7 @@ pub(super) async fn internal<B>(
     theirs: Vec<Listed>,
     stats: &Recorder,
     grant: &mut Charge,
-) -> Result<Answer<B::Erased, Question<B::Erased>>, B::Error>
+) -> Result<Answer<B::Erased, Question<B::Erased>>, Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
 {

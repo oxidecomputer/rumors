@@ -99,11 +99,20 @@ fn arb_walk_phase() -> impl Strategy<Value = Phase> {
 }
 
 /// Generates a count no node can have, of any kind: a child or grandchild
-/// count out of range, or an explosion report above a bound.
+/// count out of range, a listing that differs from its child count, or an
+/// explosion report above a bound.
 fn arb_count_error() -> impl Strategy<Value = CountError> {
     prop_oneof![
         (257..=usize::MAX).prop_map(CountError::Children),
         (65_537..=usize::MAX).prop_map(CountError::Grandchildren),
+        // A listing differs from its report by a nonzero offset, wrapping
+        // within the 258 listing lengths 0..=257.
+        (0..=256_usize, 1..=257_usize).prop_map(|(reported, offset)| {
+            CountError::ChildrenListed {
+                reported,
+                listed: (reported + offset) % 258,
+            }
+        }),
         (0..usize::MAX)
             .prop_flat_map(|max| (Just(max), max + 1..=usize::MAX))
             .prop_map(|(max, reported)| CountError::ExplosionBytes { reported, max }),

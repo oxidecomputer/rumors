@@ -16,8 +16,9 @@ pub enum Error<E> {
     #[error(transparent)]
     Backend(#[from] E),
     /// The backend reported a count no node can have, for a node the walk
-    /// was listing, or an explosion report above its bound, for a node the
-    /// walk was about to explode.
+    /// was listing, an explosion report above its bound, for a node the
+    /// walk was about to explode, or listed a different number of children
+    /// than it reported.
     #[error(transparent)]
     Count(CountError),
     /// The peer's reply broke a reconciliation invariant.

@@ -441,7 +441,7 @@ proptest! {
             &stats,
             &mut Charge::default(),
         ))
-        .unwrap_or_else(|never| match never {});
+        .expect("the in-memory backend lists exactly the children it reports");
         let (_, resolved) = internal.into_parts();
         prop_assert_eq!(resolved.len(), children);
         prop_assert!(resolved.capacity() <= priced, "an internal scope's slots: {}", resolved.capacity());
