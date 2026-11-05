@@ -1,6 +1,7 @@
 //! The pipe's multiplexer and demultiplexer, driven against in-memory byte
 //! buffers under the closed-world poller.
 
+use std::collections::VecDeque;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -258,8 +259,9 @@ enum Step {
 /// One lane as a multiplexer that polls every lane's channel sees it.
 #[derive(Default)]
 struct ModeledLane {
-    /// The frame in the lane's channel, if any: its capacity is one.
-    queued: Option<(Kind, Frame)>,
+    /// The frames in the lane's channel, oldest first: at most
+    /// [`LANE_CAPACITY`].
+    queued: VecDeque<(Kind, Frame)>,
     /// Whether the lane's sender has gone.
     closed: bool,
     /// Whether a poll has found the channel closed and empty.
@@ -282,19 +284,19 @@ impl FullScan {
     /// multiplexer that returned `Pending` must be woken for.
     fn has_news(&self) -> bool {
         self.lanes.iter().any(|lane| {
-            lane.staged.is_none() && !lane.ended && (lane.queued.is_some() || lane.closed)
+            lane.staged.is_none() && !lane.ended && (!lane.queued.is_empty() || lane.closed)
         })
     }
 
-    /// Stage every lane's waiting frame, observe every close, and return
-    /// the frame to write as [`Multiplexer::poll_next`] would.
+    /// Stage every lane's oldest waiting frame, observe every close, and
+    /// return the frame to write as [`Multiplexer::poll_next`] would.
     ///
     /// That is the lane's index and the frame, `Ready(None)` once every
     /// lane has ended with nothing staged, and `Pending` otherwise.
     fn poll(&mut self) -> Poll<Option<(usize, Frame)>> {
         for lane in &mut self.lanes {
             if lane.staged.is_none() && !lane.ended {
-                match lane.queued.take() {
+                match lane.queued.pop_front() {
                     Some(frame) => lane.staged = Some(frame),
                     None => lane.ended = lane.closed,
                 }
@@ -356,9 +358,10 @@ proptest! {
     /// returns what one polling every lane on every poll returns, and is
     /// woken after `Pending` before any lane has news for it.
     ///
-    /// The reference is [`FullScan`], on up to five lanes. After a poll
-    /// returns `Pending`, the task has been woken by the time any lane's
-    /// channel holds a frame or a close the multiplexer has not taken.
+    /// The reference is [`FullScan`], on up to five lanes, each of whose
+    /// channels holds up to [`LANE_CAPACITY`] frames. After a poll returns
+    /// `Pending`, the task has been woken by the time any lane's channel
+    /// holds a frame or a close the multiplexer has not taken.
     ///
     /// So polling only marked lanes changes neither the frames the
     /// multiplexer writes nor their order, and never leaves a frame
@@ -387,14 +390,17 @@ proptest! {
         let mut waiting_since: Option<usize> = None;
         let mut tag = 0;
         let close_all = (0..lanes).map(Step::Close);
-        let drain = std::iter::repeat_n(Step::Poll, 2 * lanes + 1);
+        // Each poll writes one frame, and a lane holds at most its
+        // channel's frames and one staged; the last poll finds every lane
+        // ended.
+        let drain = std::iter::repeat_n(Step::Poll, (LANE_CAPACITY + 1) * lanes + 1);
         for step in steps.into_iter().chain(close_all).chain(drain) {
             match step {
                 Step::Send(lane, kind) => {
                     let lane = lane % lanes;
                     let modeled = &mut full_scan.lanes[lane];
                     if let Some(out) = &mut senders[lane]
-                        && modeled.queued.is_none()
+                        && modeled.queued.len() < LANE_CAPACITY
                     {
                         tag += 1;
                         let sent = Frame::from(frame(kind, tag));
@@ -402,7 +408,7 @@ proptest! {
                             out.frames.try_send(sent.clone()).is_ok(),
                             "an open channel with room accepts a frame"
                         );
-                        modeled.queued = Some((kind, sent));
+                        modeled.queued.push_back((kind, sent));
                     }
                 }
                 Step::Close(lane) => {
