@@ -215,8 +215,8 @@ proptest! {
         for op in ops {
             match op {
                 0 => a.send_all(std::iter::empty::<u64>()).unwrap(),
-                1 => a.redact(&Version::new()),
-                _ => a.redact(&removed),
+                1 => assert!(!a.redact(&Version::new())),
+                _ => assert!(!a.redact(&removed)),
             }
             // An unnecessary watch notification may wake the task even though
             // the observer suppresses the resulting unchanged version.

@@ -180,6 +180,17 @@ impl<T> Default for Tree<T> {
     }
 }
 
+/// What one [`Tree::act`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Acted {
+    /// `false` only if neither content nor history changed; `true` is
+    /// conservative, as [`Tree::act`] explains.
+    pub changed: bool,
+    /// How many leaves the tree held before the batch and holds no longer:
+    /// the messages the batch's forgets removed.
+    pub removed: usize,
+}
+
 /// An action to perform on the tree, locally.
 #[derive(Clone, Debug)]
 pub enum Action {
@@ -438,12 +449,15 @@ impl<T> Tree<T> {
     /// ceiling joins the last applied version of each remaining affected key.
     /// Splitting a batch can therefore change its resulting versions.
     ///
-    /// `false` guarantees that neither content nor history changed. `true`
-    /// normally means content changed, but is conservative for malformed stored
-    /// state: actions older than a resident leaf are skipped and can still
-    /// report `true`, without advancing the ceiling. Local ticks cannot
-    /// encounter this case when the tree's ceiling bounds all its leaves.
-    pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
+    /// The result's `changed` is `false` only if neither content nor history
+    /// changed. `true` normally means content changed, but is conservative for
+    /// malformed stored state: actions older than a resident leaf are skipped
+    /// and can still report `true`, without advancing the ceiling. Local ticks
+    /// cannot encounter this case when the tree's ceiling bounds all its
+    /// leaves. Its `removed` counts the leaves the tree held before the batch
+    /// and holds no longer; a forget of a key that holds no leaf, or a second
+    /// forget of one key, adds nothing.
+    pub fn act<I>(&mut self, party: &before::Party, actions: I) -> Acted
     where
         I: IntoIterator<Item = Action>,
     {
@@ -472,9 +486,9 @@ impl<T> Tree<T> {
     /// as `act` guarantees. This is not a general conflict resolver for
     /// concurrent or reordered actions.
     ///
-    /// Returns `act`'s conservative changed flag. Panics from traversal or
-    /// discarded action payloads leave the tree untouched.
-    fn react<I>(&mut self, reactions: I) -> bool
+    /// Returns `act`'s result. Panics from traversal or discarded action
+    /// payloads leave the tree untouched.
+    fn react<I>(&mut self, reactions: I) -> Acted
     where
         I: IntoIterator<Item = (typed::Path, Version, traverse::Action)>,
     {
@@ -485,19 +499,27 @@ impl<T> Tree<T> {
         // Work on a shared root and a separate ceiling so any unwind leaves
         // `self` intact. Only keys with an effect contribute history;
         // forgetting a missing key must not advance the ceiling.
-        let mut changed = false;
+        let mut acted = Acted {
+            changed: false,
+            removed: 0,
+        };
         let mut new_ceiling = self.root.ceiling.clone();
-        let new_root = traverse::act(self.root.node.clone(), actions, &mut |v: &Version| {
-            new_ceiling |= v;
-            changed = true;
-        });
+        let new_root = traverse::act(
+            self.root.node.clone(),
+            actions,
+            &mut |v: &Version, removed: bool| {
+                new_ceiling |= v;
+                acted.changed = true;
+                acted.removed += usize::from(removed);
+            },
+        );
 
         // Publish both fields before releasing displaced payloads. Their
         // destructors may panic, so they must find a consistent tree.
         let pre_image = std::mem::replace(&mut self.root.node, new_root);
         self.root.ceiling = new_ceiling;
         drop(pre_image);
-        changed
+        acted
     }
 
     /// Merge `other` into this tree, honoring deletions by causal version.

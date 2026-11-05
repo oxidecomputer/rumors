@@ -1170,7 +1170,7 @@ proptest! {
         actions.extend(forget_missing.into_iter().map(Action::Forget));
 
         let before = tree.hash();
-        let changed = tree.act(&party_of("A"), actions);
+        let changed = tree.act(&party_of("A"), actions).changed;
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1322,7 +1322,7 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
 
     let before = tree.hash();
     let ceiling_before = tree.latest().clone();
-    let changed = tree.act(&receiver_party, [Action::Forget(key)]);
+    let changed = tree.act(&receiver_party, [Action::Forget(key)]).changed;
     assert!(
         changed,
         "the skipped forget reports changed: the conservative direction",

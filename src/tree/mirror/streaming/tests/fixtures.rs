@@ -70,7 +70,7 @@ where
             Action::Insert(Message::new(value.clone())),
         ));
     }
-    act(node, actions, &mut |_| ())
+    act(node, actions, &mut |_, _| ())
 }
 
 /// Wrap a node as a [`Root`] whose ceiling is the node's own.

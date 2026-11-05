@@ -9,7 +9,9 @@ pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, NoBookmark};
 use crate::message::EncodeError;
-use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, SynchronizationSettings, Version};
+use crate::{
+    Batch, Committed, Error, Gossiped, Network, Peer, Snapshot, SynchronizationSettings, Version,
+};
 use futures::Stream;
 use std::borrow::Borrow;
 use std::sync::Arc;
@@ -144,11 +146,29 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// from the set, here and, through gossip, everywhere, committing
     /// immediately.
     ///
-    /// Redacting a version not currently held is a no-op, and redaction
-    /// is infallible: no payload is created, so no depth admission
-    /// applies. To redact many versions in one commit, use
+    /// Returns whether it removed a message: `true` if this replica held
+    /// the message live, `false` if it never received it or had already
+    /// redacted it. A redaction that returns `false` is a no-op, here and
+    /// everywhere else: it advances no history. So a message this replica
+    /// never received is live if it arrives later, and redacting it then
+    /// removes it. A message this replica already redacted stays redacted:
+    /// gossip honors that earlier redaction, so the message never becomes
+    /// live here again.
+    ///
+    /// Redaction is infallible: no payload is created, so no depth
+    /// admission applies. To redact many versions in one commit, use
     /// [`redact_all`](Self::redact_all); to mix redactions and sends in
     /// one commit, use [`batch`](Self::batch).
+    ///
+    /// ```
+    /// use rumors::{EncodeError, Peer};
+    ///
+    /// let rumors = Peer::<u64>::seed().into_rumors();
+    /// let version = rumors.send(7)?;
+    /// assert!(rumors.redact(&version), "a held message is removed");
+    /// assert!(!rumors.redact(&version), "a second redaction removes nothing");
+    /// # Ok::<(), EncodeError>(())
+    /// ```
     ///
     /// # Deletion is honored
     ///
@@ -167,7 +187,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Use the [`Version`] returned by [`send`](Self::send), or one reported by
     /// an observer or [`Snapshot`]. Batched sends do not return versions because
     /// one call may insert several messages.
-    pub fn redact(&self, version: &Version) {
+    pub fn redact(&self, version: &Version) -> bool {
         self.peer.redact(version)
     }
 
@@ -216,6 +236,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// infallible, and versions not currently held are skipped. An empty
     /// iterator commits nothing and wakes no observer.
     ///
+    /// Returns how many messages it removed: the distinct versions this
+    /// replica held live. Each version it did not hold, or named twice,
+    /// adds nothing, exactly as [`redact`](Self::redact) returning `false`
+    /// does.
+    ///
     /// # Examples
     ///
     /// ```
@@ -230,11 +255,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///     .filter(|(_, message)| **message % 2 == 0)
     ///     .map(|(version, _)| version.clone())
     ///     .collect();
-    /// rumors.redact_all(evens);
+    /// assert_eq!(rumors.redact_all(evens), 5, "every even payload was held");
     /// assert_eq!(rumors.snapshot().len(), 5);
     /// # Ok::<(), EncodeError>(())
     /// ```
-    pub fn redact_all<I>(&self, versions: I)
+    pub fn redact_all<I>(&self, versions: I) -> usize
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
@@ -251,6 +276,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// one tree traversal, and at most one observer wakeup. Any other
     /// exit — a returned `Err` (how a caller abandons a batch) or a
     /// panic — commits nothing.
+    ///
+    /// On commit, returns [`Committed`]: the closure's value, and how many
+    /// messages the batch's redactions removed, counted as
+    /// [`redact_all`](Self::redact_all) counts them.
     ///
     /// The closure is synchronous and the scope handle cannot leave it
     /// (the examples below show both escape routes failing to compile),
@@ -292,7 +321,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// let rumors = rumors::Peer::<String>::seed().into_rumors();
     /// let escaped = rumors.batch::<_, (), _>(|batch| Ok(batch));
     /// ```
-    pub fn batch<R, E, F>(&self, f: F) -> Result<R, E>
+    pub fn batch<R, E, F>(&self, f: F) -> Result<Committed<R>, E>
     where
         F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {

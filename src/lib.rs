@@ -395,7 +395,7 @@ mod tests;
 // This path exposes the exact `before` version used in public signatures, so
 // applications can name compatible clock types without a separate dependency.
 pub use ::before;
-pub use batch::Batch;
+pub use batch::{Batch, Committed};
 // Linked, not inlined: before's pages carry the measured-growth charts,
 // which an inlined copy cannot (its docs come from compiled metadata, and
 // the widget's assets are attached to rustdoc's own view of before only).

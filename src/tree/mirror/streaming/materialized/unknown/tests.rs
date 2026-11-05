@@ -43,7 +43,7 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
         }
     }
 
-    (act(None, actions, &mut |_| ()), known)
+    (act(None, actions, &mut |_, _| ()), known)
 }
 
 /// Build a root of `flags.len()` sibling leaves under one 31-byte prefix,
@@ -69,7 +69,7 @@ fn sibling_tree_and_known(flags: &[bool]) -> (Option<typed::node::Root>, Version
             known |= version;
         }
     }
-    (act(None, actions, &mut |_| ()), known)
+    (act(None, actions, &mut |_, _| ()), known)
 }
 
 /// Prune an optional root through the single-node streaming filter, driving

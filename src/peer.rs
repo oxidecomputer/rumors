@@ -23,7 +23,8 @@ pub use crate::tree::mirror::streaming::remote::{
     DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
 };
 use crate::{
-    Batch, Bookmark, CausalMessages, Changes, Network, Rumors, Snapshot, UnorderedMessages, Version,
+    Batch, Bookmark, CausalMessages, Changes, Committed, Network, Rumors, Snapshot,
+    UnorderedMessages, Version,
 };
 
 use serde::{Serialize, de::DeserializeOwned};
@@ -935,25 +936,25 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     pub(crate) fn send(&self, message: T) -> Result<Version, EncodeError> {
         let mut batch = self.new_batch();
         batch.send(message)?;
-        Ok(batch.commit())
+        Ok(batch.commit().latest)
     }
 
-    /// Commit one redaction.
-    pub(crate) fn redact(&self, version: &Version) {
+    /// Commit one redaction, returning whether it removed a message.
+    pub(crate) fn redact(&self, version: &Version) -> bool {
         let mut batch = self.new_batch();
         batch.redact(version);
-        batch.commit();
+        batch.commit().redacted == 1
     }
 
     /// Commit the changes queued by a successful batch closure.
-    pub(crate) fn batch<R, E, F>(&self, f: F) -> Result<R, E>
+    pub(crate) fn batch<R, E, F>(&self, f: F) -> Result<Committed<R>, E>
     where
         F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {
         let mut batch = self.new_batch();
-        let result = f(&mut batch)?;
-        batch.commit();
-        Ok(result)
+        let value = f(&mut batch)?;
+        let redacted = batch.commit().redacted;
+        Ok(Committed { value, redacted })
     }
 
     /// Commit every message from an iterator as one batch.
@@ -967,15 +968,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         Ok(())
     }
 
-    /// Commit every redaction from an iterator as one batch.
-    pub(crate) fn redact_all<I>(&self, versions: I)
+    /// Commit every redaction from an iterator as one batch, returning how
+    /// many messages it removed.
+    pub(crate) fn redact_all<I>(&self, versions: I) -> usize
     where
         I: IntoIterator,
         I::Item: Borrow<Version>,
     {
         let mut batch = self.new_batch();
         batch.redact_all(versions);
-        batch.commit();
+        batch.commit().redacted
     }
 
     /// Capture the replica's current immutable state.

@@ -18,14 +18,14 @@ proptest! {
             tree.act(&party_of("P"), (0..width).map(|_| insert_action(Bytes::new())));
             tree.warm_memos();
             let before = tree.clone();
-            assert!(!tree.act(&party_of("P"), []));
+            assert!(!tree.act(&party_of("P"), []).changed);
             assert!(tree.root_is(&before));
             let missing = (0..32).map(|split| {
                 let mut bytes = [0; 32];
                 bytes[split] = 255;
                 Action::Forget(Path::from(bytes))
             });
-            assert!(!tree.act(&party_of("P"), missing));
+            assert!(!tree.act(&party_of("P"), missing).changed);
             // Identical allocation means the cached hash and bounds survived;
             // value equality alone would miss a needless rebuild.
             assert!(tree.root_is(&before));
@@ -34,7 +34,8 @@ proptest! {
     }
 
     /// A real edit in one root child preserves a warmed sibling even when
-    /// missing-key redactions descend through that sibling's compressed path.
+    /// missing-key redactions descend through that sibling's compressed path,
+    /// and only the held leaf counts as removed.
     #[test]
     fn mixed_edits_retain_unchanged_subtree(depth in 1usize..32, width in 2usize..12) {
         let versions: Vec<_> = (1..=width + 2).map(|i| version_for("P", i as u64)).collect();
@@ -54,11 +55,15 @@ proptest! {
             let sibling = before.root.node.as_ref().unwrap().clone().into_children().remove(0).unwrap();
             let mut missing = [0; 32];
             missing[depth] = 255;
-            assert!(tree.act(&party_of("P"), [
+            let acted = tree.act(&party_of("P"), [
                 Action::Forget(Path::from(missing)),
                 Action::Forget(target),
                 Action::Forget(Path::from(missing)),
-            ]));
+            ]);
+            assert!(acted.changed);
+            // Only the held target was removed; the absent key, forgotten
+            // twice, adds nothing.
+            assert_eq!(acted.removed, 1);
             let after = tree.root.node.as_ref().unwrap().clone().into_children().remove(0).unwrap();
             assert!(after.ptr_eq(&sibling));
             assert_eq!(tree.len(), width + 1);
@@ -66,8 +71,9 @@ proptest! {
         });
     }
 
-    /// Arbitrary interleaved edits agree with a map oracle for both live
-    /// versions and the committed ceiling, at every divergence depth.
+    /// Arbitrary interleaved edits agree with a map oracle for the live
+    /// versions, the committed ceiling, and the count of removed leaves, at
+    /// every divergence depth.
     #[test]
     fn deep_batches_match_map(
         depth in 0usize..32,
@@ -108,7 +114,11 @@ proptest! {
             let ceiling = touched.iter()
                 .filter(|(key, _)| original.contains_key(key) || expected.contains_key(key))
                 .map(|(_, stamp)| *stamp).max().unwrap_or(initial).max(initial);
-            let changed = tree.act(&party_of("P"), batch);
+            let acted = tree.act(&party_of("P"), batch);
+            let changed = acted.changed;
+            // A removal is a key held before the batch and not after it.
+            let removed = original.keys().filter(|key| !expected.contains_key(*key)).count();
+            assert_eq!(acted.removed, removed);
             let expected_versions: Vec<_> = expected.values()
                 .map(|&stamp| version_for("P", stamp as u64)).collect();
             let actual: Vec<_> = tree.iter().map(|(version, _)| version.clone()).collect();
@@ -137,7 +147,7 @@ proptest! {
             let before = tree.clone();
             let actions = std::iter::once(insert_action(Bytes::from_static(b"cancelled")))
                 .chain(std::iter::repeat_n(Action::Forget(fresh), repeats));
-            assert!(!tree.act(&party_of("P"), actions));
+            assert!(!tree.act(&party_of("P"), actions).changed);
             assert!(tree.root_is(&before));
         });
     }

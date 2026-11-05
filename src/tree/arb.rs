@@ -102,7 +102,7 @@ pub fn arb_root_node(
                     (path, version.clone(), Action::Insert(message))
                 })
                 .collect();
-            act(None, actions, &mut |_| ())
+            act(None, actions, &mut |_, _| ())
         })
         .boxed()
 }
@@ -246,7 +246,7 @@ pub fn roots_at_depth<const N: usize>(
                 )
             })
             .collect();
-        root_with_ceiling(act(None, leaves, &mut |_| ()), tree.root.ceiling)
+        root_with_ceiling(act(None, leaves, &mut |_, _| ()), tree.root.ceiling)
     })
 }
 
@@ -446,7 +446,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
                 receiver_version.clone(),
                 Action::Insert(receiver_message),
             )],
-            &mut |_| (),
+            &mut |_, _| (),
         ),
         receiver_version.clone(),
     );
@@ -469,7 +469,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
         act(
             None,
             vec![(path, escaped.clone(), Action::Insert(message))],
-            &mut |_| (),
+            &mut |_, _| (),
         ),
         declared,
     );
@@ -518,7 +518,7 @@ pub fn poisoned_root(
         act(
             None,
             vec![(path, escaped.clone(), Action::Insert(message))],
-            &mut |_| (),
+            &mut |_, _| (),
         ),
         Version::new(),
     );
@@ -611,7 +611,7 @@ fn tree_of(versions: Vec<Version>) -> crate::tree::Root {
             )
         })
         .collect();
-    root_with_ceiling(act(None, actions, &mut |_| ()), ceiling)
+    root_with_ceiling(act(None, actions, &mut |_, _| ()), ceiling)
 }
 
 /// Two trees, initiator first, whose initiator answers one disputed root
@@ -668,7 +668,7 @@ pub fn leaf_parent_dispute_pair() -> (crate::tree::Root, crate::tree::Root, crat
             shared_version.clone(),
             Action::Insert(Message::new(())),
         )],
-        &mut |_| (),
+        &mut |_, _| (),
     );
 
     // Each side's extra rides its own disjoint party, so both extras are
@@ -682,7 +682,7 @@ pub fn leaf_parent_dispute_pair() -> (crate::tree::Root, crate::tree::Root, crat
             a_version.clone(),
             Action::Insert(Message::new(())),
         )],
-        &mut |_| (),
+        &mut |_, _| (),
     );
 
     let mut b_version = Version::new();
@@ -692,9 +692,9 @@ pub fn leaf_parent_dispute_pair() -> (crate::tree::Root, crate::tree::Root, crat
         b_version.clone(),
         Action::Insert(Message::new(())),
     );
-    let b_node = act(base, vec![b_extra.clone()], &mut |_| ());
+    let b_node = act(base, vec![b_extra.clone()], &mut |_, _| ());
 
-    let union = act(a_node.clone(), vec![b_extra], &mut |_| ());
+    let union = act(a_node.clone(), vec![b_extra], &mut |_, _| ());
 
     let a_ceiling = shared_version.clone() | a_version;
     let b_ceiling = shared_version | b_version;
@@ -725,7 +725,7 @@ pub fn leaf_parent_redaction_pair() -> (crate::tree::Root, crate::tree::Root, cr
             a_version.clone(),
             Action::Insert(Message::new(())),
         )],
-        &mut |_| (),
+        &mut |_, _| (),
     );
 
     // b: built on a's history, inserts a concurrent sibling, then forgets
@@ -741,16 +741,16 @@ pub fn leaf_parent_redaction_pair() -> (crate::tree::Root, crate::tree::Root, cr
     let mut forget_version = b_version.clone();
     forget_version.tick(&nth_party(1));
     let b_node = act(
-        act(a_node.clone(), vec![b_insert.clone()], &mut |_| ()),
+        act(a_node.clone(), vec![b_insert.clone()], &mut |_, _| ()),
         vec![(
             leaf_sibling_path(0x00),
             forget_version.clone(),
             Action::Forget,
         )],
-        &mut |_| (),
+        &mut |_, _| (),
     );
 
-    let survivor = act(None, vec![b_insert], &mut |_| ());
+    let survivor = act(None, vec![b_insert], &mut |_, _| ());
 
     let b_ceiling = a_version.clone() | forget_version;
     let expected = root_with_ceiling(survivor, a_version.clone() | b_ceiling.clone());
@@ -790,7 +790,7 @@ pub fn forgotten_sibling_pair() -> (crate::tree::Root, crate::tree::Root, crate:
             ),
             survivor.clone(),
         ],
-        &mut |_| (),
+        &mut |_, _| (),
     );
 
     // b remembers the forgotten leaf only through its ceiling: a forget
@@ -801,7 +801,7 @@ pub fn forgotten_sibling_pair() -> (crate::tree::Root, crate::tree::Root, crate:
 
     let a_ceiling = forgotten_version | survivor_version;
     let expected = root_with_ceiling(
-        act(None, vec![survivor], &mut |_| ()),
+        act(None, vec![survivor], &mut |_, _| ()),
         a_ceiling.clone() | b_ceiling.clone(),
     );
     (
@@ -840,7 +840,7 @@ pub fn arb_forgotten_siblings() -> BoxedStrategy<(crate::tree::Root, crate::tree
             }
             let mut forget_version = Version::new();
             forget_version.tick(&nth_party(forgotten.len()));
-            let a = root_with_ceiling(act(None, leaves, &mut |_| ()), a_ceiling);
+            let a = root_with_ceiling(act(None, leaves, &mut |_, _| ()), a_ceiling);
             let b = root_with_ceiling(None, b_ceiling | forget_version);
             (a, b, forgotten.iter().filter(|&&forget| forget).count())
         })
