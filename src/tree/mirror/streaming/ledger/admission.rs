@@ -6,26 +6,63 @@
 //! copies exploding its scope made, and the reply's reactions that ask
 //! nothing. Each question the answer asks is one [`Unit::Question`]: the
 //! question's built items (its query, its chunk, and its record) and the
-//! reservation for the peer's reply. A unit is admitted with a *grant*, a
-//! charge of the most its items can hold; the walk builds the items out of
-//! the grant ([`Charge::take`](super::Charge::take)) and drops what is left.
+//! reservation for the peer's reply. The reservation's largest part is the
+//! room the reply's chunks park in as they arrive, *the reply's room*; its
+//! other parts hold the records the reply's questions derive and the
+//! parent resolution that reassembles the scope asked about. A unit is
+//! admitted with a *grant*, a charge of the most its items can hold; the
+//! walk builds the items out of the grant
+//! ([`Charge::take`](super::Charge::take)) and drops what is left.
+//!
+//! # The model
+//!
+//! - **The floor is a liveness guarantee for sending.** Each depth of the
+//!   comparison can always build and send one answer and one question,
+//!   whatever the budget, so the budget can never starve a depth. Each
+//!   depth has one *floor slot* per kind of unit, and the memory a unit
+//!   takes through its floor slot is an allowance outside the budget.
+//! - **A floor slot frees once everything its unit was granted has been
+//!   released.** For a question, that includes the reply's room, released
+//!   as the reply is processed, and the parent resolution's part, released
+//!   once the scope asked about is assembled. That keeps the floor to one
+//!   unit of each kind per depth at a time.
+//! - **The *budget* is how much the session pipelines beyond that
+//!   minimum:** it bounds the memory of every unit not on its floor slot.
+//!
+//! Processing a reply does two things:
+//!
+//! 1. **The reply's own memory comes back.** The reply's room is released
+//!    chunk by chunk as this side's stage uses the chunks, and whatever
+//!    exceeds what the reply can still deliver as soon as the reply shows
+//!    it: to the budget if its question was admitted against the budget,
+//!    or toward freeing its floor slot if it took the slot. Receiving
+//!    charges nothing new.
+//! 2. **Processing the reply makes this side send new things.** The peer's
+//!    reply carries its questions to this side, and answering them means
+//!    building and sending this side's answers and its own next questions.
+//!    Every unit needs permission to build and send: its depth's floor slot
+//!    if free, otherwise room in the budget.
+//!
+//! Each send is admitted on its own: a unit built while the stage processes
+//! a chunk waits, if it must, while the chunk still holds its part of the
+//! reply's room, which returns once the stage has used the chunk.
 //!
 //! # The rule
 //!
-//! The rule lives in [`decide`] and nowhere else. A waiting unit concerns a
-//! scope at some depth, the root's 0 through the leaves' 32: an answer the
-//! scope it answers, a question the scope it asks about.
+//! The rule lives in [`decide`] and nowhere else. A unit concerns a scope
+//! at some depth, the root's 0 through the leaves' 32: an answer the scope
+//! it answers, a question the scope it asks about. Each unit gets
+//! permission to build and send this way:
 //!
-//! 1. If its depth's *floor slot* for its kind is free, it takes the slot.
-//!    The slot stays taken until every byte the unit's grant charged has
-//!    been released, and those bytes count toward the ledger's floor part,
-//!    `F`, not against the budget. The floor part also counts what slots
-//!    carry for units admitted against the budget ([below](#carrying)).
-//! 2. Otherwise, if no deeper unit is waiting and the grant fits beside
-//!    everything else the ledger holds outside its floor slots,
-//!    `L − F + c ≤ B`, it is admitted against the budget.
-//! 3. Otherwise it waits, and is reconsidered whenever the ledger releases
-//!    bytes, a slot comes free, or a slot starts carrying.
+//! 1. **If its depth's floor slot for its kind is free, it takes the
+//!    slot.** Its bytes count toward the ledger's floor part, `F`, not
+//!    against the budget. The floor part also counts what slots carry for
+//!    units admitted against the budget ([below](#carrying)).
+//! 2. **Otherwise, it is admitted against the budget** if no deeper unit is
+//!    waiting and its grant fits beside everything else the ledger holds
+//!    outside its floor slots, `L − F + c ≤ B`. Otherwise it waits,
+//!    reconsidered whenever the ledger releases bytes, a slot comes free,
+//!    or a slot starts carrying.
 //!
 //! So every depth always has room for one unit of each kind, and the budget
 //! adds pipelining on top; a larger budget only ever adds capacity, since
@@ -126,10 +163,10 @@
 //!
 //! - A question slot at depth `d` frees once the question's items and
 //!   reservation are released: its chunk when encoded, its record when the
-//!   reply's last chunk is taken, the room its reply parks in chunk by
-//!   chunk as this side's stage uses the reply's chunks and the rest as
-//!   the reply shows it cannot be used, and the reservation's other parts
-//!   as the stage finishes the reply and assembles the scope asked about.
+//!   reply's last chunk is taken, the reply's room chunk by chunk as this
+//!   side's stage uses the reply's chunks and the rest as the reply shows
+//!   it cannot be used, and the reservation's other parts as the stage
+//!   finishes the reply and assembles the scope asked about.
 //!   That takes the peer's answer and questions about the scope, at depth
 //!   `d` and below on the peer's side, this side's answers to those
 //!   questions, at `d + 1`, and the subtree's assembly: work at depths the
@@ -439,12 +476,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The admission rule: return the grant admitting a unit, or `None` to keep
-/// it waiting.
+/// The admission rule: return the grant that gives a unit permission to
+/// build and send, or `None` to keep it waiting.
 ///
-/// The unit, of `unit` kind concerning a scope at `depth` and holding at
-/// most `bytes`, is admitted through its floor slot if free, or against the
-/// budget if `budget_open` and it fits. The steps are the module's rule.
+/// The unit is of `unit` kind, concerns a scope at `depth`, and holds at
+/// most `bytes`. The two steps are the module's rule; `budget_open` is
+/// false once a deeper unit must keep waiting.
 ///
 /// The caller holds the queue's lock, which makes this one of the two
 /// places a free slot is taken ([`Slot`]), and passes the slots' state it
