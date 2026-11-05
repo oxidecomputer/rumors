@@ -152,7 +152,7 @@ tracing = "0.1"
 vergen-gitcl = "10"
 wasm-bindgen = "0.2"
 wasm32-pins-protocol = { path = "crates/before/wasm32-pins/protocol" }
-wasmtime = { version = "48.0.8", default-features = false }
+wasmtime = { version = "50.0.1", default-features = false }
 zeroize = "1.9"
 
 [package]

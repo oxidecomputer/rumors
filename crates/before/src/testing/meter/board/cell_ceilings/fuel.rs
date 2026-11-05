@@ -9,7 +9,7 @@ use super::{CellCeilings, Currency};
 pub(super) const CEILINGS: CellCeilings = CellCeilings {
     currency: Currency::Fuel,
     archs: &["wasm32"],
-    provenance: Some("rustc 1.97.1 (8bab26f4f 2026-07-14); wasmtime 48.0.8; costs: flat 0 for Unreachable Nop Block Loop Else End Return Drop; 1 for the other 619 operators; VariableOperatorCost { memory_copy_per_byte: 1, memory_fill_per_byte: 1, memory_init_per_byte: 1, memory_grow_per_page: 0, table_copy_per_element: 1, table_fill_per_element: 1, table_init_per_element: 1, table_grow_per_element: 1, array_copy_per_element: 1, array_fill_per_element: 1, array_new_data_per_element: 1, array_init_data_per_element: 1, array_new_elem_per_element: 1, array_init_elem_per_element: 1, array_new_default_per_element: 1, array_new_per_element: 1 }"),
+    provenance: Some("rustc 1.97.1 (8bab26f4f 2026-07-14); wasmtime 50.0.1; costs: flat 0 for Unreachable Nop Block Loop Else End Return Drop; 1 for the other 619 operators; VariableOperatorCost { memory_copy_per_byte: 1, memory_fill_per_byte: 1, memory_init_per_byte: 1, memory_grow_per_page: 0, table_copy_per_element: 1, table_fill_per_element: 1, table_init_per_element: 1, table_grow_per_element: 1, array_copy_per_element: 1, array_fill_per_element: 1, array_new_data_per_element: 1, array_init_data_per_element: 1, array_new_elem_per_element: 1, array_init_elem_per_element: 1, array_new_default_per_element: 1, array_new_per_element: 1 }"),
     entries: &[
         ("causally_contains", "alt-spine", 142313),
         ("causally_contains", "arming-train", 11693),
