@@ -298,6 +298,11 @@ pub struct LedgerReading {
     /// The bytes it held outside its floor slots, integrated over the
     /// link's clock: byte-times times bytes.
     pub budget_area: u128,
+    /// The bytes it charged over the session: the sum of every rise in
+    /// what it holds.
+    pub charged: u64,
+    /// The bytes its items needed beyond their grants, over the session.
+    pub short: u64,
     /// The bytes it held for each place, floor slots included, integrated
     /// over the link's clock, in
     /// [`Holding::ALL`](rumors::testing::Holding::ALL) order: which places
@@ -331,6 +336,8 @@ impl Default for LedgerReading {
             floor_bound: 0,
             waited: 0,
             budget_area: 0,
+            charged: 0,
+            short: 0,
             place_area: [0; PLACES],
             floor_area: 0,
             carried_area: 0,
@@ -495,6 +502,10 @@ fn record_change(change: LedgerChange) {
         reading.floor_peak = reading.floor_peak.max(change.floor + change.carried);
         reading.floor_bound = reading.floor_bound.max(change.floor_bound);
         reading.waited = reading.waited.max(change.waited);
+        // The runner observes on one thread, so changes arrive in the order
+        // they happened and each rise is exactly one charge.
+        reading.charged += change.held.saturating_sub(before_held) as u64;
+        reading.short = change.short;
         readings.joint_held = readings.joint_held - before_held + change.held;
         readings.joint_held_peak = readings.joint_held_peak.max(readings.joint_held);
     });
@@ -557,7 +568,9 @@ fn start_reading(link: &Link) {
 /// # Panics
 ///
 /// If a ledger's admissions that waited, counted one by one, differ from
-/// the count the ledger itself keeps: two counts of one quantity must
+/// the count the ledger itself keeps, or if the bytes its admissions
+/// granted, with what its items needed beyond their grants, differ from
+/// the rises in what it holds: two computations of one quantity must
 /// agree.
 fn admitted() -> Admitted {
     READINGS.with(|readings| {
@@ -574,6 +587,16 @@ fn admitted() -> Admitted {
             assert_eq!(
                 waited, ledger.waited,
                 "the admissions that waited must number the waits the ledger counts",
+            );
+            // A ledger's held bytes rise only when admission grants a unit
+            // or an item needs more than its grant holds, so the grants,
+            // counted one by one, and the shortfall account for every rise.
+            let granted = ledger.all_questions().bytes + ledger.all_answers().bytes;
+            assert_eq!(
+                granted + ledger.short,
+                ledger.charged,
+                "the bytes admission granted, with any shortfall, must be the rises in what the \
+                 ledger holds",
             );
         }
         Admitted {
