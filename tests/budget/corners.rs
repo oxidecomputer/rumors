@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::testing::run_to_quiescence;
 use rumors::{Peer, Rumors};

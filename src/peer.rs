@@ -8,7 +8,7 @@ use std::{
 };
 
 use before::Party;
-use rand::RngCore;
+use rand::Rng;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
@@ -443,12 +443,12 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     /// identifier.
     #[doc(hidden)]
     #[cfg(any(test, feature = "test-internals"))]
-    pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+    pub fn seed_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
         Self::seed_from_rng(rng)
     }
 
     /// Create a new network using `rng` for its identifier.
-    fn seed_from_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+    fn seed_from_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
         Self {
             network: Network::from_rng(rng),
             sync_memory_budget: DEFAULT_SYNC_MEMORY_BUDGET,

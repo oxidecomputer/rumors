@@ -10,7 +10,7 @@
 use rumors_testkit::common;
 
 use proptest::prelude::*;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
 

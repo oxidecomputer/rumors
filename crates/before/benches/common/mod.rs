@@ -25,7 +25,7 @@
 use before::testing::oracles::tree as oracle;
 use before::{Clock, Party, Version};
 use rand::seq::SliceRandom;
-use rand::Rng;
+use rand::RngExt;
 use rand_chacha::ChaChaRng;
 
 /// Fixed RNG seed: identical, reproducible inputs on every run.

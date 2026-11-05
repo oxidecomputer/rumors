@@ -83,7 +83,7 @@ use std::io::{self, Write};
 
 use before::Clock;
 use indicatif::{ProgressBar, ProgressStyle};
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rayon::prelude::*;
 

@@ -15,7 +15,7 @@
 use rumors_testkit::common;
 
 use bytes::Bytes;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::Rumors;
 use rumors::testing::{dispute_overhead_bytes, reference_wire_bytes};

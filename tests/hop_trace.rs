@@ -29,7 +29,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use rand::seq::SliceRandom;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use rand::RngCore;
+use rand::Rng;
 
 use serde::Deserialize;
 use serde::Deserializer;
@@ -70,7 +70,7 @@ impl Network {
     /// # Panics
     ///
     /// Panics if both draws return the reserved all-zero value.
-    pub(crate) fn from_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
+    pub(crate) fn from_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
         for _ in 0..NETWORK_DRAW_ATTEMPTS {
             let mut bytes = [0u8; NETWORK_BYTES];
             rng.fill_bytes(&mut bytes);

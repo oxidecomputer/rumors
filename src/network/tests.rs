@@ -1,8 +1,9 @@
 //! Tests for generating network identifiers from caller-supplied randomness.
 
+use std::convert::Infallible;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use rand::RngCore;
+use rand::TryRng;
 
 use super::{NETWORK_BYTES, NETWORK_DRAW_ATTEMPTS, Network};
 
@@ -21,23 +22,27 @@ impl ZeroPrefix {
     }
 }
 
-impl RngCore for ZeroPrefix {
+/// The scripted draws never fail, so `rand`'s blanket impl makes this an
+/// infallible `Rng`.
+impl TryRng for ZeroPrefix {
+    type Error = Infallible;
+
     /// Return the next four bytes of the scripted draw sequence.
-    fn next_u32(&mut self) -> u32 {
+    fn try_next_u32(&mut self) -> Result<u32, Infallible> {
         let mut bytes = [0; size_of::<u32>()];
-        self.fill_bytes(&mut bytes);
-        u32::from_le_bytes(bytes)
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u32::from_le_bytes(bytes))
     }
 
     /// Return the next eight bytes of the scripted draw sequence.
-    fn next_u64(&mut self) -> u64 {
+    fn try_next_u64(&mut self) -> Result<u64, Infallible> {
         let mut bytes = [0; size_of::<u64>()];
-        self.fill_bytes(&mut bytes);
-        u64::from_le_bytes(bytes)
+        self.try_fill_bytes(&mut bytes)?;
+        Ok(u64::from_le_bytes(bytes))
     }
 
     /// Fill one draw with zero or the fixed valid byte, following the script.
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Infallible> {
         self.draws += 1;
         if self.zeros == 0 {
             dest.fill(1);
@@ -45,6 +50,7 @@ impl RngCore for ZeroPrefix {
             self.zeros -= 1;
             dest.fill(0);
         }
+        Ok(())
     }
 }
 

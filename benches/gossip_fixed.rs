@@ -46,7 +46,7 @@ use std::time::Duration;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rand::seq::SliceRandom;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::{Peer, Rumors, Version};
 use rumors_testkit::bench::{grid, latency};

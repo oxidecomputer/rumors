@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use rumors::Rumors;
 use rumors_testkit::bench::latency;
