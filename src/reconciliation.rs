@@ -123,10 +123,13 @@
 //! unrepresentable — there is nothing to arrive.
 //!
 //! To optimize this filtration, the version bounds memoized on every interior
-//! node decide whole subtrees at once: a subtree whose version ceiling the
-//! counterparty's version contains is settled *even though its digest differs*
-//! (nothing under it can be news to the counterparty; whatever it holds and the
-//! counterparty lacks, the counterparty deleted), and a subtree whose version
+//! node decide whole exclusive subtrees at once. The bounds never settle a
+//! disputed child: a subtree both sides hold descends while its digests
+//! differ, whatever its bounds, until the dispute narrows to the frontier.
+//! There, an exclusive subtree whose version ceiling the counterparty's
+//! version contains is settled without descending (nothing under it can be
+//! news to the counterparty; whatever it holds and the counterparty lacks, the
+//! counterparty deleted), and an exclusive subtree whose version
 //! floor is concurrent with or in the causal future of the counterparty's
 //! version ships whole with no further comparison. Only mixed subtrees descend
 //! toward individual leaves. This subtree-wise pruning is semantically
