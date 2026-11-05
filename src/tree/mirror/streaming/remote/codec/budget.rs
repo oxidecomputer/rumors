@@ -33,17 +33,19 @@ use crate::tree::mirror::cbor;
 use super::error::DecodeErrorKind;
 use super::frame::{MAX_QUERY_CHILDREN, SUPPLY_HEAD_LEN, listing_entry_len};
 use super::signal::FRAME_OPENER_LEN;
+use crate::tree::mirror::streaming::message::Grandchildren;
 
 /// The exact wire size of one full-fan query frame.
 ///
-/// This includes the frame opener, the listing-map head, and every radix and
-/// hash. Radix keys have different CBOR head sizes, so the calculation visits
-/// each key rather than multiplying one entry size.
+/// This includes the frame opener, the listing-map head, and every radix,
+/// hash, and grandchild count, each count at its widest. Radix keys have
+/// different CBOR head sizes, so the calculation visits each key rather than
+/// multiplying one entry size.
 const FULL_FAN_QUERY_FRAME_LEN: usize = {
     let mut total = FRAME_OPENER_LEN + cbor::head_len(widen(MAX_QUERY_CHILDREN));
     let mut radix = 0usize;
     while radix < MAX_QUERY_CHILDREN {
-        total += listing_entry_len(radix as u8);
+        total += listing_entry_len(radix as u8, Grandchildren::MAX);
         radix += 1;
     }
     total

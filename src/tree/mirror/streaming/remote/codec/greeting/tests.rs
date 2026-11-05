@@ -1,5 +1,4 @@
-use crate::tree::mirror::streaming::message::Listed;
-use crate::tree::mirror::streaming::message::listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed, listed};
 use std::collections::BTreeMap;
 
 use super::*;
@@ -15,6 +14,7 @@ fn sample(listing: Vec<Listed>) -> Greeting {
     Greeting {
         version,
         set_len: 7,
+        grandchildren: 9,
         max_version_bytes: 4096,
         payload_depth_limit: 300,
         target_message_size: 1 << 20,
@@ -56,17 +56,29 @@ proptest::proptest! {
     #[test]
     fn greetings_round_trip(
         version in crate::tree::arb::arb_version(),
-        listing in proptest::collection::vec((any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>()), 0..=256)
+        listing in proptest::collection::vec(
+            (any::<u8>(), (any::<[u8; MERKLE_HASH_LEN]>(), any::<u16>())),
+            0..=256,
+        )
             .prop_map(BTreeMap::from_iter),
         set_len in arb_uint(),
+        grandchildren in 0..=65_536u64,
         max_version_bytes in arb_uint(),
         payload_depth_limit in arb_uint(),
         target_message_size in arb_uint(),
     ) {
         let greeting = Greeting {
             version,
-            listing: listing.into_iter().map(|(radix, hash)| listed(radix, Hash::from(hash))).collect(),
+            listing: listing
+                .into_iter()
+                .map(|(radix, (hash, less_one))| Listed {
+                    radix,
+                    hash: Hash::from(hash),
+                    grandchildren: Grandchildren::from_wire(less_one),
+                })
+                .collect(),
             set_len,
+            grandchildren,
             max_version_bytes,
             payload_depth_limit,
             target_message_size,
@@ -102,6 +114,51 @@ fn greeting_keys_are_in_deterministic_order() {
         })
         .collect();
     assert!(encoded.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+/// Every numeric field rejects a value of any other type, naming the field.
+///
+/// The numeric fields are read off the encoded sample itself, so a field
+/// added later is covered without editing this test. The decoder reads
+/// each count, size, and limit as an unsigned integer; a
+/// negative integer or a text string in its place must surface as
+/// [`GreetingStructureError::Unsigned`] for exactly that field, so a peer
+/// that omits a value's type, such as a malformed grandchild count, is
+/// rejected before any field is used.
+#[test]
+fn numeric_fields_reject_other_types() {
+    use ciborium::Value;
+    let map = greeting_map(&sample(Vec::new()));
+    let Value::Map(fields) = ciborium::de::from_reader(map.as_slice()).unwrap() else {
+        panic!("a greeting is a map");
+    };
+    let numeric: Vec<(usize, GreetingField)> = FIELDS
+        .iter()
+        .enumerate()
+        .filter(|&(index, _)| matches!(fields[index].1, Value::Integer(_)))
+        .map(|(index, &field)| (index, field))
+        .collect();
+    assert!(
+        numeric.len() > 1,
+        "the sample greeting must carry numeric fields"
+    );
+    for (index, field) in numeric {
+        for wrong in [Value::Integer((-1).into()), Value::Text("1".into())] {
+            let mut edited = fields.clone();
+            edited[index].1 = wrong.clone();
+            let mut bytes = Vec::new();
+            ciborium::ser::into_writer(&Value::Map(edited), &mut bytes).unwrap();
+            let error = rejection(&bytes);
+            assert!(
+                matches!(
+                    error,
+                    GreetingError::Structure(GreetingStructureError::Unsigned { field: named, .. })
+                        if named == field
+                ),
+                "{field} holding {wrong:?}: {error:?}",
+            );
+        }
+    }
 }
 
 proptest::proptest! {
@@ -199,10 +256,10 @@ fn truncated_listing_hash_is_a_typed_listing_issue() {
     cbor::read_head(&mut input).expect("tag head");
     cbor::read_head(&mut input).expect("bstr head");
     // Cut one byte deeper than the listing's end (the next key's one-byte
-    // text head sits just before the key text): the kept bytes stop
-    // inside the entry's digest.
+    // text head and the entry's one-byte count sit just before the key
+    // text): the kept bytes stop inside the entry's digest.
     let at = find(input, b"set_len", 0).expect("the key is present");
-    let cut = &input[..at - 2];
+    let cut = &input[..at - 3];
     assert!(matches!(
         parse_greeting(cut),
         Err(GreetingError::Listing(ListingIssue::Truncated))

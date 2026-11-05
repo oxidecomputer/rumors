@@ -1,6 +1,6 @@
 //! Semantic wire frames after signal decoding.
 
-use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use crate::tree::mirror::streaming::window::FAN;
 use crate::{
     Version,
@@ -8,7 +8,8 @@ use crate::{
     message::{Message, PayloadCodec},
     tree::{
         mirror::cbor::{
-            self, HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, MAJOR_UINT, TAG_CBOR_SEQUENCE,
+            self, HeadError, MAJOR_ARRAY, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, MAJOR_UINT,
+            TAG_CBOR_SEQUENCE,
         },
         typed::{Hash, hash::MERKLE_HASH_LEN},
     },
@@ -26,11 +27,25 @@ pub const MAX_QUERY_CHILDREN: usize = FAN;
 /// Bytes of the byte-string head ahead of one listed Merkle hash.
 pub const HASH_HEAD_LEN: usize = cbor::head_len(widen(MERKLE_HASH_LEN));
 
+/// Elements in one listing entry's value: the child's hash, then its
+/// grandchild count less one.
+const ENTRY_ELEMENTS: u64 = 2;
+
+/// Bytes of the array head opening one listing entry's value.
+pub const ENTRY_HEAD_LEN: usize = cbor::head_len(ENTRY_ELEMENTS);
+
 /// Bytes one listed child occupies as a map entry: its radix key's head,
-/// then its hash value's head and digest bytes. Radixes of 24 and above
-/// take a two-byte key head; smaller radixes take one.
-pub const fn listing_entry_len(radix: u8) -> usize {
-    cbor::head_len(radix as u64) + HASH_HEAD_LEN + MERKLE_HASH_LEN
+/// then its value, a two-element array of its hash (head and digest) and
+/// its grandchild count less one.
+///
+/// Radixes of 24 and above take a two-byte key head; smaller radixes take
+/// one. Counts take one byte through 24, two through 256, and three above.
+pub const fn listing_entry_len(radix: u8, grandchildren: Grandchildren) -> usize {
+    cbor::head_len(radix as u64)
+        + ENTRY_HEAD_LEN
+        + HASH_HEAD_LEN
+        + MERKLE_HASH_LEN
+        + cbor::head_len(grandchildren.wire() as u64)
 }
 
 /// Head bytes of the embedded-CBOR-sequence tag (63) opening every supply
@@ -510,13 +525,27 @@ pub enum ListingStructureError {
         /// Head found where a radix belongs.
         actual: cbor::Head,
     },
-    /// A map value is not one fixed-width Merkle hash.
-    #[error("listing value has head {actual:?}; expected a {expected}-byte hash")]
+    /// A map value is not a two-element array of a hash and a count.
+    #[error("listing value has head {actual:?}; expected an array of a hash and a count")]
+    Entry {
+        /// Head found where an entry's array belongs.
+        actual: cbor::Head,
+    },
+    /// An entry's first element is not one fixed-width Merkle hash.
+    #[error("listing entry has head {actual:?}; expected a {expected}-byte hash")]
     Hash {
         /// Head found where a hash belongs.
         actual: cbor::Head,
         /// Hash width required by the tree.
         expected: usize,
+    },
+    /// An entry's second element is not a grandchild count less one.
+    #[error(
+        "listing entry has head {actual:?}; expected a grandchild count less one, below 65,536"
+    )]
+    Count {
+        /// Head found where a count belongs.
+        actual: cbor::Head,
     },
 }
 
@@ -571,8 +600,29 @@ impl ListingBuilder {
         Ok(radix)
     }
 
-    /// Accept one entry's value head: a byte string of exactly one digest.
-    pub(super) fn value_head(head: cbor::Head) -> Result<(), ListingIssue> {
+    /// Accept one entry's value head: an array of its hash and its count.
+    pub(super) fn entry_head(head: cbor::Head) -> Result<(), ListingIssue> {
+        if head.major != MAJOR_ARRAY || head.value != ENTRY_ELEMENTS {
+            return Err(ListingIssue::Structure(ListingStructureError::Entry {
+                actual: head,
+            }));
+        }
+        Ok(())
+    }
+
+    /// Accept one entry's count head: an unsigned grandchild count less
+    /// one, which every count from one to 65,536 fits.
+    pub(super) fn count(head: cbor::Head) -> Result<Grandchildren, ListingIssue> {
+        match u16::try_from(head.value) {
+            Ok(less_one) if head.major == MAJOR_UINT => Ok(Grandchildren::from_wire(less_one)),
+            _ => Err(ListingIssue::Structure(ListingStructureError::Count {
+                actual: head,
+            })),
+        }
+    }
+
+    /// Accept one entry's hash head: a byte string of exactly one digest.
+    pub(super) fn hash_head(head: cbor::Head) -> Result<(), ListingIssue> {
         if head.major != MAJOR_BSTR || head.value != widen(MERKLE_HASH_LEN) {
             return Err(ListingIssue::Structure(ListingStructureError::Hash {
                 actual: head,
@@ -584,10 +634,16 @@ impl ListingBuilder {
 
     /// Record one entry whose key and value heads were accepted; later
     /// keys must ascend past its radix.
-    pub(super) fn entry(&mut self, radix: u8, hash: [u8; MERKLE_HASH_LEN]) {
+    pub(super) fn entry(
+        &mut self,
+        radix: u8,
+        hash: [u8; MERKLE_HASH_LEN],
+        grandchildren: Grandchildren,
+    ) {
         self.children.push(Listed {
             radix,
             hash: Hash::from(hash),
+            grandchildren,
         });
         self.previous = Some(radix);
     }
@@ -612,37 +668,53 @@ pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<Listed>, Listin
     for _ in 0..count {
         let key = cbor::read_head(input).map_err(ListingIssue::Head)?;
         let radix = listing.key(key)?;
+        let entry = cbor::read_head(input).map_err(ListingIssue::Head)?;
+        ListingBuilder::entry_head(entry)?;
         let value = cbor::read_head(input).map_err(ListingIssue::Head)?;
-        ListingBuilder::value_head(value)?;
+        ListingBuilder::hash_head(value)?;
         if input.len() < MERKLE_HASH_LEN {
             return Err(ListingIssue::Truncated);
         }
         let (digest, rest) = input.split_at(MERKLE_HASH_LEN);
         *input = rest;
-        listing.entry(radix, digest.try_into().expect("split at the digest width"));
+        let count = cbor::read_head(input).map_err(ListingIssue::Head)?;
+        let grandchildren = ListingBuilder::count(count)?;
+        listing.entry(
+            radix,
+            digest.try_into().expect("split at the digest width"),
+            grandchildren,
+        );
     }
     Ok(listing.finish())
 }
 
-/// Append one child listing as a canonical map: ascending radix keys,
-/// each hash a definite-length byte string.
+/// Append one child listing as a canonical map: ascending radix keys, each
+/// value an array of the child's hash, a definite-length byte string, and
+/// its grandchild count less one.
 ///
 /// The encoder is not a trust boundary — callers guarantee canonical
 /// child order — so this writes without revalidating it.
 pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[Listed]) {
     cbor::write_head(out, MAJOR_MAP, widen(children.len()));
-    for Listed { radix, hash } in children {
+    for Listed {
+        radix,
+        hash,
+        grandchildren,
+    } in children
+    {
         cbor::write_head(out, MAJOR_UINT, u64::from(*radix));
+        cbor::write_head(out, MAJOR_ARRAY, ENTRY_ELEMENTS);
         cbor::write_head(out, MAJOR_BSTR, widen(MERKLE_HASH_LEN));
         out.extend_from_slice(hash.as_bytes());
+        cbor::write_head(out, MAJOR_UINT, u64::from(grandchildren.wire()));
     }
 }
 
 /// Bytes a whole child listing occupies as a map: its head plus entries.
 pub(crate) fn listing_len(children: &[Listed]) -> usize {
     let mut total = cbor::head_len(widen(children.len()));
-    for Listed { radix, .. } in children {
-        total += listing_entry_len(*radix);
+    for listed in children {
+        total += listing_entry_len(listed.radix, listed.grandchildren);
     }
     total
 }

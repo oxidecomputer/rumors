@@ -259,10 +259,6 @@ enum Body {
         /// `S` lies in 2..=65,536 and `S − 1` fits exactly. It depends only
         /// on the fan, which never changes after construction; peeling or
         /// extending the prefix leaves it valid.
-        #[cfg_attr(
-            not(test),
-            expect(dead_code, reason = "only tests read the grandchild count")
-        )]
         spread: u16,
         /// The largest encoded version size in this subtree: leaf versions
         /// and branch bounds, including this branch's own bounds. Computing
@@ -544,10 +540,6 @@ impl Node {
     /// with one byte of path over a branch has that branch's fan as its
     /// grandchildren, and over a leaf has the leaf alone; a bare branch
     /// stores its count.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests read the grandchild count")
-    )]
     pub fn grandchildren(&self) -> usize {
         match (self.inner.prefix.len(), &self.inner.body) {
             (0, Body::Leaf { .. }) => 0,

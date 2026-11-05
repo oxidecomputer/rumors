@@ -49,6 +49,7 @@ fn greeting(listing: Vec<Listed>) -> Vec<u8> {
     encode_greeting(&Greeting {
         version: Version::new(),
         set_len: 0,
+        grandchildren: 0,
         max_version_bytes: 0,
         payload_depth_limit: 0,
         target_message_size: 0,
@@ -332,6 +333,7 @@ async fn empty_listing_greeting_decodes() {
     let item = encode_greeting(&Greeting {
         version: version.clone(),
         set_len: 7,
+        grandchildren: 0,
         max_version_bytes: 512,
         payload_depth_limit: 256,
         target_message_size: 1 << 16,

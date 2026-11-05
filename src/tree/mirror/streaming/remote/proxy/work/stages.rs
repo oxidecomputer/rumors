@@ -130,7 +130,12 @@ where
         );
         self.spawn(holding(
             Holding::Wire,
-            encode::opening::<B>(requests, local_questions, self.progress),
+            encode::opening::<B>(
+                requests,
+                local_questions,
+                self.ingress.root_grandchildren,
+                self.progress,
+            ),
         ));
         let (next_scopes, scopes) = queues::next_scopes(UnderUnderRoot::HEIGHT);
         let responses = self.respond::<UnderRoot>(questions, Some(next_scopes), self.progress);

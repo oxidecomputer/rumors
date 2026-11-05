@@ -9,7 +9,7 @@
 //! Supplied payloads stream through `Convert::assemble` into backend
 //! custody while the reply retains one node handle per supplied node, and
 //! a maximally disputed reply retains a pure skeleton of at most fan²
-//! `(radix, hash)` entries. The coexistence of an encoded reply and
+//! listing entries, each a radix, a hash, and a grandchild count. The coexistence of an encoded reply and
 //! that decoded skeleton is pinned here by
 //! [`DISPUTED_REPLY_TRANSIENT_CEILING`]: the encoded half is measured from
 //! the codec, and the decoded half is derived from
@@ -47,10 +47,11 @@ const LEAVES: u64 = 512;
 /// The pinned coexistence transient of one maximally disputed reply.
 ///
 /// One encoded and one decoded copy of the fan² skeleton resident at
-/// once, plus per-frame signal and count framing, with ~3% headroom.
+/// once, plus per-frame signal and count framing, with ~3% headroom over
+/// the measured 3,796,480 bytes.
 /// Chosen tight so growth in either half — a wider hash, a larger fan,
 /// heavier framing — fails the pin and forces the charge to be reconsidered.
-const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_570_000;
+const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_910_000;
 
 /// A parked decoded reply holds one node handle per supplied node — O(fan)
 /// handles independent of how many leaves streamed through assembly into
@@ -105,7 +106,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             .collect(),
     };
     let runtime = runtime();
-    let scope = Scope::opening(&[]);
+    let scope = Scope::opening_unbounded(&[]);
     let frames = runtime.block_on(async {
         encode_reply(Local, RunBudget::default(), scope.clone(), reply)
             .map_ok(|encoded| encoded.into_parts().0)
@@ -170,7 +171,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     };
 
     let runtime = runtime();
-    let scope = Scope::opening(&listing);
+    let scope = Scope::opening_unbounded(&listing);
     let frames = runtime.block_on(async {
         encode_reply(Local, RunBudget::default(), scope.clone(), reply)
             .map_ok(|encoded| encoded.into_parts().0)
@@ -216,7 +217,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&listing),
+            &Scope::opening_unbounded(&listing),
             &mut frames,
             codec(),
         ))
@@ -224,8 +225,12 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
 
     // Every reaction parks as a listing skeleton; each registers exactly one
     // lower scope for the reply that will answer it.
-    let questions = derive_questions(ReplyLevel::Branch, &Scope::opening(&listing), &decoded)
-        .expect("decoding validated positions");
+    let questions = derive_questions(
+        ReplyLevel::Branch,
+        &Scope::opening_unbounded(&listing),
+        &decoded,
+    )
+    .expect("decoding validated positions");
     assert_eq!(questions.len(), FAN);
     assert_eq!(decoded.reactions.len(), FAN);
     let mut entries = 0_usize;

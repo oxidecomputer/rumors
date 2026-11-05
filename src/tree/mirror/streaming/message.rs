@@ -22,7 +22,7 @@ use std::cmp::Ordering;
 use crate::{
     Version,
     tree::{
-        mirror::streaming::{Backend, Leaf},
+        mirror::streaming::{Backend, ErasedNode, Leaf},
         typed::{
             Hash,
             height::{Height, Z},
@@ -114,9 +114,17 @@ pub struct Greeting {
     /// by the proxy from the session's payload codec at send; an
     /// in-process participant carries the default.
     pub payload_depth_limit: u64,
-    /// The sender's root children as `(radix, hash)` pairs in strictly
-    /// ascending radix order; empty when the sender's tree is empty.
+    /// The sender's root children in strictly ascending radix order, each
+    /// with its grandchild count; empty when the sender's tree is empty.
     pub listing: Vec<Listed>,
+    /// The sender's grandchild count of its root, `G(root)`: over the
+    /// listed root children, each one's own child count, a child at the
+    /// leaves counting one; zero for an empty tree.
+    ///
+    /// It bounds the elected responder's reply to the opening question,
+    /// which lists the responder's children of its root children, as a
+    /// listing's counts bound every later reply.
+    pub grandchildren: u64,
 }
 
 /// One child a listing names: a question's listing of the asker's children
@@ -131,12 +139,70 @@ pub struct Listed {
     pub radix: u8,
     /// The child's subtree hash.
     pub hash: Hash,
+    /// The lister's grandchild count of the child.
+    ///
+    /// It bounds the reply the lister will give to a question about the
+    /// child, and a reply over it fails the session.
+    pub grandchildren: Grandchildren,
 }
 
-/// A listing entry for the child at `radix` with subtree hash `hash`.
+/// A grandchild count as a listing carries it: how many children a listed
+/// child's children have.
+///
+/// The lister counts as its backend lists them, a child at the leaves
+/// counting one ([`ErasedNode::grandchildren`]). A listed child that is itself a leaf counts one as well. Nothing is ever
+/// asked about a leaf but the leaf itself, whose reply supplies at most one
+/// node, so one is that reply's bound too. Every count therefore lies in
+/// 1..=65,536: at most 256 children of at most 256 children each. The wire
+/// spells it as the count less one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Grandchildren(u16);
+
+impl Grandchildren {
+    /// The smallest count: a listed leaf, or a child whose one child is a
+    /// leaf or itself has one child.
+    pub const ONE: Self = Self(0);
+
+    /// The largest count: a full fan of children, each with a full fan.
+    pub const MAX: Self = Self(u16::MAX);
+
+    /// The count of `node`'s grandchildren, a leaf counting one.
+    pub fn of(node: &impl ErasedNode) -> Self {
+        Self::new(node.grandchildren().max(1))
+            .expect("a node has at most 256 children of at most 256 children")
+    }
+
+    /// The count `count`, or `None` outside 1..=65,536.
+    pub fn new(count: usize) -> Option<Self> {
+        let less_one = count.checked_sub(1)?;
+        u16::try_from(less_one).ok().map(Self)
+    }
+
+    /// The count spelled on the wire: the count less one.
+    pub const fn from_wire(less_one: u16) -> Self {
+        Self(less_one)
+    }
+
+    /// The count's wire spelling: the count less one.
+    pub const fn wire(self) -> u16 {
+        self.0
+    }
+
+    /// The count itself.
+    pub fn get(self) -> usize {
+        usize::from(self.0) + 1
+    }
+}
+
+/// A listing entry for the child at `radix` with subtree hash `hash` and
+/// the smallest grandchild count.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn listed(radix: u8, hash: Hash) -> Listed {
-    Listed { radix, hash }
+    Listed {
+        radix,
+        hash,
+        grandchildren: Grandchildren::ONE,
+    }
 }
 
 /// The greeting fields used to elect the session initiator.

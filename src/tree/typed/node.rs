@@ -238,10 +238,6 @@ impl<H: Height> Node<H> {
 
     /// The number of children this node's children have, a child at the
     /// leaves counting one ([`untyped::Node::grandchildren`]).
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests read the grandchild count")
-    )]
     pub fn grandchildren(&self) -> usize {
         self.inner.grandchildren()
     }

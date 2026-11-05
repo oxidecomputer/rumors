@@ -73,7 +73,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[]),
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
         )
@@ -93,7 +93,7 @@ fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usiz
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[]),
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
         )
@@ -187,7 +187,7 @@ fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec
                 u64::MAX,
                 unbounded(),
                 ReplyLevel::Branch,
-                &Scope::opening(&[]),
+                &Scope::opening_unbounded(&[]),
                 &mut input,
                 codec(),
             )

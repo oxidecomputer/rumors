@@ -1,6 +1,6 @@
 //! Exact asynchronous input for the self-delimiting frame grammar.
 
-use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::io::ErrorKind;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -24,14 +24,15 @@ use crate::tree::{
     typed::hash::MERKLE_HASH_LEN,
 };
 
-/// Bytes a listed child occupies when its radix takes a one-byte key
-/// head: the fewest any canonical entry can occupy.
-const NARROW_ENTRY_LEN: usize = listing_entry_len(0);
+/// Bytes a listed child occupies when its radix takes a one-byte key head
+/// and its count a one-byte head: the fewest any canonical entry can
+/// occupy.
+const NARROW_ENTRY_LEN: usize = listing_entry_len(0, Grandchildren::ONE);
 
-/// Bytes a listed child occupies when its radix takes a two-byte key
-/// head: every entry after the first such radix, keys being strictly
-/// ascending.
-const WIDE_ENTRY_LEN: usize = listing_entry_len(u8::MAX);
+/// The fewest bytes a listed child occupies when its radix takes a
+/// two-byte key head: every entry after the first such radix, keys being
+/// strictly ascending.
+const WIDE_ENTRY_LEN: usize = listing_entry_len(u8::MAX, Grandchildren::ONE);
 
 /// The smallest radix whose key head takes two bytes.
 const FIRST_WIDE_RADIX: u8 = 24;
@@ -373,14 +374,16 @@ struct AsyncFrameDecoder<'a, R> {
 
 /// How far one listing entry parsed from the bytes in hand.
 enum Entry {
-    /// The entry is complete and valid: its radix, digest, and width.
-    Complete(u8, [u8; MERKLE_HASH_LEN], usize),
+    /// The entry is complete and valid: its radix, digest, count, and
+    /// width.
+    Complete(u8, [u8; MERKLE_HASH_LEN], Grandchildren, usize),
     /// Every component that arrived whole is valid; the rest has not
     /// arrived.
     ///
     /// At least `need` more bytes are owed before it can: the rest of the
-    /// entry once its key head is whole (its width is then known
-    /// exactly), otherwise the rest of that head.
+    /// entry at its narrowest count once its key head is whole, exactly
+    /// the rest once its count head's first byte has arrived, otherwise
+    /// the rest of the key head.
     Incomplete { need: usize },
 }
 
@@ -399,10 +402,10 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
     /// Read a listing map: its head, then its entries in bulk.
     ///
     /// Each bulk read takes the fewest bytes the entries still owed can
-    /// occupy — the narrow entry width per entry until a radix of 24 or
-    /// more has been seen, the wide width thereafter — so a canonical
-    /// listing is consumed exactly, in a bounded number of reads
-    /// independent of its fan. Entries are judged in wire order as their
+    /// occupy — per entry the narrow width, at its narrowest count, until
+    /// a radix of 24 or more has been seen, the wide width thereafter — so
+    /// a canonical listing is consumed exactly, in a bounded number of
+    /// reads independent of its fan. Entries are judged in wire order as their
     /// bytes arrive; a defect is reported before any later entry is
     /// examined, and a delivery that ends mid-entry is a truncation only
     /// once everything whole before it has passed.
@@ -432,8 +435,8 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             let arrived = self.exact.fill_vec(scratch, owed).await;
             loop {
                 match parse_entry(&scratch[parsed..], &listing)? {
-                    Entry::Complete(radix, digest, width) => {
-                        listing.entry(radix, digest);
+                    Entry::Complete(radix, digest, grandchildren, width) => {
+                        listing.entry(radix, digest, grandchildren);
                         parsed += width;
                         entries += 1;
                         wide |= radix >= FIRST_WIDE_RADIX;
@@ -523,10 +526,10 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
 /// Parse one listing entry from the front of `bytes`, judging each
 /// component as soon as it is whole.
 ///
-/// The key head is judged against the listing's order, the value head as
-/// a digest's, then the digest bytes. Judging records nothing, so an
-/// entry cut short by one delivery is judged again, identically, when
-/// the next completes it.
+/// The key head is judged against the listing's order, the value's array
+/// head, the digest's head, the digest bytes, then the count's head.
+/// Judging records nothing, so an entry cut short by one delivery is judged
+/// again, identically, when the next completes it.
 fn parse_entry(bytes: &[u8], listing: &ListingBuilder) -> Result<Entry, DecodeErrorKind> {
     let mut rest = bytes;
     let Some(key) = partial_head(&mut rest)? else {
@@ -543,18 +546,37 @@ fn parse_entry(bytes: &[u8], listing: &ListingBuilder) -> Result<Entry, DecodeEr
         return Ok(Entry::Incomplete { need });
     };
     let radix = listing.key(key).map_err(listing_issue)?;
-    let need = listing_entry_len(radix).saturating_sub(bytes.len());
+    let need = listing_entry_len(radix, Grandchildren::ONE).saturating_sub(bytes.len());
+    let Some(entry) = partial_head(&mut rest)? else {
+        return Ok(Entry::Incomplete { need });
+    };
+    ListingBuilder::entry_head(entry).map_err(listing_issue)?;
     let Some(value) = partial_head(&mut rest)? else {
         return Ok(Entry::Incomplete { need });
     };
-    ListingBuilder::value_head(value).map_err(listing_issue)?;
+    ListingBuilder::hash_head(value).map_err(listing_issue)?;
     if rest.len() < MERKLE_HASH_LEN {
         return Ok(Entry::Incomplete { need });
     }
-    let (digest, rest) = rest.split_at(MERKLE_HASH_LEN);
+    let (digest, mut rest) = rest.split_at(MERKLE_HASH_LEN);
+    let Some(count) = partial_head(&mut rest)? else {
+        // The count head's width is known from its initial byte once that
+        // arrives; until then the entry's narrowest width is owed.
+        let need = match rest.first() {
+            Some(&initial) => {
+                1 + cbor::extension_len(initial)
+                    .map_err(|e| head_error(FramePart::QueryChildren, e))?
+                    - rest.len()
+            }
+            None => need,
+        };
+        return Ok(Entry::Incomplete { need });
+    };
+    let grandchildren = ListingBuilder::count(count).map_err(listing_issue)?;
     Ok(Entry::Complete(
         radix,
         digest.try_into().expect("split at the digest width"),
+        grandchildren,
         bytes.len() - rest.len(),
     ))
 }

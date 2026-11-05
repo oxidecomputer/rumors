@@ -77,6 +77,8 @@ mod scope;
 
 pub use decode::{LeafEdge, decode_reply, opening_reply};
 pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_listing};
+#[cfg(test)]
+pub use error::BoundedPart;
 pub use error::{DecodeError, EncodeError, OpeningError, ScopeError};
 pub use scope::{ReplyLevel, Scope, derive_questions};
 

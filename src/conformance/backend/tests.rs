@@ -310,9 +310,11 @@ const _: () = assert!(
 // of the suite's excess functions, so an over-estimate there cannot
 // hide behind a price that covers it. On a 64-bit target: `Prefix<Z>`
 // is 34 bytes at alignment 2, the in-memory handle one 8-byte `Arc`,
-// and `Hash` 24 bytes, so the window's decode-fan pair is 48 bytes
-// (`FAN_SLOT_BYTES` 40) and its query, resolution, and listing slots
-// 16 + 24 + 25 bytes (`REFERENCE_SLOT_BYTES` 65). `MaterializedNode` is
+// `Hash` 24 bytes, and a listing entry its radix, hash, and two-byte
+// grandchild count, 27 bytes padded to 28 at alignment 2, so the window's
+// decode-fan pair is 48 bytes (`FAN_SLOT_BYTES` 40) and its query,
+// resolution, and listing slots 16 + 24 + 28 bytes (`REFERENCE_SLOT_BYTES`
+// 68). `MaterializedNode` is
 // 32 bytes at alignment 16: the fan pair grows to 80 bytes (excess
 // 80 - 32 - 40 = 8), the query slot to 48 (16 of padding against the
 // handle's 8, excess 8), and the resolution slot keeps 16 of padding
@@ -320,7 +322,7 @@ const _: () = assert!(
 // other pointer widths, so the pin is gated.
 const _: () = assert!(
     std::mem::size_of::<usize>() != 8
-        || (FAN_SLOT_BYTES == 40 && REFERENCE_SLOT_BYTES == 65 && SLOT_PADDING == 8),
+        || (FAN_SLOT_BYTES == 40 && REFERENCE_SLOT_BYTES == 68 && SLOT_PADDING == 8),
     "the derived slot padding matches the hand-computed 64-bit layout",
 );
 

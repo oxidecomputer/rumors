@@ -52,19 +52,21 @@
 //!
 //! After a fixed transport preamble, a session opens with a *greeting*:
 //! each side sends its version, live-message count, version-size bound,
-//! message-size target, payload depth limit, and root's children. The
-//! peers must agree on the payload depth limit before descent. Equal versions
-//! mean identical replicas, and the session ends before a single digest is
-//! compared: one exchange and no descent.
+//! message-size target, payload depth limit, root's children, and the
+//! number of its root's grandchildren. The peers must agree on the payload
+//! depth limit before descent. Equal versions mean identical replicas, and
+//! the session ends before a single digest is compared: one exchange and
+//! no descent.
 //!
 //! Otherwise the two sides walk their trees downward together, level by
 //! level, comparing children by digest. Equal digests prune: that subtree
 //! is settled, however large it is. Where both sides hold something under a
 //! child but the digests differ, the child is *disputed*: the reply lists
-//! the disputed node's own children (a radix byte and a digest each) and
-//! the comparison recurses one level deeper. And where one side holds a
-//! subtree the other holds nothing under, the
-//! descent stops. Its destination is the *disjoint frontier*: the
+//! the disputed node's own children, each with its radix byte, its digest,
+//! and the number of its own grandchildren, which bounds the reply a
+//! question about it can draw, and the comparison recurses one level
+//! deeper. And where one side holds a subtree the other holds nothing
+//! under, the descent stops. Its destination is the *disjoint frontier*: the
 //! horizontal cut across the tree where every node along the cut is the
 //! highest node held exclusively by one side or the other.
 //!

@@ -109,10 +109,28 @@ pub enum DecodeError<E> {
     /// [`Violation::OverdrawnSupply`](crate::tree::mirror::streaming::materialized::Violation::OverdrawnSupply).
     #[error("supplied leaf overruns the peer's declared set length of {declared}")]
     OverdrawnSupply { declared: u64 },
+    /// A reply holds more reactions, or carries more listing entries, than
+    /// the grandchild count the replier gave the node it is about allows
+    /// ([`ReplyBound`](super::scope::ReplyBound)).
+    ///
+    /// A reply over it fails the session at the frame that overruns.
+    #[error("a reply exceeds its bound of {bound} {part}")]
+    ExceedsBound { part: BoundedPart, bound: usize },
     /// A positional wire reaction cannot be scoped without another child.
     #[error(transparent)]
     Scope(#[from] ScopeError),
     /// A leaf record inside a supply run failed canonical decoding.
     #[error("a supplied leaf record is not canonical")]
     Record(#[source] DecodeLeafError),
+}
+
+/// What a reply's bound limits ([`DecodeError::ExceedsBound`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum BoundedPart {
+    /// The reply's reactions.
+    #[error("reactions")]
+    Reactions,
+    /// The listing entries its queries carry together.
+    #[error("listing entries")]
+    Listing,
 }

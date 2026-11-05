@@ -230,10 +230,6 @@ pub trait Node {
     /// Like [`len`](Self::len), maintain it wherever a node is built; it depends
     /// only on the node's children, and on whether each child is itself a
     /// leaf or has one child or many.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "only tests read the grandchild count")
-    )]
     fn grandchildren(&self) -> usize;
 
     /// The largest encoded version bound in this subtree, in bytes.
@@ -266,10 +262,6 @@ pub trait ErasedNode {
 
     /// The number of children this node's children have, exact
     /// ([`Node::grandchildren`]).
-    #[expect(
-        dead_code,
-        reason = "no caller reads the grandchild count of an erased node"
-    )]
     fn grandchildren(&self) -> usize;
 
     /// The bytes listing this node's children with [`Backend::children`]

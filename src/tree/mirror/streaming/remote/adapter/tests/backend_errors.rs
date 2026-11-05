@@ -74,7 +74,7 @@ where
                 let mut encoded = encode_reply(
                     backend.clone(),
                     RunBudget::default(),
-                    Scope::new(parent.erase(), &listing),
+                    Scope::unbounded(parent.erase(), &listing),
                     Reply { reactions },
                 );
                 let (yielded, error, ended) = runtime.block_on(async {
@@ -111,7 +111,7 @@ where
             let mut encoded = encode_reply(
                 backend.clone(),
                 RunBudget::default(),
-                Scope::new(
+                Scope::unbounded(
                     parent.erase(),
                     &lower.map(|radix| listed(radix, hash(radix))),
                 ),
@@ -172,7 +172,7 @@ where
                     u64::MAX,
                     unbounded(),
                     ReplyLevel::Branch,
-                    &Scope::new(parent.erase(), &[]),
+                    &Scope::unbounded(parent.erase(), &[]),
                     &mut frames,
                     codec(),
                 ))

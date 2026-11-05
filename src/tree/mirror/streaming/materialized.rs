@@ -93,12 +93,13 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::counter::widen;
 use crate::message::PayloadDepthLimit;
 use crate::tree::{
     mirror::streaming::{
-        Backend, ErasedNode, Leaf, Root,
+        Backend, ErasedNode, Leaf, Node as _, Root,
         erased::{self, Reaction, Reply},
-        message::{Greeting, Listed},
+        message::{Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
         window::{ReplicaSize, Window, WindowConfig},
@@ -426,6 +427,7 @@ pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<Listed> {
         .map(|(radix, node)| Listed {
             radix: *radix,
             hash: node.hash(),
+            grandchildren: Grandchildren::of(node),
         })
         .collect()
 }
@@ -444,6 +446,11 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
             // so they cannot drift from the tree they describe.
             set_len: self.root.len(),
             max_version_bytes: self.root.max_version_bytes(),
+            grandchildren: self
+                .root
+                .root
+                .as_ref()
+                .map_or(0, |root| widen(root.grandchildren())),
             // The walk is not the wire: on a wire session the proxy
             // stamps its codec's configured limit over this field at
             // send, so an in-process participant carries the default.

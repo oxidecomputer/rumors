@@ -1,7 +1,6 @@
 //! Laws which hold uniformly across the adapter's type-level height ladder.
 
-use crate::tree::mirror::streaming::message::Listed;
-use crate::tree::mirror::streaming::message::listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed, listed};
 use std::{collections::BTreeSet, convert::Infallible};
 
 use futures::{StreamExt, TryStreamExt, stream};
@@ -51,7 +50,11 @@ impl PositionalCase {
     fn listing(&self) -> Vec<Listed> {
         self.radixes
             .iter()
-            .map(|&radix| listed(radix, hash(radix)))
+            .map(|&radix| Listed {
+                radix,
+                hash: hash(radix),
+                grandchildren: count_at(radix),
+            })
             .collect()
     }
 
@@ -89,7 +92,11 @@ where
     fn nested(case: &PositionalCase) -> &[Listed];
 
     /// Build the question below one listed child at this height.
-    fn question(parent: crate::tree::typed::ErasedPrefix, nested: &[Listed]) -> Scope;
+    fn question(
+        parent: crate::tree::typed::ErasedPrefix,
+        nested: &[Listed],
+        bound: Grandchildren,
+    ) -> Scope;
 
     /// Check positional matches and queries in both adapter directions.
     fn positioned_reactions_are_lossless(
@@ -98,7 +105,7 @@ where
         runtime: &tokio::runtime::Runtime,
     ) -> TestCaseResult {
         let parent = Prefix::<S<Self>>::containing(&leaf.path());
-        let scope = Scope::new(parent.erase(), &case.listing());
+        let scope = Scope::unbounded(parent.erase(), &case.listing());
         let nested = Self::nested(case);
         let reply = Reply::<Erased> {
             reactions: (0..case.radixes.len())
@@ -116,7 +123,7 @@ where
             .iter()
             .enumerate()
             .filter(|(position, _)| case.is_query(*position))
-            .map(|(_, &radix)| Self::question(parent.push(radix).erase(), nested))
+            .map(|(_, &radix)| Self::question(parent.push(radix).erase(), nested, count_at(radix)))
             .collect::<Vec<Scope>>();
         let expected_frames = expected_positional_frames(case, nested);
         let expected_publications = if case.radixes.is_empty() {
@@ -126,8 +133,9 @@ where
                 .iter()
                 .enumerate()
                 .map(|(position, &radix)| {
-                    case.is_query(position)
-                        .then(|| Self::question(parent.push(radix).erase(), nested))
+                    case.is_query(position).then(|| {
+                        Self::question(parent.push(radix).erase(), nested, count_at(radix))
+                    })
                 })
                 .collect::<Vec<_>>()
         };
@@ -184,12 +192,12 @@ where
     ) -> TestCaseResult {
         let (parent, supply_radix) = Prefix::<Self>::containing(&leaf.path()).pop();
         let (case, supply_at) = case.with_supply(supply_radix);
-        let scope = Scope::new(parent.erase(), &case.listing());
+        let scope = Scope::unbounded(parent.erase(), &case.listing());
         let nested = Self::nested(&case);
         let reply = mixed_reply(&case, nested, supply_at, supply_radix, Self::node(leaf));
         let expected_frames = expected_mixed_frames(&case, nested, supply_at, leaf);
         let expected_publications = mixed_publications(&case, supply_at, |radix| {
-            Self::question(parent.push(radix).erase(), nested)
+            Self::question(parent.push(radix).erase(), nested, count_at(radix))
         });
         let expected_questions = expected_publications
             .iter()
@@ -256,7 +264,10 @@ where
         let parent = Prefix::<Self>::containing(&leaf.path()).pop().0;
         let mut frames = stream::iter(duplicate_frames(leaf));
         let error = runtime
-            .block_on(Self::decode(Scope::new(parent.erase(), &[]), &mut frames))
+            .block_on(Self::decode(
+                Scope::unbounded(parent.erase(), &[]),
+                &mut frames,
+            ))
             .err()
             .expect("duplicate leaves are not strictly ascending");
         assert_duplicate_error(error, leaf, Self::HEIGHT)
@@ -277,7 +288,10 @@ where
         let foreign = foreign_parent::<Self>(leaf, actual);
         let mut frames = stream::iter([supplied_frame(leaf, Flow::End)]);
         let error = runtime
-            .block_on(Self::decode(Scope::new(foreign.erase(), &[]), &mut frames))
+            .block_on(Self::decode(
+                Scope::unbounded(foreign.erase(), &[]),
+                &mut frames,
+            ))
             .err()
             .expect("a leaf outside the retained scope must fail");
         assert_foreign_error(error, foreign, leaf, Self::HEIGHT)
@@ -315,7 +329,11 @@ impl AdapterHeight for Z {
         &[]
     }
 
-    fn question(parent: crate::tree::typed::ErasedPrefix, _nested: &[Listed]) -> Scope {
+    fn question(
+        parent: crate::tree::typed::ErasedPrefix,
+        _nested: &[Listed],
+        _bound: Grandchildren,
+    ) -> Scope {
         Scope::leaf(parent)
     }
 }
@@ -356,9 +374,20 @@ where
         &case.nested
     }
 
-    fn question(parent: crate::tree::typed::ErasedPrefix, nested: &[Listed]) -> Scope {
-        Scope::new(parent, nested)
+    fn question(
+        parent: crate::tree::typed::ErasedPrefix,
+        nested: &[Listed],
+        bound: Grandchildren,
+    ) -> Scope {
+        Scope::new(parent, nested, bound)
     }
+}
+
+/// The grandchild count a case's listing gives the child at `radix`: a
+/// distinct count per position, so a question that took its bound from the
+/// wrong position fails to match.
+fn count_at(radix: u8) -> Grandchildren {
+    Grandchildren::new(usize::from(radix) + 1).expect("a radix plus one is a valid count")
 }
 
 /// Encode one leaf as one supplied wire frame.

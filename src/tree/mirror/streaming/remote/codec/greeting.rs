@@ -12,10 +12,12 @@
 //! this key set in exactly that order: one spelling per greeting.
 //!
 //! - `"listing"`: the sender's root-fan listing, the same
-//!   `{radix: hash}` map spelling a query frame carries.
+//!   `{radix: [hash, count − 1]}` map spelling a query frame carries.
 //! - `"set_len"`: the sender's declared set size.
 //! - `"version"`: the sender's causal version — the version-atom tag
 //!   wrapping a byte string of the version's canonical encoding.
+//! - `"grandchildren"`: the sender's root grandchild count, which bounds
+//!   the elected responder's reply to the opening question.
 //! - `"max_version_bytes"`: the sender's version-size bound.
 //! - `"payload_depth_limit"`: the sender's payload nesting-depth limit,
 //!   which the counterparty's must equal for the session to proceed.
@@ -34,14 +36,18 @@ use super::error::QueryOrderError;
 use super::frame::{ListingIssue, parse_listing_map, write_listing};
 
 /// The greeting fields, in the deterministic order the wire requires.
-const FIELDS: [GreetingField; 6] = [
+const FIELDS: [GreetingField; 7] = [
     GreetingField::Listing,
     GreetingField::SetLen,
     GreetingField::Version,
+    GreetingField::Grandchildren,
     GreetingField::MaxVersionBytes,
     GreetingField::PayloadDepthLimit,
     GreetingField::TargetMessageSize,
 ];
+
+/// The most grandchildren a root can have: 256 children of 256 children.
+const MAX_ROOT_GRANDCHILDREN: u64 = 65_536;
 
 /// Render one greeting as its complete control-stream item:
 /// tag 24 wrapping a byte string of the greeting map.
@@ -69,6 +75,8 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     cbor::write_tag(&mut map, crate::tags::VERSION_TAG);
     cbor::write_head(&mut map, MAJOR_BSTR, widen(version.len()));
     map.extend_from_slice(version);
+    write_key(&mut map, GreetingField::Grandchildren);
+    cbor::write_head(&mut map, MAJOR_UINT, greeting.grandchildren);
     write_key(&mut map, GreetingField::MaxVersionBytes);
     cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
     write_key(&mut map, GreetingField::PayloadDepthLimit);
@@ -94,6 +102,8 @@ pub enum GreetingField {
     SetLen,
     /// The sender's causal version.
     Version,
+    /// The sender's grandchild count of its root.
+    Grandchildren,
     /// The sender's largest version encoding.
     MaxVersionBytes,
     /// The sender's payload nesting limit.
@@ -109,6 +119,7 @@ impl GreetingField {
             Self::Listing => "listing",
             Self::SetLen => "set_len",
             Self::Version => "version",
+            Self::Grandchildren => "grandchildren",
             Self::MaxVersionBytes => "max_version_bytes",
             Self::PayloadDepthLimit => "payload_depth_limit",
             Self::TargetMessageSize => "target_message_size",
@@ -196,6 +207,12 @@ pub enum GreetingStructureError {
         declared: usize,
         /// Bytes available after its head.
         available: usize,
+    },
+    /// The root grandchild count is more than a root can have.
+    #[error("greeting declares {declared} root grandchildren; a root has at most 65,536")]
+    Grandchildren {
+        /// Count the greeting declared.
+        declared: u64,
     },
     /// Bytes remain after all greeting fields have been decoded.
     #[error("{remaining} trailing bytes follow the greeting map")]
@@ -290,6 +307,15 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     };
     input = rest;
     let version = Version::decode(atom).map_err(GreetingError::Version)?;
+    expect_key(&mut input, GreetingField::Grandchildren)?;
+    let grandchildren = uint(&mut input, GreetingField::Grandchildren)?;
+    if grandchildren > MAX_ROOT_GRANDCHILDREN {
+        return Err(GreetingError::Structure(
+            GreetingStructureError::Grandchildren {
+                declared: grandchildren,
+            },
+        ));
+    }
     expect_key(&mut input, GreetingField::MaxVersionBytes)?;
     let max_version_bytes = uint(&mut input, GreetingField::MaxVersionBytes)?;
     expect_key(&mut input, GreetingField::PayloadDepthLimit)?;
@@ -304,6 +330,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     Ok(Greeting {
         version,
         set_len,
+        grandchildren,
         max_version_bytes,
         payload_depth_limit,
         target_message_size,

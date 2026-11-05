@@ -1,4 +1,4 @@
-use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::pin::Pin;
 
 use futures::{Stream, StreamExt, future::try_join, stream};
@@ -25,8 +25,9 @@ use crate::{
 
 use super::{
     super::codec::{End, Flow, Frame, Reaction as WireReaction},
+    error::BoundedPart,
     error::{DecodeError, ScopeError},
-    scope::{ReplyLevel, Scope},
+    scope::{ReplyBound, ReplyLevel, Scope},
 };
 
 /// One item on a [`LeafEdge`]: a decoded leaf on its way to assembly, or
@@ -105,7 +106,9 @@ where
 /// reply and its root scope is infallible. An empty listing replays an empty
 /// opening `Query` — the empty-tree initiator's "send everything".
 pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
-    let scope = Scope::opening(&listing);
+    // The local responder answers against this record and never decodes
+    // a reply with it, so no tighter bound on such a reply is needed.
+    let scope = Scope::opening(&listing, Grandchildren::MAX);
     (
         Reply {
             reactions: vec![ProtocolReaction::Query(listing)],
@@ -233,6 +236,8 @@ impl ReadReply {
         F: Stream<Item = Frame> + Unpin,
     {
         let mut positions = scope.positions();
+        let bound = scope.reply_bound();
+        let mut listed = 0;
         let mut read = Self {
             skeleton: Vec::new(),
             supplies: SupplyRuns::new(version_bytes),
@@ -255,13 +260,22 @@ impl ReadReply {
                     // unbounded reply skeleton for later walk validation.
                     positions.next().ok_or(ScopeError::UnpositionedMatch)?;
                     read.skeleton.push(Skeleton::Match);
+                    read.within(bound)?;
                 }
                 WireReaction::Query(listing) => {
                     read.supplies.interrupt();
                     // Validate the question's position now, at its frame;
                     // the scope it creates is derived at the take.
                     level.check(&mut positions, &listing)?;
+                    listed += listing.len();
+                    if listed > bound.listing {
+                        return Err(DecodeError::ExceedsBound {
+                            part: BoundedPart::Listing,
+                            bound: bound.listing,
+                        });
+                    }
                     read.skeleton.push(Skeleton::Query(listing));
+                    read.within(bound)?;
                 }
                 WireReaction::Supply(records) => {
                     // The codec rejects empty runs. Keep the assertion for
@@ -283,6 +297,7 @@ impl ReadReply {
                             .observe::<B::Error>(scope.parent(), &version)?;
                         if let Some((radix, prefix)) = run {
                             read.skeleton.push(Skeleton::Supply { radix, prefix });
+                            read.within(bound)?;
                         }
                         // Charge the peer's declared set length before the
                         // payload enters backend custody.
@@ -311,6 +326,21 @@ impl ReadReply {
         }
         leaves.send(None).await.expect(EDGE_OPEN);
         Ok(read)
+    }
+
+    /// Fail unless the reactions read so far fit `bound`.
+    ///
+    /// A peer that lists a child with its true grandchild count cannot
+    /// exceed the bound its own count sets, so a reply over it reveals a
+    /// miscounting peer at the reaction that overruns.
+    fn within<E>(&self, bound: ReplyBound) -> Result<(), DecodeError<E>> {
+        if self.skeleton.len() > bound.reactions {
+            return Err(DecodeError::ExceedsBound {
+                part: BoundedPart::Reactions,
+                bound: bound.reactions,
+            });
+        }
+        Ok(())
     }
 
     /// Replace supply placeholders with assembled nodes and finish the reply.

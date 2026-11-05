@@ -24,10 +24,11 @@
 //! discover whether that reply is also the stream's last.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query's
-//! body is a `{radix: hash}` map with one entry per reported child: CBOR
-//! deterministic encoding mandates ascending keys and the wire's canonical
-//! form mandates strictly ascending radixes, so the two disciplines are
-//! one rule, enforced once at ingress. A supply body is a [`LeafRun`]
+//! body is a `{radix: [hash, count − 1]}` map with one entry per reported
+//! child, `count` being the child's grandchild count as its lister counts
+//! it: CBOR deterministic encoding mandates ascending keys and the wire's
+//! canonical form mandates strictly ascending radixes, so the two
+//! disciplines are one rule, enforced once at ingress. A supply body is a [`LeafRun`]
 //! behind the embedded-CBOR-sequence tag (63) wrapping a byte string —
 //! the byte-string head is the run's exact length, preserving O(1) skip
 //! and up-front pricing — and the run's records are each the same shape

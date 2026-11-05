@@ -6,7 +6,7 @@
 //! capacities. The terminal operation drives these tasks together with the
 //! pipe's multiplexer and demultiplexer.
 
-use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::pin::{Pin, pin};
 use std::task::Poll;
 
@@ -59,6 +59,9 @@ where
     version_bytes: u64,
     /// The peer's remaining declared supply allowance.
     ledger: SupplyLedger,
+    /// The peer's declared grandchild count of its root, which bounds its
+    /// reply to the local opening question when it responds.
+    root_grandchildren: Grandchildren,
     /// The codec used to decode supplied messages.
     codec: PayloadCodec,
 }
@@ -68,11 +71,18 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     /// Combine the backend with the peer's greeting-derived decode limits.
-    pub(super) fn new(backend: B, version_bytes: u64, set_len: u64, codec: PayloadCodec) -> Self {
+    pub(super) fn new(
+        backend: B,
+        version_bytes: u64,
+        set_len: u64,
+        root_grandchildren: Grandchildren,
+        codec: PayloadCodec,
+    ) -> Self {
         Self {
             backend,
             version_bytes,
             ledger: SupplyLedger::new(set_len),
+            root_grandchildren,
             codec,
         }
     }

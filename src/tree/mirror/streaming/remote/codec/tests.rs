@@ -1,6 +1,6 @@
 use super::signal::{InvalidSignalPlacement, StreamClass};
 use crate::tree::mirror::streaming::message::Listed;
-use crate::tree::mirror::streaming::message::listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, listed};
 use std::fmt::Write;
 use std::io::Cursor;
 use std::pin::Pin;
@@ -753,11 +753,11 @@ fn extension_reads(value: u64) -> usize {
 fn listing_bulk_reads(children: &[Listed]) -> usize {
     let widths: Vec<usize> = children
         .iter()
-        .map(|listed| listing_entry_len(listed.radix))
+        .map(|listed| listing_entry_len(listed.radix, listed.grandchildren))
         .collect();
     let (mut reads, mut buffered, mut next, mut wide, mut need) = (0, 0usize, 0usize, false, 0);
     while next < widths.len() {
-        let entry_min = listing_entry_len(if wide { u8::MAX } else { 0 });
+        let entry_min = listing_entry_len(if wide { u8::MAX } else { 0 }, Grandchildren::ONE);
         let owed = ((widths.len() - next) * entry_min)
             .saturating_sub(buffered)
             .max(need);

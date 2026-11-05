@@ -1,4 +1,5 @@
-use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
+use crate::tree::mirror::streaming::window::FAN;
 use std::slice;
 
 use crate::tree::{
@@ -62,8 +63,8 @@ impl ReplyLevel {
         }
     }
 
-    /// Validate one query at the next position and return that position's
-    /// prefix, building nothing.
+    /// Validate one query at the next position and return that position:
+    /// its prefix and the count its lister gave it, building nothing.
     ///
     /// The decoder calls this at each query's frame; [`Self::derive`] adds
     /// only the construction of the scope the query creates.
@@ -71,7 +72,7 @@ impl ReplyLevel {
         self,
         positions: &mut Positions<'_>,
         listing: &[Listed],
-    ) -> Result<ErasedPrefix, ScopeError> {
+    ) -> Result<(ErasedPrefix, Grandchildren), ScopeError> {
         if matches!(self, Self::Leaf) && !listing.is_empty() {
             return Err(ScopeError::NonemptyLeafQuery);
         }
@@ -80,14 +81,18 @@ impl ReplyLevel {
 
     /// Validate one query at the next position and record the question it
     /// asks.
+    ///
+    /// The question's reply is bounded by the count its position's lister
+    /// gave the child it asks about: the replier's own count, since the
+    /// replier listed the child in the question this reply answers.
     pub(super) fn derive(
         self,
         positions: &mut Positions<'_>,
         listing: &[Listed],
     ) -> Result<Scope, ScopeError> {
-        let prefix = self.check(positions, listing)?;
+        let (prefix, bound) = self.check(positions, listing)?;
         Ok(match self {
-            Self::Branch => Scope::new(prefix, listing),
+            Self::Branch => Scope::new(prefix, listing, bound),
             Self::Leaf => Scope::leaf(prefix),
         })
     }
@@ -99,21 +104,91 @@ impl ReplyLevel {
 /// length is the scope's height witness, exactly one level above the
 /// children (see [`erased`](crate::tree::mirror::streaming::erased)) —
 /// and `children` preserves the positional radices from the `Query` which
-/// created it. A scope is an immutable record: a reply replays against it
-/// through a [`Positions`] cursor, so validating a reply and later deriving
-/// its questions read the same record without copying it.
+/// created it, each with the count its lister gave it. A scope is an
+/// immutable record: a reply replays against it through a [`Positions`]
+/// cursor, so validating a reply and later deriving its questions read the
+/// same record without copying it.
+///
+/// `bound` is the replier's grandchild count of `parent`, which bounds the
+/// reply the record awaits ([`ReplyBound`]); a peer's question records the
+/// asker's count of the node it asks about, where the asker is the side
+/// that listed it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scope {
     parent: ErasedPrefix,
-    children: Vec<u8>,
+    children: Vec<(u8, Grandchildren)>,
+    bound: Grandchildren,
+}
+
+/// The most a reply can hold of the two things that grow with it: its
+/// reactions, and the listing entries its queries carry.
+///
+/// A reply about a node holds one reaction per child either side holds:
+/// at most the asker's listed children and the replier's children, which
+/// are no more than the replier's grandchild count of the node, and never
+/// more than a fan. Its queries list the replier's children of children it
+/// shares with the asker, which together are at most that same count. A
+/// reply to an empty question supplies the replier's children and lists
+/// nothing; a reply about a leaf's parent lists nothing, since a question
+/// about a leaf is empty; a reply about a leaf supplies one leaf.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReplyBound {
+    /// The most reactions the reply can hold.
+    pub reactions: usize,
+    /// The most listing entries its queries can carry together.
+    pub listing: usize,
 }
 
 impl Scope {
-    /// Record the question represented by `listing` at `parent`.
-    pub fn new(parent: ErasedPrefix, listing: &[Listed]) -> Self {
+    /// Record the question represented by `listing` at `parent`, whose
+    /// replier's grandchild count of `parent` is `bound`.
+    pub fn new(parent: ErasedPrefix, listing: &[Listed], bound: Grandchildren) -> Self {
         Self {
             parent,
-            children: listing.iter().map(|listed| listed.radix).collect(),
+            children: listing
+                .iter()
+                .map(|listed| (listed.radix, listed.grandchildren))
+                .collect(),
+            bound,
+        }
+    }
+
+    /// Record the question represented by `listing` at `parent`, bounded
+    /// by the largest grandchild count, for tests of everything but the
+    /// bound.
+    #[cfg(test)]
+    pub fn unbounded(parent: ErasedPrefix, listing: &[Listed]) -> Self {
+        Self::new(parent, listing, Grandchildren::MAX)
+    }
+
+    /// Record the initiator's opening question about the root's children,
+    /// bounded by the largest grandchild count, for tests of everything
+    /// but the bound.
+    #[cfg(test)]
+    pub fn opening_unbounded(listing: &[Listed]) -> Self {
+        Self::opening(listing, Grandchildren::MAX)
+    }
+
+    /// The bound on the reply this record awaits.
+    pub fn reply_bound(&self) -> ReplyBound {
+        if self.parent.height() == 1 {
+            // A leaf's parent: its children are leaves, so its questions
+            // are empty and its listings carry nothing; a leaf request
+            // supplies its one leaf.
+            ReplyBound {
+                reactions: (self.children.len() + self.bound.get()).min(FAN),
+                listing: 0,
+            }
+        } else if self.children.is_empty() {
+            ReplyBound {
+                reactions: self.bound.get().min(FAN),
+                listing: 0,
+            }
+        } else {
+            ReplyBound {
+                reactions: (self.children.len() + self.bound.get()).min(FAN),
+                listing: self.bound.get(),
+            }
         }
     }
 
@@ -149,13 +224,15 @@ impl Scope {
         let (parent, radix) = prefix.pop();
         Self {
             parent,
-            children: vec![radix],
+            children: vec![(radix, Grandchildren::ONE)],
+            bound: Grandchildren::ONE,
         }
     }
 
-    /// Record the initiator's opening question about the root's children.
-    pub fn opening(listing: &[Listed]) -> Self {
-        Self::new(Prefix::new().erase(), listing)
+    /// Record the initiator's opening question about the root's children,
+    /// whose replier's grandchild count of its root is `bound`.
+    pub fn opening(listing: &[Listed], bound: Grandchildren) -> Self {
+        Self::new(Prefix::new().erase(), listing, bound)
     }
 }
 
@@ -167,17 +244,18 @@ impl Scope {
 pub(crate) struct Positions<'a> {
     /// The scope's parent prefix, which each child radix extends.
     parent: ErasedPrefix,
-    /// The child radices not yet consumed.
-    children: slice::Iter<'a, u8>,
+    /// The child radices not yet consumed, each with its lister's count.
+    children: slice::Iter<'a, (u8, Grandchildren)>,
 }
 
 /// Resolve positional reactions to child prefixes in listing order.
 impl Iterator for Positions<'_> {
-    type Item = ErasedPrefix;
+    type Item = (ErasedPrefix, Grandchildren);
 
-    /// Consume the next position and return its child prefix.
-    fn next(&mut self) -> Option<ErasedPrefix> {
-        let radix = *self.children.next()?;
-        Some(self.parent.push(radix))
+    /// Consume the next position and return its child prefix, with the
+    /// grandchild count its lister gave it.
+    fn next(&mut self) -> Option<(ErasedPrefix, Grandchildren)> {
+        let (radix, grandchildren) = *self.children.next()?;
+        Some((self.parent.push(radix), grandchildren))
     }
 }

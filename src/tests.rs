@@ -216,6 +216,10 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     let greeting = Greeting {
         version: retiree.snapshot().latest().clone(),
         set_len: root.len(),
+        grandchildren: root
+            .root
+            .as_ref()
+            .map_or(0, |node| node.grandchildren() as u64),
         max_version_bytes: root.max_version_bytes(),
         payload_depth_limit: retiree.codec.limit().get(),
         target_message_size: retiree.run_budget.bytes() as u64,

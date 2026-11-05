@@ -136,11 +136,16 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         for _ in 0..count {
             let key = self.listing_head()?;
             let radix = listing.key(key).map_err(listing_issue)?;
+            let entry = self.listing_head()?;
+            super::frame::ListingBuilder::entry_head(entry).map_err(listing_issue)?;
             let value = self.listing_head()?;
-            super::frame::ListingBuilder::value_head(value).map_err(listing_issue)?;
+            super::frame::ListingBuilder::hash_head(value).map_err(listing_issue)?;
             let mut digest = [0; MERKLE_HASH_LEN];
             self.read_exact(&mut digest, FramePart::QueryChildren)?;
-            listing.entry(radix, digest);
+            let count = self.listing_head()?;
+            let grandchildren =
+                super::frame::ListingBuilder::count(count).map_err(listing_issue)?;
+            listing.entry(radix, digest, grandchildren);
         }
         Ok(listing.finish())
     }

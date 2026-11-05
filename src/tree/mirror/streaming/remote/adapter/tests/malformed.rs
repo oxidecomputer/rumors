@@ -45,7 +45,7 @@ fn bare_end_cannot_follow_reactions() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[listed(0, hash(0))]),
+            &Scope::unbounded(parent.erase(), &[listed(0, hash(0))]),
             &mut frames,
             codec(),
         )
@@ -73,7 +73,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[listed(0, hash(0))]),
+            &Scope::unbounded(parent.erase(), &[listed(0, hash(0))]),
             &mut frames,
             codec(),
         )
@@ -112,7 +112,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::new(parent.erase(), &[listed(1, hash(1))]),
+            &Scope::unbounded(parent.erase(), &[listed(1, hash(1))]),
             &mut frames,
             codec(),
         )
@@ -132,7 +132,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
         encode_reply(
             Local,
             RunBudget::default(),
-            Scope::new(parent.erase(), &[listed(1, hash(1))]),
+            Scope::unbounded(parent.erase(), &[listed(1, hash(1))]),
             reply,
         )
         .try_collect::<Vec<_>>()
@@ -165,7 +165,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::new(parent.erase(), &[]),
+            &Scope::unbounded(parent.erase(), &[]),
             &mut frames,
             codec(),
         )
@@ -185,7 +185,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
         encode_reply(
             Local,
             RunBudget::default(),
-            Scope::new(parent.erase(), &[]),
+            Scope::unbounded(parent.erase(), &[]),
             reply,
         )
         .try_collect::<Vec<_>>()
@@ -236,7 +236,7 @@ fn leaf_query_matrix_is_exhaustive() {
                 encode_leaf_reply(
                     Local,
                     RunBudget::default(),
-                    Scope::new(parent.erase(), &scope_listing),
+                    Scope::unbounded(parent.erase(), &scope_listing),
                     reply,
                 )
                 .map_ok(|encoded| encoded.into_parts())
@@ -267,7 +267,7 @@ fn leaf_query_matrix_is_exhaustive() {
                     u64::MAX,
                     unbounded(),
                     ReplyLevel::Leaf,
-                    &Scope::new(parent.erase(), &scope_listing),
+                    &Scope::unbounded(parent.erase(), &scope_listing),
                     &mut frames,
                     codec(),
                 )
@@ -282,7 +282,7 @@ fn leaf_query_matrix_is_exhaustive() {
                     let reply = decoded.expect("this matrix cell must decode");
                     let questions = derive_questions(
                         ReplyLevel::Leaf,
-                        &Scope::new(parent.erase(), &scope_listing),
+                        &Scope::unbounded(parent.erase(), &scope_listing),
                         &reply,
                     )
                     .expect("decoding validated positions");
@@ -313,7 +313,7 @@ fn stream_end_is_not_a_protocol_reply() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[]),
+            &Scope::unbounded(parent.erase(), &[]),
             &mut frames,
             codec(),
         ))
@@ -367,7 +367,7 @@ fn leaf_order_is_enforced_within_one_run() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[]),
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
         )
@@ -411,7 +411,7 @@ fn leaf_scope_is_enforced_within_one_run() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[]),
+            &Scope::unbounded(parent.erase(), &[]),
             &mut input,
             codec(),
         )
@@ -452,7 +452,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[]),
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
         )
@@ -500,7 +500,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             declared,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[]),
+            &Scope::unbounded(parent.erase(), &[]),
             &mut input,
             codec(),
         )
@@ -516,7 +516,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             declared - 1,
             unbounded(),
             ReplyLevel::Leaf,
-            &Scope::new(parent.erase(), &[]),
+            &Scope::unbounded(parent.erase(), &[]),
             &mut input,
             codec(),
         )
@@ -561,7 +561,7 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
             u64::MAX,
             SupplyLedger::new(declared),
             ReplyLevel::Branch,
-            &Scope::opening(&[]),
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
         )
@@ -616,7 +616,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[listed(1, hash(1))]),
+            &Scope::opening_unbounded(&[listed(1, hash(1))]),
             &mut input,
             codec(),
         )

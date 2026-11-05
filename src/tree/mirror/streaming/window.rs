@@ -130,7 +130,7 @@ impl ReplicaSize {
 /// `(u8, node-handle)` query slot; the `(u8, Resolve)` resolution
 /// slot (`Option<Node>` consumes the handle's only null niche, so
 /// the `Ready`/`Pending` tag sits out of line and the pair outgrows the
-/// query slot by a word); and the byte-packed [`Listed`] listing
+/// query slot by a word); and the [`Listed`] listing
 /// entry. `Resolve`'s layout does not depend on the height or payload
 /// parameters, so the leaf instantiation prices every level. Exact for
 /// pointer-class node handles; a backend whose `Node` demands a wider
@@ -199,12 +199,14 @@ pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 /// `tests/dispute_wire.rs` counts all protocol writes in both directions,
 /// divides by the differing messages, and subtracts their encoded payloads.
 /// The reference fixture has 2,048 shared messages and 8,192 new ones per
-/// side. Its whole-byte mean gives 43; the unrounded mean is about 43.9.
-/// Two fully divergent 100,000-message sets instead average about 41.7.
-/// These include hashes, versions, framing, and amortized session setup;
-/// none is a fixed header size or a bound on other workloads.
+/// side. Its whole-byte mean gives 45; the unrounded mean is about 45.4.
+/// Two fully divergent 75,000-message sets instead average about 42.6,
+/// since supplies dominate them and listings, whose entries each carry a
+/// grandchild count, weigh less. These include hashes, versions, framing,
+/// and amortized session setup; none is a fixed header size or a bound on
+/// other workloads.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 43;
+pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 45;
 
 /// The sizing guide's reference message: a small, round encoded payload size.
 #[cfg(any(test, feature = "test-internals"))]

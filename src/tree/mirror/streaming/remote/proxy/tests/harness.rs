@@ -2,6 +2,7 @@
 //! greeting rewrites, frame scripts, fixtures, and role-sensitive result
 //! inspection.
 
+use crate::tree::mirror::streaming::message::Grandchildren;
 use std::{
     convert::Infallible,
     fmt, io,
@@ -509,6 +510,10 @@ enum GreetingField {
     MaxVersionBytes,
     /// The peer's target encoded message size.
     TargetMessageSize,
+    /// The peer's grandchild count of its root.
+    Grandchildren,
+    /// Every grandchild count in the peer's root listing.
+    ListingGrandchildren,
 }
 
 impl GreetingRewrite {
@@ -536,6 +541,17 @@ impl GreetingRewrite {
         Self::new(GreetingField::TargetMessageSize, value)
     }
 
+    /// Rewrite the received greeting's root grandchild count.
+    pub fn grandchildren(value: u64) -> Self {
+        Self::new(GreetingField::Grandchildren, value)
+    }
+
+    /// Rewrite every grandchild count in the received greeting's root
+    /// listing to `value`, which must lie in 1..=65,536.
+    pub fn listing_grandchildren(value: u64) -> Self {
+        Self::new(GreetingField::ListingGrandchildren, value)
+    }
+
     /// Return whether a complete greeting was rewritten.
     pub fn fired(&self) -> bool {
         self.fired.load(Ordering::Relaxed)
@@ -554,6 +570,16 @@ impl GreetingRewrite {
             GreetingField::SetLen => greeting.set_len = self.value,
             GreetingField::MaxVersionBytes => greeting.max_version_bytes = self.value,
             GreetingField::TargetMessageSize => greeting.target_message_size = self.value,
+            GreetingField::Grandchildren => greeting.grandchildren = self.value,
+            GreetingField::ListingGrandchildren => {
+                let count = usize::try_from(self.value)
+                    .ok()
+                    .and_then(Grandchildren::new)
+                    .expect("a listing count lies in 1..=65,536");
+                for listed in &mut greeting.listing {
+                    listed.grandchildren = count;
+                }
+            }
         }
         self.fired.store(true, Ordering::Relaxed);
         encode_greeting(&greeting)

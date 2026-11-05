@@ -1,5 +1,6 @@
 //! Error selection and shutdown behavior for the proxy work executor.
 
+use crate::tree::mirror::streaming::message::Grandchildren;
 use std::{
     future,
     io::ErrorKind,
@@ -64,6 +65,7 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
             Failing::after(Local, usize::MAX),
             u64::MAX,
             u64::MAX,
+            Grandchildren::MAX,
             PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         ),
         Window::FLOOR,
@@ -221,7 +223,7 @@ proptest! {
         let messages = futures::stream::iter(
             buffered.then_some(Ok(Parked {
                 reply: Reply { reactions: Vec::new() },
-                answered: Scope::opening(&[]),
+                answered: Scope::opening_unbounded(&[]),
             })).into_iter().chain([Err(Error::Decode(DecodeError::OversizedVersion { declared, actual }))]),
         );
         let responses = work.park_and_take::<Z>(messages, None, Progress::new());
@@ -370,7 +372,7 @@ fn parking_past_its_capacity_fails_instead_of_waiting() {
                 reply: Reply {
                     reactions: Vec::new(),
                 },
-                answered: Scope::opening(&[]),
+                answered: Scope::opening_unbounded(&[]),
             })
         }));
         let lane = super::Lane::new(HEIGHT, CAPACITY, Speaker::Initiator);

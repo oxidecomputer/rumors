@@ -49,8 +49,8 @@
 //! mean CBOR-encoded message size in bytes, excluding protocol overhead.
 //!
 //! The window column is the calculation the library performs. The slowdown
-//! cells are an idealized model, `max(1, BDP / ((43 + m) × window))`,
-//! relative to uninterrupted transfer. The 43 bytes are an approximate
+//! cells are an idealized model, `max(1, BDP / ((45 + m) × window))`,
+//! relative to uninterrupted transfer. The 45 bytes are an approximate
 //! per-message share of hashes, versions, framing, and session setup;
 //! this overhead varies with the set sizes, shared history, and message
 //! sizes. The model has not been validated against measured sessions:

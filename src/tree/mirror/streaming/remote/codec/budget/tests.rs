@@ -1,6 +1,5 @@
 use super::*;
-use crate::tree::mirror::streaming::message::Listed;
-use crate::tree::mirror::streaming::message::listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 
 /// The default budget equals the documented derivation: 256 full-fan
 /// query frames, the decode side's largest non-supply reply, pinned by
@@ -8,15 +7,15 @@ use crate::tree::mirror::streaming::message::listed;
 /// assert loudly.
 #[test]
 fn default_budget_matches_its_derivation() {
-    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 1_830_400);
+    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 2_092_544);
     assert_eq!(RunBudget::default().bytes(), DEFAULT_TARGET_MESSAGE_SIZE);
 }
 
 /// The full-fan frame constant prices exactly what the encoder writes.
 ///
-/// One query frame carrying every radix, constructed and encoded, is
-/// byte-for-byte the closed form's value — so the default budget's
-/// derivation cannot drift from the wire.
+/// One query frame carrying every radix, each at the widest grandchild
+/// count, constructed and encoded, is byte-for-byte the closed form's
+/// value — so the default budget's derivation cannot drift from the wire.
 #[test]
 fn full_fan_frame_len_matches_an_actual_encode() {
     use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
@@ -25,7 +24,11 @@ fn full_fan_frame_len_matches_an_actual_encode() {
     use super::super::{Frame, Reaction, WireFrame, encode};
 
     let children: Vec<Listed> = (0..=u8::MAX)
-        .map(|radix| listed(radix, Hash::from([radix; MERKLE_HASH_LEN])))
+        .map(|radix| Listed {
+            radix,
+            hash: Hash::from([radix; MERKLE_HASH_LEN]),
+            grandchildren: Grandchildren::MAX,
+        })
         .collect();
     let frame: WireFrame = (
         Stream::new(8).expect("an interior stream exists"),

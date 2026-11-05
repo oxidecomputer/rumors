@@ -1,5 +1,6 @@
 //! The wire participant's states for exchanging greetings.
 
+use crate::tree::mirror::streaming::message::Grandchildren;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
@@ -131,6 +132,7 @@ where
             max_version_bytes: remote_version_bytes,
             set_len: remote_set_len,
             listing: remote_listing,
+            grandchildren: remote_grandchildren,
             ..
         } = remote;
         Ok(Connected {
@@ -138,6 +140,12 @@ where
                 self.backend,
                 remote_version_bytes,
                 remote_set_len,
+                // An empty tree counts none; a bound of one reaction above
+                // that costs nothing a conforming reply can exceed.
+                usize::try_from(remote_grandchildren)
+                    .ok()
+                    .and_then(Grandchildren::new)
+                    .unwrap_or(Grandchildren::ONE),
                 self.codec,
             ),
             read: self.read,

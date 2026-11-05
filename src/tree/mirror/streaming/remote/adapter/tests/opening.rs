@@ -61,7 +61,7 @@ fn opening_listing_agrees_with_greeting_replay() {
 
     let local = opening_listing(reply).expect("canonical opening");
     assert_eq!(local, listing);
-    let scope = Scope::opening(&local);
+    let scope = Scope::opening_unbounded(&local);
 
     let (replayed, replayed_scope) = opening_reply::<<Local as Backend>::Erased>(listing.clone());
     assert_eq!(replayed_scope, scope);
@@ -81,7 +81,7 @@ fn empty_listing_replays_the_empty_opening() {
         panic!("the replayed opening must be one query")
     };
     assert!(listing.is_empty());
-    assert_eq!(scope, Scope::opening(&[]));
+    assert_eq!(scope, Scope::opening_unbounded(&[]));
     assert_eq!(
         scope.positions().next(),
         None,

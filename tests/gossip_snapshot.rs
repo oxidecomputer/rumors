@@ -204,12 +204,14 @@ fn is_capture_header(line: &str) -> bool {
 }
 
 /// The listing entries on one rendered line, wherever the layout puts
-/// them: each an unsigned-integer key with an optional encoding
-/// indicator, a colon, and a byte-string value, preceded by a line
-/// start, a brace, or a comma.
+/// them.
+///
+/// Each is an unsigned-integer key with an optional encoding indicator, a
+/// colon, and the entry's value, an array opening with its hash, preceded
+/// by a line start, a brace, or a comma.
 fn listing_entries(line: &str) -> usize {
     let bytes = line.as_bytes();
-    line.match_indices(": h'")
+    line.match_indices(": [")
         .filter(|(at, _)| {
             let mut key = *at;
             if let Some(mark) = line[..key].rfind('_')

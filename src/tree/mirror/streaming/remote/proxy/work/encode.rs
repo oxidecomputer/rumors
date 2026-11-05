@@ -21,6 +21,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::{Receiver, WindowSender},
         holding::{Holding, held_by},
+        message::Grandchildren,
         protocol::BoxRequests,
         remote::{
             adapter::{self, Encoded, Scope, encode_reply, opening_listing},
@@ -98,7 +99,8 @@ where
     finish(requests, outgoing).await
 }
 
-/// Consume the local initiator's opening and publish its scope.
+/// Consume the local initiator's opening and publish its scope, bounded by
+/// the `responder`'s grandchild count of its root.
 ///
 /// The opening writes nothing: its one query's content, the local root-fan
 /// listing, already crossed inside the greeting, which flushed before the
@@ -107,6 +109,7 @@ where
 pub async fn opening<B>(
     mut requests: BoxRequests<B::Erased>,
     mut questions: WindowSender<Scope>,
+    responder: Grandchildren,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
@@ -116,7 +119,7 @@ where
     let listing = opening_listing(request).map_err(Error::OpeningEncode)?;
     progress.wire_reply(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
-    publish_one(&mut questions, Scope::opening(&listing)).await;
+    publish_one(&mut questions, Scope::opening(&listing, responder)).await;
     if requests.next().await.is_some() {
         return Err(Error::ExtraOpening);
     }

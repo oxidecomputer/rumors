@@ -71,13 +71,13 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[]),
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
         )
         .await
         .expect("ascending in-scope leaves assemble");
-        encode_reply(Local, budget, Scope::opening(&[]), decoded)
+        encode_reply(Local, budget, Scope::opening_unbounded(&[]), decoded)
             .map_ok(|encoded| encoded.into_parts().0)
             .try_collect::<Vec<_>>()
             .await
@@ -239,7 +239,7 @@ fn a_batched_run_round_trips_the_reply() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &Scope::opening(&[]),
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
         )

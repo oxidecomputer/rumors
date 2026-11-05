@@ -13,7 +13,7 @@ use crate::tree::{
     mirror::streaming::{
         remote::{
             Error as RemoteError,
-            adapter::DecodeError as ReplyDecodeError,
+            adapter::{BoundedPart, DecodeError as ReplyDecodeError},
             codec::{DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind},
             pipe::PipeError,
         },
@@ -280,5 +280,127 @@ fn overstated_set_len_from_the_bulk_side_still_converges() {
         let right = right.expect("right endpoint reconciles despite the overstated set size");
         assert_eq!(left, expected);
         assert_eq!(right, expected);
+    }
+}
+
+/// A responder's root reply over the grandchild count its greeting declared
+/// fails the session at the initiator's decoder.
+///
+/// The initiator hears the bulk responder's root count as one, so it
+/// expects a reply of at most its own root children plus one reaction. The
+/// responder's reply holds its four exclusive root children beside the
+/// initiator's one, so the decoder rejects the reply at the reaction that
+/// overruns, before it parks.
+#[test]
+fn understated_root_grandchildren_fail_the_opening_reply() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = uneven_pair();
+        let rewrite = GreetingRewrite::grandchildren(1);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            small,
+            large,
+            rewrite.clone(),
+        ))
+        .expect("an over-bound reply must terminate both sessions");
+        assert!(rewrite.fired(), "the root count was not rewritten");
+        let receiver_error = receiver_error(receiver, &left, &right, "grandchildren");
+        assert!(
+            matches!(
+                receiver_error,
+                RemoteError::Decode(ReplyDecodeError::ExceedsBound {
+                    part: BoundedPart::Reactions,
+                    bound: 2,
+                })
+            ),
+            "mistyped root count violation: {receiver_error:?}",
+        );
+    }
+}
+
+/// A root count declared above the truth only enlarges the bound, so the
+/// session completes with the honest join.
+#[test]
+fn overstated_root_grandchildren_complete_the_session() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = uneven_pair();
+        let expected = harness::join_oracle(&small, &large);
+        let rewrite = GreetingRewrite::grandchildren(65_536);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            small,
+            large,
+            rewrite.clone(),
+        ))
+        .expect("an overstated count must not stall the session");
+        assert!(rewrite.fired(), "the root count was not rewritten");
+        assert_eq!(left.expect("the left session completes"), expected);
+        assert_eq!(right.expect("the right session completes"), expected);
+    }
+}
+
+/// Messages each side of [`listing_pair`] holds: enough that every root
+/// child either side holds has several children on each side.
+const LISTED_MESSAGES: usize = 2_000;
+
+/// A divergent pair of [`LISTED_MESSAGES`] messages against one fewer, on
+/// distinct parties: the smaller side initiates, and its greeting's root
+/// listing names every root child with a count well above one.
+fn listing_pair() -> (TreeRoot, TreeRoot) {
+    let (large, small) = harness::disjoint_pair(LISTED_MESSAGES, LISTED_MESSAGES - 1);
+    (small, large)
+}
+
+/// An initiator's reply about a root child over the grandchild count its
+/// greeting listed for that child fails the session at the responder's
+/// decoder.
+///
+/// The responder hears every count in the initiator's root listing as one,
+/// so each question it asks about a disputed root child expects at most
+/// one listing entry. With about eight messages under each root child on
+/// each side, the initiator's replies list its children of every disputed
+/// grandchild, so the first such reply overruns its listing bound.
+#[test]
+fn understated_listing_grandchildren_fail_a_reply() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = listing_pair();
+        let rewrite = GreetingRewrite::listing_grandchildren(1);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            large,
+            small,
+            rewrite.clone(),
+        ))
+        .expect("an over-bound reply must terminate both sessions");
+        assert!(rewrite.fired(), "the listing counts were not rewritten");
+        let receiver_error = receiver_error(receiver, &left, &right, "listing grandchildren");
+        assert!(
+            matches!(
+                receiver_error,
+                RemoteError::Decode(ReplyDecodeError::ExceedsBound { .. })
+            ),
+            "mistyped listing count violation: {receiver_error:?}",
+        );
+    }
+}
+
+/// Listing counts declared above the truth only enlarge the bounds, so the
+/// session completes with the honest join.
+#[test]
+fn overstated_listing_grandchildren_complete_the_session() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = listing_pair();
+        let expected = harness::join_oracle(&small, &large);
+        let rewrite = GreetingRewrite::listing_grandchildren(65_536);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            large,
+            small,
+            rewrite.clone(),
+        ))
+        .expect("overstated counts must not stall the session");
+        assert!(rewrite.fired(), "the listing counts were not rewritten");
+        assert_eq!(left.expect("the left session completes"), expected);
+        assert_eq!(right.expect("the right session completes"), expected);
     }
 }

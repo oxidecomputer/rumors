@@ -11,14 +11,15 @@ control item 0 (30 bytes) / preamble /
     h'00000000000000000000000000000000',
     0,
 ])
-control item 1 (103 bytes) / greeting /
+control item 1 (118 bytes) / greeting /
 24_0(<<{
     "listing": {},
     "set_len": 0,
     "version": 53846_1(h'e0'),
+    "grandchildren": 0,
     "max_version_bytes": 0,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 2092544_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
@@ -32,17 +33,24 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     1,
 ])
-control item 1 (160 bytes) / greeting /
+control item 1 (179 bytes) / greeting /
 24_0(<<{
     "listing": {
-        173_0: h'c427db6fe92e923509619eb51d8a601e31b985ac24a3baa2',
-        241_0: h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2',
+        173_0: [
+            h'c427db6fe92e923509619eb51d8a601e31b985ac24a3baa2',
+            0,
+        ],
+        241_0: [
+            h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2',
+            0,
+        ],
     },
     "set_len": 2,
     "version": 53846_1(h'72c0'),
+    "grandchildren": 2,
     "max_version_bytes": 2,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 2092544_2,
 }>>)
 control item 2 (5 bytes) / party hand-off /
 53845_1(h'48')

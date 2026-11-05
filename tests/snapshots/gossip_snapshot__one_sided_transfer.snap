@@ -11,17 +11,24 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (160 bytes) / greeting /
+control item 1 (179 bytes) / greeting /
 24_0(<<{
     "listing": {
-        82_0: h'b0425f1120b0c131ab72af780c67564c0340de7049ea3580',
-        121_0: h'9602973f461003f36f18b1ccb468d352b1f1a711efc1e963',
+        82_0: [
+            h'b0425f1120b0c131ab72af780c67564c0340de7049ea3580',
+            0,
+        ],
+        121_0: [
+            h'9602973f461003f36f18b1ccb468d352b1f1a711efc1e963',
+            0,
+        ],
     },
     "set_len": 2,
     "version": 53846_1(h'5c90'),
+    "grandchildren": 2,
     "max_version_bytes": 2,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 2092544_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
@@ -42,14 +49,15 @@ control item 0 (30 bytes) / preamble /
     h'b2f7f581d6de3c06a822fd6e7e8265fb',
     0,
 ])
-control item 1 (103 bytes) / greeting /
+control item 1 (118 bytes) / greeting /
 24_0(<<{
     "listing": {},
     "set_len": 0,
     "version": 53846_1(h'e0'),
+    "grandchildren": 0,
     "max_version_bytes": 0,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 2092544_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
