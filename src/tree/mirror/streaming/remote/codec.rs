@@ -83,6 +83,7 @@ mod signal;
 pub(crate) use budget::FULL_FAN_QUERY_FRAME_LEN;
 pub use budget::SUPPLY_FRAME_OVERHEAD;
 pub use budget::{MAX_RUN_BUDGET_BYTES, RunBudget};
+#[cfg(test)]
 pub(crate) use frame::MAX_QUERY_CHILDREN;
 
 #[cfg(any(test, feature = "test-internals"))]

@@ -36,7 +36,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 /// The smallest memory budget a synchronization session runs on at the
 /// default message-size target ([`default::TARGET_MESSAGE_SIZE`]) or a
-/// larger one: about 41 MiB on 64-bit targets.
+/// larger one: about 36.4 MiB on 64-bit targets.
 ///
 /// A smaller budget, zero included, is raised to at most this, whatever the
 /// target, so a session counts at most the larger of its budget and this
@@ -60,7 +60,7 @@ pub const MIN_SYNC_MEMORY_BUDGET: usize =
 
 /// The largest message of supplied records a session's memory budget covers
 /// at the default message-size target ([`default::TARGET_MESSAGE_SIZE`]):
-/// about 2.9 MiB on 64-bit targets.
+/// about 512 KiB on 64-bit targets.
 ///
 /// A message is counted as
 /// [`Peer::target_message_size`](crate::Peer::target_message_size) counts
@@ -884,7 +884,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Part is set aside for the messages on their way through the
     /// connection, about two messages' worth at the peer's
     /// [`target_message_size`](Self::target_message_size) in each direction:
-    /// about 5.7 MiB at the default target, as
+    /// about 1 MiB at the default target, as
     /// [messages on their way](#messages-on-their-way) describes.
     /// The rest of the budget pays for pipelining beyond all three, and
     /// always has room for at least the largest single piece of work. A
@@ -1135,12 +1135,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// build and, through the minimum, the frames a conforming peer sends
     /// you, so the room your side sets aside at the target it advertises
     /// covers both directions: the more memory-constrained peer sets the
-    /// pace. Peers
-    /// with different settings interoperate.
+    /// pace. Peers with different settings interoperate.
     ///
-    /// The default, [`default::TARGET_MESSAGE_SIZE`], is the byte size of
-    /// the largest reply that compares rather than supplies: a full-fan
-    /// query for every radix. Any value is safe: zero degrades to one
+    /// The default, [`default::TARGET_MESSAGE_SIZE`], is 256 KiB, the size
+    /// by which batching a supplied subtree's records saves no more
+    /// processor time in the workloads measured; its documentation gives
+    /// the measurements. Any value is safe: zero degrades to one
     /// leaf per message, and values above the wire's run byte cap
     /// ([`MAX_RUN_BUDGET_BYTES`]) saturate to it, so a run built within the
     /// target always fits the cap.

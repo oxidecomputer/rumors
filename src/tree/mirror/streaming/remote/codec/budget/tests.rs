@@ -1,13 +1,10 @@
 use super::*;
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 
-/// The default budget equals the documented derivation: 256 full-fan
-/// query frames, the decode side's largest non-supply reply, pinned by
-/// value so a change to any wire constant it derives from moves this
-/// assert loudly.
+/// A session's default run budget is the default message-size target,
+/// which lies within the wire's cap and so is not saturated.
 #[test]
-fn default_budget_matches_its_derivation() {
-    assert_eq!(default::TARGET_MESSAGE_SIZE, 1_502_720);
+fn the_default_budget_is_the_default_target() {
     assert_eq!(RunBudget::default().bytes(), default::TARGET_MESSAGE_SIZE);
 }
 
@@ -15,7 +12,8 @@ fn default_budget_matches_its_derivation() {
 ///
 /// One query frame carrying every radix, each at the widest grandchild
 /// count, constructed and encoded, is byte-for-byte the closed form's
-/// value — so the default budget's derivation cannot drift from the wire.
+/// value, so the bounds derived from it, such as the write buffer's size
+/// and the largest comparing reply, cannot drift from the wire.
 #[test]
 fn full_fan_frame_len_matches_an_actual_encode() {
     use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};

@@ -31,7 +31,7 @@
 //!   room for the session's fixed state, which it holds whatever the
 //!   budget, about 7 MiB, and for the messages on their way through the
 //!   connection, about two messages' worth at the message-size target in
-//!   each direction, about 5.7 MiB at the default target. The setter's
+//!   each direction, about 1 MiB at the default target. The setter's
 //!   documentation says more.
 //! - **The smallest budget,**
 //!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the

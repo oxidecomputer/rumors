@@ -20,7 +20,7 @@ control item 2 (118 bytes) / greeting /
     "grandchildren": 0,
     "max_version_bytes": 0,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1502720_2,
+    "target_message_size": 262144_2,
 }>>)
 control item 3 (2 bytes) / epilogue /
 "."
@@ -43,7 +43,7 @@ control item 2 (118 bytes) / greeting /
     "grandchildren": 0,
     "max_version_bytes": 0,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1502720_2,
+    "target_message_size": 262144_2,
 }>>)
 control item 3 (2 bytes) / epilogue /
 "."

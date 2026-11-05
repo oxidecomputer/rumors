@@ -55,9 +55,9 @@ use serde::{Deserialize, Serialize};
 /// staying far below what the library can carry. A message's size there is
 /// bounded only by the wire's 32-bit run length, about 4 GiB
 /// ([`rumors::MAX_RUN_BUDGET_BYTES`]), and the default target message size,
-/// [`rumors::default::TARGET_MESSAGE_SIZE`] (about 1.4 MiB), batches about
-/// twenty messages at the cap into one wire message, so a capped draw never
-/// forces a wire message of its own. Raise it to measure larger payloads.
+/// [`rumors::default::TARGET_MESSAGE_SIZE`] (256 KiB), batches three
+/// messages at the cap into one wire message, so a capped draw never forces
+/// a wire message of its own. Raise it to measure larger payloads.
 pub const DEFAULT_MAX_MESSAGE_SIZE: u64 = 64 << 10;
 
 /// The default mean message size: 100 bytes, the size every measurement of
