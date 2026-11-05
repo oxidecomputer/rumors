@@ -17,17 +17,18 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, Leaf,
-            channel::{QueueKind, QueueRole, Sender},
+            channel::{Receiver, Sender, TrySendError},
             erased,
             materialized::SupplyLedger,
             protocol::BoxResponses,
             remote::{
+                adapter::{ReplyLevel, Scope, derive_questions},
                 codec::{RunBudget, Speaker},
                 proxy::{Error, send_or_cancel},
-                streams::{AcceptDriver, AcceptError, FirstStreamError},
+                streams::{AcceptDriver, AcceptError, FirstStreamError, StreamReceiver},
             },
             stats::Recorder,
-            tasks::complete,
+            tasks::{cancelled, complete},
             window::Window,
         },
         typed::{
@@ -116,7 +117,9 @@ where
 {
     /// Backend and validation state for incoming replies.
     ingress: Ingress<B>,
-    /// Per-edge capacity for the proxy's question and scope queues.
+    /// The session window, which sizes the proxy's question queues and,
+    /// through the in-flight count, its parking queues; the scope queues
+    /// hold a fan plus one whatever the window.
     window: Window,
     /// Byte budget for each outgoing supply run.
     budget: RunBudget,
@@ -195,24 +198,74 @@ where
         self.tasks.push(Box::pin(task));
     }
 
-    /// Drive a decode stream independently and expose its replies at height `H`.
+    /// Decode the remote replies at height `H` from `incoming`, park them,
+    /// and expose them to the stage that takes them.
+    ///
+    /// Each reply is decoded against the record of the local question it
+    /// answers, taken from `questions` in order, and then parked as
+    /// [`park_and_take`](Self::park_and_take) describes. The typed height
+    /// alone chooses the [`ReplyLevel`], here and in the take, so decoding
+    /// and the take's derivation cannot disagree on it.
     fn respond<H>(
         &mut self,
-        messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
+        questions: Receiver<Scope>,
+        incoming: StreamReceiver,
+        publish: Option<Sender<Scope>>,
+        progress: Progress,
     ) -> BoxResponses<B, H, Error<B::Error>>
     where
         H: Height,
     {
-        // One buffered response is sufficient: whenever the relay blocks,
-        // that response is already available to advance the remote participant
-        // and release the slot. Buffering a fan would retain whole
-        // protocol messages without breaking any additional dependency.
-        let (send, responses) = erased::reply_channel::<B, H, Error<B::Error>>(
-            QueueRole::new(QueueKind::ProxyResponses, H::HEIGHT),
-            1,
-        );
-        self.spawn(relay(Box::pin(messages), send));
-        Box::pin(responses)
+        let decoded = self
+            .ingress()
+            .decode_pump(ReplyLevel::at::<H>(), questions, incoming);
+        self.park_and_take::<H>(decoded, publish, progress)
+    }
+
+    /// Park a decode stream's replies at height `H` and expose them to the
+    /// stage that takes them.
+    ///
+    /// An independent task parks each decoded reply, so decoding never waits
+    /// on the walk. When the stage takes a parked reply, the returned stream
+    /// derives the scopes the reply's questions create, at the level of
+    /// height `H`, and publishes them through `publish`, then hands the
+    /// reply over. The responder's terminal replies ask nothing and publish
+    /// nothing.
+    fn park_and_take<H>(
+        &mut self,
+        decoded: impl Stream<Item = Result<Parked<B::Erased>, Error<B::Error>>> + Send + 'static,
+        mut publish: Option<Sender<Scope>>,
+        progress: Progress,
+    ) -> BoxResponses<B, H, Error<B::Error>>
+    where
+        H: Height,
+    {
+        let level = ReplyLevel::at::<H>();
+        let (parking, mut parked, capacity) =
+            queues::parked_replies(H::HEIGHT, self.window.capacity(H::HEIGHT));
+        self.spawn(park(Box::pin(decoded), parking, capacity, H::HEIGHT));
+        Box::pin(async_stream::stream! {
+            while let Some(Parked { reply, answered }) = parked.recv().await {
+                let Some(scopes) = &mut publish else {
+                    progress.taken_reply(H::HEIGHT, 0);
+                    yield Ok(erased::assume_reply::<B, H>(reply));
+                    continue;
+                };
+                let questions = match derive_questions(level, &answered, &reply) {
+                    Ok(questions) => questions,
+                    Err(error) => {
+                        yield Err(Error::TakeDerivation(error));
+                        return;
+                    }
+                };
+                progress.taken_reply(H::HEIGHT, questions.len());
+                for question in questions {
+                    progress.next_scope(H::HEIGHT);
+                    send_or_cancel(scopes, question).await;
+                }
+                yield Ok(erased::assume_reply::<B, H>(reply));
+            }
+        })
     }
 
     /// Drive the protocol, incoming streams, and their error reports together.
@@ -284,15 +337,39 @@ where
     }
 }
 
-/// Relay decoded replies to the response queue.
+/// A decoded reply parked until its stage takes it.
+pub(super) struct Parked<E> {
+    /// The decoded reply.
+    reply: erased::Reply<E>,
+    /// The record of the local question the reply answers, from which the
+    /// take derives the scopes the reply's own questions create.
+    answered: Scope,
+}
+
+/// Park decoded replies until their stage takes them.
 ///
-/// Return decode errors to the executor without waiting for the reply consumer.
-async fn relay<E: Send, Err: Send + 'static>(
-    mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
-    mut send: Sender<Result<erased::Reply<E>, Error<Err>>>,
+/// Parking holds every reply this side can have invited at its height
+/// ([`queues::parking_capacity`]), and each reply is decoded against the
+/// record of the local question it answers, so no reply finds it full while
+/// the count's premises hold. Parking therefore never waits: a full channel
+/// means a premise has failed, and the reply fails with
+/// [`Error::ParkingOverflow`] instead. `capacity` is the derived capacity
+/// the error reports, also when a test caps the channel below it. A closed
+/// channel means the stage is gone, and the task awaits cancellation as
+/// [`send_or_cancel`] does. Decode errors return to the executor without
+/// waiting for the stage.
+async fn park<E: Send, Err: Send + 'static>(
+    mut decoded: Pin<Box<dyn Stream<Item = Result<Parked<E>, Error<Err>>> + Send>>,
+    mut parking: Sender<Parked<E>>,
+    capacity: usize,
+    height: usize,
 ) -> Result<(), Error<Err>> {
-    while let Some(message) = messages.next().await {
-        send_or_cancel(&mut send, Ok(message?)).await;
+    while let Some(parked) = decoded.next().await {
+        match parking.try_send(parked?) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => return Err(Error::ParkingOverflow { height, capacity }),
+            Err(TrySendError::Closed(_)) => cancelled().await,
+        }
     }
     Ok(())
 }

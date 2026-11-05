@@ -27,14 +27,6 @@ use super::{
     scope::{ReplyLevel, Scope},
 };
 
-/// One reconstructed reply and any questions it asks next.
-pub struct Decoded<E> {
-    /// The reconstructed in-memory reply.
-    pub reply: Reply<E>,
-    /// Lower scopes created by the reply's queries, in wire order.
-    pub questions: Vec<Scope>,
-}
-
 /// One item on a [`LeafEdge`]: a decoded leaf on its way to assembly, or
 /// `None`, which closes the reply the preceding leaves belong to.
 pub(crate) type DecodedLeaf<N, E> = Option<Result<(Prefix<Z>, N), E>>;
@@ -120,12 +112,15 @@ pub fn opening_reply<E>(listing: Vec<(u8, Hash)>) -> (Reply<E>, Scope) {
     )
 }
 
-/// Decode one reply at `level` through `edge` and derive the questions it
-/// asks, validating each question's position against `scope`, the record
-/// of the question the reply answers.
+/// Decode one reply at `level` through `edge`, validating the positions of
+/// the questions it asks against `scope`, the record of the question it
+/// answers.
 ///
 /// At [`ReplyLevel::Leaf`] only an empty request for the leaf is a valid
-/// query.
+/// query. Validation reads the record through a cursor and builds nothing:
+/// the scopes the reply's questions create are derived when the reply is
+/// taken ([`derive_questions`](super::derive_questions)), from the same
+/// record.
 ///
 /// The reply's supplied leaves cross `edge` to assembly while the reply is
 /// read. After an error the edge may hold leaves of the failed reply, so a
@@ -142,7 +137,7 @@ pub async fn decode_reply<B, F>(
     scope: &Scope,
     frames: &mut F,
     codec: PayloadCodec,
-) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
+) -> Result<Reply<B::Erased>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
@@ -158,7 +153,7 @@ where
     // that fails stops draining the edge, and `try_join` then drops the
     // reader rather than leave it waiting on a full edge.
     let (read, assembled) = try_join(read, assemble).await?;
-    Ok(read.into_decoded(assembled))
+    Ok(read.into_reply(assembled))
 }
 
 /// Fold one reply's leaves from the edge into complete nodes at the scope's
@@ -208,12 +203,10 @@ where
 /// and the reader sends only while the edge is borrowed for its reply.
 const EDGE_OPEN: &str = "the edge holds its receiver while the reader sends on it";
 
-/// A validated reply skeleton and the scopes its queries created.
+/// A validated reply skeleton.
 struct ReadReply {
     /// Reactions with supplied nodes represented by their prefixes.
     skeleton: Vec<Skeleton>,
-    /// Lower scopes created by positional queries.
-    questions: Vec<Scope>,
     /// Ordering and scope state for supplied leaves.
     supplies: SupplyRuns,
 }
@@ -237,7 +230,6 @@ impl ReadReply {
         let mut positions = scope.positions();
         let mut read = Self {
             skeleton: Vec::new(),
-            questions: Vec::new(),
             supplies: SupplyRuns::new(version_bytes),
         };
         loop {
@@ -261,7 +253,9 @@ impl ReadReply {
                 }
                 WireReaction::Query(listing) => {
                     read.supplies.interrupt();
-                    read.questions.push(level.derive(&mut positions, &listing)?);
+                    // Validate the question's position now, at its frame;
+                    // the scope it creates is derived at the take.
+                    level.check(&mut positions, &listing)?;
                     read.skeleton.push(Skeleton::Query(listing));
                 }
                 WireReaction::Supply(records) => {
@@ -308,12 +302,8 @@ impl ReadReply {
     }
 
     /// Replace supply placeholders with assembled nodes and finish the reply.
-    fn into_decoded<E>(self, nodes: Vec<(ErasedPrefix, E)>) -> Decoded<E> {
-        let Self {
-            skeleton,
-            questions,
-            ..
-        } = self;
+    fn into_reply<E>(self, nodes: Vec<(ErasedPrefix, E)>) -> Reply<E> {
+        let Self { skeleton, .. } = self;
         let mut nodes = nodes.into_iter();
         let reactions = skeleton
             .into_iter()
@@ -336,10 +326,7 @@ impl ReadReply {
             nodes.next().is_none(),
             "assembly yields exactly one node per supplied run",
         );
-        Decoded {
-            reply: Reply { reactions },
-            questions,
-        }
+        Reply { reactions }
     }
 }
 

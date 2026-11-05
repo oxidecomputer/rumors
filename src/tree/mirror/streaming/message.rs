@@ -13,8 +13,9 @@
 //!
 //! The memory unit is one reply: a maximally disputed reply carries one
 //! full listing per root radix, or fan² hashes. An encoded reply and its
-//! decoded skeleton may coexist transiently, with at most one decoded reply
-//! in flight per stage; the adapter's occupancy tests pin that charge.
+//! decoded skeleton may coexist transiently; the adapter's occupancy tests
+//! pin that charge. Decoded replies then park until their stage takes them,
+//! as many per level as that level can have invited.
 
 use std::cmp::Ordering;
 

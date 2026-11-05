@@ -91,7 +91,7 @@ where
 }
 
 /// Re-tag one erased reply at the typed exit of [`reply_channel`].
-fn assume_reply<B, H>(reply: Reply<B::Erased>) -> message::Reply<B, H>
+pub(crate) fn assume_reply<B, H>(reply: Reply<B::Erased>) -> message::Reply<B, H>
 where
     B: Backend<Node<Z>: Leaf>,
     H: Height,

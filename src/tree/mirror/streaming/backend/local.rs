@@ -89,7 +89,9 @@ impl Leaf for typed::Node<Z> {
 /// The in-memory backend: [`typed::Node`] handles over the crate's own tree.
 ///
 /// Zero-sized — the nodes carry all the state — so the cloneable-handle
-/// contract of [`Backend`] is satisfied by `Copy`.
+/// contract of [`Backend`] is satisfied by `Copy`. Its nodes are immutable
+/// and shared, and it takes no locks, so its operations never wait on other
+/// session work.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Local;
 

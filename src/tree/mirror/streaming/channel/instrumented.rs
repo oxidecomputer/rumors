@@ -14,7 +14,7 @@ use std::task::{Context, Poll};
 
 use futures::{Stream, future::poll_fn};
 
-use super::{QueueKind, QueueRole, SendError, bounded};
+use super::{QueueKind, QueueRole, SendError, TrySendError, bounded};
 use crate::testing::schedule::{CHANNEL_SCHEDULE, Countdown};
 
 /// Aggregated observations for every channel created with one role.
@@ -65,6 +65,19 @@ impl ChannelReport {
                 total
             },
         )
+    }
+
+    /// Statistics for one role at one typed height.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no channel of `role` was observed: a test that reads a
+    /// role expects the session to have created it.
+    pub fn role(&self, role: QueueRole) -> RoleStats {
+        *self
+            .0
+            .get(&role)
+            .unwrap_or_else(|| panic!("no channel observed for {role:?}"))
     }
 
     /// Iterate over each observed role and typed height.
@@ -142,6 +155,20 @@ pub struct Sender<T> {
 
 /// Send through an instrumented bounded channel.
 impl<T> Sender<T> {
+    /// Send one item if the channel has room, without waiting, recording a
+    /// successful send.
+    ///
+    /// Unlike [`send`](Self::send), this applies no scheduled delay: a delay
+    /// suspends a poll, and this send is never polled. Schedules still reach
+    /// its callers through the receivers they wait on.
+    pub fn try_send(&mut self, item: T) -> Result<(), TrySendError<T>> {
+        let result = self.inner.try_send(item);
+        if result.is_ok() {
+            self.stats.sent();
+        }
+        result
+    }
+
     /// Send one item, applying a scheduled suspension before every poll.
     pub async fn send(&mut self, item: T) -> Result<(), SendError<T>> {
         self.send_with(item, || ()).await
@@ -199,8 +226,23 @@ impl<T> Receiver<T> {
         poll_fn(|cx| self.poll_recv(cx)).await
     }
 
-    /// Poll the receiver after spending this poll's scheduled delay.
+    /// Poll the receiver after spending any hold on its role and this
+    /// poll's scheduled delay.
     fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        let held = ROLE_HOLDS.with(|holds| {
+            let mut holds = holds.borrow_mut();
+            match holds.get_mut(&self.stats.role) {
+                Some(remaining) if *remaining > 0 => {
+                    *remaining -= 1;
+                    true
+                }
+                _ => false,
+            }
+        });
+        if held {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
         if self.delay.suspend(|| CHANNEL_SCHEDULE.next(), cx) {
             return Poll::Pending;
         }
@@ -256,11 +298,36 @@ std::thread_local! {
     /// Channel observations active on this test thread.
     #[allow(clippy::missing_const_for_thread_local)]
     static OBSERVATIONS: RefCell<Option<Vec<Arc<Stats>>>> = const { RefCell::new(None) };
+    /// Receiver polls still to be held pending, per queue role.
+    #[allow(clippy::missing_const_for_thread_local)]
+    static ROLE_HOLDS: RefCell<BTreeMap<QueueRole, usize>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 /// Run `f` with an explicit sequence of delays at channel poll boundaries.
 pub fn with_schedule<R>(delays: Vec<u8>, f: impl FnOnce() -> R) -> R {
     CHANNEL_SCHEDULE.with(delays, f)
+}
+
+/// Run `f` with the receivers of one queue role held pending for their
+/// first `polls` polls, counted across every receiver of that role.
+///
+/// A held receiver wakes itself, so everything else keeps running while
+/// its consumer waits: the way a test holds one stage still.
+pub fn with_role_hold<R>(role: QueueRole, polls: usize, f: impl FnOnce() -> R) -> R {
+    /// Remove the hold when the scope ends or unwinds.
+    struct Release(QueueRole);
+
+    /// Removes the role's hold.
+    impl Drop for Release {
+        /// Forget any polls the hold has left.
+        fn drop(&mut self) {
+            ROLE_HOLDS.with(|holds| holds.borrow_mut().remove(&self.0));
+        }
+    }
+
+    ROLE_HOLDS.with(|holds| holds.borrow_mut().insert(role, polls));
+    let _release = Release(role);
+    f()
 }
 
 /// Run `f` with every height of one queue kind capped at `limit`.

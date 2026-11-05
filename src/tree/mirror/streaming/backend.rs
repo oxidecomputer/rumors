@@ -34,6 +34,15 @@ pub use local::Local;
 pub(super) use local::with_schedule as with_local_schedule;
 
 /// Node storage used by a streaming session; values are cheap cloneable handles.
+///
+/// # Independence from other session work
+///
+/// Every operation completes without waiting on any other work of the
+/// session. The decoders that absorb supplied leaves and the walk share the
+/// backend, and the decoders must never wait on the walk: an operation that
+/// held a lock, transaction, or pooled resource while a walk task was
+/// blocked on a queue could stop a decoder, and with it the delivery the
+/// walk is waiting for.
 pub trait Backend: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf,

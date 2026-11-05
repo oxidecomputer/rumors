@@ -14,7 +14,7 @@ use crate::tree::mirror::preamble::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
 };
-use crate::tree::mirror::streaming::window::WindowConfig;
+use crate::tree::mirror::streaming::window::{FAN, WindowConfig};
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},
@@ -57,6 +57,7 @@ mod failures;
 mod greeting;
 mod harness;
 mod malformed;
+mod parking;
 mod transport;
 
 /// Capacity large enough to isolate preamble/session byte ownership from
@@ -583,7 +584,8 @@ fn early_first_child_dispute_is_live() {
     assert_eq!((left, right), expected);
 }
 
-/// Every proxy queue kind is exercised and remains within its one-slot bound.
+/// Every proxy queue kind is exercised and stays within its documented
+/// capacity at the floor window.
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
     let (a, b) = disjoint_pair(1, 1);
@@ -620,20 +622,47 @@ fn instrumented_reconcile(
     (result, channels, trace)
 }
 
-/// Every observed proxy queue retains at most its documented single item.
+/// Every observed proxy queue has its documented capacity at the floor
+/// window, holds no more than that, and drains.
+///
+/// The question queue takes the window's one slot, the scope queue a fan
+/// plus one, and parking every reply the floor window can invite at its
+/// height: `1 + FAN + 1`, or the height's whole question population,
+/// `256^(31 − h)`, where that is smaller.
 fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     for (role, stats) in report
         .roles()
         .filter(|(role, _)| QueueKind::PROXY.contains(&role.kind))
     {
+        let expected = match role.kind {
+            QueueKind::ProxyLocalQuestions => 1,
+            QueueKind::ProxyNextScopes => FAN + 1,
+            QueueKind::ProxyResponses => {
+                let invited = 1 + FAN + 1;
+                match 256_usize.checked_pow(31 - role.height as u32) {
+                    Some(population) => population.min(invited),
+                    None => invited,
+                }
+            }
+            _ => unreachable!("only proxy roles are selected"),
+        };
         assert_eq!(
-            stats.effective_capacity, 1,
+            stats.effective_capacity, expected,
             "unexpected capacity for {role:?}"
         );
-        assert!(stats.high_water <= 1, "queue {role:?} exceeded one item");
+        assert!(
+            stats.high_water <= expected,
+            "queue {role:?} exceeded its capacity"
+        );
         assert_eq!(
             stats.sends, stats.receives,
             "queue {role:?} did not drain cleanly",
         );
+        if role.kind == QueueKind::ProxyNextScopes {
+            assert_eq!(
+                stats.blocked_send_polls, 0,
+                "a take waited to publish a scope"
+            );
+        }
     }
 }

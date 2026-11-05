@@ -79,6 +79,27 @@ pub enum Error<E> {
     /// The local protocol asked another question in its terminal reply.
     #[error("local terminal reply contained another query")]
     TerminalQuery,
+    /// A decoded reply found its level's parking full: a local invariant
+    /// failure.
+    ///
+    /// Parking holds every reply the local side can have invited at this
+    /// height, and a reply is decoded only against the record of the local
+    /// question it answers, so no peer can fill it; a local premise of that
+    /// bound failed.
+    #[error(
+        "parking at height {height} was full at its capacity of {capacity}: a local premise \
+         of the in-flight bound failed"
+    )]
+    ParkingOverflow {
+        /// The height of the parked replies.
+        height: usize,
+        /// The derived capacity of the level's parking.
+        capacity: usize,
+    },
+    /// A taken reply's questions could not be derived again, although its
+    /// decoding validated the same positions: a local invariant failure.
+    #[error("a taken reply's questions could not be derived again")]
+    TakeDerivation(#[source] adapter::ScopeError),
 }
 
 impl<E> Error<E> {

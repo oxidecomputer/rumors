@@ -20,30 +20,6 @@ async fn send_or_cancel<T>(sender: &mut Sender<T>, value: T) {
     }
 }
 
-/// Publish a decoded reply before the lower scopes which depend on it.
-///
-/// The `yield` expression belongs inside the invocation so `async_stream` can
-/// lower it before this macro expands. Keeping both phases together prevents a
-/// caller from filling the one-slot scope queue while withholding the reply
-/// which lets its consumer advance and drain that queue. This is the remote
-/// proxy analogue of the materialized implementation's `yield_resolve_query!`.
-/// The trace labels both publications by the answered question's height.
-macro_rules! yield_reply_scopes {
-    (
-        $progress:expr, $question_height:expr, $count:expr;
-        $yielded:expr;
-        $scopes:expr => $next_scopes:expr;
-    ) => {{
-        $progress.decoded_reply($question_height, $count);
-        $yielded;
-        for scope in $next_scopes {
-            $progress.next_scope($question_height);
-            $crate::tree::mirror::streaming::remote::proxy::send_or_cancel(&mut $scopes, scope)
-                .await;
-        }
-    }};
-}
-
 mod error;
 mod start;
 mod state;

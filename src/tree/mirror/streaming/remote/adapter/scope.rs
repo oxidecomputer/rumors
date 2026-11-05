@@ -1,17 +1,47 @@
 use std::slice;
 
-use crate::tree::typed::{
-    ErasedPrefix, Hash, Prefix,
-    height::{Height, Z},
+use crate::tree::{
+    mirror::streaming::erased::{Reaction, Reply},
+    typed::{
+        ErasedPrefix, Hash, Prefix,
+        height::{Height, Z},
+    },
 };
 
 use super::error::ScopeError;
 
+/// Derive the scopes a reply's queries create, in wire order.
+///
+/// `answered` is the record of the question the reply answers. Matches and
+/// queries advance its position; supplies name their own radix and do not.
+/// At [`ReplyLevel::Branch`] a query opens a scope one level down; at
+/// [`ReplyLevel::Leaf`] every query must be empty and requests its leaf.
+/// The decoder validated the same positions when the reply arrived, so a
+/// failure here means the reply or the record changed in between.
+pub fn derive_questions<E>(
+    level: ReplyLevel,
+    answered: &Scope,
+    reply: &Reply<E>,
+) -> Result<Vec<Scope>, ScopeError> {
+    let mut positions = answered.positions();
+    let mut questions = Vec::new();
+    for reaction in &reply.reactions {
+        match reaction {
+            Reaction::Match => {
+                positions.next().ok_or(ScopeError::UnpositionedMatch)?;
+            }
+            Reaction::Query(listing) => questions.push(level.derive(&mut positions, listing)?),
+            Reaction::Supply(_, _) => {}
+        }
+    }
+    Ok(questions)
+}
+
 /// How the queries of a reply pair with positions, and what they ask.
 ///
 /// The level is a function of the reply's typed height
-/// ([`ReplyLevel::at`]), so a caller that decodes a reply at a typed height
-/// cannot pick the other level.
+/// ([`ReplyLevel::at`]), so a caller that decodes a reply and derives its
+/// questions at one typed height uses one level for both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplyLevel {
     /// A query opens a scope beneath the current one.
@@ -31,6 +61,22 @@ impl ReplyLevel {
         }
     }
 
+    /// Validate one query at the next position and return that position's
+    /// prefix, building nothing.
+    ///
+    /// The decoder calls this at each query's frame; [`Self::derive`] adds
+    /// only the construction of the scope the query creates.
+    pub(super) fn check(
+        self,
+        positions: &mut Positions<'_>,
+        listing: &[(u8, Hash)],
+    ) -> Result<ErasedPrefix, ScopeError> {
+        if matches!(self, Self::Leaf) && !listing.is_empty() {
+            return Err(ScopeError::NonemptyLeafQuery);
+        }
+        positions.next().ok_or(ScopeError::UnpositionedQuery)
+    }
+
     /// Validate one query at the next position and record the question it
     /// asks.
     pub(super) fn derive(
@@ -38,10 +84,7 @@ impl ReplyLevel {
         positions: &mut Positions<'_>,
         listing: &[(u8, Hash)],
     ) -> Result<Scope, ScopeError> {
-        if matches!(self, Self::Leaf) && !listing.is_empty() {
-            return Err(ScopeError::NonemptyLeafQuery);
-        }
-        let prefix = positions.next().ok_or(ScopeError::UnpositionedQuery)?;
+        let prefix = self.check(positions, listing)?;
         Ok(match self {
             Self::Branch => Scope::new(prefix, listing),
             Self::Leaf => Scope::leaf(prefix),

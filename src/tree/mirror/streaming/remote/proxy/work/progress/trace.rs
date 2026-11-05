@@ -26,9 +26,10 @@ pub enum Kind {
     },
     /// One question is published after its wire reply flushes.
     LocalQuestion,
-    /// An incoming answer is being published before its derived scopes.
-    DecodedReply {
-        /// Scopes published after the answer.
+    /// The walk takes an incoming answer; its derived scopes publish next,
+    /// before the stage receives it.
+    TakenReply {
+        /// Scopes the take publishes.
         scopes: usize,
     },
     /// One derived scope is being published for the next exchange.
@@ -65,11 +66,11 @@ impl Trace {
                     questions.insert((event.work, event.stage, event.height), count);
                 }
                 Kind::LocalQuestion => consume(&mut questions, event, index, "wire reply"),
-                Kind::DecodedReply { scopes: count } => {
+                Kind::TakenReply { scopes: count } => {
                     assert_drained(&scopes, event, index, "scopes");
                     scopes.insert((event.work, event.stage, event.height), count);
                 }
-                Kind::NextScope => consume(&mut scopes, event, index, "decoded reply"),
+                Kind::NextScope => consume(&mut scopes, event, index, "taken reply"),
             }
         }
         assert!(
@@ -78,7 +79,7 @@ impl Trace {
         );
         assert!(
             scopes.values().all(|remaining| *remaining == 0),
-            "some decoded replies did not publish every scope: {scopes:?}",
+            "some taken replies did not publish every scope: {scopes:?}",
         );
     }
 
@@ -89,7 +90,7 @@ impl Trace {
             .0
             .iter()
             .filter(|event| {
-                event.height == Root::HEIGHT && matches!(event.kind, Kind::DecodedReply { .. })
+                event.height == Root::HEIGHT && matches!(event.kind, Kind::TakenReply { .. })
             })
             .count();
         assert_eq!(
@@ -128,7 +129,7 @@ impl Trace {
                         .entry((event.work, event.stage, event.height))
                         .or_insert(0) += 1;
                 }
-                Kind::DecodedReply { .. } => {
+                Kind::TakenReply { .. } => {
                     let count = decoded
                         .entry((event.work, event.stage, event.height))
                         .or_insert(0);

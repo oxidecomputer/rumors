@@ -1,9 +1,10 @@
 //! Ordering trace for the proxy's progress-critical publications.
 //!
 //! Every event identifies its endpoint, session stage, and question height. An
-//! encoder publishes that question, and a decoder answers it before publishing
-//! any derived scopes. The stage keeps overlapping walk and terminal activity
-//! on separate ledgers at leaf height.
+//! encoder publishes that question; when the walk takes the reply answering
+//! it, the take publishes the scopes the reply's questions create. The stage
+//! keeps overlapping walk and terminal activity on separate ledgers at leaf
+//! height.
 
 /// One endpoint-local progress identity.
 #[derive(Clone, Copy)]
@@ -60,13 +61,14 @@ impl Progress {
         trace::record_stage(self.work, self.stage, trace::Kind::LocalQuestion, _height);
     }
 
-    /// Record a decoded answer at its question's height, with its derived scope count.
-    pub fn decoded_reply(self, _height: usize, _scopes: usize) {
+    /// Record a taken answer at its question's height, with the count of
+    /// scopes the take publishes.
+    pub fn taken_reply(self, _height: usize, _scopes: usize) {
         #[cfg(test)]
         trace::record_stage(
             self.work,
             self.stage,
-            trace::Kind::DecodedReply { scopes: _scopes },
+            trace::Kind::TakenReply { scopes: _scopes },
             _height,
         );
     }

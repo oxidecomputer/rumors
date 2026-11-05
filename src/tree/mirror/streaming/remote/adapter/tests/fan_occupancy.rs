@@ -191,8 +191,7 @@ fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec
                 codec(),
             )
             .await
-            .expect("ascending in-scope leaves assemble")
-            .reply;
+            .expect("ascending in-scope leaves assemble");
             decoded.push(supplies(&reply));
         }
         decoded

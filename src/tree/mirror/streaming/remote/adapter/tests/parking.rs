@@ -1,17 +1,15 @@
-//! Memory accounting for parked decoded replies.
+//! What a parked decoded reply holds.
 //!
-//! The session's memory model is RAM-sound only because a decoded reply
-//! parked between decode and consumption costs O(fan) node *handles* —
-//! never a materialized subtree. The one-slot response relay
-//! (`proxy/work/queues.rs`) bounds decoded replies to one in flight per
-//! stage, and any wire backlog behind that slot sits in the transport's
-//! own buffers as encoded bytes; both charges price a parked reply at its
-//! decoded size, so that size must not scale with the subtree it names.
+//! The proxy parks every decoded reply this side can have invited at a
+//! level, up to the in-flight count, until its stage takes it, and the
+//! window prices each parked reply by its counts: reactions, listing
+//! entries, and supplies. That pricing holds only if a decoded reply's size
+//! does not scale with the subtrees it names.
 //!
 //! Supplied payloads stream through `Convert::assemble` into backend
-//! custody while the reply retains one pointer-sized handle per supplied
-//! node, and a maximally disputed reply retains a pure skeleton of at most
-//! fan² `(radix, hash)` entries. The coexistence of an encoded reply and
+//! custody while the reply retains one node handle per supplied node, and
+//! a maximally disputed reply retains a pure skeleton of at most fan²
+//! `(radix, hash)` entries. The coexistence of an encoded reply and
 //! that decoded skeleton is pinned here by
 //! [`DISPUTED_REPLY_TRANSIENT_CEILING`]: the encoded half is measured from
 //! the codec, and the decoded half is derived from
@@ -36,7 +34,7 @@ use crate::{
 };
 
 use super::{
-    super::{LeafEdge, ReplyLevel, Scope, decode_reply, encode_reply},
+    super::{LeafEdge, ReplyLevel, Scope, decode_reply, derive_questions, encode_reply},
     codec, hash, runtime, unbounded,
 };
 
@@ -53,15 +51,16 @@ const LEAVES: u64 = 512;
 /// heavier framing — fails the pin and forces the charge to be reconsidered.
 const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_570_000;
 
-/// A parked decoded reply holds one pointer-sized node handle per supplied
-/// node — O(fan) handles independent of how many leaves streamed through
-/// assembly into backend custody, never a decoded copy of the subtree.
+/// A parked decoded reply holds one node handle per supplied node — O(fan)
+/// handles independent of how many leaves streamed through assembly into
+/// backend custody, never a decoded copy of the subtree.
 #[test]
 fn parked_supply_reply_holds_handles_not_subtrees() {
     // The handle claim, compiler-checked: a backend node reference is one
-    // shared pointer (an `Arc` bump to clone), so parking a reply costs
-    // `replies.len()` pointers plus the skeleton — the subtree's bytes live
-    // in backend custody behind the handle.
+    // shared pointer (an `Arc` bump to clone), so a parked reply holds one
+    // reference per supplied node plus its skeleton, and the subtree each
+    // names stays in backend custody behind the reference rather than being
+    // copied into the reply.
     assert_eq!(
         mem::size_of::<typed::Node<UnderRoot>>(),
         mem::size_of::<usize>(),
@@ -122,22 +121,26 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             u64::MAX,
             unbounded(),
             ReplyLevel::Branch,
-            &scope,
+            &scope.clone(),
             &mut frames,
             codec(),
         ))
         .expect("a canonical supplied fan decodes");
 
     // Pure supplies ask nothing: the parked form is the handle vector alone.
-    assert!(decoded.questions.is_empty());
+    assert!(
+        derive_questions(ReplyLevel::Branch, &scope, &decoded)
+            .expect("decoding validated positions")
+            .is_empty()
+    );
     // The parked cost is one handle per supplied node — the fan's width,
     // never the leaf count the run streamed through assembly.
-    assert_eq!(decoded.reply.reactions.len(), expected.len());
+    assert_eq!(decoded.reactions.len(), expected.len());
     assert!(
-        decoded.reply.reactions.len() < LEAVES as usize,
+        decoded.reactions.len() < LEAVES as usize,
         "handle count must not scale with the subtree's leaves",
     );
-    for (reaction, (radix, hash, len)) in decoded.reply.reactions.iter().zip(&expected) {
+    for (reaction, (radix, hash, len)) in decoded.reactions.iter().zip(&expected) {
         match reaction {
             Reaction::Supply(actual, node) => {
                 assert_eq!(actual, radix);
@@ -178,9 +181,9 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     // The coexistence transient, held to the module doc's charged figure:
     // the encoded half measured off the codec (every frame's exact wire
     // bytes), the decoded half derived from the skeleton's in-memory
-    // entries. The stream label prices nothing: the frame opener is
-    // per-frame and the same width on every stream.
-    let stream = Stream::new(11).expect("a valid data stream index");
+    // entries. Which logical stream carries the frames changes nothing:
+    // every frame's opener names its stream in an item of one fixed width.
+    let stream = Stream::new(11).expect("a valid logical stream index");
     let encoded_bytes: usize = frames
         .iter()
         .map(|frame| {
@@ -220,10 +223,12 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
 
     // Every reaction parks as a listing skeleton; each registers exactly one
     // lower scope for the reply that will answer it.
-    assert_eq!(decoded.questions.len(), FAN);
-    assert_eq!(decoded.reply.reactions.len(), FAN);
+    let questions = derive_questions(ReplyLevel::Branch, &Scope::opening(&listing), &decoded)
+        .expect("decoding validated positions");
+    assert_eq!(questions.len(), FAN);
+    assert_eq!(decoded.reactions.len(), FAN);
     let mut entries = 0_usize;
-    for reaction in &decoded.reply.reactions {
+    for reaction in &decoded.reactions {
         match reaction {
             Reaction::Query(nested) => entries += nested.len(),
             _ => panic!("a maximally disputed reply parks queries only"),

@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::oneshot;
 
-use super::{Ingress, Physical, Work};
+use super::{Ingress, Parked, Physical, Work, progress::Progress};
 use crate::link::{Connector, Done, MemoryAcceptor, MemoryLink, memory};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::observe::SessionHandle;
@@ -17,7 +17,7 @@ use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
     erased::Reply,
     remote::{
-        adapter::{DecodeError, EncodeError},
+        adapter::{DecodeError, EncodeError, Scope},
         codec::{self, DecodeErrorKind, End, Frame, Origin, RunBudget, Speaker, Stream},
         proxy::Error,
         streams::{
@@ -326,11 +326,12 @@ proptest! {
         // A closed consumer may stop a pump before later items are read.
         let buffered = buffered && !dropped;
         let messages = futures::stream::iter(
-            buffered.then_some(Ok(Reply {
-                reactions: Vec::new(),
+            buffered.then_some(Ok(Parked {
+                reply: Reply { reactions: Vec::new() },
+                answered: Scope::opening(&[]),
             })).into_iter().chain([Err(Error::Decode(DecodeError::OversizedVersion { declared, actual }))]),
         );
-        let responses = work.respond::<Z>(messages);
+        let responses = work.park_and_take::<Z>(messages, None, Progress::new());
         let _responses = (!dropped).then_some(responses);
         let finish = async move {
             if terminal_ready {
@@ -433,12 +434,18 @@ proptest! {
                 drop(peer);
                 None
             };
-            let _responses = work.respond::<Z>(futures::stream::once(async { receive.await.unwrap() }));
+            let _responses = work.park_and_take::<Z>(
+                futures::stream::once(async { receive.await.unwrap() }),
+                None,
+                Progress::new(),
+            );
             let mut execute = pin!(work.execute(future::pending::<Result<(), _>>()));
             if supply_first {
                 assert!(futures::poll!(execute.as_mut()).is_pending());
             }
-            assert!(send.send(Err(Error::Decode(DecodeError::OversizedVersion { declared, actual })))
+            assert!(send.send(Err::<Parked<_>, _>(Error::Decode(
+                DecodeError::OversizedVersion { declared, actual },
+            )))
                 .is_ok());
             execute.await
         }).unwrap().unwrap_err();
@@ -701,4 +708,44 @@ proptest! {
         }).expect("departure cannot prevent already-complete local work");
         prop_assert_eq!(actual, ahead);
     }
+}
+
+/// Parking accepts exactly its capacity of replies without waiting, and
+/// fails with `ParkingOverflow` instead of waiting when one more arrives.
+///
+/// Nothing takes from parking, so the extra reply finds the channel full.
+#[test]
+fn parking_past_its_capacity_fails_instead_of_waiting() {
+    const CAPACITY: usize = 3;
+    const HEIGHT: usize = 29;
+    let parked = |count: usize| {
+        let (parking, _unread) = crate::tree::mirror::streaming::channel::channel::<Parked<()>>(
+            crate::tree::mirror::streaming::channel::QueueRole::new(
+                crate::tree::mirror::streaming::channel::QueueKind::ProxyResponses,
+                HEIGHT,
+            ),
+            CAPACITY,
+        );
+        let decoded = futures::stream::iter((0..count).map(|_| {
+            Ok::<_, Error<()>>(Parked {
+                reply: Reply {
+                    reactions: Vec::new(),
+                },
+                answered: Scope::opening(&[]),
+            })
+        }));
+        run_to_quiescence(super::park(Box::pin(decoded), parking, CAPACITY, HEIGHT))
+            .expect("parking never waits")
+    };
+    assert!(
+        parked(CAPACITY).is_ok(),
+        "the derived capacity itself parks"
+    );
+    assert!(matches!(
+        parked(CAPACITY + 1),
+        Err(Error::ParkingOverflow {
+            height: HEIGHT,
+            capacity: CAPACITY
+        })
+    ));
 }

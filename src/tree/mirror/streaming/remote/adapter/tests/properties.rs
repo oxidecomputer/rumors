@@ -22,7 +22,8 @@ type Erased = <Local as Backend>::Erased;
 
 use super::{
     super::{
-        DecodeError, LeafEdge, ReplyLevel, Scope, decode_reply, encode_leaf_reply, encode_reply,
+        DecodeError, LeafEdge, ReplyLevel, Scope, decode_reply, derive_questions,
+        encode_leaf_reply, encode_reply,
     },
     LeafCase, NodeAt, codec, hash, leaf_run, reply_frames, runtime, unbounded,
 };
@@ -61,16 +62,21 @@ impl PositionalCase {
     }
 }
 
+/// A decoded reply with the scopes a take derives from it.
+struct Decoded {
+    /// The decoded reply.
+    reply: Reply<Erased>,
+    /// The scopes the reply's questions create, in wire order.
+    questions: Vec<Scope>,
+}
+
 /// Exercise the adapter laws at one concrete type-level reply height.
 trait AdapterHeight: NodeAt
 where
     S<Self>: Height,
 {
     /// Decode through the entry point for this height.
-    async fn decode<F>(
-        scope: Scope,
-        frames: &mut F,
-    ) -> Result<super::super::Decoded<Erased>, DecodeError<Infallible>>
+    async fn decode<F>(scope: Scope, frames: &mut F) -> Result<Decoded, DecodeError<Infallible>>
     where
         F: futures::Stream<Item = Frame> + Unpin;
 
@@ -278,24 +284,25 @@ where
 
 /// Select the leaf-level adapter entries and terminal questions.
 impl AdapterHeight for Z {
-    async fn decode<F>(
-        scope: Scope,
-        frames: &mut F,
-    ) -> Result<super::super::Decoded<Erased>, DecodeError<Infallible>>
+    async fn decode<F>(scope: Scope, frames: &mut F) -> Result<Decoded, DecodeError<Infallible>>
     where
         F: futures::Stream<Item = Frame> + Unpin,
     {
-        decode_reply(
+        let level = ReplyLevel::Leaf;
+        let reply = decode_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
-            ReplyLevel::Leaf,
+            level,
             &scope,
             frames,
             codec(),
         )
-        .await
+        .await?;
+        let questions =
+            derive_questions(level, &scope, &reply).expect("decoding validated positions");
+        Ok(Decoded { reply, questions })
     }
 
     fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible> {
@@ -318,24 +325,25 @@ where
     S<H>: Convert,
     S<S<H>>: Height,
 {
-    async fn decode<F>(
-        scope: Scope,
-        frames: &mut F,
-    ) -> Result<super::super::Decoded<Erased>, DecodeError<Infallible>>
+    async fn decode<F>(scope: Scope, frames: &mut F) -> Result<Decoded, DecodeError<Infallible>>
     where
         F: futures::Stream<Item = Frame> + Unpin,
     {
-        decode_reply(
+        let level = ReplyLevel::Branch;
+        let reply = decode_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
-            ReplyLevel::Branch,
+            level,
             &scope,
             frames,
             codec(),
         )
-        .await
+        .await?;
+        let questions =
+            derive_questions(level, &scope, &reply).expect("decoding validated positions");
+        Ok(Decoded { reply, questions })
     }
 
     fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible> {

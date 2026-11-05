@@ -56,6 +56,39 @@ impl<T> fmt::Display for SendError<T> {
 
 impl<T> std::error::Error for SendError<T> {}
 
+/// A send that could not proceed at once, returning the item that was not
+/// sent, as Tokio's `TrySendError` does.
+#[derive(Eq, PartialEq)]
+pub enum TrySendError<T> {
+    /// The channel holds `capacity` items.
+    Full(T),
+    /// The receiver is gone.
+    Closed(T),
+}
+
+impl<T> fmt::Debug for TrySendError<T> {
+    /// Name the failure without requiring the item to be printable, so a
+    /// caller can `expect` a send of any item type.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Full(_) => f.write_str("Full(..)"),
+            Self::Closed(_) => f.write_str("Closed(..)"),
+        }
+    }
+}
+
+impl<T> fmt::Display for TrySendError<T> {
+    /// Name the failure without requiring the item to be printable.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Full(_) => f.write_str("channel full"),
+            Self::Closed(_) => f.write_str("channel closed"),
+        }
+    }
+}
+
+impl<T> std::error::Error for TrySendError<T> {}
+
 /// The sending half of a protocol edge: the edge's only producer.
 pub struct Sender<T>(mpsc::Sender<T>);
 
@@ -81,6 +114,24 @@ impl<T> Sender<T> {
         self.0
             .try_send(item)
             .map_err(|error| SendError(error.into_inner()))
+    }
+
+    /// Send `item` if the channel has room, without waiting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TrySendError::Closed`] with the item if the receiver is
+    /// gone, whether or not the channel was full when it went, and
+    /// [`TrySendError::Full`] with the item if the receiver is present and
+    /// the channel holds `capacity` items.
+    pub fn try_send(&mut self, item: T) -> Result<(), TrySendError<T>> {
+        self.0.try_send(item).map_err(|error| {
+            if error.is_disconnected() {
+                TrySendError::Closed(error.into_inner())
+            } else {
+                TrySendError::Full(error.into_inner())
+            }
+        })
     }
 
     /// Send `item`, waiting while the channel is full.

@@ -7,7 +7,7 @@
 //! per-kind capacity limits, and shrinkable delays at every send and receive
 //! poll.
 
-pub use bounded::SendError;
+pub use bounded::{SendError, TrySendError};
 
 /// One semantic edge in the streaming protocol's channel graph.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -42,7 +42,7 @@ pub enum QueueKind {
     TerminalLeafResolutions,
     /// Decoded wire leaves awaiting backend assembly.
     DecodedLeaves,
-    /// Remote-proxy responses awaiting encoding.
+    /// Decoded remote replies parked until their stage takes them.
     ProxyResponses,
     /// Questions issued by the local proxy walk.
     ProxyLocalQuestions,
@@ -106,7 +106,8 @@ pub fn channel<T>(_: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
 
 #[cfg(test)]
 pub use instrumented::{
-    ChannelReport, Receiver, Sender, channel, with_kind_capacity, with_observation, with_schedule,
+    ChannelReport, Receiver, Sender, channel, with_kind_capacity, with_observation, with_role_hold,
+    with_schedule,
 };
 
 mod bounded;

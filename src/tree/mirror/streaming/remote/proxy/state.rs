@@ -2,10 +2,10 @@
 //!
 //! Each proxy stage owns the one [`Scope`] queue needed to interpret the local
 //! reply it will receive at that height. Background tasks write local replies
-//! while decoding the remote replies which answer local questions. The active
-//! [`Work`] response relay lets a stage yield its reply before publishing the
-//! lower scopes derived from it, so one-slot backpressure cannot withhold the
-//! reply which releases it.
+//! while decoding the remote replies which answer local questions. Decoded
+//! replies park until their stage takes them, so decoding never waits on the
+//! walk; each take publishes the scopes its reply's questions create before
+//! the stage receives the reply.
 
 use std::io::Cursor;
 use std::marker::PhantomData;

@@ -7,7 +7,7 @@ fn accepts_complete_publication_order() {
         record(0, Kind::WireReply { questions: 2 }, 0);
         record(0, Kind::LocalQuestion, 0);
         record(0, Kind::LocalQuestion, 0);
-        record(0, Kind::DecodedReply { scopes: 1 }, 0);
+        record(0, Kind::TakenReply { scopes: 1 }, 0);
         record(0, Kind::NextScope, 0);
     });
     trace.assert_valid();
@@ -20,8 +20,8 @@ fn accepts_interleaved_heights() {
         record(0, Kind::WireReply { questions: 1 }, 2);
         record(0, Kind::WireReply { questions: 0 }, 1);
         record(0, Kind::LocalQuestion, 2);
-        record(0, Kind::DecodedReply { scopes: 1 }, 1);
-        record(0, Kind::DecodedReply { scopes: 0 }, 2);
+        record(0, Kind::TakenReply { scopes: 1 }, 1);
+        record(0, Kind::TakenReply { scopes: 0 }, 2);
         record(0, Kind::NextScope, 1);
     });
     trace.assert_valid();
@@ -35,10 +35,10 @@ fn rejects_question_before_wire_reply() {
     trace.assert_valid();
 }
 
-/// A dependent scope cannot precede the decoded reply which creates it.
+/// A dependent scope cannot precede the taken reply which creates it.
 #[test]
-#[should_panic(expected = "preceded its decoded reply")]
-fn rejects_scope_before_decoded_reply() {
+#[should_panic(expected = "preceded its taken reply")]
+fn rejects_scope_before_taken_reply() {
     let (_, trace) = with_trace(|| record(0, Kind::NextScope, 0));
     trace.assert_valid();
 }
@@ -54,13 +54,13 @@ fn rejects_next_wire_reply_before_questions() {
     trace.assert_valid();
 }
 
-/// Consecutive decoded replies cannot interleave their dependent scopes.
+/// Consecutive taken replies cannot interleave their dependent scopes.
 #[test]
 #[should_panic(expected = "overtook 1 prior scopes")]
-fn rejects_next_decoded_reply_before_scopes() {
+fn rejects_next_taken_reply_before_scopes() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::DecodedReply { scopes: 1 }, 0);
-        record(0, Kind::DecodedReply { scopes: 0 }, 0);
+        record(0, Kind::TakenReply { scopes: 1 }, 0);
+        record(0, Kind::TakenReply { scopes: 0 }, 0);
     });
     trace.assert_valid();
 }
@@ -84,7 +84,7 @@ fn minimal_divergent_session_meets_the_floor() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::WireReply { questions: 1 }, UnderRoot::HEIGHT);
         record(0, Kind::LocalQuestion, UnderRoot::HEIGHT);
-        record(1, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
+        record(1, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);
         record(1, Kind::NextScope, Root::HEIGHT);
     });
     trace.assert_valid();
@@ -97,7 +97,7 @@ fn minimal_divergent_session_meets_the_floor() {
 fn accepts_decode_after_flushed_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
-        record(0, Kind::DecodedReply { scopes: 0 }, 1);
+        record(0, Kind::TakenReply { scopes: 0 }, 1);
     });
     trace.assert_question_causality();
 }
@@ -107,7 +107,7 @@ fn accepts_decode_after_flushed_question() {
 #[test]
 #[should_panic(expected = "arrived before its question was flushed")]
 fn rejects_decode_before_flushed_question() {
-    let (_, trace) = with_trace(|| record(0, Kind::DecodedReply { scopes: 0 }, 1));
+    let (_, trace) = with_trace(|| record(0, Kind::TakenReply { scopes: 0 }, 1));
     trace.assert_question_causality();
 }
 
@@ -118,7 +118,7 @@ fn rejects_decode_before_flushed_question() {
 fn rejects_decode_scoped_by_the_other_endpoint() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
-        record(1, Kind::DecodedReply { scopes: 0 }, 1);
+        record(1, Kind::TakenReply { scopes: 0 }, 1);
     });
     trace.assert_question_causality();
 }
@@ -131,10 +131,10 @@ fn accepts_terminal_answer_during_internal_scope_publication() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::WireReply { questions: 1 }, 1);
         record(0, Kind::LocalQuestion, 1);
-        record(0, Kind::DecodedReply { scopes: 1 }, 1);
+        record(0, Kind::TakenReply { scopes: 1 }, 1);
         record(0, Kind::WireReply { questions: 1 }, 0);
         record(0, Kind::LocalQuestion, 0);
-        record(0, Kind::DecodedReply { scopes: 0 }, 0);
+        record(0, Kind::TakenReply { scopes: 0 }, 0);
         record(0, Kind::NextScope, 1);
     });
     trace.assert_valid();
@@ -146,8 +146,8 @@ fn accepts_terminal_answer_during_internal_scope_publication() {
 #[test]
 fn accepts_overlapping_walk_and_terminal_leaf_publications() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::DecodedReply { scopes: 1 }, 0);
-        record_stage(0, Stage::Terminal, Kind::DecodedReply { scopes: 0 }, 0);
+        record(0, Kind::TakenReply { scopes: 1 }, 0);
+        record_stage(0, Stage::Terminal, Kind::TakenReply { scopes: 0 }, 0);
         record(0, Kind::NextScope, 0);
     });
     trace.assert_valid();
@@ -159,7 +159,7 @@ fn accepts_overlapping_walk_and_terminal_leaf_publications() {
 fn rejects_leaf_decode_scoped_by_parent_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 1);
-        record(0, Kind::DecodedReply { scopes: 0 }, 0);
+        record(0, Kind::TakenReply { scopes: 0 }, 0);
     });
     trace.assert_question_causality();
 }
@@ -170,7 +170,7 @@ fn rejects_leaf_decode_scoped_by_parent_question() {
 fn rejects_parent_decode_scoped_by_leaf_question() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::LocalQuestion, 0);
-        record(0, Kind::DecodedReply { scopes: 0 }, 1);
+        record(0, Kind::TakenReply { scopes: 0 }, 1);
     });
     trace.assert_question_causality();
 }
@@ -181,8 +181,8 @@ fn rejects_parent_decode_scoped_by_leaf_question() {
 #[should_panic(expected = "arrived before its question was flushed")]
 fn rejects_a_second_greeting_seeded_opening() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
-        record(0, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
+        record(0, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);
+        record(0, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);
     });
     trace.assert_question_causality();
 }

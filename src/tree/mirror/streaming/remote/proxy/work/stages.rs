@@ -14,35 +14,30 @@
 //!
 //! - flushed local questions flow into decoding, sized by the session
 //!   [`Window`](crate::tree::mirror::streaming::window::Window);
-//! - scopes derived from decoded replies flow into the next phase, also
-//!   window-sized;
-//! - decoded replies flow outward through [`Work::respond`] on a one-slot
-//!   edge, an in-order relay that bounds decoded replies in flight at one
-//!   per stage.
+//! - decoded replies park until their stage takes them, with room for every
+//!   reply this side can have invited, so decoding never waits on the walk;
+//! - at each take, the scopes the reply's questions create flow into the
+//!   next phase, before the stage receives the reply.
 //!
-//! A complete wire reply precedes its local questions; a decoded reply
-//! precedes its dependent scopes. The scope edges' capacity rationales live at
-//! their constructors in [`queues`]; the response relay's lives at
-//! [`Work::respond`].
+//! A complete wire reply precedes its local questions. Each edge's capacity
+//! rationale lives at its constructor in [`queues`].
 
 use async_stream::try_stream;
 use futures::Stream;
 use tokio::io::AsyncRead;
 
-use super::{ControlRead, Ingress, Work, encode, queues};
+use super::{ControlRead, Ingress, Parked, Work, encode, queues};
 use crate::{
     link::{Acceptor, Connector},
     tree::{
         mirror::streaming::{
             Backend, Leaf,
-            channel::{Receiver, Sender},
-            erased::Reply,
+            channel::Receiver,
+            erased,
             protocol::{BoxResponses, Requests},
             remote::{
-                adapter::{
-                    DecodeError, Decoded, LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply,
-                },
-                proxy::Error,
+                adapter::{LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply},
+                proxy::{Error, send_or_cancel},
                 streams::{ReceiverFinish, StreamReceiver, StreamSender},
             },
         },
@@ -50,31 +45,42 @@ use crate::{
     },
 };
 
-/// Decode operations over one session's shared ingress state.
+/// The decode loop over one session's shared ingress state.
 impl<B> Ingress<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Decode one reply at `level` and the questions it asks, through the
-    /// pump's leaf edge.
-    async fn decode(
-        &self,
-        edge: &mut LeafEdge<B>,
+    /// Pair each flushed local question with its decoded wire reply at
+    /// `level`, and yield the reply with the question's record for parking.
+    ///
+    /// The decoder reads the record in place, and the record then travels
+    /// with its reply, so the take derives the reply's questions from the
+    /// very record the decoder validated it against. Every reply crosses one
+    /// [`LeafEdge`], which the pump owns for its whole run.
+    pub(super) fn decode_pump(
+        self,
         level: ReplyLevel,
-        scope: &Scope,
-        incoming: &mut StreamReceiver,
-    ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>> {
-        decode_reply(
-            edge,
-            self.backend.clone(),
-            self.version_bytes,
-            self.ledger.clone(),
-            level,
-            scope,
-            incoming,
-            self.codec,
-        )
-        .await
+        mut questions: Receiver<Scope>,
+        mut incoming: StreamReceiver,
+    ) -> impl Stream<Item = Result<Parked<B::Erased>, Error<B::Error>>> + Send + 'static {
+        try_stream! {
+            let mut edge = LeafEdge::new();
+            while let Some(answered) = questions.recv().await {
+                let reply = decode_reply(
+                    &mut edge,
+                    self.backend.clone(),
+                    self.version_bytes,
+                    self.ledger.clone(),
+                    level,
+                    &answered,
+                    &mut incoming,
+                    self.codec,
+                )
+                .await?;
+                yield Parked { reply, answered };
+            }
+            reject_extra(&mut incoming).await?;
+        }
     }
 }
 
@@ -92,20 +98,21 @@ where
     /// crossed inside the greeting, so no wire frame exists at this stage:
     /// the reply and its root scope are synthesized from the retained
     /// listing.
+    ///
+    /// Nothing is decoded, so nothing parks: like any take, the replayed
+    /// opening publishes its one scope before the stage receives it.
     pub fn initiator(&mut self) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
-        let (mut next_scopes, scopes) =
-            queues::next_scopes(UnderRoot::HEIGHT, self.window.capacity(UnderRoot::HEIGHT));
+        let (mut next_scopes, scopes) = queues::next_scopes(UnderRoot::HEIGHT);
         let progress = self.progress;
         let listing = std::mem::take(&mut self.remote_listing);
-        let responses = try_stream! {
+        let responses = async_stream::stream! {
             let (reply, scope) = opening_reply::<B::Erased>(listing);
-            yield_reply_scopes!(
-                progress, RootHeight::HEIGHT, 1;
-                yield reply;
-                next_scopes => [scope];
-            );
+            progress.taken_reply(RootHeight::HEIGHT, 1);
+            progress.next_scope(RootHeight::HEIGHT);
+            send_or_cancel(&mut next_scopes, scope).await;
+            yield Ok(erased::assume_reply::<B, UnderRoot>(reply));
         };
-        (self.respond::<UnderRoot>(responses), scopes)
+        (Box::pin(responses), scopes)
     }
 
     /// Proxy the responder opening and return its lower scope queue.
@@ -125,13 +132,10 @@ where
             local_questions,
             self.progress,
         ));
-        let (next_scopes, scopes) = queues::next_scopes(
-            UnderUnderRoot::HEIGHT,
-            self.window.capacity(UnderUnderRoot::HEIGHT),
-        );
+        let (next_scopes, scopes) = queues::next_scopes(UnderUnderRoot::HEIGHT);
         let responses =
-            self.decode_pump::<UnderRoot>(questions, incoming, Some(next_scopes), self.progress);
-        (self.respond::<UnderRoot>(responses), scopes)
+            self.respond::<UnderRoot>(questions, incoming, Some(next_scopes), self.progress);
+        (responses, scopes)
     }
 
     /// Proxy one ordinary two-height transition and return its lower scopes.
@@ -163,51 +167,9 @@ where
             self.progress,
             <S<H>>::HEIGHT,
         ));
-        let (next_scopes, scopes) = queues::next_scopes(H::HEIGHT, self.window.capacity(H::HEIGHT));
-        let responses =
-            self.decode_pump::<S<H>>(questions, incoming, Some(next_scopes), self.progress);
-        (self.respond::<S<H>>(responses), scopes)
-    }
-
-    /// The decode loop of every stage that reads replies: pair each flushed
-    /// local question with its decoded wire reply at height `H`, publishing
-    /// the reply before the lower scopes derived from it.
-    ///
-    /// The reply level follows from `H` ([`ReplyLevel::at`]), so a stage
-    /// cannot decode leaf replies as branch replies or the reverse. The
-    /// responder's terminal stream passes no scope sender; the wire grammar
-    /// excludes query reactions there. Every reply crosses one [`LeafEdge`],
-    /// which the pump owns for its whole run.
-    fn decode_pump<H: Height>(
-        &mut self,
-        mut questions: Receiver<Scope>,
-        mut incoming: StreamReceiver,
-        mut next_scopes: Option<Sender<Scope>>,
-        progress: super::progress::Progress,
-    ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>>
-    + Send
-    + 'static
-    + use<B, R, W, A, H> {
-        let ingress = self.ingress();
-        try_stream! {
-            let mut edge = LeafEdge::new();
-            while let Some(scope) = questions.recv().await {
-                let Decoded { reply, questions } = ingress
-                    .decode(&mut edge, ReplyLevel::at::<H>(), &scope, &mut incoming)
-                    .await?;
-                if let Some(next_scopes) = &mut next_scopes {
-                    yield_reply_scopes!(
-                        progress, H::HEIGHT, questions.len();
-                        yield reply;
-                        *next_scopes => questions;
-                    );
-                } else {
-                    progress.decoded_reply(H::HEIGHT, 0);
-                    yield reply;
-                }
-            }
-            reject_extra(&mut incoming).await?;
-        }
+        let (next_scopes, scopes) = queues::next_scopes(H::HEIGHT);
+        let responses = self.respond::<S<H>>(questions, incoming, Some(next_scopes), self.progress);
+        (responses, scopes)
     }
 
     /// Proxy the leaf-parent transition and return its terminal leaf scopes.
@@ -231,10 +193,9 @@ where
             self.progress,
             Z::HEIGHT,
         ));
-        let (next_scopes, scopes) = queues::next_scopes(Z::HEIGHT, self.window.capacity(Z::HEIGHT));
-        let responses =
-            self.decode_pump::<Z>(questions, incoming, Some(next_scopes), self.progress);
-        (self.respond::<Z>(responses), scopes)
+        let (next_scopes, scopes) = queues::next_scopes(Z::HEIGHT);
+        let responses = self.respond::<Z>(questions, incoming, Some(next_scopes), self.progress);
+        (responses, scopes)
     }
 
     /// Drive the final local answers for a remote initiator to completion.
@@ -289,8 +250,7 @@ where
             Some(local_questions),
             self.progress.terminal(),
         ));
-        let responses = self.decode_pump::<Z>(questions, incoming, None, self.progress.terminal());
-        let responses = self.respond::<Z>(responses);
+        let responses = self.respond::<Z>(questions, incoming, None, self.progress.terminal());
         let completion = async move {
             let ((), read, write) = self.execute(async { Ok(()) }).await?;
             Ok((read, write))

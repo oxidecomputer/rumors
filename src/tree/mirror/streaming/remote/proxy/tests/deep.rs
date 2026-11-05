@@ -640,13 +640,9 @@ fn deep_queues_use_the_wider_window() {
             let peak = observed
                 .queues
                 .roles()
-                .filter(|(role, _)| {
-                    role.height <= 4
-                        && matches!(
-                            role.kind,
-                            QueueKind::ProxyLocalQuestions | QueueKind::ProxyNextScopes
-                        )
-                })
+                // The question queue is the window-governed edge; the scope
+                // queue holds a fan plus one whatever the window.
+                .filter(|(role, _)| role.height <= 4 && role.kind == QueueKind::ProxyLocalQuestions)
                 .map(|(_, stats)| stats.high_water)
                 .max()
                 .unwrap();

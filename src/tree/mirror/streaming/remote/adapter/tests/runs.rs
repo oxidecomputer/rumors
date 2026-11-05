@@ -77,7 +77,7 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
         )
         .await
         .expect("ascending in-scope leaves assemble");
-        encode_reply(Local, budget, Scope::opening(&[]), decoded.reply)
+        encode_reply(Local, budget, Scope::opening(&[]), decoded)
             .map_ok(|encoded| encoded.into_parts().0)
             .try_collect::<Vec<_>>()
             .await
@@ -245,7 +245,6 @@ fn a_batched_run_round_trips_the_reply() {
         )
         .await
         .expect("the batched frame decodes")
-        .reply
     });
     let [Reaction::Supply(_, node)] = reply.reactions.as_slice() else {
         panic!("one batched run must decode to one supplied node");

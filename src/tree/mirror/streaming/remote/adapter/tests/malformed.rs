@@ -17,7 +17,7 @@ use crate::tree::{
 use super::{
     super::{
         DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_reply,
-        encode_leaf_reply, encode_reply,
+        derive_questions, encode_leaf_reply, encode_reply,
     },
     LeafCase, ascending_leaves, codec, colliding_leaves, hash, leaf_run, runtime, unbounded,
 };
@@ -278,12 +278,15 @@ fn leaf_query_matrix_is_exhaustive() {
                     assert_eq!(decode_scope_error(error), expected);
                 }
                 None => {
-                    let decoded = decoded.expect("this matrix cell must decode");
-                    assert_eq!(
-                        decoded.questions,
-                        vec![Scope::leaf(parent.push(radix).erase())]
-                    );
-                    let [Reaction::Query(listing)] = decoded.reply.reactions.as_slice() else {
+                    let reply = decoded.expect("this matrix cell must decode");
+                    let questions = derive_questions(
+                        ReplyLevel::Leaf,
+                        &Scope::new(parent.erase(), &scope_listing),
+                        &reply,
+                    )
+                    .expect("decoding validated positions");
+                    assert_eq!(questions, vec![Scope::leaf(parent.push(radix).erase())]);
+                    let [Reaction::Query(listing)] = reply.reactions.as_slice() else {
                         panic!("the decoded reaction must remain a query")
                     };
                     assert!(listing.is_empty());
@@ -562,7 +565,7 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
             codec(),
         )
         .await
-        .map(|decoded| decoded.reply.reactions.len())
+        .map(|reply| reply.reactions.len())
     })
 }
 
