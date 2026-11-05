@@ -13,7 +13,7 @@ use rumors_testkit::common;
 use ciborium::value::Value;
 use futures::StreamExt;
 use proptest::prelude::*;
-use rumors::{Led, Peer, Rumors, SessionStats};
+use rumors::{Led, Rumors, SessionStats};
 
 use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{CaptureEnd, capture_sides};
@@ -23,6 +23,9 @@ use crate::common::wire::{
     gossip_pair_async,
 };
 use rumors::testing::MEMORY_CAPACITY;
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
 /// One session's frames in a captured direction: their total bytes and
 /// their count, parsed without the Rumors codec.
@@ -71,103 +74,115 @@ fn without_elapsed(mut stats: SessionStats) -> SessionStats {
     stats
 }
 
-/// An empty replica learns the provider's messages without resolving disputes.
-/// Both one-shot calls report local initiation and the same final frontier.
-#[test]
-fn catchup_gains_the_providers_count_without_disputes() {
-    block_on(async {
-        let provider: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
-        // Join before any sends so the next session transfers the whole set.
-        let empty = bootstrap_fork_async(&provider).await;
-        provider.send_all([1, 2, 3]).unwrap();
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-        let (p, e) = gossip_pair_async(&provider, &empty).await;
-        assert_eq!(p.led, Led::Local, "a one-shot call is this side's trigger");
-        assert_eq!(e.led, Led::Local);
-        assert_eq!(p.converged, e.converged, "one session, one frontier");
+    /// An empty replica learns the provider's messages without resolving disputes.
+    /// Both one-shot calls report local initiation and the same final frontier.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn catchup_gains_the_providers_count_without_disputes(network in network_seed()) {
+        block_on(async {
+            let provider: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            // Join before any sends so the next session transfers the whole set.
+            let empty = bootstrap_fork_async(&provider).await;
+            provider.send_all([1, 2, 3]).unwrap();
 
-        assert_eq!(e.stats.messages_gained, 3, "the catch-up learns everything");
-        assert_eq!(e.stats.messages_shed, 0);
-        assert_eq!(p.stats.messages_gained, 0);
-        assert_eq!(p.stats.messages_shed, 0);
-        assert_eq!(p.stats.disputed_scopes, 0, "supplies are not disputes");
-        assert_eq!(e.stats.disputed_scopes, 0);
-        assert!(
-            p.stats.bytes_sent > 0,
-            "the session sent reconciliation frames"
-        );
-        assert_eq!(empty.snapshot().len(), 3);
-    });
-}
+            let (p, e) = gossip_pair_async(&provider, &empty).await;
+            assert_eq!(p.led, Led::Local, "a one-shot call is this side's trigger");
+            assert_eq!(e.led, Led::Local);
+            assert_eq!(p.converged, e.converged, "one session, one frontier");
 
-/// Converged replicas report zero in every field: equal greeting versions
-/// end the session at the greeting, so no data stream carries a frame and
-/// nothing is counted.
-#[test]
-fn converged_replicas_report_zero_stats() {
-    block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork_async(&a).await;
-        a.send_all([7]).unwrap();
-        let _ = gossip_pair_async(&a, &b).await;
+            assert_eq!(e.stats.messages_gained, 3, "the catch-up learns everything");
+            assert_eq!(e.stats.messages_shed, 0);
+            assert_eq!(p.stats.messages_gained, 0);
+            assert_eq!(p.stats.messages_shed, 0);
+            assert_eq!(p.stats.disputed_scopes, 0, "supplies are not disputes");
+            assert_eq!(e.stats.disputed_scopes, 0);
+            assert!(
+                p.stats.bytes_sent > 0,
+                "the session sent reconciliation frames"
+            );
+            assert_eq!(empty.snapshot().len(), 3);
+        });
+    }
 
-        let (a_g, b_g) = gossip_pair_async(&a, &b).await;
-        assert_eq!(without_elapsed(a_g.stats), SessionStats::default());
-        assert_eq!(without_elapsed(b_g.stats), SessionStats::default());
-    });
-}
+    /// Converged replicas report zero in every field: equal greeting versions
+    /// end the session at the greeting, so no data stream carries a frame and
+    /// nothing is counted.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn converged_replicas_report_zero_stats(network in network_seed()) {
+        block_on(async {
+            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let b = bootstrap_fork_async(&a).await;
+            a.send_all([7]).unwrap();
+            let _ = gossip_pair_async(&a, &b).await;
 
-/// Honoring a remote redaction counts as one shed; the redactor counts no changes.
-#[test]
-fn honored_redaction_counts_as_shed() {
-    block_on(async {
-        let a = Peer::<u64>::seed().sync_memory_budget(0).into_rumors();
-        a.send_all([10, 20]).unwrap();
-        let b = bootstrap_fork_async(&a).await;
-        let version = a.snapshot().versions().next().unwrap().clone();
-        a.redact(&version);
+            let (a_g, b_g) = gossip_pair_async(&a, &b).await;
+            assert_eq!(without_elapsed(a_g.stats), SessionStats::default());
+            assert_eq!(without_elapsed(b_g.stats), SessionStats::default());
+        });
+    }
 
-        let (a_g, b_g) = gossip_pair_async(&a, &b).await;
-        assert_eq!(b_g.stats.messages_shed, 1);
-        assert_eq!(b_g.stats.messages_gained, 0);
-        assert_eq!(a_g.stats.messages_shed, 0);
-        assert_eq!(a_g.stats.messages_gained, 0);
-        assert_eq!(a.snapshot().len(), 1);
-        assert_eq!(b.snapshot().len(), 1);
-    });
-}
+    /// Honoring a remote redaction counts as one shed; the redactor counts no changes.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn honored_redaction_counts_as_shed(network in network_seed()) {
+        block_on(async {
+            let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            a.send_all([10, 20]).unwrap();
+            let b = bootstrap_fork_async(&a).await;
+            let version = a.snapshot().versions().next().unwrap().clone();
+            a.redact(&version);
 
-/// The `gossip` stream carries the same per-session stats: a served
-/// remote push reports what the session gained.
-#[test]
-fn gossip_stream_reports_session_stats() {
-    block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork_async(&a).await;
-        a.send_all([42]).unwrap();
+            let (a_g, b_g) = gossip_pair_async(&a, &b).await;
+            assert_eq!(b_g.stats.messages_shed, 1);
+            assert_eq!(b_g.stats.messages_gained, 0);
+            assert_eq!(a_g.stats.messages_shed, 0);
+            assert_eq!(a_g.stats.messages_gained, 0);
+            assert_eq!(a.snapshot().len(), 1);
+            assert_eq!(b.snapshot().len(), 1);
+        });
+    }
 
-        let (mut a_end, mut b_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
-        let mut a_drive = a.gossip(&mut a_end.read, &mut a_end.write);
-        // The serving side's policy stream stays quiet, so its session is
-        // remote-led (a `changes()` stream's first tick would initiate).
-        let b = b
-            .try_into_peer()
-            .await
-            .unwrap()
-            .gossip_when(|_| futures::stream::pending::<()>())
-            .into_rumors();
-        let mut b_drive = b.gossip(&mut b_end.read, &mut b_end.write);
-        let (pushed, served) = tokio::join!(a_drive.next(), b_drive.next());
-        let pushed = pushed.expect("driver running").expect("push succeeds");
-        let served = served.expect("driver running").expect("serve succeeds");
+    /// The `gossip` stream carries the same per-session stats: a served
+    /// remote push reports what the session gained.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_stream_reports_session_stats(network in network_seed()) {
+        block_on(async {
+            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let b = bootstrap_fork_async(&a).await;
+            a.send_all([42]).unwrap();
 
-        assert_eq!(served.led, Led::Remote);
-        assert_eq!(served.stats.messages_gained, 1);
-        assert_eq!(pushed.stats.messages_gained, 0);
-        assert_eq!(pushed.stats.bytes_sent, served.stats.bytes_received);
-        drop((a_drive, b_drive));
-        assert_connection_drained(a_end, b_end);
-    });
+            let (mut a_end, mut b_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+            let mut a_drive = a.gossip(&mut a_end.read, &mut a_end.write);
+            // The serving side's policy stream stays quiet, so its session is
+            // remote-led (a `changes()` stream's first tick would initiate).
+            let b = b
+                .try_into_peer()
+                .await
+                .unwrap()
+                .gossip_when(|_| futures::stream::pending::<()>())
+                .into_rumors();
+            let mut b_drive = b.gossip(&mut b_end.read, &mut b_end.write);
+            let (pushed, served) = tokio::join!(a_drive.next(), b_drive.next());
+            let pushed = pushed.expect("driver running").expect("push succeeds");
+            let served = served.expect("driver running").expect("serve succeeds");
+
+            assert_eq!(served.led, Led::Remote);
+            assert_eq!(served.stats.messages_gained, 1);
+            assert_eq!(pushed.stats.messages_gained, 0);
+            assert_eq!(pushed.stats.bytes_sent, served.stats.bytes_received);
+            drop((a_drive, b_drive));
+            assert_connection_drained(a_end, b_end);
+        });
+    }
 }
 
 /// Capture three divergent sessions over one reused connection.
@@ -199,8 +214,9 @@ proptest! {
     fn byte_counters_match_the_transport_tally(
         a_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
         b_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
+        network in network_seed(),
     ) {
-        let a = Peer::seed().sync_memory_budget(0).into_rumors();
+        let a = network.peer().sync_memory_budget(0).into_rumors();
         let b = block_on(bootstrap_fork_async(&a));
         let (mut a_stats, mut b_stats) = (Vec::new(), Vec::new());
         let (a_capture, b_capture) = capture_sides(
@@ -236,10 +252,11 @@ proptest! {
         shared in prop::collection::vec(any::<u64>(), 0..256),
         a_sends in prop::collection::vec(any::<u64>(), 0..256),
         b_sends in prop::collection::vec(any::<u64>(), 0..256),
+        network in network_seed(),
     ) {
         block_on(async {
             let unlimited = BudgetChoice::Bytes(usize::MAX);
-            let a = unlimited.apply(Peer::seed()).into_rumors();
+            let a = unlimited.apply(network.peer()).into_rumors();
             a.send_all(shared).unwrap();
             let b = bootstrap_fork_with_budget_async(&a, unlimited).await;
             a.send_all(a_sends).unwrap();
@@ -262,9 +279,10 @@ proptest! {
         a_sends in prop::collection::vec(any::<u64>(), 0..24),
         b_sends in prop::collection::vec(any::<u64>(), 0..24),
         redactions in prop::collection::vec((any::<bool>(), any::<prop::sample::Index>()), 0..24),
+        network in network_seed(),
     ) {
         block_on(async {
-            let a = Peer::seed().sync_memory_budget(0).into_rumors();
+            let a = network.peer().sync_memory_budget(0).into_rumors();
             a.send_all(shared).unwrap();
             let b = bootstrap_fork_async(&a).await;
             let shared_versions: Vec<_> = a.snapshot().versions().cloned().collect();

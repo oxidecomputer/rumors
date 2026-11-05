@@ -11,9 +11,14 @@
 use std::mem::size_of_val;
 
 use rumors::{Peer, Rumors};
+use rumors_testkit::common::seed::NetworkSeed;
 
 /// Allow small session futures while catching large embedded protocol state.
 const PUBLIC_FUTURE_BUDGET: usize = 4096;
+
+/// The network of every check: a future's size is a property of its type, the
+/// same for every secret, so one fixed seed serves them all.
+const NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// `Rumors::gossip_once` drives the full mirror protocol against a peer; the
 /// public future is type-erased.
@@ -25,7 +30,7 @@ fn gossip_future_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().sync_memory_budget(0).into_rumors();
+    let alice: Rumors<()> = NETWORK.peer().sync_memory_budget(0).into_rumors();
     let fut = alice.gossip_once(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
@@ -45,7 +50,7 @@ fn retire_future_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Peer<()> = Peer::seed().sync_memory_budget(0);
+    let alice: Peer<()> = NETWORK.peer().sync_memory_budget(0);
     let fut = alice.retire(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
@@ -85,7 +90,7 @@ fn gossip_stream_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().sync_memory_budget(0).into_rumors();
+    let alice: Rumors<()> = NETWORK.peer().sync_memory_budget(0).into_rumors();
     let sessions = alice.gossip(&mut end.read, &mut end.write);
     let size = size_of_val(&sessions);
 

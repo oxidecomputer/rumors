@@ -18,8 +18,6 @@ use std::sync::{Arc, Mutex};
 use ciborium::value::Value;
 use futures::FutureExt;
 use proptest::prelude::*;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
 use rumors::observe::{
     Direction, Observer, Role, SessionErrorKind, SessionInfo, SessionKind, SessionObserver,
     SessionOutcome, StreamId, StreamInfo, StreamObserver,
@@ -30,6 +28,9 @@ use rumors::{Peer, Retire, Rumors, SessionStats, Version};
 use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{capture_sides, corpora, payloads};
 use crate::common::wire::{block_on, bootstrap_fork_configured};
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// Retain every observation callback for comparison with the transport.
 #[derive(Default)]
@@ -308,63 +309,78 @@ fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &PipeCapture, b_wir
     }
 }
 
-/// A returned transport error produces one failed terminal callback.
-#[test]
-fn failed_session_reports_its_error_category_once() {
-    let observer = Arc::new(Recording::default());
-    let peer = Peer::<u64>::seed().observe(observer.clone()).into_rumors();
-    let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    drop(remote);
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let result = block_on(peer.gossip_once(&mut end.read, &mut end.write));
-    assert!(matches!(result, Err(rumors::Error::Transport(_))));
-    let session = observer.take_session(SessionKind::Gossip);
-    assert_eq!(
-        session.outcome(),
-        RecordedOutcome::Failed(SessionErrorKind::Transport)
-    );
+    /// A returned transport error produces one failed terminal callback.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn failed_session_reports_its_error_category_once(network in network_seed()) {
+        let observer = Arc::new(Recording::default());
+        let peer = network.peer::<u64>().observe(observer.clone()).into_rumors();
+        let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        drop(remote);
+
+        let result = block_on(peer.gossip_once(&mut end.read, &mut end.write));
+        assert!(matches!(result, Err(rumors::Error::Transport(_))));
+        let session = observer.take_session(SessionKind::Gossip);
+        assert_eq!(
+            session.outcome(),
+            RecordedOutcome::Failed(SessionErrorKind::Transport)
+        );
+    }
+
+    /// Deadline expiry is reported as a failure rather than cancellation.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn deadline_reports_its_error_category_once(network in network_seed()) {
+        let observer = Arc::new(Recording::default());
+        let peer = network.peer::<u64>()
+            .session_deadline(|| std::future::ready(()))
+            .observe(observer.clone())
+            .into_rumors();
+        let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+
+        assert!(matches!(
+            block_on(peer.gossip_once(&mut end.read, &mut end.write)),
+            Err(rumors::Error::DeadlineExceeded)
+        ));
+        let session = observer.take_session(SessionKind::Gossip);
+        assert_eq!(
+            session.outcome(),
+            RecordedOutcome::Failed(SessionErrorKind::DeadlineExceeded)
+        );
+    }
+
+    /// Dropping an active session produces one cancelled terminal callback.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn cancelled_session_reports_cancellation_once(network in network_seed()) {
+        let observer = Arc::new(Recording::default());
+        let peer = network.peer::<u64>().observe(observer.clone()).into_rumors();
+        let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let mut gossip = Box::pin(peer.gossip_once(&mut end.read, &mut end.write));
+        assert!(gossip.as_mut().now_or_never().is_none());
+        drop(gossip);
+
+        let session = observer.take_session(SessionKind::Gossip);
+        assert_eq!(session.outcome(), RecordedOutcome::Cancelled);
+    }
 }
 
-/// Deadline expiry is reported as a failure rather than cancellation.
-#[test]
-fn deadline_reports_its_error_category_once() {
-    let observer = Arc::new(Recording::default());
-    let peer = Peer::<u64>::seed()
-        .session_deadline(|| std::future::ready(()))
-        .observe(observer.clone())
-        .into_rumors();
-    let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-
-    assert!(matches!(
-        block_on(peer.gossip_once(&mut end.read, &mut end.write)),
-        Err(rumors::Error::DeadlineExceeded)
-    ));
-    let session = observer.take_session(SessionKind::Gossip);
-    assert_eq!(
-        session.outcome(),
-        RecordedOutcome::Failed(SessionErrorKind::DeadlineExceeded)
-    );
-}
-
-/// Dropping an active session produces one cancelled terminal callback.
-#[test]
-fn cancelled_session_reports_cancellation_once() {
-    let observer = Arc::new(Recording::default());
-    let peer = Peer::<u64>::seed().observe(observer.clone()).into_rumors();
-    let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let mut gossip = Box::pin(peer.gossip_once(&mut end.read, &mut end.write));
-    assert!(gossip.as_mut().now_or_never().is_none());
-    drop(gossip);
-
-    let session = observer.take_session(SessionKind::Gossip);
-    assert_eq!(session.outcome(), RecordedOutcome::Cancelled);
-}
-
-/// Seed a network with the supplied messages and optional observer.
-fn seeded(observer: Option<&Arc<Recording>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
-    // The wire-neutrality test runs two separate networks. A fixed network ID
-    // makes their captures comparable; peers from those runs never interact.
-    let mut peer = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0)).sync_memory_budget(0);
+/// Found the network `network` names, holding the supplied messages, with an
+/// optional observer.
+fn seeded(
+    network: NetworkSeed,
+    observer: Option<&Arc<Recording>>,
+    payloads: &[Vec<u8>],
+) -> Rumors<Vec<u8>> {
+    // The wire-neutrality test runs two separate networks from one seed, so
+    // their captures are comparable; peers from those runs never interact.
+    let mut peer = network.peer().sync_memory_budget(0);
     if let Some(observer) = observer {
         peer = peer.observe(observer.clone());
     }
@@ -393,10 +409,11 @@ proptest! {
     fn hook_mirrors_the_wire_exactly(
         (shared, only_a, only_b) in corpora(),
         add_messages in any::<bool>(),
+        network in network_seed(),
     ) {
         let rec_a = Arc::new(Recording::default());
         let rec_b = Arc::new(Recording::default());
-        let a = seeded(Some(&rec_a), &shared);
+        let a = seeded(network, Some(&rec_a), &shared);
         let b = forked(Some(&rec_b), &a);
         rec_a.take_session(SessionKind::Gossip);
         rec_b.take_session(SessionKind::Bootstrap);
@@ -421,11 +438,12 @@ proptest! {
     fn observation_never_changes_the_wire(
         (shared, only_a, only_b) in corpora(),
         add_messages in any::<bool>(),
+        network in network_seed(),
     ) {
         let captures = [true, false].map(|observed| {
             let rec_a = Arc::new(Recording::default());
             let rec_b = Arc::new(Recording::default());
-            let a = seeded(observed.then_some(&rec_a), &shared);
+            let a = seeded(network, observed.then_some(&rec_a), &shared);
             let b = forked(observed.then_some(&rec_b), &a);
             if add_messages {
                 a.send_all(only_a.iter().cloned()).unwrap();
@@ -444,10 +462,10 @@ proptest! {
     /// Joining observes the full bootstrap and serving sessions, including
     /// stream metadata and elections for empty and populated networks.
     #[test]
-    fn bootstrap_sessions_are_observed(payloads in payloads()) {
+    fn bootstrap_sessions_are_observed(payloads in payloads(), network in network_seed()) {
         let rec_provider = Arc::new(Recording::default());
         let rec_newcomer = Arc::new(Recording::default());
-        let provider = seeded(Some(&rec_provider), &payloads);
+        let provider = seeded(network, Some(&rec_provider), &payloads);
         let bootstrap = Peer::<Vec<u8>>::bootstrap().observe(rec_newcomer.clone());
         let (provider_capture, newcomer_capture) = capture_sides(
             |mut end| async move {
@@ -471,10 +489,11 @@ proptest! {
     fn retire_sessions_are_observed(
         (shared, only_a, only_b) in corpora(),
         add_messages in any::<bool>(),
+        network in network_seed(),
     ) {
         let rec_absorber = Arc::new(Recording::default());
         let rec_retiree = Arc::new(Recording::default());
-        let absorber = seeded(Some(&rec_absorber), &shared);
+        let absorber = seeded(network, Some(&rec_absorber), &shared);
         let retiree = forked(Some(&rec_retiree), &absorber);
         rec_absorber.take_session(SessionKind::Gossip);
         rec_retiree.take_session(SessionKind::Bootstrap);
