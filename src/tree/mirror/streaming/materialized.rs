@@ -277,6 +277,36 @@ impl Allowances {
     }
 }
 
+/// The largest message-size target, at most `target`, whose
+/// [`minimum`](Allowances::minimum) over `B`'s nodes is within the memory
+/// budget `memory`, or zero if none is.
+///
+/// The minimum never shrinks as the target grows, since the wire pools grow
+/// with it ([`session_allowance`]), so the targets within `memory` are all
+/// those up to the result, and a binary search over `0..=target` finds it
+/// exactly. A peer clamps its own target to this, so that the room for its
+/// messages on their way never raises its memory budget.
+pub(crate) const fn affordable_target<B: Backend<Node<Z>: Leaf>>(
+    memory: usize,
+    target: usize,
+) -> usize {
+    if Allowances::of::<B>(target).minimum() <= memory {
+        return target;
+    }
+    // `fits` is zero or a target within `memory`, and `exceeds` a target
+    // past it; each step halves the gap between them and keeps both roles.
+    let (mut fits, mut exceeds) = (0, target);
+    while exceeds - fits > 1 {
+        let middle = fits + (exceeds - fits) / 2;
+        if Allowances::of::<B>(middle).minimum() <= memory {
+            fits = middle;
+        } else {
+            exceeds = middle;
+        }
+    }
+    fits
+}
+
 /// Tracks supplied leaves against the peer's declared set length.
 ///
 /// The peer cannot supply more live leaves than the set length in its greeting:

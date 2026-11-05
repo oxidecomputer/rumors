@@ -1,11 +1,12 @@
 //! End-to-end coverage of [`rumors::Peer::target_message_size`] and its
 //! bootstrap-time twin [`rumors::Bootstrap::target_message_size`].
 //!
-//! The knob
-//! threads from the public builders into the greeting, the session runs at
-//! the exchanged minimum of the two sides' settings, any minimum (including
-//! the degenerate zero) leaves reconciliation convergent, and the minimum
-//! binds both encoders regardless of which side advertised it.
+//! The target
+//! threads from the public builders into the greeting, lowered to what the
+//! memory budget affords, the session runs at the exchanged minimum of the
+//! two sides' settings, any minimum (including the degenerate zero) leaves
+//! reconciliation convergent, and the minimum binds both encoders
+//! regardless of which side advertised it.
 
 use rumors_testkit::common;
 
@@ -407,5 +408,53 @@ fn bootstrap_advertisement_binds_the_provider() {
         unbatched_frames > batched_frames,
         "a zero bootstrap advertisement must forbid the provider's batching: \
          {unbatched_frames} supply frames vs {batched_frames} batched"
+    );
+}
+
+/// A budget above [`rumors::MIN_SYNC_MEMORY_BUDGET`] that affords a target
+/// above the default but far from the wire's cap, so a session on it lowers
+/// the largest target.
+const AFFORDING_BUDGET: usize = 64 * 1024 * 1024;
+
+/// A newcomer's greeting advertises its target lowered to what its memory
+/// budget affords, never the target as set.
+///
+/// A newcomer on [`AFFORDING_BUDGET`] asks for the largest target; its
+/// settings report a lowered one, between the default and the wire's cap.
+/// Its bootstrap capture must equal, byte for byte, the capture of a
+/// newcomer that sets the lowered target directly. The negative control is
+/// a newcomer whose unlimited budget affords the largest target: its
+/// capture must differ, so the equality cannot hold merely because the
+/// capture leaves the greeting's target out.
+#[test]
+fn a_lowered_target_reaches_the_greeting() {
+    let lowered = COUNTED_NETWORK
+        .peer::<u64>()
+        .sync_memory_budget(AFFORDING_BUDGET)
+        .target_message_size(usize::MAX)
+        .synchronization_settings()
+        .target_message_size;
+    assert!(
+        default::TARGET_MESSAGE_SIZE < lowered && lowered < rumors::MAX_RUN_BUDGET_BYTES,
+        "the budget must lower the largest target, but not to the default: {lowered} B",
+    );
+    let newcomer = |budget: usize, target: usize| {
+        let config = Peer::<u64>::bootstrap()
+            .sync_memory_budget(budget)
+            .target_message_size(target);
+        capture_bootstrap(seeded_provider(), config)
+    };
+
+    let asked = newcomer(AFFORDING_BUDGET, usize::MAX);
+    assert_eq!(
+        asked,
+        newcomer(AFFORDING_BUDGET, lowered),
+        "a session must advertise the target its budget affords",
+    );
+    assert_ne!(
+        asked,
+        newcomer(usize::MAX, usize::MAX),
+        "a budget that affords the largest target must advertise it: an \
+         equality here means the capture cannot tell the targets apart",
     );
 }

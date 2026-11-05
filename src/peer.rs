@@ -35,20 +35,24 @@ use crate::{
 use serde::{Serialize, de::DeserializeOwned};
 
 /// The smallest memory budget a synchronization session runs on at the
-/// default message-size target ([`default::TARGET_MESSAGE_SIZE`]): about
-/// 41 MiB on 64-bit targets.
+/// default message-size target ([`default::TARGET_MESSAGE_SIZE`]) or a
+/// larger one: about 41 MiB on 64-bit targets.
 ///
-/// A smaller budget, zero included, is raised to this at the default
-/// target, so a session there counts at most the larger of its budget and
-/// this minimum. It covers the room every session keeps for one piece of
-/// work in flight at each level of its comparison, which is how a session
-/// always makes progress, room beside it for the largest single piece of
-/// work, the fixed state every session holds whatever its budget, and the
-/// room for messages on their way through the connection, which grows with
-/// the target ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)
-/// lists each). A larger target raises the minimum by about twice the
-/// target's increase in each direction. At or above this minimum, no
-/// measured session has run more than one round trip slower at a larger
+/// A smaller budget, zero included, is raised to at most this, whatever the
+/// target, so a session counts at most the larger of its budget and this
+/// minimum. It covers the room every session keeps for one piece of work in
+/// flight at each level of its comparison, which is how a session always
+/// makes progress, room beside it for the largest single piece of work, the
+/// fixed state every session holds whatever its budget, and the room for
+/// messages on their way through the connection, which grows with the
+/// target ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)
+/// lists each). That room never raises the budget: a session clamps a
+/// larger target to the largest one whose room fits the larger of its
+/// budget and this minimum
+/// ([`Peer::target_message_size`](crate::Peer::target_message_size)). A
+/// smaller target sets less room aside, and lowers the minimum by about
+/// twice the target's decrease in each direction. At or above this minimum,
+/// no measured session has run more than one round trip slower at a larger
 /// budget than at a smaller one; that is observed behavior, not a
 /// guarantee.
 pub const MIN_SYNC_MEMORY_BUDGET: usize =
@@ -66,7 +70,9 @@ pub const MIN_SYNC_MEMORY_BUDGET: usize =
 /// such a record can make a message larger than this. While it crosses,
 /// a larger message is held beyond the budget by its excess over this size,
 /// and a session holds at most one such message in each direction at once.
-/// At another target the bound is about twice that target.
+/// At another target the bound is about twice the target the session runs
+/// at, which its budget can clamp
+/// ([`Peer::target_message_size`](crate::Peer::target_message_size)).
 pub const MAX_BUDGETED_MESSAGE_SIZE: usize =
     crate::tree::mirror::streaming::remote::budgeted_message_bytes(default::TARGET_MESSAGE_SIZE);
 
@@ -78,8 +84,9 @@ pub const MAX_BUDGETED_MESSAGE_SIZE: usize =
 /// order in which a caller sets the two never changes the result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoryBudget {
-    /// A budget given to a public setter, which sessions raise to the
-    /// minimum for the peer's target.
+    /// A budget given to a public setter: sessions clamp the peer's target
+    /// to what it affords, and raise it to the minimum for the clamped
+    /// target.
     Requested(usize),
     /// A ledger budget the test path sets
     /// ([`ledger_budget`](crate::testing::ledger_budget)): sessions run on
@@ -90,24 +97,63 @@ pub(crate) enum MemoryBudget {
 }
 
 impl MemoryBudget {
-    /// The budgets a session runs on when its peer's own message-size
-    /// target is `target`: the most it holds in all, and what its ledger
-    /// admits.
+    /// The message-size target and the budgets a session runs on when its
+    /// peer's own target is `target`.
     ///
-    /// A requested budget is raised to the minimum for `target`, and its
-    /// ledger never admits less than the largest grant
-    /// ([`Allowances::requested`](materialized::Allowances::requested)); a
-    /// ledger budget sits beside what every session at `target` sets
-    /// aside, the floor allowance and the session allowance
-    /// ([`Allowances::ledger`](materialized::Allowances::ledger)).
-    pub(crate) fn session(self, target: RunBudget) -> SessionBudget {
-        let allowances = materialized::Allowances::of::<Local>(target.bytes());
+    /// A requested budget clamps the target to the largest one, at most
+    /// `target`, whose minimum is within the larger of the budget and
+    /// [`MIN_SYNC_MEMORY_BUDGET`]
+    /// ([`affordable_target`](materialized::affordable_target)). Every
+    /// target at or below the default is within that, so only a larger
+    /// target is ever clamped, and never below the default. The budget is
+    /// then raised to the minimum for the clamped target, and its ledger
+    /// never admits less than the largest grant
+    /// ([`Allowances::requested`](materialized::Allowances::requested)), so
+    /// a session counts at most the larger of the budget and
+    /// [`MIN_SYNC_MEMORY_BUDGET`], whatever the target.
+    ///
+    /// A ledger budget keeps `target`, and sits beside what every session
+    /// at `target` sets aside, the floor allowance and the session
+    /// allowance ([`Allowances::ledger`](materialized::Allowances::ledger)).
+    pub(crate) fn session(self, target: RunBudget) -> SessionLimits {
         match self {
-            Self::Requested(bytes) => allowances.requested(bytes),
+            Self::Requested(bytes) => {
+                let target = RunBudget::from_bytes(materialized::affordable_target::<Local>(
+                    bytes.max(MIN_SYNC_MEMORY_BUDGET),
+                    target.bytes(),
+                ));
+                let allowances = materialized::Allowances::of::<Local>(target.bytes());
+                SessionLimits {
+                    target,
+                    budget: allowances.requested(bytes),
+                }
+            }
             #[cfg(any(test, feature = "test-internals"))]
-            Self::Ledger(bytes) => allowances.ledger(bytes),
+            Self::Ledger(bytes) => {
+                let allowances = materialized::Allowances::of::<Local>(target.bytes());
+                SessionLimits {
+                    target,
+                    budget: allowances.ledger(bytes),
+                }
+            }
         }
     }
+}
+
+/// The message-size target a session runs at and the budgets it runs on,
+/// computed together from its peer's settings ([`MemoryBudget::session`]).
+///
+/// The budgets set the wire pools aside at this target, and a session
+/// sizes its pools at the target its greeting advertises, so the two
+/// travel as one value.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SessionLimits {
+    /// The target the session advertises and sizes its wire pools at: the
+    /// peer's own, clamped to what its memory budget affords.
+    pub(crate) target: RunBudget,
+    /// The most the session holds in all, and what its ledger admits, at
+    /// [`target`](Self::target).
+    pub(crate) budget: SessionBudget,
 }
 
 /// The library's default budget, raised like any requested budget.
@@ -245,12 +291,14 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// publishes, whose path key places that tree's leaves.
     pub(crate) keys: Arc<NetworkKeys>,
     /// The memory budget selected by
-    /// [`sync_memory_budget`](Self::sync_memory_budget), as given: each
-    /// session runs on it raised to the minimum for `run_budget`
+    /// [`sync_memory_budget`](Self::sync_memory_budget), as given.
+    ///
+    /// Each session clamps `run_budget` to what it affords, and runs on it
+    /// raised to the minimum for the clamped target
     /// ([`MemoryBudget::session`]).
     pub(crate) sync_memory_budget: MemoryBudget,
     /// The supply-run byte budget selected by
-    /// [`target_message_size`](Self::target_message_size).
+    /// [`target_message_size`](Self::target_message_size), as given.
     pub(crate) run_budget: RunBudget,
     /// The write batch range selected by
     /// [`write_batch_range`](Self::write_batch_range).
@@ -288,11 +336,19 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SynchronizationSettings {
     /// The memory budget each session admits its work against
-    /// ([`Peer::sync_memory_budget`]): the budget set, raised to the
-    /// minimum for this peer's message-size target, which is
-    /// [`MIN_SYNC_MEMORY_BUDGET`] at the default target.
+    /// ([`Peer::sync_memory_budget`]).
+    ///
+    /// It is the budget set, raised to the minimum for
+    /// [`target_message_size`](Self::target_message_size), so never more
+    /// than the larger of the budget set and [`MIN_SYNC_MEMORY_BUDGET`].
     pub sync_memory_budget: usize,
-    /// The saturated wire-message target this peer advertises.
+    /// The wire-message target this peer advertises
+    /// ([`Peer::target_message_size`]): the target set, saturated at
+    /// [`MAX_RUN_BUDGET_BYTES`] and clamped to what the memory budget
+    /// affords.
+    ///
+    /// Passing it back to [`Peer::target_message_size`] selects the same
+    /// target.
     pub target_message_size: usize,
     /// The write batch range this peer's sessions batch their writes
     /// within ([`Peer::write_batch_range`]), as they apply it.
@@ -646,14 +702,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Return the local settings used to configure synchronization sessions.
     ///
-    /// The message-size target is returned after saturation at
-    /// [`MAX_RUN_BUDGET_BYTES`], matching the value advertised to peers,
-    /// and the memory budget as sessions run on it: raised to the minimum
-    /// for that target, whichever order the two were set in.
+    /// The message-size target and the memory budget are returned as
+    /// sessions run on them, whichever order the two were set in: the
+    /// target saturated at [`MAX_RUN_BUDGET_BYTES`] and clamped to what the
+    /// budget affords, matching the value advertised to peers, and the
+    /// budget raised to the minimum for that target.
     pub fn synchronization_settings(&self) -> SynchronizationSettings {
+        let limits = self.sync_memory_budget.session(self.run_budget);
         SynchronizationSettings {
-            sync_memory_budget: self.sync_memory_budget.session(self.run_budget).memory,
-            target_message_size: self.run_budget.bytes(),
+            sync_memory_budget: limits.budget.memory,
+            target_message_size: limits.target.bytes(),
             write_batch_range: self.write_batch.range(),
             payload_depth_limit: self.codec.limit().get(),
         }
@@ -830,14 +888,18 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [messages on their way](#messages-on-their-way) describes.
     /// The rest of the budget pays for pipelining beyond all three, and
     /// always has room for at least the largest single piece of work. A
-    /// session raises a budget below the minimum for its target, zero
-    /// included, to that minimum, which is [`MIN_SYNC_MEMORY_BUDGET`] at the
-    /// default target, so a session there counts at most the larger of
-    /// `budget_bytes` and [`MIN_SYNC_MEMORY_BUDGET`];
+    /// session raises a budget below the minimum, zero included, to that
+    /// minimum: [`MIN_SYNC_MEMORY_BUDGET`] at the default target or a
+    /// larger one, and a little less at a smaller target, whose messages
+    /// need less room. The target never raises the budget beyond that,
+    /// since a session lowers a target whose room the budget cannot afford
+    /// ([`target_message_size`](Self::target_message_size) says how). So a
+    /// session counts at most the larger of `budget_bytes` and
+    /// [`MIN_SYNC_MEMORY_BUDGET`], whatever the target;
     /// [`synchronization_settings`](Self::synchronization_settings)
-    /// reports the raised budget. The raise reads both settings when a
-    /// session starts, so the order in which you set them doesn't
-    /// matter. A smaller budget therefore makes a
+    /// reports the budget and the target it runs on. Both read the two
+    /// settings when a session starts, so the order in which you set them
+    /// doesn't matter. A smaller budget therefore makes a
     /// session slower, never failed: one piece of work at each level still
     /// completes.
     ///
@@ -876,7 +938,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// to it.
     ///
     /// The default is [`default::SYNC_MEMORY_BUDGET`] (512 MiB), and the
-    /// least is [`MIN_SYNC_MEMORY_BUDGET`]. All
+    /// least is [`MIN_SYNC_MEMORY_BUDGET`] at the default target or a larger
+    /// one. All
     /// [`Rumors`] clones inherit this setting, and it is preserved when
     /// returning to a `Peer`, attaching a bookmark, or retiring.
     /// [Choosing a synchronization budget](crate::sizing) explains how to
@@ -1043,8 +1106,17 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [`sync_memory_budget`](Self::sync_memory_budget), for the runs on
     /// their way through the connection: about two runs' worth at this
     /// peer's own target in each direction, as the budget's section on
-    /// messages on their way describes. So a larger target raises the least budget a session runs on;
-    /// [`MIN_SYNC_MEMORY_BUDGET`] is that least budget at the default
+    /// messages on their way describes. That room never takes more than
+    /// the budget affords: a session runs at the largest target, at most
+    /// yours, whose room fits the budget beside everything else it sets
+    /// aside, a budget below [`MIN_SYNC_MEMORY_BUDGET`] counting as that
+    /// minimum. Every target at or below the default fits, so a session
+    /// lowers only a larger one, and never below the default. It advertises
+    /// the target it runs at, which
+    /// [`synchronization_settings`](Self::synchronization_settings)
+    /// reports. A lowered target leaves the session's work only the room
+    /// for its largest single piece beyond what every budget sets aside,
+    /// so such a session keeps little in flight: raise the budget with the
     /// target. Each run holds at most the target's worth of bytes, framing
     /// aside, unless its one leaf alone outgrows the target; such a run
     /// takes its direction's whole room, and one larger than
@@ -1061,8 +1133,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// within that minimum, and each side's decoder refuses a larger run
     /// unless it holds one leaf. Your setting thus bounds the frames you
     /// build and, through the minimum, the frames a conforming peer sends
-    /// you, so the room your side sets aside at your own target covers both
-    /// directions: the more memory-constrained peer sets the pace. Peers
+    /// you, so the room your side sets aside at the target it advertises
+    /// covers both directions: the more memory-constrained peer sets the
+    /// pace. Peers
     /// with different settings interoperate.
     ///
     /// The default, [`default::TARGET_MESSAGE_SIZE`], is the byte size of

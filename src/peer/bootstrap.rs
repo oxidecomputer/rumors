@@ -35,11 +35,11 @@ use super::gossip::Bootstrapped;
 /// [`gossip`](crate::Rumors::gossip); no special invocation is required.
 #[must_use = "a Bootstrap does nothing until join runs it over a connection"]
 pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
-    /// Memory budget inherited by the joined peer, as given; sessions raise
-    /// it to the minimum for `run_budget`
-    /// ([`MemoryBudget::session`]).
+    /// Memory budget inherited by the joined peer, as given; sessions clamp
+    /// `run_budget` to what it affords and raise it to the minimum for the
+    /// clamped target ([`MemoryBudget::session`]).
     pub(crate) sync_memory_budget: MemoryBudget,
-    /// Supply-run size target used during and after the join.
+    /// Supply-run size target used during and after the join, as given.
     pub(crate) run_budget: RunBudget,
     /// Write batch range used during and after the join.
     pub(crate) write_batch: WriteBatch,
@@ -69,12 +69,10 @@ impl<T: Send + Sync + 'static> Clone for Bootstrap<T> {
 impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> {
     /// Describe the settings without reading the bookmark.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let limits = self.sync_memory_budget.session(self.run_budget);
         f.debug_struct("Bootstrap")
-            .field(
-                "sync_memory_budget",
-                &self.sync_memory_budget.session(self.run_budget).memory,
-            )
-            .field("run_budget", &self.run_budget)
+            .field("sync_memory_budget", &limits.budget.memory)
+            .field("run_budget", &limits.target)
             .field("write_batch", &self.write_batch)
             .field("payload_depth_limit", &self.payload_depth_limit)
             .field("observe", &self.observe)
@@ -179,11 +177,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// budget sets aside, its room for messages on their way included; the
     /// budget matters most to its later synchronizations.
     /// [`target_message_size`](Self::target_message_size) bounds bootstrap's
-    /// supply runs. As with [`Peer::sync_memory_budget`], a session raises
-    /// a budget below the minimum for the
-    /// [`target_message_size`](Self::target_message_size),
-    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
-    /// default target, to that minimum, whichever order the two are set in.
+    /// supply runs. As with [`Peer::sync_memory_budget`], a session lowers a
+    /// [`target_message_size`](Self::target_message_size) the budget cannot
+    /// afford, and raises a budget below the minimum for its target to that
+    /// minimum, at most
+    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), whichever
+    /// order the two are set in.
     /// See [`Peer::sync_memory_budget`] for the contract and
     /// [the sizing guide](crate::sizing) for tuning guidance.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
@@ -193,9 +192,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
 
     /// Set the batched-message size target during and after bootstrap.
     ///
-    /// The provider uses the smaller of its target and ours. Zero sends one
-    /// leaf per message. See [`Peer::target_message_size`] for defaults and
-    /// what the target accounts for.
+    /// The provider uses the smaller of its target and ours, ours lowered to
+    /// what our [`sync_memory_budget`](Self::sync_memory_budget) affords.
+    /// Zero sends one leaf per message. See [`Peer::target_message_size`]
+    /// for defaults and what the target accounts for.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
         self

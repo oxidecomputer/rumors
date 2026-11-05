@@ -135,12 +135,13 @@ pub const fn ledger_budget_within(budget: usize) -> usize {
 /// session allowance at the peer's target.
 ///
 /// Unlike a budget set through
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which a
-/// session raises to the minimum for its peer's message-size target
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which
+/// lowers a target it cannot afford and which a session raises to the
+/// minimum for its target
 /// ([`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
-/// default target), this one sessions run on as given, whatever the
-/// target. So it reaches ledger budgets below the largest grant, zero
-/// included: the floor-only
+/// default target), this one sessions run on as given, at the peer's
+/// target as given. So it reaches ledger budgets below the largest grant,
+/// zero included: the floor-only
 /// configuration the liveness argument rests on, and the starved regime
 /// the budget analyses probe.
 pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(

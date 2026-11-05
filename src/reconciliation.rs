@@ -254,13 +254,15 @@
 //! waits for earlier work to finish. Each level always has room for one
 //! question and one answer, out of a part of the budget set aside for them,
 //! so a smaller budget adds latency and never stops a session. Every
-//! session's budget is at least
-//! [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET): that part,
-//! room beside it for the largest single question or answer, and the
+//! session's budget is at least the minimum for its message-size target,
+//! which is [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at
+//! the default target or a larger one: that part, room beside it for the
+//! largest single question or answer, and the
 //! fixed state a session holds whatever its budget, and room for the
 //! messages on their way through the connection. Supplies stream as
-//! size-targeted runs, and that room holds about two runs at the peer's own
-//! target in each direction, however many levels send them
+//! size-targeted runs, and that room holds about two runs at the target the
+//! peer advertises in each direction, however many levels send them; a
+//! peer lowers a target whose room its budget cannot afford
 //! ([`Peer::target_message_size`](crate::Peer::target_message_size)).
 //! The budget's contract is at
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);

@@ -229,11 +229,13 @@ enum Setting {
 }
 
 /// Budgets on both sides of [`MIN_SYNC_MEMORY_BUDGET`], its neighbours
-/// and the extremes included.
+/// and the extremes included, and across the budgets that afford a target
+/// above the default but not the wire's cap.
 fn budgets() -> impl Strategy<Value = usize> {
     prop_oneof![
         0..=2 * MIN_SYNC_MEMORY_BUDGET,
         MIN_SYNC_MEMORY_BUDGET - 1..=MIN_SYNC_MEMORY_BUDGET + 1,
+        MIN_SYNC_MEMORY_BUDGET..=Allowances::of::<Local>(MAX_RUN_BUDGET_BYTES).minimum(),
         Just(usize::MAX),
         any::<usize>(),
     ]
@@ -261,19 +263,20 @@ fn settings() -> impl Strategy<Value = Setting> {
 }
 
 proptest! {
-    /// The budget a peer's sessions run on depends only on the last budget
-    /// and the last target set, never on the order or repetition of the
-    /// setters' calls: it is the last budget raised to the minimum for the
-    /// last target.
+    /// The target and the budget a peer's sessions run on depend only on
+    /// the last budget and the last target set, never on the order or
+    /// repetition of the setters' calls.
     ///
     /// Every sequence of calls, both setters interleaved and repeated,
     /// gives on a `Peer` what setting the two last values once gives in
     /// either order, and the same through `into_rumors` and on a
     /// `Bootstrap` builder. A setter the sequence never calls holds its
-    /// default. Budgets lie on both sides of the minimum, and targets on
-    /// both sides of the default and of the wire's cap.
+    /// default. Budgets lie on both sides of the minimum and across the
+    /// range where the target is lowered, and targets on both sides of the
+    /// default and of the wire's cap. What the two values are is
+    /// `the_target_never_raises_the_budget`'s claim.
     #[test]
-    fn effective_budget_ignores_the_setters_order(
+    fn effective_settings_ignore_the_setters_order(
         calls in prop::collection::vec(settings(), 0..8),
         network in network_seed(),
     ) {
@@ -293,36 +296,78 @@ proptest! {
                 Setting::Budget(_) => None,
             })
             .unwrap_or(default::TARGET_MESSAGE_SIZE);
-        let minimum = Allowances::of::<Local>(RunBudget::from_bytes(target).bytes()).minimum();
-        let expected = budget.max(minimum);
 
-        let read = |peer: &Peer<u64>| peer.synchronization_settings().sync_memory_budget;
+        let read = |settings: super::SynchronizationSettings| {
+            (settings.sync_memory_budget, settings.target_message_size)
+        };
         let budget_first = network.peer::<u64>()
             .sync_memory_budget(budget)
             .target_message_size(target);
-        prop_assert_eq!(read(&budget_first), expected);
+        let expected = read(budget_first.synchronization_settings());
         let target_first = network.peer::<u64>()
             .target_message_size(target)
             .sync_memory_budget(budget);
-        prop_assert_eq!(read(&target_first), expected);
+        prop_assert_eq!(read(target_first.synchronization_settings()), expected);
         let sequenced = calls.iter().fold(network.peer::<u64>(), |peer, call| match *call {
             Setting::Budget(bytes) => peer.sync_memory_budget(bytes),
             Setting::Target(bytes) => peer.target_message_size(bytes),
         });
-        prop_assert_eq!(read(&sequenced), expected);
-        prop_assert_eq!(
-            sequenced.into_rumors().synchronization_settings().sync_memory_budget,
-            expected
-        );
+        prop_assert_eq!(read(sequenced.synchronization_settings()), expected);
+        prop_assert_eq!(read(sequenced.into_rumors().synchronization_settings()), expected);
 
         let bootstrap = calls.iter().fold(Peer::<u64>::bootstrap(), |builder, call| match *call {
             Setting::Budget(bytes) => builder.sync_memory_budget(bytes),
             Setting::Target(bytes) => builder.target_message_size(bytes),
         });
-        prop_assert_eq!(
-            bootstrap.sync_memory_budget.session(bootstrap.run_budget).memory,
-            expected
-        );
+        let limits = bootstrap.sync_memory_budget.session(bootstrap.run_budget);
+        prop_assert_eq!((limits.budget.memory, limits.target.bytes()), expected);
+    }
+
+    /// A peer's message-size target never raises its memory budget.
+    ///
+    /// Its sessions run at the largest target, at most the one set, whose
+    /// minimum fits the larger of the budget set and
+    /// [`MIN_SYNC_MEMORY_BUDGET`], on the budget set raised to that
+    /// target's minimum.
+    ///
+    /// For every budget and target set, the reported budget is the budget
+    /// set raised to the reported target's minimum, never more than the
+    /// larger of the budget set and [`MIN_SYNC_MEMORY_BUDGET`], and at or
+    /// above that minimum exactly the budget set. The reported target never
+    /// exceeds the target set, saturated at the wire's cap, nor falls
+    /// below the smaller of that and the default; it is either that target
+    /// or one below a target whose minimum exceeds what the budget affords.
+    /// Setting the reported target back changes neither value.
+    #[test]
+    fn the_target_never_raises_the_budget(
+        budget in budgets(),
+        target in targets(),
+        network in network_seed(),
+    ) {
+        let settings = network.peer::<u64>()
+            .sync_memory_budget(budget)
+            .target_message_size(target)
+            .synchronization_settings();
+        let (memory, lowered) = (settings.sync_memory_budget, settings.target_message_size);
+        let minimum = |target: usize| Allowances::of::<Local>(target).minimum();
+        let affords = budget.max(MIN_SYNC_MEMORY_BUDGET);
+        let saturated = RunBudget::from_bytes(target).bytes();
+
+        prop_assert_eq!(memory, budget.max(minimum(lowered)));
+        prop_assert!(memory <= affords);
+        if budget >= MIN_SYNC_MEMORY_BUDGET {
+            prop_assert_eq!(memory, budget);
+        }
+
+        prop_assert!(lowered <= saturated);
+        prop_assert!(lowered >= saturated.min(default::TARGET_MESSAGE_SIZE));
+        prop_assert!(lowered == saturated || minimum(lowered + 1) > affords);
+
+        let again = network.peer::<u64>()
+            .sync_memory_budget(budget)
+            .target_message_size(lowered)
+            .synchronization_settings();
+        prop_assert_eq!(again, settings);
     }
 }
 

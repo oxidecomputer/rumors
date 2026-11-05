@@ -34,13 +34,16 @@
 //!   each direction, about 5.7 MiB at the default target. The setter's
 //!   documentation says more.
 //! - **The smallest budget,**
-//!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), adds room
-//!   for the largest single question or answer beside what every budget
-//!   sets aside. A session raises any smaller budget, zero included, to
-//!   it. At the smallest budget a session pipelines little: beyond one
-//!   question and one answer at each level of its comparison, it keeps in
-//!   flight only what the added room holds, and otherwise waits for
-//!   answers before it asks its next questions. This is the declared
+//!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
+//!   default message-size target or a larger one, adds room for the
+//!   largest single question or answer beside what every budget sets
+//!   aside. A session raises any smaller budget, zero included, to it; a
+//!   smaller target sets less room aside for its messages, and lowers the
+//!   smallest budget with it. At the smallest budget a session pipelines
+//!   little: beyond one question and one answer at each level of its
+//!   comparison, it keeps in flight only what the added room holds, and
+//!   otherwise waits for answers before it asks its next questions. This
+//!   is the declared
 //!   behavior of such a budget, not a failure; the session completes,
 //!   counting at most the smallest budget.
 //! - **A larger budget** keeps more questions in flight at once, up to the

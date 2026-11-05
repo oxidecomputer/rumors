@@ -1,12 +1,13 @@
-//! The fixed allowance's figure, and how the minimum budget and the
-//! ledger's budget divide a memory budget around the session allowance.
+//! The fixed allowance's figure, how the minimum budget and the ledger's
+//! budget divide a memory budget around the session allowance, and the
+//! largest target a memory budget affords.
 
 use proptest::prelude::*;
 
 use super::{fixed_allowance, session_allowance};
 use crate::tree::mirror::streaming::{
     Backend, Local,
-    materialized::{Allowances, floor_allowance, largest_grant},
+    materialized::{Allowances, affordable_target, floor_allowance, largest_grant},
     remote::wire_pools_bytes,
 };
 
@@ -127,6 +128,52 @@ proptest! {
         prop_assert_eq!(requested.memory, memory.max(minimum));
         if minimum < usize::MAX {
             prop_assert_eq!(requested.memory, floor + session + requested.ledger);
+        }
+    }
+
+    /// The minimum memory budget never shrinks as the message-size target
+    /// grows, saturated targets included.
+    ///
+    /// That is the premise on which [`affordable_target`]'s binary search
+    /// finds every target within a budget below the one it returns.
+    #[test]
+    fn the_minimum_grows_with_the_target(a in targets(), b in targets()) {
+        let (smaller, larger) = (a.min(b), a.max(b));
+        prop_assert!(
+            Allowances::of::<Local>(smaller).minimum()
+                <= Allowances::of::<Local>(larger).minimum()
+        );
+    }
+
+    /// The affordable target is the largest target, at most the one asked
+    /// for, whose minimum is within the memory budget, or zero when not
+    /// even zero's is.
+    ///
+    /// It never exceeds the target asked for; its minimum is within the
+    /// budget unless it is zero; and it is either the target asked for or
+    /// one below a target whose minimum exceeds the budget. With the
+    /// minimum never shrinking as the target grows
+    /// (`the_minimum_grows_with_the_target`), those three single out the
+    /// largest such target. Budgets lie on both sides of the minimum at
+    /// the target asked for, and at zero.
+    #[test]
+    fn the_affordable_target_is_the_largest_within_the_budget(
+        (target, memory) in targets().prop_flat_map(|target| {
+            let at_zero = Allowances::of::<Local>(0).minimum();
+            let memory = prop_oneof![
+                budgets(target),
+                at_zero.saturating_sub(1)..=at_zero.saturating_add(1),
+            ];
+            (Just(target), memory)
+        }),
+    ) {
+        let fits = |target: usize| Allowances::of::<Local>(target).minimum() <= memory;
+        let affordable = affordable_target::<Local>(memory, target);
+        prop_assert!(affordable <= target);
+        prop_assert!(fits(affordable) || affordable == 0);
+        prop_assert!(affordable == target || !fits(affordable + 1));
+        if !fits(0) {
+            prop_assert_eq!(affordable, 0);
         }
     }
 }

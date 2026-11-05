@@ -931,10 +931,11 @@ struct Reconciliation<'a> {
     /// secret, lists nothing, and can be supplied nothing.
     keys: Option<Arc<NetworkKeys>>,
     /// The peer's memory budget as set, from which and `run_budget` the
-    /// session derives the budget its ledger admits work against
-    /// ([`MemoryBudget::session`]).
+    /// session derives the target it advertises and the budget its ledger
+    /// admits work against ([`MemoryBudget::session`]).
     sync_memory_budget: MemoryBudget,
-    /// The supply-run sizing budget; its byte target rides the greeting.
+    /// The supply-run sizing budget as set; the greeting carries it clamped
+    /// to what `sync_memory_budget` affords.
     run_budget: RunBudget,
     /// How many bytes of frames one flush of the session's multiplexer may
     /// carry.
@@ -1016,13 +1017,17 @@ impl<'a> Reconciliation<'a> {
             observe,
             remote_role,
         } = self;
+        // The greeting advertises the target the budget affords, and the
+        // pipe sizes its wire pools at what the greeting advertises, so the
+        // ledger's budget must be the one at that same target.
+        let limits = sync_memory_budget.session(run_budget);
         let local: LocalParticipant = materialized::Handshaking::start(
             Local,
             root.into(),
             keys.clone(),
-            widen(run_budget.bytes()),
+            widen(limits.target.bytes()),
         )
-        .budget(sync_memory_budget.session(run_budget).ledger)
+        .budget(limits.budget.ledger)
         .stats(stats.clone());
         let proxy: RemoteParticipant<'a> =
             streaming_remote::Handshaking::start(Local, read, write, codec, keys)
