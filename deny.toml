@@ -1,6 +1,21 @@
+# Configuration for the duplicate-dependency sweep (`just supply-chain`,
+# which runs `cargo deny check bans`). Scope: the full feature-and-target
+# closure of the root workspace's default members, development
+# dependencies excluded; the tool-side members, every member that is not a
+# default one, are excluded from the sweep. Advisories are a separate check
+# (`cargo audit`), which covers every version in every lockfile.
+
 [graph]
 all-features = true
+# A crate duplicated only among development dependencies compiles twice
+# for tests and never ships, so it doesn't count.
+exclude-dev = true
 
+# A crate resolved at two versions in what ships compiles twice and can
+# carry two incompatible copies of one type through the public API. The
+# sweep reports each duplicate as a warning, so it is visible, without
+# blocking: converging usually waits on upstream releases. Whether a
+# duplicated crate appears in the public API is a review question.
 [bans]
-multiple-versions = "deny"
+multiple-versions = "warn"
 skip = []

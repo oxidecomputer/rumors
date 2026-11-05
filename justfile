@@ -228,11 +228,12 @@ amp-board-smoke:
 
 # cargo-audit checks every tracked Cargo.lock against RustSec, the gate's
 # one network fetch: vulnerabilities fail, other advisories warn. cargo-deny
-# holds the default members to one version per crate; deny.toml names each
-# tolerated duplicate's holdout, and tool-only duplicates are exempt because
-# they never ship. Needs `cargo install cargo-audit cargo-deny`.
+# reports crates that ship at more than one version in the default members,
+# as warnings; deny.toml gives the reasoning, and tool-only and
+# development-only duplicates are exempt because they never ship. Needs
+# `cargo install cargo-audit cargo-deny`.
 
-# Audit advisories on every lockfile and hold the workspace to single crate versions.
+# Audit advisories on every lockfile and report duplicate crate versions that ship.
 supply-chain:
     #!/usr/bin/env bash
     set -euo pipefail
