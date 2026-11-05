@@ -57,10 +57,11 @@ use crate::{
 /// initiator's, which the elected responder answers; a converged session
 /// (equal versions) ends at the greeting and consumes neither.
 /// That is the trade, made knowingly: the listing costs at most one root
-/// fan of hashes (~4.3 KB, and ~nothing for an empty tree) on a hop that
+/// fan of listing entries (about 5.7 KiB, and nothing for an empty tree;
+/// the codec's `listing_entry_len` gives each entry's width) on a hop that
 /// exists anyway, versus saving a full one-way hop on every divergent
-/// session. Divergence is not knowable at greeting time, so there is
-/// nothing to gate the bytes on.
+/// session. Divergence is not knowable
+/// at greeting time, so there is nothing to gate the bytes on.
 #[derive(Clone)]
 pub struct Greeting {
     /// The sender's set version; equal versions end the session at the greeting.

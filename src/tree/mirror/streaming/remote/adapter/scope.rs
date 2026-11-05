@@ -125,8 +125,12 @@ impl ReplyLevel {
 /// that listed it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scope {
+    /// The prefix of the node whose children the reply discusses.
     parent: ErasedPrefix,
+    /// The children the question listed, in radix order, or the one leaf a
+    /// terminal request asks for.
     children: Vec<RecordedChild>,
+    /// The replier's grandchild count of `parent`, which bounds the reply.
     bound: Grandchildren,
     /// How the reply pairs with `children`.
     pairing: Pairing,

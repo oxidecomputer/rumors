@@ -16,8 +16,9 @@
 //!
 //! # Recovering omitted scope
 //!
-//! A [`Scope`] is the durable part of one sent `Query`: its parent prefix and
-//! the listed child radices. `Match` and `Query` reactions consume those radices
+//! A [`Scope`] is the durable part of one sent `Query`: its parent prefix,
+//! the listed child radices with the counts their lister gave them, and the
+//! bound on the reply it awaits. `Match` and `Query` reactions consume those radices
 //! positionally; a nested `Query` thereby creates the lower scope which will
 //! interpret its future reply. A reply's one `Match` also names the later
 //! radices it covers, which take no reaction: each positional reaction

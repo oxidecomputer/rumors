@@ -5,23 +5,19 @@
 //! implementor roles recur through every layer below: *the walk* is the
 //! in-process participant, the protocol run directly over a backend's tree;
 //! *the proxy* is the wire-bound participant, the same protocol driven by
-//! frames on one connection. The layers, each separate for one reason:
+//! frames on one connection.
 //!
-//! - [`backend`]: materiality — what a node *is* and what holding one costs.
-//! - [`protocol`]: the type-level phase schedule every implementor advances
-//!   through.
-//! - [`materialized`]: the walk, and the home of the deadlock-freedom
-//!   argument.
-//! - [`remote`]: the proxy — codec, proxy state machine, adapter, and the
-//!   pipe that carries every logical stream.
-//! - [`ledger`]: how each endpoint admits its work against its byte budget.
-//! - [`message`]: the wire vocabulary, the greeting included.
-//! - [`erased`]: the height-erased seam both implementors run on — the
-//!   wire vocabulary's erased twin, its typed exits, and the dispatch
-//!   back into the height-typed backend surface.
-//! - [`convert`]: the leaf conversion boundary between backends.
-//! - [`driver`], [`channel`], [`tasks`]: plumbing — phase scheduling and
-//!   error routing, named bounded edges, task completion.
+//! Both implementors advance through one type-level phase schedule
+//! ([`protocol`]) over a backend's node handles ([`backend`]). The walk
+//! lives in [`materialized`], which also holds the deadlock-freedom
+//! argument; the proxy lives in [`remote`], with its codec, its state
+//! machine, its adapter, and the pipe that carries every logical stream
+//! over the connection. Each endpoint admits its work against its byte
+//! budget through its [`ledger`], which charges what each item holds to the
+//! place the item waits in. The implementors exchange the protocol's
+//! messages ([`message`], the greeting included) in a height-erased form
+//! ([`erased`]), which dispatches back into the height-typed backend. The
+//! remaining modules hold the supporting code these share.
 //!
 //! Start reading at [`materialized`]'s session-dataflow section, then
 //! [`remote`].

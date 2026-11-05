@@ -601,7 +601,7 @@ proptest! {
     /// so that content-identical messages produce distinct keys. (Effectual
     /// forgets advance the version too, pinned by
     /// `insert_then_delete_is_empty`; ineffectual ones do not, pinned by
-    /// `delete_absent_path_preserves_hash`.)
+    /// `delete_absent_version_preserves_hash`.)
     #[test]
     fn act_bumps_self_party_by_number_of_inserts(
         prior_inserts in 0usize..4,

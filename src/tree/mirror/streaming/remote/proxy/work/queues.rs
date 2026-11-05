@@ -1,11 +1,8 @@
 //! Channel constructors for the remote proxy's edges.
 //!
-//! Each edge keeps its height as its runtime [`QueueRole`] label.
-//!
-//! - [`local_questions`] holds the records of questions whose replies are in
-//!   flight.
-//! - [`parked_replies`] holds decoded chunks until their stage takes them.
-//! - [`next_scopes`] carries the scopes a taken reply's questions create.
+//! Each edge keeps its height as its runtime [`QueueRole`] label. Each
+//! constructor's documentation says what its edge carries, between which
+//! tasks, and why its capacity is what it is.
 
 use crate::tree::mirror::streaming::{
     FAN,

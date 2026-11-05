@@ -64,7 +64,7 @@ pub enum ReplyCorruption {
 }
 
 impl ReplyCorruption {
-    /// Every reply corruption, used by the connected-session exhaustive suite.
+    /// Every reply corruption, for suites that exhaust them.
     pub(crate) const ALL: &'static [Self] = &[
         Self::UnaskedReply,
         Self::UnansweredQuery,
@@ -125,7 +125,7 @@ pub enum GreetingLie {
 }
 
 impl GreetingLie {
-    /// Every greeting lie, used by the connected-session exhaustive suite.
+    /// Every greeting lie, for suites that exhaust them.
     pub(crate) const ALL: &'static [Self] = &[
         Self::ShrunkenSetLen,
         Self::UnderdeclaredSetLen,

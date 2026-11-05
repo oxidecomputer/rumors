@@ -1,15 +1,15 @@
 //! Wire-bound proxy for the streaming mirror.
 //!
-//! The submodule roles: [`codec`] owns the frame grammar; [`proxy`] the
-//! session state machine and its work loops; [`adapter`] scope retention
-//! and leaf reconstruction; [`pipe`] the multiplexing of every logical
-//! stream onto the session's one duplex byte stream.
+//! The proxy's state machine and work loops ([`proxy`]) speak the frame
+//! grammar ([`codec`]) through an adapter that retains question scopes and
+//! reconstructs supplied leaves ([`adapter`]), and every logical stream
+//! shares the session's one duplex byte stream through the pipe ([`pipe`]).
 //!
 //! The transport is one reliable, ordered duplex byte stream. Each
 //! direction carries the speaker's logical streams, one per level it
 //! answers at, up to [`STREAM_COUNT`] of them, their frames interleaved;
-//! the preamble, greeting, and closing items share the same stream before
-//! and after the frames.
+//! every item of the session's setup, before the frames, and of its closing
+//! exchange, after them, shares the same stream.
 //!
 //! [`codec`] defines the frame grammar. Every frame names its logical
 //! stream, which is how [`pipe`] routes it. The decoder also rejects signals
@@ -17,6 +17,8 @@
 //!
 //! Reply and stream ends are separate events. A reaction or bare `ReplyEnd`
 //! completes a reply; a later bare `StreamEnd` closes the logical stream.
+//! The pipe consumes that control instead of exposing it to the protocol
+//! adapter as an empty reply.
 //!
 //! A reply's first match carries the radixes of every later listed child
 //! that also matches, and those children take no frame of their own. Every
@@ -25,11 +27,10 @@
 //! of the reaction that reaches them: the encoder, the decoder, and the
 //! take here, through the one cursor [`adapter`] gives them, and the walk's
 //! resolver over its own children.
-//! The pipe consumes that control instead of exposing it to the protocol
-//! adapter as an empty reply.
 //!
-//! An empty query occupies its signal alone; a nonempty query encodes its
-//! child count minus one, covering every possible nonempty radix fan.
+//! An empty query occupies its signal alone; a nonempty query's body is its
+//! listing, one entry per child it lists, each carrying the child's digest
+//! and its grandchild count less one ([`codec`] gives the grammar).
 //!
 //! Supplied leaves ship in *runs*: one exact-length-delimited body carrying
 //! one or more leaf records, each itself exact-length-delimited — a CBOR

@@ -1,7 +1,8 @@
 //! Measurements from a completed synchronization session.
 //!
-//! [`SessionStats`] reports latency, changes to the rumor set, and network
-//! traffic while joining, gossiping, or leaving a network.
+//! [`SessionStats`] reports latency, changes to the rumor set, and the
+//! traffic of the session's data frames while joining, gossiping, or leaving
+//! a network; the items before and after those frames are not counted.
 //! It is returned on [`Gossiped`](crate::Gossiped) and sent to
 //! [`SessionObserver::finished`](crate::observe::SessionObserver::finished).
 //! Each peer measures its own side, and collection adds no protocol traffic.
@@ -102,18 +103,29 @@ pub struct SessionStats {
 /// tasks have completed.
 #[derive(Debug, Clone, Default)]
 pub struct Recorder {
+    /// The counters every clone of this recorder adds to.
     inner: Arc<Counters>,
 }
 
+/// One session's running counts, one per counted field of
+/// [`SessionStats`], which [`Recorder::snapshot`] copies out.
 #[derive(Debug, Default)]
 struct Counters {
+    /// The count behind [`SessionStats::disputed_scopes`].
     disputed_scopes: AtomicU64,
+    /// The count behind [`SessionStats::messages_gained`].
     messages_gained: AtomicU64,
+    /// The count behind [`SessionStats::messages_shed`].
     messages_shed: AtomicU64,
+    /// The count behind [`SessionStats::bytes_sent`].
     bytes_sent: AtomicU64,
+    /// The count behind [`SessionStats::bytes_received`].
     bytes_received: AtomicU64,
+    /// The count behind [`SessionStats::frames_sent`].
     frames_sent: AtomicU64,
+    /// The count behind [`SessionStats::frames_received`].
     frames_received: AtomicU64,
+    /// The count behind [`SessionStats::budget_waits`].
     budget_waits: AtomicU64,
 }
 
