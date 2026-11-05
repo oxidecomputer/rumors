@@ -23,6 +23,9 @@ mod queues;
 mod resolver;
 
 pub(crate) use charges::floor_allowance;
+/// Named for the ledger's documentation, which bounds a charge by it.
+#[cfg(doc)]
+pub(crate) use charges::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
 pub(crate) use charges::{Deliverable, parked_bytes, room_beyond};
@@ -82,6 +85,9 @@ where
     /// Construct a new work context with the session's stats recorder and
     /// the endpoint's ledger.
     pub fn new(backend: B, stats: Recorder, ledger: Ledger) -> Self {
+        // Every grant this walk asks the ledger for fits a charge's count,
+        // checked once per backend as the walk compiles.
+        const { charges::assert_grants_fit::<B::Erased, B::Error>() };
         let progress = Progress::new();
         Self {
             backend,

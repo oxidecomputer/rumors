@@ -27,7 +27,7 @@ use crate::{
             ErasedPrefix,
             hash::{Hash, MERKLE_HASH_LEN as TREE_HASH_LEN},
             height::{Height, Root},
-            untyped::{self, FAN_ENTRY_BYTES, NODE_ALLOCATION_BYTES, census, fan},
+            untyped::{self, census},
         },
     },
 };
@@ -413,7 +413,7 @@ pub fn ledger_scratch(holding: Holding) -> usize {
             <Local as Backend>::Error,
         >(holding);
     let greeting = match holding {
-        Holding::ExplodedNodes => NODE_ALLOCATION_BYTES + fan::heap_slots(FAN) * FAN_ENTRY_BYTES,
+        Holding::ExplodedNodes => untyped::MAX_EXPLOSION_BYTES,
         _ => 0,
     };
     streams + greeting

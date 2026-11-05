@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,7 +11,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use super::super::{Charge, Ledger};
-use super::{Admit, Unit};
+use super::{Admit, DEPTHS, SLOTS, Slot, Unit};
 use crate::tree::mirror::streaming::holding::Holding;
 
 /// Poll `admit` once, returning its grant if it has one.
@@ -24,6 +25,20 @@ fn poll(admit: &mut Admit) -> Option<Charge> {
 /// Either kind of unit, for generators.
 fn arb_unit() -> impl Strategy<Value = Unit> {
     prop_oneof![Just(Unit::Answer), Just(Unit::Question)]
+}
+
+/// Every kind and depth names its own floor slot, within the ledger's
+/// counts: no two slots share a count, so taking one never takes another.
+#[test]
+fn every_slot_has_its_own_index() {
+    let mut indices = BTreeSet::new();
+    for unit in [Unit::Answer, Unit::Question] {
+        for depth in 0..DEPTHS {
+            let index = Slot::new(unit, depth).index();
+            assert!(index < SLOTS, "{unit:?} at {depth} indexes past the counts");
+            assert!(indices.insert(index), "{unit:?} at {depth} shares an index");
+        }
+    }
 }
 
 /// A unit at a free floor slot takes it, and its bytes join the floor part,

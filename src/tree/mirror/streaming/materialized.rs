@@ -133,6 +133,9 @@ pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
 pub(crate) use work::floor_allowance;
+/// Named for the ledger's documentation, which bounds a charge by it.
+#[cfg(doc)]
+pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
 pub(crate) use work::{Deliverable, parked_bytes, room_beyond};

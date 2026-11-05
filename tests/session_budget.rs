@@ -1172,12 +1172,12 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// Admission fills each side's budget with work, and the floor slots hold
 /// one more unit per depth and kind beside it: each peak is the 8 MiB
 /// budget plus at most its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [9_945_080, 8_480_268];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [9_883_892, 8_472_176];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the budget filled with admitted work, beside the floor
 /// slots' grants, as at 8 MiB.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [34_588_284, 33_604_332];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [34_401_424, 33_624_160];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.
@@ -1185,7 +1185,7 @@ const WIDE_LEDGER_PEAKS: [usize; 2] = [34_588_284, 33_604_332];
 /// It asks one question, about the root, and the responder answers it with
 /// supplies alone, so neither side holds more than that one question and
 /// that one answer.
-const JOINING_LEDGER_PEAKS: [usize; 2] = [13_112, 12_584];
+const JOINING_LEDGER_PEAKS: [usize; 2] = [12_872, 12_504];
 
 /// Targets a session whose ledgers peak at exactly `expected`, the
 /// fixture's committed baseline.

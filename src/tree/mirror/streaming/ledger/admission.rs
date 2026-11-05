@@ -64,12 +64,11 @@
 //! taken while it carries anything.
 //!
 //! - **A slot carries a count of bytes, not particular charges.** A charge
-//!   knows the kind and depth of its unit, not which of their units it was
-//!   built out of, so what a slot carries is kept as a count. Each charge
-//!   of its kind and depth admitted against the budget returns its bytes to
-//!   that count first, as it drops ([`release`]), and the slot frees once
-//!   the count reaches zero: the budget has then had back as many bytes as
-//!   the slot took from it.
+//!   names its slot in a byte and has no room to name its unit, so what a
+//!   slot carries is kept as a count. Each charge of its kind and depth
+//!   admitted against the budget returns its bytes to that count first, as
+//!   it drops ([`release`]), and the slot frees once the count reaches zero:
+//!   the budget has then had back as many bytes as the slot took from it.
 //! - **The floor's sizing holds.** A slot carries only while no unit of its
 //!   own holds it, and at most the largest grant of its kind and depth, so
 //!   it holds at most one such grant at a time, as the bound above requires.
@@ -106,9 +105,10 @@
 //! # One lock for every decision
 //!
 //! Every value a decision reads lives in the queue's locked state
-//! ([`Slots`]): whether each slot is taken, the bytes the budget counts,
-//! what each kind and depth holds against the budget, and what each slot
-//! carries. Every change to them is made under the same lock: a charge is
+//! ([`Slots`]) or changes only under its lock: whether each slot is taken
+//! ([`Slot`]), the bytes the budget counts, what each kind and depth holds
+//! against the budget, and what each slot carries. Every change to them is
+//! made under the same lock: a charge is
 //! built there ([`decide`]), an item's shortfall joins there
 //! ([`shortfall`]), and a charge's drop returns its bytes, leaves its slot,
 //! and reconsiders the waiting units in one critical section ([`release`]).
@@ -161,12 +161,13 @@
 
 use std::cmp::Reverse;
 use std::future::Future;
+use std::num::NonZeroU8;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 
-use super::{Account, Charge};
+use super::{Account, Charge, widen};
 use crate::tree::mirror::streaming::holding::Holding;
 
 /// The depths a scope can sit at, the root's 0 through the leaves' 32,
@@ -174,7 +175,7 @@ use crate::tree::mirror::streaming::holding::Holding;
 pub(super) const DEPTHS: usize = 33;
 
 /// The floor slots of one ledger: one per kind of unit at each depth.
-const SLOTS: usize = 2 * DEPTHS;
+pub(super) const SLOTS: usize = 2 * DEPTHS;
 
 /// The two kinds of unit, each with its own floor slots.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -206,6 +207,9 @@ impl Unit {
 
 /// The units waiting for one ledger's admission, and the state of its
 /// floor slots and its budget, which every decision reads.
+///
+/// Its lock also orders the taking and freeing of floor slots: a slot's
+/// count of sharers moves to or from zero only under it ([`Slot`]).
 pub(super) struct Queue {
     /// The units waiting, in no particular order.
     waiting: Vec<Arc<Waiter>>,
@@ -217,7 +221,7 @@ pub(super) struct Queue {
 }
 
 impl Default for Queue {
-    /// Returns a queue with no unit waiting, every slot free, and nothing
+    /// Returns a queue with no unit waiting, no slot carrying, and nothing
     /// held against the budget.
     fn default() -> Self {
         Self {
@@ -225,7 +229,6 @@ impl Default for Queue {
             next: 0,
             slots: Slots {
                 normal: 0,
-                taken: [false; SLOTS],
                 budgeted: [0; SLOTS],
                 carried: [0; SLOTS],
                 largest: [0; SLOTS],
@@ -234,16 +237,17 @@ impl Default for Queue {
     }
 }
 
-/// The bytes the budget counts, and for each floor slot, whether it is
-/// taken, what units of its kind and depth hold against the budget, what
-/// the slot carries of it, and the most it may carry
-/// ([Carrying](self#carrying)).
+/// The bytes the budget counts, and for each floor slot's kind and depth,
+/// what its units hold against the budget, what the slot carries of it,
+/// and the most it may carry ([Carrying](self#carrying)).
 ///
 /// The per-slot counts are indexed by [`Slot::index`].
 ///
 /// It lives in the queue, so every change and every read holds the queue's
 /// lock: a function that changes it takes it, which only the lock reaches
-/// ([`Account::add`], [`Account::sub`], [`Account::carry`]).
+/// ([`Account::add`], [`Account::sub`]). [`Slot`]'s methods take it as
+/// proof of the lock where they test whether a slot is taken or move its
+/// count of sharers to or from zero.
 pub(super) struct Slots {
     /// Bytes held outside floor slots, neither through a slot's grant nor
     /// carried by a slot: what the budget counts, `L − F`, which the rule's
@@ -268,10 +272,6 @@ pub(super) struct Slots {
     /// So it counts the bytes of charges built and not yet dropped, less
     /// what slots carry of them.
     pub(super) normal: usize,
-    /// Whether each slot is taken: by a unit, until the last charge built
-    /// out of the unit's grant drops, or by its carry, until every carried
-    /// byte has returned.
-    taken: [bool; SLOTS],
     /// Bytes held by charges built out of grants admitted against the
     /// budget, by the kind and depth of their unit, the bytes floor slots
     /// carry for them included.
@@ -312,7 +312,7 @@ struct Waiter {
     /// The depth of the scope it concerns.
     depth: usize,
     /// The most its items can hold.
-    bytes: usize,
+    bytes: u32,
     /// Its order among the units its ledger queued, which breaks ties
     /// between waiting units at one depth.
     order: u64,
@@ -329,21 +329,32 @@ struct State {
     waker: Option<Waker>,
 }
 
-/// A floor slot: the one for its kind of unit at its depth.
+/// A floor slot, named by its kind and depth in one byte.
 ///
-/// Every charge built out of a floor grant holds its slot through one
-/// shared pointer, and each part split off such a charge holds another. So
-/// the pointer's count is the number of live charges sharing the slot, and
-/// the slot frees when the last of them is released, as the rule requires.
+/// Every charge built out of a floor grant names its slot, and a charge's
+/// size prices every item that carries one, so the name takes one byte and
+/// the slot's state lives in the ledger: a count of the live charges
+/// sharing it (the account's `sharing`). Admission takes a slot by raising
+/// its count from zero to one, for the grant; each part split off a charge
+/// adds one; each charge that drops, or is folded into another, takes one
+/// away once its bytes have returned. So a slot is taken exactly while its
+/// count is above zero, and frees when the last charge built out of its
+/// unit's grant is released, as the rule requires.
 ///
-/// Whether a slot is taken lives in the queue's locked state ([`Slots`])
-/// and changes only under the lock: only [`decide`] and [`carry`] take a
-/// slot, and a slot frees only in [`release`] or [`fold`], which take the
-/// last pointer to it ([`Arc::into_inner`]) under the lock. The one change
-/// to a slot's sharers made outside the lock is a split's, made through a
-/// charge that shares the slot before and after it. So while the lock is
-/// held, a slot is taken or free as the critical section's own steps leave
-/// it.
+/// A slot that carries bytes for units admitted against the budget
+/// ([Carrying](self#carrying)) counts its carry as its one sharer, which
+/// leaves once every carried byte has returned.
+///
+/// Every change that can move a count to or from zero is made under the
+/// queue's lock: only [`decide`] and [`carry`] take a slot
+/// ([`Slot::take`]), and every count falls in [`release`] or [`fold`]
+/// ([`Slot::leave`]). Each of these, and the test of whether a slot is
+/// taken ([`Slot::taken`]), takes the queue's [`Slots`], which only the lock
+/// reaches, so the compiler holds them to it. The one change made outside
+/// the lock is a split's rise ([`Slot::share`]), made through a charge that
+/// shares the slot before and after it. So while the lock is held, a slot is
+/// taken or free as the critical section's own steps leave it, and every
+/// count is one location, read and written on its own.
 ///
 /// A charge returns its bytes and leaves its slot in one critical section
 /// ([`release`]), which admits the waiting units before it ends
@@ -352,22 +363,72 @@ struct State {
 /// A unit queued after that section is decided under the lock as it queues
 /// ([`Admit::new`]), so no unit is left waiting at a free slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Slot {
-    /// The kind of unit the slot serves.
-    unit: Unit,
-    /// The depth of the scopes those units concern.
-    depth: usize,
-}
+pub(super) struct Slot(NonZeroU8);
+
+/// Every slot's index, and one more, fits the byte that names a slot.
+const _: () = assert!(SLOTS < u8::MAX as usize);
 
 impl Slot {
     /// The slot of `unit` kind at `depth`, which must be below [`DEPTHS`].
     fn new(unit: Unit, depth: usize) -> Self {
-        Self { unit, depth }
+        let index = u8::try_from(unit.row() * DEPTHS + depth).ok();
+        Self(
+            index
+                .and_then(|index| NonZeroU8::MIN.checked_add(index))
+                .expect("every slot's index, and one more, fits a byte"),
+        )
     }
 
-    /// The slot's index among the ledger's slots.
-    fn index(self) -> usize {
-        self.unit.row() * DEPTHS + self.depth
+    /// The slot's index among the ledger's [`SLOTS`].
+    pub(super) fn index(self) -> usize {
+        usize::from(self.0.get() - 1)
+    }
+
+    /// The kind of unit the slot serves and the depth of the scopes they
+    /// concern: inverse to [`Slot::new`].
+    fn serves(self) -> (Unit, usize) {
+        let unit = if self.index() < DEPTHS {
+            Unit::Answer
+        } else {
+            Unit::Question
+        };
+        (unit, self.index() % DEPTHS)
+    }
+
+    /// Whether this slot is taken: whether any charge shares it, or it
+    /// carries bytes.
+    ///
+    /// The caller holds the queue's lock, which `slots` proves, so the
+    /// answer stands until the caller's own critical section changes it.
+    fn taken(self, account: &Account, _slots: &Slots) -> bool {
+        account.sharing[self.index()].load(Ordering::Relaxed) != 0
+    }
+
+    /// Take this free slot, for a grant or a carry, as its one sharer.
+    ///
+    /// The caller holds the queue's lock, which `slots` proves, and has
+    /// found the slot free under it.
+    fn take(self, account: &Account, _slots: &Slots) {
+        account.sharing[self.index()].store(1, Ordering::Relaxed);
+    }
+
+    /// Count one more charge sharing this slot: a part split off a charge
+    /// that shares it already, and still does.
+    ///
+    /// The count rises from above zero, so this takes no lock: nothing that
+    /// tests or takes a slot under the lock reads a different answer.
+    pub(super) fn share(self, account: &Account) {
+        account.sharing[self.index()].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Count one fewer charge sharing this slot, one whose bytes have
+    /// returned, and return whether that freed the slot.
+    ///
+    /// The caller holds the queue's lock, which `slots` proves, and admits
+    /// the waiting units in the same critical section if this frees the
+    /// slot ([`admit_waiting`]).
+    fn leave(self, account: &Account, _slots: &Slots) -> bool {
+        account.sharing[self.index()].fetch_sub(1, Ordering::Relaxed) == 1
     }
 }
 
@@ -394,45 +455,39 @@ fn decide(
     budget_open: bool,
     unit: Unit,
     depth: usize,
-    bytes: usize,
+    bytes: u32,
 ) -> Option<Charge> {
     let slot = Slot::new(unit, depth);
     // 1. If the unit's floor slot is free, it takes the slot.
-    if !slots.taken[slot.index()] {
-        slots.taken[slot.index()] = true;
-        slots.admitted(slot, bytes);
+    if !slot.taken(account, slots) {
+        slot.take(account, slots);
+        slots.admitted(slot, widen(bytes));
         #[cfg(any(test, feature = "test-internals"))]
-        account.slot_peaks[unit.row()][depth].fetch_max(bytes, Ordering::Relaxed);
-        return Some(
-            Charge::granted(
-                account,
-                slots,
-                unit.place(),
-                bytes,
-                Some(Arc::new(slot)),
-                Some((unit, depth)),
-            )
-            .marked_as_grant(),
-        );
-    }
-    // 2. Otherwise it is admitted against the budget if no deeper unit
-    // waits and its grant fits beside what the ledger holds outside its
-    // floor slots, or it waits.
-    if !budget_open || slots.normal.saturating_add(bytes) > account.budget {
-        return None;
-    }
-    slots.admitted(slot, bytes);
-    Some(
-        Charge::granted(
+        account.slot_peaks[unit.row()][depth].fetch_max(widen(bytes), Ordering::Relaxed);
+        return Some(Charge::granted(
             account,
             slots,
             unit.place(),
             bytes,
-            None,
+            Some(slot),
             Some((unit, depth)),
-        )
-        .marked_as_grant(),
-    )
+        ));
+    }
+    // 2. Otherwise it is admitted against the budget if no deeper unit
+    // waits and its grant fits beside what the ledger holds outside its
+    // floor slots, or it waits.
+    if !budget_open || slots.normal.saturating_add(widen(bytes)) > account.budget {
+        return None;
+    }
+    slots.admitted(slot, widen(bytes));
+    Some(Charge::granted(
+        account,
+        slots,
+        unit.place(),
+        bytes,
+        None,
+        Some((unit, depth)),
+    ))
 }
 
 /// Admit every waiting unit the ledger now has room for, deepest first
@@ -463,18 +518,14 @@ pub(super) fn release(
     account: &Arc<Account>,
     place: Holding,
     bytes: usize,
-    slot: Option<Arc<Slot>>,
+    slot: Option<Slot>,
     unit: Option<(Unit, usize)>,
 ) {
     let mut queue = lock(&account.admission);
     let freed = match (slot, unit) {
         (Some(slot), unit) => {
             account.sub(&mut queue.slots, place, bytes, true, unit, 0);
-            let freed = Arc::into_inner(slot);
-            if let Some(slot) = freed {
-                queue.slots.taken[slot.index()] = false;
-            }
-            freed
+            slot.leave(account, &queue.slots).then_some(slot)
         }
         (None, Some((unit, depth))) => {
             let slot = Slot::new(unit, depth);
@@ -493,10 +544,12 @@ pub(super) fn release(
                 Some((unit, depth)),
                 returned,
             );
-            if emptied {
-                queue.slots.taken[slot.index()] = false;
-            }
-            emptied.then_some(slot)
+            let freed = emptied && slot.leave(account, &queue.slots);
+            debug_assert_eq!(
+                emptied, freed,
+                "a slot carrying bytes is shared by its carry alone"
+            );
+            freed.then_some(slot)
         }
         (None, None) => {
             account.sub(&mut queue.slots, place, bytes, false, None, 0);
@@ -506,16 +559,15 @@ pub(super) fn release(
     admit_waiting(account, queue, freed);
 }
 
-/// Leave `slot` for a charge folded into another charge that shares it,
-/// whose bytes stay held ([`Charge::absorb`]).
+/// Count one fewer charge sharing `slot`: one folded into another charge
+/// that shares it, whose bytes stay held ([`Charge::absorb`]).
 ///
-/// The slot frees only under the queue's lock, as every slot does
-/// ([`Slot`]). The charge folded into still shares the slot, so this cannot
-/// free it; were it to, admission would reconsider as a release does.
-pub(super) fn fold(account: &Arc<Account>, slot: Arc<Slot>) {
-    let mut queue = lock(&account.admission);
-    if let Some(slot) = Arc::into_inner(slot) {
-        queue.slots.taken[slot.index()] = false;
+/// The count falls under the queue's lock, as every count does ([`Slot`]).
+/// The charge folded into still shares the slot, so this cannot free it;
+/// were it to, admission would reconsider as a release does.
+pub(super) fn fold(account: &Arc<Account>, slot: Slot) {
+    let queue = lock(&account.admission);
+    if slot.leave(account, &queue.slots) {
         admit_waiting(account, queue, Some(slot));
     }
 }
@@ -545,7 +597,7 @@ pub(super) fn shortfall(
 /// ([`Ledger::charge`](super::Ledger::charge)), under the queue's lock, as
 /// the account takes every charge.
 #[cfg(test)]
-pub(super) fn charge(account: &Arc<Account>, place: Holding, bytes: usize) -> Charge {
+pub(super) fn charge(account: &Arc<Account>, place: Holding, bytes: u32) -> Charge {
     let mut queue = lock(&account.admission);
     Charge::granted(account, &mut queue.slots, place, bytes, None, None)
 }
@@ -592,10 +644,10 @@ pub(super) fn largest(account: &Account, unit: Unit, depth: usize) -> usize {
 /// lock takes a free slot, so the slot is still free here.
 fn carry(account: &Account, queue: &mut Queue, slot: Slot) {
     debug_assert!(
-        !queue.slots.taken[slot.index()],
+        !slot.taken(account, &queue.slots),
         "a slot freed in this critical section stays free until a step in it takes the slot",
     );
-    let Slot { unit, depth } = slot;
+    let (unit, depth) = slot.serves();
     if queue
         .waiting
         .iter()
@@ -610,7 +662,7 @@ fn carry(account: &Account, queue: &mut Queue, slot: Slot) {
     if bytes == 0 {
         return;
     }
-    queue.slots.taken[slot.index()] = true;
+    slot.take(account, &queue.slots);
     queue.slots.carried[slot.index()] = bytes;
     account.carry(&mut queue.slots, bytes, unit, depth);
 }
@@ -655,7 +707,7 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>, freed
     // Whether the freed slot is taken changes under this lock only by this
     // critical section's own steps, so a slot that reads free here is one
     // its carry and its waiters left free.
-    if let Some(slot) = freed.filter(|slot| !queue.slots.taken[slot.index()]) {
+    if let Some(slot) = freed.filter(|&slot| !slot.taken(account, &queue.slots)) {
         debug_assert!(
             queue.slots.budgeted[slot.index()] == 0,
             "a slot left free leaves nothing of its kind and depth held against the budget",
@@ -718,7 +770,7 @@ fn admitted(account: &Account, waiter: &Waiter, grant: &Charge, waited: bool) {
             ledger: std::ptr::from_ref(account) as usize,
             question: waiter.unit == Unit::Question,
             depth: waiter.depth,
-            bytes: waiter.bytes,
+            bytes: widen(waiter.bytes),
             floor: grant.is_floor(),
             waited,
             leftover: false,
@@ -761,7 +813,7 @@ pub(crate) struct Admit {
 impl Admit {
     /// Queue a unit of `unit` kind concerning a scope at `depth`, whose
     /// items take at most `bytes`, and admit what the ledger has room for.
-    pub(super) fn new(account: Arc<Account>, unit: Unit, depth: usize, bytes: usize) -> Self {
+    pub(super) fn new(account: Arc<Account>, unit: Unit, depth: usize, bytes: u32) -> Self {
         assert!(depth < DEPTHS, "a scope sits at most 32 bytes deep");
         let waiter = {
             let mut queue = lock(&account.admission);

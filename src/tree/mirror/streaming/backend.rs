@@ -270,7 +270,9 @@ pub trait ErasedNode {
     ///
     /// The session bounds the grant of every unit whose node it explodes by
     /// it, and so the most its floor slots can hold, which every memory
-    /// budget sets aside for them.
+    /// budget sets aside for them. A grant must fit the four bytes a ledger
+    /// charge counts in, so a backend whose bound would let a grant outgrow
+    /// them fails to compile.
     const MAX_EXPLOSION_BYTES: usize;
 }
 

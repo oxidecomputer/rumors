@@ -220,8 +220,10 @@ impl Grandchildren {
     }
 
     /// The count itself.
-    pub fn get(self) -> usize {
-        usize::from(self.0) + 1
+    pub const fn get(self) -> usize {
+        // Widening a `u16`, which `usize::from` does but constants cannot
+        // call.
+        self.0 as usize + 1
     }
 }
 

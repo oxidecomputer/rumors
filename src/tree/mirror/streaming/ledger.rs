@@ -99,23 +99,23 @@ impl ReplyBound {
     /// The bound on the reply to a question about a node at typed height
     /// `height` that lists `listed` of the asker's children, whose
     /// replier's grandchild count of the node is `grandchildren`.
-    pub(crate) fn of(height: usize, listed: usize, grandchildren: Grandchildren) -> Self {
+    pub(crate) const fn of(height: usize, listed: usize, grandchildren: Grandchildren) -> Self {
         let grandchildren = grandchildren.get();
         if height == 1 {
             // A leaf's parent: its children are leaves, so its questions
             // are empty and its listings carry nothing.
             Self {
-                reactions: (listed + grandchildren).min(FAN),
+                reactions: min(listed + grandchildren, FAN),
                 listing: 0,
             }
         } else if listed == 0 {
             Self {
-                reactions: grandchildren.min(FAN),
+                reactions: min(grandchildren, FAN),
                 listing: 0,
             }
         } else {
             Self {
-                reactions: (listed + grandchildren).min(FAN),
+                reactions: min(listed + grandchildren, FAN),
                 listing: grandchildren,
             }
         }
@@ -145,6 +145,18 @@ pub(crate) const fn shared<T>() -> usize {
 /// Bytes a vector's buffer holds: its capacity, in elements.
 pub(crate) fn buffer<T>(items: &Vec<T>) -> usize {
     items.capacity() * size_of::<T>()
+}
+
+/// The smaller of `a` and `b`, as [`Ord::min`] computes it, for the prices
+/// constants compute: constants cannot call `Ord`'s methods.
+pub(crate) const fn min(a: usize, b: usize) -> usize {
+    if a < b { a } else { b }
+}
+
+/// The larger of `a` and `b`, as [`Ord::max`] computes it, for the prices
+/// constants compute.
+pub(crate) const fn max(a: usize, b: usize) -> usize {
+    if a < b { b } else { a }
 }
 
 /// The places a ledger keeps an account for, in [`Holding::ALL`] order.
@@ -192,6 +204,13 @@ struct Account {
     short: AtomicU64,
     /// Units that waited for admission, over the ledger's life.
     waited: AtomicU64,
+    /// How many live charges share each floor slot, indexed by
+    /// [`Slot::index`](admission::Slot::index): a slot is taken exactly
+    /// while its count is above zero.
+    ///
+    /// A count moves to or from zero only under the admission queue's lock
+    /// ([`admission::Slot`]).
+    sharing: [AtomicUsize; admission::SLOTS],
     /// The largest grant each floor slot has admitted or carried, by kind
     /// and depth: each slot's `F`.
     #[cfg(any(test, feature = "test-internals"))]
@@ -241,7 +260,14 @@ impl Ledger {
     ///
     /// Panics if `depth` exceeds 32, the depth of a leaf: a programmer
     /// error, since every scope is a prefix of a 32-byte path.
+    ///
+    /// Panics if `bytes` exceeds `u32::MAX`: a programmer error, since no
+    /// unit's grant exceeds the walk's largest, which a constant assertion
+    /// beside the walk's construction keeps within `u32::MAX`
+    /// ([`largest_grant`](super::materialized::largest_grant)).
     pub(crate) fn admit(&self, unit: Unit, depth: usize, bytes: usize) -> Admit {
+        let bytes = u32::try_from(bytes)
+            .expect("a grant is at most the largest grant, which fits a charge's four bytes");
         Admit::new(self.account.clone(), unit, depth, bytes)
     }
 
@@ -249,6 +275,7 @@ impl Ledger {
     /// which returns them when it is dropped.
     #[cfg(test)]
     pub(crate) fn charge(&self, place: Holding, bytes: usize) -> Charge {
+        let bytes = u32::try_from(bytes).expect("a test charges fewer than 4 GiB");
         admission::charge(&self.account, place, bytes)
     }
 
@@ -324,6 +351,7 @@ impl Account {
             carried: AtomicUsize::new(0),
             short: AtomicU64::new(0),
             waited: AtomicU64::new(0),
+            sharing: std::array::from_fn(|_| AtomicUsize::new(0)),
             #[cfg(any(test, feature = "test-internals"))]
             slot_peaks: std::array::from_fn(|_| std::array::from_fn(|_| AtomicUsize::new(0))),
             budget,
@@ -431,65 +459,128 @@ impl Account {
 /// A charge with no ledger holds nothing: the [`Default`] charge, which
 /// items carry where no ledger accounts for them, such as in tests that
 /// build protocol values directly.
+///
+/// Every item carries its charges and is priced at its in-memory size,
+/// charges included, so a charge is kept to 16 bytes on 64-bit targets: its
+/// account's pointer, its bytes in four, its place, its floor slot, named in
+/// one byte by kind and depth, and the kind and depth of its unit in the
+/// two bytes of padding left.
 pub(crate) struct Charge {
     /// The account the bytes are charged to, if any.
     account: Option<Arc<Account>>,
+    /// The bytes charged.
+    ///
+    /// Every charge is a unit's grant or a part of one, and no grant
+    /// exceeds the walk's largest, which a constant assertion keeps within
+    /// `u32::MAX` ([`largest_grant`](super::materialized::largest_grant)).
+    /// The ledger's totals of what it holds, which sum many live charges,
+    /// are words; its cumulative counters, which grow over its life, are
+    /// `u64`s.
+    bytes: u32,
     /// The place the bytes are for.
     place: Holding,
-    /// The bytes charged.
-    bytes: usize,
     /// The floor slot the charge's unit took, if it was admitted through
-    /// one; the charge's bytes are then the ledger's floor part.
-    slot: Option<Arc<admission::Slot>>,
-    /// The kind of the unit this charge was built out of, and the depth of
-    /// the scope it concerns, if admission granted it.
+    /// one; the charge's bytes are then the ledger's floor part, and the
+    /// charge counts among the slot's sharers until it drops.
+    slot: Option<admission::Slot>,
+    /// The unit this charge was built out of, if admission granted it,
+    /// and whether it is that unit's grant itself, whose drop returns what
+    /// its unit did not use.
     ///
-    /// A floor slot carrying for that kind and depth counts the charge's
-    /// bytes against what it carries ([`admission`], "Carrying").
-    ///
-    /// The depth takes one byte, so the field fits in the padding beside
-    /// `place`, and a charge, which prices every item that carries it,
-    /// takes no more for it.
-    unit: Option<(Unit, u8)>,
-    /// Whether this charge is its unit's grant itself, rather than an item
-    /// built out of one: what it holds when it drops is what its unit did
-    /// not use, which the admission hook hears.
-    ///
-    /// Items are priced at their in-memory sizes, charges included, so this
-    /// field must not grow a charge: it fits in the padding beside `place`
-    /// and `unit`, which the assertion below the type keeps.
-    #[cfg(any(test, feature = "test-internals"))]
-    grant: bool,
+    /// This field must not grow a charge, since a charge prices every item
+    /// that carries it: it fits in the padding beside `place` and `slot`,
+    /// which the assertion below the type keeps.
+    origin: Option<Origin>,
 }
 
-/// A charge with the grant flag the test builds carry, and one without, are
-/// one size, so instrumenting grants changes no price the ledger charges.
-#[cfg(any(test, feature = "test-internals"))]
-const _: () = {
-    /// [`Charge`] as builds without `test-internals` lay it out.
-    #[expect(dead_code, reason = "a layout reference, measured and never built")]
-    struct Unflagged {
-        /// As [`Charge`]'s `account`.
-        account: Option<Arc<Account>>,
-        /// As [`Charge`]'s `place`.
-        place: Holding,
-        /// As [`Charge`]'s `bytes`.
-        bytes: usize,
-        /// As [`Charge`]'s `slot`.
-        slot: Option<Arc<admission::Slot>>,
-        /// As [`Charge`]'s `unit`.
-        unit: Option<(Unit, u8)>,
+/// The unit a charge was built out of.
+///
+/// A floor slot carrying for the unit's kind and depth counts the charge's
+/// bytes against what it carries ([`admission`], "Carrying"). In builds
+/// that observe ledgers, the admission hook also hears what a grant returns
+/// unused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Origin {
+    /// What the charge is to its unit.
+    role: Role,
+    /// The depth of the scope the unit concerns, at most 32.
+    depth: u8,
+}
+
+/// What a charge is to the unit it was built out of, by the unit's kind:
+/// one enumeration rather than a kind and a flag, so that an origin fits
+/// two bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Role {
+    /// An answer's grant.
+    AnswerGrant,
+    /// A question's grant.
+    QuestionGrant,
+    /// A part split off an answer's grant: an item built out of it, or a
+    /// part on its way back to the ledger.
+    AnswerPart,
+    /// A part split off a question's grant.
+    QuestionPart,
+}
+
+impl Origin {
+    /// The origin of the grant of a unit of `unit` kind at `depth`.
+    fn grant(unit: Unit, depth: usize) -> Self {
+        let role = match unit {
+            Unit::Answer => Role::AnswerGrant,
+            Unit::Question => Role::QuestionGrant,
+        };
+        let depth = u8::try_from(depth).expect("a scope sits at most 32 bytes deep");
+        Self { role, depth }
     }
-    assert!(
-        size_of::<Charge>() == size_of::<Unflagged>(),
-        "the grant flag must not change a charge's size, which prices every item",
-    );
-};
+
+    /// The origin of a part split off a charge of this origin.
+    fn part(self) -> Self {
+        let role = match self.role {
+            Role::AnswerGrant | Role::AnswerPart => Role::AnswerPart,
+            Role::QuestionGrant | Role::QuestionPart => Role::QuestionPart,
+        };
+        Self { role, ..self }
+    }
+
+    /// The unit's kind.
+    fn unit(self) -> Unit {
+        match self.role {
+            Role::AnswerGrant | Role::AnswerPart => Unit::Answer,
+            Role::QuestionGrant | Role::QuestionPart => Unit::Question,
+        }
+    }
+
+    /// The unit's kind and depth, if the charge is the unit's grant.
+    #[cfg(any(test, feature = "test-internals"))]
+    fn grant_of(self) -> Option<(Unit, usize)> {
+        matches!(self.role, Role::AnswerGrant | Role::QuestionGrant)
+            .then(|| (self.unit(), usize::from(self.depth)))
+    }
+}
+
+/// A charge takes 16 bytes on 64-bit targets, where the session-budget pins
+/// are measured, its unit's tag included: so the tag changes no price the
+/// ledger charges.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(
+    size_of::<Charge>() == 16,
+    "a charge prices every item that carries it, and must stay 16 bytes",
+);
+
+/// A charge's bytes widen losslessly into the ledger's word-sized totals.
+const _: () = assert!(size_of::<u32>() <= size_of::<usize>());
+
+/// A charge's `bytes` as the ledger's totals count them.
+fn widen(bytes: u32) -> usize {
+    // Lossless by the assertion above.
+    bytes as usize
+}
 
 impl Charge {
     /// The bytes this charge holds.
     pub(crate) fn bytes(&self) -> usize {
-        self.bytes
+        widen(self.bytes)
     }
 
     /// Whether this charge was built out of a floor grant.
@@ -502,50 +593,32 @@ impl Charge {
     /// if one is given, and as the grant of a unit of `unit` kind at its
     /// depth if one is given.
     ///
-    /// The caller holds the admission queue's lock, as `slots` proves
-    /// ([`Account::add`]).
+    /// A charge through `slot` must already be counted among the slot's
+    /// sharers. The caller holds the admission queue's lock, as `slots`
+    /// proves ([`Account::add`]).
     fn granted(
         account: &Arc<Account>,
         slots: &mut admission::Slots,
         place: Holding,
-        bytes: usize,
-        slot: Option<Arc<admission::Slot>>,
+        bytes: u32,
+        slot: Option<admission::Slot>,
         unit: Option<(Unit, usize)>,
     ) -> Charge {
-        account.add(slots, place, bytes, slot.is_some(), unit);
+        account.add(slots, place, widen(bytes), slot.is_some(), unit);
         Charge {
             account: Some(account.clone()),
             place,
             bytes,
             slot,
-            unit: unit.map(|(unit, depth)| {
-                let depth = u8::try_from(depth).expect("a scope sits at most 32 bytes deep");
-                (unit, depth)
-            }),
-            #[cfg(any(test, feature = "test-internals"))]
-            grant: false,
+            origin: unit.map(|(unit, depth)| Origin::grant(unit, depth)),
         }
-    }
-
-    /// Mark this charge as its unit's grant, so the admission hook hears
-    /// what it returns unused.
-    #[cfg(any(test, feature = "test-internals"))]
-    fn marked_as_grant(mut self) -> Self {
-        self.grant = true;
-        self
-    }
-
-    /// Mark this charge as its unit's grant: nothing outside test builds.
-    #[cfg(not(any(test, feature = "test-internals")))]
-    #[inline(always)]
-    fn marked_as_grant(self) -> Self {
-        self
     }
 
     /// The kind and depth of the unit this charge was built out of, if
     /// admission granted it.
     fn unit(&self) -> Option<(Unit, usize)> {
-        self.unit.map(|(unit, depth)| (unit, usize::from(depth)))
+        self.origin
+            .map(|origin| (origin.unit(), usize::from(origin.depth)))
     }
 
     /// Move `bytes` of this charge, at most all of it, into a charge of its
@@ -553,20 +626,21 @@ impl Charge {
     ///
     /// The part shares this charge's floor slot, if any.
     pub(crate) fn split(&mut self, place: Holding, bytes: usize) -> Charge {
-        let bytes = bytes.min(self.bytes);
+        let bytes = u32::try_from(bytes).map_or(self.bytes, |bytes| bytes.min(self.bytes));
         let Some(account) = &self.account else {
             return Charge::default();
         };
-        account.shift(self.place, place, bytes);
+        if let Some(slot) = self.slot {
+            slot.share(account);
+        }
+        account.shift(self.place, place, widen(bytes));
         self.bytes -= bytes;
         Charge {
             account: Some(account.clone()),
             place,
             bytes,
-            slot: self.slot.clone(),
-            unit: self.unit,
-            #[cfg(any(test, feature = "test-internals"))]
-            grant: false,
+            slot: self.slot,
+            origin: self.origin.map(Origin::part),
         }
     }
 
@@ -574,29 +648,44 @@ impl Charge {
     ///
     /// A grant bounds what its unit builds, so it always has the bytes; if
     /// it falls short, the item is still charged in full, through the
-    /// grant's slot if any, and the shortfall is counted for tests to
-    /// report. The shortfall joins the ledger under the admission queue's
-    /// lock, as every byte admitted against the budget does
-    /// ([`admission::shortfall`]). A grant on no ledger builds charges on
-    /// none.
+    /// grant's slot if any, and the shortfall is counted for the
+    /// session-budget suite to report. The shortfall joins the ledger under
+    /// the admission queue's lock, as every byte admitted against the budget
+    /// does ([`admission::shortfall`]). A grant on no ledger builds charges
+    /// on none.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bytes` exceeds `u32::MAX`: a programmer error, since
+    /// every item is priced within the grant of its unit, and no grant
+    /// exceeds the walk's largest, which fits a charge's four bytes.
     pub(crate) fn take(&mut self, place: Holding, bytes: usize) -> Charge {
         let mut taken = self.split(place, bytes);
         let Some(account) = &self.account else {
             return taken;
         };
-        let short = bytes - taken.bytes;
+        let short = bytes - taken.bytes();
         if short > 0 {
+            let whole = u32::try_from(bytes).expect(
+                "an item is priced within its unit's grant, which fits a charge's four bytes",
+            );
             account
                 .short
                 .fetch_add(counter::widen(short), Ordering::Relaxed);
             admission::shortfall(account, place, short, taken.slot.is_some(), taken.unit());
-            taken.bytes += short;
+            taken.bytes = whole;
         }
         taken
     }
 
     /// Fold `other` into this charge, which must be for the same ledger,
     /// place, and floor slot, or hold nothing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the two hold more than `u32::MAX` together: a programmer
+    /// error, since a charge absorbs only other parts of its own unit's
+    /// grant, which together hold no more than the grant.
     pub(crate) fn absorb(&mut self, mut other: Charge) {
         if other.account.is_none() {
             return;
@@ -614,16 +703,15 @@ impl Charge {
             "a charge absorbs only charges of its own ledger and place",
         );
         debug_assert!(
-            match (&self.slot, &other.slot) {
-                (Some(ours), Some(theirs)) => Arc::ptr_eq(ours, theirs),
-                (None, None) => true,
-                _ => false,
-            },
+            self.slot == other.slot,
             "a charge absorbs only charges of its own floor slot, or of none as it is",
         );
-        self.bytes += other.bytes;
+        self.bytes = self
+            .bytes
+            .checked_add(other.bytes)
+            .expect("parts of one grant hold no more than the grant, which fits four bytes");
         other.account = None;
-        if let Some(slot) = other.slot.take() {
+        if let Some(slot) = other.slot {
             // The folded charge shares the slot no longer.
             admission::fold(self.account.as_ref().expect("checked above"), slot);
         }
@@ -639,9 +727,7 @@ impl Default for Charge {
             place: Holding::Questions,
             bytes: 0,
             slot: None,
-            unit: None,
-            #[cfg(any(test, feature = "test-internals"))]
-            grant: false,
+            origin: None,
         }
     }
 }
@@ -664,14 +750,12 @@ impl Drop for Charge {
         let Some(account) = self.account.take() else {
             return;
         };
-        let unit = self.unit();
+        let bytes = widen(self.bytes);
         #[cfg(any(test, feature = "test-internals"))]
-        if self.grant
-            && let Some((kind, depth)) = unit
-        {
-            admission::settled(&account, kind, depth, self.bytes, self.slot.is_some());
+        if let Some((unit, depth)) = self.origin.and_then(Origin::grant_of) {
+            admission::settled(&account, unit, depth, bytes, self.slot.is_some());
         }
-        admission::release(&account, self.place, self.bytes, self.slot.take(), unit);
+        admission::release(&account, self.place, bytes, self.slot, self.unit());
     }
 }
 
