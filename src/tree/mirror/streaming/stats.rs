@@ -78,6 +78,18 @@ pub struct SessionStats {
     /// This is the incoming counterpart to [`frames_sent`](Self::frames_sent),
     /// including the logical streams' end markers.
     pub frames_received: u64,
+    /// Questions and answers this peer held back until its
+    /// [memory budget](crate::Peer::sync_memory_budget) had room for them.
+    ///
+    /// This shows whether the budget limited the session's pipelining. At
+    /// zero, the session kept in flight everything it was ready to send,
+    /// and ran as it would have with an unlimited budget. Above zero, each
+    /// count is a question or answer that waited for earlier work to free
+    /// memory before the session built it. At a budget of zero, a session
+    /// that compares more than one part of the sets at a level reports
+    /// waits by declaration. Each peer counts against its own budget, so
+    /// the two sides of a session report their own numbers.
+    pub budget_waits: u64,
 }
 
 /// The write side of one session's [`SessionStats`]: cheaply cloneable,
@@ -102,6 +114,7 @@ struct Counters {
     bytes_received: AtomicU64,
     frames_sent: AtomicU64,
     frames_received: AtomicU64,
+    budget_waits: AtomicU64,
 }
 
 impl Recorder {
@@ -135,6 +148,12 @@ impl Recorder {
         self.inner.frames_received.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Count `units` the walk's ledger held back for budget; see
+    /// [`SessionStats::budget_waits`] for the definition.
+    pub fn held_back(&self, units: u64) {
+        self.inner.budget_waits.fetch_add(units, Ordering::Relaxed);
+    }
+
     /// Read the counters into the session's [`SessionStats`].
     pub fn snapshot(&self) -> SessionStats {
         SessionStats {
@@ -146,6 +165,7 @@ impl Recorder {
             bytes_received: self.inner.bytes_received.load(Ordering::Relaxed),
             frames_sent: self.inner.frames_sent.load(Ordering::Relaxed),
             frames_received: self.inner.frames_received.load(Ordering::Relaxed),
+            budget_waits: self.inner.budget_waits.load(Ordering::Relaxed),
         }
     }
 }

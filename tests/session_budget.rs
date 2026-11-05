@@ -201,7 +201,9 @@
 //! An upper bound means something only where the budget constrains the
 //! session; on a session it never constrains, every bound would pass
 //! without judging the budget. So each test also checks that it does: some
-//! unit of the session's work waited for admission.
+//! unit of the session's work waited for admission. Each side's session
+//! report must count exactly the units its ledger counted waiting
+//! ([`SessionStats::budget_waits`]), the user's view of the same constraint.
 
 #[path = "session_budget/link.rs"]
 mod link;
@@ -974,6 +976,13 @@ fn violation(measured: &Measured) -> Option<String> {
             return Some(format!(
                 "{side:?} gained {} of {} messages: {report}",
                 stats.messages_gained, measured.messages,
+            ));
+        }
+        let waited = measured.run.ledgers[side.index()].waited;
+        if stats.budget_waits != waited {
+            return Some(format!(
+                "{side:?} reported {} budget waits where its ledger counted {waited}: {report}",
+                stats.budget_waits,
             ));
         }
         let lifetimes = measured.side(side);

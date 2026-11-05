@@ -693,9 +693,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// behavior of a zero budget, and still completes.
     ///
     /// More budget keeps more in flight, up to the point where nothing
-    /// waits; beyond it, more budget changes nothing. Most sessions come
-    /// nowhere near the budget: a session's need grows with how much of the
-    /// two sets differs, and is large only when two large replicas differ
+    /// waits; beyond it, more budget changes nothing. A session reports
+    /// what waited in
+    /// [`SessionStats::budget_waits`](crate::SessionStats::budget_waits),
+    /// zero when the budget did not limit it. Most sessions come nowhere
+    /// near the budget: a session's need grows with how much of the two
+    /// sets differs, and is large only when two large replicas differ
     /// throughout, as when a peer has fallen far behind on a large set or
     /// two peers accumulated many messages apart. A peer joining with an
     /// empty replica receives the set as a stream and needs little.

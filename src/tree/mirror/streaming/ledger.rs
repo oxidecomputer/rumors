@@ -281,6 +281,12 @@ impl Ledger {
         Admit::new(self.account.clone(), unit, depth, bytes)
     }
 
+    /// Units that have waited for admission, over the ledger's life: those
+    /// [`Admit`] did not admit as it queued them.
+    pub(crate) fn waited(&self) -> u64 {
+        self.account.waited.load(Ordering::Relaxed)
+    }
+
     /// Charge `bytes` for `place` outside admission, returning the charge,
     /// which returns them when it is dropped.
     #[cfg(test)]

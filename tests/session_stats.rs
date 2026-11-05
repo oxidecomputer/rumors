@@ -4,7 +4,9 @@
 //! both peers shedding messages in one session. Byte counts are checked against
 //! the frames captured on one reused connection.
 //! Point tests cover catch-up, one-sided redaction, no-op sessions, and the
-//! continuous gossip driver's results.
+//! continuous gossip driver's results. Budget waits are checked here at an
+//! unlimited budget, where none can occur, and against the ledger's own
+//! count in the session-budget suite, where the budget binds.
 
 use rumors_testkit::common;
 
@@ -13,10 +15,12 @@ use futures::StreamExt;
 use proptest::prelude::*;
 use rumors::{Led, Peer, Rumors, SessionStats};
 
+use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{CaptureEnd, capture_sides};
 use crate::common::oracle::readout;
 use crate::common::wire::{
-    assert_connection_drained, block_on, bootstrap_fork_async, gossip_pair_async,
+    assert_connection_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_budget_async,
+    gossip_pair_async,
 };
 use rumors::testing::MEMORY_CAPACITY;
 
@@ -219,6 +223,32 @@ proptest! {
             prop_assert_eq!(a.frames_sent, b.frames_received);
             prop_assert_eq!(b.frames_sent, a.frames_received);
         }
+    }
+
+    /// A session with an unlimited budget reports no budget waits on either
+    /// side: admission then has room for every question and answer as soon
+    /// as the session is ready to build it, whatever the two replicas hold.
+    ///
+    /// Both sides add independently drawn messages after the fork, so the
+    /// sessions range from converged through disputes at several levels.
+    #[test]
+    fn an_unlimited_budget_reports_no_waits(
+        shared in prop::collection::vec(any::<u64>(), 0..256),
+        a_sends in prop::collection::vec(any::<u64>(), 0..256),
+        b_sends in prop::collection::vec(any::<u64>(), 0..256),
+    ) {
+        block_on(async {
+            let unlimited = BudgetChoice::Bytes(usize::MAX);
+            let a = unlimited.apply(Peer::seed()).into_rumors();
+            a.send_all(shared).unwrap();
+            let b = bootstrap_fork_with_budget_async(&a, unlimited).await;
+            a.send_all(a_sends).unwrap();
+            b.send_all(b_sends).unwrap();
+            let (a_g, b_g) = gossip_pair_async(&a, &b).await;
+            prop_assert_eq!(a_g.stats.budget_waits, 0);
+            prop_assert_eq!(b_g.stats.budget_waits, 0);
+            Ok(())
+        })?;
     }
 
     /// Session gains and sheds count the exact message versions added and removed.

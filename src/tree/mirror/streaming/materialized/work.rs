@@ -153,12 +153,24 @@ where
             })));
     }
 
-    /// Drive every registered task and the terminal output to completion.
+    /// Drive every registered task and the terminal output to completion,
+    /// then credit the session's stats with the units its ledger made wait.
+    ///
+    /// Every unit the walk builds is admitted by one of the tasks, so once
+    /// they complete the ledger's count is the session's.
     pub async fn execute<O>(
         self,
         finish: BoxFuture<'static, Result<O, Error<B::Error>>>,
     ) -> Result<O, Error<B::Error>> {
-        complete(self.tasks, finish).await
+        let Self {
+            stats,
+            tasks,
+            ledger,
+            ..
+        } = self;
+        let output = complete(tasks, finish).await?;
+        stats.held_back(ledger.waited());
+        Ok(output)
     }
 }
 
