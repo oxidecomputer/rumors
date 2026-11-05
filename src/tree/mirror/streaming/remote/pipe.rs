@@ -662,8 +662,9 @@ impl Multiplexer {
     }
 }
 
-/// The capacity of the buffer the multiplexer writes frames into: eight
-/// full-fan query frames, about 64 KiB.
+/// The capacity of the buffer the multiplexer writes frames into: the
+/// largest whole number of full-fan query frames within rustls's 64 KiB
+/// send limit.
 ///
 /// Every transport pays per write: a TCP socket a system call, an
 /// unbuffered TLS stream a record and a system call. A session's frames
@@ -689,10 +690,13 @@ impl Multiplexer {
 ///   reaches the default target bypasses the buffer instead of being
 ///   copied.
 ///
-/// Eight is the largest whole number of full-fan query frames within the
-/// TLS bound. Nothing else depends on the buffer holding a whole number of
-/// them: any size between the first two bounds meets all three.
-pub(crate) const WRITE_BUFFER_BYTES: usize = 8 * FULL_FAN_QUERY_FRAME_LEN;
+/// The size follows the frame: it is as many whole full-fan query frames
+/// as fit within the TLS bound. That meets the second bound by
+/// construction, and the first whenever two such frames fit. Nothing else
+/// depends on the buffer holding a whole number of them: any size between
+/// the first two bounds meets all three.
+pub(crate) const WRITE_BUFFER_BYTES: usize =
+    TLS_SEND_LIMIT / FULL_FAN_QUERY_FRAME_LEN * FULL_FAN_QUERY_FRAME_LEN;
 
 /// The most plaintext rustls takes from one write while it has no encrypted
 /// records waiting to be sent: its default limit on queued outgoing records,
