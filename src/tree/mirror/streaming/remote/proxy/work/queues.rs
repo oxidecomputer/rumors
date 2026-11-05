@@ -2,47 +2,34 @@
 //!
 //! Each edge keeps its height as its runtime [`QueueRole`] label.
 //!
-//! - [`local_questions`] holds questions whose replies are in flight. Its
-//!   capacity can limit the whole descent even when the walk's queues are wider.
+//! - [`local_questions`] holds the records of questions whose replies are in
+//!   flight.
 //! - [`parked_replies`] holds decoded chunks until their stage takes them.
 //! - [`next_scopes`] carries the scopes a taken reply's questions create.
 
 use crate::tree::mirror::streaming::{
-    channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, WindowSender, channel},
+    channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, channel},
     remote::adapter::Scope,
-    stats::Recorder,
     window::FAN,
 };
 
 use super::Parked;
 use crate::tree::mirror::streaming::ledger::Charge;
 
-/// Carry asked-but-unanswered questions, window-wide, labeled at the
-/// questions' height.
+/// Carry the records of asked-but-unanswered questions to the decoder,
+/// labeled at the questions' height.
 ///
-/// This queue's occupancy tracks the questions in flight at this height:
-/// [`encode`](mod@super::encode) publishes each question once its complete
-/// reply is in the multiplexer's channel, and [`stages`](mod@super::stages)
-/// removes one per decoded wire reply, a full round trip later. Occupancy
-/// can undercount the questions in flight slightly: a batch still reaching
-/// the multiplexer has not been published yet, and the decoder holds one
-/// dequeued question while reading its reply. An upstream queue may
-/// recycle its slots while those replies remain outstanding, so it cannot
-/// bound this edge. Giving this queue the same depth-specific window preserves
-/// the session's population bound.
-///
-/// Sized by the window, so it counts its stalls with the walk's window
-/// queues.
-pub fn local_questions(
-    height: usize,
-    capacity: usize,
-    stats: &Recorder,
-) -> (WindowSender<(Scope, Charge)>, Receiver<(Scope, Charge)>) {
-    let (sender, receiver) = channel(
+/// [`encode`](mod@super::encode) publishes each record right after the
+/// frame carrying its question, often partway through a reply, and
+/// [`stages`](mod@super::stages) takes one per decoded wire reply, a round
+/// trip later. The queue is [`UNBOUNDED`], so publishing never stops an
+/// encoder before the rest of its reply reaches the peer; what it holds is
+/// already charged, each record on the endpoint's ledger as it publishes.
+pub fn local_questions(height: usize) -> (Sender<(Scope, Charge)>, Receiver<(Scope, Charge)>) {
+    channel(
         QueueRole::new(QueueKind::ProxyLocalQuestions, height),
-        capacity,
-    );
-    (WindowSender::new(sender, stats), receiver)
+        UNBOUNDED,
+    )
 }
 
 /// Hold decoded chunks of replies at `height` until their stage takes

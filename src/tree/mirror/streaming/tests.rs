@@ -41,7 +41,6 @@ mod dispute_before_supplies;
 mod faults;
 mod fixtures;
 mod local_eq;
-mod outstanding;
 mod pipe;
 mod skeleton;
 mod stats;

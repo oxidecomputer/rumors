@@ -8,7 +8,6 @@ use crate::tree::{
     mirror::streaming::{
         erased::Reply,
         materialized::{Query, Resolution},
-        window::Window,
     },
     typed::{ErasedPrefix, Prefix, height::Height},
 };
@@ -67,43 +66,18 @@ impl Progress {
         }
     }
 
-    /// Record an outgoing wire action before its internal twin.
+    /// Record an outgoing reply's wire action, at its first chunk, before
+    /// its internal twin.
     pub fn wire(self, _scope: ErasedPrefix) {
         #[cfg(test)]
         trace::record(self.work, _scope.as_bytes(), trace::Kind::Wire);
     }
 
-    /// Record the endpoint's resolved window before any of its work runs.
-    pub fn window(self, _window: &Window) {
+    /// Record the wire action of a later chunk of the scope's reply, before
+    /// the question it ends at.
+    pub fn chunk(self, _scope: ErasedPrefix) {
         #[cfg(test)]
-        trace::record(self.work, &[], trace::Kind::Window(Box::new(*_window)));
-    }
-
-    /// Record the questions an outgoing reply carries, with its wire action.
-    ///
-    /// `height` is the typed height of the children each question lists.
-    pub fn asked(self, _scope: ErasedPrefix, _height: usize, _questions: usize) {
-        #[cfg(test)]
-        trace::record(
-            self.work,
-            _scope.as_bytes(),
-            trace::Kind::Asked {
-                height: _height,
-                questions: _questions,
-            },
-        );
-    }
-
-    /// Record a stage taking the reply that answers its dequeued question.
-    ///
-    /// `height` is the typed height of the children the question listed.
-    pub(super) fn take(self, _height: usize, _question: &impl Scoped) {
-        #[cfg(test)]
-        trace::record(
-            self.work,
-            _question.scope(),
-            trace::Kind::Take { height: _height },
-        );
+        trace::record(self.work, _scope.as_bytes(), trace::Kind::Chunk);
     }
 
     /// Record the initiator's root query after its wire action.

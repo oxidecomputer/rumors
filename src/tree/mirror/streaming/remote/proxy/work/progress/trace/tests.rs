@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn accepts_complete_publication_order() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::WireReply { questions: 2 }, 0);
+        record(0, Kind::WireFrame { questions: 2 }, 0);
         record(0, Kind::LocalQuestion, 0);
         record(0, Kind::LocalQuestion, 0);
         record(0, Kind::TakenReply { scopes: 1 }, 0);
@@ -17,8 +17,8 @@ fn accepts_complete_publication_order() {
 #[test]
 fn accepts_interleaved_heights() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::WireReply { questions: 1 }, 2);
-        record(0, Kind::WireReply { questions: 0 }, 1);
+        record(0, Kind::WireFrame { questions: 1 }, 2);
+        record(0, Kind::WireFrame { questions: 0 }, 1);
         record(0, Kind::LocalQuestion, 2);
         record(0, Kind::TakenReply { scopes: 1 }, 1);
         record(0, Kind::TakenReply { scopes: 0 }, 2);
@@ -27,10 +27,10 @@ fn accepts_interleaved_heights() {
     trace.assert_valid();
 }
 
-/// A question cannot become internal state before its complete wire reply.
+/// A question cannot become internal state before the frame carrying it.
 #[test]
-#[should_panic(expected = "preceded its wire reply")]
-fn rejects_question_before_wire_reply() {
+#[should_panic(expected = "preceded its wire frame")]
+fn rejects_question_before_wire_frame() {
     let (_, trace) = with_trace(|| record(0, Kind::LocalQuestion, 0));
     trace.assert_valid();
 }
@@ -46,10 +46,10 @@ fn rejects_scope_before_taken_reply() {
 /// Consecutive wire replies cannot interleave their question batches.
 #[test]
 #[should_panic(expected = "overtook 1 prior questions")]
-fn rejects_next_wire_reply_before_questions() {
+fn rejects_next_wire_frame_before_questions() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::WireReply { questions: 1 }, 0);
-        record(0, Kind::WireReply { questions: 0 }, 0);
+        record(0, Kind::WireFrame { questions: 1 }, 0);
+        record(0, Kind::WireFrame { questions: 0 }, 0);
     });
     trace.assert_valid();
 }
@@ -77,12 +77,12 @@ fn empty_trace_fails_the_divergent_session_floor() {
 }
 
 /// The least a divergent session records meets the floor: the responder
-/// proxy's opening wire reply, its question, and its take of the answer,
+/// proxy's opening wire frame, its question, and its take of the answer,
 /// and the initiator proxy's greeting-seeded opening reply.
 #[test]
 fn minimal_divergent_session_meets_the_floor() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::WireReply { questions: 1 }, UnderRoot::HEIGHT);
+        record(0, Kind::WireFrame { questions: 1 }, UnderRoot::HEIGHT);
         record(0, Kind::LocalQuestion, UnderRoot::HEIGHT);
         record(1, Kind::TakenReply { scopes: 1 }, Root::HEIGHT);
         record(1, Kind::NextScope, Root::HEIGHT);
@@ -130,10 +130,10 @@ fn rejects_take_answering_the_other_endpoints_question() {
 #[test]
 fn accepts_terminal_answer_during_internal_scope_publication() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::WireReply { questions: 1 }, 1);
+        record(0, Kind::WireFrame { questions: 1 }, 1);
         record(0, Kind::LocalQuestion, 1);
         record(0, Kind::TakenReply { scopes: 1 }, 1);
-        record(0, Kind::WireReply { questions: 1 }, 0);
+        record(0, Kind::WireFrame { questions: 1 }, 0);
         record(0, Kind::LocalQuestion, 0);
         record(0, Kind::TakenReply { scopes: 0 }, 0);
         record(0, Kind::NextScope, 1);

@@ -1,8 +1,4 @@
 use super::{Event, Kind, Trace};
-use crate::tree::{
-    mirror::streaming::window::{FAN, Window},
-    typed::height::{Height, UnderRoot},
-};
 
 /// Build one trace event for the test endpoint.
 fn event(scope: &[u8], kind: Kind) -> Event {
@@ -73,9 +69,8 @@ fn rejects_sibling_resolution_before_dependent_work() {
 
 /// A wire may not depart while a resolved sibling still owes dependent work.
 ///
-/// Such a wire hands on another reply before the stage has recorded every
-/// question its sibling's reply carries, which voids the premise of the
-/// in-flight count ([`Trace::assert_outstanding_within_count`]).
+/// Such a wire hands on another scope's reply before the stage has sent
+/// down every question its sibling's reply carries.
 #[test]
 #[should_panic(expected = "departed while resolved sibling")]
 fn rejects_wire_while_sibling_owes_dependent_work() {
@@ -93,9 +88,9 @@ fn rejects_wire_while_sibling_owes_dependent_work() {
 /// earlier sibling resolves, so at wire time the earlier sibling owes
 /// nothing yet — only the completed trace reveals it was disputed. Without
 /// this arm the owes-work check alone would pass this order. When the
-/// earlier sibling owes work, the order hands on another reply before the
-/// stage has recorded the questions that sibling's reply carries, which
-/// voids the premise of the in-flight count, as in
+/// earlier sibling owes work, the order
+/// hands on another scope's reply before the stage has sent down the
+/// questions that sibling's reply carries, as in
 /// `rejects_wire_while_sibling_owes_dependent_work`.
 #[test]
 #[should_panic(expected = "preceded disputed sibling")]
@@ -188,71 +183,46 @@ fn rejects_out_of_order_dependent_work() {
     .assert_valid();
 }
 
-/// One question past the in-flight count fails the count check: at the floor
-/// window, `1 + FAN + 1` questions may be outstanding at an internal height,
-/// and one more may not.
+/// A chunked answer passes: its first chunk's wire, its resolution, its
+/// first question, and then each later chunk ahead of its own question.
 #[test]
-#[should_panic(expected = "over the count's bound of 258")]
-fn rejects_questions_past_the_count() {
+fn accepts_each_question_behind_its_chunk() {
     Trace(vec![
-        event(&[], Kind::Window(Box::new(Window::FLOOR))),
-        event(
-            &[1],
-            Kind::Asked {
-                height: 29,
-                questions: 2,
-            },
-        ),
-        event(
-            &[2],
-            Kind::Asked {
-                height: 29,
-                questions: FAN,
-            },
-        ),
-        event(
-            &[3],
-            Kind::Asked {
-                height: 29,
-                questions: 1,
-            },
-        ),
+        event(&[1], Kind::Wire),
+        event(&[1], Kind::Resolution { pending: 2 }),
+        event(&[1, 0], Kind::DependentWork),
+        event(&[1], Kind::Chunk),
+        event(&[1, 1], Kind::DependentWork),
     ])
-    .assert_outstanding_within_count();
+    .assert_valid();
 }
 
-/// The root level admits one outstanding question, whatever the window.
+/// A question may not go down ahead of the chunk carrying it: the peer
+/// must hold a question before this side waits on its answer.
 #[test]
-#[should_panic(expected = "over the count's bound of 1")]
-fn rejects_a_second_root_question() {
+#[should_panic(expected = "preceded the chunk carrying its question")]
+fn rejects_a_question_ahead_of_its_chunk() {
     Trace(vec![
-        event(&[], Kind::Window(Box::new(Window::uniform(FAN)))),
-        event(
-            &[],
-            Kind::Asked {
-                height: UnderRoot::HEIGHT,
-                questions: 2,
-            },
-        ),
+        event(&[1], Kind::Wire),
+        event(&[1], Kind::Resolution { pending: 2 }),
+        event(&[1, 0], Kind::DependentWork),
+        event(&[1, 1], Kind::DependentWork),
+        event(&[1], Kind::Chunk),
     ])
-    .assert_outstanding_within_count();
+    .assert_valid();
 }
 
-/// A take must answer an outstanding question at its height; one that does
-/// not means the meter's event boundaries are wrong.
+/// A reply's later chunk may not depart before the reply's resolution: a
+/// blocked chunk would then withhold the resolution its questions'
+/// answers need.
 #[test]
-#[should_panic(expected = "answered no outstanding question")]
-fn rejects_a_take_without_a_question() {
+#[should_panic(expected = "preceded its reply's resolution")]
+fn rejects_a_later_chunk_ahead_of_the_resolution() {
     Trace(vec![
-        event(&[], Kind::Window(Box::new(Window::FLOOR))),
-        event(
-            &[1],
-            Kind::Asked {
-                height: 29,
-                questions: 1,
-            },
-        ),
-        event(&[1, 0], Kind::Take { height: 28 }),
+        event(&[1], Kind::Wire),
+        event(&[1], Kind::Chunk),
+        event(&[1], Kind::Resolution { pending: 1 }),
+        event(&[1, 0], Kind::DependentWork),
     ])
-    .assert_outstanding_within_count();
+    .assert_valid();
 }

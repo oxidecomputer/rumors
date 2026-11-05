@@ -45,10 +45,23 @@ pub(super) fn reply<B>(ledger: &Ledger, reactions: Vec<Reaction<B::Erased>>) -> 
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    chunk::<B>(ledger, reactions, true)
+}
+
+/// `reactions` as one outgoing chunk, ending its reply if `last`, charged
+/// to `ledger` for what it holds.
+pub(super) fn chunk<B>(
+    ledger: &Ledger,
+    reactions: Vec<Reaction<B::Erased>>,
+    last: bool,
+) -> Reply<B::Erased>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
     let mut reply = Reply {
         reactions,
         charge: Charge::default(),
-        last: true,
+        last,
     };
     reply.charge = ledger.charge(Holding::OutgoingReplies, reply_bytes::<B>(&reply));
     reply

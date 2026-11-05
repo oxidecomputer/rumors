@@ -19,12 +19,13 @@ pub enum Stage {
 /// One progress-critical proxy publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
-    /// A complete outgoing reply is in the multiplexer's channel.
-    WireReply {
-        /// Questions published after its last frame.
+    /// An outgoing frame carrying questions is in the multiplexer's
+    /// channel.
+    WireFrame {
+        /// Questions published after the frame.
         questions: usize,
     },
-    /// One question is published after its reply's last frame reaches the
+    /// One question is published after the frame carrying it reaches the
     /// multiplexer.
     LocalQuestion,
     /// The walk takes an incoming answer's first chunk; its derived scopes
@@ -69,11 +70,11 @@ impl Trace {
         let mut scopes = BTreeMap::<(usize, Stage, usize), usize>::new();
         for (index, event) in self.0.iter().enumerate() {
             match event.kind {
-                Kind::WireReply { questions: count } => {
+                Kind::WireFrame { questions: count } => {
                     assert_drained(&questions, event, index, "questions");
                     questions.insert((event.work, event.stage, event.height), count);
                 }
-                Kind::LocalQuestion => consume(&mut questions, event, index, "wire reply"),
+                Kind::LocalQuestion => consume(&mut questions, event, index, "wire frame"),
                 Kind::TakenReply { scopes: count } | Kind::TakenChunk { scopes: count } => {
                     assert_drained(&scopes, event, index, "scopes");
                     scopes.insert((event.work, event.stage, event.height), count);
@@ -92,7 +93,7 @@ impl Trace {
     }
 
     /// Reject vacuous traces: a divergent session records one opening from
-    /// the greeting, one opening question, and at least one outgoing reply.
+    /// the greeting, one opening question, and at least one outgoing frame.
     pub fn assert_covers_divergent_session(&self) {
         let openings = self
             .0
@@ -119,8 +120,8 @@ impl Trace {
         assert!(
             self.0
                 .iter()
-                .any(|event| matches!(event.kind, Kind::WireReply { .. })),
-            "a divergent session records at least one wire reply, found none",
+                .any(|event| matches!(event.kind, Kind::WireFrame { .. })),
+            "a divergent session records at least one wire frame, found none",
         );
     }
 
@@ -162,7 +163,7 @@ impl Trace {
                          published question to answer ({published} published)",
                     );
                 }
-                Kind::WireReply { .. } | Kind::TakenChunk { .. } | Kind::NextScope => {}
+                Kind::WireFrame { .. } | Kind::TakenChunk { .. } | Kind::NextScope => {}
             }
         }
         for (key, published) in questions {

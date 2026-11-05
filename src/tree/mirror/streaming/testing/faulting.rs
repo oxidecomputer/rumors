@@ -267,6 +267,8 @@ where
             return;
         }
 
+        // Corrupt the first reply whole: its chunks join into one last
+        // chunk, so an injected reaction meets the reply's real end.
         let Some(item) = responses.next().await else {
             return;
         };
@@ -274,6 +276,18 @@ where
             yield item;
             return;
         };
+        while !reply.last {
+            let Some(item) = responses.next().await else {
+                return;
+            };
+            let Ok(chunk) = item else {
+                yield item;
+                return;
+            };
+            reply.reactions.extend(chunk.reactions);
+            reply.charge.absorb(chunk.charge);
+            reply.last = chunk.last;
+        }
 
         if matches!(
             corruption,

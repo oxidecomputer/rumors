@@ -634,16 +634,16 @@ fn instrumented_reconcile(
 /// own contract, which `channel::bounded`'s tests check directly
 /// (`try_send_is_full_exactly_at_capacity`), so it is not repeated here.
 ///
-/// The question queue takes the window's one slot, the scope queue a fan
-/// plus one, parking [`UNBOUNDED`], and each logical stream's lane to or
-/// from the pipe one slot.
+/// The record queue and parking are [`UNBOUNDED`], the scope queue holds a
+/// fan plus one, and each logical stream's lane to or from the pipe one
+/// slot.
 fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     for (role, stats) in report
         .roles()
         .filter(|(role, _)| QueueKind::PROXY.contains(&role.kind))
     {
         let expected = match role.kind {
-            QueueKind::ProxyLocalQuestions => 1,
+            QueueKind::ProxyLocalQuestions => UNBOUNDED,
             QueueKind::PipeOutgoing | QueueKind::PipeIncoming => 1,
             QueueKind::ProxyNextScopes => FAN + 1,
             QueueKind::ProxyResponses => UNBOUNDED,

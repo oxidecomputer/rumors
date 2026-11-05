@@ -613,12 +613,19 @@ fn deep_queues_use_the_wider_window() {
             };
             let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
             observed.assert_reach(31);
-            // The question queue is the window-governed edge; the scope
-            // queue holds a fan plus one whatever the window.
+            // The walk's question queues are the window-governed edges; the
+            // proxy's record queue is unbounded and its scope queue holds a
+            // fan plus one, whatever the window.
             let deep: Vec<_> = observed
                 .queues
                 .roles()
-                .filter(|(role, _)| role.height <= 4 && role.kind == QueueKind::ProxyLocalQuestions)
+                .filter(|(role, _)| {
+                    role.height <= 4
+                        && matches!(
+                            role.kind,
+                            QueueKind::InternalChildQueries | QueueKind::LeafRequests
+                        )
+                })
                 .collect();
             for (role, stats) in &deep {
                 assert_eq!(

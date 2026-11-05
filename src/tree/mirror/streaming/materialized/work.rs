@@ -80,7 +80,6 @@ where
     /// stats recorder.
     pub fn new(backend: B, window: Window, stats: Recorder, ledger: Ledger) -> Self {
         let progress = Progress::new();
-        progress.window(&window);
         Self {
             backend,
             window,
@@ -104,12 +103,6 @@ where
     /// Clone the stats recorder for one independently driven task.
     pub(super) fn stats(&self) -> Recorder {
         self.stats.clone()
-    }
-
-    /// The endpoint's progress recorder, for the terminal loop outside
-    /// this module.
-    pub(super) fn progress(&self) -> Progress {
-        self.progress
     }
 
     /// Drive a response stream independently and expose its replies at height `H`.

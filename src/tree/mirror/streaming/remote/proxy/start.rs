@@ -152,7 +152,6 @@ where
             read: self.read,
             write: self.write,
             remote_listing,
-            window: None,
             budget,
             ledger: Ledger::new(),
             stats: self.stats,

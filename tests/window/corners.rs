@@ -72,6 +72,10 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
+/// The most one-way hops the zero-budget catch-ups may take: the 58 the
+/// forward direction measures, the costlier of the two.
+const CATCH_UP_HOPS: u32 = 58;
+
 /// Serialized one-way hops one session spends on the wire, in exact
 /// virtual time.
 ///
@@ -85,25 +89,25 @@ fn hops(pair: (Rumors<u64>, Rumors<u64>)) -> u32 {
 }
 
 /// Asymmetric catch-up is priced by its disputes, not its size: a nearly
-/// empty replica pulling twenty thousand messages completes in ladder
-/// hops even at the zero-budget floor.
+/// empty replica pulling twenty thousand messages completes in a bounded
+/// count of round trips even at the zero-budget floor.
 ///
-/// It completes because the pair of exchanged
-/// sizes derives floor dispute windows *and* the session genuinely has
-/// almost nothing to dispute — the transfer is supply, which streams
-/// outside the window. This is the honesty of the pair-based choice: if
-/// catch-up ever became wave-bound, the smaller-corpus bound would be
-/// mispricing real sessions.
+/// Only the root child holding the shared message disputes; every other
+/// root child streams as a supply. Below that child, the nearly empty side
+/// requests each of the dozens of children it lacks, and at the floor each
+/// request leaves only as the one-slot question queue takes the last, so
+/// the requests cost a few dozen hops, the bound below, which this
+/// session measures exactly: compute takes no virtual time, so the count
+/// is a deterministic function of the session shape. It does not grow with
+/// the supplied messages, which stream as whole subtrees.
 #[test]
 fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
     let measured = hops(pair(0, 1, 20_000, 0));
     eprintln!("asymmetric catch-up at budget 0: {measured} hops");
-    // Only the branch containing the shared message needs descent; the rest
-    // streams as supplies. Allow several exchanges, but not one per message.
     assert!(
-        measured <= 12,
-        "a one-common-message catch-up must cost ladder hops, not waves: \
-         {measured} hops",
+        measured <= CATCH_UP_HOPS,
+        "a one-common-message catch-up must cost its requests' hops, not waves of \
+         messages: {measured} hops",
     );
     // The floor is the one exchange no transfer avoids: completion
     // depends on a reply to a delivered message, two causally chained
@@ -116,14 +120,14 @@ fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
 }
 
 /// The same catch-up serves in the other direction: the large side
-/// initiating against the small side derives the same pair, prices the
-/// same near-nothing, and stays ladder-bound.
+/// initiating against the small side requests nothing more, and stays
+/// within the same bound.
 #[test]
 fn asymmetric_catch_up_is_direction_independent() {
     let measured = hops(pair(0, 1, 0, 20_000));
     eprintln!("reverse asymmetric catch-up at budget 0: {measured} hops");
     assert!(
-        measured <= 12,
+        measured <= CATCH_UP_HOPS,
         "catch-up direction must not change the dispute price: {measured} hops",
     );
     assert!(

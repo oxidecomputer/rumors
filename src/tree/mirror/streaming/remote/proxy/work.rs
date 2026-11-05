@@ -34,7 +34,6 @@ use crate::{
             },
             stats::Recorder,
             tasks::complete,
-            window::Window,
         },
         typed::height::{Height, Z},
     },
@@ -95,10 +94,6 @@ where
 {
     /// Backend and validation state for incoming replies.
     ingress: Ingress<B>,
-    /// The session window, which sizes the proxy's question queues;
-    /// parking holds whatever arrives and the scope queues a fan plus one,
-    /// whatever the window.
-    window: Window,
     /// Byte budget for each outgoing supply run, also enforced on every
     /// incoming one.
     budget: RunBudget,
@@ -113,8 +108,7 @@ where
     physical: Physical<R, W>,
     /// Tasks driven concurrently when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
-    /// The session's stats recorder: the pipe's frame counts, and the
-    /// window stalls of the proxy's window-sized question queues.
+    /// The session's stats recorder: the pipe's frame counts.
     stats: Recorder,
     /// The session's observation handle, through which the pipe delivers
     /// each frame to its logical stream's observer.
@@ -145,12 +139,8 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     /// Begin accumulating work around an elected physical session.
-    // Each argument is one part of the elected session's state, handed over
-    // once; bundling them would only rename the arity.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ingress: Ingress<B>,
-        window: Window,
         budget: RunBudget,
         remote_listing: Vec<Listed>,
         ledger: Ledger,
@@ -160,7 +150,6 @@ where
     ) -> Self {
         Self {
             ingress,
-            window,
             budget,
             remote_listing,
             ledger,
@@ -308,7 +297,6 @@ where
     {
         let Self {
             ingress: _,
-            window: _,
             budget,
             remote_listing: _,
             ledger: _,

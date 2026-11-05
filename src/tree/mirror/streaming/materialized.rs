@@ -42,10 +42,14 @@
 //! therefore cannot withhold the wire action that lets the counterparty
 //! advance.
 //!
+//! An answer leaves in chunks, each ending at one question, and each
+//! question is built and sent down only after the chunk carrying it, so the
+//! peer holds every question this side waits on.
+//!
 //! The second is **resolution before dependent work**. For every disputed
 //! child, the walk publishes the [`Resolution`] containing its
-//! [`Resolve::Pending`] slots before it sends the child queries whose returns
-//! fill those slots. The responder does the same at the root. Before a parent
+//! [`Resolve::Pending`] slots, right after the answer's first chunk, before
+//! it sends the child queries whose returns fill those slots. The responder does the same at the root. Before a parent
 //! resolution is published, all of the descendant work needed to fulfill it
 //! has already been launched. Thus a blocked one-slot query sender has made its
 //! resolution available, while a blocked resolution sender is behind an older
@@ -123,7 +127,6 @@ pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
-use progress::Progress;
 use work::{LeafRequest, Resolver, Work};
 
 pub use error::{Error, Violation};
@@ -817,7 +820,6 @@ where
             self.queries,
             self.returns,
             stats,
-            self.work.progress(),
         );
         // Both operations must succeed. Either error cancels the other,
         // which may be waiting on a peer that cannot finish the session.
@@ -848,7 +850,6 @@ async fn absorb<B>(
     mut queries: Receiver<LeafRequest>,
     mut returns: Sender<Option<B::Erased>>,
     stats: Recorder,
-    progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -858,7 +859,6 @@ where
         let Some(mut chunk) = requests.next().await else {
             return violation(Violation::UnansweredQuery);
         };
-        progress.take(Z::HEIGHT, &prefix);
 
         // The request names one leaf: its scope is the parent, and the
         // radix it asks for is the path's last byte.

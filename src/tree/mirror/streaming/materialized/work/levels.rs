@@ -14,7 +14,8 @@ use before::Version;
 use futures::{Stream, StreamExt, future::BoxFuture};
 
 use super::{
-    LeafRequest, Work, answer,
+    LeafRequest, Work,
+    answer::{self, Part},
     assembly::assemble,
     charges,
     queues::*,
@@ -41,38 +42,63 @@ use crate::tree::{
     },
 };
 
-/// Publish one disputed scope in its progress-critical order.
+/// Publish one chunk of an answer in its progress-critical order.
 ///
-/// The yield must remain inside this macro so `async_stream` can lower it.
-/// Keeping the wire action, resolution, and dependent queries together also
-/// prevents their required publication order from drifting between walks.
-/// With the wire action, test builds record how many questions the reply
-/// carries and the typed height of the children they list, for the trace's
-/// in-flight count.
-macro_rules! yield_resolve_query {
+/// The caller walks the answer's [`Part`]s, building each part's question
+/// from its planned form only when the part is reached, so a chunk's built
+/// items are its own question's, and passes the built `(reaction, item)`
+/// pair here with the answer's resolution while it is still unpublished.
+/// The chunk's wire action comes first; then, after the first chunk alone,
+/// the resolution, whose pending slots the questions' returns fill; then
+/// the chunk's question. A blocked question sender has therefore handed on
+/// every earlier chunk whole and made the resolution available, and the
+/// reply's last chunk holds its last reaction.
+///
+/// The caller writes the yield, `chunk => yield chunk`, inside its own
+/// `async_stream` body, where the stream can lower it, and builds the
+/// question there too, so a build failure's `?` is lowered as well.
+macro_rules! yield_chunk {
     (
-        $progress:expr, $scope:expr;
-        $yielded:expr;
+        $progress:expr, $account:expr, $scope:expr;
+        $leading:expr, $question:expr, $last:expr;
+        $chunk:ident => $yielded:expr;
         $resolutions:expr => $resolution:expr;
-        $queries:expr => $next_queries:expr, at height $height:expr;
+        $queries:expr;
     ) => {{
         let scope = $scope;
-        let next_queries = $next_queries;
-        $progress.wire(scope);
-        $progress.asked(scope, $height, next_queries.len());
-        $yielded;
+        let mut leading = $leading;
+        let question = $question.map(|(reaction, question)| {
+            held_by(Holding::OutgoingReplies, || leading.push(reaction));
+            question
+        });
         let resolution = $resolution;
-        $progress.resolution(&resolution);
-        if $resolutions.send(resolution).await.is_err() {
-            return;
+        if resolution.is_some() {
+            $progress.wire(scope);
+        } else {
+            $progress.chunk(scope);
         }
-        for query in next_queries {
-            $progress.dependent(&query);
-            if $queries.send(query).await.is_err() {
+        let $chunk = charges::chunk::<B>(&$account, leading, $last);
+        $yielded;
+        if let Some(resolution) = resolution {
+            $progress.resolution(&resolution);
+            if $resolutions.send(resolution).await.is_err() {
+                return;
+            }
+        }
+        if let Some(question) = question {
+            $progress.dependent(&question);
+            if $queries.send(question).await.is_err() {
                 return;
             }
         }
     }};
+}
+
+/// Publish one whole-reply scope, which asks nothing, in its
+/// progress-critical order: its wire action, then its local resolution.
+///
+/// The yield must remain inside this macro so `async_stream` can lower it.
+macro_rules! yield_ready {
     (
         $progress:expr, $scope:expr;
         $yielded:expr;
@@ -131,7 +157,6 @@ where
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
             progress.wire(root_scope);
-            progress.asked(root_scope, UnderRoot::HEIGHT, 1);
             yield held_by(Holding::OutgoingReplies, || {
                 charges::reply::<B>(&account, vec![Reaction::Query(fan_listing(&fan))])
             });
@@ -229,27 +254,31 @@ where
                 return violation(Violation::UnfinishedReply)?;
             };
             let ours = fan;
-            let (reactions, next_queries, resolved) = answer::internal(
-                &backend,
+            let (mut chunks, resolved) =
+                answer::internal(&backend, &their_version, root_scope, ours, theirs, &stats)
+                    .await?
+                    .into_parts();
+            let mut unpublished = Some(charges::resolution(
                 &account,
-                &their_version,
                 root_scope,
-                ours,
-                theirs,
-                &stats,
-            )
-            .await?;
-            yield_resolve_query!(
-                progress, root_scope;
-                yield charges::reply::<B>(&account, reactions);
-                resolution => charges::resolution(
-                    &account,
-                    root_scope,
-                    resolved,
-                    account.charge(Holding::ExplodedNodes, copies),
+                resolved,
+                account.charge(Holding::ExplodedNodes, copies),
+            ));
+            while let Some(Part { leading, ask, last }) = chunks.next_part() {
+                let question = match ask {
+                    Some(question) => {
+                        Some(answer::question(&backend, &account, root_scope, question).await?)
+                    }
+                    None => None,
+                };
+                yield_chunk!(
+                    progress, account, root_scope;
+                    leading, question, last;
+                    chunk => yield chunk;
+                    resolution => unpublished.take();
+                    asked;
                 );
-                asked => next_queries, at height UnderUnderRoot::HEIGHT;
-            );
+            }
 
             if requests.next().await.is_some() {
                 return violation(Violation::UnaskedReply)?;
@@ -353,7 +382,6 @@ where
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let mut chunk = next_chunk(&mut requests).await?;
-                progress.take(asked_height + 2, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
@@ -384,7 +412,7 @@ where
                         });
                         let mut reply = charges::reply::<B>(&account, reactions);
                         reply.charge.absorb(account.charge(Holding::OutgoingReplies, copies));
-                        yield_resolve_query!(
+                        yield_ready!(
                             progress, child_prefix;
                             yield reply;
                             resolver.ready(radix, node);
@@ -394,27 +422,37 @@ where
 
                     let copies = node.explosion_bytes();
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
-                    let (reactions, next_queries, resolved) = answer::internal(
+                    let (mut chunks, resolved) = answer::internal(
                         &backend,
-                        &account,
                         &their_version,
                         child_prefix,
                         children,
                         listing,
                         &stats,
                     )
-                    .await?;
-                    yield_resolve_query!(
-                        progress, child_prefix;
-                        yield charges::reply::<B>(&account, reactions);
-                        lower => charges::resolution(
-                            &account,
-                            child_prefix,
-                            resolved,
-                            account.charge(Holding::ExplodedNodes, copies),
+                    .await?
+                    .into_parts();
+                    let mut unpublished = Some(charges::resolution(
+                        &account,
+                        child_prefix,
+                        resolved,
+                        account.charge(Holding::ExplodedNodes, copies),
+                    ));
+                    while let Some(Part { leading, ask, last }) = chunks.next_part() {
+                        let question = match ask {
+                            Some(question) => Some(
+                                answer::question(&backend, &account, child_prefix, question).await?,
+                            ),
+                            None => None,
+                        };
+                        yield_chunk!(
+                            progress, account, child_prefix;
+                            leading, question, last;
+                            chunk => yield chunk;
+                            lower => unpublished.take();
+                            asked;
                         );
-                        asked => next_queries, at height asked_height;
-                    );
+                    }
                     resolver.pending(radix);
                 }
 
@@ -488,7 +526,6 @@ where
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let mut chunk = next_chunk(&mut requests).await?;
-                progress.take(<S<Z>>::HEIGHT, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
@@ -519,7 +556,7 @@ where
                         });
                         let mut reply = charges::reply::<B>(&account, reactions);
                         reply.charge.absorb(account.charge(Holding::OutgoingReplies, copies));
-                        yield_resolve_query!(
+                        yield_ready!(
                             progress, child_prefix;
                             yield reply;
                             resolver.ready(radix, node);
@@ -529,25 +566,24 @@ where
 
                     let copies = node.explosion_bytes();
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
-                    let (reactions, next_queries, resolved) = answer::leaf_parent(
+                    let (mut chunks, resolved) =
+                        answer::leaf_parent(&their_version, leaves, listing, &stats).into_parts();
+                    let mut unpublished = Some(charges::resolution(
                         &account,
-                        &their_version,
                         child_prefix,
-                        leaves,
-                        listing,
-                        &stats,
-                    );
-                    yield_resolve_query!(
-                        progress, child_prefix;
-                        yield charges::reply::<B>(&account, reactions);
-                        lower => charges::resolution(
-                            &account,
-                            child_prefix,
-                            resolved,
-                            account.charge(Holding::ExplodedNodes, copies),
+                        resolved,
+                        account.charge(Holding::ExplodedNodes, copies),
+                    ));
+                    while let Some(Part { leading, ask, last }) = chunks.next_part() {
+                        let question = ask.map(|radix| answer::leaf_question(&account, child_prefix, radix));
+                        yield_chunk!(
+                            progress, account, child_prefix;
+                            leading, question, last;
+                            chunk => yield chunk;
+                            lower => unpublished.take();
+                            asked;
                         );
-                        asked => next_queries, at height Z::HEIGHT;
-                    );
+                    }
                     resolver.pending(radix);
                 }
 
@@ -611,7 +647,6 @@ where
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let mut chunk = next_chunk(&mut requests).await?;
-                progress.take(Z::HEIGHT, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
@@ -630,7 +665,7 @@ where
                     let (reactions, node) =
                         answer::leaf(&their_version, radix, node, listing, &stats)
                             .map_err(Error::Violation)?;
-                    yield_resolve_query!(
+                    yield_ready!(
                         progress, child_prefix;
                         yield charges::reply::<B>(&account, reactions);
                         resolver.ready(radix, node);

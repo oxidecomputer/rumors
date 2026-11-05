@@ -344,11 +344,7 @@ pub(super) fn decode(trace: &Trace) -> Decoded {
             EventKind::ParentResolution { pending } => unique(&mut parents, event, pending),
             EventKind::Ready => unique(&mut readies, event, 0),
             EventKind::DependentWork => unique(&mut dependents, event, 0),
-            EventKind::Wire
-            | EventKind::InitialQuery
-            | EventKind::Window(_)
-            | EventKind::Asked { .. }
-            | EventKind::Take { .. } => {}
+            EventKind::Wire | EventKind::Chunk | EventKind::InitialQuery => {}
         }
     }
 
@@ -628,8 +624,9 @@ pub(super) fn trace_channels(
             EventKind::DependentWork => (Channel::DependentWork, 0),
             EventKind::Ready => (Channel::Ready, 0),
             EventKind::ParentResolution { pending } => (Channel::ParentResolution, pending),
-            // The in-flight count's meter events belong to no channel.
-            EventKind::Window(_) | EventKind::Asked { .. } | EventKind::Take { .. } => continue,
+            // A reply's later chunks ride the channel its first chunk's wire
+            // action already entered.
+            EventKind::Chunk => continue,
         };
         channels
             .entry((event.work, kind, event.scope.len()))

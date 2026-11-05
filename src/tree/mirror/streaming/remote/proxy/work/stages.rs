@@ -12,17 +12,16 @@
 //!
 //! Three channels carry the dataflow:
 //!
-//! - local questions, published once their reply's last frame is in the
-//!   multiplexer's channel, flow into decoding, sized by the session
-//!   [`Window`](crate::tree::mirror::streaming::window::Window);
+//! - local questions, each published once the frame carrying it is in the
+//!   multiplexer's channel, flow into decoding through an unbounded queue;
 //! - decoded replies park, chunk by chunk as their reactions decode, until
 //!   their stage takes them, and parking never waits, so decoding never
 //!   waits on the walk;
 //! - at each take, the scopes the chunk's questions create flow into the
 //!   next phase, before the stage receives the chunk.
 //!
-//! A complete reply reaches the multiplexer before its local questions
-//! publish. Each edge's capacity rationale lives at its constructor in
+//! Each question's frame reaches the multiplexer before its record
+//! publishes. Each edge's capacity rationale lives at its constructor in
 //! [`queues`].
 
 use std::sync::Arc;
@@ -152,11 +151,7 @@ where
         requests: impl Requests<B, UnderRoot>,
     ) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
         let requests = requests.erase();
-        let (local_questions, questions) = queues::local_questions(
-            UnderRoot::HEIGHT,
-            self.window.capacity(UnderRoot::HEIGHT),
-            &self.stats,
-        );
+        let (local_questions, questions) = queues::local_questions(UnderRoot::HEIGHT);
         self.spawn(holding(
             Holding::Wire,
             encode::opening::<B>(
@@ -184,11 +179,7 @@ where
     {
         let requests = requests.erase();
         let outgoing = self.outgoing::<S<S<H>>>();
-        let (local_questions, questions) = queues::local_questions(
-            <S<H>>::HEIGHT,
-            self.window.capacity(<S<H>>::HEIGHT),
-            &self.stats,
-        );
+        let (local_questions, questions) = queues::local_questions(<S<H>>::HEIGHT);
         self.spawn(holding(
             Holding::Wire,
             encode::replies(
@@ -215,8 +206,7 @@ where
     ) -> (BoxResponses<B, Z, Error<B::Error>>, Receiver<Scope>) {
         let requests = requests.erase();
         let outgoing = self.outgoing::<S<Z>>();
-        let (local_questions, questions) =
-            queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT), &self.stats);
+        let (local_questions, questions) = queues::local_questions(Z::HEIGHT);
         self.spawn(holding(
             Holding::Wire,
             encode::replies(
@@ -278,8 +268,7 @@ where
     {
         let requests = requests.erase();
         let outgoing = self.outgoing::<Z>();
-        let (local_questions, questions) =
-            queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT), &self.stats);
+        let (local_questions, questions) = queues::local_questions(Z::HEIGHT);
         self.spawn(holding(
             Holding::Wire,
             encode::terminal(

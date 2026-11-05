@@ -1,11 +1,13 @@
 //! Outbound protocol replies rendered as wire replies, chunk by chunk.
 //!
-//! Questions are retained until every frame of their containing reply is in
-//! the multiplexer's channel. Publishing them any earlier could block the
-//! encoder before the reply's end reaches the remote peer, which must answer
-//! them. Publishing does not wait for the multiplexer to write the frames:
-//! the decoder that consumes a record waits for it only when a reply to it
-//! has arrived, by which time the encoder is past the reply's last frame.
+//! Each question's record publishes right after the frame carrying it is in
+//! the multiplexer's channel, so the decoder holds the record before the
+//! peer can answer, even while the rest of the reply waits for its chunks.
+//! Publishing never waits: the record queue is unbounded, so the encoder
+//! never stops partway through a reply on the decoder's account. Nor does it
+//! wait for the multiplexer to write the frames: the decoder that consumes a
+//! record waits for it only when a reply to it has arrived, by which time
+//! the encoder is past the frame carrying its question.
 //!
 //! Every encoder here consumes the erased vocabulary. The [`Work`](super::Work)
 //! method that spawns it erases and boxes its typed request stream, so each
@@ -19,8 +21,8 @@ use futures::{Stream, StreamExt};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::{Receiver, WindowSender},
-        holding::{Holding, held_by},
+        channel::{Receiver, Sender},
+        holding::Holding,
         ledger::{Charge, Ledger, queued, shared},
         message::Grandchildren,
         protocol::BoxRequests,
@@ -56,20 +58,22 @@ where
     // same choice; see the materialized module docs).
     while let Some(scope) = scopes.recv().await {
         let encoder = ReplyEncoder::leaf(backend.clone(), budget, scope);
-        let batch = write_reply(&mut outgoing, &mut requests, encoder).await?;
-        if let Some(questions) = &mut questions {
-            // Only replies which can ask questions participate in this trace.
-            // The initiator's final answers have no publication dependency.
-            progress.wire_reply(Z::HEIGHT, batch.len());
-            publish(questions, batch, progress, Z::HEIGHT).await;
-        } else if !batch.is_empty() {
-            return Err(Error::TerminalQuery);
-        }
+        // Only replies which can ask questions participate in the trace.
+        // The initiator's final answers have no publication dependency.
+        write_reply(
+            &mut outgoing,
+            &mut requests,
+            encoder,
+            questions.as_mut(),
+            progress,
+            Z::HEIGHT,
+        )
+        .await?;
     }
     finish(requests, outgoing).await
 }
 
-/// Encode non-leaf replies and publish each complete question batch.
+/// Encode non-leaf replies, publishing each question after its frame.
 ///
 /// `question_height` is the derived questions' height, one under the
 /// replies this encoder renders.
@@ -91,9 +95,15 @@ where
 {
     while let Some(scope) = scopes.recv().await {
         let encoder = ReplyEncoder::branch(backend.clone(), budget, scope);
-        let batch = write_reply(&mut outgoing, &mut requests, encoder).await?;
-        progress.wire_reply(question_height, batch.len());
-        publish(&mut questions, batch, progress, question_height).await;
+        write_reply(
+            &mut outgoing,
+            &mut requests,
+            encoder,
+            Some(&mut questions),
+            progress,
+            question_height,
+        )
+        .await?;
     }
     finish(requests, outgoing).await
 }
@@ -123,7 +133,7 @@ where
         }
     }
     let listing = opening_listing(reactions).map_err(Error::OpeningEncode)?;
-    progress.wire_reply(UnderRoot::HEIGHT, 1);
+    progress.wire_frame(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
     questions.publish(Scope::opening(&listing, responder)).await;
     if requests.next().await.is_some() {
@@ -133,37 +143,40 @@ where
 }
 
 /// Hand every frame of one reply, its chunks taken from `requests` up to
-/// the last, to the multiplexer through `encoder`, and retain the reply's
-/// questions.
+/// the last, to the multiplexer through `encoder`, publishing each
+/// question's record to `questions`, at `height`, right after its frame.
+///
+/// A reply that asks a question where `questions` is absent, the
+/// initiator's final answers, fails the session.
 async fn write_reply<B>(
     outgoing: &mut Outgoing,
     requests: &mut BoxRequests<B::Erased>,
     mut encoder: ReplyEncoder<B>,
-) -> Result<Vec<Scope>, Error<B::Error>>
+    mut questions: Option<&mut Records>,
+    progress: Progress,
+    height: usize,
+) -> Result<(), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let mut batch = Vec::new();
     loop {
         let chunk = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let last = chunk.last;
         let mut frames = encoder.chunk(chunk);
         while let Some(frame) = frames.next().await {
-            if let Some(question) = write_encoded(outgoing, frame?).await? {
-                held_by(Holding::QuestionRecords, || batch.push(question));
-            }
+            let Some(question) = write_encoded(outgoing, frame?).await? else {
+                continue;
+            };
+            let Some(questions) = questions.as_deref_mut() else {
+                return Err(Error::TerminalQuery);
+            };
+            progress.wire_frame(height, 1);
+            progress.local_question(height);
+            questions.publish(question).await;
         }
         if last {
-            return Ok(batch);
+            return Ok(());
         }
-    }
-}
-
-/// Publish one complete reply's questions in their wire order.
-async fn publish(questions: &mut Records, batch: Vec<Scope>, progress: Progress, height: usize) {
-    for question in batch {
-        progress.local_question(height);
-        questions.publish(question).await;
     }
 }
 
@@ -172,14 +185,14 @@ async fn publish(questions: &mut Records, batch: Vec<Scope>, progress: Progress,
 /// take has read it.
 pub struct Records {
     /// The decoder's queue of records.
-    sender: WindowSender<(Scope, Charge)>,
+    sender: Sender<(Scope, Charge)>,
     /// The endpoint's ledger.
     ledger: Ledger,
 }
 
 impl Records {
     /// Publish records through `sender`, charging them to `ledger`.
-    pub fn new(sender: WindowSender<(Scope, Charge)>, ledger: Ledger) -> Self {
+    pub fn new(sender: Sender<(Scope, Charge)>, ledger: Ledger) -> Self {
         Self { sender, ledger }
     }
 

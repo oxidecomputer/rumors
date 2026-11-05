@@ -39,9 +39,11 @@ fn session(
 /// every reply its questions invite still decodes and parks, and once the
 /// stage resumes the session converges.
 ///
-/// At the floor window the initiator's level-3 questions reach
-/// `K + FAN + 1` outstanding. Each reply parks as at least one chunk, so
-/// with the stage held parking reaches at least that many chunks.
+/// At the floor window the initiator asks level-3 questions until its
+/// one-slot question queue stops it: `K` questions in the queue, one taken
+/// by the stage that awaits its answer, and one whose chunk has left while
+/// its question waits for room. Each reply parks as at least one chunk, so
+/// with the stage held parking reaches at least `K + 2` chunks.
 #[test]
 fn every_invited_reply_parks_while_its_stage_is_held() {
     let (initiator, responder) = full_fan_behind_two_pair();
@@ -62,10 +64,11 @@ fn every_invited_reply_parks_while_its_stage_is_held() {
     let (left, right) = result.expect("the held session resumes and completes");
     assert_eq!(left, right, "both sides converge");
     assert_eq!(left, join_oracle(&initiator, &responder));
-    let invited = Window::FLOOR.capacity(LEVEL_3) + FAN + 1;
+    let invited = Window::FLOOR.capacity(LEVEL_3) + 2;
+    let parked = report.role(level_3).high_water;
     assert!(
-        report.role(level_3).high_water >= invited,
-        "every invited level-3 reply parked while the stage was held"
+        parked >= invited,
+        "every invited level-3 reply parked while the stage was held: {parked} of {invited}"
     );
 }
 

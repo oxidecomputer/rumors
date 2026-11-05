@@ -12,7 +12,7 @@ use std::convert::Infallible;
 use futures::stream;
 use proptest::prelude::*;
 
-use super::{Error, SupplyLedger, Violation, absorb, progress::Progress};
+use super::{Error, SupplyLedger, Violation, absorb};
 use crate::tree::mirror::streaming::channel::{QueueKind, QueueRole, channel, with_schedule};
 use crate::tree::mirror::streaming::erased::{Reaction, Reply};
 use crate::tree::mirror::streaming::stats::Recorder;
@@ -88,7 +88,6 @@ fn absorb_scripted(
         queries_rx,
         returns,
         Recorder::default(),
-        Progress::new(),
     ));
     let returned = pollster::block_on(async move { returns_rx.recv().await })
         .map(|leaf| leaf.map(<Local as Backend>::assume::<Z>));

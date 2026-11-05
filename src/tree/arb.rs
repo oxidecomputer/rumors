@@ -627,9 +627,8 @@ fn tree_of(versions: Vec<Version>) -> crate::tree::Root {
 /// are version hashes, at versions hinted from a search of each party's
 /// chain, so the pair crosses a real wire.
 ///
-/// At a one-slot window the initiator's level-3 questions reach the
-/// in-flight count exactly: one dequeued and awaiting its answer, one
-/// recorded, and the full fan handed on behind them.
+/// The initiator's second reply asks a full fan of questions, the most one
+/// reply can ask, behind the two its first reply asked.
 pub fn full_fan_behind_two_pair() -> (crate::tree::Root, crate::tree::Root) {
     const STALE: &str =
         "a full-fan hint is stale; `full_fan_hints_match_current_paths` finds a fresh one";

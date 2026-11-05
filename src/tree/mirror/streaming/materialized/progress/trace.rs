@@ -3,16 +3,15 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
-use crate::tree::{
-    mirror::streaming::window::{FAN, Window},
-    typed::height::{Height, UnderRoot},
-};
-
 /// The kind of one observable publication in a work graph.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
-    /// An outgoing wire action for a scope, recorded before its internal twin.
+    /// An outgoing reply's wire action for a scope, at its first chunk,
+    /// recorded before its internal twin.
     Wire,
+    /// The wire action of a later chunk of the scope's reply, recorded
+    /// before the question it ends at.
+    Chunk,
     /// The initiator's single root query.
     InitialQuery,
     /// An answerer-side scope resolution, with its `Pending` slot count.
@@ -29,23 +28,6 @@ pub enum Kind {
     ParentResolution {
         /// How many of the scope's children await lower stages.
         pending: usize,
-    },
-    /// The endpoint's resolved window, recorded before any of its work runs;
-    /// boxed because every other event is small.
-    Window(Box<Window>),
-    /// An outgoing reply's questions, recorded with the reply's wire action:
-    /// from here each is outstanding until its answer is taken.
-    Asked {
-        /// The typed height of the children each question lists.
-        height: usize,
-        /// How many questions the reply carries.
-        questions: usize,
-    },
-    /// A stage took the reply answering its dequeued question; the scope is
-    /// the question's.
-    Take {
-        /// The typed height of the children the question listed.
-        height: usize,
     },
 }
 
@@ -77,6 +59,9 @@ impl Trace {
     ///   consumes a prior wire action for its scope;
     /// - **resolution before dependent work**: dependent work follows its
     ///   scope's resolution, exactly `pending` items per resolution;
+    /// - **chunk before its question**: a reply's later chunks follow its
+    ///   resolution, and the k-th question a scope sends down follows the
+    ///   k-th chunk of its reply;
     /// - **lower resolutions before parent**: a parent resolution follows
     ///   the lower resolutions it counts;
     /// - **sibling contiguity**: a resolution may not arrive while an
@@ -92,9 +77,9 @@ impl Trace {
     ///   resolved child's dependent-work quota is unfilled.
     ///
     /// Sibling and wire contiguity keep a stage from handing on one scope's
-    /// work while it withholds work a resolved sibling still owes; wire
-    /// contiguity is also the premise of the in-flight count
-    /// ([`Self::assert_outstanding_within_count`]).
+    /// work while it withholds work a resolved sibling still owes. A scope's
+    /// own chunks may each depart while it owes dependent work: each chunk's
+    /// question follows it.
     /// Radix order preserves positional pairing because protocol items do not
     /// carry their scope keys. Parent-last placement keeps a parent summary
     /// behind everything its scope publishes.
@@ -105,77 +90,9 @@ impl Trace {
     /// deadlock; the [`remote::pipe`](crate::tree::mirror::streaming::remote::pipe)
     /// module docs give the argument that one shared pipe cannot deadlock the
     /// walk.
-    ///
-    /// It also checks the in-flight count ([`Self::assert_outstanding_within_count`]).
     pub fn assert_valid(&self) {
         self.assert_valid_with_wire_contiguity(true);
         self.assert_parent_last();
-        self.assert_outstanding_within_count();
-    }
-
-    /// Check at every event that each endpoint's outstanding questions at
-    /// each height stay within `K(h) + FAN + 1`, and within one at the root
-    /// level, where `K(h)` is that endpoint's own window.
-    ///
-    /// A question is outstanding from its reply's wire action until its
-    /// stage takes the answering reply. Every outstanding question is then
-    /// recorded in the question queue (at most `K(h)`), dequeued by the
-    /// consuming stage and awaiting its answer (at most one), or carried by
-    /// the asking stage's current reply and not yet recorded (at most
-    /// `FAN`). The last term rests on the premise that a stage records all
-    /// of one reply's questions before handing on another. Wire contiguity
-    /// in [`Self::assert_valid`] checks that premise among sibling scopes;
-    /// this check fails on any violation, sibling or not, that exceeds the
-    /// count. Parking sizes each level's queue of decoded replies by this
-    /// count.
-    pub fn assert_outstanding_within_count(&self) {
-        self.outstanding_high_water();
-    }
-
-    /// Return each endpoint's highest count of outstanding questions, keyed
-    /// by `(work, height)`, after checking the count at every event.
-    pub fn outstanding_high_water(&self) -> BTreeMap<(usize, usize), usize> {
-        let mut windows = BTreeMap::<usize, Window>::new();
-        let mut outstanding = BTreeMap::<(usize, usize), usize>::new();
-        let mut high_water = BTreeMap::<(usize, usize), usize>::new();
-        for (index, event) in self.0.iter().enumerate() {
-            let (height, count) = match event.kind {
-                Kind::Window(ref window) => {
-                    windows.insert(event.work, **window);
-                    continue;
-                }
-                Kind::Asked { height, questions } => {
-                    let count = outstanding.entry((event.work, height)).or_default();
-                    *count += questions;
-                    (height, *count)
-                }
-                Kind::Take { height } => {
-                    let count = outstanding.entry((event.work, height)).or_default();
-                    *count = count.checked_sub(1).unwrap_or_else(|| {
-                        panic!(
-                            "take {event:?} at trace index {index} answered no outstanding question"
-                        )
-                    });
-                    continue;
-                }
-                _ => continue,
-            };
-            let window = windows.get(&event.work).unwrap_or_else(|| {
-                panic!("questions {event:?} at trace index {index} precede their endpoint's window")
-            });
-            let bound = if height == UnderRoot::HEIGHT {
-                1
-            } else {
-                window.capacity(height) + FAN + 1
-            };
-            assert!(
-                count <= bound,
-                "{count} questions outstanding at height {height} after {event:?} at trace index {index}, over the count's bound of {bound}"
-            );
-            let high = high_water.entry((event.work, height)).or_default();
-            *high = (*high).max(count);
-        }
-        high_water
     }
 
     /// Check every invariant except wire contiguity.
@@ -268,6 +185,10 @@ impl Trace {
         }
 
         let mut wires = BTreeMap::<(usize, Vec<u8>), usize>::new();
+        // Each scope's chunks departed, and the questions its chunks carry
+        // that have entered dependent work: a question follows its chunk.
+        let mut departed = BTreeMap::<(usize, Vec<u8>), usize>::new();
+        let mut asked = BTreeMap::<(usize, Vec<u8>), usize>::new();
         let mut dependent = BTreeMap::<(usize, Vec<u8>), usize>::new();
         let mut lower = BTreeMap::<(usize, Vec<u8>), usize>::new();
         let mut wire_order = BTreeMap::<(usize, Vec<u8>), u8>::new();
@@ -281,11 +202,7 @@ impl Trace {
                 Kind::Resolution { .. } => in_radix_order(&mut resolution_order, event, index),
                 Kind::DependentWork => in_radix_order(&mut dependent_order, event, index),
                 Kind::ParentResolution { .. } => in_radix_order(&mut parent_order, event, index),
-                Kind::InitialQuery
-                | Kind::Ready
-                | Kind::Window(_)
-                | Kind::Asked { .. }
-                | Kind::Take { .. } => {}
+                Kind::InitialQuery | Kind::Ready | Kind::Chunk => {}
             }
 
             let key = (event.work, event.scope.clone());
@@ -319,7 +236,15 @@ impl Trace {
                             );
                         }
                     }
-                    *wires.entry(key).or_default() += 1
+                    *wires.entry(key.clone()).or_default() += 1;
+                    *departed.entry(key).or_default() += 1;
+                }
+                Kind::Chunk => {
+                    assert!(
+                        dependent.contains_key(&key),
+                        "chunk {event:?} at trace index {index} preceded its reply's resolution"
+                    );
+                    *departed.entry(key).or_default() += 1;
                 }
                 Kind::InitialQuery | Kind::Ready | Kind::Resolution { .. } => {
                     let available = wires.entry(key.clone()).or_default();
@@ -362,8 +287,14 @@ impl Trace {
                         "too much dependent work for its resolution at trace index {index}: {event:?}"
                     );
                     *available -= 1;
+                    let asked = asked.entry(key.clone()).or_default();
+                    *asked += 1;
+                    let departed = departed.get(&key).copied().unwrap_or(0);
+                    assert!(
+                        *asked <= departed,
+                        "dependent work {event:?} at trace index {index} preceded the chunk carrying its question"
+                    );
                 }
-                Kind::Window(_) | Kind::Asked { .. } | Kind::Take { .. } => {}
                 Kind::ParentResolution { pending } => {
                     let available = lower.entry(key).or_default();
                     assert!(
