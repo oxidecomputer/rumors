@@ -7,7 +7,8 @@
 //! `Err` and cancellation publish no partial reconciliation and leave the
 //! connection at an unknown position, to be discarded. Losing the final
 //! marker fails in [`rumors::error::Phase::Completion`], after local work
-//! has committed. The in-crate unit tests (`src/tests.rs`) pin the same
+//! has committed; a transport failure met during the walk fails the
+//! session before it commits anything. The in-crate unit tests (`src/tests.rs`) pin the same
 //! mechanisms at exact byte boundaries with forged peers; these are their
 //! integration-tier complements, driving whole sessions between real
 //! replicas.
@@ -24,14 +25,19 @@ use std::pin::{Pin, pin};
 use std::task::{Context, Poll, ready};
 
 use futures::task::noop_waker_ref;
+use proptest::arbitrary::any;
+use proptest::sample::Index;
+use rumors::error::Phase;
 use rumors::testing::{
-    COMPLETION_MARKER, IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide, wrap_io,
+    COMPLETION_MARKER, IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide, MEMORY_CAPACITY,
+    memory_connection, wrap_io,
 };
-use rumors::{Error, Rumors};
+use rumors::{Error, Rumors, Snapshot};
 use tokio::io::AsyncWrite;
 
+use crate::common::fault::{self, FaultPlan};
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip};
-use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::property::{FLEET_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
@@ -375,5 +381,310 @@ divided_proptest! {
             "B's replica must hold the reconciled content despite the Err"
         );
         assert_eq!(b.snapshot().len(), 2 * DIVERGENT_MESSAGES as usize);
+    }
+}
+
+/// One replica of a [`divergent_pair`], named by its place in the pair.
+#[derive(Clone, Copy, Debug)]
+enum Side {
+    /// The pair's seed replica.
+    A,
+    /// The replica bootstrapped from it.
+    B,
+}
+
+/// Which of a side's two directions a cut fails.
+#[derive(Clone, Copy, Debug)]
+enum Direction {
+    /// The side's reads.
+    Read,
+    /// The side's writes.
+    Write,
+}
+
+/// What a side's replica holds after a session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Holds {
+    /// Exactly what it held before the session.
+    Before,
+    /// Exactly the content a clean session reconciles.
+    Reconciled,
+}
+
+/// How a session ended on the side whose traffic was cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CutOutcome {
+    /// The phase of the transport failure that ended the session, or
+    /// `None` if it succeeded.
+    failed_in: Option<Phase>,
+    /// What the side's replica holds afterwards.
+    holds: Holds,
+}
+
+/// One side of a clean session: what it holds afterwards, and the bytes it
+/// moved in each direction.
+struct Clean {
+    /// The side's content after the session.
+    reconciled: Snapshot<u64>,
+    /// The bytes the side read.
+    read: usize,
+    /// The bytes the side wrote.
+    written: usize,
+}
+
+impl Clean {
+    /// The bytes the side moved in `direction`.
+    fn moved(&self, direction: Direction) -> usize {
+        match direction {
+            Direction::Read => self.read,
+            Direction::Write => self.written,
+        }
+    }
+}
+
+/// Run one clean session of a [`divergent_pair`], returning each side's
+/// content afterwards and the bytes it moved, in [`Side`] order.
+fn clean_session(network: NetworkSeed) -> [Clean; 2] {
+    let (a, b) = block_on(divergent_pair(network));
+    let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
+    let (a_end, a_meter) = fault::metered(a_end);
+    let (b_end, b_meter) = fault::metered(b_end);
+    let (a_out, b_out) = block_on(async {
+        tokio::join!(
+            a.gossip_once(a_end.read, a_end.write),
+            b.gossip_once(b_end.read, b_end.write),
+        )
+    });
+    a_out.expect("clean session A");
+    b_out.expect("clean session B");
+    [(a, a_meter), (b, b_meter)].map(|(replica, meter)| Clean {
+        reconciled: replica.snapshot(),
+        read: meter.read(),
+        written: meter.written(),
+    })
+}
+
+/// What `replica` holds after a session, against `before`, its content
+/// before the session, and `reconciled`, its content after a clean one.
+///
+/// # Panics
+///
+/// If it holds anything else: a session published part of its
+/// reconciliation. `context` names the session in the message.
+fn held(
+    replica: &Rumors<u64>,
+    before: &Snapshot<u64>,
+    reconciled: &Snapshot<u64>,
+    context: &str,
+) -> Holds {
+    let after = replica.snapshot();
+    if &after == before {
+        Holds::Before
+    } else {
+        assert_eq!(&after, reconciled, "{context} published part of a session");
+        Holds::Reconciled
+    }
+}
+
+/// Run one session of a [`divergent_pair`] in which `side`'s `direction`
+/// fails once the side has moved `cut` bytes that way, and say how it
+/// ended on that side, against `clean`, the pair's clean session.
+///
+/// The cut fires as soon as the side moves past `cut` bytes, whatever the
+/// peer does, so it lands at the same point of the side's own traffic
+/// however the peer's bytes are timed. The peer meets the cut as the
+/// side's departure, at a point its own progress decides, so its outcome
+/// is not reported; it must still hold all of the reconciliation or none
+/// of it.
+fn cut_session(
+    network: NetworkSeed,
+    side: Side,
+    direction: Direction,
+    cut: usize,
+    clean: &[Clean; 2],
+) -> CutOutcome {
+    let (a, b) = block_on(divergent_pair(network));
+    let (cut_side, other, [own, others]) = match side {
+        Side::A => (&a, &b, [&clean[0], &clean[1]]),
+        Side::B => (&b, &a, [&clean[1], &clean[0]]),
+    };
+    let (cut_before, other_before) = (cut_side.snapshot(), other.snapshot());
+    let plan = match direction {
+        Direction::Read => FaultPlan {
+            read_cut: Some(cut),
+            ..FaultPlan::NONE
+        },
+        Direction::Write => FaultPlan {
+            write_cut: Some(cut),
+            ..FaultPlan::NONE
+        },
+    };
+    let (cut_end, other_end) = memory_connection(MEMORY_CAPACITY);
+    let cut_end = fault::faulty(cut_end, plan);
+    // Each session owns its halves, so a side that fails drops them, and
+    // its peer meets the departure instead of waiting for more bytes.
+    let (outcome, _) = block_on(async {
+        tokio::join!(
+            async {
+                cut_side
+                    .gossip_once(cut_end.read, cut_end.write)
+                    .await
+                    .map(drop)
+            },
+            async {
+                other
+                    .gossip_once(other_end.read, other_end.write)
+                    .await
+                    .map(drop)
+            },
+        )
+    });
+    let context = format!("{side:?} with its {direction:?} cut after {cut} bytes");
+    held(
+        other,
+        &other_before,
+        &others.reconciled,
+        &format!("the peer of {context}"),
+    );
+    let holds = held(cut_side, &cut_before, &own.reconciled, &context);
+    let failed_in = match outcome {
+        Ok(()) => None,
+        Err(Error::Transport(error)) => Some(error.context.phase),
+        Err(error) => panic!("{context} failed with {error:?}"),
+    };
+    CutOutcome { failed_in, holds }
+}
+
+/// The outcome a cut withholding the last `withheld` of the bytes a clean
+/// session moves in `direction` leads to, for a cut no earlier than the
+/// last frame either way.
+///
+/// The side commits before its closing exchange, which writes its
+/// completion marker and then reads its peer's. A writer has written every
+/// frame of its walk before its marker, so a cut that withholds no more
+/// than the marker meets it after the commit. A reader learns that the
+/// peer's frames have ended only from the marker's first byte, so a cut
+/// that withholds the whole marker meets it during the walk.
+fn tail_outcome(direction: Direction, withheld: usize) -> CutOutcome {
+    let after_commit = match direction {
+        Direction::Read => withheld < COMPLETION_MARKER.len(),
+        Direction::Write => withheld <= COMPLETION_MARKER.len(),
+    };
+    let (failed_in, holds) = match withheld {
+        0 => (None, Holds::Reconciled),
+        _ if after_commit => (Some(Phase::Completion), Holds::Reconciled),
+        _ => (Some(Phase::Reconciliation), Holds::Before),
+    };
+    CutOutcome { failed_in, holds }
+}
+
+/// Cut each side's `direction` in turn, at every point from the end of a
+/// clean session's traffic that way to one byte into the last frame, and
+/// once at a point `anywhere` draws from the rest, asserting each
+/// outcome.
+///
+/// The tail cuts must end as [`tail_outcome`] says; the earlier cut must
+/// fail before [`Phase::Completion`], the side holding what it held
+/// before.
+fn sweep_cuts(network: NetworkSeed, direction: Direction, anywhere: Index) {
+    let clean = clean_session(network);
+    for (side, own) in [Side::A, Side::B].into_iter().zip(&clean) {
+        let moved = own.moved(direction);
+        for withheld in 0..=COMPLETION_MARKER.len() + 1 {
+            assert_eq!(
+                cut_session(network, side, direction, moved - withheld, &clean),
+                tail_outcome(direction, withheld),
+                "{side:?} with the last {withheld} of its {moved} {direction:?} bytes withheld"
+            );
+        }
+        // A cut withholding more than the tail sweep's last, up to every
+        // byte the side moves that way.
+        let earliest_tail = COMPLETION_MARKER.len() + 1;
+        let withheld = earliest_tail + 1 + anywhere.index(moved - earliest_tail);
+        let outcome = cut_session(network, side, direction, moved - withheld, &clean);
+        assert!(
+            matches!(outcome, CutOutcome { failed_in: Some(phase), holds: Holds::Before }
+                if phase != Phase::Completion),
+            "{side:?} with the last {withheld} of its {moved} {direction:?} bytes withheld: \
+             {outcome:?}"
+        );
+    }
+}
+
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
+
+    /// Whichever side's reads fail, the session ends by where the cut falls
+    /// in that side's own reads, the same way for both sides, and neither
+    /// side publishes part of the reconciliation.
+    ///
+    /// A cut inside the peer's closing items fails in [`Phase::Completion`] after the side
+    /// has committed the reconciled content; a cut anywhere earlier fails
+    /// before that phase, and the side holds what it held before. The sweep
+    /// covers every cut from the end of a clean session's reads to one byte
+    /// into the peer's last frame, where the outcome changes, and one cut
+    /// drawn from the rest of the session.
+    ///
+    /// A cut that withholds exactly the completion marker leaves the side
+    /// every frame of the walk, so its walk could complete from what it
+    /// holds. It still fails during reconciliation: the side meets the cut
+    /// as soon as it looks for the item after the peer's last frame, before
+    /// its walk has used that frame, and a failure the pipe reports during
+    /// the walk fails the session. The two sides take the two roles of the
+    /// session, so the outcome does not depend on role.
+    ///
+    /// The cut fires as soon as the side reads past it, whatever the peer
+    /// has sent. A cut that fires only when the peer's next bytes arrive
+    /// does not hold the failure's timing fixed. At the completion marker it
+    /// fires once the peer has finished its walk and written the marker, so
+    /// the side that finished its own walk first meets the failure only in
+    /// its closing exchange, after committing, while the other side meets it
+    /// during its walk. Such a cut can end the two sides differently, as the
+    /// rules require, because the failure reaches them at different points.
+    ///
+    /// This is a regression test for the session contract; no known defect
+    /// fails it.
+    ///
+    /// The claim holds for every network seed. Each case runs a dozen
+    /// sessions, so it takes the fleet divisor.
+    #[test]
+    fn a_read_cut_ends_either_side_by_its_position(
+        network in network_seed(),
+        anywhere in any::<Index>(),
+    ) {
+        sweep_cuts(network, Direction::Read, anywhere);
+    }
+
+    /// Whichever side's writes fail, the session ends by where the cut
+    /// falls in that side's own writes, the same way for both sides, and
+    /// neither side publishes part of the reconciliation.
+    ///
+    /// A cut inside the side's completion marker, or exactly at its start,
+    /// fails in [`Phase::Completion`] after the side has committed the
+    /// reconciled content: the side wrote every frame of its walk, so the
+    /// walk completed before the cut. A cut anywhere earlier fails before
+    /// that phase, and the side holds what it held before: a write failure
+    /// during the walk fails the session. The sweep covers every cut from
+    /// the end of a clean session's writes to one byte into the side's last
+    /// frame, and one cut drawn from the rest of the session, the preamble
+    /// and greeting included. The two sides take the two roles of the
+    /// session, so the outcome does not depend on role.
+    ///
+    /// The peer meets the cut as the side's departure, wherever its own
+    /// walk has reached, so its outcome can differ from the cut side's.
+    /// That it publishes all of the reconciliation or none of it is
+    /// asserted all the same.
+    ///
+    /// This is a regression test for the session contract; no known defect
+    /// fails it.
+    ///
+    /// The claim holds for every network seed. Each case runs a dozen
+    /// sessions, so it takes the fleet divisor.
+    #[test]
+    fn a_write_cut_ends_either_side_by_its_position(
+        network in network_seed(),
+        anywhere in any::<Index>(),
+    ) {
+        sweep_cuts(network, Direction::Write, anywhere);
     }
 }
