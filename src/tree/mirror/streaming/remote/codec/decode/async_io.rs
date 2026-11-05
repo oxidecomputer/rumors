@@ -97,6 +97,12 @@ impl<R> FrameRead<R> {
     pub fn into_inner(self) -> R {
         self.read
     }
+
+    /// Borrow the transport half, to inspect what follows the last frame
+    /// without consuming it through the frame grammar.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.read
+    }
 }
 
 impl<R: AsyncRead + Unpin> FrameRead<R> {

@@ -56,6 +56,10 @@
 mod adapter;
 pub(crate) mod codec;
 mod error;
+// No session runs over the pipe yet: its tests exercise it, and the items
+// only the session executor will call are unused until then.
+#[allow(dead_code)]
+mod pipe;
 mod proxy;
 mod streams;
 

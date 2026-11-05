@@ -48,6 +48,10 @@ pub enum QueueKind {
     ProxyLocalQuestions,
     /// Scopes passed to the proxy's next level.
     ProxyNextScopes,
+    /// Frames one local encoder hands the pipe's multiplexer.
+    PipeOutgoing,
+    /// Frames the pipe's demultiplexer routes to one level's decoder.
+    PipeIncoming,
 }
 
 impl QueueKind {

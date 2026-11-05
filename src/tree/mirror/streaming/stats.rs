@@ -256,6 +256,12 @@ impl<R> CountedRead<R> {
     pub fn into_inner(self) -> R {
         self.inner
     }
+
+    /// Borrow the transport half; bytes read through the borrow are not
+    /// counted.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.inner
+    }
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for CountedRead<R> {
