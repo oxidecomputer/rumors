@@ -939,6 +939,23 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   larger than the target makes, it holds the message's excess over
     ///   that size beyond the budget, for at most one message in each
     ///   direction at once.
+    /// - **Building a message of supplied records.** A session builds each
+    ///   such message in a buffer that grows by doubling as records join
+    ///   it, up to the message's room. Each time the buffer grows, the
+    ///   outgrown buffer stays live until its contents move to the new one,
+    ///   so a message being built can briefly hold up to just under its
+    ///   room again beyond the budget.
+    /// - **Reading the greeting and a hand-off.** A session reads the
+    ///   greeting its peer opens with, which carries the peer's version,
+    ///   and, when a peer joins or leaves the network through the session,
+    ///   the identity handed over, into buffers that grow by doubling from
+    ///   64 KiB as bytes arrive, the outgrown buffer and its replacement
+    ///   briefly both live. The greeting grows with the peer's version,
+    ///   which nothing caps.
+    /// - **Honoring redactions in an answer.** When a session prunes part of
+    ///   its replica to what the peer lacks, dropping what the peer has
+    ///   seen or redacted, each level the pruning descends holds lists of
+    ///   that level's children beyond the budget.
     /// - **The replica's growth.** Messages a session receives become part of
     ///   the replica, so after a session the replica can be larger than
     ///   before by more than the budget.
@@ -978,7 +995,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// backpressure as a session's counted memory nears the budget, and it
     /// does not bound everything a session allocates, as
     /// [what the budget does not cover](#what-the-budget-does-not-cover)
-    /// lists. Allocator rounding falls outside the count.
+    /// lists. Allocator rounding falls outside the count, and so does the
+    /// state some platforms allocate for a lock the first time it is used,
+    /// which an item's in-memory size does not include.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
