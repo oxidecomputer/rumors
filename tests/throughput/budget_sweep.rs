@@ -45,17 +45,31 @@
 //!
 //! # What it does not claim
 //!
-//! Below `F + N*`, a larger budget can make a session slower, so the test
-//! states no tolerance there, and no monotonicity. Admission is greedy: it
-//! admits whatever fits when room returns, deeper units first, each stage
-//! in arrival order. A different budget admits a different set of units at
-//! some moment, which reorders the work after it, and moves the stretches
-//! where one direction's wire idles, waiting for room, against the other
-//! direction's traffic. The duration is set by the busier wire's bytes,
-//! which do not move, and by its idle time, which moves either way. Such an
-//! inversion is an anomaly of the kind Graham showed for greedy list
-//! scheduling, where more resources can lengthen a schedule, and the
-//! admission rule yields no bound on its size.
+//! Below `F + N*`, a larger budget can make a session slower, and this test
+//! states no tolerance there. Admission is greedy: it admits whatever fits when
+//! room returns, deeper units first, each stage in arrival order. A different
+//! budget admits a different set of units at some moment, which reorders the
+//! work after it, and moves the stretches where one direction's wire idles,
+//! waiting for room, against the other direction's traffic. The duration is set
+//! by the busier wire's bytes, which do not move, and by its idle time, which
+//! moves either way. Such an inversion is an anomaly of the kind Graham showed
+//! for greedy list scheduling, where more resources can lengthen a schedule.
+//!
+//! Those inversions are bounded above the largest grant any unit can take,
+//! `c_max`, the least ledger budget which may be set by the public API. For
+//! every pair of ledger budgets `c_max ≤ B ≤ B′`, with inversions counted
+//! cumulatively, so that every pair is judged and not only adjacent budgets:
+//!
+//! - **(a)** no inversion exceeds one round trip, `T(B′) ≤ T(B) + 2δ`;
+//! - **(b)** none occur once `B` reaches a threshold the session sets;
+//! - **(c)** inversions grow rarer as the budget grows.
+//!
+//! [`budget_criterion`](super::budget_criterion) states the criterion in full,
+//! says which parts are proven and which declared, and asserts (a) on every
+//! link and (b) on the latency-only link, whose threshold is the session's
+//! depth-1 claims' total. On a link with bandwidth, a larger budget can reorder
+//! a direction's writes and lengthen the session by a message's serialization
+//! or a few segments' at budgets up to just below `N*`, so (b) fails there.
 //!
 //! # The measurement
 //!
@@ -299,9 +313,10 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// critical path; and every ledger is exact, holds at most its raised
 /// budget, and asks and answers at depths of opposite parities.
 ///
-/// Below the no-cost point the duration is held to the lower bound alone:
-/// greedy admission makes it non-monotone there, with no derivable bound on
-/// the inversions.
+/// Below the no-cost point this test holds the duration to the lower bound
+/// alone: greedy admission makes it non-monotone there, and the owner's
+/// criterion for its inversions is asserted by
+/// [`budget_criterion`](super::budget_criterion).
 ///
 /// Each unlimited session must have kept every unit from waiting and
 /// admitted work against the budget, and each pair must have some rung

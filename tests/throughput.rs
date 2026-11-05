@@ -5,18 +5,9 @@
 //! [`rumors_testkit::bench::link`] model, whose clock counts byte-times and
 //! advances only when both peers wait on the link. A session's duration is
 //! therefore an exact function of its fixture and link, unmoved by machine
-//! load, and its verdicts compare durations computed in one unit.
-//!
-//! - [`model`] checks the link model itself, so the session suites can
-//!   trust its timing.
-//! - [`no_slowdown`] checks that a budget of the session's unlimited-budget
-//!   peak leaves the session exactly as it runs with no budget.
-//! - [`budget_sweep`] checks what holds exactly at every budget of a
-//!   ladder, below the no-cost point and above it.
-//! - [`carrying`] checks that a unit admitted against the budget beside a
-//!   floor slot freeing in the same instant holds the budget for no time.
-//! - [`send_buffer`] checks that bytes queued in the sending kernel do not
-//!   slow a session.
+//! load, and its verdicts compare durations computed in one unit. The
+//! link model's own suite checks that timing, so that the session suites
+//! can trust it; each module's docs state the claim it checks.
 
 /// The link model's own timing and delivery.
 #[path = "throughput/model.rs"]
@@ -29,6 +20,10 @@ mod no_slowdown;
 /// The exact properties of a session across a ladder of budgets.
 #[path = "throughput/budget_sweep.rs"]
 mod budget_sweep;
+
+/// The owner's criterion for a duration's movement across budgets.
+#[path = "throughput/budget_criterion.rs"]
+mod budget_criterion;
 
 /// The floor/budget substitution and the carry that undoes it.
 #[path = "throughput/carrying.rs"]
