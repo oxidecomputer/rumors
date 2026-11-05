@@ -191,7 +191,8 @@ fn encode_errors(atlas: &mut String) {
         }
 
         let mut writer = FrameWrite::new(speaker, FlushFailingWriter);
-        let error = pollster::block_on(writer.frame(&query)).unwrap_err();
+        pollster::block_on(writer.frame(&query)).expect("writing does not flush");
+        let error = pollster::block_on(writer.flush()).unwrap_err();
         record_encode(atlas, &format!("{speaker:?}/flush"), &error);
     }
 }

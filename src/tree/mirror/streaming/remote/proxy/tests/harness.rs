@@ -253,7 +253,7 @@ pub enum FrameSelector {
 pub enum FrameMutation {
     /// Replace only the state item, retaining the stream item and body.
     State(u8),
-    /// Emit the complete frame twice before its flush completes.
+    /// Emit the complete frame twice in a row.
     Duplicate,
     /// Make the second query radix duplicate the first.
     UnorderQuery,
@@ -292,25 +292,28 @@ impl Script {
     }
 }
 
-/// A pipe writer which edits one complete frame at its flush boundary.
+/// A pipe writer which edits one complete frame.
 ///
-/// Every flush on the pipe's write half carries exactly one item, so the
-/// flush boundary is the item boundary. Items that are not frames (the
-/// preamble, greeting, and closing items) pass through untouched.
+/// It splits the bytes written into CBOR items as they arrive, so it finds
+/// each frame's boundaries in the bytes themselves, however the writes and
+/// flushes fall. Items that are not frames (the greeting and closing
+/// items) pass through untouched. Complete items wait in the writer until
+/// a flush delivers them, as in a buffering writer, so a session that
+/// waited on its peer without flushing would stall here.
 pub struct ScriptedWrite<W> {
     /// The write half that receives the resulting bytes.
     inner: W,
     /// The mutation, while it remains unfired.
     script: Option<Script>,
-    /// Bytes buffered for the current item.
-    frame: Vec<u8>,
-    /// Bytes to write after applying the script.
+    /// Bytes written that do not yet complete an item.
+    pending: Vec<u8>,
+    /// Complete items, after the script, awaiting the next flush.
     output: Vec<u8>,
     /// Bytes already written from `output`.
     sent: usize,
 }
 
-/// Construct and prepare a scripted pipe writer.
+/// Construct a scripted pipe writer and apply its script to each item.
 impl<W> ScriptedWrite<W> {
     /// Wrap a write half, applying `script` once if it reaches its
     /// selector.
@@ -318,43 +321,50 @@ impl<W> ScriptedWrite<W> {
         Self {
             inner,
             script,
-            frame: Vec::new(),
+            pending: Vec::new(),
             output: Vec::new(),
             sent: 0,
         }
     }
 
-    /// Materialize the selected mutation before bytes reach the transport.
-    fn prepare(&mut self) {
-        if !self.output.is_empty() || self.sent > 0 {
-            return;
+    /// Move every complete item at the front of `pending` to `output`,
+    /// applying the script to each.
+    fn split_items(&mut self) {
+        while let Some(len) = item_len(&self.pending) {
+            let item: Vec<u8> = self.pending.drain(..len).collect();
+            let item = self.scripted(item);
+            self.output.extend_from_slice(&item);
         }
-        self.output.clone_from(&self.frame);
+    }
+
+    /// Apply the selected mutation to one complete item, if the item is
+    /// the first frame to match the selector.
+    fn scripted(&self, item: Vec<u8>) -> Vec<u8> {
         let Some(script) = &self.script else {
-            return;
+            return item;
         };
         let mut script = script.0.lock().expect("frame script lock");
         if script.fired {
-            return;
+            return item;
         }
         // Parse the item's array head, stream item, and state item through
         // the wire's own head grammar; an item that is not an array is not
         // a frame.
-        let mut rest = self.frame.as_slice();
+        let mut rest = item.as_slice();
         match cbor::read_head(&mut rest) {
             Ok(head) if head.major == cbor::MAJOR_ARRAY => {}
-            _ => return,
+            _ => return item,
         }
         let Ok(stream) = cbor::read_head(&mut rest) else {
-            return;
+            return item;
         };
-        let state_at = self.frame.len() - rest.len();
+        let state_at = item.len() - rest.len();
         let Ok(state) = cbor::read_head(&mut rest) else {
-            return;
+            return item;
         };
-        let body_at = self.frame.len() - rest.len();
+        let body_at = item.len() - rest.len();
         let Ok(state) = u8::try_from(state.value) else {
-            return;
+            return item;
         };
         let selected = match script.selector {
             FrameSelector::First => true,
@@ -370,22 +380,23 @@ impl<W> ScriptedWrite<W> {
             FrameSelector::Stream(index) => stream.value == u64::from(index),
         };
         if !selected {
-            return;
+            return item;
         }
+        let mut output = item.clone();
         match script.mutation {
             FrameMutation::State(state) => {
                 let mut head = Vec::new();
                 cbor::write_head(&mut head, cbor::MAJOR_UINT, u64::from(state));
-                self.output.splice(state_at..body_at, head);
+                output.splice(state_at..body_at, head);
             }
-            FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame),
+            FrameMutation::Duplicate => output.extend_from_slice(&item),
             FrameMutation::UnorderQuery => {
                 use crate::tree::mirror::streaming::remote::codec::{
                     parse_listing_map, write_listing,
                 };
-                let mut listing_input = &self.frame[body_at..];
+                let mut listing_input = &item[body_at..];
                 let Ok(mut children) = parse_listing_map(&mut listing_input) else {
-                    return;
+                    return item;
                 };
                 if children.len() == 1 {
                     // A duplicated single child is the equal-pair
@@ -396,30 +407,59 @@ impl<W> ScriptedWrite<W> {
                 }
                 let mut listing = Vec::new();
                 write_listing(&mut listing, &children);
-                let listing_end = self.frame.len() - listing_input.len();
-                self.output.splice(body_at..listing_end, listing);
+                let listing_end = item.len() - listing_input.len();
+                output.splice(body_at..listing_end, listing);
             }
         }
         script.fired = true;
+        output
     }
 }
 
-/// Buffer writes by frame while preserving ordinary async-write behavior.
+/// Bytes of the complete CBOR item at the front of `bytes`, or `None`
+/// until its last byte has arrived.
+///
+/// Counts the items still owed instead of recursing: an array owes its
+/// elements, a map its keys and values, and a tag its content. Every item
+/// on the pipe is canonical, so a head that fails to parse is one that has
+/// not yet arrived whole.
+fn item_len(bytes: &[u8]) -> Option<usize> {
+    let mut input = bytes;
+    let mut owed: u64 = 1;
+    while owed > 0 {
+        let head = cbor::read_head(&mut input).ok()?;
+        owed -= 1;
+        match head.major {
+            cbor::MAJOR_ARRAY => owed = owed.saturating_add(head.value),
+            cbor::MAJOR_MAP => owed = owed.saturating_add(head.value.saturating_mul(2)),
+            cbor::MAJOR_TAG => owed = owed.saturating_add(1),
+            cbor::MAJOR_BSTR | cbor::MAJOR_TEXT => {
+                let len = usize::try_from(head.value).ok()?;
+                input = input.get(len..)?;
+            }
+            _ => {}
+        }
+    }
+    Some(bytes.len() - input.len())
+}
+
+/// Buffer writes into items, delivering them on flush.
 impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
-    /// Buffer bytes until the frame's flush boundary reveals its full shape.
+    /// Take the bytes, moving each item they complete to the output.
     fn poll_write(
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.get_mut().frame.extend_from_slice(bytes);
+        let this = self.get_mut();
+        this.pending.extend_from_slice(bytes);
+        this.split_items();
         Poll::Ready(Ok(bytes.len()))
     }
 
-    /// Apply the script, then flush the resulting complete frame.
+    /// Write every complete item to the wrapped half, then flush it.
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        this.prepare();
         while this.sent < this.output.len() {
             match Pin::new(&mut this.inner).poll_write(cx, &this.output[this.sent..]) {
                 Poll::Ready(Ok(0)) => return Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
@@ -428,18 +468,12 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
                 Poll::Pending => return Poll::Pending,
             }
         }
-        match Pin::new(&mut this.inner).poll_flush(cx) {
-            Poll::Ready(Ok(())) => {
-                this.frame.clear();
-                this.output.clear();
-                this.sent = 0;
-                Poll::Ready(Ok(()))
-            }
-            other => other,
-        }
+        this.output.clear();
+        this.sent = 0;
+        Pin::new(&mut this.inner).poll_flush(cx)
     }
 
-    /// Flush the pending item before closing the wrapped half.
+    /// Flush the complete items before closing the wrapped half.
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.as_mut().poll_flush(cx) {
             Poll::Ready(Ok(())) => Pin::new(&mut self.get_mut().inner).poll_shutdown(cx),

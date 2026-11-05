@@ -173,6 +173,9 @@ proptest! {
 
     /// The async bridge emits the synchronous codec's exact bytes and decodes
     /// them back without retaining state at EOF, for both speaker directions.
+    ///
+    /// The transport takes three bytes per write, and the bridge flushes
+    /// only when asked, and only when a frame is unflushed.
     #[test]
     fn async_frame_round_trips_canonically(
         frame in arb_frame(),
@@ -182,9 +185,14 @@ proptest! {
         let mut canonical = Vec::new();
         encode(speaker, &frame, &mut canonical).unwrap();
         let mut writer = FrameWrite::new(speaker, RecordingWrite::default());
-        pollster::block_on(writer.frame(&frame)).unwrap();
+        pollster::block_on(async {
+            writer.flush().await.unwrap();
+            writer.frame(&frame).await.unwrap();
+            writer.flush().await.unwrap();
+            writer.flush().await.unwrap();
+        });
         let written = writer.into_inner();
-        prop_assert_eq!(written.flushes, 1);
+        prop_assert_eq!(written.flushes, 1, "only a flush after a frame flushes");
         prop_assert_eq!(&written.bytes, &canonical);
 
         let mut reader = FrameRead::new(speaker, RunBudget::default(), written.bytes.as_slice());

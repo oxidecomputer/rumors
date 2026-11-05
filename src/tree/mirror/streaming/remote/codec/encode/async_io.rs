@@ -9,7 +9,7 @@ use crate::observe::DataObservers;
 use super::super::{
     error::{EncodeError, EncodeErrorKind, FramePart},
     frame::WireFrame,
-    signal::Speaker,
+    signal::{Speaker, Stream},
 };
 use super::{FrameEncoding, MAX_PIECES};
 
@@ -18,17 +18,22 @@ use super::{FrameEncoding, MAX_PIECES};
 /// A frame is validated before any of it is written. Its pieces then go
 /// directly to the transport as one vectored write, which a transport that
 /// supports vectored writes (a TCP socket, or a `BufWriter`) takes in one
-/// operation, and is flushed before [`frame`](Self::frame) returns, so a
-/// frame is always whole on the wire before the next begins.
+/// operation, so a frame is always whole on the transport before the next
+/// begins. Writing does not flush: [`flush`](Self::flush) delivers every
+/// frame written since the last flush, so frames written together can share
+/// one flush on a buffered or encrypting writer.
 pub struct FrameWrite<W> {
     /// The local protocol role attributed to encoding failures.
     speaker: Speaker,
     /// The transport direction that receives encoded frames.
     write: W,
-    /// The direction's per-logical-stream observers, if any: each flushed
+    /// The direction's per-logical-stream observers, if any: each written
     /// frame's contiguous bytes go to its stream's observer, at the cost of
     /// one branch when absent.
     observe: Option<DataObservers>,
+    /// The logical stream of the last frame written since the last flush,
+    /// if any: a flush failure is attributed to it.
+    unflushed: Option<Stream>,
 }
 
 /// Constructs frame writers and recovers their transport.
@@ -39,19 +44,21 @@ impl<W> FrameWrite<W> {
             speaker,
             write,
             observe: None,
+            unflushed: None,
         }
     }
 
-    /// Deliver every flushed frame to its logical stream's observer in
+    /// Deliver every written frame to its logical stream's observer in
     /// `observe`, when the session is observed.
     pub fn observed(mut self, observe: Option<DataObservers>) -> Self {
         self.observe = observe;
         self
     }
 
-    /// Recover the transport writer without buffered frame state. Every
-    /// frame is flushed as it is written, so between frames the writer
-    /// rests exactly at a frame boundary.
+    /// Recover the transport writer. The frame writer holds no frame
+    /// state of its own: every frame is written whole before
+    /// [`frame`](Self::frame) returns, so between frames the writer rests
+    /// exactly at a frame boundary.
     #[cfg(test)]
     pub fn into_inner(self) -> W {
         self.write
@@ -60,7 +67,7 @@ impl<W> FrameWrite<W> {
 
 /// Writes complete frames to an asynchronous transport.
 impl<W: AsyncWrite + Unpin> FrameWrite<W> {
-    /// Validate, write, and flush one canonical frame.
+    /// Validate and write one canonical frame, without flushing it.
     ///
     /// # Cancel safety
     ///
@@ -74,8 +81,8 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
         let result = async {
             let encoding = FrameEncoding::new(*stream, frame)?;
             write_encoding(&mut self.write, &encoding).await?;
-            self.write.flush().await.map_err(EncodeErrorKind::Flush)?;
-            // The frame is on the wire: deliver its one-item view. The
+            self.unflushed = Some(*stream);
+            // The transport has the frame: deliver its one-item view. The
             // pieces are the bytes just written, so the materialized
             // buffer equals the wire by construction.
             if let Some(observe) = &mut self.observe {
@@ -85,6 +92,28 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
         }
         .await;
         result.map_err(|kind| EncodeError::new(self.speaker, *stream, kind))
+    }
+
+    /// Flush every frame written since the last flush, doing nothing when
+    /// there is none.
+    ///
+    /// A failure names the last frame written: the failed flush did not
+    /// deliver it, nor perhaps the frames written before it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel safe when the transport's flush is: a dropped flush leaves
+    /// the written frames recorded as unflushed, so the next call flushes
+    /// them.
+    pub async fn flush(&mut self) -> Result<(), EncodeError> {
+        let Some(stream) = self.unflushed else {
+            return Ok(());
+        };
+        self.write.flush().await.map_err(|source| {
+            EncodeError::new(self.speaker, stream, EncodeErrorKind::Flush(source))
+        })?;
+        self.unflushed = None;
+        Ok(())
     }
 }
 

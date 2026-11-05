@@ -694,17 +694,20 @@ proptest! {
         let session = Session { capacity, window: Window::uniform(width), };
         let plans = std::array::from_fn(|_| IoPlan { hold_until_flush: true, ..IoPlan::default() });
         let baseline = pair.check(&session, plans.clone());
+        // A finite delay schedule must cover the whole run, rather than
+        // silently expire before the deep frames. How often a side flushes
+        // depends on scheduling, which the delays change, but every flush
+        // follows at least one write since the one before, and the writes
+        // are this fixture's items, whatever the schedule.
+        let schedules = std::array::from_fn::<_, 2, _>(|side| baseline.io[side].writes);
         let mut delayed = plans;
         for (side, plan) in delayed.iter_mut().enumerate() {
-            plan.flush_delays = vec![delay[side]; baseline.io[side].flushes];
+            plan.flush_delays = vec![delay[side]; schedules[side]];
         }
         let observed = pair.check(&session, delayed);
         observed.assert_reach(inner);
         for (side, delay) in delay.into_iter().enumerate() {
-            // A finite delay schedule must cover the whole run, rather than
-            // silently expire before the deep frames. The flush count comes
-            // from this fixture's baseline, not a shallow session constant.
-            prop_assert!(observed.io[side].flushes <= baseline.io[side].flushes);
+            prop_assert!(observed.io[side].flushes <= schedules[side]);
             prop_assert_eq!(observed.io[side].delayed_polls,
                 observed.io[side].flushes * usize::from(delay));
         }

@@ -48,7 +48,10 @@
 //!   frames form one [`Data`](StreamId::Data) stream. Only complete
 //!   items are observed: a session that dies mid-frame does not deliver
 //!   the fragment, and an aborted session may have observed fewer items
-//!   than crossed the wire.
+//!   than crossed the wire. A sent frame is observed once it is written
+//!   whole to the write half, which may still be buffering it, so an
+//!   aborted session may also have observed a sent frame that never
+//!   reached the peer.
 //! - **Cost**: unattached (or a level declined), one branch per frame;
 //!   attached, one extra contiguous copy of each observed frame. The
 //!   wire bytes themselves are unchanged either way.
@@ -179,10 +182,12 @@ pub trait StreamObserver: Send {
     /// Observe one protocol message: exactly one CBOR item of the
     /// wire, as sent or received on this handler's directed stream.
     ///
-    /// Invoked synchronously from the stream's own task, after the
-    /// item was written and flushed (sent) or completely read and
-    /// accepted (received). Blocking here stalls this directed stream;
-    /// see the module docs' never-block rule.
+    /// Invoked synchronously from the session's own tasks, after the
+    /// item was handed whole to the write half (sent), which may still
+    /// buffer it, or read (received). A data stream's handler runs in the
+    /// task that writes or reads every frame of that direction, so blocking
+    /// here stalls the whole direction, not only this stream; see the
+    /// module docs' never-block rule.
     fn message(&mut self, bytes: &[u8]);
 }
 

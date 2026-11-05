@@ -207,7 +207,8 @@ impl AsyncWrite for FailingAsyncWriter {
     }
 }
 
-/// Async write and flush failures retain their exact operation, stream, and speaker.
+/// Async write and flush failures retain their exact operation, stream, and
+/// speaker: a flush failure names the last frame written.
 #[test]
 fn async_writer_errors_are_contextual() {
     let stream = stream(12);
@@ -225,7 +226,8 @@ fn async_writer_errors_are_contextual() {
         ));
 
         let mut writer = FrameWrite::new(speaker, FailingAsyncWriter(AsyncFailure::Flush));
-        let error = pollster::block_on(writer.frame(&frame)).unwrap_err();
+        pollster::block_on(writer.frame(&frame)).expect("writing does not flush");
+        let error = pollster::block_on(writer.flush()).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,

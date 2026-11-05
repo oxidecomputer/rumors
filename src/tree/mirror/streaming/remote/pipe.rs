@@ -6,10 +6,10 @@
 //! frames interleaved. Two tasks connect the logical streams to that pipe:
 //!
 //! - The [`Multiplexer`] owns the write half. Each local encoder hands it
-//!   frames through its own capacity-1 channel ([`Outgoing`]). It writes and
-//!   flushes whole frames, serving every frame that is not a supply run
-//!   before any supply run ([`Class`]), and returns when every encoder's
-//!   channel has closed.
+//!   frames through its own capacity-1 channel ([`Outgoing`]). It writes
+//!   whole frames, choosing a waiting frame that is not a supply run ahead
+//!   of any waiting supply run ([`Class`]), flushes whenever no frame is
+//!   ready, and returns when every encoder's channel has closed.
 //! - The [`Demultiplexer`] owns the read half. It reads frames in pipe order
 //!   and routes each, by the logical stream its signal names, to that
 //!   stream's decoder over a capacity-1 channel. It stops at the first item
@@ -415,9 +415,14 @@ impl Multiplexer {
 
     /// Write frames until every lane's channel has closed.
     ///
-    /// Each frame is written and flushed whole before the next is chosen.
-    /// The write half is borrowed, and rests at a frame boundary on
-    /// success, ready for the closing exchange.
+    /// Each frame is written whole before the next is chosen. Writing does
+    /// not flush: the write half is flushed whenever no frame is ready,
+    /// before waiting for one, and before returning. Frames ready together
+    /// therefore share a flush, and the multiplexer never waits while a
+    /// frame it wrote sits unflushed, so every frame handed to it reaches
+    /// the peer without waiting on anything but the pipe. The write half is
+    /// borrowed, and rests flushed at a frame boundary on success, ready
+    /// for the closing exchange.
     pub async fn run<W: AsyncWrite + Unpin>(
         mut self,
         write: &mut W,
@@ -428,41 +433,55 @@ impl Multiplexer {
         let mut out = FrameWrite::new(speaker, CountedWrite::new(write, stats.clone()))
             .observed(observe.data(speaker.role(), Direction::Sent));
         let mut cursors = [0; Class::ORDER.len()];
-        while let Some((stream, frame)) = self.next(&mut cursors).await {
+        loop {
+            let ready = poll_fn(|cx| Poll::Ready(self.poll_next(cx, &mut cursors))).await;
+            let next = match ready {
+                Poll::Ready(next) => next,
+                Poll::Pending => {
+                    out.flush().await?;
+                    poll_fn(|cx| self.poll_next(cx, &mut cursors)).await
+                }
+            };
+            let Some((stream, frame)) = next else {
+                break;
+            };
             out.frame(&(stream, frame)).await?;
             stats.frame_sent();
         }
-        Ok(())
+        out.flush().await
     }
 
     /// Take every frame that is ready, then remove and return the next one
-    /// to write, or `None` once every lane has closed with nothing staged.
-    async fn next(&mut self, cursors: &mut [usize; Class::ORDER.len()]) -> Option<(Stream, Frame)> {
-        poll_fn(|cx| {
-            let mut open = false;
-            for lane in &mut self.lanes {
-                if lane.staged.is_none()
-                    && let Some(frames) = &mut lane.frames
-                {
-                    match frames.poll_next_unpin(cx) {
-                        Poll::Ready(Some(frame)) => lane.staged = Some(frame),
-                        Poll::Ready(None) => lane.frames = None,
-                        Poll::Pending => {}
-                    }
+    /// to write: `Ready(None)` once every lane has closed with nothing
+    /// staged, and `Pending`, with a wakeup registered, while open lanes
+    /// have nothing staged.
+    fn poll_next(
+        &mut self,
+        cx: &mut Context<'_>,
+        cursors: &mut [usize; Class::ORDER.len()],
+    ) -> Poll<Option<(Stream, Frame)>> {
+        let mut open = false;
+        for lane in &mut self.lanes {
+            if lane.staged.is_none()
+                && let Some(frames) = &mut lane.frames
+            {
+                match frames.poll_next_unpin(cx) {
+                    Poll::Ready(Some(frame)) => lane.staged = Some(frame),
+                    Poll::Ready(None) => lane.frames = None,
+                    Poll::Pending => {}
                 }
-                open |= lane.staged.is_some() || lane.frames.is_some();
             }
-            match self.choose(cursors) {
-                Some(index) => {
-                    let lane = &mut self.lanes[index];
-                    let frame = lane.staged.take().expect("choose returns a staged lane");
-                    Poll::Ready(Some((lane.stream, frame)))
-                }
-                None if open => Poll::Pending,
-                None => Poll::Ready(None),
+            open |= lane.staged.is_some() || lane.frames.is_some();
+        }
+        match self.choose(cursors) {
+            Some(index) => {
+                let lane = &mut self.lanes[index];
+                let frame = lane.staged.take().expect("choose returns a staged lane");
+                Poll::Ready(Some((lane.stream, frame)))
             }
-        })
-        .await
+            None if open => Poll::Pending,
+            None => Poll::Ready(None),
+        }
     }
 
     /// The lane whose staged frame goes next: the first class with a staged

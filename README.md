@@ -204,7 +204,10 @@ as does one bidirectional QUIC stream, or a `tokio::io::duplex` pair for
 an in-process peer. The crate opens no connections itself. Reads take
 exactly the bytes each protocol item needs; on an unbuffered transport,
 wrap the read half in `tokio::io::BufReader`, which may outlive a
-session.
+session. The write half needs no wrapper, though a buffering one is
+safe: a session flushes whenever it would otherwise wait, so a
+`BufWriter` or a TLS stream batches the messages written between
+flushes.
 
 Over TCP, disable Nagle's algorithm on both ends with
 `TcpStream::set_nodelay(true)` before splitting the stream. A session
