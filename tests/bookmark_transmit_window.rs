@@ -420,8 +420,10 @@ divided_proptest! {
     /// staged before the write survives such a drop as a lie: the next session
     /// sees the live `(party, version)` "current", skips the persist, and
     /// transmits own events the durable record does not cover — re-opening the
-    /// coordinate-reuse collision through a schedule the in-flight-window fix
-    /// does not touch.
+    /// coordinate-reuse collision. Holding transmission until the persist
+    /// completes, which `record_dominates_the_transmitted_frontier` checks,
+    /// does not prevent this: the session that transmits is the next one,
+    /// which skips its persist.
     ///
     /// The claim holds for every network seed.
     #[test]

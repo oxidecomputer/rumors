@@ -807,6 +807,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   ends. The same holds for the nodes the session itself rebuilds: the
     ///   new copies join the replica, and the originals they replace stay in
     ///   memory until the session ends.
+    /// - **Decoded leaves on their way to assembly.** A session decodes the
+    ///   leaves of each subtree it receives a little ahead of building it,
+    ///   holding at most one more decoded leaf at each level of its
+    ///   comparison than a node of the tree can have children: a fixed
+    ///   amount, whatever the budget and the sets' sizes. The messages
+    ///   those leaves carry join the replica, as above.
     /// - **Your transport's own buffers,** such as socket buffers, which
     ///   are outside the library.
     /// - **Observers.** Backlogs of observers such as [`CausalMessages`] grow
