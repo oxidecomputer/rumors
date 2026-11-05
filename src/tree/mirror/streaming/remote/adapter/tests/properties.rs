@@ -1,7 +1,7 @@
 //! Laws which hold uniformly across the adapter's type-level height ladder.
 
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed, listed};
-use std::{collections::BTreeSet, convert::Infallible};
+use std::{collections::BTreeSet, convert::Infallible, pin::pin};
 
 use futures::{StreamExt, TryStreamExt, stream};
 use proptest::{collection::vec, prelude::*, test_runner::TestCaseResult};
@@ -288,7 +288,7 @@ where
             let mut encoder = Self::encoder(scope.clone());
             let mut chunked = Vec::new();
             for chunk in chunks(reply(), cuts) {
-                let mut frames = encoder.chunk(chunk);
+                let mut frames = pin!(encoder.chunk(chunk));
                 while let Some(frame) = frames.next().await {
                     chunked.push(
                         frame

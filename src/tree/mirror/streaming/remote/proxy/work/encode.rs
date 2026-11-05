@@ -14,7 +14,7 @@
 //! encoder body instantiates once per backend. The progress trace receives the
 //! stage height as a runtime label.
 
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 
 use futures::{Stream, StreamExt};
 
@@ -169,7 +169,7 @@ where
         let mut chunk = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let last = chunk.last;
         let mut asked = chunk.carried.take_question();
-        let mut frames = encoder.chunk(chunk);
+        let mut frames = pin!(encoder.chunk(chunk));
         while let Some(frame) = frames.next().await {
             let Some(question) = write_encoded(outgoing, frame?).await? else {
                 continue;

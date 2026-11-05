@@ -1,5 +1,7 @@
 use crate::tree::mirror::streaming::message::Listed;
-use std::{future::Future, mem, pin::Pin, pin::pin};
+#[cfg(test)]
+use std::pin::Pin;
+use std::{future::Future, mem, pin::pin};
 
 use async_stream::try_stream;
 use futures::{Stream, StreamExt};
@@ -47,8 +49,9 @@ impl Encoded {
     }
 }
 
-/// A fallible stream of the wire frames of one chunk of a protocol reply,
-/// borrowing the reply's [`ReplyEncoder`] for `'a`.
+/// A fallible stream of the wire frames of one whole protocol reply, boxed
+/// as the test encoders return it.
+#[cfg(test)]
 pub type Frames<'a, E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> + Send + 'a>>;
 
 /// Validate the initiator's distinguished opening reply and return its
@@ -130,13 +133,20 @@ where
     /// Encode the reply's next `chunk`, deriving the lower questions it
     /// asks.
     ///
+    /// The stream borrows the encoder until it ends. It is returned unboxed
+    /// for the caller to pin where it polls it, so encoding a chunk
+    /// allocates nothing for the stream itself.
+    ///
     /// # Panics
     ///
     /// The stream panics on an empty last chunk after frames of the same
     /// reply: those frames left flagged to continue, so nothing can end the
     /// reply, and the sender broke the rule that its last chunk holds its
     /// last reaction.
-    pub fn chunk(&mut self, chunk: Reply<B::Erased>) -> Frames<'_, B::Error> {
+    pub fn chunk(
+        &mut self,
+        chunk: Reply<B::Erased>,
+    ) -> impl Stream<Item = Result<Encoded, EncodeError<B::Error>>> + Send + '_ {
         let Self {
             backend,
             budget,
@@ -146,7 +156,7 @@ where
             written,
         } = self;
         let (backend, budget, level) = (backend.clone(), *budget, *level);
-        Box::pin(try_stream! {
+        try_stream! {
             let mut positions = scope.positions_from(*taken);
             let mut pending = None;
             // The chunk's charge returns once every frame is out, when the
@@ -249,7 +259,7 @@ where
                 }
                 None => {}
             }
-        })
+        }
     }
 }
 
@@ -290,7 +300,7 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     Box::pin(try_stream! {
-        let mut frames = encoder.chunk(reply);
+        let mut frames = pin!(encoder.chunk(reply));
         while let Some(frame) = frames.next().await {
             yield frame?;
         }
