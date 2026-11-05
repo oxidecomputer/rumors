@@ -1,5 +1,10 @@
 # The abstract model of the streaming mirror protocol
 
+**ARCHIVED:** This development is archived and is not maintained
+alongside the code. Its theorems are about its own model of the protocol,
+not a specification of the current implementation, and the code does not
+rely on them.
+
 This is the design document for the formal deadlock-freedom artifact. It is
 the single specification that `quint/streamingMirror.qnt` (Phase A/B) and the
 Lean package (Phase C/D) both transcribe; when the three disagree, this file

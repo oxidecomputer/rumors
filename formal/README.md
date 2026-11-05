@@ -1,5 +1,10 @@
 # Formal verification of the streaming mirror protocol
 
+**ARCHIVED:** This development is archived and is not maintained
+alongside the code. Its theorems are about its own model of the protocol,
+not a specification of the current implementation, and the code does not
+rely on them.
+
 **CAVEAT LECTOR:** This development was *entirely* "vibe-verified" using
 Claude models, and has not been checked by a human expert in any of these
 verification tools for correctness. It exists primarily as an experiment.

@@ -96,9 +96,6 @@ No gate leg checks these; review does.
 - Nothing in the tree refers to code that no longer exists: no "formerly", no
   "was removed", no deleted API names. Restate prose in terms of what is;
   provenance lives in git history.
-- Code may cite the Lean artifact by *theorem or definition name*, never by
-  file path, when a kernel-checked statement backs the claim, and still states
-  the invariant inline.
 - The model of record is uniform-hash and authenticated-honest-peer: the
   transport is pre-authenticated and authorized, and an authorized peer already
   holds write authority over the set. Hostile peers are off-model, so no

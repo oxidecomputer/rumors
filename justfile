@@ -3,7 +3,7 @@
 #   inner loop   just check / just test <filter>
 #   commit gate  just gate    fully clean on what main's first-parent line gains
 #   CI           just ci      with ci-instruments and ci-properties, one per CI job
-#   full sweep   just all     CI plus the local-only fuzz and Lean checks
+#   full sweep   just all     CI plus the local-only fuzz checks
 #
 # `#[ignore]`d instruments have no recipe; each one's doc gives its cost and
 # the command that runs it.
@@ -560,7 +560,9 @@ fuelscape-claims:
     ./tools/fuelscape-claims
 
 # ── the formal tier (formal/lean; needs elan) ────────────────────────────────
-# Local only: the CI runner has no Lean toolchain.
+# The formal development is archived, so no sweep runs these recipes; each
+# runs standalone, and only locally, since the CI runner has no Lean
+# toolchain.
 
 # Kernel-check the Lean theorem artifact (all proofs, pins, controls).
 [working-directory("formal/lean")]
@@ -774,8 +776,8 @@ ci-instruments: _gate-audit _gate-board _gate-surface
 # Run the larger release-profile property population.
 ci-properties: test-release
 
-# Run the checks that require local fuzz and Lean toolchains.
-local-only: (fuzz fuzz_smoke_secs) lean eventdag muxprobe
+# Run the checks that require a local fuzz toolchain.
+local-only: (fuzz fuzz_smoke_secs)
 
 # Run every CI group and every local-only sweep check.
 all: ci ci-instruments ci-properties local-only
