@@ -253,7 +253,7 @@ impl<H: Height> Node<H> {
     /// The independent oracle [`version_bytes`](Self::version_bytes) is
     /// pinned against; see the
     /// [untyped walk](untyped::Node::max_bound_bytes).
-    #[cfg(any(test, feature = "test-internals"))]
+    #[cfg(test)]
     pub fn max_bound_bytes(&self) -> usize {
         self.inner.max_bound_bytes()
     }

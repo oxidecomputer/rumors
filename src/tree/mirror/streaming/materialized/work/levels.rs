@@ -23,7 +23,7 @@ use super::{
 };
 use crate::tree::{
     mirror::streaming::{
-        Backend, ErasedNode, Leaf, Root,
+        Backend, ErasedNode, FAN, Leaf, Root,
         channel::{Receiver, Sender},
         erased::{self, Reaction, Reply},
         holding::{Holding, held_by, holding, holding_stream},
@@ -35,7 +35,6 @@ use crate::tree::{
         message::Grandchildren,
         protocol::{BoxRequests, BoxResponses, Requests},
         tasks::next_or_cancelled,
-        window::FAN,
     },
     typed::{
         ErasedPrefix, Prefix,

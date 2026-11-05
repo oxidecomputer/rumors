@@ -64,10 +64,10 @@ pub struct Greeting {
     pub version: Version,
     /// The sender's live message count, exact (an O(1) read of its set).
     ///
-    /// Both sides size their session window from the pair: dispute
-    /// populations scale with the *product* of the two sizes (joint
-    /// occupancy), so the window needs the peer's size, not an estimate.
-    /// The pair is also the role election's primary key
+    /// The receiver holds the sender's supplies to it: a conforming peer
+    /// supplies each leaf at most once and only leaves its set holds, so
+    /// the count bounds the records it can supply. The pair is also the
+    /// role election's primary key
     /// ([`RoleKey::initiates`]):
     /// the smaller set initiates, so the bulk holder lands in the
     /// responder role, whose exclusive content ships as whole-subtree
@@ -82,12 +82,7 @@ pub struct Greeting {
     /// materializes (covered by that side's aggregate alone) or a
     /// join/meet of the two sides' contributions, whose encoding never
     /// exceeds its inputs' combined (the pinned pairwise lemmas), so the
-    /// exchanged pair bounds worst-case version bytes per node — the
-    /// second input a budget-configured window prices nodes with. One
-    /// priced residual: deletion-honoring can prune a side's
-    /// contribution to a survivor subset whose recomputed bound neither
-    /// input materialized; the pair sum there is an envelope, pinned by
-    /// the census suite's reconciled-bound measurements.
+    /// exchanged pair bounds worst-case version bytes per node.
     ///
     /// The declaration is enforced at ingress: every version the sender
     /// supplies is one its tree materializes, so it must encode within

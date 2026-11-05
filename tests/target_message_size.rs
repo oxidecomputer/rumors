@@ -335,7 +335,7 @@ const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;
 /// newcomer and to one advertising [`OFF_DEFAULT_BUDGET`]; the full wire
 /// capture (both directions) must be equal byte for byte. This pins the
 /// structural guarantee that the greeting does not carry the budget —
-/// each session derives its window locally from the exchanged sizes — so
+/// each side admits its work against its own budget — so
 /// a regression that leaks the budget onto the wire fails here rather
 /// than surfacing as an interoperability break between fleets rolled out
 /// with different budgets. The negative control proves the comparator has

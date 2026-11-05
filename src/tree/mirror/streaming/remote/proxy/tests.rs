@@ -13,10 +13,10 @@ use crate::testing::{
     IoPlan, IoReportHandle, IoSide, Quiescence, memory_connection, run_to_quiescence, wrap_io,
 };
 use crate::tree::mirror::preamble::{self, Intent};
+use crate::tree::mirror::streaming::FAN;
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, UNBOUNDED, with_observation, with_schedule,
 };
-use crate::tree::mirror::streaming::window::FAN;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},

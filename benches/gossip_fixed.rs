@@ -37,9 +37,9 @@
 //! changed" handshake a production peer pays every gossip round.
 //!
 //! Read the slopes for regressions: a hop count scaling with disputed
-//! scopes rather than tree depth is the serialized inter-stage regime the
-//! session window exists to prevent, and it shows up here as slope growing
-//! with divergence.
+//! scopes rather than tree depth is the serialized regime the memory
+//! budget exists to avoid, and it shows up here as slope growing with
+//! divergence.
 
 use std::hint::black_box;
 use std::time::Duration;
@@ -80,8 +80,8 @@ const LATENCY_REDACTIONS: &[usize] = &[2_500];
 /// session's one-direction transfer at `N = 10_000`.
 ///
 /// Measurements therefore isolate round-trip serialization from
-/// bandwidth-delay throttling (the window caps each direction's throughput
-/// at `capacity / delay`).
+/// bandwidth-delay throttling (the pipe's in-flight capacity caps each
+/// direction's throughput at `capacity / delay`).
 const LATENCY_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// How the two peers diverge after their shared history.
@@ -288,8 +288,8 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u
     (left, right)
 }
 
-/// A seed peer measuring shipped behavior: the default pipeline window is
-/// the production budget in every build shape (see `support/wire.rs`).
+/// A seed peer measuring shipped behavior: the default memory budget in
+/// every build shape.
 fn production_seed() -> Rumors<u8> {
     // Fixed, so every run benchmarks the same network.
     let mut rng = ChaChaRng::seed_from_u64(0xe9f4_fc18_d119_7299);

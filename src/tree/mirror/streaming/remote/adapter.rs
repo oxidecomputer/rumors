@@ -63,9 +63,8 @@
 //! placeholder per run of the open group; it delivers the complete
 //! reactions in a chunk whenever the next frame has not arrived. Thus
 //! memory remains those reactions, their completed node handles, one
-//! encoded run, and the buffered fan of backend-priced leaves — the
-//! session budget's supply-decode charge; no subtree payload is
-//! accumulated merely to cross the backend boundary.
+//! encoded run, and the buffered fan of decoded leaves; no subtree payload
+//! is accumulated merely to cross the backend boundary.
 //!
 //! # Why this is sufficient
 //!
@@ -79,6 +78,8 @@ mod encode;
 mod error;
 mod scope;
 
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use decode::SUPPLY_DECODE_ENVELOPE_BYTES;
 #[cfg(test)]
 pub use decode::decode_whole_reply;
 pub use decode::{LeafEdge, decode_reply, opening_reply};

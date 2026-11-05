@@ -84,10 +84,9 @@ pub enum DecodeError<E> {
     ///
     /// Every leaf version a peer supplies is one its own tree
     /// materializes, so the aggregate its greeting declared must cover
-    /// it. The local window solve priced node residency from that
-    /// declaration; a version arriving over it voids the pricing
-    /// premise, so the session fails fast instead of running outside
-    /// its memory envelope. The greeting's own causal version is *not*
+    /// it. A version arriving over it shows the declaration false, so the
+    /// session fails fast rather than run on it. The greeting's own causal
+    /// version is *not*
     /// held to the declaration — an empty tree honestly declares a
     /// zero aggregate while its redaction-advanced version is nonempty
     /// — so only supplied leaf records are checked.
@@ -99,8 +98,7 @@ pub enum DecodeError<E> {
     ///
     /// An honest peer supplies each leaf at most once and only leaves its
     /// own set holds, so its greeting-declared set length bounds the
-    /// session's total supplied records; the local window solve priced
-    /// absorbed-supply volume from that declaration. The charge lands at
+    /// session's total supplied records. The charge lands at
     /// ingress, before the record's payload takes backend custody, so a
     /// peer supplying past its declaration fails the session at the
     /// offending record while its reply is still open, never after the

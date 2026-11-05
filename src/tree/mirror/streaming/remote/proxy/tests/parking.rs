@@ -10,9 +10,9 @@ use crate::tree::{
     Root as TreeRoot,
     arb::{arb_divergent_pair, full_fan_behind_two_pair},
     mirror::streaming::{
+        FAN,
         channel::{QueueKind, QueueRole, with_kind_capacity, with_observation, with_role_hold},
         testing::session::{AMPLE, completed, over_pipe},
-        window::FAN,
     },
     typed::height::{Height, UnderUnderRoot},
 };

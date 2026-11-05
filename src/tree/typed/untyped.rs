@@ -110,9 +110,8 @@ impl Drop for Node {
 /// [`Node::from_inner`] or [`Clone`] and released by [`Drop`], so the
 /// pair of counters here is an exact concurrent-residency measure: `live`
 /// handles exist right now, and `peak` is the most that ever existed
-/// since the last reset. The session window's memory bound is stated in
-/// in-flight references; this is the instrument that lets tests check the
-/// bound against reality. Read through
+/// since the last reset. Tests read it to measure how many node handles a
+/// session holds at once. Read through
 /// [`testing::node_census`](crate::testing::node_census).
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) mod census {
@@ -791,7 +790,7 @@ impl Node {
     /// agree on every tree, and this side derives the answer from the
     /// bounds alone. Materialized depth is at most the 32-byte path, so
     /// the recursion is stack-safe.
-    #[cfg(any(test, feature = "test-internals"))]
+    #[cfg(test)]
     pub fn max_bound_bytes(&self) -> usize {
         match &self.inner.body {
             Body::Leaf { version, .. } => version.as_bytes().len(),

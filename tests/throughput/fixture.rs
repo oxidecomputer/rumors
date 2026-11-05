@@ -202,8 +202,8 @@ fn admitted() -> Admitted {
     })
 }
 
-/// One completed session: what each side reported, what its ledgers
-/// admitted, and what the link carried.
+/// One completed session: what its ledgers admitted and what the link
+/// carried.
 #[derive(Clone, Debug)]
 pub struct Session {
     /// The session that ran.

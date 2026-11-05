@@ -33,8 +33,7 @@ use crate::tree::mirror::streaming::{Local, Root as StreamingRoot};
 /// sides' stats in argument order.
 ///
 /// No wire is involved, so the byte counters stay zero here; this
-/// harness pins the walk's counters (disputes, gains, sheds) and the
-/// window grant.
+/// harness pins the walk's counters (disputes, gains, sheds).
 fn mirror_with_stats(a: Root, b: Root) -> (Root, Root, SessionStats, SessionStats) {
     let outcome = LocalSession::new(a, b).stats().run();
     let (a_stats, b_stats) = *outcome.stats();
@@ -103,8 +102,8 @@ fn arb_cells() -> impl Strategy<Value = Vec<Vec<u8>>> {
 }
 
 /// A converged pair reports zero in every field: equal greeting versions
-/// end the session before any descent, so no window is derived, nothing
-/// is disputed, and nothing moves.
+/// end the session before any descent, so nothing is disputed and nothing
+/// moves.
 #[test]
 fn equal_trees_report_zero_stats() {
     let node = grown(None, 0, 1, &(), &[path_at(&[0x11]), path_at(&[0x22])]);
@@ -120,8 +119,7 @@ fn equal_trees_report_zero_stats() {
 /// The session disputes exactly the cells' prefix closure (seven
 /// scopes), split five to the responder (depths zero and two) and two
 /// to the initiator (depth one), with each side gaining exactly the
-/// other's four extras, shedding nothing, and running at the floor
-/// window's one-scope width.
+/// other's four extras, and shedding nothing.
 #[test]
 fn pyramid_disputes_match_the_prefix_closure() {
     let cells: Vec<Vec<u8>> = vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1]];
@@ -160,10 +158,6 @@ fn pyramid_disputes_match_the_prefix_closure() {
     assert_eq!(b_stats.messages_shed, 0);
     assert_eq!(live(&ours), a_before + 4);
     assert_eq!(live(&theirs), b_before + 4);
-
-    // The floor window grants one scope at its widest stage, per side.
-    assert_eq!(a_stats.window_granted, 1);
-    assert_eq!(b_stats.window_granted, 1);
 }
 
 /// A deletion honored under a disputed leaf parent is one shed message:

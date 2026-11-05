@@ -15,7 +15,6 @@ use crate::{
                 self, BoxResponses, CompleteConnect, CompleteEqual, CompleteInitiator,
                 CompleteResponder, Connect, Initiator, Reply, Requests, Responder, Responses,
             },
-            window::Window,
         },
         typed::{
             self,
@@ -502,23 +501,6 @@ where
 {
     async fn complete_equal(self) -> Result<Self::Output, Self::Error> {
         self.inner.complete_equal().await
-    }
-}
-
-/// A faulting participant resolves and adopts the window exactly as the
-/// honest state it wraps.
-impl<P> protocol::ShareWindow for Faulting<P>
-where
-    P: protocol::ShareWindow,
-{
-    /// Resolve the wrapped state's window.
-    fn resolve_window(&mut self) -> Option<Window> {
-        self.inner.resolve_window()
-    }
-
-    /// Hand the counterpart's window to the wrapped state.
-    fn adopt_window(&mut self, window: Window) {
-        self.inner.adopt_window(window);
     }
 }
 

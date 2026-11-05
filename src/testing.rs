@@ -20,15 +20,11 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, Local,
-            remote::{self, RunBudget, codec::LeafRun},
-            window::{
-                self, DISPUTE_OVERHEAD_BYTES, DISPUTE_WIRE_BYTES, ReplicaSize,
-                SUPPLY_DECODE_ENVELOPE_BYTES, Window,
-            },
+            remote::{self, RunBudget, SUPPLY_DECODE_ENVELOPE_BYTES, codec::LeafRun},
         },
         typed::{
             hash::{Hash, MERKLE_HASH_LEN as TREE_HASH_LEN},
-            height::{Height, Root},
+            height::Root,
             untyped::{self, census},
         },
     },
@@ -183,6 +179,26 @@ pub fn node_census_reset() {
     census::reset_peak();
 }
 
+/// Approximate wire overhead per differing message, excluding its encoded payload.
+///
+/// `tests/dispute_wire.rs` counts all protocol writes in both directions,
+/// divides by the differing messages, and subtracts their encoded payloads.
+/// The reference fixture has 2,048 shared messages and 8,192 new ones per
+/// side. Its whole-byte mean gives 45; the unrounded mean is about 45.4.
+/// Two fully divergent 75,000-message sets instead average about 42.6,
+/// since supplies dominate them and listings, whose entries each carry a
+/// grandchild count, weigh less. These include hashes, versions, framing,
+/// and amortized session setup; none is a fixed header size or a bound on
+/// other workloads.
+const DISPUTE_OVERHEAD_BYTES: usize = 45;
+
+/// The reference message: a small, round encoded payload size.
+const REFERENCE_RECORD_BYTES: usize = 100;
+
+/// Wire cost of one reference-size message, checked by the wire calibration
+/// suite.
+const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + REFERENCE_RECORD_BYTES;
+
 /// Mean wire bytes per differing reference-size message in the calibration fixture.
 pub fn reference_wire_bytes() -> usize {
     DISPUTE_WIRE_BYTES
@@ -196,12 +212,8 @@ pub fn dispute_overhead_bytes() -> usize {
     DISPUTE_OVERHEAD_BYTES
 }
 
-/// Worst-case bytes one session's decode fans keep resident, under the
-/// in-memory backend's pricing.
-///
-/// The window calculation reserves this amount before sizing its scope queues.
-/// Measurement tests add it back when expressing results against the complete
-/// session budget.
+/// The most bytes one session's decode fans hold at once on the in-memory
+/// backend.
 pub fn supply_decode_envelope_bytes() -> usize {
     SUPPLY_DECODE_ENVELOPE_BYTES
 }
@@ -314,57 +326,6 @@ pub fn prepare_frame(shape: FrameShape) -> PreparedFrame {
 /// exclude growth of the destination buffer.
 pub async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
     remote::write_prepared_frame(frame, out).await
-}
-
-/// Render the [sizing guide](crate::sizing)'s table from the window calculation.
-///
-/// Each cell estimates slowdown as `max(1, BDP_messages / window)`. The
-/// window tests compare the committed table with this deterministic output.
-pub fn window_tradeoff_table() -> String {
-    window::tradeoff_table()
-}
-
-/// The largest canonical version-bound encoding in a snapshot's tree, in
-/// bytes.
-///
-/// Covers every bound the tree holds (leaf versions and every interior
-/// ceiling and floor); the result is the exact per-node aggregate the
-/// greeting exchanges.
-pub fn max_version_bytes<T: Send + Sync + 'static>(snapshot: &Snapshot<T>) -> usize {
-    snapshot.tree().max_version_bytes()
-}
-
-/// The largest canonical per-node version-bound encoding in a snapshot's
-/// tree, recomputed by direct walk with no aggregate memo consulted.
-///
-/// The session memory model prices every bound a session can hold
-/// within the exchanged pair sum (`local_max + remote_max`), and
-/// deletion-honoring can assemble bounds over survivor subsets neither
-/// input materialized; this walk measures a reconciled tree against the
-/// pre-session exchange, so tests can pin the model side of the account
-/// to reality.
-pub fn max_bound_bytes<T: Send + Sync + 'static>(snapshot: &Snapshot<T>) -> usize {
-    snapshot.tree().max_bound_bytes()
-}
-
-/// The per-height channel capacities a session derives from its budget
-/// and the two replicas' exchanged set sizes.
-///
-/// The result is ordered by typed height, from leaves through the root, using
-/// the in-memory backend's node price. Integration tests use it to predict
-/// where a session should encounter backpressure.
-pub fn window_capacities(local_len: u64, remote_len: u64, budget_bytes: usize) -> Vec<usize> {
-    let window = Window::from_budget(
-        [
-            ReplicaSize::new(local_len, 0),
-            ReplicaSize::new(remote_len, 0),
-        ],
-        budget_bytes,
-        <Local as Backend>::node_bytes,
-    );
-    (0..=<Root as Height>::HEIGHT)
-        .map(|height| window.capacity(height))
-        .collect()
 }
 
 /// Why polling stopped before a closed in-memory future completed.

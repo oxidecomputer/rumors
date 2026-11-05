@@ -16,10 +16,9 @@ use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
-        Fault, Faulting, ReplyCorruption,
+        FAN, Fault, Faulting, ReplyCorruption,
         channel::{QueueKind, UNBOUNDED, with_kind_capacity, with_observation},
         mirror as drive_streaming,
-        window::FAN,
     },
 };
 

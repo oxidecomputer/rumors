@@ -47,7 +47,7 @@ fn rejects_parent_before_lower_resolution() {
 /// The other checks pass a stage that publishes every resolution before any
 /// query; sibling contiguity rejects that order. The order deadlocks the walk
 /// only when enough resolutions precede the owed work. The assembler takes
-/// each resolution off the window-wide child-resolution queue before it
+/// each resolution off the child-resolution queue before it
 /// waits for that resolution's pending children, so the stage waits for good
 /// only when the assembler holds a resolution whose owed work is still
 /// unpublished and the queue is full behind it. The stage has then published

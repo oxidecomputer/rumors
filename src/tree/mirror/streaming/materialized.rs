@@ -110,11 +110,10 @@ use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Node as _, Root,
         erased::{self, Reaction, Reply},
-        ledger::{Charge, Ledger, ReplyBound},
+        ledger::{Charge, DEFAULT_SYNC_MEMORY_BUDGET, Ledger, ReplyBound},
         message::{Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
-        window::{DEFAULT_SYNC_MEMORY_BUDGET, ReplicaSize, Window},
     },
     typed::{
         ErasedPrefix, Prefix,
@@ -271,17 +270,11 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
     state: State,
     /// The tree consumed by this session.
     root: Root<B>,
-    /// The budget that prices the window the session reports
-    /// ([`SessionStats::window_granted`](super::stats::SessionStats::window_granted)).
-    ///
-    /// That is the session's memory budget when one is set, else the budget
-    /// its ledger admits work against.
-    budget: usize,
     /// This side's supply-run byte target, carried by the greeting; the
     /// session runs at the minimum of the two ends' targets.
     target_message_size: u64,
-    /// The session's stats recorder; the walk and the window solve write
-    /// through it, and the session driver snapshots it after completion.
+    /// The session's stats recorder; the walk writes through it, and the
+    /// session driver snapshots it after completion.
     stats: Recorder,
     /// The endpoint's ledger, which admits and charges the walk's work
     /// against the endpoint's budget.
@@ -315,19 +308,14 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     fan: Vec<(u8, B::Erased)>,
     /// The bytes exploding the root to build the fan copied.
     copies: usize,
-    /// The session's window, once resolved from both greetings: by the
-    /// driver's [`ShareWindow::resolve_window`](protocol::ShareWindow::resolve_window),
-    /// or at the latest when the descent opens. Equal versions never
-    /// resolve it.
-    resolved: Option<Window>,
 }
 
 /// The remote tree properties retained from its greeting.
 struct PeerSummary {
     /// The peer's causal version, used to bound supplies and join ceilings.
     version: Version,
-    /// The peer's declared message count and maximum encoded version size.
-    size: ReplicaSize,
+    /// The peer's declared message count, which bounds what it can supply.
+    messages: u64,
     /// The peer's grandchild count of its root, which bounds its reply to
     /// the opening question.
     grandchildren: Grandchildren,
@@ -338,7 +326,7 @@ impl PeerSummary {
     fn from_greeting(greeting: Greeting) -> Self {
         Self {
             version: greeting.version,
-            size: ReplicaSize::new(greeting.set_len, greeting.max_version_bytes),
+            messages: greeting.set_len,
             // An empty tree counts none; one reaction more costs a
             // conforming reply nothing.
             grandchildren: usize::try_from(greeting.grandchildren)
@@ -430,7 +418,6 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             backend,
             state: Start,
             root,
-            budget: DEFAULT_SYNC_MEMORY_BUDGET,
             target_message_size,
             stats: Recorder::default(),
             ledger: Ledger::new(admission_budget::<B>(DEFAULT_SYNC_MEMORY_BUDGET)),
@@ -449,16 +436,13 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     /// floor slots alone, as a budget of zero does ([`budget`](Self::budget)),
     /// and holds at most the floor allowance.
     pub fn sync_memory_budget(self, budget: usize) -> Self {
-        let mut session = self.budget(admission_budget::<B>(budget));
-        session.budget = budget;
-        session
+        self.budget(admission_budget::<B>(budget))
     }
 
     /// Select the budget this session's ledger admits its work against
     /// ([`ledger`](super::ledger)): the most it holds outside its floor
     /// slots, which hold the floor allowance at most beside it.
     pub fn budget(mut self, budget: usize) -> Self {
-        self.budget = budget;
         self.ledger = Ledger::new(budget);
         self
     }
@@ -551,7 +535,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
             backend: self.backend,
             state: Connecting { fan, copies },
             root: self.root,
-            budget: self.budget,
             target_message_size: self.target_message_size,
             stats: self.stats,
             ledger: self.ledger,
@@ -571,10 +554,8 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
                 peer: PeerSummary::from_greeting(theirs),
                 fan: self.state.fan,
                 copies: self.state.copies,
-                resolved: None,
             },
             root: self.root,
-            budget: self.budget,
             target_message_size: self.target_message_size,
             stats: self.stats,
             ledger: self.ledger,
@@ -597,39 +578,15 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
     }
 }
 
-/// Resolve the session's window, and prepare the role-independent work
-/// shared by both descent openings.
+/// Prepare the role-independent work shared by both descent openings.
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
-    /// The session's window, solved from both greetings on the first call
-    /// and recorded as granted then; later calls return the same window.
-    fn window(&mut self) -> Window {
-        let Self {
-            backend: _,
-            state,
-            root,
-            budget,
-            target_message_size: _,
-            stats,
-            ledger: _,
-        } = self;
-        *state.resolved.get_or_insert_with(|| {
-            let local_size = ReplicaSize::new(root.len(), root.max_version_bytes());
-            let resolved =
-                Window::from_budget([local_size, state.peer.size], *budget, B::node_bytes);
-            stats.window_granted(resolved.widest());
-            resolved
-        })
-    }
-
-    /// Gather the state either descent opening consumes, with the
-    /// session's window resolved for its stats to report.
-    fn open(mut self) -> Opening<B> {
-        self.window();
+    /// Gather the state either descent opening consumes.
+    fn open(self) -> Opening<B> {
         let Connected {
             peer, fan, copies, ..
         } = self.state;
         let ceiling = self.root.ceiling | &peer.version;
-        let ledger = SupplyLedger::new(peer.size.messages());
+        let ledger = SupplyLedger::new(peer.messages);
         let work = Work::new(self.backend, self.stats, self.ledger);
         Opening {
             peer_version: peer.version,
@@ -648,18 +605,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteEqual<B> for Handshaking<B, Co
     async fn complete_equal(self) -> Result<Root<B>, Self::Error> {
         Ok(self.root)
     }
-}
-
-/// The walk holds its endpoint's window configuration, so it resolves the
-/// window itself and ignores any other.
-impl<B: Backend<Node<Z>: Leaf>> protocol::ShareWindow for Handshaking<B, Connected<B>> {
-    /// Resolve the window from both greetings and this side's configuration.
-    fn resolve_window(&mut self) -> Option<Window> {
-        Some(self.window())
-    }
-
-    /// Ignore the counterpart's window: this side sizes its work by its own.
-    fn adopt_window(&mut self, _window: Window) {}
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connected<B>> {

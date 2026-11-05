@@ -27,7 +27,6 @@ use crate::tree::{
             },
         },
         stats::Recorder,
-        window::Window,
     },
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
@@ -87,24 +86,6 @@ where
             observe,
         )
     }
-}
-
-/// The proxy sizes nothing by the window: every queue of its own is fixed
-/// or unbounded. Nor does it keep a ledger: every record it publishes
-/// carries the charge its walk built for it.
-impl<B, R, W> protocol::ShareWindow for Connected<B, R, W>
-where
-    B: Backend<Node<Z>: Leaf>,
-    R: Send,
-    W: Send,
-{
-    /// Resolve nothing: the proxy has no window of its own.
-    fn resolve_window(&mut self) -> Option<Window> {
-        None
-    }
-
-    /// Ignore the walk's window, which sizes none of the proxy's queues.
-    fn adopt_window(&mut self, _window: Window) {}
 }
 
 /// A connected wire participant remains at root height until driver dispatch.

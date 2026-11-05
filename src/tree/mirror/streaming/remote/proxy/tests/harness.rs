@@ -19,11 +19,11 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::testing::{
     IoFault, IoPlan, IoReportHandle, IoSide, MemoryEnd, memory_connection, wrap_io,
 };
 use crate::tree::mirror::cbor;
-use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::typed::height::Z;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
@@ -732,10 +732,8 @@ pub async fn reconcile(
     }
 }
 
-/// Reconcile with each side's *received* greeting optionally rewritten.
-///
-/// Runs under the default budget-derived window so the rewritten
-/// declarations flow into the live window solve, not a fixed test floor.
+/// Reconcile with each side's *received* greeting optionally rewritten,
+/// both endpoints at the default budget.
 pub async fn reconcile_rewritten_greetings(
     left: TreeRoot,
     right: TreeRoot,

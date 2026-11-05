@@ -1,7 +1,7 @@
 //! Measurements from a completed synchronization session.
 //!
-//! [`SessionStats`] reports latency, changes to the rumor set, network traffic,
-//! and memory-budget pressure while joining, gossiping, or leaving a network.
+//! [`SessionStats`] reports latency, changes to the rumor set, and network
+//! traffic while joining, gossiping, or leaving a network.
 //! It is returned on [`Gossiped`](crate::Gossiped) and sent to
 //! [`SessionObserver::finished`](crate::observe::SessionObserver::finished).
 //! Each peer measures its own side, and collection adds no protocol traffic.
@@ -78,23 +78,10 @@ pub struct SessionStats {
     /// This is the incoming counterpart to [`frames_sent`](Self::frames_sent),
     /// including the logical streams' end markers.
     pub frames_received: u64,
-    /// Largest comparison window granted during the session.
-    ///
-    /// Gossip compares the rumor set in several steps. Rumors derives a
-    /// *window* for each step from
-    /// [`sync_memory_budget`](crate::Peer::sync_memory_budget) and reports
-    /// the largest here, but gossip sizes no queue by it: the
-    /// synchronization memory budget limits comparisons in flight instead.
-    /// Zero means no comparison was needed.
-    pub window_granted: u64,
-    /// Times gossip reached a window's limit on comparisons in flight:
-    /// always zero, since gossip sizes no queue by its window; the
-    /// synchronization memory budget limits comparisons in flight instead.
-    pub window_stalls: u64,
 }
 
 /// The write side of one session's [`SessionStats`]: cheaply cloneable,
-/// shared by the walk, the window solve, and the codec's byte counters.
+/// shared by the walk and the codec's byte counters.
 ///
 /// Counters are atomics only to satisfy `Send + Sync` across the session's
 /// concurrently polled tasks; all ordering is `Relaxed` because each
@@ -115,7 +102,6 @@ struct Counters {
     bytes_received: AtomicU64,
     frames_sent: AtomicU64,
     frames_received: AtomicU64,
-    window_granted: AtomicU64,
 }
 
 impl Recorder {
@@ -139,14 +125,6 @@ impl Recorder {
             .fetch_add(messages, Ordering::Relaxed);
     }
 
-    /// Record the widest per-stage capacity the window solve granted.
-    ///
-    /// A session resolves its window exactly once, so this is a store,
-    /// not an accumulation.
-    pub fn window_granted(&self, scopes: u64) {
-        self.inner.window_granted.store(scopes, Ordering::Relaxed);
-    }
-
     /// Count one complete frame written by the data-stream codec.
     pub fn frame_sent(&self) {
         self.inner.frames_sent.fetch_add(1, Ordering::Relaxed);
@@ -168,8 +146,6 @@ impl Recorder {
             bytes_received: self.inner.bytes_received.load(Ordering::Relaxed),
             frames_sent: self.inner.frames_sent.load(Ordering::Relaxed),
             frames_received: self.inner.frames_received.load(Ordering::Relaxed),
-            window_granted: self.inner.window_granted.load(Ordering::Relaxed),
-            window_stalls: 0,
         }
     }
 }

@@ -287,7 +287,7 @@ impl<T> Tree<T> {
     /// A read of a per-node aggregate maintained exactly, memoized like
     /// the bounds it covers: redacting the version that carries the
     /// maximum resizes it down.
-    #[cfg(any(test, feature = "test-internals"))]
+    #[cfg(test)]
     pub(crate) fn max_version_bytes(&self) -> usize {
         self.root
             .node
@@ -305,7 +305,7 @@ impl<T> Tree<T> {
     /// that value is the greeting version, one per tree, priced outside
     /// the per-node memory model. Test instrumentation; see
     /// [`testing::max_bound_bytes`](crate::testing::max_bound_bytes).
-    #[cfg(any(test, feature = "test-internals"))]
+    #[cfg(test)]
     pub(crate) fn max_bound_bytes(&self) -> usize {
         self.root
             .node

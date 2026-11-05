@@ -14,7 +14,7 @@
 //!   argument.
 //! - [`remote`]: the proxy — codec, proxy state machine, adapter, and the
 //!   pipe that carries every logical stream.
-//! - [`window`]: how one byte budget becomes per-height channel capacities.
+//! - [`ledger`]: how each endpoint admits its work against its byte budget.
 //! - [`message`]: the wire vocabulary, the greeting included.
 //! - [`erased`]: the height-erased seam both implementors run on — the
 //!   wire vocabulary's erased twin, its typed exits, and the dispatch
@@ -57,7 +57,12 @@ pub mod stats;
 mod tasks;
 #[cfg(test)]
 mod testing;
-pub(crate) mod window;
+
+/// The tree's maximum branching factor: one child per `u8` radix.
+///
+/// Also the capacity floor of the assembly fan queues: those channels must
+/// admit one *full* fan of children, whatever the budget.
+pub(crate) const FAN: usize = u8::MAX as usize + 1;
 
 pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
 // The stream vocabulary the backend conformance suite decorates with;
@@ -182,12 +187,9 @@ where
 }
 
 /// Elect the initiator from the exchanged greetings and reconcile or complete.
-///
-/// Before either role opens, each participant's resolved window goes to the
-/// other ([`ShareWindow`]), so an endpoint's proxy runs on its walk's window.
 pub(crate) async fn descend<L, R, B>(
-    mut local: L,
-    mut remote: R,
+    local: L,
+    remote: R,
     local_key: RoleKey,
     remote_key: RoleKey,
 ) -> Result<(L::Output, R::Output), Error<L::Error, R::Error>>
@@ -204,12 +206,6 @@ where
             Error::Server,
         )
         .await;
-    }
-    if let Some(window) = local.resolve_window() {
-        remote.adopt_window(window);
-    }
-    if let Some(window) = remote.resolve_window() {
-        local.adopt_window(window);
     }
     if local_key.initiates(&remote_key) {
         mirror_connected(local, remote).await

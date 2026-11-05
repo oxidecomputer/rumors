@@ -12,7 +12,7 @@ use std::pin::Pin;
 use futures::{Stream, StreamExt};
 
 use crate::tree::{
-    mirror::streaming::{Backend, Leaf, erased, message, window::Window},
+    mirror::streaming::{Backend, Leaf, erased, message},
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
@@ -123,31 +123,6 @@ pub trait CompleteConnect<B: Backend<Node<Z>: Leaf>>: Phase<Height = Root> + Siz
 pub trait CompleteEqual<B: Backend<Node<Z>: Leaf>>: Phase<Height = Root> + Sized {
     /// Produce this participant's result without opening the descent.
     fn complete_equal(self) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
-}
-
-/// Give both participants of an endpoint one window before the descent
-/// opens.
-///
-/// The participant holding the endpoint's window configuration, the walk,
-/// resolves it from both greetings; one holding none, the proxy, is handed
-/// what its counterpart resolved. Two walks, as in an in-process session,
-/// are two endpoints: each resolves its own and ignores the other's.
-///
-/// Once the greetings' versions differ, the driver calls
-/// [`resolve_window`](Self::resolve_window) on each participant and hands
-/// each result to the other's [`adopt_window`](Self::adopt_window), before
-/// either opens its role. Equal versions skip both, so a session that never
-/// descends never solves a window.
-pub trait ShareWindow: Phase<Height = Root> + Sized {
-    /// Resolve this participant's window from both greetings, or return
-    /// `None` if it adopts its counterpart's.
-    ///
-    /// Repeated calls return the same window without solving it again.
-    fn resolve_window(&mut self) -> Option<Window>;
-
-    /// Adopt the window the counterpart resolved; a participant that
-    /// resolves its own ignores it.
-    fn adopt_window(&mut self, window: Window);
 }
 
 /// The opening burst: the initiator speaks first, and unprompted.

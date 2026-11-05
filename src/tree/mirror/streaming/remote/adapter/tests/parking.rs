@@ -24,10 +24,9 @@ use crate::{
     tree::{
         Action, Tree,
         mirror::streaming::{
-            Backend, Local,
+            Backend, FAN, Local,
             erased::{Reaction, Reply},
             remote::codec::{self, RunBudget, Speaker, Stream},
-            window::FAN,
         },
         typed::{self, Hash, height::UnderRoot},
     },

@@ -6,12 +6,12 @@ use std::sync::{Arc, Mutex};
 use proptest::prelude::*;
 
 use super::{Bootstrap, Joined};
+use crate::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::Peer;
 use crate::bookmark::Bookmark;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::RunBudget;
-use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 
 /// Record session starts without collecting individual protocol events.
 #[derive(Default)]

@@ -1,7 +1,7 @@
 //! Semantic wire frames after signal decoding.
 
+use crate::tree::mirror::streaming::FAN;
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
-use crate::tree::mirror::streaming::window::FAN;
 use crate::{
     Version,
     counter::widen,

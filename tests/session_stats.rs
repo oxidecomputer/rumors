@@ -3,8 +3,8 @@
 //! Message counts are checked against recorded sends and redactions, including
 //! both peers shedding messages in one session. Byte counts are checked against
 //! the frames captured on one reused connection.
-//! Point tests cover catch-up, one-sided redaction, no-op sessions, the minimum
-//! window, and the continuous gossip driver's results.
+//! Point tests cover catch-up, one-sided redaction, no-op sessions, and the
+//! continuous gossip driver's results.
 
 use rumors_testkit::common;
 
@@ -97,8 +97,8 @@ fn catchup_gains_the_providers_count_without_disputes() {
 }
 
 /// Converged replicas report zero in every field: equal greeting versions
-/// end the session at the greeting, so no window is derived, no data
-/// stream carries a frame, and nothing is counted.
+/// end the session at the greeting, so no data stream carries a frame and
+/// nothing is counted.
 #[test]
 fn converged_replicas_report_zero_stats() {
     block_on(async {
@@ -130,22 +130,6 @@ fn honored_redaction_counts_as_shed() {
         assert_eq!(a_g.stats.messages_gained, 0);
         assert_eq!(a.snapshot().len(), 1);
         assert_eq!(b.snapshot().len(), 1);
-    });
-}
-
-/// The floor window grants exactly one scope at its widest stage; the
-/// value a session reports is the resolved window's widest capacity.
-#[test]
-fn floor_window_reports_one_granted_scope() {
-    block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork_async(&a).await;
-        a.send_all([1]).unwrap();
-        b.send_all([2]).unwrap();
-
-        let (a_g, b_g) = gossip_pair_async(&a, &b).await;
-        assert_eq!(a_g.stats.window_granted, 1);
-        assert_eq!(b_g.stats.window_granted, 1);
     });
 }
 

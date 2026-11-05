@@ -8,9 +8,9 @@
 //! - [`next_scopes`] carries the scopes a taken reply's questions create.
 
 use crate::tree::mirror::streaming::{
+    FAN,
     channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, channel},
     remote::adapter::Scope,
-    window::FAN,
 };
 
 use super::Parked;

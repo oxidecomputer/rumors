@@ -26,11 +26,10 @@ use futures::{StreamExt as _, stream};
 use super::LeafRequest;
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf,
+        Backend, FAN, Leaf,
         channel::{QueueKind, QueueRole, Receiver, Sender, UNBOUNDED, channel},
         erased::{self, Reply, ReplyResultStream},
         materialized::{Error, Query, Resolution},
-        window::FAN,
     },
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };

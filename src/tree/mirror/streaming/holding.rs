@@ -1,11 +1,9 @@
 //! Attribution of a session's allocations to the place that holds them, for
 //! the session-budget meter.
 //!
-//! A session keeps in-flight state in several places: the walk's questions
-//! and resolutions, the proxy's question records and parked replies, the
-//! replies on their way to the wire, and more. A meter that checks a
-//! session's heap place by place must know which place each allocation
-//! serves. The session marks the code that allocates for each place with a
+//! Each endpoint's ledger charges each place a session keeps in-flight state
+//! separately ([`ledger`](super::ledger)). A meter that checks those charges
+//! against the heap must know which place each allocation serves. The session marks the code that allocates for each place with a
 //! [`Holding`]: synchronous work through [`held_by`], and a task or a stream
 //! that allocates for one place throughout through [`holding`] and
 //! [`holding_stream`]. A test installs one hook for its whole process with
@@ -28,26 +26,30 @@ use std::{future::poll_fn, pin::pin, sync::OnceLock};
 
 use futures::{Future, Stream};
 
-/// A place in a session that holds in-flight state.
+/// A place in a session that holds in-flight state, as the charge's terms
+/// divide them, or a place the charge leaves out.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Holding {
     /// The walk's questions, queued or built and waiting to be, with the
-    /// children each lists, and the leaf requests at the last level.
+    /// children each lists: the charge's questions term, and its leaf
+    /// requests at the last level.
     Questions,
     /// The walk's resolutions awaiting assembly, with their child slots, and
     /// the child listings the walk reads to answer the peer's questions,
-    /// whose handles those slots keep.
+    /// whose handles those slots keep: the charge's resolutions term.
     Resolutions,
     /// The proxy's records of questions, both those this side sent and those
-    /// a taken reply creates.
+    /// a taken reply creates: the charge's question-records term.
     QuestionRecords,
-    /// Decoded replies parked until their stage takes them.
+    /// Decoded replies parked until their stage takes them: the charge's
+    /// parked-replies term.
     ParkedReplies,
     /// The decode fans that carry supplied leaves from a reply's decoder to
     /// their assembly.
     DecodedLeaves,
     /// Replies this side builds and hands toward the wire, supplies
-    /// included, before they are encoded.
+    /// included, before they are encoded: the charge's outgoing-replies
+    /// term.
     OutgoingReplies,
     /// Encoding, multiplexing, demultiplexing, and decoding wire frames.
     Wire,
@@ -55,7 +57,7 @@ pub enum Holding {
     /// fixed capacity around it: the level return queues between
     /// assemblers and the terminal leaf resolutions.
     ///
-    /// The queues are a fan deep whatever the window, so they cost a fixed
+    /// The queues are a fan deep whatever the budget, so they cost a fixed
     /// amount per level, and the in-memory backend builds each supplied
     /// subtree over its open right spine, at most one fan per path byte
     /// however many leaves the subtree holds.

@@ -9,7 +9,7 @@ use crate::{
     Version,
     tree::{
         mirror::streaming::{
-            Backend, ErasedNode, Leaf,
+            Backend, ErasedNode, FAN, Leaf,
             erased::{Reaction, ops},
             holding::{Holding, held_by, holding},
             ledger::{Charge, ReplyBound},
@@ -19,7 +19,6 @@ use crate::{
             },
             message::{Grandchildren, Listed},
             stats::Recorder,
-            window::FAN,
         },
         typed::{ErasedPrefix, height::Z},
     },

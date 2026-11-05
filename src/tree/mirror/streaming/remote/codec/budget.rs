@@ -9,8 +9,9 @@
 //! Each endpoint advertises its target in the greeting, and the session uses
 //! the smaller target in both directions. The decoder applies the same limit
 //! before buffering a run: a frame may exceed it only when the frame
-//! contains one record. Constructed leaves are charged separately by the
-//! synchronization window.
+//! contains one record. Constructed leaves are not run bytes: the decode
+//! fan that carries them to assembly holds a fixed number per logical
+//! stream.
 //!
 //! Runs are the unit of wire buffering, which the session's pipe bounds
 //! per logical stream. Sending, a logical stream holds at most three

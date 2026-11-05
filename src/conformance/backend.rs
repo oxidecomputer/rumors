@@ -1,19 +1,18 @@
 //! Conformance checks for storage backends used by streaming reconciliation.
 //!
-//! [`Backend::node_bytes`] supplies the node prices used to size session queues.
-//! This suite checks those prices against an independent [`Measure`] oracle,
-//! then reconciles concrete fixtures at the zero-budget floor and a larger
-//! budget. It checks:
+//! [`Backend::node_bytes`] states, as an upper bound, what a backend's node
+//! value keeps resident. This suite checks those prices against an
+//! independent [`Measure`] oracle, then reconciles concrete fixtures at a
+//! budget of zero and a larger budget. It checks:
 //!
 //! - **Prices:** monotonicity over a grid of child counts and version bounds;
-//!   measured residency of constructed, walked, and assembled nodes; and extra
-//!   slot padding for node types aligned wider than the in-memory handle.
+//!   and measured residency of constructed, walked, and assembled nodes.
 //!   Height erasure and restoration must preserve residency.
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, and one assembled node per supplied prefix run.
 //! - **Reconciliation:** both replicas converge to a set of the expected union
-//!   size. The larger budget must grant a wider window, and any measured peak
-//!   increase over the floor must fit within that budget.
+//!   size, and any measured peak increase over the zero-budget run must fit
+//!   within the larger budget.
 //!
 //! # What the census measures
 //!
@@ -22,12 +21,11 @@
 //! to persist its payload. Corpus handles still alive during reconciliation
 //! are included; shared tree storage and wire buffers are not.
 //!
-//! The peak comparison is fixture-specific. Changing capacity can change when
-//! nodes are created and released, so subtracting the floor's peak does not
-//! isolate queue memory, and wider queues need not produce a higher peak.
-//! Neither this comparison nor the sampled price checks prove a hard memory
-//! bound; [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) uses
-//! statistical estimates of tree shape.
+//! The peak comparison is fixture-specific. Changing the budget can change
+//! when nodes are created and released, so subtracting the zero-budget run's
+//! peak does not isolate the budgeted work, and a larger budget need not
+//! produce a higher peak. Neither this comparison nor the sampled price
+//! checks prove a hard memory bound.
 //!
 //! The ledger is process-global. Tests must hold the suite's serialization
 //! lock so their charges and violation reports cannot interfere.
@@ -38,7 +36,6 @@
 //! own tests.
 
 use std::collections::BTreeMap;
-use std::mem::size_of;
 use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -53,16 +50,11 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, Root,
-            convert::Convert,
-            materialized::{self, Resolve},
-            message::Listed,
-            ops,
-            stats::{Recorder, SessionStats},
-            window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES},
+            self, Backend, BoxNodeStream, ErasedNode, FAN, Leaf, Node, NodeStream, Root,
+            convert::Convert, materialized, ops,
         },
         typed::{
-            self, Hash, Path, Prefix,
+            Hash, Path, Prefix,
             height::{self, Height, S, Z},
         },
     },
@@ -84,53 +76,6 @@ pub(crate) trait Measure: Backend<Node<Z>: Leaf> {
     /// [`erase`](Backend::erase) direction.
     fn measure_erased(node: &Self::Erased) -> usize;
 }
-
-/// Bytes one decode-fan slot pads around a leaf handle of `B` beyond
-/// what the window charges for the in-memory handle's slot.
-///
-/// The window prices a fan slot at `node_bytes(0, bound)` plus
-/// [`FAN_SLOT_BYTES`], the pair's padding under the pointer-class
-/// handle, and leaves a wider-aligned handle's extra padding to the
-/// backend's own price: this is that extra, the obligation the leaf
-/// checks fold into their comparison. Never negative: a handle narrower
-/// than a pointer is overcharged, which is the safe direction.
-const fn fan_slot_excess<B: Backend<Node<Z>: Leaf>>() -> usize {
-    (size_of::<(Prefix<Z>, B::Node<Z>)>() - size_of::<B::Node<Z>>()).saturating_sub(FAN_SLOT_BYTES)
-}
-
-/// Bytes the per-level reference slots pad around a height-`H` handle
-/// of `B` beyond what the window charges for the in-memory handle's.
-///
-/// A held reference sits in a query slot `(u8, node)` and a resolution
-/// slot `(u8, Resolve<erased>)`; the window prices both at
-/// [`REFERENCE_SLOT_BYTES`], derived for the pointer-class handle, and
-/// leaves a wider layout's extra padding to the backend's price. The
-/// listing slot carries a hash, not a handle, so it pads the same for
-/// every backend.
-const fn reference_slot_excess<B: Backend<Node<Z>: Leaf>, H: Height>() -> usize {
-    let real = (size_of::<(u8, B::Node<H>)>() - size_of::<B::Node<H>>())
-        + (size_of::<(u8, Resolve<B::Erased>)>() - size_of::<B::Erased>());
-    real.saturating_sub(LOCAL_REFERENCE_PADDING)
-}
-
-/// The padding the window's reference-slot constant carries for the
-/// in-memory handle: the query and resolution slots less the handle in
-/// each.
-const LOCAL_REFERENCE_PADDING: usize = (size_of::<(u8, typed::Node<Z>)>()
-    - size_of::<typed::Node<Z>>())
-    + (size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
-        - size_of::<<Local as Backend>::Erased>());
-
-// The decomposition above is the window constant's own: the two
-// handle-bearing slots' padding, the two handles, and the listing slot.
-const _: () = assert!(
-    LOCAL_REFERENCE_PADDING
-        + size_of::<typed::Node<Z>>()
-        + size_of::<<Local as Backend>::Erased>()
-        + size_of::<Listed>()
-        == REFERENCE_SLOT_BYTES,
-    "the reference-slot padding decomposes the window's constant",
-);
 
 /// The process-global byte census the charged decorator maintains.
 mod ledger {
@@ -345,15 +290,11 @@ where
         // The pointwise contract at the leaf seam: after construction has
         // had its chance to persist the payload, the cost function at
         // `children = 0` and the node's own bounds must cover what the
-        // handle keeps resident, its decode-fan slot's padding included
-        // — this is the price the session budget charges every
-        // decode-fan slot.
-        let padding = fan_slot_excess::<N::Backend>();
+        // handle keeps resident.
         let priced = <N::Backend as Backend>::node_bytes(0, bound_bytes(&node));
-        if measured + padding > priced {
+        if measured > priced {
             ledger::violation(format!(
-                "underpriced leaf: measured {measured} B plus {padding} B of decode-slot \
-                 padding, node_bytes priced {priced} B",
+                "underpriced leaf: measured {measured} B, node_bytes priced {priced} B",
             ));
         }
         Ok(Self::wrap(node, measured))
@@ -511,21 +452,16 @@ where
                 yield child.map(|(prefix, node)| {
                     let measured = B::measure(&node);
                     // The pointwise contract at the explosion: an exploded
-                    // child is one of the held references the window
-                    // prices per depth, sitting in the reference slots
-                    // whose padding beyond the pointer-class layout is
-                    // the backend's to price. Its own fan is invisible
-                    // here, so the price is taken at the widest fan it
-                    // can have (its leaf count, capped at the radix),
-                    // which the contract's monotonicity in fan makes an
-                    // upper bound on the price at its own fan.
-                    let padding = reference_slot_excess::<B, H>();
+                    // child is a reference the session holds. Its own
+                    // fan is invisible here, so the price is taken at the
+                    // widest fan it can have (its leaf count, capped at the
+                    // radix), which the contract's monotonicity in fan
+                    // makes an upper bound on the price at its own fan.
                     let priced = B::node_bytes(node.len().min(FAN), bound_bytes(&node));
-                    if measured + padding > priced {
+                    if measured > priced {
                         ledger::violation(format!(
-                            "underpriced child: measured {measured} B plus {padding} B of \
-                             reference-slot padding, node_bytes at the widest fan prices \
-                             {priced} B",
+                            "underpriced child: measured {measured} B, node_bytes at the \
+                             widest fan prices {priced} B",
                         ));
                     }
                     (prefix, ChargedNode::wrap(node, measured))
@@ -577,14 +513,12 @@ where
                     }
                     let measured = B::measure(&leaf);
                     // The pointwise contract at the walk: a walked leaf
-                    // is a fan slot the session budget prices at
-                    // `children = 0`, its slot's padding included.
-                    let padding = fan_slot_excess::<B>();
+                    // is priced at `children = 0`.
                     let priced = B::node_bytes(0, bound_bytes(&leaf));
-                    if measured + padding > priced {
+                    if measured > priced {
                         ledger::violation(format!(
-                            "underpriced walked leaf: measured {measured} B plus {padding} B \
-                             of decode-slot padding, node_bytes priced {priced} B",
+                            "underpriced walked leaf: measured {measured} B, node_bytes \
+                             priced {priced} B",
                         ));
                     }
                     // Every version bound under the walked node is in its
@@ -769,8 +703,8 @@ fn sweep_bounds() -> Vec<usize> {
 
 /// Sweep one cost function for monotonicity in both arguments.
 ///
-/// The window evaluates prices at estimated upper bounds on fan and version
-/// size. Monotonicity lets those prices cover smaller nodes too.
+/// A price taken at upper bounds on several nodes' fans and version sizes
+/// covers each of those nodes only if the cost function is monotone.
 ///
 /// Compare every adjacent fan up to [`FAN`] at each [`sweep_bounds`] value,
 /// and every adjacent bound at each fan. Bounds are sampled sparsely above
@@ -817,10 +751,10 @@ const DIVERGENT: usize = 1_024;
 
 /// Check node prices, bulk operations, and reconciliation under two budgets.
 ///
-/// Reconciles the same divergent corpora at the zero-budget floor and at
-/// `budget_bytes`. The budget must widen at least one queue. Any increase
-/// in the measured peak must fit the budget, but the wider run may also
-/// peak lower: capacity changes the schedule as well as available space.
+/// Reconciles the same divergent corpora at a budget of zero and at
+/// `budget_bytes`. Any increase in the measured peak must fit the budget,
+/// but the budgeted run may also peak lower: the budget changes the
+/// schedule as well as available space.
 /// Callers must serialize checks because the ledger is process-global.
 ///
 /// # Panics
@@ -835,7 +769,6 @@ const DIVERGENT: usize = 1_024;
 ///   outside its prefix, merged, split, or swallowed a run, or
 ///   `parent` answered a real child with no parent or an empty group
 ///   with one;
-/// - the stated budget does not widen any queue above the floor;
 /// - the measured peak increase exceeds the budget; or
 /// - the session failed to converge the corpora, or converged them to
 ///   less than their union.
@@ -846,12 +779,11 @@ where
 {
     node_bytes_monotone::<B>();
 
-    let (floor_peak, floor_stats) = run(backend.clone(), 0, 0).await;
-    let (budget_peak, budget_stats) = run(backend, budget_bytes, 0).await;
+    let floor_peak = run(backend.clone(), 0, 0).await;
+    let budget_peak = run(backend, budget_bytes, 0).await;
     eprintln!(
-        "conformance census at budget {budget_bytes} B: floor run peaked at {floor_peak} B \
-         (widest capacity {}), budgeted run at {budget_peak} B (widest capacity {})",
-        floor_stats.window_granted, budget_stats.window_granted,
+        "conformance census at budget {budget_bytes} B: the zero-budget run peaked at \
+         {floor_peak} B, the budgeted run at {budget_peak} B",
     );
 
     let violations = ledger::take_violations();
@@ -859,14 +791,6 @@ where
         violations.is_empty(),
         "the backend's node_bytes contract failed pointwise:\n{}",
         violations.join("\n"),
-    );
-
-    // Check that the real session used a wider window. Occupancy need not
-    // rise with capacity: less backpressure can let nodes be released sooner.
-    assert!(
-        budget_stats.window_granted > floor_stats.window_granted,
-        "the budget does not widen any queue above the floor (widest capacity {})",
-        budget_stats.window_granted,
     );
 
     let increase = budget_peak.saturating_sub(floor_peak);
@@ -899,13 +823,13 @@ fn histories() -> [Vec<(Version, u64)>; 3] {
     [common, left_tail, right_tail]
 }
 
-/// Reconcile divergent corpora and return the absolute node census peak and stats.
+/// Reconcile divergent corpora and return the absolute node census peak.
 ///
 /// `omitted` shared messages are left out of *both* corpora to test that
 /// agreement alone cannot satisfy the completeness check. Pass zero for
 /// a complete fixture. Corpus construction is excluded from the peak, but
 /// corpus handles still alive during reconciliation are included.
-pub(super) async fn run<B>(backend: B, budget: usize, omitted: usize) -> (usize, SessionStats)
+pub(super) async fn run<B>(backend: B, budget: usize, omitted: usize) -> usize
 where
     B: Measure,
     B::Error: std::fmt::Debug,
@@ -944,13 +868,9 @@ where
     // includes them and any later handles held by either endpoint.
     ledger::reset_peak();
 
-    // Both sides use the same size declarations, so one recorder suffices
-    // to check the window granted to this session.
-    let stats = Recorder::default();
     let client =
         materialized::Handshaking::start(charged.clone(), left, DEFAULT_TARGET_MESSAGE_SIZE as u64)
-            .budget(budget)
-            .stats(stats.clone());
+            .budget(budget);
     let server =
         materialized::Handshaking::start(charged, right, DEFAULT_TARGET_MESSAGE_SIZE as u64)
             .budget(budget);
@@ -980,7 +900,7 @@ where
              messages; the corpora are built to hold {union} between them",
         ));
     }
-    (peak, stats.snapshot())
+    peak
 }
 
 /// Drain one corpus's bulk leaf walk from the root so the walk's checks

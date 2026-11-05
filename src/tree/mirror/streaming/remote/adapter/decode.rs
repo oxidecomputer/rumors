@@ -7,7 +7,7 @@ use crate::{
     message::PayloadCodec,
     tree::{
         mirror::streaming::{
-            Backend, Leaf,
+            Backend, FAN, Leaf,
             backend::BoxNodeStream,
             channel::{QueueKind, QueueRole, Receiver, Sender, channel},
             erased::{Reaction as ProtocolReaction, Reply, ops},
@@ -15,7 +15,6 @@ use crate::{
             ledger::{Charge, ReplyBound},
             materialized::SupplyLedger,
             message::{Grandchildren, Listed},
-            window::FAN,
         },
         typed::{
             ErasedPrefix, Path, Prefix,
@@ -30,6 +29,25 @@ use super::{
     error::{DecodeError, ScopeError},
     scope::{ReplyLevel, Scope},
 };
+
+/// Leaf records each reply decoder holds at once at most: a full fan in its
+/// leaves' edge and the one in its reader's hand.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) const SUPPLY_RECORDS_PER_STREAM: usize = FAN + 1;
+
+/// The most bytes one session's decode fans hold at once on the in-memory
+/// backend.
+///
+/// Each of the [`STREAM_COUNT`](super::super::STREAM_COUNT) logical reply streams a session decodes
+/// holds at most [`SUPPLY_RECORDS_PER_STREAM`] decoded leaves, each a
+/// [`DecodedLeaf`] whose handle keeps nothing resident beyond it on the
+/// in-memory backend. A full fan permits one parent group's worth of
+/// read-ahead, reducing wakeups and overlapping parsing with slower
+/// assembly; capacity one still makes progress.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize = super::super::STREAM_COUNT
+    * SUPPLY_RECORDS_PER_STREAM
+    * mem::size_of::<DecodedLeaf<<crate::tree::mirror::streaming::Local as Backend>::Node<Z>>>();
 
 /// One item on a [`LeafEdge`]'s way to assembly.
 pub(crate) enum DecodedLeaf<N> {
@@ -72,8 +90,8 @@ where
     ///
     /// A full fan amortizes reader and assembler wakeups and lets parsing
     /// run ahead when assembly is slower. Progress needs only one slot, which
-    /// the tests' one-slot edge establishes, so the fan is a throughput choice
-    /// whose maximum residency the window charges, not a liveness
+    /// the tests' one-slot edge establishes, so the fan is a throughput choice,
+    /// a fixed amount per logical stream whatever the budget, not a liveness
     /// requirement.
     pub fn new() -> Self {
         Self::with_capacity(FAN)
@@ -630,9 +648,8 @@ impl SupplyRuns {
     ) -> Result<(Prefix<Z>, Option<(u8, ErasedPrefix)>), DecodeError<E>> {
         // The declared aggregate covers every version the peer's tree
         // materializes, so every version it supplies must encode within
-        // it; one arriving over the declaration voids the premise the
-        // window solve priced this session with, and fails the session
-        // before the record is admitted.
+        // it; one arriving over the declaration shows the declaration
+        // false, and fails the session before the record is admitted.
         let actual = version.as_bytes().len();
         if widen(actual) > self.version_bytes {
             return Err(DecodeError::OversizedVersion {

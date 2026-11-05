@@ -19,16 +19,19 @@ use crate::{
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, Local,
+            Backend, FAN, Local,
             erased::{Reaction, Reply},
             remote::codec::{Frame, LeafRun, Reaction as WireReaction},
-            window::{FAN, SUPPLY_RECORDS_PER_STREAM},
         },
         typed::Path,
     },
 };
 
-use super::super::{LeafEdge, ReplyLevel, Scope, decode::fan_probe, decode_whole_reply};
+use super::super::{
+    LeafEdge, ReplyLevel, Scope,
+    decode::{SUPPLY_RECORDS_PER_STREAM, fan_probe},
+    decode_whole_reply,
+};
 use super::{codec, reply_frames, unbounded, uniform_version};
 
 /// Leaf records per supply frame.

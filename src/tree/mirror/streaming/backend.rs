@@ -1,10 +1,9 @@
 //! Node storage and pricing for streaming reconciliation.
 //!
 //! A [`Backend`] defines the node handles used by a session, the operations
-//! over those handles, and their resident-memory cost. The session window uses
-//! [`Backend::node_bytes`] to price every in-flight node reference. This
-//! boundary is crate-internal; [`Local`] is its production implementation and
-//! stores handles into the crate's in-memory tree.
+//! over those handles, and what holding them costs beyond the replica at
+//! rest. This boundary is crate-internal; [`Local`] is its production
+//! implementation and stores handles into the crate's in-memory tree.
 //!
 //! The backend conformance suite checks the behavioral and pricing contracts
 //! against each implementation used by the crate.
@@ -89,9 +88,6 @@ where
     /// beyond the replica's own storage, its version bounds (ceiling and
     /// floor together) encoding within `version_bound` bytes.
     ///
-    /// This prices the session window's in-flight references and the
-    /// decode fan's buffered leaves
-    /// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)).
     /// [`Local`]'s nodes are handles into a tree that is resident
     /// regardless, so its price is one pointer at every argument; a
     /// backend without an always-resident tree must charge everything its
@@ -101,15 +97,16 @@ where
     ///
     /// A leaf is priced at `children = 0`: what its handle keeps resident
     /// after [`Leaf::leaf`] has had its chance to persist the payload.
-    /// Payload bytes still in flight inside one wire message are priced
+    /// Payload bytes still in flight inside one wire message are bounded
     /// by [`target_message_size`](crate::Peer::target_message_size), not
     /// here.
     ///
-    /// The result must be an **upper bound**, monotone in both arguments
-    /// because the window evaluates it at estimated fan and version sizes.
-    /// Other overestimates narrow the window and cost throughput; underpricing
-    /// a node can instead exceed the memory budget. The backend conformance
-    /// suite checks monotonicity and compares prices with measured nodes.
+    /// The result must be an **upper bound**, monotone in both arguments,
+    /// so that a price taken at bounds on several nodes' fans and version
+    /// bounds covers each of them. The backend conformance suite checks
+    /// monotonicity and compares prices with measured nodes. No session
+    /// reads the price, so it compiles only for the tests that check it.
+    #[cfg(test)]
     fn node_bytes(children: usize, version_bound: usize) -> usize;
 
     /// Assemble one parent node at `prefix` from one radix-keyed child group.
@@ -302,9 +299,8 @@ pub trait Leaf: Node {
     /// before the leaf enters the decode fan: an eagerly persisting
     /// backend writes the payload here and returns a thin handle, and a
     /// backend that batches writes stages it in its own write-behind
-    /// buffer — memory the backend owns and must price through
-    /// [`Backend::node_bytes`] at `children = 0`, the shape the session
-    /// budget charges for every buffered leaf. [`Local`] keeps the payload in
+    /// buffer, memory the backend owns and bounds itself. [`Local`] keeps
+    /// the payload in
     /// its handle and completes immediately because its tree is already
     /// resident.
     ///

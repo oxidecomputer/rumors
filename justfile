@@ -139,12 +139,12 @@ fmt-check:
 # Flag doc-comment summaries and included-figure layouts that render wrong.
 doclint:
     ./tools/doclint --self-test
-    ./tools/doclint benches crates examples src tests
+    ./tools/doclint benches crates src tests
 
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
     ./tools/testdoc --self-test
-    ./tools/testdoc benches crates examples src tests
+    ./tools/testdoc benches crates src tests
 
 # Hold every workflow step to committed or immutably-pinned code.
 workflowlint:
@@ -589,14 +589,6 @@ muxprobe rand_seeds="25":
     PATH="$HOME/.elan/bin:$PATH" lake exe muxprobe {{ rand_seeds }}
 
 # ── conveniences ─────────────────────────────────────────────────────────────
-
-# The temp file keeps a failed build from truncating the table; the window
-# suite fails if the committed table drifts from this rendering.
-
-# Regenerate the sync-budget trade-off table compiled into the rustdoc.
-window-tradeoff:
-    cargo run --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
-    mv src/tree/mirror/streaming/window/tradeoff.md.tmp src/tree/mirror/streaming/window/tradeoff.md
 
 # Full sampling is required for any quoted number. The filter matches
 # Criterion IDs (`group/function`), and further arguments pass through, e.g.

@@ -113,9 +113,6 @@ impl Leaf for typed::Node<Z> {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Local;
 
-// The handle is pointer-sized, as required by the window's per-reference price.
-const _: () = assert!(std::mem::size_of::<typed::Node<Z>>() == std::mem::size_of::<*const ()>());
-
 /// Implement backend operations with the crate's in-memory typed tree.
 impl Backend for Local {
     /// Use the typed in-memory node at every height.
@@ -143,6 +140,7 @@ impl Backend for Local {
     /// The `Arc` handle has the same layout at every height. Its children,
     /// hash, and version bounds belong to the tree rather than the session,
     /// so neither argument changes the price.
+    #[cfg(test)]
     fn node_bytes(_children: usize, _version_bound: usize) -> usize {
         std::mem::size_of::<typed::Node<Z>>()
     }

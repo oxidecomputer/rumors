@@ -196,26 +196,28 @@
 //!
 //! Sharing one connection among levels could let a full queue at one level
 //! stop delivery at another, which would break the walk's deadlock freedom.
-//! A receiver prevents that by reading every frame as it arrives. A reply
-//! exists only in answer to the receiver's own question, so at each level it
-//! can have invited at most its window's width plus a fan plus one replies,
-//! and it reserves room for every reply it can have invited: reading never
-//! waits on the walk.
+//! A receiver prevents that by reading every frame as it arrives and holding
+//! each reply until its walk takes it. A reply exists only in answer to the
+//! receiver's own question, and the receiver set aside room for each reply
+//! when it asked, so reading never waits on the walk.
 //! Levels still pipeline across the connection, and whenever a sender has a
 //! choice, a frame carrying the descent goes out ahead of supply runs
 //! waiting at other levels.
 //!
-//! # Memory: the budget and the window
+//! # Memory: the budget
 //!
-//! Each dispute in flight holds decoded tree state until its reply arrives. To
-//! keep that state bounded, a session derives fixed capacities for each tree
-//! level from a caller-set byte budget
-//! ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)) and from
-//! both sides' set sizes and version-size bounds. Backpressure makes wider
-//! divergence drain in waves. A smaller budget can add latency; even a zero
-//! budget permits one dispute per level and remains deadlock-free.
-//! Message bodies are governed separately: supplies stream outside the window
-//! as size-targeted runs, with at most three runs buffered per level sending,
+//! Each question in flight holds tree state, and room for its answer, until
+//! its answer arrives and is taken. To keep that state bounded, each side
+//! admits each question and answer it builds against a caller-set byte
+//! budget ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)),
+//! counting what it holds and what it has set aside; work that does not fit
+//! waits for earlier work to finish. Each level always has room for one
+//! question and one answer, which the budget sets aside before it admits
+//! anything else, so a smaller budget adds latency and never stops a
+//! session: a zero budget asks one question at a time per level and remains
+//! deadlock-free.
+//! Message bodies are governed separately: supplies stream as
+//! size-targeted runs, with at most three runs buffered per level sending,
 //! and two per level receiving plus one more for the whole receiving
 //! direction ([`Peer::target_message_size`](crate::Peer::target_message_size)).
 //! The budget's contract is at

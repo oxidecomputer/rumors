@@ -44,11 +44,11 @@ use crate::tree::arb::{
     arb_divergent_pair, early_first_child_dispute_pair, full_fan_behind_two_pair,
     leaf_parent_dispute_pair,
 };
+use crate::tree::mirror::streaming::FAN;
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::channel::{QueueKind, with_kind_capacity, with_schedule};
 use crate::tree::mirror::streaming::protocol::split::with_split_replies;
 use crate::tree::mirror::streaming::testing::session::{AMPLE, Endpoint, over_pipe};
-use crate::tree::mirror::streaming::window::FAN;
 use crate::tree::typed::{Node as TreeNode, Path};
 use crate::{Version, causally};
 
@@ -355,8 +355,7 @@ proptest! {
     /// Peers on different memory budgets complete over a one-byte pipe,
     /// whichever side holds the smaller budget.
     ///
-    /// Each side sizes its window from the smaller of the two exchanged
-    /// budgets with its own backend's node price.
+    /// Each side admits its work against its own budget.
     #[test]
     fn different_budgets_complete_over_a_one_byte_pipe(
         pair in arb_divergent_pair(),

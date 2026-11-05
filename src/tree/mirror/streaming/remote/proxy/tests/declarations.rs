@@ -1,7 +1,8 @@
 //! Full-stack checks for the greeting's session-size declarations.
 //!
 //! `set_len`, `max_version_bytes`, and `target_message_size` determine role
-//! election or window sizing. These tests rewrite one received declaration
+//! election, the receiver's ingress checks, and the session's run target.
+//! These tests rewrite one received declaration
 //! and check how the production session responds when the traffic disagrees.
 
 use std::convert::Infallible;
@@ -11,13 +12,13 @@ use crate::tree::{
     Root as TreeRoot,
     arb::early_first_child_dispute_pair,
     mirror::streaming::{
+        FAN,
         remote::{
             Error as RemoteError,
             adapter::{BoundedPart, DecodeError as ReplyDecodeError},
             codec::{DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind},
             pipe::PipeError,
         },
-        window::FAN,
     },
 };
 
@@ -130,8 +131,8 @@ fn overstated_target_message_size_still_converges() {
 ///
 /// The receiving side reports `OversizedVersion` at the first offending
 /// record — the declared aggregate covers every version the peer's tree
-/// materializes, so an arriving version over it voids the premise the
-/// window solve priced the session with — and both endpoints terminate.
+/// materializes, so an arriving version over it shows the declaration
+/// false — and both endpoints terminate.
 #[test]
 fn understated_version_bytes_fail_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -157,7 +158,7 @@ fn understated_version_bytes_fail_the_session() {
 
 /// A supply stream past the declared `set_len` fails the session.
 ///
-/// The declared set length bounds the occupancy priced by the window. The
+/// The declared set length bounds the records the peer can supply. The
 /// wire decoder therefore reports `OverdrawnSupply` at the first excess
 /// record, before the payload reaches the backend. The sender may already
 /// have completed; this test constrains only the receiver's diagnosis.
@@ -229,13 +230,9 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
 /// A peer that declares `max_version_bytes` as `u64::MAX` still converges on
 /// the union.
 ///
-/// The declaration is an upper bound, so overstating it rejects no honest
-/// version, and the window solve accepts the extreme value: the version
-/// bound it hands the backend's node price saturates instead of
-/// overflowing. Roles are unaffected. The in-memory backend's node price
-/// ignores the version bound, so this session's window does not move; that
-/// a pricier backend's solve stays total at extreme inputs is
-/// `pathological_pricing_saturates_to_the_floor`.
+/// The declaration is an upper bound, so overstating it rejects no
+/// conforming version, and the session accepts the extreme value. Roles are
+/// unaffected.
 #[test]
 fn overstated_version_bytes_still_converge() {
     for receiver in [IoSide::Left, IoSide::Right] {

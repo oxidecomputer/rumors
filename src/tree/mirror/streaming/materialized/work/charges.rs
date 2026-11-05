@@ -12,14 +12,13 @@
 use std::mem::size_of;
 
 use crate::tree::mirror::streaming::{
-    Backend, ErasedNode, Leaf,
+    Backend, ErasedNode, FAN, Leaf,
     erased::{Reaction, Reply},
     holding::Holding,
     ledger::{Charge, ReplyBound, Unit, buffer, queued, shared},
     materialized::{Error, Query, Resolution, Resolve},
     message::{Grandchildren, Listed},
     remote::{Parked, Scope},
-    window::FAN,
 };
 use crate::tree::typed::{
     ErasedPrefix,

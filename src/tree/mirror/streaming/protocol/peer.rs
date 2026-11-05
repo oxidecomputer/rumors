@@ -3,7 +3,7 @@ use crate::tree::{
         Backend, Leaf,
         protocol::{
             Accept, CompleteConnect, CompleteEqual, CompleteInitiator, CompleteResponder, Connect,
-            Initiator, Reply, Responder, ShareWindow,
+            Initiator, Reply, Responder,
         },
     },
     typed::height::Z,
@@ -61,7 +61,6 @@ macro_rules! define_peer {
         /// A participant's complete connected-to-terminal phase chain.
         pub trait Peer<I>:
             CompleteEqual<I>
-            + ShareWindow
             + Initiator<I, Next: $($init_chain)*>
             + Responder<I, Next: $($resp_chain)*>
         where
@@ -74,15 +73,14 @@ macro_rules! define_peer {
         where
             I: Backend<Node<Z>: Leaf>,
                         X: CompleteEqual<I>
-                + ShareWindow
-                + Initiator<I, Next: $($init_chain)*>
+                    + Initiator<I, Next: $($init_chain)*>
                 + Responder<I, Next: $($resp_chain)*>,
         {
         }
 
         /// A server's complete accept-to-terminal phase chain.
         pub trait Server<I>:
-            Accept<I, Next: ShareWindow + Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>
+            Accept<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>
         where
             I: Backend<Node<Z>: Leaf>,
                     {
@@ -92,13 +90,13 @@ macro_rules! define_peer {
         impl<X, I> Server<I> for X
         where
             I: Backend<Node<Z>: Leaf>,
-                        X: Accept<I, Next: ShareWindow + Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>,
+                        X: Accept<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>,
         {
         }
 
         /// A client's complete connect-to-terminal phase chain.
         pub trait Client<I>:
-            Connect<I, Next: CompleteConnect<I, Next: ShareWindow + Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>>
+            Connect<I, Next: CompleteConnect<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>>
         where
             I: Backend<Node<Z>: Leaf>,
                     {
@@ -108,7 +106,7 @@ macro_rules! define_peer {
         impl<X, I> Client<I> for X
         where
             I: Backend<Node<Z>: Leaf>,
-                        X: Connect<I, Next: CompleteConnect<I, Next: ShareWindow + Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>>,
+                        X: Connect<I, Next: CompleteConnect<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>>,
         {
         }
     };

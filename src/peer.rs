@@ -17,11 +17,11 @@ pub use crate::message::DEFAULT_PAYLOAD_DEPTH_LIMIT;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
+pub use crate::tree::mirror::streaming::ledger::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::remote::{
     DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
 };
-pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::{
     Batch, Bookmark, CausalMessages, Changes, Network, Rumors, Snapshot, UnorderedMessages, Version,
 };
@@ -176,13 +176,14 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
 ///
 /// Read these from [`Peer::synchronization_settings`] or
 /// [`Rumors::synchronization_settings`](crate::Rumors::synchronization_settings).
-/// A session resolves the memory budget against both replicas' sets and uses
-/// the smaller of their message-size targets. The values here are this peer's
-/// inputs to those decisions.
+/// A session admits its work against this peer's memory budget and uses the
+/// smaller of the two peers' message-size targets. The values here are this
+/// peer's inputs to those decisions.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SynchronizationSettings {
-    /// The memory target used to size each reconciliation pipeline.
+    /// The memory budget each session admits its work against
+    /// ([`Peer::sync_memory_budget`]).
     pub sync_memory_budget: usize,
     /// The saturated wire-message target this peer advertises.
     pub target_message_size: usize,
@@ -677,33 +678,94 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Set the per-session memory budget for reconciliation pipelining.
+    /// Set the memory budget for each synchronization session: the memory
+    /// a session may spend on pipelining.
     ///
-    /// Rumors compares several subtrees while waiting for earlier replies.
-    /// A larger budget allows more comparisons in flight, which can reduce
-    /// waiting on the network. A smaller budget limits buffering but may add
-    /// waits. Both peers may choose different budgets.
+    /// A session compares the two replicas by asking questions about parts
+    /// of their sets, and each question it keeps in flight costs memory:
+    /// what it built to ask, and room set aside for the answer it invites.
+    /// The budget caps that memory. Within it the session keeps as many
+    /// questions in flight as it can use, overlapping its round trips;
+    /// when a question does not fit, the session waits for earlier answers
+    /// to free memory before asking it. A smaller budget therefore makes a
+    /// session slower, never failed: at a budget of zero it asks one
+    /// question at a time at each level of its comparison, the declared
+    /// behavior of a zero budget, and still completes.
     ///
-    /// The default is [`DEFAULT_SYNC_MEMORY_BUDGET`] (512 MiB). The budget
-    /// applies separately to each synchronization; it is not reserved up
-    /// front. All [`Rumors`] clones inherit this setting, and it is preserved
-    /// when returning to a `Peer`, attaching a bookmark, or retiring.
+    /// More budget keeps more in flight, up to the point where nothing
+    /// waits; beyond it, more budget changes nothing. Most sessions come
+    /// nowhere near the budget: a session's need grows with how much of the
+    /// two sets differs, and is large only when two large replicas differ
+    /// throughout, as when a peer has fallen far behind on a large set or
+    /// two peers accumulated many messages apart. A peer joining with an
+    /// empty replica receives the set as a stream and needs little.
     ///
-    /// # Memory accounting
+    /// The budget counts room set aside for answers not yet received, which
+    /// an answer may not use in full. So a session can slow slightly before
+    /// its memory use reaches the budget, most of all between nearly
+    /// identical replicas.
     ///
-    /// This is a sizing target, not a hard memory limit. Buffer sizes are
-    /// estimated from the two sets; unusually clustered hashes can require
-    /// more memory than estimated. Even a zero budget retains the minimum
-    /// buffers needed for progress over a conforming connection; their memory
-    /// cost may exceed the target.
+    /// Each peer's budget bounds its own side of a session: your peer's
+    /// budget, smaller or larger, does not change what your side holds,
+    /// though a peer with a smaller budget can slow the session. The budget
+    /// applies to each session separately and is not reserved up front:
+    /// sessions running at once, to one peer or to several, can each use up
+    /// to it.
     ///
-    /// Allow additional memory for the replica, observer backlogs such as
-    /// [`CausalMessages`], and wire and transport buffers. Wire buffering is
-    /// controlled separately by [`target_message_size`](Self::target_message_size).
-    /// Limit concurrent sessions to control their combined memory use.
+    /// The default is [`DEFAULT_SYNC_MEMORY_BUDGET`] (512 MiB). All
+    /// [`Rumors`] clones inherit this setting, and it is preserved when
+    /// returning to a `Peer`, attaching a bookmark, or retiring.
+    /// [Choosing a synchronization budget](crate::sizing) explains how to
+    /// choose one.
     ///
-    /// See [choosing a synchronization budget](crate::sizing) for tuning
-    /// guidance and example trade-offs.
+    /// # What the budget covers
+    ///
+    /// A session counts three things against its budget:
+    ///
+    /// - **The work it has built:** the questions it keeps in flight, the
+    ///   answers it has built and not yet sent, the records of the questions
+    ///   it asked, and the node copies it makes to compare the sets.
+    /// - **Room for the answers it invited:** when a session asks a
+    ///   question, it sets aside room for the most the peer's answer can
+    ///   hold, and keeps it until it has finished with what the answer
+    ///   becomes.
+    /// - **The floor allowance:** room for one question and one answer at
+    ///   each level of its comparison, which a session can always hold,
+    ///   whatever else waits, and which is how it always makes progress.
+    ///   The allowance is the most that work can hold at once, about
+    ///   34 MiB on the in-memory replica on 64-bit targets, whatever the
+    ///   sets' sizes.
+    ///
+    /// A session admits the rest of its work against the budget less the
+    /// floor allowance, so that the two together stay within the budget. A
+    /// budget at or below the allowance admits work through the floor
+    /// alone, as a budget of zero does, and a session on it holds at most
+    /// the allowance. [`target_message_size`](Self::target_message_size)
+    /// bounds the wire messages a session buffers.
+    ///
+    /// # What the budget does not cover
+    ///
+    /// - **The replica's growth.** Messages a session receives become part of
+    ///   the replica, so after a session the replica can be larger than
+    ///   before by more than the budget.
+    /// - **Data superseded during a session.** A session keeps the replica as
+    ///   it was when the session began until the session ends. If the replica
+    ///   changes meanwhile, through local sends or another session finishing,
+    ///   the data those changes replace stays in memory until this session
+    ///   ends. The same holds for the nodes the session itself rebuilds: the
+    ///   new copies join the replica, and the originals they replace stay in
+    ///   memory until the session ends.
+    /// - **Your transport's own buffers,** such as socket buffers, which
+    ///   are outside the library.
+    /// - **Observers.** Backlogs of observers such as [`CausalMessages`] grow
+    ///   with what you have not yet consumed.
+    ///
+    /// # Accuracy
+    ///
+    /// A session counts what it holds and sets aside for the budget by the
+    /// in-memory size of each item it builds, the node copies it makes to
+    /// compare the sets included. Allocator rounding falls outside the
+    /// count.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.sync_memory_budget = budget_bytes;
@@ -753,9 +815,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// decoded), plus one run per direction that the reader holds while a
     /// level's queue is full. The receiver decodes each run's encoded bytes
     /// as it goes, handing each leaf to the storage backend as it is read
-    /// (the constructed leaves it holds in flight are charged against
-    /// [`sync_memory_budget`](Self::sync_memory_budget), not this
-    /// setting). Each session therefore runs at
+    /// and holding a fixed number of constructed leaves per level on their
+    /// way to assembly, whatever this setting. Each session therefore runs at
     /// the **minimum** of the two ends' targets: the greeting carries
     /// each side's setting, and each side's *encoder* batches within
     /// that minimum. Your setting thus bounds the frames you build and,

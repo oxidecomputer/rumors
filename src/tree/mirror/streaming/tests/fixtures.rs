@@ -12,7 +12,7 @@ use crate::{
     tree::{
         Root,
         arb::nth_party,
-        mirror::streaming::window::FAN,
+        mirror::streaming::FAN,
         traverse::{Action, act},
         typed::{Node as TreeNode, Path, height},
     },

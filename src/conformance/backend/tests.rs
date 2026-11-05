@@ -11,19 +11,15 @@ use proptest::prelude::*;
 
 use before::Span;
 
-use super::{
-    BOUND_SWEEP_CEILING, Measure, check, fan_slot_excess, histories, ledger, node_bytes_monotone,
-    reference_slot_excess, run,
-};
+use super::{BOUND_SWEEP_CEILING, Measure, check, histories, ledger, node_bytes_monotone, run};
 use crate::{
     Version,
     message::Message,
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream,
+            Backend, BoxNodeStream, ErasedNode, FAN, Leaf, Local, Node, NodeStream,
             convert::Convert,
-            window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES},
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -141,23 +137,12 @@ impl Measure for Local {
     }
 }
 
-/// Cover the decode-fan allowance and leave enough to widen dispute queues.
-const LOCAL_BUDGET: usize = SUPPLY_DECODE_ENVELOPE_BYTES + 64 * 1024;
-
-/// Local handle prices cover measured nodes, and wider queues reconcile within
-/// the fixture's peak-increase allowance.
+/// Local handle prices cover measured nodes, and reconciliation at
+/// [`CENSUS_BUDGET`] stays within its peak-increase allowance.
 #[test]
 fn local_backend_conforms() {
     let _serial = serialized();
-    pollster::block_on(check(Local, LOCAL_BUDGET));
-}
-
-/// A budget spent entirely on decode fans fails to exercise wider queues.
-#[test]
-#[should_panic(expected = "does not widen any queue above the floor")]
-fn a_decode_only_budget_fails_the_widening_check() {
-    let _serial = serialized();
-    pollster::block_on(check(Local, SUPPLY_DECODE_ENVELOPE_BYTES));
+    pollster::block_on(check(Local, CENSUS_BUDGET));
 }
 
 /// A materializing reference backend, shaped like a database row store.
@@ -172,11 +157,10 @@ fn a_decode_only_budget_fails_the_widening_check() {
 /// and anything less underprices — what the lying tests opt into
 /// through the knob's guard.
 ///
-/// Its node is aligned wider than a pointer ([`MaterializedNode`]), so
-/// the decode-fan and reference slots the session keeps it in pad
-/// beyond the in-memory layout the window's slot constants derive from;
-/// that padding ([`SLOT_PADDING`]) is the backend's to price, and
-/// [`PRICED_SLOT_PADDING`] is the knob that prices it honestly at rest.
+/// Its handle is wider and more aligned than a pointer
+/// ([`MaterializedNode`]), so the queue elements the session holds it in,
+/// sized at this backend's own types, are wider than the in-memory
+/// backend's.
 #[derive(Clone, Copy, Debug)]
 struct Materializing;
 
@@ -263,10 +247,6 @@ static PRICED_BOUND_DIP: Knob = Knob::new(0);
 /// through it compares across the dip.
 const DIP_BOUND: usize = 101;
 
-/// The slot padding [`Materializing::node_bytes`] prices: honest at the
-/// real [`SLOT_PADDING`], lying below it.
-static PRICED_SLOT_PADDING: Knob = Knob::new(SLOT_PADDING);
-
 /// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
 /// at zero, a residency-changing re-tag above it.
 static ASSUME_SLACK: Knob = Knob::new(0);
@@ -286,43 +266,6 @@ const STEP_THRESHOLD: usize = (BOUND_SWEEP_CEILING / 2 + 1 + BOUND_SWEEP_CEILING
 /// equal, which the sweep's non-strict comparison accepts.
 const STEP_DROP: usize = (BOUND_SWEEP_CEILING - 1) - (BOUND_SWEEP_CEILING / 2 + 1);
 
-/// The bytes the session's slots pad around a [`MaterializedNode`]
-/// beyond the in-memory layout the window prices: the larger of the
-/// decode-fan slot's and the reference slots' excess, so one price
-/// covers both.
-const SLOT_PADDING: usize = {
-    let fan = fan_slot_excess::<Materializing>();
-    let reference = reference_slot_excess::<Materializing, Z>();
-    if fan > reference { fan } else { reference }
-};
-
-// The control below zeroes the priced padding; it convicts only if the
-// real padding is positive, which the node's alignment guarantees.
-const _: () = assert!(
-    SLOT_PADDING > 0,
-    "a node aligned wider than a pointer pads its slots",
-);
-
-// The same padding written out from the layouts by hand, independently
-// of the suite's excess functions, so an over-estimate there cannot
-// hide behind a price that covers it. On a 64-bit target: `Prefix<Z>`
-// is 34 bytes at alignment 2, the in-memory handle one 8-byte `Arc`,
-// `Hash` 24 bytes, and a listing entry its radix, hash, and two-byte
-// grandchild count, 27 bytes padded to 28 at alignment 2, so the window's
-// decode-fan pair is 48 bytes (`FAN_SLOT_BYTES` 40) and its query,
-// resolution, and listing slots 16 + 24 + 28 bytes (`REFERENCE_SLOT_BYTES`
-// 68). `MaterializedNode` is
-// 32 bytes at alignment 16: the fan pair grows to 80 bytes (excess
-// 80 - 32 - 40 = 8), the query slot to 48 (16 of padding against the
-// handle's 8, excess 8), and the resolution slot keeps 16 of padding
-// either way (24 - 8 and 48 - 32); the padding is 8. Layouts differ at
-// other pointer widths, so the pin is gated.
-const _: () = assert!(
-    std::mem::size_of::<usize>() != 8
-        || (FAN_SLOT_BYTES == 40 && REFERENCE_SLOT_BYTES == 68 && SLOT_PADDING == 8),
-    "the derived slot padding matches the hand-computed 64-bit layout",
-);
-
 /// The one fan [`PRICED_DIP`] carves the dip at: an arbitrary interior
 /// value the monotonicity sweep's adjacent-fan comparisons must cross.
 const DIP_FAN: usize = 7;
@@ -333,14 +276,16 @@ const ROW_HEADER: usize = 64;
 /// The bytes one child entry occupies in a materialized row.
 const ROW_ENTRY: usize = 24;
 
-/// Cover row-backed decode fans with enough left to widen dispute queues.
-const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
+/// The budget each census runs its backend's session at beside a budget of
+/// zero, 4 MiB, and the most the larger run's peak may exceed the
+/// zero-budget run's.
+const CENSUS_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
 ///
 /// Aligned wider than a pointer, as a handle carrying a 16-byte row id
-/// would be: the shape the window's slot constants say owes its extra
-/// slot padding to its own price.
+/// would be: a handle whose queue elements outgrow the in-memory
+/// backend's.
 #[derive(Clone, Debug)]
 #[repr(align(16))]
 struct MaterializedNode<N> {
@@ -481,7 +426,6 @@ impl Backend for Materializing {
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
         let priced = std::mem::size_of::<MaterializedNode<typed::Node<Z>>>()
-            + PRICED_SLOT_PADDING.get()
             + PRICED_HEADER.get()
             + ROW_ENTRY * children
             + version_bound;
@@ -679,20 +623,20 @@ fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
     Prefix::<H>::containing(&Path::from(Prefix::<Z>::from(path)))
 }
 
-/// Row prices cover owned buffers and slot padding, and reconciliation stays
-/// within the fixture's peak-increase allowance.
+/// Row prices cover owned buffers, and reconciliation stays within the
+/// fixture's peak-increase allowance.
 #[test]
 fn materializing_backend_conforms() {
     let _serial = serialized();
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Wider queues can reconcile a clustered fixture without increasing its peak.
+/// A larger budget can reconcile a clustered fixture without increasing its
+/// peak.
 #[test]
-fn wider_queues_need_not_increase_the_peak() {
+fn a_larger_budget_need_not_increase_the_peak() {
     let _serial = serialized();
-    // Put every leaf below one 30-byte prefix. The configured window widens
-    // near the root, while the actual disputes stay deep and serialize.
+    // Put every leaf below one 30-byte prefix, so every dispute sits deep.
     let paths = histories()
         .into_iter()
         .flatten()
@@ -703,13 +647,12 @@ fn wider_queues_need_not_increase_the_peak() {
             (version, Path::from(path))
         });
     Path::with_leaf_paths(paths, || {
-        let (floor, floor_stats) =
-            run_to_quiescence(run(Materializing, 0, 0)).expect("the floor session must complete");
-        let (wider, wider_stats) = run_to_quiescence(run(Materializing, MATERIALIZING_BUDGET, 0))
-            .expect("the wider session must complete");
-        assert!(wider_stats.window_granted > floor_stats.window_granted);
-        assert!(wider <= floor, "wider {wider}, floor {floor}");
-        run_to_quiescence(check(Materializing, MATERIALIZING_BUDGET))
+        let floor = run_to_quiescence(run(Materializing, 0, 0))
+            .expect("the zero-budget session must complete");
+        let wider = run_to_quiescence(run(Materializing, CENSUS_BUDGET, 0))
+            .expect("the budgeted session must complete");
+        assert!(wider <= floor, "budgeted {wider}, zero-budget {floor}");
+        run_to_quiescence(check(Materializing, CENSUS_BUDGET))
             .expect("conformance must accept the lower or equal peak");
     });
 }
@@ -724,14 +667,14 @@ fn wider_queues_need_not_increase_the_peak() {
 #[should_panic(expected = "underpriced node")]
 fn underpricing_fails_the_pointwise_check() {
     let _dishonest = PRICED_HEADER.set(0);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Row slack that clears the assembly seam's fan headroom.
 ///
 /// The capped pointwise check prices at the run's widest fan, which
 /// exceeds the honest row's own fan by at most the radix's worth of
-/// entries ([`FAN`](crate::tree::mirror::streaming::window::FAN) ×
+/// entries ([`FAN`](crate::tree::mirror::streaming::FAN) ×
 /// [`ROW_ENTRY`] bytes, 6 KiB); 64 KiB of slack is unambiguously past
 /// it.
 const BULK_OVERHOLD: usize = 64 * 1024;
@@ -746,7 +689,7 @@ const BULK_OVERHOLD: usize = 64 * 1024;
 #[should_panic(expected = "underpriced walked leaf")]
 fn overholding_walk_fails_the_pointwise_check() {
     let _dishonest = WALK_SLACK.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A bulk walk that silently drops a leaf is caught by the walk seam's
@@ -755,7 +698,7 @@ fn overholding_walk_fails_the_pointwise_check() {
 #[should_panic(expected = "mis-sized leaf walk")]
 fn short_walk_fails_the_len_check() {
     let _dishonest = WALK_SKIPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A bulk assembly whose nodes over-hold memory is caught by the
@@ -765,7 +708,7 @@ fn short_walk_fails_the_len_check() {
 #[should_panic(expected = "bulk-assembled node over-holds")]
 fn overholding_bulk_assembly_fails_the_capped_check() {
     let _dishonest = ASSEMBLE_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that silently drops a supplied leaf is caught by the
@@ -774,7 +717,7 @@ fn overholding_bulk_assembly_fails_the_capped_check() {
 #[should_panic(expected = "bulk-assembled len")]
 fn lossy_bulk_assembly_fails_the_len_check() {
     let _dishonest = ASSEMBLE_SKIPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A `parent` that answers a fan of real children with no parent is
@@ -788,7 +731,7 @@ fn lossy_bulk_assembly_fails_the_len_check() {
 #[should_panic(expected = "parent contract: fan")]
 fn an_interior_parent_answering_none_fails_the_presence_check() {
     let _dishonest = PARENT_DROPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A `parent` that answers an empty group with a node is convicted by
@@ -798,7 +741,7 @@ fn an_interior_parent_answering_none_fails_the_presence_check() {
 #[should_panic(expected = "parent contract: fan 0 yielded Some")]
 fn a_parent_conjured_from_an_empty_group_fails_the_presence_check() {
     let _dishonest = PARENT_CONJURES.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A bulk walk that yields two leaves out of path order is convicted by
@@ -808,7 +751,7 @@ fn a_parent_conjured_from_an_empty_group_fails_the_presence_check() {
 #[should_panic(expected = "unordered leaf walk")]
 fn a_swapped_walk_fails_the_order_check() {
     let _dishonest = LEAVES_SWAP.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A bulk walk that yields a leaf outside the walked prefix is convicted
@@ -819,19 +762,19 @@ fn a_swapped_walk_fails_the_order_check() {
 #[should_panic(expected = "escaped leaf walk")]
 fn an_escaping_walk_fails_the_containment_check() {
     let _dishonest = WALK_ESCAPES.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A `children` override whose exploded interior rows over-hold memory
 /// is convicted by name at the explosion's pointwise check.
 ///
 /// The walk's leaf check never sees an interior child, so this check is
-/// the only one that prices the references the window prices per depth.
+/// the only one that prices a materialized interior child.
 #[test]
 #[should_panic(expected = "underpriced child")]
 fn overholding_children_fail_the_pointwise_check() {
     let _dishonest = CHILDREN_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that yields two nodes out of run order is convicted by
@@ -842,7 +785,7 @@ fn overholding_children_fail_the_pointwise_check() {
 #[should_panic(expected = "unordered assembly")]
 fn a_swapped_assembly_fails_the_order_check() {
     let _dishonest = ASSEMBLE_SWAP.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that folds a run and then swallows its node is
@@ -855,7 +798,7 @@ fn a_swapped_assembly_fails_the_order_check() {
 #[should_panic(expected = "unassembled run")]
 fn a_swallowed_assembled_node_fails_the_run_check() {
     let _dishonest = ASSEMBLED_DROPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that yields a node at a prefix other than its own run's
@@ -871,7 +814,7 @@ fn a_swallowed_assembled_node_fails_the_run_check() {
 #[should_panic(expected = "unsupplied assembly")]
 fn a_re_tagged_assembled_node_fails_the_run_check() {
     let _dishonest = ASSEMBLE_RETAGS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A loss both sides share is invisible to their agreement and caught
@@ -897,7 +840,7 @@ fn a_symmetric_loss_fails_the_completeness_check() {
 #[should_panic(expected = "deflated version_bytes: bulk-assembled node")]
 fn deflated_version_bytes_fails_the_assembly_floor() {
     let _dishonest = VERSION_DEFLATE.set(usize::MAX);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A branch whose `grandchildren` answer disagrees with the children its
@@ -906,7 +849,7 @@ fn deflated_version_bytes_fails_the_assembly_floor() {
 #[should_panic(expected = "mis-propagated grandchildren")]
 fn miscounted_grandchildren_fails_the_listing_check() {
     let _dishonest = GRANDCHILDREN_SKEW.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A leaf whose `version_bytes` answer exceeds the walked node's
@@ -916,22 +859,7 @@ fn miscounted_grandchildren_fails_the_listing_check() {
 #[should_panic(expected = "walked leaf encodes")]
 fn inflated_leaf_version_bytes_fails_the_walk_check() {
     let _dishonest = LEAF_VERSION_INFLATE.set(1024 * 1024);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
-}
-
-/// A backend whose node is aligned wider than a pointer and whose price
-/// omits the slot padding that alignment costs is convicted by name at
-/// the first leaf it constructs.
-///
-/// The window's slot constants derive from the in-memory layout and
-/// leave a wider layout's extra padding to the backend's price; the
-/// leaf check folds that excess into its comparison, so pricing the
-/// node value alone falls short by exactly the padding.
-#[test]
-#[should_panic(expected = "underpriced leaf: ")]
-fn unpriced_slot_padding_fails_the_pointwise_check() {
-    let _dishonest = PRICED_SLOT_PADDING.set(0);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A re-tag that grows the node's residency on the way back to a typed
@@ -941,7 +869,7 @@ fn unpriced_slot_padding_fails_the_pointwise_check() {
 #[should_panic(expected = "re-tagged node changed residency: erased")]
 fn a_residency_changing_assume_fails_the_re_tag_check() {
     let _dishonest = ASSUME_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A re-tag that grows the node's residency on the way to an erased
@@ -951,11 +879,11 @@ fn a_residency_changing_assume_fails_the_re_tag_check() {
 #[should_panic(expected = "re-tagged node changed residency: typed")]
 fn a_residency_changing_erase_fails_the_re_tag_check() {
     let _dishonest = ERASE_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A cost function with a dip between quantile evaluation points is
-/// caught by the monotonicity sweep before any session runs.
+/// A cost function with a dip at one fan is caught by the monotonicity
+/// sweep before any session runs.
 ///
 /// The dip is the smallest adjacent fans reveal: one byte more than the
 /// per-child entry, so [`DIP_FAN`] prices one byte below the fan before
@@ -965,16 +893,16 @@ fn a_residency_changing_erase_fails_the_re_tag_check() {
 #[should_panic(expected = "monotone in children")]
 fn dipping_node_bytes_fails_the_monotonicity_sweep() {
     let _dishonest = PRICED_DIP.set(ROW_ENTRY + 1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A leaf priced below its post-custody residency is caught at
 /// construction: the negative control for the leaf seam of the account.
 ///
-/// The session budget charges every decode-fan slot at
-/// `node_bytes(0, bounds)`, so a backend whose leaf handles keep more
-/// resident than that price must fail the pointwise check the moment
-/// one is constructed — before any parent assembles.
+/// The contract prices a leaf at `node_bytes(0, bounds)`, so a backend
+/// whose leaf handles keep more resident than that price must fail the
+/// pointwise check the moment one is constructed — before any parent
+/// assembles.
 #[test]
 #[should_panic(expected = "underpriced leaf")]
 fn leaf_underpricing_fails_at_construction() {
@@ -1121,7 +1049,7 @@ proptest! {
 #[should_panic(expected = "monotone in version bound")]
 fn a_point_dip_fails_the_dense_sweep() {
     let _dishonest = PRICED_BOUND_DIP.set(DIP_BOUND);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A price drop between sparse grid points can pass the sweep; the property

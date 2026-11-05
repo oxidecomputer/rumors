@@ -18,7 +18,7 @@
 //!
 //! - the *virtual* component: time the session spent with every task
 //!   blocked on the wire — `delay` times the length of the session's
-//!   longest serialized chain of hops, plus any window stalls.
+//!   longest serialized chain of hops.
 //!   Compute costs zero virtual time, no thread outside the runtime
 //!   participates, and the library arms no timers of its own, so the
 //!   figure is a deterministic function of the session shape: OS
@@ -28,8 +28,8 @@
 //!   a whole number of delays past the runtime's epoch, so the figure
 //!   lands on the delay lattice: dividing by `delay` reads serialized
 //!   one-way hops exactly. [`crate::bench::latency::DelayedWire::round_trip_virtual`] reports
-//!   this component alone; it is the load-independent measurement the window
-//!   suites pin their bounds on.
+//!   this component alone; it is the load-independent measurement the budget
+//!   and hop-trace suites pin their bounds on.
 //! - the *wall* component: real CPU time spent computing — both peers
 //!   serialized on one thread, as in the zero-latency harness. It moves with
 //!   machine load.
@@ -477,7 +477,7 @@ fn finished<O>(joined: Result<O, tokio::task::JoinError>) -> O {
     })
 }
 
-/// The window suites' measurement primitive: one session's exact hops.
+/// The budget suites' measurement primitive: one session's exact hops.
 ///
 /// Reconciles the pair over a fresh paused-clock wire with the given
 /// per-direction `capacity` and one-way `delay`, and reads the virtual wire
