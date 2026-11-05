@@ -235,6 +235,29 @@ static ASSUME_SLACK: Knob = Knob::new(0);
 /// at zero, a residency-changing re-tag above it.
 static ERASE_SLACK: Knob = Knob::new(0);
 
+/// Which endpoint every erased node's version bounds collapse to, where
+/// the session classifies subtrees against a counterparty's version:
+/// honest at zero, the floor at [`TO_FLOOR`], the ceiling at
+/// [`TO_CEILING`].
+static SPAN_COLLAPSE: Knob = Knob::new(0);
+
+/// [`SPAN_COLLAPSE`]'s setting that reports each node's floor as its
+/// ceiling too, under-reporting the ceiling.
+const TO_FLOOR: usize = 1;
+
+/// [`SPAN_COLLAPSE`]'s setting that reports each node's ceiling as its
+/// floor too, over-reporting the floor.
+const TO_CEILING: usize = 2;
+
+/// `span`, collapsed to one endpoint as [`SPAN_COLLAPSE`] directs.
+fn collapsed(span: Span<'_>) -> Span<'_> {
+    match SPAN_COLLAPSE.get() {
+        TO_FLOOR => Span::at(span.lo().clone()),
+        TO_CEILING => Span::at(span.hi().clone()),
+        _ => span,
+    }
+}
+
 /// The bytes a materialized row spends beyond its child table and bounds.
 const ROW_HEADER: usize = 64;
 
@@ -335,8 +358,10 @@ fn bounds_of<H: Height>(node: &typed::View<H>) -> usize {
 // The erased observations pass through the row wrapper; the row itself
 // carries no readable state.
 impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
+    /// Borrow the wrapped node's version bounds, collapsed to one endpoint
+    /// to exercise a backend whose erased bounds disagree with its leaves.
     fn span(&self) -> Span<'_> {
-        self.inner.span()
+        collapsed(self.inner.span())
     }
 
     fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
@@ -642,6 +667,34 @@ fn a_larger_budget_need_not_increase_the_peak() {
 /// child table is [`FAN`](crate::tree::mirror::streaming::FAN) ×
 /// [`ROW_ENTRY`] bytes, 6 KiB.
 const BULK_OVERHOLD: usize = 64 * 1024;
+
+/// A backend whose erased bounds report each subtree's floor as its
+/// ceiling drops unredacted messages, and the completeness check convicts
+/// the session.
+///
+/// The deletion filter reads a subtree mixing redacted and unseen leaves
+/// as wholly seen, and drops it whole. The typed bounds stay honest, so no
+/// seam that checks an aggregate against them can see the fault; only the
+/// session's verdicts do.
+#[test]
+#[should_panic(expected = "converged short")]
+fn bounds_collapsed_to_the_floor_fail_the_completeness_check() {
+    let _dishonest = SPAN_COLLAPSE.set(TO_FLOOR);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A backend whose erased bounds report each subtree's ceiling as its
+/// floor resurrects redacted messages, and the completeness check convicts
+/// the session.
+///
+/// The deletion filter reads a subtree mixing redacted and unseen leaves
+/// as wholly unseen, and ships it whole.
+#[test]
+#[should_panic(expected = "resurrected redactions")]
+fn bounds_collapsed_to_the_ceiling_fail_the_completeness_check() {
+    let _dishonest = SPAN_COLLAPSE.set(TO_CEILING);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
 
 /// A bulk walk that silently drops a leaf is caught by the walk seam's
 /// count against the walked node's exact `len` aggregate.

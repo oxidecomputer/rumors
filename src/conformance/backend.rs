@@ -13,9 +13,11 @@
 //!   yields, children listed at strictly ascending radices, and listings
 //!   that allocate nothing beyond the rows they yield, by the allocation
 //!   meter.
-//! - **Reconciliation:** both replicas converge to a set of the expected union
-//!   size, and any measured peak increase over the zero-budget run must fit
-//!   within the larger budget.
+//! - **Reconciliation:** both replicas converge to a set of the expected size:
+//!   the union of the corpora less the messages one side holds and the other
+//!   has seen and redacted, which the deletion filter must drop by the
+//!   version bounds the backend reports. Any measured peak increase over the
+//!   zero-budget run must fit within the larger budget.
 //!
 //! # What the census measures
 //!
@@ -709,6 +711,16 @@ const COMMON: usize = 512;
 /// Messages each side originates alone: the mutual divergence.
 const DIVERGENT: usize = 1_024;
 
+/// Messages the left side holds and the right side has seen and redacted.
+///
+/// They interleave with the left's own divergence along the paths, so a
+/// subtree only the left holds can mix leaves the right has redacted with
+/// leaves it has never seen. Such a subtree's version bounds straddle the
+/// right's version, and the deletion filter must descend into it rather
+/// than ship or drop it whole: a backend whose bounds misplace either
+/// endpoint resurrects a redacted message or drops an unredacted one.
+const REDACTED: usize = 1_024;
+
 /// Check node residency, bulk operations, and reconciliation under two
 /// budgets.
 ///
@@ -734,7 +746,7 @@ const DIVERGENT: usize = 1_024;
 ///   resident;
 /// - the measured peak increase exceeds the budget; or
 /// - the session failed to converge the corpora, or converged them to
-///   less than their union.
+///   other than their union less the redacted messages.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
 where
     B: Measure,
@@ -761,18 +773,23 @@ where
     );
 }
 
-/// Versions and payloads for the shared history and each replica's additions.
+/// Versions and payloads for the shared history, the left's messages the
+/// right has redacted, and each replica's own additions, in that order.
 ///
 /// The deterministic tick order also lets path fixtures preassign these
 /// versions without creating trees outside their scoped path mapping.
-fn histories() -> [Vec<(Version, u64)>; 3] {
+fn histories() -> [Vec<(Version, u64)>; 4] {
     // Two concurrent histories from one universe: the left clock produces the
-    // shared corpus and its own tail; the right fork produces the other tail.
+    // shared corpus, the messages the right redacts, and its own tail; the
+    // right fork produces the other tail.
     let mut left_clock = before::Clock::seed();
     let mut right_clock = left_clock.fork();
 
     let common: Vec<(Version, u64)> = (0..widen(COMMON))
         .map(|payload| (left_clock.tick().clone(), payload))
+        .collect();
+    let redacted: Vec<(Version, u64)> = (0..widen(REDACTED))
+        .map(|payload| (left_clock.tick().clone(), 3 << 32 | payload))
         .collect();
     let left_tail: Vec<(Version, u64)> = (0..widen(DIVERGENT))
         .map(|payload| (left_clock.tick().clone(), 1 << 32 | payload))
@@ -781,7 +798,7 @@ fn histories() -> [Vec<(Version, u64)>; 3] {
         .map(|payload| (right_clock.tick().clone(), 2 << 32 | payload))
         .collect();
 
-    [common, left_tail, right_tail]
+    [common, redacted, left_tail, right_tail]
 }
 
 /// Reconcile divergent corpora and return the absolute node census peak.
@@ -796,10 +813,13 @@ where
     B::Error: std::fmt::Debug,
 {
     let charged = Charged::new(backend);
-    let [common, left_tail, right_tail] = histories();
+    let [common, redacted, left_tail, right_tail] = histories();
+    // The right has seen every redacted message, so its history covers
+    // them, though it holds none.
+    let seen: Version = redacted.iter().map(|(version, _)| version).sum();
 
     let shared = common.iter().skip(omitted);
-    let left_leaves = sorted_leaves::<B>(shared.clone().chain(&left_tail)).await;
+    let left_leaves = sorted_leaves::<B>(shared.clone().chain(&redacted).chain(&left_tail)).await;
     let right_leaves = sorted_leaves::<B>(shared.chain(&right_tail)).await;
 
     // Exercise `parent` through the default fold before using bulk overrides.
@@ -814,8 +834,8 @@ where
     assemble_runs(&charged, left_leaves.clone()).await;
     assemble_runs(&charged, right_leaves.clone()).await;
 
-    let left = corpus(&charged, left_leaves).await;
-    let right = corpus(&charged, right_leaves).await;
+    let left = corpus(&charged, left_leaves, &Version::new()).await;
+    let right = corpus(&charged, right_leaves, &seen).await;
 
     // Walk at the root and at each child's prefix: the latter can expose
     // leaves escaping their subtree. These extra checks run before the peak
@@ -852,8 +872,9 @@ where
     let peak = ledger::peak();
 
     // Convergence is agreement on one root; completeness is that root
-    // holding the corpora's whole union, which agreement alone cannot
-    // show when both sides lose the same leaves.
+    // holding the corpora's union less the redacted messages, which
+    // agreement alone cannot show when both sides lose the same leaves,
+    // or keep the same redacted ones.
     let (converged, reconciled) = match (ours.root, theirs.root) {
         (Some(left_root), Some(right_root)) => {
             let left_root = Charged::<B>::erase(left_root);
@@ -870,10 +891,17 @@ where
         fail("the conformance session must converge both corpora to one root");
     }
     let union = COMMON + 2 * DIVERGENT;
-    if reconciled != union {
+    if reconciled < union {
         fail(&format!(
             "the conformance session converged short: the root holds {reconciled} \
              messages; the corpora are built to hold {union} between them",
+        ));
+    }
+    if reconciled > union {
+        fail(&format!(
+            "the conformance session resurrected redactions: the root holds \
+             {reconciled} messages; the corpora are built to hold {union} between \
+             them once the right side's redactions are honored",
         ));
     }
     peak
@@ -1011,11 +1039,13 @@ where
 }
 
 /// Assemble one corpus's sorted leaves through the charged backend into
-/// its root.
+/// its root, whose history covers its leaves and the `seen` messages it
+/// has redacted.
 #[allow(clippy::type_complexity)]
 async fn corpus<B>(
     charged: &Charged<B>,
     leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>,
+    seen: &Version,
 ) -> Root<Charged<B>>
 where
     B: Measure,
@@ -1024,7 +1054,8 @@ where
     // The spans are bound to a local so their borrowed join endpoints
     // outlive the fold's iterator.
     let bounds: Vec<Span<'_>> = leaves.iter().map(|(_, leaf)| leaf.span()).collect();
-    let ceiling: Version = bounds.iter().map(|bounds| bounds.hi()).sum();
+    let mut ceiling: Version = bounds.iter().map(|bounds| bounds.hi()).sum();
+    ceiling |= seen;
 
     let mut assembled = pin!(
         charged
