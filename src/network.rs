@@ -83,8 +83,11 @@ const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 /// protocol validates that peers belong to the same [`Network`].
 ///
 /// This type is opaque and [`Copy`]: callers can read it off a `Peer` with
-/// [`network`](crate::Peer::network) and compare two for equality, but cannot
-/// create one except through [`seed`](crate::Peer::seed).
+/// [`network`](crate::Peer::network), compare two, and serialize one, for
+/// example to key their own records by network. No operation takes one as
+/// input, so a deserialized identifier can only be compared: a peer's
+/// network is the one it was [`seed`](crate::Peer::seed)ed into or
+/// [bootstrapped](crate::Peer::bootstrap) into.
 //
 // Internally, the identifier is expanded from the network's secret by its
 // key schedule (`NetworkKeys`), so publishing it reveals nothing about the
