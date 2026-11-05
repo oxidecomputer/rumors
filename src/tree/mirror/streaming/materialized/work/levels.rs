@@ -1,11 +1,11 @@
 //! Phase-specific materialized reconciliation walks.
 //!
-//! Every walk body runs on the erased vocabulary — one instantiation per
-//! backend — behind a thin typed method that erases the stage's request
-//! stream on the way in and re-tags its responses on the way out
-//! ([`Work::respond`]). The generic methods carry the type-level height
-//! the schedule proves; the walk bodies carry it as the runtime witness
-//! every scope's prefix length *is*.
+//! Every walk body runs on the erased vocabulary — instantiated per
+//! backend, never per height — behind a thin typed method that erases the
+//! stage's request stream on the way in and re-tags its responses on the
+//! way out ([`Work::respond`]). The generic methods carry the type-level
+//! height the schedule proves; the walk bodies carry it as the runtime
+//! witness every scope's prefix length *is*.
 
 use std::pin::pin;
 
@@ -15,12 +15,13 @@ use futures::{FutureExt, Stream, StreamExt, future::BoxFuture};
 
 use super::{
     LeafRequest, Work,
-    answer::{self, Held, Part},
+    answer::{self, Answer, Built, Held, Part, Question},
     assembly::assemble,
     charges,
     queues::*,
     resolver::{Dispute, Resolver},
 };
+use crate::network::NetworkKeys;
 use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, FAN, Leaf, Root,
@@ -29,11 +30,12 @@ use crate::tree::{
         holding::{Holding, held_by, holding, holding_stream},
         ledger::{Charge, Ledger, ReplyBound, Unit},
         materialized::{
-            Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
+            Error, Query, Resolution, SupplyLedger, Violation, fan_listing, progress::Scoped,
             unknown::unknown_providing, violation,
         },
-        message::{Carried, Grandchildren},
+        message::{Carried, Grandchildren, Listed},
         protocol::{BoxRequests, BoxResponses, Requests},
+        stats::Recorder,
         tasks::next_or_cancelled,
     },
     typed::{
@@ -177,6 +179,167 @@ async fn next_chunk<E, Err>(requests: &mut BoxRequests<E>) -> Result<Reply<E>, E
         Some(chunk) => Ok(chunk),
         None => violation(Violation::UnansweredQuery),
     }
+}
+
+/// A level whose walk answers each disputed child with an answer that asks
+/// about the child's own children one level down.
+///
+/// An internal level's questions are queries about internal scopes; the
+/// leaf-parent level's questions request single leaves. Both levels run
+/// one walk ([`Work::answering_walk`]). An implementation supplies the two
+/// steps in which they differ: classifying a disputed child's children into
+/// an answer, and admitting and building each question that answer plans.
+///
+/// Each step may wait only on the storage backend and, for `ask`, on the
+/// ledger's admission of its question. Those are the only waits the walk
+/// makes outside its own edges, and the deadlock argument in the
+/// materialized module's docs, with the admission induction it cites,
+/// covers exactly them: a step that waited on another stage, or on the
+/// peer, would wait outside both.
+trait AnsweringLevel<B: Backend<Node<Z>: Leaf>>: 'static {
+    /// A question as an answer plans it, before it is built.
+    type Planned: Send + 'static;
+    /// What a built question sends down to the next level's walk.
+    type Asked: Scoped + Send + 'static;
+
+    /// Classify the children of the disputed scope `prefix`, this side's
+    /// `ours` against the peer's listing `theirs`, charging the plan out of
+    /// the answer's `grant`.
+    // The arguments are the answer's inputs, one per concern, as for
+    // `answer::internal`; bundling them into a struct would only rename the
+    // arity.
+    #[allow(clippy::too_many_arguments)]
+    fn answer(
+        backend: &B,
+        keys: Option<&NetworkKeys>,
+        their_version: &Version,
+        stats: &Recorder,
+        prefix: ErasedPrefix,
+        ours: Vec<(u8, B::Erased)>,
+        theirs: Vec<Listed>,
+        grant: &mut Charge,
+    ) -> impl Future<Output = Result<Answer<B::Erased, Self::Planned>, Error<B::Error>>> + Send;
+
+    /// Admit, out of `account`, the question `planned` that an answer about
+    /// `prefix` asks in a chunk behind the `leading` reactions, and build it
+    /// out of its grant.
+    ///
+    /// Returns the question built, and what is left of the grant, out of
+    /// which the chunk ending at the question is built.
+    fn ask(
+        backend: &B,
+        keys: Option<&NetworkKeys>,
+        account: &Ledger,
+        prefix: ErasedPrefix,
+        leading: Held,
+        planned: Self::Planned,
+    ) -> impl Future<Output = Result<(Built<B::Erased, Self::Asked>, Charge), Error<B::Error>>> + Send;
+}
+
+/// An internal level: each question its answers plan is a dispute or a
+/// request about an internal child, admitted under the invitation share.
+struct Internal;
+
+impl<B: Backend<Node<Z>: Leaf>> AnsweringLevel<B> for Internal {
+    type Planned = Question<B::Erased>;
+    type Asked = Query<B::Erased>;
+
+    async fn answer(
+        backend: &B,
+        keys: Option<&NetworkKeys>,
+        their_version: &Version,
+        stats: &Recorder,
+        prefix: ErasedPrefix,
+        ours: Vec<(u8, B::Erased)>,
+        theirs: Vec<Listed>,
+        grant: &mut Charge,
+    ) -> Result<Answer<B::Erased, Self::Planned>, Error<B::Error>> {
+        answer::internal(
+            backend,
+            their_version,
+            prefix,
+            ours,
+            theirs,
+            keys,
+            stats,
+            grant,
+        )
+        .await
+    }
+
+    async fn ask(
+        backend: &B,
+        keys: Option<&NetworkKeys>,
+        account: &Ledger,
+        prefix: ErasedPrefix,
+        leading: Held,
+        planned: Self::Planned,
+    ) -> Result<(Built<B::Erased, Self::Asked>, Charge), Error<B::Error>> {
+        let bytes = planned.bound::<B::Error>(prefix, leading);
+        let need = planned.need::<B::Error>(prefix);
+        let mut grant = account.invite(depth(prefix) + 1, bytes, need).await;
+        let built = answer::question(backend, keys, &mut grant, prefix, planned).await?;
+        Ok((built, grant))
+    }
+}
+
+/// The leaf-parent level: each question its answers plan requests, by its
+/// radix, a leaf only the peer holds.
+struct LeafParent;
+
+impl<B: Backend<Node<Z>: Leaf>> AnsweringLevel<B> for LeafParent {
+    type Planned = u8;
+    type Asked = LeafRequest;
+
+    async fn answer(
+        _backend: &B,
+        _keys: Option<&NetworkKeys>,
+        their_version: &Version,
+        stats: &Recorder,
+        _prefix: ErasedPrefix,
+        ours: Vec<(u8, B::Erased)>,
+        theirs: Vec<Listed>,
+        grant: &mut Charge,
+    ) -> Result<Answer<B::Erased, Self::Planned>, Error<B::Error>> {
+        Ok(answer::leaf_parent(
+            their_version,
+            ours,
+            theirs,
+            stats,
+            grant,
+        ))
+    }
+
+    async fn ask(
+        _backend: &B,
+        _keys: Option<&NetworkKeys>,
+        account: &Ledger,
+        prefix: ErasedPrefix,
+        leading: Held,
+        radix: u8,
+    ) -> Result<(Built<B::Erased, Self::Asked>, Charge), Error<B::Error>> {
+        // A leaf request's reply supplies one leaf, which processing turns
+        // into nothing more: it would claim no need, so the invitation share
+        // would hold back nothing the budget admits, and the request is
+        // admitted by the budget alone.
+        let bytes = charges::leaf_question_bound::<B::Erased, B::Error>(leading);
+        let mut grant = account
+            .admit(Unit::Question, depth(prefix) + 1, bytes)
+            .await;
+        let built = answer::leaf_question(&mut grant, prefix, radix);
+        Ok((built, grant))
+    }
+}
+
+/// The edges an answering walk publishes on.
+struct Edges<Q, E> {
+    /// The questions its answers ask, to the next level's walk.
+    asked: Sender<Q>,
+    /// Each query's resolution, its scope's, once every child's work is
+    /// launched.
+    upper: Sender<Resolution<E>>,
+    /// Each disputed child's resolution, ahead of its questions.
+    lower: Sender<Resolution<E>>,
 }
 
 impl<B> Work<B>
@@ -360,13 +523,18 @@ where
             while let Some(Part { leading, ask, last }) = chunks.next_part() {
                 let (question, mut grant) = match ask {
                     Some(question) => {
-                        let bytes = question
-                            .bound::<B::Error>(root_scope, charges::held(&leading));
-                        let need = question.need::<B::Error>(root_scope);
-                        let mut grant = account.invite(1, bytes, need).await;
-                        let built =
-                            answer::question(&backend, keys.as_deref(), &mut grant, root_scope, question)
-                                .await?;
+                        // The root's answer is an internal one, whose
+                        // questions are internal questions about the root's
+                        // children.
+                        let (built, grant) = <Internal as AnsweringLevel<B>>::ask(
+                            &backend,
+                            keys.as_deref(),
+                            &account,
+                            root_scope,
+                            charges::held(&leading),
+                            question,
+                        )
+                        .await?;
                         (Some(built), grant)
                     }
                     None => (None, std::mem::take(&mut answer_grant)),
@@ -438,8 +606,16 @@ where
         S<S<H>>: Height,
     {
         let requests = requests.erase();
-        let (responses, asked_rx, upper_rx, lower_rx) =
-            self.internal_walk(their_version, ledger, requests, queries, H::HEIGHT);
+        let (asked, asked_rx) = internal_child_queries::<B>(H::HEIGHT);
+        let (upper, upper_rx) = internal_parent_resolutions::<B>(H::HEIGHT + 2);
+        let (lower, lower_rx) = internal_child_resolutions::<B>(H::HEIGHT + 1);
+        let edges = Edges {
+            asked,
+            upper,
+            lower,
+        };
+        let responses =
+            self.answering_walk::<Internal>(their_version, ledger, requests, queries, edges);
         (
             self.respond::<S<H>>(responses),
             asked_rx,
@@ -448,32 +624,63 @@ where
         )
     }
 
-    /// The internal walk's body, shared by every height:
-    /// [`internal_level`](Self::internal_level) with the descent height as
-    /// the runtime datum it already is everywhere below the types.
-    fn internal_walk(
+    /// Walk leaf parents, where disputes compare version-addressed leaves.
+    pub fn leaf_parent_level(
+        &mut self,
+        their_version: Version,
+        ledger: SupplyLedger,
+        requests: impl Requests<B, S<Z>>,
+        queries: Receiver<Query<B::Erased>>,
+    ) -> (
+        BoxResponses<B, Z, Error<B::Error>>,
+        Receiver<LeafRequest>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+    ) {
+        let requests = requests.erase();
+        let (asked, asked_rx) = leaf_requests();
+        let (upper, upper_rx) = leaf_parent_resolutions::<B>();
+        let (lower, lower_rx) = leaf_child_resolutions::<B>();
+        let edges = Edges {
+            asked,
+            upper,
+            lower,
+        };
+        let responses =
+            self.answering_walk::<LeafParent>(their_version, ledger, requests, queries, edges);
+        (self.respond::<Z>(responses), asked_rx, upper_rx, lower_rx)
+    }
+
+    /// The walk of the answering level `L`, shared by every height
+    /// ([`internal_level`](Self::internal_level),
+    /// [`leaf_parent_level`](Self::leaf_parent_level)).
+    ///
+    /// For each query, the walk reads its reply chunk by chunk, answers
+    /// each disputed child with a reply of its own, and publishes the
+    /// query's resolution once every child's work is launched. The levels
+    /// differ only in the steps [`AnsweringLevel`] supplies, so the orderings
+    /// their progress rests on are written once, here, for both.
+    fn answering_walk<L: AnsweringLevel<B>>(
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
         requests: BoxRequests<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
-        asked_height: usize,
-    ) -> (
-        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
-        Receiver<Query<B::Erased>>,
-        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-    ) {
+        edges: Edges<L::Asked, B::Erased>,
+    ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, L>
+    {
+        let Edges {
+            mut asked,
+            mut upper,
+            mut lower,
+        } = edges;
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (mut asked, asked_rx) = internal_child_queries::<B>(asked_height);
-        let (mut upper, upper_rx) = internal_parent_resolutions::<B>(asked_height + 2);
-        let (mut lower, lower_rx) = internal_child_resolutions::<B>(asked_height + 1);
         let progress = self.progress;
         let account = self.ledger();
         let keys = self.keys();
 
-        let responses = try_stream! {
+        try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let mut chunk = next_chunk(&mut requests).await?;
@@ -541,14 +748,14 @@ where
                     );
                     let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
-                    let (mut chunks, resolved) = answer::internal(
+                    let (mut chunks, resolved) = L::answer(
                         &backend,
+                        keys.as_deref(),
                         &their_version,
+                        &stats,
                         child_prefix,
                         children,
                         listing,
-                        keys.as_deref(),
-                        &stats,
                         &mut answer_grant,
                     )
                     .await?
@@ -569,18 +776,14 @@ where
                     ));
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {
                         let (question, mut grant) = match ask {
-                            Some(question) => {
-                                let bytes = question
-                                    .bound::<B::Error>(child_prefix, charges::held(&leading));
-                                let need = question.need::<B::Error>(child_prefix);
-                                let mut grant =
-                                    account.invite(depth + 1, bytes, need).await;
-                                let built = answer::question(
+                            Some(planned) => {
+                                let (built, grant) = L::ask(
                                     &backend,
                                     keys.as_deref(),
-                                    &mut grant,
+                                    &account,
                                     child_prefix,
-                                    question,
+                                    charges::held(&leading),
+                                    planned,
                                 )
                                 .await?;
                                 (Some(built), grant)
@@ -621,197 +824,7 @@ where
             if requests.next().await.is_some() {
                 return violation(Violation::UnaskedReply)?;
             }
-        };
-
-        (responses, asked_rx, upper_rx, lower_rx)
-    }
-
-    /// Walk leaf parents, where disputes compare version-addressed leaves.
-    pub fn leaf_parent_level(
-        &mut self,
-        their_version: Version,
-        ledger: SupplyLedger,
-        requests: impl Requests<B, S<Z>>,
-        queries: Receiver<Query<B::Erased>>,
-    ) -> (
-        BoxResponses<B, Z, Error<B::Error>>,
-        Receiver<LeafRequest>,
-        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-    ) {
-        let requests = requests.erase();
-        let (responses, asked_rx, upper_rx, lower_rx) =
-            self.leaf_parent_walk(their_version, ledger, requests, queries);
-        (self.respond::<Z>(responses), asked_rx, upper_rx, lower_rx)
-    }
-
-    /// The leaf-parent walk's body ([`leaf_parent_level`](Self::leaf_parent_level)).
-    fn leaf_parent_walk(
-        &mut self,
-        their_version: Version,
-        ledger: SupplyLedger,
-        requests: BoxRequests<B::Erased>,
-        mut queries: Receiver<Query<B::Erased>>,
-    ) -> (
-        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
-        Receiver<LeafRequest>,
-        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
-    ) {
-        let backend = self.backend();
-        let stats = self.stats.clone();
-        let (mut asked, asked_rx) = leaf_requests();
-        let (mut upper, upper_rx) = leaf_parent_resolutions::<B>();
-        let (mut lower, lower_rx) = leaf_child_resolutions::<B>();
-        let progress = self.progress;
-        let account = self.ledger();
-
-        let responses = try_stream! {
-            let mut requests = requests;
-            while let Some(query) = queries.recv().await {
-                let mut chunk = next_chunk(&mut requests).await?;
-                // The reply's need, recomputed from the bound its query
-                // carries as its question computed it when admitted: the
-                // question withdraws its claim, if it took no floor slot,
-                // and the pace weighs the need, once the reply is finished.
-                let floor = query.charge.is_floor();
-                let (reply_depth, need) = (
-                    depth(query.prefix),
-                    charges::processing_need::<B::Erased, B::Error>(query.bound),
-                );
-
-                let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
-                loop {
-                let Reply { reactions, charge: received, last, carried } = chunk;
-                for reaction in reactions {
-                    let Some(Dispute {
-                        child_prefix,
-                        radix,
-                        node,
-                        listing,
-                    }) = resolver.react(reaction)?
-                    else {
-                        continue;
-                    };
-
-                    let depth = depth(child_prefix);
-                    if listing.is_empty() {
-                        // The supplies are this side's children of the node
-                        // that survive the deletion filter, at most all of
-                        // them.
-                        let bytes = charges::supply_bound::<B::Erased, B::Error>(
-                            node.child_count(&child_prefix).min(FAN),
-                        );
-                        let mut grant = account.admit(Unit::Answer, depth, bytes).await;
-                        let (node, leaves) = holding(
-                            Holding::OutgoingReplies,
-                            unknown_providing(&backend, &their_version, child_prefix, node, &stats),
-                        )
-                        .await?;
-                        let reactions = held_by(Holding::OutgoingReplies, || {
-                            leaves
-                                .into_iter()
-                                .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
-                                .collect()
-                        });
-                        let reply = charges::reply::<B>(&mut grant, reactions);
-                        drop(grant);
-                        yield_ready!(
-                            progress, child_prefix;
-                            yield reply;
-                            resolver.ready(radix, node);
-                        );
-                        continue;
-                    }
-
-                    // The node is kept for its scope's assembly.
-                    let original = node.clone();
-                    let held = node.child_radices(&child_prefix);
-                    let children = charges::scope_children(held, &listing);
-                    let bytes = charges::answer_bound::<B::Erased, B::Error>(
-                        children.either,
-                        children.both,
-                    );
-                    let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
-                    let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
-                    let (mut chunks, resolved) = answer::leaf_parent(
-                        &their_version,
-                        leaves,
-                        listing,
-                        &stats,
-                        &mut answer_grant,
-                    )
-                    .into_parts();
-                    let mut unpublished =
-                        Some(charges::resolution(
-                            &mut answer_grant,
-                            child_prefix,
-                            Some(original),
-                            resolved,
-                        ));
-                    // The grant now needs only the reply's last chunk, if
-                    // that asks nothing; the rest returns before any
-                    // question waits for admission, which the returned bytes
-                    // may admit.
-                    answer_grant.keep(charges::unasked_chunk_bound::<B::Erased, B::Error>(
-                        chunks.unasked_last(),
-                    ));
-                    while let Some(Part { leading, ask, last }) = chunks.next_part() {
-                        let (question, mut grant) = match ask {
-                            Some(radix) => {
-                                // A leaf request's reply supplies one leaf,
-                                // which processing turns into nothing more:
-                                // it would claim no need, so the invitation
-                                // share would hold back nothing the budget
-                                // admits, and the request is admitted by
-                                // the budget alone.
-                                let bytes = charges::leaf_question_bound::<B::Erased, B::Error>(
-                                    charges::held(&leading),
-                                );
-                                let mut grant =
-                                    account.admit(Unit::Question, depth + 1, bytes).await;
-                                let built = answer::leaf_question(&mut grant, child_prefix, radix);
-                                (Some(built), grant)
-                            }
-                            None => (None, std::mem::take(&mut answer_grant)),
-                        };
-                        yield_chunk!(
-                            progress, grant, child_prefix;
-                            leading, question, last;
-                            chunk => yield chunk;
-                            lower => unpublished.take();
-                            asked;
-                        );
-                    }
-                    drop(answer_grant);
-                    resolver.pending(radix);
-                }
-
-                // The chunk is used up, so its charges return now, before
-                // the stage waits for the next one: the peer's admission may
-                // wait on them.
-                drop((received, carried));
-                if last {
-                    break;
-                }
-                chunk = next_chunk(&mut requests).await?;
-                }
-                // Launch every `Pending` slot's work before publishing its
-                // enclosing parent resolution.
-                let resolution = resolver.finish()?;
-                account.processed(reply_depth, need, floor);
-                progress.parent_resolution(&resolution);
-                if upper.send(resolution).await.is_err() {
-                    return;
-                }
-            }
-
-            if requests.next().await.is_some() {
-                return violation(Violation::UnaskedReply)?;
-            }
-        };
-
-        (responses, asked_rx, upper_rx, lower_rx)
+        }
     }
 
     /// Walk leaves, where every query is a terminal request.
