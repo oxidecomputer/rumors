@@ -125,6 +125,30 @@ where
     .boxed()
 }
 
+/// The bytes [`unknown_providing`] allocates exploding `node` itself, read
+/// before it runs, so a caller can charge them first.
+///
+/// A wholly unknown node survives whole, so [`unknown_providing`] keeps it
+/// and explodes a second handle to it. The explosion's bytes are therefore
+/// read here while a second handle is held: a backend that peels an
+/// unshared node in place must copy a shared one, and the in-memory backend
+/// does. A mixed node is exploded through the handle the caller passes,
+/// with no second handle, so its bytes are read as it stands; a wholly
+/// known one is not exploded. The explosions of the recursion below a mixed
+/// node are not counted.
+pub(super) fn providing_explosion_bytes<E: ErasedNode + Clone>(node: &E, known: &Version) -> usize {
+    match knowledge(node, known) {
+        Dominance::Before => {
+            let second = node.clone();
+            let bytes = node.explosion_bytes();
+            drop(second);
+            bytes
+        }
+        Dominance::Between => node.explosion_bytes(),
+        Dominance::After => 0,
+    }
+}
+
 /// The top of the recursion, exposed: prune one subtree and report both the
 /// surviving parent and its surviving children.
 ///

@@ -35,10 +35,8 @@
 //!
 //! The ledger's account therefore covers the session's transient heap,
 //! less the fixed state and the scratch each stage fills for the one scope
-//! it works on, at every moment, with one exception: a request reply's
-//! charge prices the deletion filter's work by the top node's explosion
-//! only, so a filter that rebuilds deeper nodes holds more than it is
-//! charged. The session-budget suite holds it to that.
+//! it works on, at every moment. The session-budget suite holds it to
+//! that.
 //!
 //! # What the ledger decides
 //!

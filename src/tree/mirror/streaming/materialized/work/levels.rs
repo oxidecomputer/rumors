@@ -30,7 +30,8 @@ use crate::tree::{
         ledger::{Charge, ReplyBound, Unit},
         materialized::{
             Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
-            unknown::unknown_providing, violation,
+            unknown::{providing_explosion_bytes, unknown_providing},
+            violation,
         },
         message::Grandchildren,
         protocol::{BoxRequests, BoxResponses, Requests},
@@ -422,7 +423,7 @@ where
 
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
-                        let copies = node.explosion_bytes();
+                        let copies = providing_explosion_bytes(&node, &their_version);
                         let bytes = charges::supply_bound::<B::Erased, B::Error>(FAN, copies);
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, children) = holding(
@@ -580,7 +581,7 @@ where
 
                     let depth = depth(child_prefix);
                     if listing.is_empty() {
-                        let copies = node.explosion_bytes();
+                        let copies = providing_explosion_bytes(&node, &their_version);
                         let bytes = charges::supply_bound::<B::Erased, B::Error>(FAN, copies);
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, leaves) = holding(

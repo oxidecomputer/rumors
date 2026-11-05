@@ -137,6 +137,12 @@
 //! what the explosion will allocate, which is what it can charge for an
 //! explosion before making it, and reports it to this suite. Each side's
 //! reports must sum to exactly the bytes its exploded-node label allocated.
+//! The walk charges each of those explosions to its ledger before making
+//! it, so each side's charges to the exploded nodes' place must sum to the
+//! same bytes: the sum of every rise in that place's account. The one
+//! explosion no charge covers, the deletion filter's below a node whose
+//! leaves its peer partly knows, never happens here, since neither side's
+//! version knows a leaf of the other's.
 //!
 //! # The ledger
 //!
@@ -370,6 +376,9 @@ struct Run {
 struct LedgerReport {
     /// The ledger changes the side made.
     changes: usize,
+    /// Bytes charged to the exploded nodes' place over the session: the
+    /// sum of every rise in its account.
+    exploded_charged: usize,
     /// The most the ledger held at once.
     peak: usize,
     /// The most the ledger held outside its floor slots at once: what its
@@ -559,8 +568,18 @@ fn ledger_reports(
             }
         }
         let last = mine.last();
+        let exploded = Holding::ALL
+            .iter()
+            .position(|other| *other == Holding::ExplodedNodes)
+            .expect("ALL lists every holding");
+        // Each event follows one change, so each rise is one charge.
+        let (exploded_charged, _) = mine.iter().fold((0, 0), |(sum, before), event| {
+            let now = event.places[exploded];
+            (sum + now.saturating_sub(before), now)
+        });
         LedgerReport {
             changes: mine.len(),
+            exploded_charged,
             peak: mine.iter().map(|event| event.held).max().unwrap_or(0),
             normal_peak: mine
                 .iter()
@@ -1018,6 +1037,13 @@ fn violation(measured: &Measured) -> Option<String> {
                  {allocated} B: {report}"
             ));
         }
+        let charged = measured.run.ledgers[side.index()].exploded_charged;
+        if charged != reported {
+            return Some(format!(
+                "{side:?}'s ledger was charged {charged} B for explosions its backend reported \
+                 as {reported} B: {report}"
+            ));
+        }
         let unattributed = measured.run.unattributed[side.index()].transient_peak as u128;
         if unattributed > measured.fixed {
             return Some(format!(
@@ -1151,7 +1177,7 @@ const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [10_219_296, 8_593_248];
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the budget filled with admitted work, beside the floor
 /// slots' grants, as at 8 MiB.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [35_397_992, 33_663_964];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [35_398_256, 33_663_964];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.
