@@ -1,3 +1,5 @@
+use crate::tree::mirror::streaming::materialized::Overdraft;
+
 use super::super::codec::{DecodeLeafError, LengthOverflow};
 
 /// A prefix-free reaction could not be paired with the question it answers.
@@ -162,6 +164,29 @@ pub enum DecodeError<E> {
     /// A leaf record inside a supply run failed canonical decoding.
     #[error("a supplied leaf record is not canonical")]
     Record(#[source] DecodeLeafError),
+}
+
+/// The error a reply's frame reveals by asking its allowance for more than
+/// it can give: the bound it would exceed, or the scope rule it would
+/// break.
+impl<E> From<Overdraft> for DecodeError<E> {
+    fn from(overdraft: Overdraft) -> Self {
+        match overdraft {
+            Overdraft::Reactions { bound } => Self::ExceedsBound {
+                part: BoundedPart::Reactions,
+                bound,
+            },
+            Overdraft::Listing { bound } => Self::ExceedsBound {
+                part: BoundedPart::Listing,
+                bound,
+            },
+            Overdraft::Unordered { after, radix } => ScopeError::Unordered { after, radix }.into(),
+            Overdraft::CoveredSupply { radix } => ScopeError::CoveredSupply { radix }.into(),
+            Overdraft::UnpositionedQuery => ScopeError::UnpositionedQuery.into(),
+            Overdraft::UnpositionedMatch => ScopeError::UnpositionedMatch.into(),
+            Overdraft::RepeatedMatch => ScopeError::RepeatedMatch.into(),
+        }
+    }
 }
 
 /// What a reply's bound limits ([`DecodeError::ExceedsBound`]).

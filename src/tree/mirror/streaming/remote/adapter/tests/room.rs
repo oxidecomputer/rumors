@@ -18,12 +18,12 @@ use crate::tree::mirror::streaming::{
     byte_set::ByteSet,
     erased::Reply,
     holding::Holding,
-    ledger::Ledger,
+    ledger::{Ledger, ReplyBound},
     materialized::parked_room,
     message::{Grandchildren, LaterMatches, Listed},
     remote::codec::{Flow, Frame, Reaction as WireReaction},
 };
-use crate::tree::typed::Hash;
+use crate::tree::typed::{Hash, Prefix, height::Z};
 
 use super::{
     super::{BoundedPart, DecodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_reply},
@@ -309,4 +309,56 @@ fn a_position_below_a_supply_fails() {
         decoded.result,
     );
     assert_eq!(decoded.short, 0, "no chunk falls short of its room");
+}
+
+/// A reply to a leaf request that matches or asks fails at its frame, and
+/// parks nothing beyond the request's room.
+///
+/// The request reserved room for one supplied leaf, and its record lists
+/// no position: the reply supplies the leaf by its radix, or omits it. An
+/// empty query and a match, the only positional reactions a reply about a
+/// leaf's parent can carry, each fail as having no position to take.
+#[test]
+fn a_leaf_request_reply_takes_no_position() {
+    let leaf = &leaves_by_radix()[0];
+    let scope = Scope::leaf(Prefix::<Z>::containing(&leaf.path()).erase());
+    assert_eq!(scope.reply_bound(), ReplyBound::LEAF);
+    for (reaction, expected) in [
+        (
+            WireReaction::Query(Vec::new()),
+            ScopeError::UnpositionedQuery,
+        ),
+        (
+            WireReaction::Match(LaterMatches::NONE),
+            ScopeError::UnpositionedMatch,
+        ),
+    ] {
+        let ledger = Ledger::default();
+        let room = ledger.charge(
+            Holding::ParkedReplies,
+            parked_room::<E>(ReplyBound::LEAF, 0),
+        );
+        let result = runtime().block_on(async {
+            let mut frames = stream::iter(frames(vec![reaction]));
+            decode_reply::<Local, _>(
+                &mut LeafEdge::new(),
+                Local,
+                u64::MAX,
+                unbounded(),
+                ReplyLevel::Leaf,
+                &scope,
+                &mut frames,
+                codec(),
+                Some(&crate::tree::typed::PathKey::fixture()),
+                room,
+                &mut |_| {},
+            )
+            .await
+        });
+        assert!(
+            matches!(result, Err(DecodeError::Scope(error)) if error == expected),
+            "expected {expected:?}, got {result:?}",
+        );
+        assert_eq!(ledger.short(), 0, "no chunk falls short of its room");
+    }
 }

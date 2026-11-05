@@ -141,7 +141,8 @@ enum Pairing {
     Positional,
     /// The one child is the leaf a terminal request asks for: the reply
     /// supplies it by its radix, or omits it when the replier's deletion
-    /// filter drops it, and takes no position.
+    /// filter drops it, and takes no position, so the record offers its
+    /// reply none.
     Requested,
 }
 
@@ -217,9 +218,17 @@ impl Scope {
         queued::<Self>() + buffer(&self.children)
     }
 
-    /// The bound on the reply this record awaits.
+    /// The bound on the reply this record awaits: the one a question
+    /// listing the record's children reserved for, or, for a leaf request,
+    /// one supplied leaf ([`ReplyBound::LEAF`]), the bound the request
+    /// reserved for.
     pub fn reply_bound(&self) -> ReplyBound {
-        ReplyBound::of(self.parent.height(), self.children.len(), self.bound)
+        match self.pairing {
+            Pairing::Positional => {
+                ReplyBound::of(self.parent.height(), self.children.len(), self.bound)
+            }
+            Pairing::Requested => ReplyBound::LEAF,
+        }
     }
 
     /// The parent prefix against which keyed supplies are validated.
@@ -238,17 +247,21 @@ impl Scope {
     ///
     /// The cursor starts after the positions earlier reactions took or
     /// their match covered, and passes over the later positions that match
-    /// covers. Past the last position, it is exhausted.
+    /// covers. Past the last position, it is exhausted. A leaf request's
+    /// record lists no position: its reply supplies the leaf by its radix
+    /// or omits it, and asks and matches nothing.
     pub fn replay(&self, replay: Replay) -> Positions<'_> {
         let Replay {
             taken,
             covered,
             matched,
         } = replay;
-        let children = self.children.get(taken..).unwrap_or_default();
+        let children = match self.pairing {
+            Pairing::Positional => self.children.get(taken..).unwrap_or_default(),
+            Pairing::Requested => &[],
+        };
         Positions {
             parent: self.parent,
-            pairing: self.pairing,
             children: children.iter(),
             taken,
             covered,
@@ -331,8 +344,6 @@ pub(crate) struct Matched {
 pub(crate) struct Positions<'a> {
     /// The scope's parent prefix, which each child radix extends.
     parent: ErasedPrefix,
-    /// How the reply pairs with the record's children.
-    pairing: Pairing,
     /// The child radices not yet passed, each with its lister's count.
     children: slice::Iter<'a, RecordedChild>,
     /// The positions passed.
@@ -351,20 +362,6 @@ impl Positions<'_> {
     /// one the match does not cover.
     pub fn remaining(&self) -> usize {
         self.children.len() - self.covered_ahead
-    }
-
-    /// Whether the reply's match covers `radix`.
-    pub fn covers(&self, radix: u8) -> bool {
-        self.covered.contains(radix)
-    }
-
-    /// The children the reply's match covers at radixes above `after`, or
-    /// all of them when `after` is `None`: none before the match.
-    ///
-    /// No reaction can sit at a covered radix, so these are radixes no
-    /// later reaction takes, whether or not the cursor has passed them.
-    pub fn covered_above(&self, after: Option<u8>) -> usize {
-        after.map_or(self.covered.len(), |radix| self.covered.len_above(radix))
     }
 
     /// Where the replay stands, for the reply's next chunk to resume from.
@@ -417,17 +414,13 @@ impl Positions<'_> {
     }
 
     /// Pass over every position left, which the reply's end requires the
-    /// match to cover, unless the record is a leaf request, whose reply
-    /// takes no position.
+    /// match to cover. A leaf request's record lists none.
     ///
     /// # Errors
     ///
     /// Returns [`ScopeError::UncoveredEnd`] naming the first position left
     /// that the match does not cover.
     pub fn end(mut self) -> Result<(), ScopeError> {
-        if self.pairing == Pairing::Requested {
-            return Ok(());
-        }
         self.pass_covered();
         match self.children.next() {
             Some(child) => Err(ScopeError::UncoveredEnd { radix: child.radix }),

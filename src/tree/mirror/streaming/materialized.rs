@@ -134,8 +134,8 @@ pub(super) mod transcript;
 pub(crate) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
-/// Named for the documentation of the decoder, which counts the slots this
-/// price relies on, and of the covered set it prices.
+/// Named for the documentation of `LaterMatches`, which links the covered
+/// set's net price.
 #[cfg(doc)]
 pub(crate) use work::covered_set_price;
 pub(crate) use work::floor_allowance;
@@ -144,10 +144,10 @@ pub(crate) use work::floor_allowance;
 pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
-pub(crate) use work::{Deliverable, OUTGOING_REPLY_CHUNKS, parked_bytes, room_beyond};
-use work::{LeafRequest, Resolver, Work};
+pub(crate) use work::{Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, parked_bytes};
 #[cfg(test)]
-pub(crate) use work::{parked_price, parked_room};
+pub(crate) use work::{Deliverable, parked_price, parked_room};
+use work::{LeafRequest, Resolver, Work};
 
 pub use error::{Error, Violation};
 

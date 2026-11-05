@@ -15,6 +15,7 @@ use std::pin::{Pin, pin};
 
 use futures::{Stream, StreamExt, future::BoxFuture};
 
+mod allowance;
 mod answer;
 mod assembly;
 mod charges;
@@ -22,17 +23,17 @@ mod levels;
 mod queues;
 mod resolver;
 
-pub(crate) use charges::floor_allowance;
+pub(crate) use allowance::{Allowance, Overdraft};
+#[cfg(test)]
+pub(crate) use allowance::{Deliverable, parked_price, parked_room};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
-pub(crate) use charges::{Deliverable, parked_bytes, room_beyond};
 /// Named for the documentation of the ledger, which bounds a charge by the
-/// largest grant, and of the decoder, which counts the slots a covered
-/// set's price relies on.
+/// largest grant, and of `LaterMatches`, which links the covered set's net
+/// price.
 #[cfg(doc)]
 pub(crate) use charges::{covered_set_price, largest_grant};
-#[cfg(test)]
-pub(crate) use charges::{parked_price, parked_room};
+pub(crate) use charges::{floor_allowance, parked_bytes};
 pub(crate) use queues::OUTGOING_REPLY_CHUNKS;
 pub(super) use resolver::Resolver;
 

@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a86508af660a57030c9be9ee1c1f929a2a6a84d831f19b3f212d07d7baa542ac # shrinks to (bound, positions) = (ReplyBound { reactions: 4, listing: 262 }, 2), steps = [Match { radix: Above(1), mask: 0, children: 0 }, Match { radix: Above(1), mask: 0, children: 0 }]
+cc 8c3785e4e556d11b2d2c3928810ac75a8ee340461005020f84a5e737736fafb1 # shrinks to (bound, positions) = (ReplyBound { reactions: 15, listing: 0 }, 12), steps = [Match { radix: Above(1), mask: 1212284928, children: 0 }, Supply { radix: Above(1), children: 1 }]
+cc 278b66f08320ccd09964e9a41f9459a67000118e79b26dc30973ef4a45007f32 # shrinks to (bound, positions) = (ReplyBound { reactions: 26, listing: 870 }, 20), steps = [Match { radix: Above(1), mask: 951886251, children: 0 }, Supply { radix: Above(19), children: 1 }, Match { radix: Above(1), mask: 0, children: 0 }, Match { radix: Above(1), mask: 0, children: 0 }, Match { radix: Above(1), mask: 0, children: 0 }, Query { radix: Above(7), entries: 257, ends: false }]
