@@ -42,6 +42,23 @@ pub(super) use local::with_schedule as with_local_schedule;
 /// held a lock, transaction, or pooled resource while a walk task was
 /// blocked on a queue could stop a decoder, and with it the delivery the
 /// walk is waiting for.
+///
+/// # Handles that never change
+///
+/// Everything a node handle answers stays the same for as long as the
+/// handle lives: its version bounds, leaf count and digest, its child and
+/// grandchild counts and child radices, its summary, and the children
+/// [`children`](Self::children) lists for it. The session reads one
+/// handle's answers at different times and relies on their agreeing: it
+/// prices a question's listing from the child count before it lists the
+/// children, sends the grandchild count its peer sizes a reply from, and
+/// descends into a child whose digest it compared earlier. A backend whose
+/// storage changes beneath live handles, such as a persistent store that
+/// compacts or rewrites nodes in place, must keep each handle's view as it
+/// was when the handle was made, for instance by copying on write or by
+/// pinning the snapshot the handle reads. [`Local`]'s handles share the
+/// replica's stored nodes, which a write replaces rather than modifies, so
+/// they never change.
 pub trait Backend: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf,
