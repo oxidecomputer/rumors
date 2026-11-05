@@ -255,7 +255,8 @@ pub(super) struct Slots {
     ///
     /// It is a count of its own, changed by the same operations that change
     /// the totals it is part of, rather than the difference of the total
-    /// held, the floor part, and what slots carry, which change apart.
+    /// held, the floor part, and what slots carry: only builds that observe
+    /// ledgers keep those totals.
     ///
     /// It is written only under the queue's lock, like every count here,
     /// and is never below zero:

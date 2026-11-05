@@ -71,7 +71,9 @@ pub enum Holding {
 }
 
 impl Holding {
-    /// Every place, in declaration order.
+    /// Every place, in declaration order: how observers of ledgers and of
+    /// the allocation meter index their accounts.
+    #[cfg(any(test, feature = "test-internals"))]
     pub const ALL: [Self; 9] = [
         Self::Questions,
         Self::Resolutions,

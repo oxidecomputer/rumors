@@ -542,7 +542,7 @@ impl GreetingRewrite {
     }
 
     /// Rewrite the received greeting's root grandchild count.
-    pub fn grandchildren(value: u64) -> Self {
+    pub fn grandchild_count(value: u64) -> Self {
         Self::new(GreetingField::Grandchildren, value)
     }
 

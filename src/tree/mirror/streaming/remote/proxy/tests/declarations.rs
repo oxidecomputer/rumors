@@ -292,7 +292,7 @@ fn overstated_set_len_from_the_bulk_side_still_converges() {
 fn understated_root_grandchildren_fail_the_opening_reply() {
     for receiver in [IoSide::Left, IoSide::Right] {
         let (small, large) = uneven_pair();
-        let rewrite = GreetingRewrite::grandchildren(1);
+        let rewrite = GreetingRewrite::grandchild_count(1);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
             receiver,
             small,
@@ -322,7 +322,7 @@ fn overstated_root_grandchildren_complete_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
         let (small, large) = uneven_pair();
         let expected = harness::join_oracle(&small, &large);
-        let rewrite = GreetingRewrite::grandchildren(65_536);
+        let rewrite = GreetingRewrite::grandchild_count(65_536);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
             receiver,
             small,
