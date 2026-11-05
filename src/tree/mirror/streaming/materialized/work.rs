@@ -34,6 +34,7 @@ pub(crate) use charges::covered_set_price;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
 pub(crate) use charges::{floor_allowance, largest_grant, parked_bytes};
+pub(crate) use levels::OpeningAdvance;
 pub(crate) use queues::OUTGOING_REPLY_CHUNKS;
 pub(super) use resolver::Resolver;
 

@@ -5,7 +5,8 @@
 //! see: the initiator's pending leaf requests are answered directly by the
 //! counterparty's terminal supplies and absorbed by [`absorb`](super::absorb),
 //! so it gets its own scripted counterparty here, for the accepted shape
-//! and for every malformed one.
+//! and for every malformed one. The opening question, the one the greeting
+//! carries, has its own module ([`opening`]).
 
 use crate::tree::mirror::streaming::message::LaterMatches;
 use std::convert::Infallible;
@@ -29,6 +30,8 @@ use crate::{
         },
     },
 };
+
+mod opening;
 
 /// The in-memory backend's erased node representation, which the closing
 /// leg's replies carry.

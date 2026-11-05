@@ -11,7 +11,7 @@ use std::pin::pin;
 
 use async_stream::try_stream;
 use before::Version;
-use futures::{Stream, StreamExt, future::BoxFuture};
+use futures::{FutureExt, Stream, StreamExt, future::BoxFuture};
 
 use super::{
     LeafRequest, Work,
@@ -27,7 +27,7 @@ use crate::tree::{
         channel::{Receiver, Sender},
         erased::{self, Reaction, Reply},
         holding::{Holding, held_by, holding, holding_stream},
-        ledger::{ReplyBound, Unit},
+        ledger::{Charge, Ledger, ReplyBound, Unit},
         materialized::{
             Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
             unknown::unknown_providing, violation,
@@ -123,6 +123,52 @@ fn depth(prefix: ErasedPrefix) -> usize {
     prefix.as_bytes().len()
 }
 
+/// The grant of the initiator's opening question, admitted as the roles
+/// are elected, with the room its reply parks in already taken out of it.
+///
+/// The opening question writes no frame of its own: its listing crossed
+/// inside the greeting, so the peer may have answered it already, and its
+/// reply's frames wait in the receive path, which never waits on the walk,
+/// from the moment the session's pipe starts reading. The room that pays
+/// for them must be charged by then, whenever the root stage runs. So the
+/// initiator admits the question as it opens its descent
+/// ([`admit`](Self::admit)), before the session's tasks run, once the
+/// peer's grandchild count of its root, which bounds the reply, is known;
+/// the root stage then builds the question out of the grant
+/// ([`Work::initiator_level`]). The responder asks no opening question and
+/// admits none.
+pub(crate) struct OpeningAdvance {
+    /// What is left of the opening question's grant.
+    grant: Charge,
+    /// The room the opening's reply parks in.
+    room: Charge,
+}
+
+impl OpeningAdvance {
+    /// Admit, out of `ledger`, the grant of an opening question listing
+    /// `listed` of this side's root children, whose reply the peer's count
+    /// `responder` of its root's grandchildren bounds, and take its reply's
+    /// room.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the grant is not admitted at once: a programmer error,
+    /// since the opening is its depth's only question, so it takes the
+    /// floor slot for questions at depth 0, which nothing else holds.
+    pub(crate) fn admit<E, Err>(ledger: &Ledger, listed: usize, responder: Grandchildren) -> Self {
+        let root = Prefix::new().erase();
+        let bytes =
+            charges::question_bound::<E, Err>(root.height(), responder, Held::default(), listed);
+        let mut grant = ledger
+            .admit(Unit::Question, depth(root), bytes)
+            .now_or_never()
+            .expect("the opening takes the depth-0 question slot, which nothing else holds");
+        let bound = ReplyBound::of(root.height(), listed, responder);
+        let room = charges::room::<E>(&mut grant, bound, listed);
+        Self { grant, room }
+    }
+}
+
 /// The next chunk of the reply a stage is reading, or the violation of a
 /// request stream that ends first: the question the reply answers is still
 /// outstanding.
@@ -150,13 +196,15 @@ where
     /// empty queries for them one level down.
     ///
     /// `root` is the root `fan` was listed from, which the question carries
-    /// to the root's assembly.
+    /// to the root's assembly, and `advance` the question's grant and its
+    /// reply's room, admitted as the roles were elected.
     pub fn initiator_level(
         &mut self,
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
         root: Option<B::Erased>,
         responder: Grandchildren,
+        advance: OpeningAdvance,
     ) -> (
         BoxResponses<B, UnderRoot, Error<B::Error>>,
         Receiver<Query<B::Erased>>,
@@ -166,22 +214,14 @@ where
         let (mut queries, queries_rx) = initiator_root_query::<B>();
         let (returns, mut returns_rx) = initiator_root_return::<B>();
         let progress = self.progress;
-        let account = self.ledger();
         let keys = self.keys();
 
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
             // The opening question is the one question no answer asks; it
-            // asks about the root. As its depth's only question it takes its
-            // floor slot, so the invitation share, which only limits
-            // admissions against the budget, has nothing to decide for it.
-            let bytes = charges::question_bound::<B::Erased, B::Error>(
-                root_scope.height(),
-                responder,
-                Held::default(),
-                fan.len(),
-            );
-            let mut grant = account.admit(Unit::Question, 0, bytes).await;
+            // asks about the root. Its grant and its reply's room were
+            // admitted as the roles were elected ([`OpeningAdvance`]).
+            let OpeningAdvance { mut grant, room } = advance;
             progress.wire(root_scope);
             let bound = ReplyBound::of(root_scope.height(), fan.len(), responder);
             let listing = held_by(Holding::OutgoingReplies, || {
@@ -189,7 +229,6 @@ where
             })
             .map_err(Error::Count)?;
             let record = charges::record(&mut grant, fan.len());
-            let room = charges::room::<B::Erased>(&mut grant, bound, fan.len());
             let query = charges::query(&mut grant, root_scope, root, fan, bound);
             yield held_by(Holding::OutgoingReplies, || {
                 charges::chunk::<B>(&mut grant, listing, true, Carried::Question { record, room })

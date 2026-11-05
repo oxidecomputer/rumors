@@ -144,7 +144,7 @@ pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
 pub(crate) use work::{Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, parked_bytes};
-use work::{LeafRequest, Resolver, Work};
+use work::{LeafRequest, OpeningAdvance, Resolver, Work};
 #[cfg(test)]
 pub(crate) use work::{Left, Ready, parked_price, parked_room};
 
@@ -691,7 +691,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
     /// Gather the state either descent opening consumes.
     fn open(self) -> Opening<B> {
-        let Connected { peer, fan, .. } = self.state;
+        let Connected { peer, fan } = self.state;
         let ceiling = self.root.ceiling | &peer.version;
         let ledger = SupplyLedger::new(peer.messages);
         let work = Work::new(self.backend, self.stats, self.ledger, self.keys);
@@ -719,6 +719,14 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
 
     /// Open the elected initiator's first descent stage.
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
+        // The peer may have answered the opening question its greeting
+        // carried, so its room is charged before the session's tasks run
+        // ([`OpeningAdvance`]).
+        let opening = OpeningAdvance::admit::<B::Erased, B::Error>(
+            &self.ledger,
+            self.state.fan.len(),
+            self.state.peer.grandchildren,
+        );
         let Opening {
             peer_version,
             ledger,
@@ -729,7 +737,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
             mut work,
         } = self.open();
         let (responses, queries, returns, finish) =
-            work.initiator_level(ceiling, fan, root, peer_grandchildren);
+            work.initiator_level(ceiling, fan, root, peer_grandchildren, opening);
 
         (
             responses,
