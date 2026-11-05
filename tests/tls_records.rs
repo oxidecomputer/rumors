@@ -223,7 +223,9 @@ fn configs() -> (Arc<ServerConfig>, Arc<ClientConfig>) {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let certified = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_owned()])
         .expect("generate a certificate");
-    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()));
+    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+        certified.signing_key.serialize_der(),
+    ));
     let mut server = ServerConfig::builder_with_provider(Arc::clone(&provider))
         .with_protocol_versions(&[&rustls::version::TLS13])
         .expect("the ring provider supports TLS 1.3")

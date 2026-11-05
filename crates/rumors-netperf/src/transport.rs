@@ -388,7 +388,9 @@ pub fn server_config() -> Result<Arc<ServerConfig>> {
     }
     let certified = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_string()])
         .context("generating the TLS certificate")?;
-    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()));
+    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+        certified.signing_key.serialize_der(),
+    ));
     let config = ServerConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .context("choosing TLS 1.3")?

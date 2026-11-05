@@ -115,7 +115,7 @@ rayon = "1"
 # A self-signed certificate for the TLS sessions of the TLS record suite
 # and the link-measurement tool, generated per run, so no key is ever
 # committed.
-rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 rumors = { path = "." }
 rumors-testkit = { path = "crates/rumors-testkit" }
 rustc_version = "0.4"
