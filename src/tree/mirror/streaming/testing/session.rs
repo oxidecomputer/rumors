@@ -17,6 +17,7 @@ use crate::observe::{Attachment, SessionKind};
 use crate::testing::{Quiescence, memory_connection, run_to_quiescence};
 use crate::tree::Root;
 use crate::tree::mirror::Error as MirrorError;
+use crate::tree::mirror::streaming::ledger::Ledger;
 use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Handshaking};
 use crate::tree::mirror::streaming::remote::{
     Error as RemoteError, Handshaking as RemoteHandshaking,
@@ -60,6 +61,33 @@ pub fn observed_over_pipe<T>(
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
+    session::<T>(pair, budgets, buffer, observers).0
+}
+
+/// [`over_pipe`], also returning both endpoints' ledgers, in the pair's
+/// order, which outlive the session for a test to read.
+pub fn over_pipe_keeping_ledgers<T>(
+    pair: (Root, Root),
+    budgets: [usize; 2],
+    buffer: usize,
+) -> (Result<(Endpoint, Endpoint), Quiescence>, [Ledger; 2])
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
+    session::<T>(pair, budgets, buffer, &Attachment::default())
+}
+
+/// The session [`observed_over_pipe`] and [`over_pipe_keeping_ledgers`]
+/// run, with both endpoints' ledgers beside its outcome.
+fn session<T>(
+    pair: (Root, Root),
+    budgets: [usize; 2],
+    buffer: usize,
+    observers: &Attachment,
+) -> (Result<(Endpoint, Endpoint), Quiescence>, [Ledger; 2])
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
     let (a, b) = pair;
     let (a_observe, b_observe) = (
         observers.begin(SessionKind::Gossip),
@@ -68,22 +96,23 @@ where
     let (a_end, b_end) = memory_connection(buffer);
     let [a_budget, b_budget] = budgets;
     let codec = PayloadCodec::new::<T>(PayloadDepthLimit::default());
-    run_to_quiescence(async move {
-        let size = default::TARGET_MESSAGE_SIZE as u64;
-        let a_walk = Handshaking::start(
-            Local,
-            a.into(),
-            Some(crate::network::NetworkKeys::fixture()),
-            size,
-        )
-        .budget(a_budget);
-        let b_walk = Handshaking::start(
-            Local,
-            b.into(),
-            Some(crate::network::NetworkKeys::fixture()),
-            size,
-        )
-        .budget(b_budget);
+    let size = default::TARGET_MESSAGE_SIZE as u64;
+    let a_walk = Handshaking::start(
+        Local,
+        a.into(),
+        Some(crate::network::NetworkKeys::fixture()),
+        size,
+    )
+    .budget(a_budget);
+    let b_walk = Handshaking::start(
+        Local,
+        b.into(),
+        Some(crate::network::NetworkKeys::fixture()),
+        size,
+    )
+    .budget(b_budget);
+    let ledgers = [a_walk.ledger(), b_walk.ledger()];
+    let outcome = run_to_quiescence(async move {
         let a_proxy = RemoteHandshaking::start(
             Local,
             a_end.read,
@@ -110,7 +139,8 @@ where
             a.map(|(root, _pipe)| root.into()),
             b.map(|(root, _pipe)| root.into()),
         )
-    })
+    });
+    (outcome, ledgers)
 }
 
 /// Both endpoints' reconciled trees.

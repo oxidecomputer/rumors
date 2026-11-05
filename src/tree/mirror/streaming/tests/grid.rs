@@ -45,7 +45,7 @@ const PIPES: [usize; 3] = [1, 64, 8 << 10];
 
 /// Two forks of one network: both hold `shared` messages, and each then
 /// sends `own` messages the other lacks.
-fn forks(shared: usize, own: usize) -> (Root, Root) {
+pub(super) fn forks(shared: usize, own: usize) -> (Root, Root) {
     let mut base = Tree::<()>::default();
     base.act(
         &nth_party(0),

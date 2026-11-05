@@ -609,6 +609,15 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
         self.stats = stats;
         self
     }
+
+    /// Share the session's ledger, so a test holding its clone can read
+    /// what the ledger holds and has claimed once the session completes.
+    ///
+    /// Call it after [`budget`](Self::budget), which replaces the ledger.
+    #[cfg(test)]
+    pub(crate) fn ledger(&self) -> Ledger {
+        self.ledger.clone()
+    }
 }
 
 /// A materialized participant remains at root height through the greeting exchange.

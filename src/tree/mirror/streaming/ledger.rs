@@ -420,13 +420,13 @@ impl Ledger {
 
     /// The outstanding claims of the questions about scopes at `depth`.
     #[cfg(test)]
-    fn claimed(&self, depth: usize) -> usize {
+    pub(crate) fn claimed(&self, depth: usize) -> usize {
         admission::claimed(&self.account, depth)
     }
 
     /// The largest sum any invitation share check has weighed.
     #[cfg(test)]
-    fn share_peak(&self) -> usize {
+    pub(crate) fn share_peak(&self) -> usize {
         self.account.share_peak().sum
     }
 

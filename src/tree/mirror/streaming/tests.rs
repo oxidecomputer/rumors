@@ -37,6 +37,7 @@ use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
 mod announced;
 mod capacity;
+mod claims;
 mod descent;
 mod dispute_before_supplies;
 mod faults;
