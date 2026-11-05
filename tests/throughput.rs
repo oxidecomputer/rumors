@@ -13,6 +13,8 @@
 //!   peak leaves the session exactly as it runs with no budget.
 //! - [`budget_sweep`] checks what holds exactly at every budget of a
 //!   ladder, below the no-cost point and above it.
+//! - [`carrying`] checks that a unit admitted against the budget beside a
+//!   floor slot freeing in the same instant holds the budget for no time.
 //! - [`send_buffer`] checks that bytes queued in the sending kernel do not
 //!   slow a session.
 
@@ -27,6 +29,10 @@ mod no_slowdown;
 /// The exact properties of a session across a ladder of budgets.
 #[path = "throughput/budget_sweep.rs"]
 mod budget_sweep;
+
+/// The floor/budget substitution and the carry that undoes it.
+#[path = "throughput/carrying.rs"]
+mod carrying;
 
 /// Unsent bytes in the sending kernel against a session's duration.
 #[path = "throughput/send_buffer.rs"]

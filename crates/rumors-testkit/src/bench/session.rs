@@ -412,7 +412,9 @@ pub struct Step {
 /// Every charge belongs to one holder at a time, and moves between holders
 /// only when the session moves its bytes from one place to another, so the
 /// holders partition what the ledger holds: those not through floor slots
-/// add up to the budget-counted bytes at every moment.
+/// add up, at every moment, to the budget-counted bytes and the bytes floor
+/// slots carry for charges admitted against the budget
+/// ([`LedgerReading::carries`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Holder {
     /// The place.
@@ -453,6 +455,18 @@ pub struct DatedCheck {
     pub at: u64,
     /// The check's terms.
     pub check: SharePeak,
+}
+
+/// A freed floor slot beginning to carry the bytes its kind and depth held
+/// against the budget, dated by the link's clock.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Carry {
+    /// The link time it began, in byte-times.
+    pub at: u64,
+    /// The slot's kind and depth.
+    pub unit: ChargeUnit,
+    /// The bytes it carried.
+    pub bytes: usize,
 }
 
 /// What one side's ledger held and admitted over a session.
@@ -509,6 +523,9 @@ pub struct LedgerReading {
     /// budget, integrated over the link's clock: with `budget_area`, what
     /// the holders outside floor slots held.
     pub carried_area: u128,
+    /// Each time a freed floor slot began to carry bytes of its kind and
+    /// depth held against the budget, in order.
+    pub carries: Vec<Carry>,
     /// Its grants to questions, by the depth of the scope each asks about.
     pub questions: [Grants; DEPTHS],
     /// Its grants to answers' own items, by the depth of the scope each
@@ -556,6 +573,7 @@ impl Default for LedgerReading {
             place_area: [0; PLACES],
             floor_area: 0,
             carried_area: 0,
+            carries: Vec::new(),
             questions: [Grants::default(); DEPTHS],
             answers: [Grants::default(); DEPTHS],
             dated: Vec::new(),
@@ -801,6 +819,15 @@ fn record_change(change: LedgerChange) {
         }
         reading.floor_area += *floor as u128 * elapsed;
         reading.carried_area += *carried as u128 * elapsed;
+        if change.carried > *carried
+            && let Some(unit) = change.unit
+        {
+            reading.carries.push(Carry {
+                at: now,
+                unit,
+                bytes: change.carried - *carried,
+            });
+        }
         *places = change.places;
         *floor = change.floor;
         *carried = change.carried;
