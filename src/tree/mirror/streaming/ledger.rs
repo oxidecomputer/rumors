@@ -876,45 +876,6 @@ impl Charge {
         }
         taken
     }
-
-    /// Fold `other` into this charge, which must be for the same ledger,
-    /// place, and floor slot, or hold nothing.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the two hold more than `u32::MAX` together: a programmer
-    /// error, since a charge absorbs only other parts of its own unit's
-    /// grant, which together hold no more than the grant.
-    pub(crate) fn absorb(&mut self, mut other: Charge) {
-        if other.account.is_none() {
-            return;
-        }
-        if self.account.is_none() {
-            *self = other;
-            return;
-        }
-        debug_assert!(
-            self.place == other.place
-                && Arc::ptr_eq(
-                    self.account.as_ref().expect("checked above"),
-                    other.account.as_ref().expect("checked above"),
-                ),
-            "a charge absorbs only charges of its own ledger and place",
-        );
-        debug_assert!(
-            self.slot == other.slot,
-            "a charge absorbs only charges of its own floor slot, or of none as it is",
-        );
-        self.bytes = self
-            .bytes
-            .checked_add(other.bytes)
-            .expect("parts of one grant hold no more than the grant, which fits four bytes");
-        other.account = None;
-        if let Some(slot) = other.slot {
-            // The folded charge shares the slot no longer.
-            admission::fold(self.account.as_ref().expect("checked above"), slot);
-        }
-    }
 }
 
 /// The charge with no ledger, which holds nothing.

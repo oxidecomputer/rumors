@@ -56,7 +56,7 @@ pub enum Error<E> {
     #[error("opening stream ended before its opening question")]
     MissingOpening,
     /// The local opening stream contained more than its opening question.
-    #[error("local opening stream contained an additional reply")]
+    #[error("local opening stream contained more than its opening question")]
     ExtraOpening,
     /// A remote logical stream supplied a reply which answered no local query.
     #[error("remote logical stream contained an unasked reply")]

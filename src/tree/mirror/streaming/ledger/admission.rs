@@ -655,7 +655,7 @@ struct State {
 /// the slot's state lives in the ledger: a count of the live charges
 /// sharing it (the account's `sharing`). Admission takes a slot by raising
 /// its count from zero to one, for the grant; each part split off a charge
-/// adds one; each charge that drops, or is folded into another, takes one
+/// adds one; each charge that drops takes one
 /// away once its bytes have returned. So a slot is taken exactly while its
 /// count is above zero, and frees when the last charge built out of its
 /// unit's grant is released, as the rule requires.
@@ -666,7 +666,7 @@ struct State {
 ///
 /// Every change that can move a count to or from zero is made under the
 /// queue's lock: only [`decide`] and [`carry`] take a slot
-/// ([`Slot::take`]), and every count falls in [`release`] or [`fold`]
+/// ([`Slot::take`]), and every count falls in [`release`]
 /// ([`Slot::leave`]). Each of these, and the test of whether a slot is
 /// taken ([`Slot::taken`]), takes the queue's [`Slots`], which only the lock
 /// reaches, so the compiler holds them to it. The one change made outside
@@ -917,21 +917,6 @@ pub(super) fn release(
     held_by(Holding::Admission, || admit_waiting(account, queue, freed));
 }
 
-/// Count one fewer charge sharing `slot`: one folded into another charge
-/// that shares it, whose bytes stay held ([`Charge::absorb`]).
-///
-/// The count falls under the queue's lock, as every count does ([`Slot`]).
-/// The charge folded into still shares the slot, so this cannot free it;
-/// were it to, admission would reconsider as a release does.
-pub(super) fn fold(account: &Arc<Account>, slot: Slot) {
-    let queue = lock(&account.admission);
-    if slot.leave(account, &queue.slots) {
-        held_by(Holding::Admission, || {
-            admit_waiting(account, queue, Some(slot));
-        });
-    }
-}
-
 /// Note that this side's stage has finished a reply to a question about a
 /// scope at `depth`, then admit every waiting unit the ledger has room for.
 ///
@@ -1029,7 +1014,7 @@ pub(super) fn largest(account: &Account, unit: Unit, depth: usize) -> usize {
 ///
 /// The caller holds the queue's lock, which makes this, with [`decide`],
 /// one of the two places a free slot is taken, and freed the slot in the
-/// same critical section ([`release`], [`fold`]). Only a step under the
+/// same critical section ([`release`]). Only a step under the
 /// lock takes a free slot, so the slot is still free here.
 fn carry(account: &Account, queue: &mut Queue, slot: Slot) {
     debug_assert!(

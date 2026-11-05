@@ -395,9 +395,6 @@ enum Op {
     Drop(usize),
     /// Withdraw the waiting unit at the index.
     Withdraw(usize),
-    /// Fold the live part at the second index into the one at the first,
-    /// when both are parts of one grant for one place.
-    Absorb(usize, usize),
 }
 
 /// Admissions outside the invitation share of `unit` kind, at `depths`.
@@ -418,7 +415,6 @@ fn arb_op() -> impl Strategy<Value = Op> {
         (any::<usize>(), 0..200usize).prop_map(|(at, bytes)| Op::Split(at, bytes)),
         any::<usize>().prop_map(Op::Drop),
         any::<usize>().prop_map(Op::Withdraw),
-        (any::<usize>(), any::<usize>()).prop_map(|(into, from)| Op::Absorb(into, from)),
     ]
 }
 
@@ -452,7 +448,7 @@ struct Invitation {
 
 proptest! {
     /// Through any sequence of admissions, some under the invitation share,
-    /// finished replies, splits, folds, drops, and withdrawals, admission
+    /// finished replies, splits, drops, and withdrawals, admission
     /// keeps its bound and its rule.
     ///
     /// - The ledger holds at most its budget outside its floor slots, the
@@ -535,16 +531,6 @@ proptest! {
                     let part = charge.split(Holding::Questions, bytes);
                     let entry = (*order, *unit, *depth, Holding::Questions, part);
                     live.push(entry);
-                }
-                Op::Absorb(into, from) if live.len() > 1 => {
-                    let (into, from) = (into % live.len(), from % live.len());
-                    let (same_grant, same_place) =
-                        (live[into].0 == live[from].0, live[into].3 == live[from].3);
-                    if into != from && same_grant && same_place {
-                        let (.., charge) = live.swap_remove(from);
-                        let into = if into == live.len() { from } else { into };
-                        live[into].4.absorb(charge);
-                    }
                 }
                 Op::Drop(at) if !live.is_empty() => {
                     live.swap_remove(at % live.len());

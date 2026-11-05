@@ -124,7 +124,16 @@ where
 /// The opening writes nothing: its one query's content, the local root-fan
 /// listing, already crossed inside the greeting, which flushed before the
 /// descent began. The "wire before internal publication" order is therefore
-/// satisfied vacuously, and the question publishes at once.
+/// satisfied vacuously, and the question publishes at once, with the
+/// record's charge and the reply's room the opening's one question carries.
+///
+/// # Errors
+///
+/// An opening that carries no question fails with
+/// [`Error::MissingOpening`], and one that carries a second question, or
+/// that a further reply follows, with [`Error::ExtraOpening`]: either is a
+/// local invariant failure, since the walk's opening is that one
+/// question.
 pub async fn opening<B>(
     mut requests: BoxRequests<B::Erased>,
     mut questions: Records,
@@ -135,18 +144,20 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut reactions = Vec::new();
-    let (mut record, mut room) = (Charge::default(), Charge::default());
+    let mut asked = None;
     loop {
         let mut chunk = requests.next().await.ok_or(Error::MissingOpening)?;
-        if let Some((asked, parking)) = chunk.carried.take_question() {
-            record.absorb(asked);
-            room.absorb(parking);
+        if let Some(question) = chunk.carried.take_question()
+            && asked.replace(question).is_some()
+        {
+            return Err(Error::ExtraOpening);
         }
         reactions.extend(chunk.reactions);
         if chunk.last {
             break;
         }
     }
+    let (record, room) = asked.ok_or(Error::MissingOpening)?;
     let listing = opening_listing(reactions).map_err(Error::OpeningEncode)?;
     progress.wire_frame(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);

@@ -20,9 +20,6 @@ enum Op {
     /// the live charge at this index, charged in full however much the
     /// charge holds.
     Take(usize, usize, usize),
-    /// Fold the live charge at the second index into the one at the first,
-    /// when both are for one place.
-    Absorb(usize, usize),
 }
 
 fn arb_op() -> impl Strategy<Value = Op> {
@@ -34,13 +31,12 @@ fn arb_op() -> impl Strategy<Value = Op> {
             .prop_map(|(at, bytes, place)| Op::Split(at, bytes, place)),
         (any::<usize>(), 0..1_000usize, place)
             .prop_map(|(at, bytes, place)| Op::Take(at, bytes, place)),
-        (any::<usize>(), any::<usize>()).prop_map(|(into, from)| Op::Absorb(into, from)),
     ]
 }
 
 proptest! {
     /// Through any sequence of charges, splits, items built out of them,
-    /// folds, and drops, a ledger holds exactly what its live charges hold,
+    /// and drops, a ledger holds exactly what its live charges hold,
     /// in all and per place.
     ///
     /// Its peak is the most it has held, and it holds nothing once every
@@ -80,14 +76,6 @@ proptest! {
                     prop_assert_eq!(item.bytes(), bytes);
                     live.push((place, item));
                 }
-                Op::Absorb(into, from) if live.len() > 1 => {
-                    let (into, from) = (into % live.len(), from % live.len());
-                    if into != from && live[into].0 == live[from].0 {
-                        let (_, charge) = live.swap_remove(from);
-                        let into = if into == live.len() { from } else { into };
-                        live[into].1.absorb(charge);
-                    }
-                }
                 _ => {}
             }
             let held: usize = live.iter().map(|(_, charge)| charge.bytes()).sum();
@@ -110,12 +98,10 @@ proptest! {
     }
 }
 
-/// A charge on no ledger holds nothing, and splitting or folding it moves
-/// nothing.
+/// A charge on no ledger holds nothing, and splitting it moves nothing.
 #[test]
 fn the_default_charge_holds_nothing() {
     let mut charge = Charge::default();
     assert_eq!(charge.split(Holding::Resolutions, 10).bytes(), 0);
-    charge.absorb(Charge::default());
     assert_eq!(charge.bytes(), 0);
 }
