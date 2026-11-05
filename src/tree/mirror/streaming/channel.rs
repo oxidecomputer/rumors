@@ -9,6 +9,8 @@
 
 pub use bounded::{SendError, TrySendError};
 
+use super::holding::Holding;
+
 /// One semantic edge in the streaming protocol's channel graph.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum QueueKind {
@@ -101,13 +103,53 @@ impl QueueRole {
     }
 }
 
+impl QueueKind {
+    /// The place in a session whose state this edge's items are, for the
+    /// session-budget meter's attribution ([`super::holding`]).
+    ///
+    /// Each edge belongs to the place whose items it carries. The edges of
+    /// fixed capacity, the assembly returns and the terminal leaf
+    /// resolutions, belong to assembly.
+    #[cfg_attr(not(any(test, feature = "test-internals")), expect(dead_code))]
+    pub(crate) const fn holding(self) -> Holding {
+        match self {
+            Self::InitiatorRootQuery
+            | Self::ResponderChildQueries
+            | Self::InternalChildQueries
+            | Self::LeafRequests => Holding::Questions,
+            Self::ResponderRootResolution
+            | Self::InternalParentResolutions
+            | Self::InternalChildResolutions
+            | Self::LeafParentResolutions
+            | Self::LeafChildResolutions => Holding::Resolutions,
+            Self::ProxyLocalQuestions | Self::ProxyNextScopes => Holding::QuestionRecords,
+            Self::ProxyResponses => Holding::ParkedReplies,
+            Self::DecodedLeaves => Holding::DecodedLeaves,
+            Self::OutgoingResponses => Holding::OutgoingReplies,
+            Self::AssemblyLevelReturns
+            | Self::InitiatorRootReturn
+            | Self::ResponderRootReturns
+            | Self::TerminalLeafResolutions => Holding::Assembly,
+            Self::PipeOutgoing | Self::PipeIncoming => Holding::Wire,
+        }
+    }
+}
+
 #[cfg(not(test))]
 pub use bounded::{Receiver, Sender};
 
 /// Create the production channel for a named protocol edge.
+///
+/// With `test-internals`, each send's channel node is attributed to the
+/// edge's place ([`QueueKind::holding`]).
 #[cfg(not(test))]
-pub fn channel<T>(_: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
-    bounded::channel(capacity)
+pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
+    #[cfg(not(feature = "test-internals"))]
+    let _ = role;
+    let (sender, receiver) = bounded::channel(capacity);
+    #[cfg(feature = "test-internals")]
+    let sender = sender.holding(role.kind.holding());
+    (sender, receiver)
 }
 
 #[cfg(test)]

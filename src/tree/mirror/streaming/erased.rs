@@ -185,7 +185,10 @@ pub(crate) mod ops {
 
     use super::*;
     use crate::tree::{
-        mirror::streaming::backend::BoxNodeStream,
+        mirror::streaming::{
+            backend::BoxNodeStream,
+            holding::{Holding, held_by},
+        },
         typed::{
             ErasedPrefix, Prefix,
             height::{Pred, S},
@@ -233,7 +236,12 @@ pub(crate) mod ops {
         H: Height,
         S<H>: Height,
     {
-        let mut children = pin!(backend.clone().children(prefix, node));
+        // A backend may build nodes as it starts exploding this one (the
+        // in-memory backend peels a compressed node's path here), which the
+        // session-budget meter counts apart from the handles' holders.
+        let mut children = pin!(held_by(Holding::ExplodedNodes, || {
+            backend.clone().children(prefix, node)
+        }));
         let mut fan = Vec::new();
         while let Some(item) = children.next().await {
             let (prefix, child) = item?;

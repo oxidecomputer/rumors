@@ -7,6 +7,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf, Node,
         erased::{Reaction as ProtocolReaction, Reply, ops},
+        holding::{Holding, held_by},
     },
     typed::{ErasedPrefix, Hash, Path, Prefix, height::Z},
 };
@@ -118,7 +119,9 @@ impl Encoded {
                         (WireReaction::Match, None)
                     }
                     ProtocolReaction::Query(listing) => {
-                        let question = level.derive(&mut positions, &listing)?;
+                        let question = held_by(Holding::QuestionRecords, || {
+                            level.derive(&mut positions, &listing)
+                        })?;
                         (WireReaction::Query(listing), Some(question))
                     }
                     ProtocolReaction::Supply(radix, node) => {

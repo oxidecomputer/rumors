@@ -47,6 +47,7 @@ mod channel;
 pub(crate) mod convert;
 mod driver;
 mod erased;
+pub mod holding;
 pub mod materialized;
 pub(crate) mod message;
 mod protocol;

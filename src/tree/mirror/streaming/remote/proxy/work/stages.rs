@@ -34,6 +34,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::Receiver,
         erased,
+        holding::{Holding, holding},
         protocol::{BoxResponses, Requests},
         remote::{
             adapter::{LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply},
@@ -127,10 +128,9 @@ where
             self.window.capacity(UnderRoot::HEIGHT),
             &self.stats,
         );
-        self.spawn(encode::opening::<B>(
-            requests,
-            local_questions,
-            self.progress,
+        self.spawn(holding(
+            Holding::Wire,
+            encode::opening::<B>(requests, local_questions, self.progress),
         ));
         let (next_scopes, scopes) = queues::next_scopes(UnderUnderRoot::HEIGHT);
         let responses = self.respond::<UnderRoot>(questions, Some(next_scopes), self.progress);
@@ -155,15 +155,18 @@ where
             self.window.capacity(<S<H>>::HEIGHT),
             &self.stats,
         );
-        self.spawn(encode::replies(
-            self.backend(),
-            self.budget,
-            requests,
-            scopes,
-            outgoing,
-            local_questions,
-            self.progress,
-            <S<H>>::HEIGHT,
+        self.spawn(holding(
+            Holding::Wire,
+            encode::replies(
+                self.backend(),
+                self.budget,
+                requests,
+                scopes,
+                outgoing,
+                local_questions,
+                self.progress,
+                <S<H>>::HEIGHT,
+            ),
         ));
         let (next_scopes, scopes) = queues::next_scopes(H::HEIGHT);
         let responses = self.respond::<S<H>>(questions, Some(next_scopes), self.progress);
@@ -180,15 +183,18 @@ where
         let outgoing = self.outgoing::<S<Z>>();
         let (local_questions, questions) =
             queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT), &self.stats);
-        self.spawn(encode::replies(
-            self.backend(),
-            self.budget,
-            requests,
-            scopes,
-            outgoing,
-            local_questions,
-            self.progress,
-            Z::HEIGHT,
+        self.spawn(holding(
+            Holding::Wire,
+            encode::replies(
+                self.backend(),
+                self.budget,
+                requests,
+                scopes,
+                outgoing,
+                local_questions,
+                self.progress,
+                Z::HEIGHT,
+            ),
         ));
         let (next_scopes, scopes) = queues::next_scopes(Z::HEIGHT);
         let responses = self.respond::<Z>(questions, Some(next_scopes), self.progress);
@@ -207,14 +213,17 @@ where
     {
         let requests = requests.erase();
         let outgoing = self.outgoing::<Z>();
-        let finish = encode::terminal(
-            self.backend(),
-            self.budget,
-            requests,
-            scopes,
-            outgoing,
-            None,
-            self.progress,
+        let finish = holding(
+            Holding::Wire,
+            encode::terminal(
+                self.backend(),
+                self.budget,
+                requests,
+                scopes,
+                outgoing,
+                None,
+                self.progress,
+            ),
         );
         let ((), read, write) = self.execute(finish).await?;
         Ok((read, write))
@@ -237,14 +246,17 @@ where
         let outgoing = self.outgoing::<Z>();
         let (local_questions, questions) =
             queues::local_questions(Z::HEIGHT, self.window.capacity(Z::HEIGHT), &self.stats);
-        self.spawn(encode::terminal(
-            self.backend(),
-            self.budget,
-            requests,
-            scopes,
-            outgoing,
-            Some(local_questions),
-            self.progress.terminal(),
+        self.spawn(holding(
+            Holding::Wire,
+            encode::terminal(
+                self.backend(),
+                self.budget,
+                requests,
+                scopes,
+                outgoing,
+                Some(local_questions),
+                self.progress.terminal(),
+            ),
         ));
         let responses = self.respond::<Z>(questions, None, self.progress.terminal());
         let completion = async move {

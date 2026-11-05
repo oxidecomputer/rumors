@@ -20,6 +20,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{Receiver, WindowSender},
+        holding::{Holding, held_by},
         protocol::BoxRequests,
         remote::{
             adapter::{self, Encoded, Scope, encode_reply, opening_listing},
@@ -131,7 +132,7 @@ async fn write_reply<E>(
     let mut batch = Vec::new();
     while let Some(frame) = encoded.next().await {
         if let Some(question) = write_encoded(outgoing, frame?).await? {
-            batch.push(question);
+            held_by(Holding::QuestionRecords, || batch.push(question));
         }
     }
     Ok(batch)

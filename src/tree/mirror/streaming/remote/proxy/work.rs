@@ -20,6 +20,7 @@ use crate::{
             Backend, Leaf,
             channel::{Receiver, Sender, TrySendError},
             erased,
+            holding::{Holding, holding, holding_stream},
             materialized::SupplyLedger,
             protocol::BoxResponses,
             remote::{
@@ -232,29 +233,38 @@ where
         let (parking, mut parked, capacity) =
             queues::parked_replies(H::HEIGHT, self.window.capacity(H::HEIGHT));
         let lane = Lane::new(H::HEIGHT, capacity, self.physical.remote.other());
-        self.spawn(park(Box::pin(decoded), parking, lane));
-        Box::pin(async_stream::stream! {
-            while let Some(Parked { reply, answered }) = parked.recv().await {
-                let Some(scopes) = &mut publish else {
-                    progress.taken_reply(H::HEIGHT, 0);
-                    yield Ok(erased::assume_reply::<B, H>(reply));
-                    continue;
-                };
-                let questions = match derive_questions(level, &answered, &reply) {
-                    Ok(questions) => questions,
-                    Err(error) => {
-                        yield Err(Error::TakeDerivation(error));
-                        return;
+        // The park task polls the decoder, so for the session-budget meter
+        // the decoder's work is the parked replies' unless it marks
+        // otherwise; the take derives question records.
+        self.spawn(holding(
+            Holding::ParkedReplies,
+            park(Box::pin(decoded), parking, lane),
+        ));
+        Box::pin(holding_stream(
+            Holding::QuestionRecords,
+            async_stream::stream! {
+                while let Some(Parked { reply, answered }) = parked.recv().await {
+                    let Some(scopes) = &mut publish else {
+                        progress.taken_reply(H::HEIGHT, 0);
+                        yield Ok(erased::assume_reply::<B, H>(reply));
+                        continue;
+                    };
+                    let questions = match derive_questions(level, &answered, &reply) {
+                        Ok(questions) => questions,
+                        Err(error) => {
+                            yield Err(Error::TakeDerivation(error));
+                            return;
+                        }
+                    };
+                    progress.taken_reply(H::HEIGHT, questions.len());
+                    for question in questions {
+                        progress.next_scope(H::HEIGHT);
+                        send_or_cancel(scopes, question).await;
                     }
-                };
-                progress.taken_reply(H::HEIGHT, questions.len());
-                for question in questions {
-                    progress.next_scope(H::HEIGHT);
-                    send_or_cancel(scopes, question).await;
+                    yield Ok(erased::assume_reply::<B, H>(reply));
                 }
-                yield Ok(erased::assume_reply::<B, H>(reply));
-            }
-        })
+            },
+        ))
     }
 
     /// Drive the protocol and the pipe together.
@@ -304,12 +314,18 @@ where
         let mut read = PipeRead::new(read);
         let mut departure = None;
         let outcome = {
-            let send = multiplexer.run(&mut write, remote.other(), stats.clone(), &observe);
+            let send = holding(
+                Holding::Wire,
+                multiplexer.run(&mut write, remote.other(), stats.clone(), &observe),
+            );
             let protocol = futures::future::try_join(complete(tasks, finish), async {
                 send.await.map_err(|error| Error::Pipe(error.into()))
             });
             let mut protocol = pin!(protocol);
-            let mut receive = pin!(demultiplexer.run(&mut read, remote, budget, stats, &observe));
+            let mut receive = pin!(holding(
+                Holding::Wire,
+                demultiplexer.run(&mut read, remote, budget, stats, &observe),
+            ));
             let outcome = tokio::select! {
                 biased;
                 output = &mut protocol => output.map(|(output, ())| output),

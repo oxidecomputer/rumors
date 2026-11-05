@@ -286,6 +286,7 @@ pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) 
         }
     });
     let (sender, receiver) = bounded::channel(effective_capacity);
+    let sender = sender.holding(role.kind.holding());
     (
         Sender {
             inner: sender,

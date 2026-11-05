@@ -8,6 +8,7 @@ use crate::{
         mirror::streaming::{
             Backend, ErasedNode, Leaf,
             erased::{Reaction, ops},
+            holding::{Holding, held_by, holding},
             materialized::{
                 Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
@@ -22,6 +23,11 @@ use crate::{
 ///
 /// `prefix` names the queried scope; `ours` are our children of it, one
 /// level below.
+///
+/// For the session-budget meter, the reply's reactions are work for the
+/// outgoing replies, the questions and the children they list for the
+/// questions, and the resolution's slots for whatever place the caller
+/// polls this from ([`holding`](crate::tree::mirror::streaming::holding)).
 ///
 /// This merge-join is where
 /// [`disputed_scopes`](crate::SessionStats::disputed_scopes) is counted: it
@@ -59,32 +65,45 @@ where
     {
         match pair {
             EitherOrBoth::Both((radix, node), (_, hash)) if node.hash() == hash => {
-                reactions.push(Reaction::Match);
+                held_by(Holding::OutgoingReplies, || reactions.push(Reaction::Match));
                 resolved.push((radix, Resolve::Ready(Some(node))));
             }
             EitherOrBoth::Both((radix, node), _) => {
                 differed = true;
                 let prefix = prefix.push(radix);
-                let ours = ops::children_of(backend, prefix, node).await?;
-                reactions.push(Reaction::Query(fan_listing(&ours)));
-                asked.push(Query { prefix, ours });
+                let ours =
+                    holding(Holding::Questions, ops::children_of(backend, prefix, node)).await?;
+                held_by(Holding::OutgoingReplies, || {
+                    reactions.push(Reaction::Query(fan_listing(&ours)));
+                });
+                held_by(Holding::Questions, || asked.push(Query { prefix, ours }));
                 resolved.push((radix, Resolve::Pending));
             }
             EitherOrBoth::Left((radix, node)) => {
                 differed = true;
-                let survivor =
-                    unknown(backend, their_version, prefix.push(radix), node, stats).await?;
+                let child = prefix.push(radix);
+                let survivor = holding(
+                    Holding::OutgoingReplies,
+                    unknown(backend, their_version, child, node, stats),
+                )
+                .await?;
                 if let Some(survivor) = &survivor {
-                    reactions.push(Reaction::Supply(radix, survivor.clone()));
+                    held_by(Holding::OutgoingReplies, || {
+                        reactions.push(Reaction::Supply(radix, survivor.clone()));
+                    });
                 }
                 resolved.push((radix, Resolve::Ready(survivor)));
             }
             EitherOrBoth::Right((radix, _)) => {
                 differed = true;
-                reactions.push(Reaction::Query(Vec::new()));
-                asked.push(Query {
-                    prefix: prefix.push(radix),
-                    ours: Vec::new(),
+                held_by(Holding::OutgoingReplies, || {
+                    reactions.push(Reaction::Query(Vec::new()));
+                });
+                held_by(Holding::Questions, || {
+                    asked.push(Query {
+                        prefix: prefix.push(radix),
+                        ours: Vec::new(),
+                    });
                 });
                 resolved.push((radix, Resolve::Pending));
             }
@@ -125,14 +144,16 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     {
         match pair {
             EitherOrBoth::Both((radix, leaf), _) => {
-                reactions.push(Reaction::Match);
+                held_by(Holding::OutgoingReplies, || reactions.push(Reaction::Match));
                 resolved.push((radix, Resolve::Ready(Some(leaf))));
             }
             EitherOrBoth::Left((radix, leaf)) => {
                 differed = true;
                 let survivor = Some(leaf).filter(|leaf| !known(leaf, their_version));
                 if let Some(leaf) = &survivor {
-                    reactions.push(Reaction::Supply(radix, leaf.clone()));
+                    held_by(Holding::OutgoingReplies, || {
+                        reactions.push(Reaction::Supply(radix, leaf.clone()));
+                    });
                 } else {
                     stats.shed(1);
                 }
@@ -140,11 +161,15 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
             }
             EitherOrBoth::Right((radix, _)) => {
                 differed = true;
-                reactions.push(Reaction::Query(Vec::new()));
+                held_by(Holding::OutgoingReplies, || {
+                    reactions.push(Reaction::Query(Vec::new()));
+                });
                 // A leaf-parent scope's child prefix is a full 32-byte
                 // path: the length witness makes the leaf-height re-tag
                 // exact.
-                asked.push(prefix.push(radix).assume::<Z>());
+                held_by(Holding::Questions, || {
+                    asked.push(prefix.push(radix).assume::<Z>());
+                });
                 resolved.push((radix, Resolve::Pending));
             }
         }
@@ -178,10 +203,11 @@ pub(super) fn leaf<E: ErasedNode + Clone>(
     if node.is_none() {
         stats.shed(1);
     }
-    let reactions = node
-        .clone()
-        .into_iter()
-        .map(|leaf| Reaction::Supply(radix, leaf))
-        .collect();
+    let reactions = held_by(Holding::OutgoingReplies, || {
+        node.clone()
+            .into_iter()
+            .map(|leaf| Reaction::Supply(radix, leaf))
+            .collect()
+    });
     Ok((reactions, node))
 }

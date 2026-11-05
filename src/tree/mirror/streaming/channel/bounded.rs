@@ -34,6 +34,9 @@ use std::task::{Context, Poll};
 
 use futures::{Stream, StreamExt as _, channel::mpsc, future::poll_fn};
 
+#[cfg(any(test, feature = "test-internals"))]
+use super::super::holding::{Holding, held_by};
+
 #[cfg(test)]
 mod tests;
 
@@ -93,7 +96,13 @@ impl<T> fmt::Display for TrySendError<T> {
 impl<T> std::error::Error for TrySendError<T> {}
 
 /// The sending half of a protocol edge: the edge's only producer.
-pub struct Sender<T>(mpsc::Sender<T>);
+pub struct Sender<T> {
+    /// The `futures-channel` sender.
+    inner: mpsc::Sender<T>,
+    /// The place each send's channel node is attributed to, when set.
+    #[cfg(any(test, feature = "test-internals"))]
+    holding: Option<Holding>,
+}
 
 impl<T> Sender<T> {
     /// Poll for room to send one item.
@@ -104,7 +113,7 @@ impl<T> Sender<T> {
     /// registers the task to be woken when the receiver takes an item or goes
     /// away. Polling reserves nothing, so a caller may poll without sending.
     pub(super) fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), SendError<()>>> {
-        self.0.poll_ready(cx).map_err(|_| SendError(()))
+        self.inner.poll_ready(cx).map_err(|_| SendError(()))
     }
 
     /// Queue `item` after [`poll_ready`](Self::poll_ready) reported room.
@@ -114,9 +123,28 @@ impl<T> Sender<T> {
     /// Returns the item if the receiver is gone, or if the channel is full
     /// because the caller skipped `poll_ready`.
     pub(super) fn start_send(&mut self, item: T) -> Result<(), SendError<T>> {
-        self.0
-            .try_send(item)
+        self.queue(item)
             .map_err(|error| SendError(error.into_inner()))
+    }
+
+    /// Hand `item` to the channel, which allocates its node, as work for
+    /// this sender's place when it has one.
+    fn queue(&mut self, item: T) -> Result<(), mpsc::TrySendError<T>> {
+        #[cfg(any(test, feature = "test-internals"))]
+        if let Some(holding) = self.holding {
+            return held_by(holding, || self.inner.try_send(item));
+        }
+        self.inner.try_send(item)
+    }
+
+    /// Attribute each send's channel node to `holding`
+    /// ([`holding`](super::super::holding)).
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn holding(self, holding: Holding) -> Self {
+        Self {
+            holding: Some(holding),
+            ..self
+        }
     }
 
     /// Send `item` if the channel has room, without waiting.
@@ -128,7 +156,7 @@ impl<T> Sender<T> {
     /// [`TrySendError::Full`] with the item if the receiver is present and
     /// the channel holds `capacity` items.
     pub fn try_send(&mut self, item: T) -> Result<(), TrySendError<T>> {
-        self.0.try_send(item).map_err(|error| {
+        self.queue(item).map_err(|error| {
             if error.is_disconnected() {
                 TrySendError::Closed(error.into_inner())
             } else {
@@ -223,5 +251,10 @@ pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     assert!(capacity > 0, "a protocol channel needs at least one slot");
     // The single sender adds its own slot to the buffer (see the module docs).
     let (sender, receiver) = mpsc::channel(capacity - 1);
-    (Sender(sender), Receiver(receiver))
+    let sender = Sender {
+        inner: sender,
+        #[cfg(any(test, feature = "test-internals"))]
+        holding: None,
+    };
+    (sender, Receiver(receiver))
 }

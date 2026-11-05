@@ -18,6 +18,7 @@ use super::{
     frame::ListingIssue,
     signal::{Signal, Speaker, Stream, WireSignal},
 };
+use crate::tree::mirror::streaming::holding::{Holding, held_by};
 #[cfg(test)]
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
@@ -273,7 +274,12 @@ pub(super) fn query_listing(
     if head.value == 0 {
         return Err(DecodeErrorKind::EmptyQuery);
     }
-    super::frame::ListingBuilder::new(head.value).map_err(listing_issue)
+    // An incoming query's listing parks with its reply, so the
+    // session-budget meter counts it there.
+    held_by(Holding::ParkedReplies, || {
+        super::frame::ListingBuilder::new(head.value)
+    })
+    .map_err(listing_issue)
 }
 
 /// Open a supply body: the run's embedded-sequence tag and byte-string

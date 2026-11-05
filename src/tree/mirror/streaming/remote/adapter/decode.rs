@@ -11,6 +11,7 @@ use crate::{
             backend::BoxNodeStream,
             channel::{QueueKind, QueueRole, Receiver, Sender, channel},
             erased::{Reaction as ProtocolReaction, Reply, ops},
+            holding::{Holding, held_by, holding},
             materialized::SupplyLedger,
             window::FAN,
         },
@@ -147,7 +148,10 @@ where
     let children_height = scope.parent().height() - 1;
     let LeafEdge { sender, receiver } = edge;
     let read = ReadReply::read::<B, _>(version_bytes, &ledger, level, scope, frames, sender, codec);
-    let assemble = assemble_supplies::<B>(backend, children_height, receiver);
+    let assemble = holding(
+        Holding::Assembly,
+        assemble_supplies::<B>(backend, children_height, receiver),
+    );
     // The assembler returns `Ok` only after the reader's closing `None`, so
     // the reader never waits on an assembler that has finished. An assembler
     // that fails stops draining the edge, and `try_join` then drops the
@@ -267,7 +271,11 @@ impl ReadReply {
                     );
                     // Decode records directly into assembly; retain only one
                     // placeholder for each version-derived supply run.
-                    for record in records.records(codec) {
+                    // Decoded leaves become replica content or wait in the
+                    // decode fan, so the session-budget meter counts their
+                    // construction there.
+                    let mut records = records.records(codec);
+                    while let Some(record) = held_by(Holding::DecodedLeaves, || records.next()) {
                         let (version, message) = record.map_err(DecodeError::Record)?;
                         let (leaf_prefix, run) = read
                             .supplies
@@ -280,9 +288,12 @@ impl ReadReply {
                         ledger
                             .charge(1)
                             .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
-                        let leaf = <B::Node<Z> as Leaf>::leaf(version, message)
-                            .await
-                            .map_err(DecodeError::Backend)?;
+                        let leaf = holding(
+                            Holding::DecodedLeaves,
+                            <B::Node<Z> as Leaf>::leaf(version, message),
+                        )
+                        .await
+                        .map_err(DecodeError::Backend)?;
                         #[cfg(test)]
                         fan_probe::on_send();
                         leaves

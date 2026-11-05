@@ -24,6 +24,7 @@ use crate::tree::{
         Backend, Leaf, Root,
         channel::{Receiver, Sender},
         erased::{self, Reaction, Reply},
+        holding::{Holding, held_by, holding, holding_stream},
         materialized::{
             Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
             unknown::unknown_providing, violation,
@@ -115,9 +116,9 @@ where
             let root_scope = Prefix::new().erase();
             progress.wire(root_scope);
             progress.asked(root_scope, UnderRoot::HEIGHT, 1);
-            yield Reply {
+            yield held_by(Holding::OutgoingReplies, || Reply {
                 reactions: vec![Reaction::Query(fan_listing(&fan))],
-            };
+            });
             let query = Query {
                 prefix: root_scope,
                 ours: fan,
@@ -227,7 +228,10 @@ where
         };
 
         let (returns, returns_rx) = responder_root_returns::<B>();
-        let assembled = assemble(assembling, resolution_rx, returns_rx);
+        let assembled = holding_stream(
+            Holding::Assembly,
+            assemble(assembling, resolution_rx, returns_rx),
+        );
         let finish = Box::pin(async move {
             let mut assembled = pin!(assembled);
             let root = next_or_cancelled(assembled.next()).await;
@@ -336,13 +340,17 @@ where
                     };
 
                     if listing.is_empty() {
-                        let (node, children) =
-                            unknown_providing(&backend, &their_version, child_prefix, node, &stats)
-                                .await?;
-                        let reactions = children
-                            .into_iter()
-                            .map(|(radix, child)| Reaction::Supply(radix, child))
-                            .collect();
+                        let (node, children) = holding(
+                            Holding::OutgoingReplies,
+                            unknown_providing(&backend, &their_version, child_prefix, node, &stats),
+                        )
+                        .await?;
+                        let reactions = held_by(Holding::OutgoingReplies, || {
+                            children
+                                .into_iter()
+                                .map(|(radix, child)| Reaction::Supply(radix, child))
+                                .collect()
+                        });
                         yield_resolve_query!(
                             progress, child_prefix;
                             yield Reply { reactions };
@@ -452,13 +460,17 @@ where
                     };
 
                     if listing.is_empty() {
-                        let (node, leaves) =
-                            unknown_providing(&backend, &their_version, child_prefix, node, &stats)
-                                .await?;
-                        let reactions = leaves
-                            .into_iter()
-                            .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
-                            .collect();
+                        let (node, leaves) = holding(
+                            Holding::OutgoingReplies,
+                            unknown_providing(&backend, &their_version, child_prefix, node, &stats),
+                        )
+                        .await?;
+                        let reactions = held_by(Holding::OutgoingReplies, || {
+                            leaves
+                                .into_iter()
+                                .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
+                                .collect()
+                        });
                         yield_resolve_query!(
                             progress, child_prefix;
                             yield Reply { reactions };

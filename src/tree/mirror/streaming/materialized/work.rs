@@ -26,8 +26,15 @@ pub(super) use resolver::Resolver;
 use super::progress::Progress;
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf, channel::Sender, erased, materialized::Error, protocol::BoxResponses,
-        stats::Recorder, tasks::complete, window::Window,
+        Backend, Leaf,
+        channel::Sender,
+        erased,
+        holding::{Holding, holding_stream},
+        materialized::Error,
+        protocol::BoxResponses,
+        stats::Recorder,
+        tasks::complete,
+        window::Window,
     },
     typed::height::{Height, Z},
 };
@@ -87,13 +94,17 @@ where
     }
 
     /// Drive a response stream independently and expose its replies at height `H`.
+    ///
+    /// The stream is a stage's walk, whose allocations outside the places it
+    /// marks itself are its resolutions' for the session-budget meter
+    /// ([`holding`](crate::tree::mirror::streaming::holding)).
     fn respond<H: Height>(
         &mut self,
         messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> BoxResponses<B, H, Error<B::Error>> {
         let (send, responses) = outgoing_responses::<B, H>();
         self.tasks.push(Box::pin(pump(
-            Box::pin(messages),
+            Box::pin(holding_stream(Holding::Resolutions, messages)),
             send,
             self.progress,
             H::HEIGHT,
@@ -108,7 +119,7 @@ where
         stream: impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
         self.tasks.push(Box::pin(async move {
-            let mut stream = pin!(stream);
+            let mut stream = pin!(holding_stream(Holding::Assembly, stream));
             while let Some(item) = stream.next().await {
                 if returns.send(item?).await.is_err() {
                     return Ok(());
