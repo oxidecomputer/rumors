@@ -3,7 +3,10 @@
 //! Boxed reconciliation boundaries keep the deeply nested protocol futures out
 //! of callers' layouts. These checks allow modest growth in session state but
 //! catch a missing boundary before callers encounter excessive stack use or
-//! compiler recursion limits. The gate checks the development-profile layout.
+//! compiler recursion limits. The gate checks the development profile's
+//! layout, which builds `rumors` at opt-level 1; these futures have the same
+//! sizes when `rumors` is unoptimized, as it is in a caller's development
+//! build.
 
 use std::mem::size_of_val;
 

@@ -221,6 +221,18 @@ opt-level = 2
 [profile.dev.package.suanpan]
 opt-level = 2
 
+# The session-budget suite's 100,000-message sessions spend about half their
+# time in this crate's own code, which runs several times slower
+# unoptimized: optimizing it takes each of those tests from about 120 s to
+# about 41 s, against the gate's 300 s per-test limit. The cost is compile
+# time: the crate's unit-test binary compiles in about 300 s from cold
+# rather than 117 s. `debug-assertions` and overflow checks stay on, as for
+# `before` and `suanpan`. The session futures' sizes, which
+# `tests/future_size.rs` and the gossip session-size test check, are the
+# same at opt-level 0 and 1.
+[profile.dev.package.rumors]
+opt-level = 1
+
 # The session-budget suite classifies tens of millions of traced allocator
 # events in the meter's lifetime analysis, which dominates its execution
 # unoptimized.

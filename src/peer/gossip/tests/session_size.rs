@@ -19,8 +19,10 @@
 //!
 //! The sizes are a test build's. Test builds wrap session work in the
 //! session-budget meter's instrumentation, which production builds compile
-//! out, so production's futures are smaller; both test profiles, optimized
-//! and not, measure the same sizes on the pinned toolchain. The futures
+//! out, so production's futures are smaller. On the pinned toolchain the
+//! sizes are the same in both test profiles, the development profile (which
+//! builds `rumors` at opt-level 1) and release-checked, and in an
+//! unoptimized test build. The futures
 //! hold pointers, so the baselines are stated for 64-bit targets only.
 
 use std::mem::size_of;
