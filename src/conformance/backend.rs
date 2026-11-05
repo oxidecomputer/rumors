@@ -7,6 +7,9 @@
 //!
 //! - **Residency:** height erasure and restoration preserve a node's
 //!   measured residency.
+//! - **Digests:** the converged root's digest is the one the in-memory
+//!   backend computes for the same messages, so the backend's replicas
+//!   reconcile with in-memory ones, not only with each other.
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, one assembled node per supplied prefix run,
 //!   child counts and child radices equal to the children listing a node
@@ -60,7 +63,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root, Summary,
+            self, Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, Root, Summary,
             byte_set::ByteSet, convert::Convert, materialized, ops,
         },
         typed::{
@@ -744,6 +747,8 @@ const REDACTED: usize = 1_024;
 /// - a node listed a child at a radix no greater than the one before it;
 /// - listing a node's children allocated beyond the rows they keep
 ///   resident;
+/// - the converged root's digest differs from the in-memory backend's for
+///   the same messages;
 /// - the measured peak increase exceeds the budget; or
 /// - the session failed to converge the corpora, or converged them to
 ///   other than their union less the redacted messages.
@@ -871,6 +876,27 @@ where
         .unwrap_or_else(|error| fail(&format!("the conformance session reconciles: {error:?}")));
     let peak = ledger::peak();
 
+    // Agreement between two replicas of this backend shows only that its
+    // digests are consistent with each other; the session's messages must
+    // reach the in-memory backend's digest for them too. The digest is
+    // compared after the completeness checks, which name what a root that
+    // lost or kept messages holds, so a mismatch they leave is the
+    // digests' own.
+    let reference = reference_digest(
+        common
+            .iter()
+            .skip(omitted)
+            .chain(&left_tail)
+            .chain(&right_tail),
+        &keys,
+    )
+    .await;
+    let root = Prefix::<height::Root>::new().erase();
+    let digest = ours
+        .root
+        .clone()
+        .map(|root_node| Charged::<B>::erase(root_node).hash(&root, keys.hash()));
+
     // Convergence is agreement on one root; completeness is that root
     // holding the corpora's union less the redacted messages, which
     // agreement alone cannot show when both sides lose the same leaves,
@@ -904,7 +930,43 @@ where
              them once the right side's redactions are honored",
         ));
     }
+    if digest != Some(reference) {
+        fail(&format!(
+            "the conformance session converged to root digest {digest:?}, where the in-memory \
+             backend computes {reference:?} for the same messages: the backend's digests are \
+             not the in-memory backend's",
+        ));
+    }
     peak
+}
+
+/// The root digest the in-memory backend computes for `messages` under
+/// `keys`, each message at its fixture path.
+///
+/// Replicas on different backends reconcile by comparing digests, so a
+/// conforming backend reaches this digest for the same messages.
+async fn reference_digest<'a>(
+    messages: impl Iterator<Item = &'a (Version, u64)>,
+    keys: &crate::network::NetworkKeys,
+) -> Hash {
+    let mut leaves = Vec::new();
+    for (version, payload) in messages {
+        let leaf =
+            <<Local as Backend>::Node<Z> as Leaf>::leaf(version.clone(), Message::new(*payload))
+                .await
+                .unwrap_or_else(|never| match never {});
+        leaves.push((Prefix::from(Path::for_fixture_leaf(version)), leaf));
+    }
+    leaves.sort_by_key(|(prefix, _)| *prefix);
+    let mut assembled = pin!(
+        Local.assemble::<height::Root>(Box::pin(futures_stream::iter(leaves.into_iter().map(Ok))))
+    );
+    let (_, root) = assembled
+        .next()
+        .await
+        .unwrap_or_else(|| fail("the reference messages assemble a root"))
+        .unwrap_or_else(|never| match never {});
+    Local::erase(root).hash(&Prefix::<height::Root>::new().erase(), keys.hash())
 }
 
 /// Drain one corpus's bulk leaf walk from the root so the walk's checks

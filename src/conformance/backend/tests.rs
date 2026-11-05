@@ -207,6 +207,21 @@ static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 /// overcount of the children listing it yields above it.
 static CHILDREN_SKEW: Knob = Knob::new(0);
 
+/// Whether every digest the row store reports has its first byte's low bit
+/// flipped: honest at zero, digests consistent with each other but not the
+/// in-memory backend's above it.
+static DIGEST_FLIP: Knob = Knob::new(0);
+
+/// A digest as the row store reports it: `hash` itself, or with its first
+/// byte's low bit flipped while [`DIGEST_FLIP`] is set.
+fn reported(hash: Hash) -> Hash {
+    let mut bytes = *hash.as_bytes();
+    if DIGEST_FLIP.get() > 0 {
+        bytes[0] ^= 1;
+    }
+    Hash::from(bytes)
+}
+
 /// Whether every node's `child_radices` answer drops its radices: honest
 /// at zero, an answer of no radices for a node with children above it.
 static RADICES_DROP: Knob = Knob::new(0);
@@ -364,15 +379,18 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
         collapsed(self.inner.span())
     }
 
+    /// Read the wrapped node's digest, flipped as [`DIGEST_FLIP`] says.
     fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
-        self.inner.hash(at, key)
+        reported(self.inner.hash(at, key))
     }
 
-    /// Read the wrapped node's summary, its child count skewed as
+    /// Read the wrapped node's summary, its digest flipped as
+    /// [`hash`](ErasedNode::hash) flips it and its child count skewed as
     /// [`child_count`](ErasedNode::child_count) skews it.
     fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
         let summary = self.inner.summary(at, key);
         Summary {
+            hash: reported(summary.hash),
             child_count: summary.child_count + CHILDREN_SKEW.get(),
             ..summary
         }
@@ -1021,6 +1039,19 @@ fn a_residency_changing_assume_fails_the_re_tag_check() {
 #[should_panic(expected = "re-tagged node changed residency: typed")]
 fn a_residency_changing_erase_fails_the_re_tag_check() {
     let _dishonest = ERASE_SLACK.set(BULK_OVERHOLD);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A backend whose digests agree with each other but differ from the
+/// in-memory backend's converges with itself, and is caught by comparing
+/// the converged root's digest with the in-memory backend's.
+///
+/// Its replicas could not reconcile with in-memory ones: every comparison
+/// between the two would differ.
+#[test]
+#[should_panic(expected = "not the in-memory backend's")]
+fn self_consistent_foreign_digests_fail_the_reference_check() {
+    let _dishonest = DIGEST_FLIP.set(1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
