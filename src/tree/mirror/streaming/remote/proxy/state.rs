@@ -7,7 +7,6 @@
 //! walk; each take publishes the scopes its reply's questions create before
 //! the stage receives the reply.
 
-use crate::tree::mirror::streaming::ledger::Ledger;
 use crate::tree::mirror::streaming::message::Listed;
 use std::marker::PhantomData;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -48,8 +47,6 @@ where
     pub(super) remote_listing: Vec<Listed>,
     /// Supply-run size accepted by both peers.
     pub(super) budget: RunBudget,
-    /// The endpoint's ledger, adopted from the local walk.
-    pub(super) ledger: Ledger,
     /// Counts bytes crossing the codec boundary.
     pub(super) stats: Recorder,
     /// Observes the elected role and wire traffic.
@@ -68,7 +65,6 @@ where
             write,
             remote_listing,
             budget,
-            ledger,
             stats,
             observe,
         } = self;
@@ -80,7 +76,6 @@ where
             ingress,
             budget,
             remote_listing,
-            ledger,
             Physical {
                 read,
                 write,
@@ -95,8 +90,8 @@ where
 }
 
 /// The proxy sizes nothing by the window: every queue of its own is fixed
-/// or unbounded. It adopts its walk's ledger, which its records are charged
-/// to.
+/// or unbounded. Nor does it keep a ledger: every record it publishes
+/// carries the charge its walk built for it.
 impl<B, R, W> protocol::ShareWindow for Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -110,11 +105,6 @@ where
 
     /// Ignore the walk's window, which sizes none of the proxy's queues.
     fn adopt_window(&mut self, _window: Window) {}
-
-    /// Adopt the walk's ledger, which the proxy's records are charged to.
-    fn adopt_ledger(&mut self, ledger: Ledger) {
-        self.ledger = ledger;
-    }
 }
 
 /// A connected wire participant remains at root height until driver dispatch.

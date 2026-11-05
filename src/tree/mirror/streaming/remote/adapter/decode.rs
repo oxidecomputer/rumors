@@ -140,6 +140,7 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
             reactions: vec![ProtocolReaction::Query(listing)],
             charge: Charge::default(),
             last: true,
+            record: Charge::default(),
         },
         scope,
     )
@@ -263,6 +264,7 @@ where
         reactions,
         charge: Charge::default(),
         last: true,
+        record: Charge::default(),
     })
 }
 
@@ -582,6 +584,7 @@ where
             reactions: self.ready.drain(..).collect(),
             charge: Charge::default(),
             last,
+            record: Charge::default(),
         }
     }
 }

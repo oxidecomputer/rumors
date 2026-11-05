@@ -1,4 +1,5 @@
-//! What the walk's items hold, priced for its endpoint's ledger.
+//! What the walk's items hold, priced for its endpoint's ledger, and the
+//! most each unit of admission can hold before it is built.
 //!
 //! Each price counts the allocations an item keeps while it waits where
 //! the walk leaves it: its node in the channel it waits in
@@ -11,15 +12,21 @@
 use std::mem::size_of;
 
 use crate::tree::mirror::streaming::{
-    Backend, Leaf,
+    Backend, ErasedNode, Leaf,
     erased::{Reaction, Reply},
     holding::Holding,
-    ledger::{Charge, Ledger, ReplyBound, buffer, queued},
+    ledger::{Charge, ReplyBound, Unit, buffer, queued, shared},
     materialized::{Error, Query, Resolution, Resolve},
     message::{Grandchildren, Listed},
     remote::{Parked, Scope},
+    window::FAN,
 };
-use crate::tree::typed::{ErasedPrefix, height::Z};
+use crate::tree::typed::{
+    ErasedPrefix,
+    height::{Height, Root, Z},
+};
+
+use super::LeafRequest;
 
 /// The bytes an outgoing reply holds while it waits for its consumer: its
 /// slot in the response queue, its reactions, and the listing each query
@@ -39,21 +46,23 @@ where
     queued::<Result<Reply<B::Erased>, Error<B::Error>>>() + buffer(&reply.reactions) + listings
 }
 
-/// `reactions` as a whole outgoing reply, one last chunk, charged to
-/// `ledger` for what it holds.
-pub(super) fn reply<B>(ledger: &Ledger, reactions: Vec<Reaction<B::Erased>>) -> Reply<B::Erased>
+/// `reactions` as a whole outgoing reply, one last chunk, built out of
+/// `grant`.
+pub(super) fn reply<B>(grant: &mut Charge, reactions: Vec<Reaction<B::Erased>>) -> Reply<B::Erased>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    chunk::<B>(ledger, reactions, true)
+    chunk::<B>(grant, reactions, true, Charge::default())
 }
 
-/// `reactions` as one outgoing chunk, ending its reply if `last`, charged
-/// to `ledger` for what it holds.
+/// `reactions` as one outgoing chunk, ending its reply if `last`, built out
+/// of `grant`, and carrying `record`, the charge for the record of the
+/// question it ends at, if any.
 pub(super) fn chunk<B>(
-    ledger: &Ledger,
+    grant: &mut Charge,
     reactions: Vec<Reaction<B::Erased>>,
     last: bool,
+    record: Charge,
 ) -> Reply<B::Erased>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -62,15 +71,24 @@ where
         reactions,
         charge: Charge::default(),
         last,
+        record,
     };
-    reply.charge = ledger.charge(Holding::OutgoingReplies, reply_bytes::<B>(&reply));
+    reply.charge = grant.take(Holding::OutgoingReplies, reply_bytes::<B>(&reply));
     reply
 }
 
-/// A resolution of `resolved` at `prefix`, charged to `ledger` for its
+/// The most a chunk of `reactions` reactions holds, its queries listing at
+/// most `listing` entries together, before it is built.
+fn chunk_bound<E, Err>(reactions: usize, listing: usize) -> usize {
+    queued::<Result<Reply<E>, Error<Err>>>()
+        + reactions * size_of::<Reaction<E>>()
+        + listing * size_of::<Listed>()
+}
+
+/// A resolution of `resolved` at `prefix`, built out of `grant` for its
 /// queue slot and slots, and keeping `kept` until its assembly.
 pub(super) fn resolution<E>(
-    ledger: &Ledger,
+    grant: &mut Charge,
     prefix: ErasedPrefix,
     resolved: Vec<(u8, Resolve<E>)>,
     kept: Charge,
@@ -79,7 +97,7 @@ pub(super) fn resolution<E>(
     Resolution {
         prefix,
         resolved,
-        charge: ledger.charge(Holding::Resolutions, bytes),
+        charge: grant.take(Holding::Resolutions, bytes),
         kept,
     }
 }
@@ -93,7 +111,7 @@ pub(crate) fn parent_resolution<E>(bound: ReplyBound) -> usize {
 
 /// The room a question listing `listed` children sets aside for the peer's
 /// reply bounded by `bound`: the reply's chunks parked, the records its take
-/// derives from its queries, and the parent resolution the stage builds.
+/// derives, and the parent resolution the stage builds.
 ///
 /// A query sits only at a position the asker listed, so the reply asks at
 /// most `listed.min(bound.reactions)` questions; the decoder parks at most
@@ -108,11 +126,28 @@ pub(crate) fn reservation<E>(bound: ReplyBound, listed: usize) -> usize {
     parked + records + parent_resolution::<E>(bound)
 }
 
+/// The bytes the record of a question listing `listed` children holds.
+///
+/// The record waits in the decoder's queue, then in the allocation the
+/// decoder shares with the take until the take reads its reply's last
+/// chunk, so it is priced at the larger of the two, beside one radix and
+/// count per listed child.
+pub(crate) fn record_bytes(listed: usize) -> usize {
+    queued::<(Scope, Charge)>().max(shared::<Scope>()) + listed * size_of::<(u8, Grandchildren)>()
+}
+
+/// The charge, built out of `grant`, for the record of a question listing
+/// `listed` children, which the chunk carrying the question hands its
+/// encoder ([`record_bytes`]).
+pub(super) fn record(grant: &mut Charge, listed: usize) -> Charge {
+    grant.take(Holding::QuestionRecords, record_bytes(listed))
+}
+
 /// The question about `prefix` that lists `ours`, whose reply `bound`
-/// bounds, charged to `ledger` for what it holds, `copies` of node copies
+/// bounds, built out of `grant` for what it holds, `copies` of node copies
 /// listing its children made included, and for its reply's reservation.
 pub(super) fn query<E>(
-    ledger: &Ledger,
+    grant: &mut Charge,
     prefix: ErasedPrefix,
     ours: Vec<(u8, E)>,
     bound: ReplyBound,
@@ -122,16 +157,146 @@ pub(super) fn query<E>(
     let room = reservation::<E>(bound, ours.len());
     Query {
         prefix,
+        charge: grant.take(Holding::Questions, held),
+        reservation: grant.take(Holding::ParkedReplies, room),
         ours,
         bound,
-        charge: ledger.charge(Holding::Questions, held),
-        reservation: ledger.charge(Holding::ParkedReplies, room),
     }
 }
 
-/// The charge for one leaf request in its queue, with the room its reply,
-/// one supplied leaf, sets aside.
-pub(super) fn leaf_request<E>(ledger: &Ledger, request: usize) -> Charge {
-    let bytes = request + reservation::<E>(ReplyBound::LEAF, 0);
-    ledger.charge(Holding::ParkedReplies, bytes)
+/// The charge, built out of `grant`, for one leaf request in its queue,
+/// with the room its reply, one supplied leaf, sets aside.
+pub(super) fn leaf_request<E>(grant: &mut Charge) -> Charge {
+    let bytes = queued::<LeafRequest>() + reservation::<E>(ReplyBound::LEAF, 0);
+    grant.take(Holding::ParkedReplies, bytes)
+}
+
+/// The most an answer's own unit holds, before its scope is explored.
+///
+/// That is the copies exploding its scope makes, `copies`, its resolution,
+/// with a slot for each child this side or the peer's listing of `theirs`
+/// children can hold, and its reactions that ask nothing, one per such
+/// child at most.
+pub(crate) fn answer_bound<E, Err>(theirs: usize, copies: usize) -> usize {
+    let children = FAN + theirs;
+    // A chunk's reactions keep one slot spare for a question
+    // ([`Chunks::next_part`](super::answer::Chunks::next_part)).
+    copies
+        + queued::<Resolution<E>>()
+        + children * size_of::<(u8, Resolve<E>)>()
+        + chunk_bound::<E, Err>(children + 1, 0)
+}
+
+/// The most a question's unit holds, before it is built.
+///
+/// That is a query listing at most `listed` of this side's children, the
+/// copies exploding the child asked about makes, `copies`, the reservation
+/// for the reply that the peer's count of the child, `theirs`, bounds at
+/// the child's typed `height`, the chunk ending at the question behind
+/// `leading` reactions, and the record.
+pub(crate) fn question_bound<E, Err>(
+    height: usize,
+    theirs: Grandchildren,
+    copies: usize,
+    leading: usize,
+    listed: usize,
+) -> usize {
+    queued::<Query<E>>()
+        + listed * size_of::<(u8, E)>()
+        + copies
+        + reservation::<E>(ReplyBound::of(height, listed, theirs), listed)
+        + chunk_bound::<E, Err>(leading + 1, listed)
+        + record_bytes(listed)
+}
+
+/// The most a leaf request's unit holds, before it is built: the request
+/// with the room for its reply, the chunk ending at it behind `leading`
+/// reactions, and its record.
+pub(crate) fn leaf_question_bound<E, Err>(leading: usize) -> usize {
+    queued::<LeafRequest>()
+        + reservation::<E>(ReplyBound::LEAF, 0)
+        + chunk_bound::<E, Err>(leading + 1, 0)
+        + record_bytes(0)
+}
+
+/// The most a whole reply of at most `reactions` reactions that asks
+/// nothing holds, with `copies` of node copies its building makes: the unit
+/// of an answer that supplies a whole node, or a leaf.
+pub(crate) fn supply_bound<E, Err>(reactions: usize, copies: usize) -> usize {
+    copies + chunk_bound::<E, Err>(reactions, 0)
+}
+
+/// The most the grant of a unit of `unit` kind concerning a scope `depth`
+/// bytes deep holds, in a walk over nodes `E` whose backend fails with
+/// `Err`: a bound on what that depth's floor slot for the kind holds.
+///
+/// Each bound grows with each of its arguments, so each slot is bounded at
+/// the largest arguments the walk passes a unit of its kind at its depth:
+///
+/// - The one question about the root is the opening question, which no
+///   reaction leads in its chunk.
+/// - Every other question lists at most a fan of children, about a node
+///   whose peer counts at most [`Grandchildren::MAX`] grandchildren, behind
+///   at most two fans of reactions, the children this side and the peer's
+///   listing can hold between them. A question about a leaf is a leaf
+///   request.
+/// - An answer explores its scope, against a listing of at most a fan of
+///   the peer's children, or supplies at most a fan of children; an answer
+///   about a leaf supplies that one leaf.
+/// - Every explosion, of the scope an answer explores or of the child a
+///   question asks about, copies at most
+///   [`ErasedNode::MAX_EXPLOSION_BYTES`].
+fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
+    let copies = E::MAX_EXPLOSION_BYTES;
+    let leading = 2 * FAN;
+    let height = Root::HEIGHT - depth;
+    match unit {
+        Unit::Question if depth == 0 => {
+            question_bound::<E, Err>(height, Grandchildren::MAX, copies, 0, FAN)
+        }
+        Unit::Question if height == 0 => leaf_question_bound::<E, Err>(leading),
+        Unit::Question => {
+            question_bound::<E, Err>(height, Grandchildren::MAX, copies, leading, FAN)
+        }
+        Unit::Answer if height == 0 => supply_bound::<E, Err>(1, 0),
+        Unit::Answer => {
+            answer_bound::<E, Err>(FAN, copies).max(supply_bound::<E, Err>(FAN, copies))
+        }
+    }
+}
+
+/// The *floor allowance*: the most a session's floor slots can hold at
+/// once, in a walk over nodes `E` whose backend fails with `Err`, which a
+/// session sets aside out of its memory budget for them.
+///
+/// A floor slot holds one grant of its kind and depth at a time, its own
+/// unit's or what it carries for units admitted against the budget, and
+/// frees only once every charge built out of that grant is released, as
+/// the ledger admits units
+/// ([`Ledger::admit`](crate::tree::mirror::streaming::ledger::Ledger::admit)),
+/// so a set of slots holds at most the sum of their largest grants
+/// ([`slot_bound`]).
+///
+/// Each side of a session uses half its slots. A question about a scope is
+/// asked by an answer about the scope's parent, on the same side, and
+/// answered on the other side, whose answers about the scope's children
+/// ask its next questions. The initiator asks the opening question, about
+/// the root at depth 0, so it asks only about scopes at even depths and
+/// answers only at odd ones; the responder asks at odd depths and answers
+/// at even ones. A ledger is built before its session's handshake settles
+/// which side it is, so the allowance is the larger of the two sides'
+/// sums.
+///
+/// On the in-memory backend on 64-bit targets that is about 34 MiB, almost
+/// all of it the listings of the replies one question per depth can invite,
+/// a fan of fans of entries each.
+pub(crate) fn floor_allowance<E: ErasedNode, Err>() -> usize {
+    // Indexed by side: the initiator's sum, then the responder's.
+    let mut sides = [0, 0];
+    for depth in 0..=Root::HEIGHT {
+        let asker = depth % 2;
+        sides[asker] += slot_bound::<E, Err>(Unit::Question, depth);
+        sides[1 - asker] += slot_bound::<E, Err>(Unit::Answer, depth);
+    }
+    sides[0].max(sides[1])
 }

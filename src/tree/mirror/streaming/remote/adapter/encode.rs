@@ -151,7 +151,12 @@ where
             let mut pending = None;
             // The chunk's charge returns once every frame is out, when the
             // stream ends; its reactions are consumed as they are encoded.
-            let Reply { reactions, charge: _charge, last } = chunk;
+            let Reply {
+                reactions,
+                charge: _charge,
+                last,
+                ..
+            } = chunk;
             for reaction in reactions {
                 let (wire, question) = match reaction {
                     ProtocolReaction::Match => {

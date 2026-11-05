@@ -27,7 +27,7 @@ use crate::tree::{
         channel::{Receiver, Sender},
         erased::{self, Reaction, Reply},
         holding::{Holding, held_by, holding, holding_stream},
-        ledger::ReplyBound,
+        ledger::{Charge, ReplyBound, Unit},
         materialized::{
             Error, Query, Resolution, SupplyLedger, Violation, fan_listing,
             unknown::unknown_providing, violation,
@@ -35,19 +35,22 @@ use crate::tree::{
         message::Grandchildren,
         protocol::{BoxRequests, BoxResponses, Requests},
         tasks::next_or_cancelled,
+        window::FAN,
     },
     typed::{
-        Prefix,
-        height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
+        ErasedPrefix, Prefix,
+        height::{self, Height, S, UnderRoot, Z},
     },
 };
 
 /// Publish one chunk of an answer in its progress-critical order.
 ///
-/// The caller walks the answer's [`Part`]s, building each part's question
-/// from its planned form only when the part is reached, so a chunk's built
-/// items are its own question's, and passes the built `(reaction, item)`
-/// pair here with the answer's resolution while it is still unpublished.
+/// The caller walks the answer's [`Part`]s, admitting each part's question
+/// and building it from its planned form only when the part is reached, so
+/// a chunk's built items are its own question's, and passes the built
+/// question here with the grant the chunk is built out of, the question's
+/// own or, for the chunk without one, the answer's, and with the answer's
+/// resolution while it is still unpublished.
 /// The chunk's wire action comes first; then, after the first chunk alone,
 /// the resolution, whose pending slots the questions' returns fill; then
 /// the chunk's question. A blocked question sender has therefore handed on
@@ -59,7 +62,7 @@ use crate::tree::{
 /// question there too, so a build failure's `?` is lowered as well.
 macro_rules! yield_chunk {
     (
-        $progress:expr, $account:expr, $scope:expr;
+        $progress:expr, $grant:ident, $scope:expr;
         $leading:expr, $question:expr, $last:expr;
         $chunk:ident => $yielded:expr;
         $resolutions:expr => $resolution:expr;
@@ -67,17 +70,20 @@ macro_rules! yield_chunk {
     ) => {{
         let scope = $scope;
         let mut leading = $leading;
-        let question = $question.map(|(reaction, question)| {
-            held_by(Holding::OutgoingReplies, || leading.push(reaction));
-            question
-        });
+        let (question, record) = match $question {
+            Some((reaction, question, record)) => {
+                held_by(Holding::OutgoingReplies, || leading.push(reaction));
+                (Some(question), record)
+            }
+            None => (None, Charge::default()),
+        };
         let resolution = $resolution;
         if resolution.is_some() {
             $progress.wire(scope);
         } else {
             $progress.chunk(scope);
         }
-        let $chunk = charges::chunk::<B>(&$account, leading, $last);
+        let $chunk = charges::chunk::<B>(&mut $grant, leading, $last, record);
         $yielded;
         if let Some(resolution) = resolution {
             $progress.resolution(&resolution);
@@ -110,6 +116,12 @@ macro_rules! yield_ready {
         $progress.ready(scope);
         $ready;
     }};
+}
+
+/// The depth of the scope `prefix` names, the root's 0 through a leaf's 32:
+/// the depth admission slots a unit concerning that scope by.
+fn depth(prefix: ErasedPrefix) -> usize {
+    prefix.as_bytes().len()
 }
 
 /// The next chunk of the reply a stage is reading, or the violation of a
@@ -156,12 +168,25 @@ where
 
         let responses = try_stream! {
             let root_scope = Prefix::new().erase();
+            // The opening question is the one question no answer asks; it
+            // asks about the root.
+            let bytes = charges::question_bound::<B::Erased, B::Error>(
+                root_scope.height(),
+                responder,
+                copies,
+                0,
+                fan.len(),
+            );
+            let mut grant = account.admit(Unit::Question, 0, bytes).await;
             progress.wire(root_scope);
             yield held_by(Holding::OutgoingReplies, || {
-                charges::reply::<B>(&account, vec![Reaction::Query(fan_listing(&fan))])
+                let record = charges::record(&mut grant, fan.len());
+                let listing = vec![Reaction::Query(fan_listing(&fan))];
+                charges::chunk::<B>(&mut grant, listing, true, record)
             });
             let bound = ReplyBound::of(root_scope.height(), fan.len(), responder);
-            let query = charges::query(&account, root_scope, fan, bound, copies);
+            let query = charges::query(&mut grant, root_scope, fan, bound, copies);
+            drop(grant);
             progress.initial_query(&query);
             if queries.send(query).await.is_err() {
                 return;
@@ -210,8 +235,7 @@ where
         let requests = requests.erase();
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (mut asked, asked_rx) =
-            responder_child_queries::<B>(self.window.capacity(UnderUnderRoot::HEIGHT), &stats);
+        let (mut asked, asked_rx) = responder_child_queries::<B>();
         let (mut resolution, resolution_rx) = responder_root_resolution::<B>();
         let assembling = backend.clone();
         let progress = self.progress;
@@ -227,7 +251,7 @@ where
             // holds is already known; any other supply is out of place.
             let mut theirs = None;
             loop {
-            let Reply { reactions, charge: received, last } = next_chunk(&mut requests).await?;
+            let Reply { reactions, charge: received, last, record } = next_chunk(&mut requests).await?;
             for reaction in reactions {
                 match reaction {
                     Reaction::Query(listing) => {
@@ -245,7 +269,10 @@ where
                     }
                 }
             }
-            drop(received);
+            // The chunk is used up, so its charges return now, before the
+            // stage waits for the next one: the peer's admission may wait on
+            // them.
+            drop((received, record));
             if last {
                 break;
             }
@@ -254,31 +281,37 @@ where
                 return violation(Violation::UnfinishedReply)?;
             };
             let ours = fan;
+            let bytes = charges::answer_bound::<B::Erased, B::Error>(theirs.len(), copies);
+            let mut answer_grant = account.admit(Unit::Answer, 0, bytes).await;
+            let kept = answer_grant.take(Holding::ExplodedNodes, copies);
             let (mut chunks, resolved) =
                 answer::internal(&backend, &their_version, root_scope, ours, theirs, &stats)
                     .await?
                     .into_parts();
-            let mut unpublished = Some(charges::resolution(
-                &account,
-                root_scope,
-                resolved,
-                account.charge(Holding::ExplodedNodes, copies),
-            ));
+            let mut unpublished =
+                Some(charges::resolution(&mut answer_grant, root_scope, resolved, kept));
             while let Some(Part { leading, ask, last }) = chunks.next_part() {
-                let question = match ask {
+                let (question, mut grant) = match ask {
                     Some(question) => {
-                        Some(answer::question(&backend, &account, root_scope, question).await?)
+                        let bytes = question.bound::<B::Error>(root_scope, leading.len());
+                        let mut grant = account.admit(Unit::Question, 1, bytes).await;
+                        let built =
+                            answer::question(&backend, &mut grant, root_scope, question).await?;
+                        (Some(built), grant)
                     }
-                    None => None,
+                    None => (None, std::mem::take(&mut answer_grant)),
                 };
                 yield_chunk!(
-                    progress, account, root_scope;
+                    progress, grant, root_scope;
                     leading, question, last;
                     chunk => yield chunk;
                     resolution => unpublished.take();
                     asked;
                 );
             }
+            // What the answer's grant has left returns now: everything the
+            // answer builds is built.
+            drop(answer_grant);
 
             if requests.next().await.is_some() {
                 return violation(Violation::UnaskedReply)?;
@@ -363,18 +396,9 @@ where
     ) {
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (mut asked, asked_rx) =
-            internal_child_queries::<B>(asked_height, self.window.capacity(asked_height), &stats);
-        let (mut upper, upper_rx) = internal_parent_resolutions::<B>(
-            asked_height + 2,
-            self.window.capacity(asked_height + 2),
-            &stats,
-        );
-        let (mut lower, lower_rx) = internal_child_resolutions::<B>(
-            asked_height + 1,
-            self.window.capacity(asked_height + 1),
-            &stats,
-        );
+        let (mut asked, asked_rx) = internal_child_queries::<B>(asked_height);
+        let (mut upper, upper_rx) = internal_parent_resolutions::<B>(asked_height + 2);
+        let (mut lower, lower_rx) = internal_child_resolutions::<B>(asked_height + 1);
         let progress = self.progress;
         let account = self.ledger();
 
@@ -385,7 +409,7 @@ where
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
-                let Reply { reactions, charge: received, last } = chunk;
+                let Reply { reactions, charge: received, last, record } = chunk;
                 for reaction in reactions {
                     let Some(Dispute {
                         child_prefix,
@@ -397,8 +421,11 @@ where
                         continue;
                     };
 
+                    let depth = depth(child_prefix);
                     if listing.is_empty() {
                         let copies = node.explosion_bytes();
+                        let bytes = charges::supply_bound::<B::Erased, B::Error>(FAN, copies);
+                        let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, children) = holding(
                             Holding::OutgoingReplies,
                             unknown_providing(&backend, &their_version, child_prefix, node, &stats),
@@ -410,8 +437,9 @@ where
                                 .map(|(radix, child)| Reaction::Supply(radix, child))
                                 .collect()
                         });
-                        let mut reply = charges::reply::<B>(&account, reactions);
-                        reply.charge.absorb(account.charge(Holding::OutgoingReplies, copies));
+                        let mut reply = charges::reply::<B>(&mut grant, reactions);
+                        reply.charge.absorb(grant.take(Holding::OutgoingReplies, copies));
+                        drop(grant);
                         yield_ready!(
                             progress, child_prefix;
                             yield reply;
@@ -421,6 +449,9 @@ where
                     }
 
                     let copies = node.explosion_bytes();
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(listing.len(), copies);
+                    let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
+                    let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let children = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (mut chunks, resolved) = answer::internal(
                         &backend,
@@ -432,32 +463,41 @@ where
                     )
                     .await?
                     .into_parts();
-                    let mut unpublished = Some(charges::resolution(
-                        &account,
-                        child_prefix,
-                        resolved,
-                        account.charge(Holding::ExplodedNodes, copies),
-                    ));
+                    let mut unpublished =
+                        Some(charges::resolution(&mut answer_grant, child_prefix, resolved, kept));
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {
-                        let question = match ask {
-                            Some(question) => Some(
-                                answer::question(&backend, &account, child_prefix, question).await?,
-                            ),
-                            None => None,
+                        let (question, mut grant) = match ask {
+                            Some(question) => {
+                                let bytes = question.bound::<B::Error>(child_prefix, leading.len());
+                                let mut grant =
+                                    account.admit(Unit::Question, depth + 1, bytes).await;
+                                let built = answer::question(
+                                    &backend,
+                                    &mut grant,
+                                    child_prefix,
+                                    question,
+                                )
+                                .await?;
+                                (Some(built), grant)
+                            }
+                            None => (None, std::mem::take(&mut answer_grant)),
                         };
                         yield_chunk!(
-                            progress, account, child_prefix;
+                            progress, grant, child_prefix;
                             leading, question, last;
                             chunk => yield chunk;
                             lower => unpublished.take();
                             asked;
                         );
                     }
+                    drop(answer_grant);
                     resolver.pending(radix);
                 }
 
-                // The chunk's reactions are used up, so its charge returns.
-                drop(received);
+                // The chunk is used up, so its charges return now, before
+                // the stage waits for the next one: the peer's admission may
+                // wait on them.
+                drop((received, record));
                 if last {
                     break;
                 }
@@ -514,11 +554,9 @@ where
     ) {
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (mut asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT), &stats);
-        let (mut upper, upper_rx) =
-            leaf_parent_resolutions::<B>(self.window.capacity(<S<Z>>::HEIGHT), &stats);
-        let (mut lower, lower_rx) =
-            leaf_child_resolutions::<B>(self.window.capacity(Z::HEIGHT), &stats);
+        let (mut asked, asked_rx) = leaf_requests();
+        let (mut upper, upper_rx) = leaf_parent_resolutions::<B>();
+        let (mut lower, lower_rx) = leaf_child_resolutions::<B>();
         let progress = self.progress;
         let account = self.ledger();
 
@@ -529,7 +567,7 @@ where
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
-                let Reply { reactions, charge: received, last } = chunk;
+                let Reply { reactions, charge: received, last, record } = chunk;
                 for reaction in reactions {
                     let Some(Dispute {
                         child_prefix,
@@ -541,8 +579,11 @@ where
                         continue;
                     };
 
+                    let depth = depth(child_prefix);
                     if listing.is_empty() {
                         let copies = node.explosion_bytes();
+                        let bytes = charges::supply_bound::<B::Erased, B::Error>(FAN, copies);
+                        let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, leaves) = holding(
                             Holding::OutgoingReplies,
                             unknown_providing(&backend, &their_version, child_prefix, node, &stats),
@@ -554,8 +595,9 @@ where
                                 .map(|(radix, leaf)| Reaction::Supply(radix, leaf))
                                 .collect()
                         });
-                        let mut reply = charges::reply::<B>(&account, reactions);
-                        reply.charge.absorb(account.charge(Holding::OutgoingReplies, copies));
+                        let mut reply = charges::reply::<B>(&mut grant, reactions);
+                        reply.charge.absorb(grant.take(Holding::OutgoingReplies, copies));
+                        drop(grant);
                         yield_ready!(
                             progress, child_prefix;
                             yield reply;
@@ -565,30 +607,43 @@ where
                     }
 
                     let copies = node.explosion_bytes();
+                    let bytes = charges::answer_bound::<B::Erased, B::Error>(listing.len(), copies);
+                    let mut answer_grant = account.admit(Unit::Answer, depth, bytes).await;
+                    let kept = answer_grant.take(Holding::ExplodedNodes, copies);
                     let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (mut chunks, resolved) =
                         answer::leaf_parent(&their_version, leaves, listing, &stats).into_parts();
-                    let mut unpublished = Some(charges::resolution(
-                        &account,
-                        child_prefix,
-                        resolved,
-                        account.charge(Holding::ExplodedNodes, copies),
-                    ));
+                    let mut unpublished =
+                        Some(charges::resolution(&mut answer_grant, child_prefix, resolved, kept));
                     while let Some(Part { leading, ask, last }) = chunks.next_part() {
-                        let question = ask.map(|radix| answer::leaf_question(&account, child_prefix, radix));
+                        let (question, mut grant) = match ask {
+                            Some(radix) => {
+                                let bytes = charges::leaf_question_bound::<B::Erased, B::Error>(
+                                    leading.len(),
+                                );
+                                let mut grant =
+                                    account.admit(Unit::Question, depth + 1, bytes).await;
+                                let built = answer::leaf_question(&mut grant, child_prefix, radix);
+                                (Some(built), grant)
+                            }
+                            None => (None, std::mem::take(&mut answer_grant)),
+                        };
                         yield_chunk!(
-                            progress, account, child_prefix;
+                            progress, grant, child_prefix;
                             leading, question, last;
                             chunk => yield chunk;
                             lower => unpublished.take();
                             asked;
                         );
                     }
+                    drop(answer_grant);
                     resolver.pending(radix);
                 }
 
-                // The chunk's reactions are used up, so its charge returns.
-                drop(received);
+                // The chunk is used up, so its charges return now, before
+                // the stage waits for the next one: the peer's admission may
+                // wait on them.
+                drop((received, record));
                 if last {
                     break;
                 }
@@ -650,34 +705,38 @@ where
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 loop {
-                let Reply { reactions, charge: received, last } = chunk;
-                for reaction in reactions {
-                    let Some(Dispute {
-                        child_prefix,
-                        radix,
-                        node,
-                        listing,
-                    }) = resolver.react(reaction)?
-                    else {
-                        continue;
-                    };
+                    let Reply { reactions, charge: received, last, record } = chunk;
+                    for reaction in reactions {
+                        let Some(Dispute {
+                            child_prefix,
+                            radix,
+                            node,
+                            listing,
+                        }) = resolver.react(reaction)?
+                        else {
+                            continue;
+                        };
 
-                    let (reactions, node) =
-                        answer::leaf(&their_version, radix, node, listing, &stats)
-                            .map_err(Error::Violation)?;
-                    yield_ready!(
-                        progress, child_prefix;
-                        yield charges::reply::<B>(&account, reactions);
-                        resolver.ready(radix, node);
-                    );
-                }
+                        let bytes = charges::supply_bound::<B::Erased, B::Error>(1, 0);
+                        let mut grant = account.admit(Unit::Answer, depth(child_prefix), bytes).await;
+                        let (reactions, node) =
+                            answer::leaf(&their_version, radix, node, listing, &stats)
+                                .map_err(Error::Violation)?;
+                        yield_ready!(
+                            progress, child_prefix;
+                            yield charges::reply::<B>(&mut grant, reactions);
+                            resolver.ready(radix, node);
+                        );
+                    }
 
-                // The chunk's reactions are used up, so its charge returns.
-                drop(received);
-                if last {
-                    break;
-                }
-                chunk = next_chunk(&mut requests).await?;
+                    // The chunk is used up, so its charges return now, before
+                    // the stage waits for the next one: the peer's admission may
+                    // wait on them.
+                    drop((received, record));
+                    if last {
+                        break;
+                    }
+                    chunk = next_chunk(&mut requests).await?;
                 }
                 let resolution = resolver.finish()?;
                 progress.parent_resolution(&resolution);

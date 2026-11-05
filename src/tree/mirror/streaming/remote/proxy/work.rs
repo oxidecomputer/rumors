@@ -6,7 +6,7 @@
 //! capacities. The terminal operation drives these tasks together with the
 //! pipe's multiplexer and demultiplexer.
 
-use crate::tree::mirror::streaming::ledger::{Charge, Ledger};
+use crate::tree::mirror::streaming::ledger::Charge;
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::pin::pin;
 use std::sync::Arc;
@@ -101,9 +101,6 @@ where
     /// [`initiator`](Self::initiator) replays as the remote's opening
     /// question when the remote initiates.
     remote_listing: Vec<Listed>,
-    /// The endpoint's ledger, which the records of the questions this side
-    /// sends are charged to.
-    ledger: Ledger,
     /// The pipe and the tasks that connect logical streams to it.
     physical: Physical<R, W>,
     /// Tasks driven concurrently when the protocol reaches its terminal step.
@@ -143,7 +140,6 @@ where
         ingress: Ingress<B>,
         budget: RunBudget,
         remote_listing: Vec<Listed>,
-        ledger: Ledger,
         physical: Physical<R, W>,
         stats: Recorder,
         observe: SessionHandle,
@@ -152,7 +148,6 @@ where
             ingress,
             budget,
             remote_listing,
-            ledger,
             physical,
             tasks: Vec::new(),
             stats,
@@ -299,7 +294,6 @@ where
             ingress: _,
             budget,
             remote_listing: _,
-            ledger: _,
             physical,
             tasks,
             stats,

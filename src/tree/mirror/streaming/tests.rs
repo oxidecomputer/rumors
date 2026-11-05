@@ -40,6 +40,7 @@ mod descent;
 mod dispute_before_supplies;
 mod faults;
 mod fixtures;
+mod grid;
 mod local_eq;
 mod pipe;
 mod skeleton;

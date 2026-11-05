@@ -24,7 +24,6 @@ use crate::{
             message::{Reaction, Reply},
             protocol::BoxResponses,
             stats::Recorder,
-            window::Window,
         },
         typed::{
             self, Path, Prefix,
@@ -165,6 +164,7 @@ where
                 reactions: Vec::new(),
                 charge: Default::default(),
                 last: true,
+                record: Default::default(),
             }],
         ),
         ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
@@ -176,6 +176,7 @@ where
                     .collect(),
                 charge: Default::default(),
                 last: true,
+                record: Default::default(),
             }],
         ),
         ScriptedViolation::UnexpectedMatch => {
@@ -187,6 +188,7 @@ where
                     reactions,
                     charge: Default::default(),
                     last: true,
+                    record: Default::default(),
                 }],
             )
         }
@@ -199,6 +201,7 @@ where
                     reactions,
                     charge: Default::default(),
                     last: true,
+                    record: Default::default(),
                 }],
             )
         }
@@ -211,6 +214,7 @@ where
                 )],
                 charge: Default::default(),
                 last: true,
+                record: Default::default(),
             }],
         ),
         ScriptedViolation::InvalidSupply => {
@@ -230,6 +234,7 @@ where
                     ],
                     charge: Default::default(),
                     last: true,
+                    record: Default::default(),
                 }],
             )
         }
@@ -245,6 +250,7 @@ where
                 reactions: vec![Reaction::Supply(7, supplied)],
                 charge: Default::default(),
                 last: true,
+                record: Default::default(),
             }],
         ),
         ScriptedViolation::UncontainedSupply => {
@@ -263,6 +269,7 @@ where
                     reactions: vec![Reaction::Supply(radix, escaped)],
                     charge: Default::default(),
                     last: true,
+                    record: Default::default(),
                 }],
             )
         }
@@ -277,8 +284,7 @@ where
     H: Height,
     S<H>: Height,
 {
-    let (mut queries, queries_rx) =
-        internal_child_queries::<Local>(H::HEIGHT, 1, &Recorder::default());
+    let (mut queries, queries_rx) = internal_child_queries::<Local>(H::HEIGHT);
     if let Some(query) = query {
         pollster::block_on(queries.send(query)).expect("the walk is live");
     }
@@ -321,12 +327,7 @@ impl InjectHeight for Z {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(
-            Local,
-            Window::FLOOR,
-            Recorder::default(),
-            Default::default(),
-        );
+        let mut work = Work::new(Local, Recorder::default(), Default::default());
         let (responses, _resolutions) = work.leaf_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -343,12 +344,7 @@ impl InjectHeight for S<Z> {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(
-            Local,
-            Window::FLOOR,
-            Recorder::default(),
-            Default::default(),
-        );
+        let mut work = Work::new(Local, Recorder::default(), Default::default());
         let (responses, _asked, _upper, _lower) = work.leaf_parent_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -371,12 +367,7 @@ where
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(
-            Local,
-            Window::FLOOR,
-            Recorder::default(),
-            Default::default(),
-        );
+        let mut work = Work::new(Local, Recorder::default(), Default::default());
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -541,6 +532,7 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
             reactions,
             charge: Default::default(),
             last: true,
+            record: Default::default(),
         }]
     };
     let requests = match injection {
@@ -550,11 +542,13 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
                 reactions: vec![question()],
                 charge: Default::default(),
                 last: true,
+                record: Default::default(),
             },
             Reply {
                 reactions: Vec::new(),
                 charge: Default::default(),
                 last: true,
+                record: Default::default(),
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),
@@ -575,12 +569,7 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         OpeningInjection::TrailingQuery => one(vec![question(), Reaction::Query(Vec::new())]),
     };
 
-    let mut work = Work::new(
-        Local,
-        Window::FLOOR,
-        Recorder::default(),
-        Default::default(),
-    );
+    let mut work = Work::new(Local, Recorder::default(), Default::default());
     // The channels the leg publishes into stay open for the run: a closed
     // one ends the leg quietly instead of reporting.
     let (responses, _asked, _returns, _finish) =

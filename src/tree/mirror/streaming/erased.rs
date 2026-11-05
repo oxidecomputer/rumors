@@ -62,6 +62,10 @@ pub(crate) struct Reply<E> {
     pub charge: Charge,
     /// Whether these reactions end the reply.
     pub last: bool,
+    /// The charge for the record of the question these reactions end at,
+    /// which the encoder publishes the record with; on chunks that ask
+    /// nothing, or that this side decoded, it holds nothing.
+    pub record: Charge,
 }
 
 /// [`message::Reaction`] with its height forgotten.
@@ -93,6 +97,7 @@ where
             .collect(),
         charge: reply.charge,
         last: reply.last,
+        record: reply.record,
     }
 }
 
@@ -114,6 +119,7 @@ where
             .collect(),
         charge: reply.charge,
         last: reply.last,
+        record: reply.record,
     }
 }
 

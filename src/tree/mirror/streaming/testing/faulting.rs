@@ -263,12 +263,19 @@ where
             while let Some(item) = responses.next().await {
                 yield item;
             }
-            yield Ok(message::Reply { reactions: Vec::new(), charge: Default::default(), last: true });
+            yield Ok(message::Reply {
+                reactions: Vec::new(),
+                charge: Default::default(),
+                last: true,
+                record: Default::default(),
+            });
             return;
         }
 
-        // Corrupt the first reply whole: its chunks join into one last
-        // chunk, so an injected reaction meets the reply's real end.
+        // Corrupt the first reply where its fault belongs: a reaction ahead
+        // of the honest ones in its first chunk, one past them in its last
+        // chunk. Every chunk passes on as it comes, since the producer may
+        // send its next chunk only once the consumer answers this one.
         let Some(item) = responses.next().await else {
             return;
         };
@@ -276,17 +283,25 @@ where
             yield item;
             return;
         };
-        while !reply.last {
-            let Some(item) = responses.next().await else {
-                return;
-            };
-            let Ok(chunk) = item else {
-                yield item;
-                return;
-            };
-            reply.reactions.extend(chunk.reactions);
-            reply.charge.absorb(chunk.charge);
-            reply.last = chunk.last;
+        match corruption {
+            ReplyCorruption::UnfinishedReply => {
+                // The reply ends at once, its held children unanswered.
+                reply.last = true;
+            }
+            ReplyCorruption::UnexpectedSupply => {}
+            _ => {
+                while !reply.last {
+                    yield Ok(reply);
+                    let Some(item) = responses.next().await else {
+                        return;
+                    };
+                    let Ok(chunk) = item else {
+                        yield item;
+                        return;
+                    };
+                    reply = chunk;
+                }
+            }
         }
 
         if matches!(
@@ -349,7 +364,19 @@ where
                 unreachable!("stream-wide corruptions return before editing the first reply")
             }
         }
+        let mut last = reply.last;
         yield Ok(reply);
+        while !last {
+            let Some(item) = responses.next().await else {
+                return;
+            };
+            let Ok(chunk) = item else {
+                yield item;
+                return;
+            };
+            last = chunk.last;
+            yield Ok(chunk);
+        }
     })
 }
 
@@ -492,16 +519,6 @@ where
     /// Hand the counterpart's window to the wrapped state.
     fn adopt_window(&mut self, window: Window) {
         self.inner.adopt_window(window);
-    }
-
-    /// Share the wrapped state's ledger.
-    fn share_ledger(&self) -> Option<crate::tree::mirror::streaming::ledger::Ledger> {
-        self.inner.share_ledger()
-    }
-
-    /// Hand the counterpart's ledger to the wrapped state.
-    fn adopt_ledger(&mut self, ledger: crate::tree::mirror::streaming::ledger::Ledger) {
-        self.inner.adopt_ledger(ledger);
     }
 }
 

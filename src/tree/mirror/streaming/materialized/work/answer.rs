@@ -12,13 +12,14 @@ use crate::{
             Backend, ErasedNode, Leaf,
             erased::{Reaction, ops},
             holding::{Holding, held_by, holding},
-            ledger::{Ledger, ReplyBound, queued},
+            ledger::{Charge, ReplyBound},
             materialized::{
                 Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
             },
             message::{Grandchildren, Listed},
             stats::Recorder,
+            window::FAN,
         },
         typed::{ErasedPrefix, height::Z},
     },
@@ -106,11 +107,21 @@ impl<E, Q> Chunks<E, Q> {
     /// The next chunk, or `None` once the last chunk has been handed out.
     ///
     /// An answer with no reactions is one empty last chunk.
+    ///
+    /// The part's leading reactions are allocated with exactly one slot to
+    /// spare, for the question the chunk ends at, so a chunk holds no more
+    /// than the bound its unit was admitted at prices.
     pub(super) fn next_part(&mut self) -> Option<Part<E, Q>> {
         if self.done {
             return None;
         }
-        let mut leading = Vec::new();
+        let ready = self
+            .planned
+            .as_slice()
+            .iter()
+            .take_while(|planned| matches!(planned, Planned::Ready(_)))
+            .count();
+        let mut leading = held_by(Holding::OutgoingReplies, || Vec::with_capacity(ready + 1));
         for planned in self.planned.by_ref() {
             match planned {
                 Planned::Ready(reaction) => {
@@ -160,7 +171,9 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut planned = Vec::new();
-    let mut resolved = Vec::new();
+    // Every child either side holds takes one slot: sized now, the
+    // resolution holds no more than its unit's bound prices.
+    let mut resolved = Vec::with_capacity(ours.len() + theirs.len());
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
 
@@ -217,8 +230,29 @@ where
     Ok(Answer { planned, resolved })
 }
 
-/// Build the question an internal answer asks about one child of `prefix`:
-/// its reaction and the query it sends down, charged to `ledger`.
+impl<E: ErasedNode> Question<E> {
+    /// The most this question's unit holds, before it is built, asked about
+    /// a child of `prefix` in a chunk behind `leading` reactions
+    /// ([`charges::question_bound`]).
+    ///
+    /// A disputed child lists at most a fan of children; a request lists
+    /// none.
+    pub(super) fn bound<Err>(&self, prefix: ErasedPrefix, leading: usize) -> usize {
+        let (copies, theirs, listed) = match self {
+            Self::Dispute { node, theirs, .. } => (node.explosion_bytes(), *theirs, FAN),
+            Self::Request { theirs, .. } => (0, *theirs, 0),
+        };
+        charges::question_bound::<E, Err>(prefix.height() - 1, theirs, copies, leading, listed)
+    }
+}
+
+/// One question, built: its reaction, the item it sends down, and the
+/// charge for the record its encoder publishes.
+pub(super) type Built<E, Q> = (Reaction<E>, Q, Charge);
+
+/// Build the question an internal answer asks about one child of `prefix`
+/// out of `grant`: its reaction, the query it sends down, and its record's
+/// charge.
 ///
 /// A disputed child is explored here, when its question is asked, so a
 /// chunk holds only its own question's children.
@@ -228,10 +262,10 @@ where
 /// ([`holding`](crate::tree::mirror::streaming::holding)).
 pub(super) async fn question<B>(
     backend: &B,
-    ledger: &Ledger,
+    grant: &mut Charge,
     prefix: ErasedPrefix,
     question: Question<B::Erased>,
-) -> Result<(Reaction<B::Erased>, Query<B::Erased>), B::Error>
+) -> Result<Built<B::Erased, Query<B::Erased>>, B::Error>
 where
     B: Backend<Node<Z>: Leaf>,
 {
@@ -251,11 +285,12 @@ where
     let reaction = held_by(Holding::OutgoingReplies, || {
         Reaction::Query(fan_listing(&ours))
     });
+    let record = charges::record(grant, ours.len());
     let bound = ReplyBound::of(child.height(), ours.len(), theirs);
     let query = held_by(Holding::Questions, || {
-        charges::query(ledger, child, ours, bound, copies)
+        charges::query(grant, child, ours, bound, copies)
     });
-    Ok((reaction, query))
+    Ok((reaction, query, record))
 }
 
 /// Classify one leaf-parent query's leaves by merge-joining both leaf
@@ -275,7 +310,9 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     stats: &Recorder,
 ) -> Answer<E, u8> {
     let mut planned = Vec::new();
-    let mut resolved = Vec::new();
+    // Every child either side holds takes one slot: sized now, the
+    // resolution holds no more than its unit's bound prices.
+    let mut resolved = Vec::with_capacity(ours.len() + theirs.len());
     let jointly_held = !ours.is_empty() && !theirs.is_empty();
     let mut differed = false;
 
@@ -314,23 +351,24 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
 }
 
 /// Build the request a leaf-parent answer makes for the leaf at `radix`
-/// under `prefix`: its empty query reaction and the leaf request it sends
-/// down, charged to `ledger`.
+/// under `prefix` out of `grant`: its empty query reaction, the leaf
+/// request it sends down, and its record's charge.
 pub(super) fn leaf_question<E>(
-    ledger: &Ledger,
+    grant: &mut Charge,
     prefix: ErasedPrefix,
     radix: u8,
-) -> (Reaction<E>, LeafRequest) {
+) -> Built<E, LeafRequest> {
     let reaction = held_by(Holding::OutgoingReplies, || Reaction::Query(Vec::new()));
+    let record = charges::record(grant, 0);
     // A leaf-parent scope's child prefix is a full 32-byte path: the length
     // witness makes the leaf-height re-tag exact.
     let request = held_by(Holding::Questions, || {
         (
             prefix.push(radix).assume::<Z>(),
-            charges::leaf_request::<E>(ledger, queued::<LeafRequest>()),
+            charges::leaf_request::<E>(grant),
         )
     });
-    (reaction, request)
+    (reaction, request, record)
 }
 
 /// Answer one terminal leaf query.

@@ -283,6 +283,9 @@ pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     pub(crate) charge: Charge,
     /// Whether this chunk ends the reply.
     pub(crate) last: bool,
+    /// The charge for the record of the question the chunk ends at, if
+    /// any.
+    pub(crate) record: Charge,
 }
 
 /// Reactions are positionally keyed against the corresponding

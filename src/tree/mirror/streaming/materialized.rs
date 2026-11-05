@@ -32,9 +32,8 @@
 //!
 //! Within one pairing loop, the query is dequeued *before* its wire reply is
 //! awaited. Either order pairs the same k-th items — the argument above is
-//! indifferent — but query-first frees the queue slot one wire round trip
-//! earlier, so a K-slot edge admits K truly in-flight scopes rather than
-//! K − 1.
+//! indifferent — but query-first frees the stage to take the next query as
+//! soon as the reply arrives.
 //!
 //! The first progress-critical ordering invariant is **wire before internal
 //! publication**. The walk yields every outgoing query or reply before
@@ -49,21 +48,26 @@
 //! The second is **resolution before dependent work**. For every disputed
 //! child, the walk publishes the [`Resolution`] containing its
 //! [`Resolve::Pending`] slots, right after the answer's first chunk, before
-//! it sends the child queries whose returns fill those slots. The responder does the same at the root. Before a parent
-//! resolution is published, all of the descendant work needed to fulfill it
-//! has already been launched. Thus a blocked one-slot query sender has made its
-//! resolution available, while a blocked resolution sender is behind an older
-//! resolution whose dependent work is already in flight.
+//! it sends the child queries whose returns fill those slots. The responder
+//! does the same at the root. Before a parent resolution is published, all
+//! of the descendant work needed to fulfill it has already been launched.
+//! Thus a blocked query sender has made its resolution available, while a
+//! blocked resolution sender is behind an older resolution whose dependent
+//! work is already in flight.
 //!
-//! This makes one slot *sufficient* for every query and resolution channel: the
-//! liveness floor. Actual capacities come from the session's
-//! [`Window`](super::window) — one slot serializes the descent into a wire
-//! round trip per disputed scope, and widening only relaxes the wait graph, so
-//! the argument above covers every width. A blocked response pump has
-//! likewise already published the response which releases it; the initiator's
-//! root query and return and the responder's root resolution each occur exactly
-//! once; leaf resolutions contain no `Pending` slots and can be assembled
-//! immediately.
+//! This makes one slot *sufficient* for every query and resolution channel:
+//! the liveness floor. Those channels are unbounded, since the ledger already
+//! charges what they hold. A blocked response pump has likewise already
+//! published the response which releases it; the initiator's root query and
+//! return and the responder's root resolution each occur exactly once; leaf
+//! resolutions contain no `Pending` slots and can be assembled immediately.
+//!
+//! What can hold the walk is admission: before it builds an answer's own
+//! items, and before each question, a stage waits until the endpoint's ledger
+//! admits the work against its budget. Each depth always has a floor slot
+//! for one unit of each kind, which frees once deeper work completes, so
+//! every admission is granted; the ledger's
+//! [`admission`](super::ledger) module gives the induction.
 //!
 //! This argument assumes each edge is *independent*: a full edge stalls only
 //! its own producer, never delivery on another edge. Within one process that
@@ -77,21 +81,23 @@
 //!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
 //! can launch a full fan of child scopes before their parent resolution is
-//! available to the assembler. That queue therefore holds one full fan rather
-//! than using the session window; [`Work::assemble`] points to the capacity
-//! argument at the queue constructor.
+//! available to the assembler. That queue therefore holds one full fan;
+//! [`Work::assemble`] points to the capacity argument at the queue
+//! constructor.
 //!
 //! # Memory model
 //!
 //! At most one backend query per prefix: whoever explodes a node carries
 //! the fan to every consumer that needs it (queries carry their children;
 //! pruning returns the survivors it built), so [`Backend::children`] — which
-//! may be a database read — is never repeated. The price is that an answer's
-//! local batch may hold a fan of queries containing a fan of node handles
-//! apiece, at most fan² handles per recursive stage at full fan-out. Bounded
-//! query and resolution channels retain only one item; the exceptional fan
-//! queue retains completed node handles. On the wire, a decoded reply waits
-//! for its stage chunk by chunk, within the room its question set aside.
+//! may be a database read — is never repeated. An answer explores each
+//! disputed child only when the chunk asking about it is reached, so its
+//! built items are one question's at a time. Everything the walk builds is
+//! charged on the endpoint's ledger out of the grant that admitted it, and
+//! every question carries the room set aside for the peer's reply; on the
+//! wire, a decoded reply waits for its stage chunk by chunk, within that
+//! room. The ledger holds at most the endpoint's budget plus one grant per
+//! floor slot ([`ledger`](super::ledger)).
 
 use std::marker::PhantomData;
 use std::pin::pin;
@@ -127,6 +133,7 @@ pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
+pub(crate) use work::floor_allowance;
 use work::{LeafRequest, Resolver, Work};
 
 pub use error::{Error, Violation};
@@ -134,6 +141,16 @@ pub use error::{Error, Violation};
 /// Construct a typed protocol-violation result.
 fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
     Err(Error::Violation(violation))
+}
+
+/// The ledger a session over `B` keeps under `window`.
+///
+/// It admits work against the window's budget less the floor allowance of
+/// a walk over `B`'s nodes ([`floor_allowance`]), so that what it holds
+/// outside its floor slots and what they hold come to at most the budget
+/// together ([`WindowConfig::admission_budget`]).
+fn session_ledger<B: Backend<Node<Z>: Leaf>>(window: WindowConfig) -> Ledger {
+    Ledger::new(window.admission_budget(floor_allowance::<B::Erased, B::Error>()))
 }
 
 /// Tracks supplied leaves against the peer's declared set length.
@@ -263,8 +280,8 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
     /// The session's stats recorder; the walk and the window solve write
     /// through it, and the session driver snapshots it after completion.
     stats: Recorder,
-    /// The endpoint's ledger, which its walk charges and its proxy adopts
-    /// ([`ShareWindow`](protocol::ShareWindow)).
+    /// The endpoint's ledger, which admits and charges the walk's work
+    /// against the endpoint's budget.
     ledger: Ledger,
 }
 
@@ -413,13 +430,15 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             window: WindowConfig::default(),
             target_message_size,
             stats: Recorder::default(),
-            ledger: Ledger::new(),
+            ledger: session_ledger::<B>(WindowConfig::default()),
         }
     }
 
-    /// Select this session's window choice; see [`window`](super::window).
+    /// Select this session's window choice, which sets the budget its
+    /// ledger admits its work against; see [`window`](super::window).
     pub fn window(mut self, window: WindowConfig) -> Self {
         self.window = window;
+        self.ledger = session_ledger::<B>(window);
         self
     }
 
@@ -580,16 +599,16 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
         })
     }
 
-    /// Gather the state either descent opening consumes, its work sized
-    /// by the session's window.
+    /// Gather the state either descent opening consumes, with the
+    /// session's window resolved for its stats to report.
     fn open(mut self) -> Opening<B> {
-        let window = self.window();
+        self.window();
         let Connected {
             peer, fan, copies, ..
         } = self.state;
         let ceiling = self.root.ceiling | &peer.version;
         let ledger = SupplyLedger::new(peer.size.messages());
-        let work = Work::new(self.backend, window, self.stats, self.ledger);
+        let work = Work::new(self.backend, self.stats, self.ledger);
         Opening {
             peer_version: peer.version,
             ledger,
@@ -619,11 +638,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::ShareWindow for Handshaking<B, Connect
 
     /// Ignore the counterpart's window: this side sizes its work by its own.
     fn adopt_window(&mut self, _window: Window) {}
-
-    /// Share the endpoint's ledger, which the walk keeps.
-    fn share_ledger(&self) -> Option<Ledger> {
-        Some(self.ledger.clone())
-    }
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connected<B>> {
@@ -874,8 +888,9 @@ where
         loop {
             let Reply {
                 reactions,
-                charge: _received,
+                charge: received,
                 last,
+                record,
             } = chunk;
             for reaction in reactions {
                 if let Reaction::Supply(radix, _) = &reaction
@@ -889,6 +904,10 @@ where
                     "a request that holds nothing routes no query"
                 );
             }
+            // The chunk is used up, so its charges return now, before the
+            // loop waits for the next one: the peer's admission may wait on
+            // them.
+            drop((received, record));
             if last {
                 break;
             }

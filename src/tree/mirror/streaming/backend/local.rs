@@ -82,6 +82,10 @@ impl ErasedNode for typed::untyped::Node {
     fn explosion_bytes(&self) -> usize {
         self.explosion_bytes()
     }
+
+    /// One node's allocation and the heap slots of a full fan, the copy of
+    /// a shared branch with every child.
+    const MAX_EXPLOSION_BYTES: usize = typed::untyped::MAX_EXPLOSION_BYTES;
 }
 
 /// Store leaf payloads directly in the in-memory tree.

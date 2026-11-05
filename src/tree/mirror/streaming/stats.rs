@@ -80,24 +80,16 @@ pub struct SessionStats {
     pub frames_received: u64,
     /// Largest comparison window granted during the session.
     ///
-    /// Gossip compares the rumor set in several steps. Each step limits how
-    /// many comparisons it may keep in flight while waiting for replies; that
-    /// limit is its *window*. Rumors derives each window from
-    /// [`sync_memory_budget`](crate::Peer::sync_memory_budget), and this field
-    /// reports the largest.
-    ///
-    /// This is available capacity, not observed use. Larger windows can hide
-    /// more network latency but allow more buffering. Compare
-    /// [`window_stalls`](Self::window_stalls) to learn whether gossip reached a
-    /// window limit. One means comparisons were fully serialized; zero means
-    /// no comparison was needed.
+    /// Gossip compares the rumor set in several steps. Rumors derives a
+    /// *window* for each step from
+    /// [`sync_memory_budget`](crate::Peer::sync_memory_budget) and reports
+    /// the largest here, but gossip sizes no queue by it: the
+    /// synchronization memory budget limits comparisons in flight instead.
+    /// Zero means no comparison was needed.
     pub window_granted: u64,
-    /// Times gossip reached its limit on comparisons in flight.
-    ///
-    /// Zero means the synchronization memory budget caused no observed
-    /// backpressure. A nonzero value suggests that a larger budget might
-    /// improve overlap. The count depends on scheduling, so treat it as a
-    /// pressure signal rather than a reproducible workload total.
+    /// Times gossip reached a window's limit on comparisons in flight:
+    /// always zero, since gossip sizes no queue by its window; the
+    /// synchronization memory budget limits comparisons in flight instead.
     pub window_stalls: u64,
 }
 
@@ -124,7 +116,6 @@ struct Counters {
     frames_sent: AtomicU64,
     frames_received: AtomicU64,
     window_granted: AtomicU64,
-    window_stalls: AtomicU64,
 }
 
 impl Recorder {
@@ -166,11 +157,6 @@ impl Recorder {
         self.inner.frames_received.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Record a send that encountered a full window-controlled queue.
-    pub fn window_stall(&self) {
-        self.inner.window_stalls.fetch_add(1, Ordering::Relaxed);
-    }
-
     /// Read the counters into the session's [`SessionStats`].
     pub fn snapshot(&self) -> SessionStats {
         SessionStats {
@@ -183,7 +169,7 @@ impl Recorder {
             frames_sent: self.inner.frames_sent.load(Ordering::Relaxed),
             frames_received: self.inner.frames_received.load(Ordering::Relaxed),
             window_granted: self.inner.window_granted.load(Ordering::Relaxed),
-            window_stalls: self.inner.window_stalls.load(Ordering::Relaxed),
+            window_stalls: 0,
         }
     }
 }

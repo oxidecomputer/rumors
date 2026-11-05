@@ -73,7 +73,6 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
         ),
         RunBudget::default(),
         Vec::new(),
-        Default::default(),
         Physical {
             read,
             write,

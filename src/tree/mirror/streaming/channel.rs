@@ -7,7 +7,9 @@
 //! per-kind capacity limits, and shrinkable delays at every send and receive
 //! poll.
 
-pub use bounded::{SendError, TrySendError, UNBOUNDED};
+#[cfg(test)]
+use bounded::SendError;
+pub use bounded::{TrySendError, UNBOUNDED};
 
 use super::holding::Holding;
 
@@ -165,38 +167,3 @@ mod bounded;
 
 #[cfg(test)]
 mod instrumented;
-
-/// The sending half of a queue the session window sizes, which counts each
-/// send that blocks because the queue is full.
-///
-/// [`SessionStats::window_stalls`](super::stats::SessionStats::window_stalls)
-/// counts every time a stage had to wait for room in a queue that sends
-/// through this wrapper. A window-sized queue fed by a plain [`Sender`] goes
-/// uncounted, so zero means no queue sending through this wrapper made a
-/// stage wait.
-pub(crate) struct WindowSender<T> {
-    /// The bounded protocol edge.
-    inner: Sender<T>,
-    /// The session receiving the pressure signal.
-    stats: super::stats::Recorder,
-}
-
-impl<T> WindowSender<T> {
-    /// Wrap a sender whose capacity was derived from the session window.
-    pub(crate) fn new(inner: Sender<T>, stats: &super::stats::Recorder) -> Self {
-        Self {
-            inner,
-            stats: stats.clone(),
-        }
-    }
-
-    /// Send one item, counting a stall if the send has to wait for room.
-    ///
-    /// A poll that returns pending while the queue is full is a blocked send;
-    /// a pending poll with room left (a test schedule's injected delay) is
-    /// not. Each send counts at most once.
-    pub(crate) async fn send(&mut self, item: T) -> Result<(), SendError<T>> {
-        let stats = &self.stats;
-        self.inner.send_with(item, || stats.window_stall()).await
-    }
-}

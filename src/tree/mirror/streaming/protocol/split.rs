@@ -16,7 +16,7 @@ use std::pin::Pin;
 
 use futures::{Stream, StreamExt, stream};
 
-use crate::tree::mirror::streaming::{erased::Reply, ledger::Charge};
+use crate::tree::mirror::streaming::erased::Reply;
 
 // Clippy's `missing_const_for_thread_local` can reject const-block
 // initializers on targets that lower `thread_local!` through fallback TLS.
@@ -58,35 +58,41 @@ pub(super) fn requests<E: Send + 'static>(
 }
 
 /// `chunk` as one chunk per reaction, the last ending the reply if `chunk`
-/// does and carrying its charge; an empty chunk stays one empty chunk.
+/// does and carrying its charge and its record's charge, which belongs to
+/// the question a walk's chunk ends at; an empty chunk stays one empty
+/// chunk.
 fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
     let Reply {
         reactions,
         charge,
         last,
+        record,
     } = chunk;
     if reactions.is_empty() {
         return vec![Reply {
             reactions,
             charge,
             last,
+            record,
         }];
     }
     let count = reactions.len();
-    let mut charge = Some(charge);
+    let mut ending = Some((charge, record));
     reactions
         .into_iter()
         .enumerate()
         .map(|(index, reaction)| {
             let ends = index + 1 == count;
+            let (charge, record) = if ends {
+                ending.take().unwrap_or_default()
+            } else {
+                Default::default()
+            };
             Reply {
                 reactions: vec![reaction],
-                charge: if ends {
-                    charge.take().unwrap_or_default()
-                } else {
-                    Charge::default()
-                },
+                charge,
                 last: last && ends,
+                record,
             }
         })
         .collect()

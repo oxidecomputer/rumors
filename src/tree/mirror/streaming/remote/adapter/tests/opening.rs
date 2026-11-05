@@ -59,6 +59,7 @@ fn opening_listing_agrees_with_greeting_replay() {
         reactions: vec![Reaction::Query(listing.clone())],
         charge: Default::default(),
         last: true,
+        record: Default::default(),
     };
 
     let local = opening_listing(reply.reactions).expect("canonical opening");
@@ -118,6 +119,7 @@ fn opening_accepts_exactly_one_query() {
                 .collect(),
             charge: Default::default(),
             last: true,
+            record: Default::default(),
         }
     }
 

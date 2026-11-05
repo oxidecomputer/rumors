@@ -26,7 +26,6 @@ use crate::{
             Backend, Failing, Failure, Local, Operation,
             erased::Reply,
             materialized::{Error, Resolution, Resolve, Violation},
-            window::Window,
         },
         typed::{
             self, Path, Prefix,
@@ -87,13 +86,13 @@ proptest! {
         dropped in any::<bool>(),
         terminal_ready in any::<bool>(),
     ) {
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default(), Default::default());
+        let mut work = Work::new(Local, Recorder::default(), Default::default());
         // A closed consumer may stop a pump before later items are read.
         // Put the error first in that case so it is actually detected.
         let buffered = buffered && !dropped;
         let messages = stream::iter(
             buffered.then_some(Ok(Reply {
-                reactions: Vec::new(), charge: Default::default(), last: true,
+                reactions: Vec::new(), charge: Default::default(), last: true, record: Default::default(),
             })).into_iter().chain([Err(Error::Violation(Violation::UnaskedReply))]),
         );
         let responses = work.respond::<Z>(messages);
@@ -116,7 +115,6 @@ proptest! {
 fn work_failure_preempts_parked_tasks() {
     let mut work: Work<Failing<Local>> = Work::new(
         Failing::after(Local, usize::MAX),
-        Window::FLOOR,
         Recorder::default(),
         Default::default(),
     );
@@ -319,4 +317,18 @@ fn level_error_passes_through() {
         output.as_slice(),
         [Err(Error::Violation(Violation::UnansweredQuery))],
     ));
+}
+
+/// The floor allowance of a walk over the in-memory backend is the "about
+/// 34 MiB" its documentation states, on the 64-bit targets the figure is
+/// measured on.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn the_floor_allowance_is_the_documented_figure() {
+    const MIB: usize = 1 << 20;
+    let allowance = super::floor_allowance::<Erased, Infallible>();
+    assert!(
+        (33 * MIB + MIB / 2..34 * MIB + MIB / 2).contains(&allowance),
+        "the floor allowance is {allowance} B, not about 34 MiB",
+    );
 }

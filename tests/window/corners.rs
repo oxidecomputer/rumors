@@ -72,9 +72,9 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
-/// The most one-way hops the zero-budget catch-ups may take: the 58 the
+/// The most one-way hops the zero-budget catch-ups may take: the 160 the
 /// forward direction measures, the costlier of the two.
-const CATCH_UP_HOPS: u32 = 58;
+const CATCH_UP_HOPS: u32 = 160;
 
 /// Serialized one-way hops one session spends on the wire, in exact
 /// virtual time.
@@ -94,12 +94,13 @@ fn hops(pair: (Rumors<u64>, Rumors<u64>)) -> u32 {
 ///
 /// Only the root child holding the shared message disputes; every other
 /// root child streams as a supply. Below that child, the nearly empty side
-/// requests each of the dozens of children it lacks, and at the floor each
-/// request leaves only as the one-slot question queue takes the last, so
-/// the requests cost a few dozen hops, the bound below, which this
-/// session measures exactly: compute takes no virtual time, so the count
-/// is a deterministic function of the session shape. It does not grow with
-/// the supplied messages, which stream as whole subtrees.
+/// requests each of the dozens of children it lacks, and at a zero budget
+/// each request takes its depth's one question floor slot, which frees only
+/// once the reply it invites has been processed, so the requests cost about
+/// a round trip each, the bound below, which this session measures
+/// exactly: compute takes no virtual time, so the count is a deterministic
+/// function of the session shape. It does not grow with the supplied
+/// messages, which stream as whole subtrees.
 #[test]
 fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
     let measured = hops(pair(0, 1, 20_000, 0));

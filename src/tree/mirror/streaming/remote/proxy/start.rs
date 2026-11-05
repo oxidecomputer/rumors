@@ -1,6 +1,5 @@
 //! The wire participant's states for exchanging greetings.
 
-use crate::tree::mirror::streaming::ledger::Ledger;
 use crate::tree::mirror::streaming::message::Grandchildren;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -153,7 +152,6 @@ where
             write: self.write,
             remote_listing,
             budget,
-            ledger: Ledger::new(),
             stats: self.stats,
             observe: self.observe,
         })

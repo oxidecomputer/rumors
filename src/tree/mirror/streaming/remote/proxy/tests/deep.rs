@@ -595,62 +595,6 @@ fn every_branching_depth_matches_join() {
     }
 }
 
-/// Deep question queues take the window's width, and multiple disputes at
-/// deep heights use more than one of its slots.
-#[test]
-fn deep_queues_use_the_wider_window() {
-    let mut pair = Divergence::new((0..16).map(|child| root_prefix(child, 31)), [2, 3]);
-    pair.novel[0].extend((128..136).map(|slot| leaf_path(&[], slot)));
-    pair.novel[1].extend((136..144).map(|slot| leaf_path(&[], slot)));
-    for swap in [false, true] {
-        if swap {
-            pair.novel.swap(0, 1);
-        }
-        for width in [1, 8] {
-            let session = Session {
-                capacity: 4096,
-                window: Window::uniform(width),
-            };
-            let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
-            observed.assert_reach(31);
-            // The walk's question queues are the window-governed edges; the
-            // proxy's record queue is unbounded and its scope queue holds a
-            // fan plus one, whatever the window.
-            let deep: Vec<_> = observed
-                .queues
-                .roles()
-                .filter(|(role, _)| {
-                    role.height <= 4
-                        && matches!(
-                            role.kind,
-                            QueueKind::InternalChildQueries | QueueKind::LeafRequests
-                        )
-                })
-                .collect();
-            for (role, stats) in &deep {
-                assert_eq!(
-                    stats.effective_capacity, width,
-                    "{role:?} is sized by the window"
-                );
-            }
-            let peak = deep
-                .iter()
-                .map(|(_, stats)| stats.high_water)
-                .max()
-                .expect("the session asks deep questions");
-            if width == 1 {
-                assert_eq!(peak, 1);
-            } else {
-                assert!(
-                    peak > 1,
-                    "deep queues never used the wider window: {:?}",
-                    observed.queues
-                );
-            }
-        }
-    }
-}
-
 proptest! {
     /// Disputes at mixed depths preserve messages and redactions under both
     /// narrow and wide protocol windows, with arbitrary early I/O delays.

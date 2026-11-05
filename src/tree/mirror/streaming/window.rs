@@ -383,10 +383,11 @@ impl Window {
         Self { capacities }
     }
 
-    /// The channel capacity for a window edge whose items carry typed
-    /// height `height`.
+    /// The capacity this window assigns an edge whose items carry typed
+    /// height `height`, which the tests and test fixtures read to check the
+    /// derivation.
+    #[cfg(any(test, feature = "test-internals"))]
     pub(crate) fn capacity(&self, height: usize) -> usize {
-        // Production callers obtain this value from a typed height.
         self.capacities[height]
     }
 
@@ -446,6 +447,25 @@ impl WindowConfig {
                 );
                 0
             }
+        }
+    }
+
+    /// The budget this side's ledger admits its units against
+    /// ([`ledger`](super::ledger)), where its floor slots can hold at most
+    /// `floor_allowance` at once.
+    ///
+    /// A configured budget is the most the session may hold, so its ledger
+    /// admits against it less the floor allowance, and against nothing
+    /// beyond the floor slots when it is no more than the allowance. A
+    /// fixed test window admits against no budget at the floor, where every
+    /// unit takes a floor slot, and against an unlimited one otherwise.
+    pub(crate) fn admission_budget(self, floor_allowance: usize) -> usize {
+        match self {
+            Self::Budget(bytes) => bytes.saturating_sub(floor_allowance),
+            #[cfg(any(test, feature = "test-internals"))]
+            Self::Fixed(window) if window == Window::FLOOR => 0,
+            #[cfg(any(test, feature = "test-internals"))]
+            Self::Fixed(_) => usize::MAX,
         }
     }
 

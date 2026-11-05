@@ -1,8 +1,9 @@
-//! Check the estimates against actual trees and the queues that use them.
+//! Check the estimates against actual trees and the sessions that reconcile
+//! them.
 //!
 //! These fixtures keep production hashing. They vary shared history, additions,
-//! redactions, and budgets, then check the counted prefixes, issued work, and
-//! installed capacities. Deep clustered fixtures test progress elsewhere; they
+//! redactions, and budgets, then check the counted prefixes and issued work.
+//! Deep clustered fixtures test progress elsewhere; they
 //! are not required to meet estimates derived for uniform hashes.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,16 +11,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use proptest::prelude::*;
 
 use super::super::{
-    KEY_DEPTH, ReplicaSize, WindowConfig, children_quantile, disputed, occupied, stage_population,
+    KEY_DEPTH, WindowConfig, children_quantile, disputed, occupied, stage_population,
 };
 use crate::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::message::Message;
 use crate::testing::run_to_quiescence;
-use crate::tree::mirror::streaming::channel::{QueueKind, with_observation};
 use crate::tree::mirror::streaming::materialized::progress::{Kind, with_trace};
-use crate::tree::mirror::streaming::{
-    Backend, Local, materialized::Handshaking, mirror, stats::Recorder,
-};
+use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror};
 use crate::tree::typed::Path;
 use crate::tree::{Action, Tree};
 
@@ -106,60 +104,28 @@ fn check_tree_shape(trees: &[Tree<u64>; 2]) {
     }
 }
 
-/// Reconcile a fixture and check the model's scope count and height-to-capacity mapping.
+/// Reconcile a fixture at `budget` and check the model's scope count: each
+/// depth's questions stay within its population estimate.
 fn check_session(trees: [Tree<u64>; 2], budget: usize) {
     check_tree_shape(&trees);
     let (a, b) = (trees[0].len() as u64, trees[1].len() as u64);
     let config = WindowConfig::Budget(budget);
-    let window = config.resolve(
-        [
-            ReplicaSize::new(a, trees[0].max_version_bytes() as u64),
-            ReplicaSize::new(b, trees[1].max_version_bytes() as u64),
-        ],
-        <Local as Backend>::node_bytes,
-    );
     let mut expected = trees[0].clone();
     expected.join(trees[1].clone());
     let [left, right] = trees;
-    let left_stats = Recorder::default();
-    let right_stats = Recorder::default();
-    let ((result, trace), queues) = with_observation(|| {
-        with_trace(|| {
-            run_to_quiescence(mirror(
-                Handshaking::start(Local, left.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                    .window(config)
-                    .stats(left_stats.clone()),
-                Handshaking::start(Local, right.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                    .window(config)
-                    .stats(right_stats.clone()),
-            ))
-        })
+    let (result, trace) = with_trace(|| {
+        run_to_quiescence(mirror(
+            Handshaking::start(Local, left.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
+                .window(config),
+            Handshaking::start(Local, right.root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
+                .window(config),
+        ))
     });
     let (left, right) = result
         .expect("a configured window stays live")
         .expect("valid reconciliation");
     assert_eq!(Tree::<u64>::from_root(left.into()), expected);
     assert_eq!(Tree::<u64>::from_root(right.into()), expected);
-
-    let window_kinds = [
-        QueueKind::ResponderChildQueries,
-        QueueKind::InternalChildQueries,
-        QueueKind::InternalParentResolutions,
-        QueueKind::InternalChildResolutions,
-        QueueKind::LeafRequests,
-        QueueKind::LeafParentResolutions,
-        QueueKind::LeafChildResolutions,
-    ];
-    let instrumented_stall = queues
-        .roles()
-        .any(|(role, stats)| window_kinds.contains(&role.kind) && stats.blocked_send_polls > 0);
-    let reported_stall = [left_stats.snapshot(), right_stats.snapshot()]
-        .iter()
-        .any(|stats| stats.window_stalls > 0);
-    assert_eq!(
-        reported_stall, instrumented_stall,
-        "public pressure signal must agree with the independent queue instrumentation"
-    );
 
     let mut counts = BTreeMap::<usize, usize>::new();
     for event in trace.events() {
@@ -174,24 +140,6 @@ fn check_session(trees: [Tree<u64>; 2], budget: usize) {
             actual as u128 <= estimated,
             "({a}, {b}) depth {depth}: {actual} queries exceed the population estimate {estimated}"
         );
-    }
-    for (role, stats) in queues.roles() {
-        match role.kind {
-            QueueKind::ResponderChildQueries
-            | QueueKind::InternalChildQueries
-            | QueueKind::InternalParentResolutions
-            | QueueKind::InternalChildResolutions
-            | QueueKind::LeafRequests
-            | QueueKind::LeafParentResolutions
-            | QueueKind::LeafChildResolutions => {
-                assert_eq!(
-                    stats.effective_capacity,
-                    window.capacity(role.height),
-                    "queue {role:?} must use its own height's width"
-                );
-            }
-            _ => {}
-        }
     }
 }
 

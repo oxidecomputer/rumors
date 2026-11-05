@@ -22,7 +22,7 @@ mod levels;
 mod queues;
 mod resolver;
 
-pub(crate) use charges::parent_resolution;
+pub(crate) use charges::{floor_allowance, parent_resolution};
 pub(super) use resolver::Resolver;
 
 /// One leaf request in its queue: the leaf's path, with the charge for the
@@ -41,7 +41,6 @@ use crate::tree::{
         protocol::BoxResponses,
         stats::Recorder,
         tasks::complete,
-        window::Window,
     },
     typed::{
         Prefix,
@@ -58,8 +57,6 @@ where
 {
     /// The store used to read and reconstruct nodes.
     backend: B,
-    /// Per-edge capacity for the recursive query and resolution queues.
-    window: Window,
     /// Shared session statistics updated by the walks.
     stats: Recorder,
     /// Pumps driven together when the protocol reaches its terminal step.
@@ -76,13 +73,12 @@ impl<B> Work<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Construct a new work context with the session's pipeline window and
-    /// stats recorder.
-    pub fn new(backend: B, window: Window, stats: Recorder, ledger: Ledger) -> Self {
+    /// Construct a new work context with the session's stats recorder and
+    /// the endpoint's ledger.
+    pub fn new(backend: B, stats: Recorder, ledger: Ledger) -> Self {
         let progress = Progress::new();
         Self {
             backend,
-            window,
             stats,
             tasks: Vec::new(),
             progress,

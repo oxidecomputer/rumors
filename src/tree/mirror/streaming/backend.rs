@@ -276,8 +276,17 @@ pub trait ErasedNode {
     /// A session reads this before it explodes the node, to charge the
     /// memory the explosion will hold, and in test builds reports it for a
     /// meter to hold against what the listing allocates. It must not fall
-    /// short of what the listing allocates.
+    /// short of what the listing allocates, and it never exceeds
+    /// [`MAX_EXPLOSION_BYTES`](Self::MAX_EXPLOSION_BYTES).
     fn explosion_bytes(&self) -> usize;
+
+    /// The most [`explosion_bytes`](Self::explosion_bytes) reports for any
+    /// node.
+    ///
+    /// The session bounds the grant of every unit whose node it explodes by
+    /// it, and so the most its floor slots can hold, which every memory
+    /// budget sets aside for them.
+    const MAX_EXPLOSION_BYTES: usize;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

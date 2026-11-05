@@ -4,7 +4,7 @@
 //! Wall-clock cross-check of the window suites' virtual-time model.
 //!
 //! Runs a small budget × divergence grid over the same delayed pipes as the
-//! window knee and operator suites, but on a running clock, so pipe delays burn
+//! window suites, but on a running clock, so pipe delays burn
 //! real time under real timer scheduling. The virtual model predicts each
 //! cell's time as `hops × delay` plus compute; criterion's mean for a cell
 //! should land within a few percent of the virtual figure for the same shape.
@@ -32,9 +32,8 @@ const COMMON: usize = 2_048;
 
 /// The grid: three cells over two budgets.
 ///
-/// The tight budget runs below and above its serialization knee (1k
-/// pipelined, 10k serialized); the roomy budget runs the same large
-/// divergence as the pipelined contrast at identical work.
+/// The tight budget runs a small and a large divergence; the roomy budget
+/// runs the same large divergence, a contrast at identical work.
 const CELLS: &[(&str, usize, usize)] = &[
     ("256KiB-1k", 256 << 10, 1_000),
     ("256KiB-10k", 256 << 10, 10_000),

@@ -1,4 +1,4 @@
-use crate::tree::mirror::streaming::ledger::{ReplyBound, buffer};
+use crate::tree::mirror::streaming::ledger::ReplyBound;
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::slice;
 
@@ -155,11 +155,6 @@ impl Scope {
     #[cfg(test)]
     pub fn opening_unbounded(listing: &[Listed]) -> Self {
         Self::opening(listing, Grandchildren::MAX)
-    }
-
-    /// The bytes the record's listed children hold beside it.
-    pub fn children_bytes(&self) -> usize {
-        buffer(&self.children)
     }
 
     /// The bound on the reply this record awaits.

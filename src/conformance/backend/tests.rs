@@ -450,6 +450,9 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     fn explosion_bytes(&self) -> usize {
         self.inner.explosion_bytes()
     }
+
+    /// The wrapped node's bound on its explosion cost.
+    const MAX_EXPLOSION_BYTES: usize = E::MAX_EXPLOSION_BYTES;
 }
 
 impl Backend for Materializing {

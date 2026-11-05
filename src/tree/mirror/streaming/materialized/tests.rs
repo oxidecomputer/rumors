@@ -100,6 +100,7 @@ fn requested(version: Version) -> Vec<Reply<Erased>> {
         reactions: vec![supply(REQUESTED, version)],
         charge: Default::default(),
         last: true,
+        record: Default::default(),
     }]
 }
 
@@ -227,6 +228,7 @@ impl Injection {
                 reactions,
                 charge: Default::default(),
                 last: true,
+                record: Default::default(),
             }]
         };
         match self {
@@ -236,11 +238,13 @@ impl Injection {
                     reactions: vec![requested()],
                     charge: Default::default(),
                     last: true,
+                    record: Default::default(),
                 },
                 Reply {
                     reactions: Vec::new(),
                     charge: Default::default(),
                     last: true,
+                    record: Default::default(),
                 },
             ],
             Self::Match { after_supply } => one(after_supply, Reaction::Match),

@@ -211,13 +211,6 @@ where
     if let Some(window) = remote.resolve_window() {
         local.adopt_window(window);
     }
-    // Each endpoint's walk and proxy charge one ledger, the walk's.
-    if let Some(ledger) = local.share_ledger() {
-        remote.adopt_ledger(ledger);
-    }
-    if let Some(ledger) = remote.share_ledger() {
-        local.adopt_ledger(ledger);
-    }
     if local_key.initiates(&remote_key) {
         mirror_connected(local, remote).await
     } else {

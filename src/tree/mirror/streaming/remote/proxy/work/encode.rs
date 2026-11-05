@@ -22,8 +22,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{Receiver, Sender},
-        holding::Holding,
-        ledger::{Charge, Ledger, queued, shared},
+        ledger::Charge,
         message::Grandchildren,
         protocol::BoxRequests,
         remote::{
@@ -125,9 +124,11 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut reactions = Vec::new();
+    let mut record = Charge::default();
     loop {
         let chunk = requests.next().await.ok_or(Error::MissingOpening)?;
         reactions.extend(chunk.reactions);
+        record.absorb(chunk.record);
         if chunk.last {
             break;
         }
@@ -135,7 +136,9 @@ where
     let listing = opening_listing(reactions).map_err(Error::OpeningEncode)?;
     progress.wire_frame(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
-    questions.publish(Scope::opening(&listing, responder)).await;
+    questions
+        .publish(Scope::opening(&listing, responder), record)
+        .await;
     if requests.next().await.is_some() {
         return Err(Error::ExtraOpening);
     }
@@ -160,8 +163,9 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     loop {
-        let chunk = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
+        let mut chunk = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let last = chunk.last;
+        let mut record = std::mem::take(&mut chunk.record);
         let mut frames = encoder.chunk(chunk);
         while let Some(frame) = frames.next().await {
             let Some(question) = write_encoded(outgoing, frame?).await? else {
@@ -172,7 +176,9 @@ where
             };
             progress.wire_frame(height, 1);
             progress.local_question(height);
-            questions.publish(question).await;
+            questions
+                .publish(question, std::mem::take(&mut record))
+                .await;
         }
         if last {
             return Ok(());
@@ -181,31 +187,23 @@ where
 }
 
 /// Where an encoder publishes the records of the questions its replies
-/// ask, each charged to the endpoint's ledger for what it holds until the
-/// take has read it.
+/// ask.
 pub struct Records {
     /// The decoder's queue of records.
     sender: Sender<(Scope, Charge)>,
-    /// The endpoint's ledger.
-    ledger: Ledger,
 }
 
 impl Records {
-    /// Publish records through `sender`, charging them to `ledger`.
-    pub fn new(sender: Sender<(Scope, Charge)>, ledger: Ledger) -> Self {
-        Self { sender, ledger }
+    /// Publish records through `sender`.
+    pub fn new(sender: Sender<(Scope, Charge)>) -> Self {
+        Self { sender }
     }
 
-    /// Publish one question's record, or await cancellation if its consumer
-    /// has gone.
-    ///
-    /// The record waits in the decoder's queue, then in the allocation the
-    /// decoder shares with the take until the take reads its reply's last
-    /// chunk, so its charge covers the larger of the two.
-    async fn publish(&mut self, question: Scope) {
-        let record = queued::<(Scope, Charge)>().max(shared::<Scope>());
-        let bytes = record + question.children_bytes();
-        let charge = self.ledger.charge(Holding::QuestionRecords, bytes);
+    /// Publish one question's record with `charge`, which the walk built
+    /// out of the question's grant and the chunk carrying the question
+    /// handed over, or await cancellation if the record's consumer has
+    /// gone.
+    async fn publish(&mut self, question: Scope, charge: Charge) {
         if self.sender.send((question, charge)).await.is_err() {
             cancelled().await;
         }

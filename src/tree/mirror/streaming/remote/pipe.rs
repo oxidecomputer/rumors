@@ -47,7 +47,12 @@
 //! On the sending side, encoders wait for the multiplexer and the
 //! multiplexer waits for the pipe, but no receiving stage's consumption
 //! order can stop the pipe from draining, because the peer's receive path
-//! never waits on its walk. So no cycle can pass through the pipe.
+//! never waits on its walk. So no cycle can pass through the pipe. The
+//! walk's own waits, for admission of the work it builds, end by the
+//! induction in the ledger's admission module
+//! ([`ledger`](super::super::ledger)), which rests on this one: every
+//! question a side sends reaches the peer's stage, whatever that side's
+//! walk is waiting for.
 //!
 //! # Lazy streams
 //!

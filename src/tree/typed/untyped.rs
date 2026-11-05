@@ -39,6 +39,12 @@ const _: () = assert!(mem::align_of::<NodeInner>() <= mem::align_of::<usize>());
 /// handle.
 pub(crate) const FAN_ENTRY_BYTES: usize = mem::size_of::<(u8, Node)>();
 
+/// The most bytes [`Node::explosion_bytes`] reports: the copy of a shared
+/// branch with a child at every radix, one node allocation beside a full
+/// fan's heap slots, which grow with the fan's length.
+pub(crate) const MAX_EXPLOSION_BYTES: usize =
+    NODE_ALLOCATION_BYTES + fan::heap_slots(u8::MAX as usize + 1) * FAN_ENTRY_BYTES;
+
 /// An owned, ascending walk over one node's immediate children.
 ///
 /// An uncompressed branch stays shared while the iterator clones each child
