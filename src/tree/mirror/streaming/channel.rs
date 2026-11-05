@@ -9,6 +9,8 @@
 
 #[cfg(test)]
 use bounded::SendError;
+#[cfg(any(test, feature = "test-internals"))]
+pub use bounded::{EdgeSend, EdgeSendHook, observe_edge_sends};
 pub use bounded::{TrySendError, UNBOUNDED};
 
 use super::holding::Holding;
@@ -146,14 +148,15 @@ pub use bounded::{Receiver, Sender};
 /// Create the production channel for a named protocol edge.
 ///
 /// With `test-internals`, each send's channel node is attributed to the
-/// edge's place ([`QueueKind::holding`]).
+/// edge's place ([`QueueKind::holding`]), and each send is reported to the
+/// process's send hook (`observe_edge_sends`).
 #[cfg(not(test))]
 pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
     #[cfg(not(feature = "test-internals"))]
     let _ = role;
     let (sender, receiver) = bounded::channel(capacity);
     #[cfg(feature = "test-internals")]
-    let sender = sender.holding(role.kind.holding());
+    let sender = sender.edge(role.kind);
     (sender, receiver)
 }
 

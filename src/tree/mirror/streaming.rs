@@ -66,6 +66,9 @@ mod testing;
 pub(crate) const FAN: usize = u8::MAX as usize + 1;
 
 pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
+// The send observation hook, and the edge names its reports carry.
+#[cfg(any(test, feature = "test-internals"))]
+pub use channel::{EdgeSend, EdgeSendHook, QueueKind, observe_edge_sends};
 pub use radices::Radices;
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.

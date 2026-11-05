@@ -45,6 +45,7 @@ pub use crate::tree::mirror::streaming::ledger::{
     SharePeak, observe_admissions, observe_fits, observe_ledgers,
 };
 pub use crate::tree::mirror::streaming::tasks::{Pacer, TaskRole, pace_tasks};
+pub use crate::tree::mirror::streaming::{EdgeSend, EdgeSendHook, QueueKind, observe_edge_sends};
 
 pub use transport::{
     AdversarialRead, AdversarialWrite, FaultUnit as IoFaultUnit, InjectedIo, IoFault, IoPlan,

@@ -178,11 +178,13 @@ impl<T> Sender<T> {
     /// the channel is full when the send arrives, before any scheduled delay.
     pub async fn send_with(&mut self, item: T, on_full: impl FnOnce()) -> Result<(), SendError<T>> {
         let mut on_full = Some(on_full);
+        let mut waited = false;
         let mut delay = Countdown::default();
         let ready = poll_fn(|cx| {
             if let Some(on_full) = on_full.take()
                 && self.inner.poll_ready(cx).is_pending()
             {
+                waited = true;
                 on_full();
             }
             if delay.suspend(|| CHANNEL_SCHEDULE.next(), cx) {
@@ -199,7 +201,7 @@ impl<T> Sender<T> {
         })
         .await;
         let result = match ready {
-            Ok(()) => self.inner.start_send(item),
+            Ok(()) => self.inner.start_send(item, waited),
             Err(SendError(())) => Err(SendError(item)),
         };
         if result.is_ok() {
@@ -286,7 +288,7 @@ pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) 
         }
     });
     let (sender, receiver) = bounded::channel(effective_capacity);
-    let sender = sender.holding(role.kind.holding());
+    let sender = sender.edge(role.kind);
     (
         Sender {
             inner: sender,
