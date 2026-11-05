@@ -56,12 +56,12 @@ type Msg = u64;
 /// The network seed of the deterministic scenarios: the seed of their
 /// [`World`]'s network RNG.
 ///
-/// Each universe a world creates draws its [`Network`] identifier from that
-/// stream, and the identifiers decide the `(min_ticks, network)` tie-break
-/// between fresh peers. A scenario pins one path through those tie-breaks,
-/// so its seed stays fixed; the properties draw theirs. The stream is
-/// ChaCha, whose output for a seed is fixed across platforms and `rand`
-/// versions.
+/// Each universe a world creates draws its network's secret from that
+/// stream, and with it its [`Network`] identifier; the identifiers decide
+/// the `(min_ticks, network)` tie-break between fresh peers. A scenario
+/// pins one path through those tie-breaks, so its seed stays fixed; the
+/// properties draw theirs. The stream is ChaCha, whose output for a seed is
+/// fixed across platforms and `rand` versions.
 const SCENARIO_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0);
 
 /// A hard ceiling on heal-phase full-mesh rounds, per peer. A correct fleet
@@ -2064,6 +2064,14 @@ fn reconstructed_crash_pair_then_retire() {
     world.assert_healed();
 }
 
+/// The network seed of [`reconstructed_cut_gossip_then_retire_under_bookmark_faults`].
+///
+/// Nodes 1 and 2 meet with equal event counts, so the greater network
+/// identifier wins their mismatch. The identifiers derive from the seeded
+/// secrets, and this seed gives node 1 the greater one, which the plan's
+/// path requires.
+const RECONSTRUCTED_NETWORK_SEED: NetworkSeed = NetworkSeed::new(2);
+
 /// A cut gossip followed by failed retirement must preserve durable versions.
 ///
 /// Both cut budgets limit traffic from node 1 to node 2: one at the writer,
@@ -2104,7 +2112,7 @@ fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
             vec![false, false, false, true],
             vec![false, false, false, false, true, false],
         ],
-        network_seed: SCENARIO_NETWORK_SEED,
+        network_seed: RECONSTRUCTED_NETWORK_SEED,
     });
     assert_eq!(
         world.path,

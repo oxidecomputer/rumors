@@ -15,6 +15,7 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{Bookmarked, NoBookmark, Reservation, Reservations};
 pub use crate::message::DEFAULT_PAYLOAD_DEPTH_LIMIT;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
+use crate::network::NetworkSecret;
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::ledger::DEFAULT_SYNC_MEMORY_BUDGET;
@@ -135,8 +136,8 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 ///
 /// A reasonable such metric ships inside the error itself: compare its
 /// `local_min_events` against its `remote_min_events`. The greater minimal
-/// event count wins, with ties broken by comparing the two [`Network`] ids
-/// (their ordering is total).
+/// event count wins, with ties broken by comparing the two [`Network`]
+/// identifiers (their ordering is total).
 /// Each side declared its count in the session's handshake, so both apply
 /// the rule from the one error alone, with nothing further to fetch or
 /// race, and agree without coordination: the winner stays in its network,
@@ -148,8 +149,9 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// peers joins exclusively with one another and spends a long time
 /// partitioned before reuniting with the rest of the network.
 pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
-    /// The network this replica belongs to, established at seed or join.
-    pub(crate) network: Network,
+    /// The secret of the network this replica belongs to, drawn at seed or
+    /// received at join. Its public identifier is [`network`](Self::network).
+    pub(crate) secret: Arc<NetworkSecret>,
     /// The memory budget selected by
     /// [`sync_memory_budget`](Self::sync_memory_budget), which each session's
     /// ledger admits its work against.
@@ -435,22 +437,18 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
 
     /// Create a network with a caller-supplied random source.
     ///
-    /// This test-support hook makes network identifiers reproducible.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the source repeatedly returns the reserved all-zero network
-    /// identifier.
+    /// This test-support hook makes network secrets, and with them network
+    /// identifiers, reproducible.
     #[doc(hidden)]
     #[cfg(any(test, feature = "test-internals"))]
     pub fn seed_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
         Self::seed_from_rng(rng)
     }
 
-    /// Create a new network using `rng` for its identifier.
+    /// Create a new network using `rng` for its secret.
     fn seed_from_rng<R: Rng + ?Sized>(rng: &mut R) -> Self {
         Self {
-            network: Network::from_rng(rng),
+            secret: Arc::new(NetworkSecret::from_rng(rng)),
             sync_memory_budget: DEFAULT_SYNC_MEMORY_BUDGET,
             run_budget: RunBudget::default(),
             gossip_policy: policy::Policy::default(),
@@ -481,7 +479,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// remains uniquely owned.
     pub(crate) fn share(&self) -> Self {
         Self {
-            network: self.network,
+            secret: Arc::clone(&self.secret),
             sync_memory_budget: self.sync_memory_budget,
             run_budget: self.run_budget,
             gossip_policy: self.gossip_policy.clone(),
@@ -523,7 +521,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Return the gossip network this replica belongs to.
     pub fn network(&self) -> Network {
-        self.network
+        self.secret.network()
     }
 
     /// Return the local settings used to configure synchronization sessions.
@@ -547,7 +545,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let inner = self.inner.borrow();
         let settings = self.synchronization_settings();
         f.debug_struct(name)
-            .field("network", &self.network)
+            .field("network", &self.network())
             .field("latest", inner.tree.latest())
             .field("len", &inner.tree.len())
             .field("sync_memory_budget", &settings.sync_memory_budget)
@@ -982,7 +980,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Capture the replica's current immutable state.
     pub(crate) fn snapshot(&self) -> Snapshot<T> {
-        Snapshot::new(self.network, self.inner.borrow().tree.clone())
+        Snapshot::new(self.network(), self.inner.borrow().tree.clone())
     }
 
     /// Subscribe to every current and future live message in arbitrary order.

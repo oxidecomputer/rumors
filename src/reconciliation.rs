@@ -185,7 +185,9 @@
 //! Each direction carries, in order, the preamble, the greeting, the
 //! descent's frames, and the closing items: an identity donation when one
 //! changes hands, and the [`Phase::Completion`](crate::error::Phase::Completion)
-//! confirmation.
+//! confirmation. A bootstrap adds one control item to each direction, right
+//! after its preamble: the joiner's ephemeral public key, and the network's
+//! secret its provider seals for that key.
 //!
 //! The descent's frames travel on *logical streams*, one per tree level a
 //! side answers at. Each frame names its logical stream, so the one

@@ -18,9 +18,9 @@ use super::{
     send,
 };
 use crate::{
-    Error, Network,
+    Error,
     error::{Phase, TransportOperation as Op},
-    network::NETWORK_BYTES,
+    network::{NETWORK_BYTES, NetworkSecret},
     observe::SessionHandle,
     tags::{BOOTSTRAP_KEY_TAG, NETWORK_SECRET_TAG},
     tree::mirror::cbor::{self, MAJOR_BSTR},
@@ -46,13 +46,10 @@ type PublicKey = <Kem as hpke::Kem>::PublicKey;
 /// An encapsulated key under the documented KEM.
 type EncappedKey = <Kem as hpke::Kem>::EncappedKey;
 
-/// The network identifier the tests declare.
-fn declared() -> Network {
-    Network::from_bytes([0x3c; NETWORK_BYTES])
-}
-
 /// The secret the fixed-input tests seal.
-const FIXED_SECRET: [u8; NETWORK_BYTES] = [0x5e; NETWORK_BYTES];
+fn fixed_secret() -> NetworkSecret {
+    NetworkSecret::from_bytes([0x5e; NETWORK_BYTES])
+}
 
 /// HPKE's `info` as the module documents it: the label `"rumors bootstrap
 /// network secret"`, then protocol version 2 as a big-endian `u64`.
@@ -83,11 +80,11 @@ fn defect<T>(result: Result<T, Error>) -> SecretDefect {
     }
 }
 
-/// A fresh joiner, and `secret` sealed for it under the declared network.
-fn sealed_for(secret: &[u8; NETWORK_BYTES]) -> (Joining, [u8; SEALED_ITEM_LEN]) {
+/// A fresh joiner, and `secret` sealed for it under its own network.
+fn sealed_for(secret: &NetworkSecret) -> (Joining, [u8; SEALED_ITEM_LEN]) {
     let joining = Joining::new();
     let key = decode_key(&joining.item()).expect("a fresh key item decodes");
-    let item = seal(secret, &key, declared());
+    let item = seal(secret, &key, secret.network());
     (joining, item)
 }
 
@@ -144,13 +141,14 @@ proptest! {
     /// `Joining::receive`), and `send` writes exactly one sealed item.
     #[test]
     fn a_sealed_secret_round_trips(bytes in any::<[u8; NETWORK_BYTES]>()) {
+        let secret = NetworkSecret::from_bytes(bytes);
         let joining = Joining::new();
         let key = decode_key(&joining.item()).expect("a fresh key item decodes");
         let mut wire = Vec::new();
         pollster::block_on(send(
-            &bytes,
+            &secret,
             &key,
-            declared(),
+            secret.network(),
             &mut wire,
             &SessionHandle::default(),
         ))
@@ -158,11 +156,11 @@ proptest! {
         prop_assert_eq!(wire.len(), SEALED_ITEM_LEN);
         let opened = pollster::block_on(joining.receive(
             &mut wire.as_slice(),
-            declared(),
+            secret.network(),
             &SessionHandle::default(),
         ))
         .expect("the seal opens");
-        prop_assert_eq!(*opened, bytes);
+        prop_assert!(opened == secret);
     }
 }
 
@@ -193,9 +191,10 @@ fn malformed_and_invalid_key_items_are_typed_defects() {
 /// authentication tag, is unauthentic.
 #[test]
 fn malformed_invalid_and_unauthentic_sealed_items_are_typed_defects() {
-    let (joining, item) = sealed_for(&FIXED_SECRET);
+    let secret = fixed_secret();
+    let (joining, item) = sealed_for(&secret);
     for altered in with_one_prefix_byte_altered(item) {
-        let rejected = defect(joining.open(&altered, declared()));
+        let rejected = defect(joining.open(&altered, secret.network()));
         assert!(
             matches!(rejected, SecretDefect::Malformed { item: SEALED_ITEM }),
             "{rejected:?}"
@@ -203,7 +202,7 @@ fn malformed_invalid_and_unauthentic_sealed_items_are_typed_defects() {
     }
     let mut zero_key = item;
     zero_key[PREFIX_LEN..PREFIX_LEN + ENCAPPED_KEY_LEN].fill(0);
-    let rejected = defect(joining.open(&zero_key, declared()));
+    let rejected = defect(joining.open(&zero_key, secret.network()));
     assert!(
         matches!(rejected, SecretDefect::InvalidKey { item: SEALED_ITEM }),
         "{rejected:?}"
@@ -211,19 +210,44 @@ fn malformed_invalid_and_unauthentic_sealed_items_are_typed_defects() {
     // The item ends with the authentication tag.
     let mut forged = item;
     forged[SEALED_ITEM_LEN - 1] ^= 0x01;
-    let rejected = defect(joining.open(&forged, declared()));
+    let rejected = defect(joining.open(&forged, secret.network()));
     assert!(
         matches!(rejected, SecretDefect::Unauthentic),
         "{rejected:?}"
     );
 }
 
+/// The identifier check still runs after the seal opens: a provider that
+/// seals one network's secret while declaring another fails as
+/// `WrongNetwork`, naming both identifiers.
+#[test]
+fn a_secret_of_another_network_fails_the_identifier_check() {
+    let sealed = NetworkSecret::from_bytes([1; NETWORK_BYTES]);
+    let declared = NetworkSecret::from_bytes([2; NETWORK_BYTES]).network();
+    let joining = Joining::new();
+    let key = decode_key(&joining.item()).expect("a fresh key item decodes");
+    let item = seal(&sealed, &key, declared);
+    let SecretDefect::WrongNetwork {
+        declared: named,
+        received,
+    } = defect(joining.open(&item, declared))
+    else {
+        panic!("expected a wrong-network rejection");
+    };
+    assert_eq!(named, declared);
+    assert_eq!(received, sealed.network());
+}
+
 /// A stream that ends anywhere inside the sealed item is a transport
 /// truncation of the read in the identity-transfer phase, never a decode or
 /// a hang.
+///
+/// The preamble exchange reads the key item, and its tests cover that
+/// item's truncation.
 #[test]
 fn a_truncated_sealed_item_is_a_transport_truncation() {
-    let (_, sealed) = sealed_for(&FIXED_SECRET);
+    let secret = fixed_secret();
+    let (_, sealed) = sealed_for(&secret);
     let truncation = |result: Result<(), Error>| {
         matches!(result, Err(Error::Transport(ref error))
             if error.source.kind() == std::io::ErrorKind::UnexpectedEof
@@ -235,7 +259,7 @@ fn a_truncated_sealed_item_is_a_transport_truncation() {
         // is used, so a fresh one serves.
         let result = pollster::block_on(Joining::new().receive(
             &mut &sealed[..cut],
-            declared(),
+            secret.network(),
             &SessionHandle::default(),
         ));
         assert!(
@@ -250,15 +274,16 @@ fn a_truncated_sealed_item_is_a_transport_truncation() {
 /// the writer's error.
 #[test]
 fn a_failed_send_is_a_transport_write_error() {
+    let secret = fixed_secret();
     let joining = Joining::new();
     let key = decode_key(&joining.item()).expect("a fresh key item decodes");
     // The writer has room for all of the sealed item but its last byte, so
     // the write fails partway through, with `WriteZero`.
     let mut room = [0u8; SEALED_ITEM_LEN - 1];
     let result = pollster::block_on(send(
-        &FIXED_SECRET,
+        &secret,
         &key,
-        declared(),
+        secret.network(),
         &mut std::io::Cursor::new(&mut room[..]),
         &SessionHandle::default(),
     ));
@@ -278,14 +303,15 @@ fn a_failed_send_is_a_transport_write_error() {
 /// `info` and the declared network as associated data.
 #[test]
 fn a_joiner_opens_a_seal_built_by_the_documented_bindings() {
-    let declared = declared();
+    let secret = fixed_secret();
+    let declared = secret.network();
     let joining = Joining::new();
     let joiner = PublicKey::from_bytes(&joining.public).expect("the joiner's key decodes");
     let (encapped, ciphertext) = single_shot_seal::<Aead, Kdf, Kem>(
         &OpModeS::Base,
         &joiner,
         &documented_info(),
-        &FIXED_SECRET,
+        secret.as_bytes(),
         &declared.to_bytes(),
     )
     .expect("sealing succeeds");
@@ -300,7 +326,7 @@ fn a_joiner_opens_a_seal_built_by_the_documented_bindings() {
     let opened = joining
         .open(&item, declared)
         .expect("the documented seal opens");
-    assert_eq!(*opened, FIXED_SECRET);
+    assert!(opened == secret);
 }
 
 /// The provider seals by the documented suite and bindings: its sealed
@@ -311,10 +337,11 @@ fn a_joiner_opens_a_seal_built_by_the_documented_bindings() {
 /// `info` and the declared network as associated data.
 #[test]
 fn a_providers_seal_opens_by_the_documented_bindings() {
-    let declared = declared();
+    let secret = fixed_secret();
+    let declared = secret.network();
     let (private, public) = Kem::gen_keypair();
     let item = seal(
-        &FIXED_SECRET,
+        &secret,
         &decode_key(&key_item(&public.to_bytes().into())).expect("the key item decodes"),
         declared,
     );
@@ -328,5 +355,5 @@ fn a_providers_seal_opens_by_the_documented_bindings() {
         &declared.to_bytes(),
     )
     .expect("the provider's seal opens under the documented bindings");
-    assert_eq!(opened.as_slice(), FIXED_SECRET.as_slice());
+    assert_eq!(opened.as_slice(), secret.as_bytes().as_slice());
 }

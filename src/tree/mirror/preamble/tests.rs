@@ -60,6 +60,7 @@ fn fragmented_exchange_is_symmetric() {
             preamble(
                 left,
                 Intent::Remain,
+                &[],
                 &mut left_staged,
                 &mut left_read,
                 &mut left_write,
@@ -68,6 +69,7 @@ fn fragmented_exchange_is_symmetric() {
             preamble(
                 right,
                 Intent::Retire,
+                &[],
                 &mut right_staged,
                 &mut right_read,
                 &mut right_write,
@@ -78,18 +80,64 @@ fn fragmented_exchange_is_symmetric() {
 
     assert_eq!(
         seen_by_left.unwrap(),
-        Preamble {
-            network: right,
-            intent: Intent::Retire,
-        }
+        (
+            Preamble {
+                network: right,
+                intent: Intent::Retire,
+            },
+            None
+        )
     );
     assert_eq!(
         seen_by_right.unwrap(),
-        Preamble {
-            network: left,
-            intent: Intent::Remain,
-        }
+        (
+            Preamble {
+                network: left,
+                intent: Intent::Remain,
+            },
+            None
+        )
     );
+}
+
+/// A bootstrapping peer's preamble carries its key item after it: the
+/// exchange returns the item whole, and a stream that ends anywhere inside
+/// it is a read failure for a truncated stream, never a hang.
+#[test]
+fn a_bootstrap_preamble_brings_its_key_item() {
+    let joining = crate::tree::mirror::secret::Joining::new();
+    let item = joining.item();
+    let mut stream = Preamble {
+        network: Network::BOOTSTRAP,
+        intent: Intent::Remain,
+    }
+    .encode();
+    stream.extend_from_slice(&item);
+    let exchange = |bytes: &[u8]| {
+        let mut staged = Staged::new();
+        let mut reader = bytes;
+        pollster::block_on(preamble(
+            Network::from_bytes([1; NETWORK_BYTES]),
+            Intent::Remain,
+            &[],
+            &mut staged,
+            &mut reader,
+            &mut tokio::io::sink(),
+            &SessionHandle::default(),
+        ))
+    };
+    let (seen, key) = exchange(&stream).expect("a whole opening exchanges");
+    assert!(seen.network.is_bootstrap());
+    assert_eq!(key, Some(item));
+    for cut in V2_PREAMBLE_LEN..stream.len() {
+        assert!(
+            matches!(
+                exchange(&stream[..cut]),
+                Err(Error::Io { ref source, .. }) if source.kind() == std::io::ErrorKind::UnexpectedEof
+            ),
+            "a key item cut after {cut} bytes is a truncated read",
+        );
+    }
 }
 
 /// Intent decoding is exhaustive over the raw byte in the intent item's
@@ -142,6 +190,7 @@ fn every_truncation_boundary_is_typed() {
         let result = pollster::block_on(preamble(
             network,
             Intent::Remain,
+            &[],
             &mut staged,
             &mut reader,
             &mut writer,

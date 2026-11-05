@@ -2,12 +2,12 @@
 source: src/bookmark/format/tests.rs
 expression: "annotated(&encode(&Record::default()))"
 ---
-d9d9f783065820c24fdfe00b190b6f8fac2dbefba12b38eb3f0f6922a2d85764565911e8736bb0d8184180
+d9d9f7830858204557d7a15efbd36448d675bb3ac0123639c83af464465e55050ae4b6c658c8d0d8184180
 
 55799( / self-described CBOR /
   [
-    6 / bookmark format version /
-    h'c24fdfe00b190b6f8fac2dbefba12b38eb3f0f6922a2d85764565911e8736bb0' / integrity: SHA3-256 of the version and payload items /
+    8 / bookmark format version /
+    h'4557d7a15efbd36448d675bb3ac0123639c83af464465e55050ae4b6c658c8d0' / integrity: SHA3-256 of the version and payload items /
     24(<< / embedded record, 1 byte(s) /
       [ / 0 network(s), newest first /
       ]

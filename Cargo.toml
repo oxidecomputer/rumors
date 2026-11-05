@@ -78,6 +78,8 @@ focused-fuel-protocol = { path = "crates/before/focused-fuel/protocol" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 fuzzfit-harness = { path = "crates/before/fuzzfit/harness" }
 hex = "0.4"
+hkdf = "0.13"
+hmac = "0.13"
 # HPKE (RFC 9180), rozbb/rust-hpke on RustCrypto's `p256`, `hkdf` and
 # `aes-gcm`: the bootstrap's sealed exchange.
 hpke = { version = "0.15", default-features = false }
@@ -177,6 +179,8 @@ hpke = { workspace = true, features = ["nistp", "aes", "getrandom"] }
 # and enabling it here makes the AES key schedule inside each HPKE
 # context clear when the context drops.
 aes-gcm = { workspace = true, features = ["zeroize"] }
+# The network secret's key schedule, which derives the network identifier.
+hkdf.workspace = true
 itertools.workspace = true
 serde = { workspace = true, default-features = true, features = ["derive"] }
 ciborium.workspace = true
@@ -234,6 +238,9 @@ alloc-meter.workspace = true
 # The sealed exchange's tests seal and open through `hpke` directly, as an
 # oracle for the documented bindings, with its allocating API.
 hpke = { workspace = true, features = ["alloc"] }
+# The network tests transcribe the key schedule from RFC 5869 over
+# HMAC-SHA-256, independently of the `hkdf` crate.
+hmac.workspace = true
 
 [profile.dev]
 debug = "line-tables-only"

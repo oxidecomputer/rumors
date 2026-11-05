@@ -18,6 +18,7 @@ use tokio::{
 
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use crate::message::PayloadCodec;
+use crate::network::NetworkSecret;
 use crate::observe::{SessionCompletion, SessionHandle, SessionKind, SessionOutcome};
 use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
@@ -26,6 +27,7 @@ use crate::{
     tree::mirror::{
         party,
         preamble::{self, Intent},
+        secret,
         streaming::{
             self, Local, materialized,
             remote::{self as streaming_remote, PipeRead, RunBudget},
@@ -229,8 +231,8 @@ pub(crate) enum Bootstrapped<T: Send + Sync + 'static> {
 /// needs to become a peer, whether or not the completion exchange that
 /// follows succeeds.
 struct Received {
-    /// The provider's network, from its preamble.
-    network: Network,
+    /// The network's secret, from the provider's sealed secret item.
+    secret: NetworkSecret,
     /// The donated identity.
     party: Party,
     /// The provider's content, reconciled into the empty tree.
@@ -321,12 +323,12 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// the builder's settings.
     fn joined(config: Bootstrap<T>, codec: PayloadCodec, received: Received) -> Self {
         let Received {
-            network,
+            secret,
             party,
             root,
         } = received;
         Self {
-            network,
+            secret: Arc::new(secret),
             sync_memory_budget: config.sync_memory_budget,
             run_budget: config.run_budget,
             gossip_policy: config.gossip_policy,
@@ -339,9 +341,9 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
 
     /// The transport-erased bootstrap body behind [`bootstrap_inner`].
     ///
-    /// Leaves the joiner's network, party, and content in `received` once the
-    /// whole party has arrived, then confirms completion. `Ok` with nothing
-    /// received means the counterparty was bootstrapping too.
+    /// Leaves the joiner's network secret, party, and content in `received`
+    /// once the whole party has arrived, then confirms completion. `Ok` with
+    /// nothing received means the counterparty was bootstrapping too.
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
     // The arguments are the session's inputs, one per concern; bundling them
@@ -359,11 +361,16 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     ) -> BoxFuture<'a, Result<(), Error>> {
         Box::pin(async move {
             // Establish the protocol version and the provider's network
-            // before interpreting the rest of the session.
+            // before interpreting the rest of the session. Our ephemeral key
+            // travels right after our preamble, before we know whether the
+            // counterparty provides, so the exchange that seals the
+            // network's secret for us costs no round trip.
+            let joining = secret::Joining::new();
             let mut staged = preamble::Staged::new();
-            let remote = preamble::preamble(
+            let (remote, remote_key) = preamble::preamble(
                 Network::BOOTSTRAP,
                 Intent::Remain,
+                &joining.item(),
                 &mut staged,
                 read,
                 write,
@@ -372,10 +379,25 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             .await
             .map_err(Error::from)?;
 
+            // A provider sends its network's secret next, sealed for our
+            // key, ahead of its greeting. Another bootstrapper has no secret
+            // and supplies nothing; its key item, sent as ours was, is read
+            // and discarded.
+            let both_bootstrapping = remote.network.is_bootstrap();
+            let received_secret = if let Some(item) = remote_key {
+                secret::decode_key(&item)?;
+                None
+            } else {
+                Some(
+                    joining
+                        .receive(&mut *read, remote.network, &observe)
+                        .await?,
+                )
+            };
+
             // Reconcile from an empty tree. On arrival, the returned root
             // holds the provider's content and the next item carries the
             // donated identity. Two bootstrappers instead finish without one.
-            let both_bootstrapping = remote.network.is_bootstrap();
             let reconciliation = Reconciliation {
                 root: tree::Root::default(),
                 read,
@@ -393,9 +415,9 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             };
             let (root, mut read, mut write) = reconciliation.reconcile().await?;
             // Two bootstrappers have no identity to exchange.
-            if both_bootstrapping {
+            let Some(secret) = received_secret else {
                 return finish_session(&mut read, &mut write, &observe).await;
-            }
+            };
             // A provider donates a fork or its whole retiring identity.
             let party = party::receive(&mut read, &observe).await?;
             // The whole party has arrived, and this side keeps it from here
@@ -411,7 +433,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // longer holds it, whatever its own session's outcome; a cut
             // before it arrives whole leaves this side without it.
             *received = Some(Received {
-                network: remote.network,
+                secret,
                 party,
                 root,
             });
@@ -526,7 +548,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut store = None;
         Inner::update_party(&self.inner, |inner| {
             store = loaded.checkpoint(
-                self.network,
+                self.network(),
                 &mut inner.party,
                 inner.tree.latest(),
                 &inner.reservations,
@@ -570,9 +592,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ) -> Result<(Version, SessionStats), Error<B>> {
         let codec = self.codec;
         // Check protocol and network compatibility before reconciliation.
-        let remote = preamble::preamble(self.network, intent, staged, read, write, &observe)
-            .await
-            .map_err(|error| Error::from(error).widen())?;
+        let (remote, remote_key) =
+            preamble::preamble(self.network(), intent, &[], staged, read, write, &observe)
+                .await
+                .map_err(|error| Error::from(error).widen())?;
         let peer_bootstrapping = remote.network.is_bootstrap();
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
@@ -586,6 +609,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 .map_err(Error::widen)?;
             let unchanged = self.inner.borrow().tree.latest().clone();
             return Ok((unchanged, stats.snapshot()));
+        }
+
+        // A bootstrapping counterparty leaves the session holding the
+        // network's secret. Its key item followed its preamble; seal the
+        // secret for that key, ahead of the greeting.
+        if let Some(item) = remote_key {
+            let joiner = secret::decode_key(&item).map_err(Error::widen)?;
+            secret::send(&self.secret, &joiner, self.network(), write, &observe)
+                .await
+                .map_err(Error::widen)?;
         }
 
         // Store before sharing: we checkpoint at the snapshot's frontier and
@@ -608,7 +641,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             let mut store = None;
             Inner::update_party(&self.inner, |inner| {
                 store = loaded.checkpoint(
-                    self.network,
+                    self.network(),
                     &mut inner.party,
                     inner.tree.latest(),
                     &inner.reservations,
@@ -644,7 +677,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             } else {
                 RemoteRole::Gossiping {
                     remote_network: remote.network,
-                    local_network: self.network,
+                    local_network: self.network(),
                     local_min_events,
                 }
             },
@@ -674,10 +707,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 let mut bookmark = self.bookmark.lock().await;
                 let loaded = bookmark.load().await.map_err(Error::Bookmark)?;
                 let store = if self_retiring {
-                    loaded.donate(self.network, &self.inner.borrow().party)
+                    loaded.donate(self.network(), &self.inner.borrow().party)
                 } else {
                     let (fork, _) = guarded.fork.as_ref().expect("bootstrap fork");
-                    loaded.donate(self.network, fork)
+                    loaded.donate(self.network(), fork)
                 };
                 store.await.map_err(Error::Bookmark)?;
             }

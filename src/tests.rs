@@ -2,7 +2,7 @@
 //!
 //! These cover party ownership across joining and leaving, failure at exact
 //! retirement wire boundaries, protocol rejection through a peer session,
-//! and root-hash metering.
+//! the network secret's delivery and redaction, and root-hash metering.
 
 use std::sync::Arc;
 
@@ -12,9 +12,14 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
-use crate::observe::Attachment;
+use crate::network::NetworkSecret;
+use crate::observe::{
+    Attachment, Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo,
+    StreamObserver,
+};
 use crate::testing::property::{
-    FLEET_DIVISOR, LOCAL_DIVISOR, NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed,
+    FLEET_DIVISOR, LOCAL_DIVISOR, NetworkSeed, SESSION_DIVISOR, distinct_network_seeds,
+    divided_proptest, network_seed,
 };
 use crate::testing::{
     AdversarialRead, AdversarialWrite, IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide,
@@ -94,7 +99,7 @@ divided_proptest! {
         let forged = Peer::<u64> {
             codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             gossip_policy: Default::default(),
-            network: survivor.network,
+            secret: survivor.secret.clone(),
             sync_memory_budget: survivor.sync_memory_budget,
             run_budget: survivor.run_budget,
             inner: watch::Sender::new(Inner::new(
@@ -649,6 +654,221 @@ divided_proptest! {
             Party::seed(),
             "the provider and joiner hold the whole identity"
         );
+    }
+}
+
+// ---- the network secret --------------------------------------------------
+
+/// Every item observed across a peer's sessions, in observation order, with
+/// its stream and direction.
+#[derive(Default)]
+struct ObservedItems(std::sync::Mutex<Vec<(StreamId, Direction, Vec<u8>)>>);
+
+/// A peer observer recording every item of every session into one log.
+struct RecordItems(Arc<ObservedItems>);
+
+impl Observer for RecordItems {
+    /// Record every session.
+    fn session(&self, _: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
+        Some(Box::new(RecordSession(self.0.clone())))
+    }
+}
+
+/// A session observer recording every stream into the shared log.
+struct RecordSession(Arc<ObservedItems>);
+
+impl SessionObserver for RecordSession {
+    /// Record every stream, tagged with its identity and direction.
+    fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
+        Some(Box::new(RecordStream(
+            self.0.clone(),
+            stream.id,
+            stream.direction,
+        )))
+    }
+}
+
+/// A stream observer appending each item to the shared log.
+struct RecordStream(Arc<ObservedItems>, StreamId, Direction);
+
+impl StreamObserver for RecordStream {
+    /// Append the item with its stream and direction.
+    fn message(&mut self, bytes: &[u8]) {
+        self.0
+            .0
+            .lock()
+            .unwrap()
+            .push((self.1, self.2, bytes.to_vec()));
+    }
+}
+
+/// Every rendering of `secret`'s bytes a log line could carry: lowercase
+/// and uppercase hex, and Rust's array `Debug` form.
+fn renderings(secret: &NetworkSecret) -> [String; 3] {
+    let bytes = secret.as_bytes();
+    [
+        hex::encode(bytes),
+        hex::encode_upper(bytes),
+        format!("{bytes:?}"),
+    ]
+}
+
+/// Whether `haystack` holds `needle` as a contiguous run.
+fn contains_run(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// A bootstrap delivers the network's secret, sealed, before any supply,
+    /// and no observation, on either side, carries it in the clear.
+    ///
+    /// The joiner ends up holding the provider's secret. The provider's second
+    /// received control item is the joiner's key item; the joiner's second is
+    /// the sealed secret item, which it observes before any received data
+    /// frame. No item either side observed, and so no byte that crossed the
+    /// wire, contains the secret's sixteen bytes.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn bootstrap_delivers_the_secret_first_and_observers_never_see_it(network in network_seed()) {
+        let provider_items = Arc::new(ObservedItems::default());
+        let joiner_items = Arc::new(ObservedItems::default());
+        let provider = with_messages(
+            network.peer::<u64>().observe(Arc::new(RecordItems(provider_items.clone()))),
+            &[1, 2, 3],
+        );
+        let joiner = pollster::block_on(async {
+            let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            let (served, joined) = tokio::join!(
+                provider.gossip_once(&mut a_end.read, &mut a_end.write),
+                Peer::<u64>::bootstrap()
+                    .observe(Arc::new(RecordItems(joiner_items.clone())))
+                    .join(&mut b_end.read, &mut b_end.write),
+            );
+            served.expect("the provider serves the bootstrap");
+            match joined {
+                crate::Joined::Joined { peer, .. } => peer,
+                other => panic!("the bootstrap joins, got {other:?}"),
+            }
+        });
+        assert!(
+            joiner.secret == provider.secret,
+            "the joiner holds the network's secret"
+        );
+
+        let joiner_items = joiner_items.0.lock().unwrap();
+        let received: Vec<(usize, StreamId, &[u8])> = joiner_items
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, direction, _))| *direction == Direction::Received)
+            .map(|(position, (stream, _, bytes))| (position, *stream, bytes.as_slice()))
+            .collect();
+        let control: Vec<_> = received
+            .iter()
+            .filter(|(_, stream, _)| *stream == StreamId::Control)
+            .collect();
+        // An item's tag, read from its head.
+        let tag_of = |item: &[u8]| {
+            let mut input = item;
+            crate::tree::mirror::cbor::read_head(&mut input)
+                .expect("a control item opens with a canonical head")
+                .value
+        };
+        let (secret_position, _, secret_item) = control[1];
+        assert_eq!(
+            tag_of(secret_item),
+            crate::tags::NETWORK_SECRET_TAG,
+            "the joiner's second control item is the sealed secret item"
+        );
+        let provider_control: Vec<Vec<u8>> = provider_items
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(stream, direction, _)| {
+                *stream == StreamId::Control && *direction == Direction::Received
+            })
+            .map(|(_, _, bytes)| bytes.clone())
+            .collect();
+        assert_eq!(
+            tag_of(&provider_control[1]),
+            crate::tags::BOOTSTRAP_KEY_TAG,
+            "the provider's second control item is the joiner's key item"
+        );
+        let first_data = received
+            .iter()
+            .find(|(_, stream, _)| matches!(stream, StreamId::Data { .. }))
+            .map(|(position, _, _)| *position)
+            .expect("the provider supplies its messages");
+        assert!(
+            secret_position < &first_data,
+            "the secret arrives before the first supply"
+        );
+
+        for (side, items) in [
+            ("joiner", &*joiner_items),
+            ("provider", &*provider_items.0.lock().unwrap()),
+        ] {
+            for (stream, direction, bytes) in items {
+                assert!(
+                    !contains_run(bytes, provider.secret.as_bytes()),
+                    "the {side}'s {direction:?} {stream:?} observation carries the secret",
+                );
+            }
+        }
+    }
+
+    /// No `Debug` rendering of a peer, a handle, a snapshot, or a network, nor
+    /// any rendering of a network-mismatch error, carries a network's secret.
+    ///
+    /// Two independently seeded peers gossip, so the session fails with
+    /// [`Mismatch::Network`](crate::error::Mismatch::Network), which names both
+    /// networks; every rendering is searched for each secret in hex and in
+    /// Rust's array form.
+    ///
+    /// The claim holds for every pair of distinct network seeds.
+    #[test]
+    fn no_rendering_carries_a_network_secret(
+        (network, other_network) in distinct_network_seeds(),
+    ) {
+        let left = with_messages(network.peer::<u64>(), &[1]);
+        let right = other_network.peer::<u64>();
+        let secrets = [left.secret.clone(), right.secret.clone()];
+        let error = pollster::block_on(async {
+            let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            let (left_out, _) = tokio::join!(
+                left.gossip_once(&mut a_end.read, &mut a_end.write),
+                right.gossip_once(&mut b_end.read, &mut b_end.write),
+            );
+            left_out.expect_err("independently seeded peers refuse to gossip")
+        });
+        assert!(
+            matches!(
+                error,
+                Error::Mismatch(crate::error::Mismatch::Network { .. })
+            ),
+            "got {error:?}",
+        );
+        let rendered = format!(
+            "{left:?} {right:?} {:?} {:?} {} {error:?} {error} {:?} {:#?}",
+            left.snapshot(),
+            left.network(),
+            left.network(),
+            left.secret,
+            right.secret,
+        );
+        for secret in &secrets {
+            for rendering in renderings(secret) {
+                assert!(
+                    !rendered.contains(&rendering),
+                    "a rendering carries a secret: {rendered}"
+                );
+            }
+        }
     }
 }
 

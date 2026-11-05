@@ -25,6 +25,7 @@ use crate::testing::{MEMORY_CAPACITY, MemoryEnd, memory_connection};
 use crate::tree::mirror::{
     party,
     preamble::{self, Intent},
+    secret,
     streaming::{self, Local, materialized, remote as streaming_remote},
 };
 use crate::tree::{self, Tree};
@@ -142,10 +143,13 @@ async fn claim_bootstrap_with_root(
     end: &mut MemoryEnd,
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
+    // Our key item follows our preamble, as a conforming joiner's does.
+    let joining = secret::Joining::new();
     let mut staged = preamble::Staged::new();
-    preamble::preamble(
+    let (remote, remote_key) = preamble::preamble(
         Network::BOOTSTRAP,
         Intent::Remain,
+        &joining.item(),
         &mut staged,
         &mut end.read,
         &mut end.write,
@@ -153,6 +157,15 @@ async fn claim_bootstrap_with_root(
     )
     .await
     .map_err(Error::from)?;
+    // A provider seals its network's secret for our key; a bootstrapping
+    // counterparty sends its own key item instead, which we discard.
+    if let Some(item) = remote_key {
+        secret::decode_key(&item)?;
+    } else {
+        joining
+            .receive(&mut end.read, remote.network, &SessionHandle::default())
+            .await?;
+    }
     let local_root: streaming::Root<Local> = root.into();
     let local =
         materialized::Handshaking::start(Local, local_root, DEFAULT_TARGET_MESSAGE_SIZE as u64);

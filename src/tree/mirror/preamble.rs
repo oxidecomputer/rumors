@@ -1,13 +1,16 @@
 //! The fixed preamble opening every mirror session.
 //!
 //! Every wire session first exchanges one fixed-size [`Preamble`] carrying
-//! the wire dialect's version, the network, and the session intent. Only
-//! after it succeeds does the mirror exchange its greeting, which
+//! the wire dialect's version, the network's public identifier (never its
+//! secret), and the session intent. Only after it succeeds does the mirror
+//! exchange its greeting, which
 //! front-loads the session parameters the protocol negotiates,
 //! inventoried where they are defined — the [`streaming`](super::streaming)
 //! module's `Greeting` message.
 //! Keeping these phases separate permits a provider to learn that its peer is
-//! bootstrapping before it atomically snapshots the tree and forks its party.
+//! bootstrapping before it atomically snapshots the tree and forks its party,
+//! and to send that peer the network's secret (the [`secret`](super::secret)
+//! item) before the greeting.
 //!
 //! The preamble is one self-described CBOR item, so each direction of a
 //! session's byte stream is a CBOR sequence from its very first byte —
@@ -88,7 +91,7 @@ impl Intent {
 /// The validated network and intent carried ahead of the greeting exchange.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Preamble {
-    /// The peer's causal universe, or the bootstrap placeholder.
+    /// The peer's network's public identifier, or the bootstrap placeholder.
     pub(crate) network: Network,
     /// Whether the peer remains or retires after reconciliation.
     pub(crate) intent: Intent,
@@ -314,23 +317,45 @@ impl Staged {
     }
 }
 
+/// A bootstrapping peer's key item, which follows its preamble.
+pub(crate) type KeyItem = [u8; crate::tree::mirror::secret::KEY_ITEM_LEN];
+
 /// Exchange the fixed preamble before the protocol trusts framed traffic.
+///
+/// `follow` is one whole item this side sends right after its preamble, in
+/// the same write and flush, before it has read the peer's preamble: a
+/// bootstrapping peer's key item, so that its key costs no round trip.
+/// Empty for every other session.
+///
+/// Returns the peer's preamble and, if that preamble declares bootstrapping,
+/// the key item that follows it. The key item is read while this side's own
+/// write is still in flight: two bootstrapping peers each write a preamble
+/// and a key item before reading anything past the other's preamble, so if
+/// either waited for its write to finish before draining the other's key
+/// item, a transport that buffers less than both could leave them waiting
+/// on each other forever.
+// The arguments are the exchange's inputs, one per concern.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn preamble<R, W>(
     network: Network,
     intent: Intent,
+    follow: &[u8],
     staged: &mut Staged,
     reader: &mut R,
     writer: &mut W,
     observe: &SessionHandle,
-) -> Result<Preamble, Error>
+) -> Result<(Preamble, Option<KeyItem>), Error>
 where
     R: AsyncRead + Unpin + ?Sized,
     W: AsyncWrite + Unpin + ?Sized,
 {
     let local = Preamble { network, intent }.encode();
+    let mut sent = Vec::with_capacity(local.len() + follow.len());
+    sent.extend_from_slice(&local);
+    sent.extend_from_slice(follow);
 
     let write = async {
-        writer.write_all(&local).await.map_err(|source| Error::Io {
+        writer.write_all(&sent).await.map_err(|source| Error::Io {
             operation: TransportOperation::Write,
             source,
         })?;
@@ -339,26 +364,52 @@ where
             source,
         })?;
         observe.control_sent(&local);
+        if !follow.is_empty() {
+            observe.control_sent(follow);
+        }
         Ok(())
     };
     let read = async {
         match staged.fill(reader).await? {
-            Fill::Filled => Ok(()),
+            Fill::Filled => {}
             // The peer hung up without sending a byte: a zero-length
             // truncation, distinct from a transport failure.
-            Fill::Closed => Err(Error::Truncated {
-                received: 0,
-                expected: V2_PREAMBLE_LEN,
-            }),
+            Fill::Closed => {
+                return Err(Error::Truncated {
+                    received: 0,
+                    expected: V2_PREAMBLE_LEN,
+                });
+            }
         }
+        // A validation failure is reported once both directions are done;
+        // only a valid bootstrapping preamble promises a key item to read.
+        let validated = staged.validate();
+        let key = match &validated {
+            Ok(preamble) if preamble.network.is_bootstrap() => {
+                let mut item = [0; crate::tree::mirror::secret::KEY_ITEM_LEN];
+                reader
+                    .read_exact(&mut item)
+                    .await
+                    .map_err(|source| Error::Io {
+                        operation: TransportOperation::Read,
+                        source,
+                    })?;
+                Some(item)
+            }
+            _ => None,
+        };
+        Ok((validated, key))
     };
-    futures::future::try_join(write, read).await?;
-    let preamble = staged.validate()?;
+    let ((), (validated, key)) = futures::future::try_join(write, read).await?;
+    let preamble = validated?;
     // Only a validated frame is delivered: the item contract holds for
     // conforming exchanges, and a malformed preamble aborts the session
     // instead of feeding observers a non-item.
     observe.control_received(staged.received());
-    Ok(preamble)
+    if let Some(item) = &key {
+        observe.control_received(item);
+    }
+    Ok((preamble, key))
 }
 
 /// Progress of a cancel-safe preamble arrival.

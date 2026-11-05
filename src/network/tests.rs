@@ -1,79 +1,79 @@
-//! Tests for generating network identifiers from caller-supplied randomness.
+//! Tests for network secrets and for the key schedule that derives their
+//! public identifiers.
 
-use std::convert::Infallible;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use hmac::{Hmac, KeyInit, Mac};
+use proptest::prelude::*;
+use sha2::Sha256;
 
-use rand::TryRng;
+use super::{NETWORK_BYTES, NetworkSecret};
 
-use super::{NETWORK_BYTES, NETWORK_DRAW_ATTEMPTS, Network};
-
-/// An RNG that returns zero for a chosen number of draws, then a fixed value.
-struct ZeroPrefix {
-    /// Zero-valued draws remaining before the fixed value is returned.
-    zeros: usize,
-    /// Number of completed draws.
-    draws: usize,
+/// HMAC-SHA-256 of `message` under `key`, through the `hmac` crate's
+/// one-shot interface.
+fn hmac(key: &[u8], message: &[u8]) -> [u8; 32] {
+    <Hmac<Sha256>>::new_from_slice(key)
+        .expect("HMAC accepts a key of any length")
+        .chain_update(message)
+        .finalize()
+        .into_bytes()
+        .into()
 }
 
-impl ZeroPrefix {
-    /// Construct an RNG with `zeros` reserved draws before a valid one.
-    fn new(zeros: usize) -> Self {
-        Self { zeros, draws: 0 }
+/// The network identifier the key schedule derives from `secret`.
+///
+/// It is transcribed from RFC 5869 rather than built through the `hkdf`
+/// crate or the module's label: the extract step is HMAC-SHA-256 keyed by
+/// the default salt of 32 zero bytes over the secret, and the identifier
+/// fits one expand block, HMAC-SHA-256 keyed by that pseudorandom key over
+/// the info label and the block counter `0x01`.
+fn transcribed_identifier(secret: &[u8; NETWORK_BYTES]) -> [u8; NETWORK_BYTES] {
+    let prk = hmac(&[0; 32], secret);
+    hmac(&prk, b"rumors network id\x01")[..NETWORK_BYTES]
+        .try_into()
+        .expect("an identifier is a prefix of one block")
+}
+
+proptest! {
+    /// A network's identifier is what RFC 5869's HKDF-SHA-256 derives from
+    /// its secret under the documented label.
+    #[test]
+    fn the_identifier_follows_rfc_5869(secret in any::<[u8; NETWORK_BYTES]>()) {
+        prop_assert_eq!(
+            NetworkSecret::from_bytes(secret).network().to_bytes(),
+            transcribed_identifier(&secret)
+        );
+    }
+
+    /// Two secrets give the same identifier exactly when they are the same
+    /// secret.
+    #[test]
+    fn identifiers_tell_secrets_apart(
+        a in any::<[u8; NETWORK_BYTES]>(),
+        b in any::<[u8; NETWORK_BYTES]>(),
+    ) {
+        prop_assert_eq!(
+            a == b,
+            NetworkSecret::from_bytes(a).network() == NetworkSecret::from_bytes(b).network()
+        );
+    }
+
+    /// A secret's `Debug` output names the type and nothing else: neither
+    /// its hex, nor its bytes in Rust's array form, appears in it.
+    #[test]
+    fn secret_debug_reveals_nothing(bytes in any::<[u8; NETWORK_BYTES]>()) {
+        let rendered = format!("{:?} {:#?}", NetworkSecret::from_bytes(bytes), NetworkSecret::from_bytes(bytes));
+        prop_assert_eq!(rendered, "NetworkSecret(..) NetworkSecret(..)");
     }
 }
 
-/// The scripted draws never fail, so `rand`'s blanket impl makes this an
-/// infallible `Rng`.
-impl TryRng for ZeroPrefix {
-    type Error = Infallible;
-
-    /// Return the next four bytes of the scripted draw sequence.
-    fn try_next_u32(&mut self) -> Result<u32, Infallible> {
-        let mut bytes = [0; size_of::<u32>()];
-        self.try_fill_bytes(&mut bytes)?;
-        Ok(u32::from_le_bytes(bytes))
-    }
-
-    /// Return the next eight bytes of the scripted draw sequence.
-    fn try_next_u64(&mut self) -> Result<u64, Infallible> {
-        let mut bytes = [0; size_of::<u64>()];
-        self.try_fill_bytes(&mut bytes)?;
-        Ok(u64::from_le_bytes(bytes))
-    }
-
-    /// Fill one draw with zero or the fixed valid byte, following the script.
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Infallible> {
-        self.draws += 1;
-        if self.zeros == 0 {
-            dest.fill(1);
-        } else {
-            self.zeros -= 1;
-            dest.fill(0);
-        }
-        Ok(())
-    }
-}
-
-/// Every permitted retry position accepts the first nonzero draw.
+/// Zeroizing a secret, which is what dropping one runs, clears every byte.
+///
+/// The drop itself cannot be observed: reading a value's memory after it
+/// drops takes `unsafe`, which the crate forbids. So this exercises the
+/// clearing the `Drop` impl calls, on a live value.
 #[test]
-fn each_allowed_draw_can_supply_the_network() {
-    for zero_draws in 0..NETWORK_DRAW_ATTEMPTS {
-        let mut rng = ZeroPrefix::new(zero_draws);
-
-        let network = Network::from_rng(&mut rng);
-
-        assert_eq!(network.to_bytes(), [1; NETWORK_BYTES]);
-        assert_eq!(rng.draws, zero_draws + 1);
-    }
-}
-
-/// Exhausting the bounded retries rejects the RNG instead of drawing again.
-#[test]
-fn exhausting_network_draws_panics() {
-    let mut rng = ZeroPrefix::new(NETWORK_DRAW_ATTEMPTS);
-
-    catch_unwind(AssertUnwindSafe(|| Network::from_rng(&mut rng)))
-        .expect_err("two reserved draws must reject the random source");
-
-    assert_eq!(rng.draws, NETWORK_DRAW_ATTEMPTS);
+fn zeroizing_clears_every_byte_of_the_secret() {
+    use zeroize::Zeroize;
+    let mut secret = NetworkSecret::from_bytes([0xa5; NETWORK_BYTES]);
+    secret.zeroize();
+    assert_eq!(secret.as_bytes(), &[0; NETWORK_BYTES]);
 }

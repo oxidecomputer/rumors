@@ -290,7 +290,9 @@ The transport has these responsibilities:
   has granted that party the session.
 - **Confidentiality.** Session traffic (message bodies, set sizes,
   version structure, the greeting's metadata) crosses the connection in
-  cleartext; the protocol adds no encryption of its own.
+  cleartext; the protocol adds no encryption of its own. The one exception
+  is the network's identity material that a provider hands a joining
+  peer, which travels sealed inside the session.
 - **Freshness.** The protocol does not authenticate a connection or a
   session as new; a transport that could replay recorded traffic into a
   live connection must rule that out itself.

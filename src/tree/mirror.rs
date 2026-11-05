@@ -26,10 +26,6 @@ pub(crate) mod cbor;
 pub(crate) mod framing;
 pub(crate) mod party;
 pub(crate) mod preamble;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no session runs the sealed exchange")
-)]
 pub(crate) mod secret;
 
 /// Whether `bound` is causally contained in `declared`: the version-

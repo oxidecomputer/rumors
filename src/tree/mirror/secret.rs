@@ -1,20 +1,28 @@
-//! The sealed exchange by which a provider hands a bootstrapping peer a
+//! The sealed exchange by which a provider hands a bootstrapping peer its
 //! network's secret.
 //!
-//! A network's secret must never cross the wire in the clear: the transport
-//! is assumed authenticated, not confidential, and an observer of the
-//! transport is in the crate's model. So the provider seals the secret to a
-//! key pair the joiner draws for this one session, with HPKE (RFC 9180), the
-//! IETF's standard public-key encryption:
+//! A peer that joins a network must come away holding the network's secret
+//! (`NetworkSecret`), and the secret must never cross the wire in the
+//! clear: the transport is assumed authenticated, not confidential, and an
+//! observer of the transport is in the crate's model. So the provider seals
+//! the secret to a key pair the joiner draws for this one session, with
+//! HPKE (RFC 9180), the IETF's standard public-key encryption:
 //!
 //! 1. The joiner draws an HPKE key pair and sends its public key in the
-//!    *key item*, `BOOTSTRAP_KEY_TAG(bstr(public key))`.
-//! 2. The provider reads and validates that key, and seals the secret to it
+//!    *key item*, `BOOTSTRAP_KEY_TAG(bstr(public key))`, in the same write as
+//!    its preamble, so the exchange adds no round trip. It sends the item
+//!    before it knows whether its counterparty provides; the preamble
+//!    exchange reads the key item of any counterparty whose preamble
+//!    declares bootstrapping, and one that is bootstrapping too discards
+//!    it.
+//! 2. The provider, once the preambles show its counterparty is
+//!    bootstrapping, reads and validates that key, and seals the secret to it
 //!    with HPKE's single-shot encryption in base mode. It sends the *sealed
 //!    item*, `NETWORK_SECRET_TAG(bstr(encapsulated key ‖ ciphertext ‖
-//!    tag))`.
-//! 3. The joiner opens the seal with its private key, against the network
-//!    identifier the provider declared.
+//!    tag))`, right after the preambles and ahead of its greeting.
+//! 3. The joiner opens the seal with its private key, and accepts the secret
+//!    only if its identifier is the network the provider's preamble
+//!    declared.
 //!
 //! # Ciphersuite and bindings
 //!
@@ -25,8 +33,9 @@
 //!
 //! HPKE's `info` input holds the domain label `"rumors bootstrap network
 //! secret"` and the protocol version, and its associated data holds the
-//! network identifier the provider declares. A seal therefore opens only in
-//! a bootstrap of this protocol version that declares the same network.
+//! network identifier the provider's preamble declared. A seal therefore
+//! opens only in a bootstrap of this protocol version that declares the
+//! same network.
 //!
 //! # What HPKE guarantees here
 //!
@@ -46,9 +55,10 @@
 //! identifies the provider, which is the only peer the joiner reads a
 //! sealed item from.
 //!
-//! Every primitive here is aligned with a FIPS algorithm standard: SP
-//! 800-56A ECDH over P-256 inside the KEM, SP 800-56C HKDF-SHA-256, and SP
-//! 800-38D AES-256-GCM. A validated deployment would swap in validated
+//! Every primitive here is aligned with a FIPS algorithm standard, as all
+//! of the crate's are (the `network` module lists them): SP 800-56A ECDH
+//! over P-256 inside the KEM, SP 800-56C HKDF-SHA-256, and SP 800-38D
+//! AES-256-GCM. A validated deployment would swap in validated
 //! implementations and an approved random source, without changing the
 //! protocol.
 //!
@@ -70,7 +80,7 @@ use zeroize::Zeroizing;
 use crate::{
     Error, Network, Protocol,
     error::{Phase, TransportOperation as Op},
-    network::NETWORK_BYTES,
+    network::{NETWORK_BYTES, NetworkSecret},
     observe::SessionHandle,
     tags::{BOOTSTRAP_KEY_TAG, NETWORK_SECRET_TAG},
     tree::mirror::cbor::{self, MAJOR_BSTR},
@@ -132,8 +142,7 @@ const fn item_prefix(tag: u64, len: usize) -> [u8; PREFIX_LEN] {
 }
 
 /// Bytes of the sealed item's byte string: the encapsulated key, the sealed
-/// secret, and its authentication tag. A network's secret is as wide as its
-/// identifier.
+/// secret, and its authentication tag.
 const SEALED_LEN: usize = ENCAPPED_KEY_LEN + NETWORK_BYTES + TAG_LEN;
 
 /// The key item's opening.
@@ -189,6 +198,16 @@ pub(crate) enum SecretDefect {
     /// version.
     #[error("the sealed network secret does not open")]
     Unauthentic,
+
+    /// The secret belongs to a network other than the one the provider's
+    /// preamble declared.
+    #[error("the network secret's identifier is {received:?}, not the declared {declared:?}")]
+    WrongNetwork {
+        /// The network the provider's preamble declared.
+        declared: Network,
+        /// The public identifier of the secret received.
+        received: Network,
+    },
 }
 
 /// The name of the key item, in defects.
@@ -221,7 +240,8 @@ impl Joining {
         Self { private, public }
     }
 
-    /// The key item announcing this side's public key.
+    /// The key item announcing this side's public key, to follow its
+    /// preamble.
     pub(crate) fn item(&self) -> [u8; KEY_ITEM_LEN] {
         let mut item = [0; KEY_ITEM_LEN];
         item[..PREFIX_LEN].copy_from_slice(&KEY_ITEM_PREFIX);
@@ -230,13 +250,13 @@ impl Joining {
     }
 
     /// Receive and open the sealed secret of the network `declared`, which
-    /// the provider named.
+    /// the provider's preamble named.
     pub(crate) async fn receive<R>(
         self,
         reader: &mut R,
         declared: Network,
         observe: &SessionHandle,
-    ) -> Result<Zeroizing<[u8; NETWORK_BYTES]>, Error>
+    ) -> Result<NetworkSecret, Error>
     where
         R: AsyncRead + Unpin + ?Sized,
     {
@@ -252,7 +272,7 @@ impl Joining {
         &self,
         item: &[u8; SEALED_ITEM_LEN],
         declared: Network,
-    ) -> Result<Zeroizing<[u8; NETWORK_BYTES]>, Error> {
+    ) -> Result<NetworkSecret, Error> {
         let violation = |defect| Error::violation(Phase::IdentityTransfer, defect);
         let (prefix, sealed) = item.split_at(PREFIX_LEN);
         if prefix != SEALED_ITEM_PREFIX {
@@ -275,14 +295,21 @@ impl Joining {
             &tag,
         )
         .map_err(|_| violation(SecretDefect::Unauthentic))?;
-        Ok(plaintext)
+        let secret = NetworkSecret::from_bytes(*plaintext);
+        let received = secret.network();
+        if received != declared {
+            return Err(violation(SecretDefect::WrongNetwork { declared, received }));
+        }
+        Ok(secret)
     }
 }
 
 /// A bootstrapping counterparty's validated public key, from its key item.
 pub(crate) struct JoinerKey(PublicKey);
 
-/// Validate a bootstrapping counterparty's key item.
+/// Validate a bootstrapping counterparty's key item, which the preamble
+/// exchange read after its preamble: by a provider, to seal the secret for
+/// it, and by a bootstrapping peer, before discarding it.
 ///
 /// The `hpke` crate's deserialization makes the public-key validation RFC
 /// 9180 requires (section 7.1.4, by SP 800-56A): the key must be the
@@ -299,19 +326,14 @@ pub(crate) fn decode_key(item: &[u8; KEY_ITEM_LEN]) -> Result<JoinerKey, Error> 
         .map_err(|_| violation(SecretDefect::InvalidKey { item: KEY_ITEM }))
 }
 
-/// Seal `secret`, a network's secret, to the bootstrapping counterparty
-/// whose key is `joiner`, bound to the network identifier `declared` this
-/// side declares.
+/// Seal `secret` to the bootstrapping counterparty whose key is `joiner`,
+/// bound to the network identifier `declared` this side's preamble sent.
 ///
 /// # Panics
 ///
 /// Panics if the operating system's random source fails.
-fn seal(
-    secret: &[u8; NETWORK_BYTES],
-    joiner: &JoinerKey,
-    declared: Network,
-) -> [u8; SEALED_ITEM_LEN] {
-    let mut sealed = Zeroizing::new(*secret);
+fn seal(secret: &NetworkSecret, joiner: &JoinerKey, declared: Network) -> [u8; SEALED_ITEM_LEN] {
+    let mut sealed = Zeroizing::new(*secret.as_bytes());
     let (encapped, tag) = single_shot_seal_inout_detached::<Aead, Kdf, Kem>(
         &OpModeS::Base,
         &joiner.0,
@@ -333,14 +355,17 @@ fn seal(
 
 /// Write the network's secret, sealed, to a bootstrapping counterparty.
 ///
-/// The item is not flushed here: the caller's next flush on the same write
-/// half delivers it.
+/// The item is not flushed here: the greeting follows it on the same write
+/// half before this side waits for anything from the joiner, and that
+/// greeting's flush delivers both. The joiner, which waits for this item
+/// before sending its greeting, therefore never waits on bytes held in a
+/// buffer.
 ///
 /// # Panics
 ///
 /// Panics if the operating system's random source fails.
 pub(crate) async fn send<W>(
-    secret: &[u8; NETWORK_BYTES],
+    secret: &NetworkSecret,
     joiner: &JoinerKey,
     declared: Network,
     writer: &mut W,

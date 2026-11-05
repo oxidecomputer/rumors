@@ -107,6 +107,7 @@ where
         preamble::preamble(
             network,
             Intent::Remain,
+            &[],
             &mut a_staged,
             &mut a_end.read,
             &mut a_end.write,
@@ -115,6 +116,7 @@ where
         preamble::preamble(
             network,
             Intent::Remain,
+            &[],
             &mut b_staged,
             &mut b_end.read,
             &mut b_end.write,

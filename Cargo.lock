@@ -2098,6 +2098,8 @@ dependencies = [
  "criterion",
  "futures",
  "hex",
+ "hkdf",
+ "hmac",
  "hpke",
  "insta",
  "itertools 0.14.0",
