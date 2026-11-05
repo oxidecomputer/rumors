@@ -15,6 +15,7 @@ use super::pipe::placed_over_pipe;
 use crate::message::Message;
 use crate::tree::arb::{nth_party, roots_at_depth};
 use crate::tree::mirror::streaming::testing::session::{completed, over_pipe};
+use crate::tree::typed::Path;
 use crate::tree::{Action, Root, Tree};
 
 /// An unlimited budget.
@@ -56,6 +57,38 @@ fn forks(shared: usize, own: usize) -> (Root, Root) {
         tree.root
     };
     (fork(1), fork(2))
+}
+
+/// Two forks of one network that both hold `shared` messages, where the
+/// first then redacts every shared message and each sends `own` messages
+/// the other lacks.
+///
+/// The second's subtrees then mix leaves the first's version knows, which
+/// it must not resend, with leaves the first lacks. Where the first holds
+/// nothing, the second supplies a subtree through the deletion filter,
+/// which drops every leaf the first knows.
+fn redacting_forks(shared: usize, own: usize) -> (Root, Root) {
+    let mut base = Tree::<()>::new();
+    base.act(
+        &nth_party(0),
+        (0..shared).map(|_| Action::Insert(Message::new(()))),
+    );
+    let paths: Vec<Path> = base
+        .iter()
+        .map(|(version, _)| Path::for_leaf(version))
+        .collect();
+    let mut redacting = base.clone();
+    redacting.act(&nth_party(1), paths.into_iter().map(Action::Forget));
+    redacting.act(
+        &nth_party(1),
+        (0..own).map(|_| Action::Insert(Message::new(()))),
+    );
+    let mut keeping = base;
+    keeping.act(
+        &nth_party(2),
+        (0..own).map(|_| Action::Insert(Message::new(()))),
+    );
+    (redacting.root, keeping.root)
 }
 
 /// Run one cell, `pair` at `budgets` over a pipe buffering `pipe` bytes,
@@ -146,6 +179,35 @@ fn placed_forks_complete_at_every_depth_and_budget() {
                 true,
                 &format!("depth {depth}"),
             );
+        }
+    }
+}
+
+/// Forks where one side redacted every shared message complete at every
+/// budget pair over every pipe, both sides holding the join.
+///
+/// The forks hold 300 shared messages beside 30 and 300 of each side's own,
+/// and 3,000 shared beside 300 over the two wider pipes. The keeping side's
+/// supplies pass through the deletion filter over mixed subtrees at every
+/// budget and pipe width.
+#[test]
+fn redacting_forks_complete_at_every_budget_over_every_pipe() {
+    for (shared, own, pipes) in [
+        (300, 30, &PIPES[..]),
+        (300, 300, &PIPES[..]),
+        (3_000, 300, &PIPES[1..]),
+    ] {
+        let pair = redacting_forks(shared, own);
+        for budgets in BUDGETS {
+            for &pipe in pipes {
+                assert_cell(
+                    pair.clone(),
+                    budgets,
+                    pipe,
+                    false,
+                    &format!("{shared} redacted+{own}"),
+                );
+            }
         }
     }
 }
