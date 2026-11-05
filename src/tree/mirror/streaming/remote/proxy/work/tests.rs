@@ -734,7 +734,8 @@ fn parking_past_its_capacity_fails_instead_of_waiting() {
                 answered: Scope::opening(&[]),
             })
         }));
-        run_to_quiescence(super::park(Box::pin(decoded), parking, CAPACITY, HEIGHT))
+        let lane = super::Lane::new(HEIGHT, CAPACITY, Speaker::Initiator);
+        run_to_quiescence(super::park(Box::pin(decoded), parking, lane))
             .expect("parking never waits")
     };
     assert!(

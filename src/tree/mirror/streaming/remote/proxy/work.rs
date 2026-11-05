@@ -41,6 +41,8 @@ use crate::{
 use self::progress::Progress;
 
 mod encode;
+#[cfg(test)]
+pub(crate) mod parking_census;
 pub(super) mod progress;
 mod queues;
 mod stages;
@@ -243,7 +245,8 @@ where
         let level = ReplyLevel::at::<H>();
         let (parking, mut parked, capacity) =
             queues::parked_replies(H::HEIGHT, self.window.capacity(H::HEIGHT));
-        self.spawn(park(Box::pin(decoded), parking, capacity, H::HEIGHT));
+        let lane = Lane::new(H::HEIGHT, capacity, self.physical.remote.other());
+        self.spawn(park(Box::pin(decoded), parking, lane));
         Box::pin(async_stream::stream! {
             while let Some(Parked { reply, answered }) = parked.recv().await {
                 let Some(scopes) = &mut publish else {
@@ -346,6 +349,55 @@ pub(super) struct Parked<E> {
     answered: Scope,
 }
 
+/// One parking queue: its height and derived capacity, and in test builds
+/// the local speaker of the side that parks there, which the parking census
+/// keys by (both sides park leaf replies).
+///
+/// Every parking event passes through a `Lane` method, which is where the
+/// test-only census hooks live; the parking path itself carries none.
+#[derive(Clone, Copy)]
+pub(super) struct Lane {
+    /// The typed height of the replies parked here.
+    height: usize,
+    /// The derived parking capacity ([`queues::parking_capacity`]), which an
+    /// overflow reports also when a test caps the channel below it.
+    capacity: usize,
+    /// The local speaker of the side that parks here.
+    #[cfg(test)]
+    local: Speaker,
+}
+
+/// Name a parking queue and record its traffic in test builds.
+impl Lane {
+    /// Name the parking queue of derived `capacity` at `height`, on the side
+    /// whose local speaker is `local`.
+    fn new(
+        height: usize,
+        capacity: usize,
+        #[cfg_attr(not(test), expect(unused_variables))] local: Speaker,
+    ) -> Self {
+        Self {
+            height,
+            capacity,
+            #[cfg(test)]
+            local,
+        }
+    }
+
+    /// Send `parked` into `parking` without waiting, and in test builds
+    /// record the queue in the parking census once a reply is parked.
+    fn try_park<E>(
+        self,
+        parking: &mut Sender<Parked<E>>,
+        parked: Parked<E>,
+    ) -> Result<(), TrySendError<Parked<E>>> {
+        parking.try_send(parked)?;
+        #[cfg(test)]
+        parking_census::parked(self);
+        Ok(())
+    }
+}
+
 /// Park decoded replies until their stage takes them.
 ///
 /// Parking holds every reply this side can have invited at its height
@@ -353,21 +405,24 @@ pub(super) struct Parked<E> {
 /// record of the local question it answers, so no reply finds it full while
 /// the count's premises hold. Parking therefore never waits: a full channel
 /// means a premise has failed, and the reply fails with
-/// [`Error::ParkingOverflow`] instead. `capacity` is the derived capacity
-/// the error reports, also when a test caps the channel below it. A closed
-/// channel means the stage is gone, and the task awaits cancellation as
-/// [`send_or_cancel`] does. Decode errors return to the executor without
-/// waiting for the stage.
+/// [`Error::ParkingOverflow`] instead, reporting the lane's derived
+/// capacity. A closed channel means the stage is gone, and the task awaits
+/// cancellation as [`send_or_cancel`] does. Decode errors return to the
+/// executor without waiting for the stage.
 async fn park<E: Send, Err: Send + 'static>(
     mut decoded: Pin<Box<dyn Stream<Item = Result<Parked<E>, Error<Err>>> + Send>>,
     mut parking: Sender<Parked<E>>,
-    capacity: usize,
-    height: usize,
+    lane: Lane,
 ) -> Result<(), Error<Err>> {
     while let Some(parked) = decoded.next().await {
-        match parking.try_send(parked?) {
+        match lane.try_park(&mut parking, parked?) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => return Err(Error::ParkingOverflow { height, capacity }),
+            Err(TrySendError::Full(_)) => {
+                return Err(Error::ParkingOverflow {
+                    height: lane.height,
+                    capacity: lane.capacity,
+                });
+            }
             Err(TrySendError::Closed(_)) => cancelled().await,
         }
     }

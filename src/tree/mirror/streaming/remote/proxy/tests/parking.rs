@@ -17,7 +17,7 @@ use crate::tree::{
         channel::{QueueKind, QueueRole, with_kind_capacity, with_observation, with_role_hold},
         materialized::Handshaking,
         mirror,
-        remote::Handshaking as RemoteHandshaking,
+        remote::{Handshaking as RemoteHandshaking, codec::Speaker, parking_census::with_census},
         window::{FAN, Window, WindowConfig},
     },
     typed::height::{Height, UnderUnderRoot},
@@ -144,23 +144,68 @@ fn scope_queue_capacity_law() {
     assert_eq!(scopes.blocked_send_polls, 0, "no scope publish waited");
 }
 
+/// The parking capacity a side on `window` derives at `height`, recomputed
+/// from the in-flight count.
+///
+/// The count is the window's queue, one dequeued question, and one reply's
+/// fan, or the height's whole question population, `256^(31 − h)`, where
+/// that is smaller.
+fn own_parking(window: Window, height: usize) -> usize {
+    let invited = window.capacity(height) + FAN + 1;
+    let exponent = u32::try_from(31 - height).expect("a parking height is at most 31");
+    match FAN.checked_pow(exponent) {
+        Some(population) => population.min(invited),
+        None => invited,
+    }
+}
+
 proptest! {
-    /// Peers on different windows complete and converge in either role.
+    /// Peers on different windows complete and converge in either role,
+    /// and each side sizes every parking queue from its own window.
     ///
-    /// Each side's parking depends only on its own window: a reply travels
-    /// only in answer to its receiver's own question, so a wide peer's many
-    /// questions park at the wide peer, and the narrow peer's count and
-    /// parking already cover what arrives toward it.
+    /// A reply travels only in answer to its receiver's own question, so a
+    /// wide peer's many questions park at the wide peer, and the narrow
+    /// peer's count and parking already cover what arrives toward it. The
+    /// parking census reports each queue's derived capacity and the side
+    /// that owns it, which the test holds to that side's window: sizing from
+    /// the peer's window, or from the smaller or larger of the two, gives a
+    /// different capacity wherever the two windows' counts differ.
     #[test]
-    fn mismatched_windows_complete_in_either_role((left, right) in arb_divergent_pair()) {
-        let narrow = WindowConfig::FLOOR;
-        let wide = WindowConfig::Fixed(Window::uniform(8));
+    fn mismatched_windows_size_parking_by_each_sides_window(
+        (left, right) in arb_divergent_pair(),
+    ) {
+        let narrow = Window::FLOOR;
+        let wide = Window::uniform(8);
         let expected = join_oracle(&left, &right);
+        // Equal ceilings converge in the greeting exchange, electing no
+        // roles and parking nothing.
+        let initiator_side = (left.ceiling != right.ceiling)
+            .then(|| if left_initiates(&left, &right) { 0 } else { 1 });
         for windows in [[narrow, wide], [wide, narrow]] {
-            let (a, b) = session(left.clone(), right.clone(), windows)
-                .expect("mismatched windows stay live");
+            let (result, peaks) = with_census(|| {
+                session(left.clone(), right.clone(), windows.map(WindowConfig::Fixed))
+            });
+            let (a, b) = result.expect("mismatched windows stay live");
             prop_assert_eq!(&a, &b);
             prop_assert_eq!(&a, &expected);
+            let Some(initiator_side) = initiator_side else {
+                prop_assert!(peaks.is_empty(), "a converged session parks nothing");
+                continue;
+            };
+            prop_assert!(!peaks.is_empty(), "a divergent session parks its opening reply");
+            for peak in peaks {
+                let side = match peak.owner {
+                    Speaker::Initiator => initiator_side,
+                    Speaker::Responder => 1 - initiator_side,
+                };
+                prop_assert_eq!(
+                    peak.capacity,
+                    own_parking(windows[side], peak.height),
+                    "{:?} parking at height {} is sized by another window",
+                    peak.owner,
+                    peak.height,
+                );
+            }
         }
     }
 }

@@ -77,3 +77,5 @@ pub use proxy::ControlRead;
 #[cfg(test)]
 pub use proxy::Error;
 pub use proxy::Handshaking;
+#[cfg(test)]
+pub(crate) use proxy::parking_census;

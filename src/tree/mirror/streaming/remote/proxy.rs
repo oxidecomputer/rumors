@@ -29,6 +29,8 @@ pub use error::Error;
 pub use start::Handshaking;
 pub use state::Connected;
 pub use work::ControlRead;
+#[cfg(test)]
+pub(crate) use work::parking_census;
 
 #[cfg(test)]
 mod tests;
