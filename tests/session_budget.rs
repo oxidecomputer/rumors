@@ -121,9 +121,11 @@
 //! - **The unattributed blocks** are the session's fixed overhead: the
 //!   tasks, channels, and buffers it sets up for every logical stream and
 //!   tree level, and its greeting's root fan, independent of the budget and
-//!   of the sets' sizes once the root's fan is full. They may be no more
-//!   than [the reference session](#the-reference-session)'s whole transient
-//!   peak.
+//!   of the sets' sizes once the root's fan is full. Admission's own
+//!   bookkeeping ([`Holding::Admission`]) is fixed overhead too: each walk
+//!   stage waits on one unit at a time, and a floor slot allocates nothing.
+//!   Together they may be no more than [the reference
+//!   session](#the-reference-session)'s whole transient peak.
 //!
 //! Each side must also copy at least one node, so that an exploded-node
 //! label that stopped counting cannot pass its bound vacuously. Wherever a
@@ -221,9 +223,9 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
 use rumors::testing::{
-    COMPARISON_FRAME_BYTES, Holding, LedgerChange, ReplyFit, SESSION_STREAMS, assembly_allowance,
-    attribute_allocations, join_snapshots, ledger_scratch, observe_fits, observe_ledgers,
-    report_allocations, supply_decode_envelope_bytes,
+    COMPARISON_FRAME_BYTES, Holding, LedgerChange, PLACES, ReplyFit, SESSION_STREAMS,
+    assembly_allowance, attribute_allocations, join_snapshots, ledger_scratch, observe_fits,
+    observe_ledgers, report_allocations, supply_decode_envelope_bytes,
 };
 use rumors::{Peer, Rumors, SessionStats};
 use rumors_testkit::bench::session::admitting;
@@ -448,7 +450,7 @@ struct LedgerEvent {
     held: usize,
     /// What it held for each place after the change, in [`Holding::ALL`]
     /// order.
-    places: [usize; 9],
+    places: [usize; PLACES],
     /// What charges built out of floor grants held after the change.
     floor: usize,
     /// What its floor slots carried for charges admitted against the
@@ -556,7 +558,7 @@ fn ledger_reports(
             // holds nothing.
             let (held, places) = match segment.checked_sub(1) {
                 Some(change) => (mine[change].held, mine[change].places),
-                None => (0, [0; 9]),
+                None => (0, [0; PLACES]),
             };
             uncovered = uncovered.max(peaks.all(segment).saturating_sub(held));
             for (place, slot) in slots.iter().enumerate() {
@@ -780,8 +782,8 @@ struct Measured {
     wire: u128,
     /// The bound on assembly.
     assembly: u128,
-    /// The bound on the unattributed blocks: the reference session's
-    /// larger transient peak.
+    /// The bound on the unattributed blocks and admission's bookkeeping
+    /// together: the reference session's larger transient peak.
     fixed: u128,
     /// The session under test.
     run: Run,
@@ -811,7 +813,8 @@ impl Measured {
     /// reach, for each class the ledger leaves out.
     ///
     /// The places the ledger charges ([`CHARGED`]) are bounded together, by
-    /// the ledger's own bound ([`Self::charged_bound`]).
+    /// the ledger's own bound ([`Self::charged_bound`]), and admission's
+    /// bookkeeping together with the unattributed blocks ([`Self::fixed`]).
     ///
     /// Each class the ledger leaves out may reach its allowance; the module
     /// docs derive every bound.
@@ -836,8 +839,8 @@ impl Measured {
     }
 
     /// The highest transient peak `side`'s allocations may reach in all:
-    /// its charged places' bound, every other holding's, and the
-    /// unattributed blocks' together.
+    /// its charged places' bound, every other holding's, and the bound on
+    /// the unattributed blocks and admission's bookkeeping together.
     fn side_bound(&self, side: Side) -> u128 {
         Holding::ALL
             .iter()
@@ -1054,10 +1057,11 @@ fn violation(measured: &Measured) -> Option<String> {
             ));
         }
         let unattributed = measured.run.unattributed[side.index()].transient_peak as u128;
-        if unattributed > measured.fixed {
+        let admission = measured.holding(side, Holding::Admission).transient_peak as u128;
+        if unattributed + admission > measured.fixed {
             return Some(format!(
-                "{side:?}'s unattributed peak of {unattributed} B exceeds the reference \
-                 session's transient peak of {} B: {report}",
+                "{side:?}'s unattributed peak of {unattributed} B and admission's peak of \
+                 {admission} B exceed the reference session's transient peak of {} B: {report}",
                 measured.fixed,
             ));
         }

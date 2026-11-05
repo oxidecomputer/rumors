@@ -68,13 +68,24 @@ pub enum Holding {
     /// For the in-memory backend these are the copies of shared compressed
     /// nodes that peeling one byte off a path makes.
     ExplodedNodes,
+    /// Admission's own bookkeeping: the units waiting for admission, the
+    /// queue that orders them, and the wakers that resume them.
+    ///
+    /// The charge leaves it out, as a fixed amount whatever the budget and
+    /// the sets' sizes, like the session's setup. A floor slot is a count in
+    /// the ledger's own account and allocates nothing; each unit the walk
+    /// asks to admit is queued as a waiter, and each walk stage asks for one
+    /// unit at a time, so at most one waiter per stage is queued at once.
+    /// Marking it apart keeps it out of whichever place's code admitted a
+    /// unit or released the bytes that let one in.
+    Admission,
 }
 
 impl Holding {
     /// Every place, in declaration order: how observers of ledgers and of
     /// the allocation meter index their accounts.
     #[cfg(any(test, feature = "test-internals"))]
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Questions,
         Self::Resolutions,
         Self::QuestionRecords,
@@ -84,6 +95,7 @@ impl Holding {
         Self::Wire,
         Self::Assembly,
         Self::ExplodedNodes,
+        Self::Admission,
     ];
 }
 

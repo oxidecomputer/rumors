@@ -168,7 +168,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 
 use super::{Account, Charge, widen};
-use crate::tree::mirror::streaming::holding::Holding;
+use crate::tree::mirror::streaming::holding::{Holding, held_by};
 
 /// The depths a scope can sit at, the root's 0 through the leaves' 32,
 /// each with one floor slot per kind of unit.
@@ -491,11 +491,17 @@ fn decide(
     ))
 }
 
-/// Admit every waiting unit the ledger now has room for, deepest first
-/// ([`admit_waiting`]).
+/// Admit every waiting unit the ledger now has room for, deepest first.
+///
+/// A unit that must keep waiting closes the budget to every shallower one,
+/// so deeper work is admitted first; a shallower unit may still take its
+/// own free floor slot.
+///
+/// For the session-budget meter, everything this allocates is admission's
+/// own ([`Holding::Admission`]), whichever place's release called it.
 fn reconsider(account: &Arc<Account>) {
     let queue = lock(&account.admission);
-    admit_waiting(account, queue, None);
+    held_by(Holding::Admission, || admit_waiting(account, queue, None));
 }
 
 /// Return the `bytes` a dropped charge for `place` holds, leave the floor
@@ -557,7 +563,7 @@ pub(super) fn release(
             None
         }
     };
-    admit_waiting(account, queue, freed);
+    held_by(Holding::Admission, || admit_waiting(account, queue, freed));
 }
 
 /// Count one fewer charge sharing `slot`: one folded into another charge
@@ -569,7 +575,9 @@ pub(super) fn release(
 pub(super) fn fold(account: &Arc<Account>, slot: Slot) {
     let queue = lock(&account.admission);
     if slot.leave(account, &queue.slots) {
-        admit_waiting(account, queue, Some(slot));
+        held_by(Holding::Admission, || {
+            admit_waiting(account, queue, Some(slot));
+        });
     }
 }
 
@@ -669,11 +677,8 @@ fn carry(account: &Account, queue: &mut Queue, slot: Slot) {
 }
 
 /// Let the slot `freed` names carry ([`carry`]), then admit every waiting
-/// unit the ledger has room for, under the lock `queue` holds.
-///
-/// Units are considered deepest first. A unit that must keep waiting closes
-/// the budget to every shallower one, so deeper work is admitted first; a
-/// shallower unit may still take its own free floor slot.
+/// unit the ledger has room for ([`reconsider`]), under the lock `queue`
+/// holds.
 fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>, freed: Option<Slot>) {
     if let Some(slot) = freed {
         carry(account, &mut queue, slot);
@@ -814,8 +819,18 @@ pub(crate) struct Admit {
 impl Admit {
     /// Queue a unit of `unit` kind concerning a scope at `depth`, whose
     /// items take at most `bytes`, and admit what the ledger has room for.
+    ///
+    /// For the session-budget meter, the waiting unit is admission's own
+    /// ([`Holding::Admission`]).
     pub(super) fn new(account: Arc<Account>, unit: Unit, depth: usize, bytes: u32) -> Self {
         assert!(depth < DEPTHS, "a scope sits at most 32 bytes deep");
+        held_by(Holding::Admission, || {
+            Self::queue(account, unit, depth, bytes)
+        })
+    }
+
+    /// Queue a unit and admit what the ledger has room for ([`Admit::new`]).
+    fn queue(account: Arc<Account>, unit: Unit, depth: usize, bytes: u32) -> Self {
         let waiter = {
             let mut queue = lock(&account.admission);
             let order = queue.next;
@@ -861,7 +876,7 @@ impl Future for Admit {
                 Poll::Ready(grant)
             }
             None => {
-                state.waker = Some(cx.waker().clone());
+                state.waker = Some(held_by(Holding::Admission, || cx.waker().clone()));
                 Poll::Pending
             }
         }
