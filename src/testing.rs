@@ -25,7 +25,7 @@ use crate::{
         },
         typed::{
             ErasedPrefix,
-            hash::{Hash, MERKLE_HASH_LEN as TREE_HASH_LEN},
+            hash::{Hash, MAX_BRANCH_PREIMAGE_LEN, MERKLE_HASH_LEN as TREE_HASH_LEN, PATH_LEN},
             height::{Height, Root},
             untyped::{self, census},
         },
@@ -443,6 +443,18 @@ pub fn ledger_scratch(holding: Holding) -> usize {
     };
     streams + greeting
 }
+
+/// The most bytes the in-memory backend's hashing holds at once on one
+/// thread ([`Holding::Hashing`]).
+///
+/// Computing a branch's hash allocates its preimage, a record per child,
+/// and frees it before the hash returns; the node keeps only the hash.
+/// Hashing never yields, so a thread holds the preimages of one hashing
+/// descent at a time, which nests one preimage per branch whose hash it
+/// computes along a path: at most one per path byte, since each branch
+/// below another sits at least one byte deeper. Each preimage holds at
+/// most a full fan's records beside a whole path's prefix.
+pub const HASHING_SCRATCH_BYTES: usize = PATH_LEN * MAX_BRANCH_PREIMAGE_LEN;
 
 /// The divisor `d` of the least share of its outgoing replies' allocations
 /// that one side's ledger charges to them over a session.

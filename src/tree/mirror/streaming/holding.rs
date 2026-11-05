@@ -82,13 +82,28 @@ pub enum Holding {
     /// keeps it out of whichever place's code admitted a unit or released
     /// the bytes that let one in.
     Admission,
+    /// Scratch a backend fills to compute a node's hash, beyond the hash it
+    /// keeps.
+    ///
+    /// For the in-memory backend this is the preimage a branch's hash is
+    /// computed over, a record per child, which lives only within the call
+    /// that computes the hash: the node keeps only the hash, inside its own
+    /// allocation. A copy that peeling makes starts with no hash, so the
+    /// first listing or comparison that reads it computes one.
+    ///
+    /// The charge leaves it out, as a fixed amount whatever the budget and
+    /// the sets' sizes. Hashing is synchronous, so a thread holds the
+    /// preimages of at most one hashing descent at once, and a descent
+    /// nests at most one preimage per branch along a path. Marking it apart
+    /// keeps it out of whichever place's code read the hash.
+    Hashing,
 }
 
 impl Holding {
     /// Every place, in declaration order: how observers of ledgers and of
     /// the allocation meter index their accounts.
     #[cfg(any(test, feature = "test-internals"))]
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Questions,
         Self::Resolutions,
         Self::QuestionRecords,
@@ -99,6 +114,7 @@ impl Holding {
         Self::Assembly,
         Self::ExplodedNodes,
         Self::Admission,
+        Self::Hashing,
     ];
 }
 

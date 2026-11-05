@@ -50,6 +50,18 @@ const BRANCH_TAG: u8 = 1;
 /// followed by its [`MERKLE_HASH_LEN`]-byte hash.
 const CHILD_RECORD_LEN: usize = 1 + MERKLE_HASH_LEN;
 
+/// Bytes a branch preimage holds before its prefix and child records: the
+/// domain tag, the prefix's length byte, and the child count, a big-endian
+/// `u16`.
+const BRANCH_HEADER_LEN: usize = 2 * size_of::<u8>() + size_of::<u16>();
+
+/// The most bytes [`Hash::branch`] allocates for one preimage in the typed
+/// tree: the header, a compressed prefix of at most [`PATH_LEN`] bytes, and
+/// a record for each child of a full fan.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) const MAX_BRANCH_PREIMAGE_LEN: usize =
+    BRANCH_HEADER_LEN + PATH_LEN + CHILD_RECORD_LEN * (u8::MAX as usize + 1);
+
 /// Hash canonical node layouts and expose their comparison bytes.
 impl Hash {
     /// One-shot Merkle hash of a contiguous byte slice: the leading
@@ -112,8 +124,9 @@ impl Hash {
         let prefix_len =
             u8::try_from(prefix.len()).expect("a compressed span fits in one length byte");
         let children = children.into_iter();
-        let mut buf =
-            Vec::with_capacity(4 + prefix.len() + CHILD_RECORD_LEN * children.size_hint().0);
+        let mut buf = Vec::with_capacity(
+            BRANCH_HEADER_LEN + prefix.len() + CHILD_RECORD_LEN * children.size_hint().0,
+        );
         buf.push(BRANCH_TAG);
         buf.push(prefix_len);
         buf.extend_from_slice(prefix);

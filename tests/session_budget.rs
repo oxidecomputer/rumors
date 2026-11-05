@@ -123,6 +123,16 @@
 //!   the replicas' sizes).
 //! - **Decode fans** hold at most a fan of decoded leaves for each logical
 //!   stream a side receives on.
+//! - **Hashing** holds the preimages the in-memory backend builds to
+//!   compute nodes' hashes. Listing or comparing a node computes its hash
+//!   on first use, and a copy that peeling makes starts with no hash. A
+//!   preimage lives only within the call that computes its hash, and the
+//!   node keeps only the hash, inside its own allocation, so a preimage
+//!   dies before its copy does. The driver polls every task on one thread
+//!   and hashing never yields, so a side holds the preimages of at most one
+//!   hashing descent at once, at most one per path byte
+//!   ([`HASHING_SCRATCH_BYTES`] derives the bound, independent of the
+//!   budget and the replicas' sizes).
 //! - **The unattributed blocks** are the session's fixed overhead: the
 //!   tasks, channels, and buffers it sets up for every logical stream and
 //!   tree level, and its greeting's root fan, independent of the budget and
@@ -205,20 +215,14 @@
 //!   ([`OUTGOING_REPLIES_FLOOR_DIVISOR`] derives the share). Coverage
 //!   alone cannot see a missing charge there: a chunk's charge returns
 //!   once its frames are written, so its items never outlive it by more
-//!   than the place's scratch. The floor's premise fails in two fixtures,
-//!   so the floor is not asserted for them:
-//!   - Where the deletion filter prunes, a supply answer can list a fan of
-//!     children of which one survives to be charged as a reaction, so no
-//!     share is derived: the redacting fixture.
-//!   - Listing or comparing a node computes its hash on first use, into a
-//!     buffer of a record per child that is freed at once and that no
-//!     charge pays for, inside the code the meter files under the outgoing
-//!     replies. The copies the walk peels of a node start with no hash, so
-//!     each is hashed anew. At the hashed fixtures' sizes the peeled nodes
-//!     have a child or two and the buffers are small; the placed fixture's
-//!     leaf parents have half a fan of children each, and their buffers
-//!     make up most of what the place allocates
-//!     ([`leaf_requests_keep_the_bound`]).
+//!   than the place's scratch. Computing a node's hash while an answer
+//!   lists or compares it is hashing's work, not the outgoing replies'
+//!   (above), so the placed fixture's half fans, each hashed anew on its
+//!   peeled copy, stay out of the share. The floor's premise fails where
+//!   the deletion filter prunes: a supply answer can list a fan of
+//!   children of which one survives to be charged as a reaction, so no
+//!   share is derived, and the floor is not asserted for the redacting
+//!   fixture.
 //!
 //! It also holds each ledger to its bound: at most the budget outside its
 //! floor slots, at most the peer's memory budget in all, and every item
@@ -273,10 +277,10 @@ use proptest::test_runner::TestRunner;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::testing::{
-    Admission, COMPARISON_FRAME_BYTES, Holding, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR,
-    PLACES, ReplyFit, SESSION_STREAMS, assembly_allowance, attribute_allocations, join_snapshots,
-    ledger_scratch, observe_admissions, observe_fits, observe_ledgers, report_allocations,
-    supply_decode_envelope_bytes, with_leaf_paths,
+    Admission, COMPARISON_FRAME_BYTES, HASHING_SCRATCH_BYTES, Holding, LedgerChange,
+    OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, SESSION_STREAMS, assembly_allowance,
+    attribute_allocations, join_snapshots, ledger_scratch, observe_admissions, observe_fits,
+    observe_ledgers, report_allocations, supply_decode_envelope_bytes, with_leaf_paths,
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::bench::session::admitting;
@@ -971,6 +975,7 @@ impl Measured {
             Holding::DecodedLeaves => Some(2 * supply_decode_envelope_bytes() as u128),
             Holding::Wire => Some(self.wire),
             Holding::Assembly => Some(self.assembly),
+            Holding::Hashing => Some(HASHING_SCRATCH_BYTES as u128),
             _ => None,
         }
     }
@@ -1062,9 +1067,12 @@ impl Measured {
                 ));
             }
             line.push_str(&format!(
-                " total gap {} B of {} B",
+                " total gap {} B of {} B; hashing peak {} B of {} B, {} B allocated",
                 ledger.uncovered,
-                ledger_slack()
+                ledger_slack(),
+                self.holding(side, Holding::Hashing).transient_peak,
+                HASHING_SCRATCH_BYTES,
+                self.allocated(side, Holding::Hashing),
             ));
         }
         for side in Side::BOTH {
@@ -1680,9 +1688,10 @@ fn count_leaf_request(admission: Admission) {
 /// is held to the records part of the question that asked about its
 /// parent.
 ///
-/// The outgoing replies' floor is not asserted: hashing each peeled copy
-/// of a leaf parent's half fan fills buffers its premise does not count
-/// (see the module docs).
+/// Each leaf parent's peeled copy is hashed anew over its half fan of
+/// children, so each side must hash: the hashing place's bound and the
+/// outgoing replies' floor, which leaves that hashing out, then both judge
+/// work that happened.
 ///
 /// A first build of the same network, outside the placement, learns each
 /// message's version, since forking and sending a reproducible network
@@ -1718,11 +1727,7 @@ fn leaf_requests_keep_the_bound() {
             release_everything,
         )
     });
-    let measured = Measured {
-        // Wide placed fans break the floor's premise (see the module docs).
-        outgoing_floor: false,
-        ..Measured::of(messages[0], 0, PLACED_BUDGET, run)
-    };
+    let measured = Measured::of(messages[0], 0, PLACED_BUDGET, run);
     let leaf_requests = LEAF_REQUESTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1733,6 +1738,13 @@ fn leaf_requests_keep_the_bound() {
     );
     if let Some(violation) = violation(&measured) {
         panic!("{violation}");
+    }
+    for side in Side::BOTH {
+        assert!(
+            measured.allocated(side, Holding::Hashing) > 0,
+            "{side:?} must hash a peeled copy: {}",
+            measured.report()
+        );
     }
     let most = leaf_requests
         .iter()

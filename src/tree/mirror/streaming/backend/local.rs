@@ -15,6 +15,7 @@ use crate::{
             Backend, ErasedNode, Leaf, Node, Radices, Root,
             backend::{BoxNodeStream, NodeStream},
             convert::Convert,
+            holding::{Holding, held_by},
         },
         typed::{
             self, Path, Prefix, SortedRun,
@@ -63,9 +64,12 @@ impl ErasedNode for typed::untyped::Node {
         self.span()
     }
 
-    /// Read the memoized subtree digest.
+    /// Read the memoized subtree digest, computing it on first read.
+    ///
+    /// For the session-budget meter, computing it is hashing's own work
+    /// ([`Holding::Hashing`]), whichever place's code read it.
     fn hash(&self) -> typed::Hash {
-        self.hash()
+        held_by(Holding::Hashing, || self.hash())
     }
 
     /// Return the stored leaf count.

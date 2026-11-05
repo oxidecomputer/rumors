@@ -252,6 +252,7 @@ fn place_index(place: Holding) -> usize {
         Holding::Assembly => 7,
         Holding::ExplodedNodes => 8,
         Holding::Admission => 9,
+        Holding::Hashing => 10,
     }
 }
 
