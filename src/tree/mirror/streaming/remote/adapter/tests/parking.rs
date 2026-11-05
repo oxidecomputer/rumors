@@ -36,7 +36,7 @@ use crate::{
 };
 
 use super::{
-    super::{ReplyLevel, Scope, decode_reply, encode_reply},
+    super::{LeafEdge, ReplyLevel, Scope, decode_reply, encode_reply},
     codec, hash, runtime, unbounded,
 };
 
@@ -117,6 +117,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     let mut frames = stream::iter(frames);
     let decoded = runtime
         .block_on(decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -206,6 +207,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let mut frames = stream::iter(frames);
     let decoded = runtime
         .block_on(decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),

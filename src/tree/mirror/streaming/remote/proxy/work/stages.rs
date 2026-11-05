@@ -39,7 +39,9 @@ use crate::{
             erased::Reply,
             protocol::{BoxResponses, Requests},
             remote::{
-                adapter::{DecodeError, Decoded, ReplyLevel, Scope, decode_reply, opening_reply},
+                adapter::{
+                    DecodeError, Decoded, LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply,
+                },
                 proxy::Error,
                 streams::{ReceiverFinish, StreamReceiver, StreamSender},
             },
@@ -53,14 +55,17 @@ impl<B> Ingress<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Decode one reply at `level` and the questions it asks.
+    /// Decode one reply at `level` and the questions it asks, through the
+    /// pump's leaf edge.
     async fn decode(
         &self,
+        edge: &mut LeafEdge<B>,
         level: ReplyLevel,
         scope: &Scope,
         incoming: &mut StreamReceiver,
     ) -> Result<Decoded<B::Erased>, DecodeError<B::Error>> {
         decode_reply(
+            edge,
             self.backend.clone(),
             self.version_bytes,
             self.ledger.clone(),
@@ -171,7 +176,8 @@ where
     /// The reply level follows from `H` ([`ReplyLevel::at`]), so a stage
     /// cannot decode leaf replies as branch replies or the reverse. The
     /// responder's terminal stream passes no scope sender; the wire grammar
-    /// excludes query reactions there.
+    /// excludes query reactions there. Every reply crosses one [`LeafEdge`],
+    /// which the pump owns for its whole run.
     fn decode_pump<H: Height>(
         &mut self,
         mut questions: Receiver<Scope>,
@@ -184,9 +190,11 @@ where
     + use<B, R, W, A, H> {
         let ingress = self.ingress();
         try_stream! {
+            let mut edge = LeafEdge::new();
             while let Some(scope) = questions.recv().await {
-                let Decoded { reply, questions } =
-                    ingress.decode(ReplyLevel::at::<H>(), &scope, &mut incoming).await?;
+                let Decoded { reply, questions } = ingress
+                    .decode(&mut edge, ReplyLevel::at::<H>(), &scope, &mut incoming)
+                    .await?;
                 if let Some(next_scopes) = &mut next_scopes {
                     yield_reply_scopes!(
                         progress, H::HEIGHT, questions.len();

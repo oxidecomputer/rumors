@@ -75,7 +75,7 @@ mod encode;
 mod error;
 mod scope;
 
-pub use decode::{Decoded, decode_reply, opening_reply};
+pub use decode::{Decoded, LeafEdge, decode_reply, opening_reply};
 pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_listing};
 #[cfg(test)]
 use error::ScopeError;

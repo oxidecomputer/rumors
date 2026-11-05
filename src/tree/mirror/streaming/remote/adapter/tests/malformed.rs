@@ -16,8 +16,8 @@ use crate::tree::{
 
 use super::{
     super::{
-        DecodeError, EncodeError, ReplyLevel, Scope, ScopeError, decode_reply, encode_leaf_reply,
-        encode_reply,
+        DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_reply,
+        encode_leaf_reply, encode_reply,
     },
     LeafCase, ascending_leaves, codec, colliding_leaves, hash, leaf_run, runtime, unbounded,
 };
@@ -39,6 +39,7 @@ fn bare_end_cannot_follow_reactions() {
     let error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
         decode_reply(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -66,6 +67,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
 
     let error = runtime().block_on(async {
         decode_reply(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -104,6 +106,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
     let decode_error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
         decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -156,6 +159,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
     let decode_error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
         decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -257,6 +261,7 @@ fn leaf_query_matrix_is_exhaustive() {
             let decoded = runtime().block_on(async {
                 let mut frames = stream::iter([expected_frame]);
                 decode_reply(
+                    &mut LeafEdge::new(),
                     Local,
                     u64::MAX,
                     unbounded(),
@@ -299,6 +304,7 @@ fn stream_end_is_not_a_protocol_reply() {
 
     let error = runtime()
         .block_on(decode_reply(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -352,6 +358,7 @@ fn leaf_order_is_enforced_within_one_run() {
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
         decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -395,6 +402,7 @@ fn leaf_scope_is_enforced_within_one_run() {
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
         decode_reply(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -435,6 +443,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
         decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),
@@ -482,6 +491,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
     runtime().block_on(async {
         let mut input = stream::iter(frames());
         decode_reply(
+            &mut LeafEdge::new(),
             Local,
             declared,
             unbounded(),
@@ -497,6 +507,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames());
         decode_reply(
+            &mut LeafEdge::new(),
             Local,
             declared - 1,
             unbounded(),
@@ -541,6 +552,7 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
     runtime().block_on(async {
         let mut input = stream::iter(frames);
         decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             SupplyLedger::new(declared),
@@ -595,6 +607,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
         decode_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
             u64::MAX,
             unbounded(),

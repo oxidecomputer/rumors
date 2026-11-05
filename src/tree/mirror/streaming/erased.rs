@@ -322,11 +322,11 @@ pub(crate) mod ops {
     /// The one dispatch keyed by an explicit height rather than a prefix:
     /// its input is a whole leaf stream, and the target height is the
     /// consuming scope's — whose prefix length the caller derives it from.
-    pub(crate) fn assemble<B>(
+    pub(crate) fn assemble<'a, B>(
         backend: B,
         height: usize,
-        leaves: BoxNodeStream<'static, B, Z>,
-    ) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send>>
+        leaves: BoxNodeStream<'a, B, Z>,
+    ) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send + 'a>>
     where
         B: Backend<Node<Z>: Leaf>,
     {

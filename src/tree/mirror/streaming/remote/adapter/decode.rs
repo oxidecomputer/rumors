@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, future::try_join, stream};
 
 use crate::{
     counter::widen,
@@ -35,20 +35,72 @@ pub struct Decoded<E> {
     pub questions: Vec<Scope>,
 }
 
-/// Create the bounded edge from wire decoding to leaf assembly.
-fn leaf_channel<B>(
-    capacity: usize,
-) -> (
-    Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
-    Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
-)
+/// One item on a [`LeafEdge`]: a decoded leaf on its way to assembly, or
+/// `None`, which closes the reply the preceding leaves belong to.
+pub(crate) type DecodedLeaf<N, E> = Option<Result<(Prefix<Z>, N), E>>;
+
+/// The bounded edge from wire decoding to leaf assembly, which every reply
+/// one decode pump decodes reuses.
+///
+/// A pump decodes its replies one after another, so one edge serves them
+/// all: the reader closes each reply with a `None` after its last leaf, and
+/// the assembler stops there. A reply whose decode fails leaves the edge
+/// holding the rest of that reply's leaves, so a failed decode ends the
+/// edge's use; the pump fails the session on it.
+pub struct LeafEdge<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    channel(
-        QueueRole::new(QueueKind::DecodedLeaves, Z::HEIGHT),
-        capacity,
-    )
+    /// The reader's half.
+    sender: Sender<DecodedLeaf<B::Node<Z>, B::Error>>,
+    /// The assembler's half.
+    receiver: Receiver<DecodedLeaf<B::Node<Z>, B::Error>>,
+}
+
+impl<B> LeafEdge<B>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    /// Create an edge of [`FAN`] slots.
+    ///
+    /// A full fan amortizes reader and assembler wakeups and lets parsing
+    /// run ahead when assembly is slower. Progress needs only one slot, which
+    /// the tests' one-slot edge establishes, so the fan is a throughput choice
+    /// whose maximum residency the window charges, not a liveness
+    /// requirement.
+    pub fn new() -> Self {
+        Self::with_capacity(FAN)
+    }
+
+    /// Create a one-slot edge.
+    ///
+    /// Test-only because production fixes the capacity at [`FAN`] for
+    /// bounded read-ahead. One slot, the smallest capacity a protocol edge
+    /// accepts, establishes whether progress depends on that performance
+    /// choice.
+    #[cfg(test)]
+    pub(super) fn one_slot() -> Self {
+        Self::with_capacity(1)
+    }
+
+    /// Create an edge of `capacity` slots.
+    fn with_capacity(capacity: usize) -> Self {
+        let (sender, receiver) = channel(
+            QueueRole::new(QueueKind::DecodedLeaves, Z::HEIGHT),
+            capacity,
+        );
+        Self { sender, receiver }
+    }
+}
+
+impl<B> Default for LeafEdge<B>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    /// Create an edge of [`FAN`] slots, as [`new`](Self::new).
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Replay the initiator's distinguished opening question from the root-fan
@@ -68,60 +120,21 @@ pub fn opening_reply<E>(listing: Vec<(u8, Hash)>) -> (Reply<E>, Scope) {
     )
 }
 
-/// Decode one reply at `level` and derive the questions it asks,
-/// validating each question's position against `scope`, the record of the
-/// question the reply answers.
+/// Decode one reply at `level` through `edge` and derive the questions it
+/// asks, validating each question's position against `scope`, the record
+/// of the question the reply answers.
 ///
 /// At [`ReplyLevel::Leaf`] only an empty request for the leaf is a valid
 /// query.
-pub async fn decode_reply<B, F>(
-    backend: B,
-    version_bytes: u64,
-    ledger: SupplyLedger,
-    level: ReplyLevel,
-    scope: &Scope,
-    frames: &mut F,
-    codec: PayloadCodec,
-) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
-where
-    B: Backend<Node<Z>: Leaf>,
-    F: Stream<Item = Frame> + Unpin,
-{
-    decode::<FAN, _, _>(backend, version_bytes, ledger, level, scope, frames, codec).await
-}
-
-/// Decode one non-leaf reply through a one-slot leaf channel.
 ///
-/// Test-only because production fixes the capacity at [`FAN`] for bounded
-/// read-ahead. One slot, the smallest capacity a protocol edge accepts,
-/// establishes whether progress depends on that performance choice.
-#[cfg(test)]
-pub(super) async fn decode_reply_one_slot<B, F>(
-    backend: B,
-    version_bytes: u64,
-    ledger: SupplyLedger,
-    scope: &Scope,
-    frames: &mut F,
-    codec: PayloadCodec,
-) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
-where
-    B: Backend<Node<Z>: Leaf>,
-    F: Stream<Item = Frame> + Unpin,
-{
-    decode::<1, _, _>(
-        backend,
-        version_bytes,
-        ledger,
-        ReplyLevel::Branch,
-        scope,
-        frames,
-        codec,
-    )
-    .await
-}
-
-/// Decode one reply while its supplied leaves are assembled concurrently.
-async fn decode<const LEAF_CAPACITY: usize, B, F>(
+/// The reply's supplied leaves cross `edge` to assembly while the reply is
+/// read. After an error the edge may hold leaves of the failed reply, so a
+/// caller decodes nothing further through it.
+// The edge, the session's decode limits, and the reply's level, scope, and
+// frames are separate inputs; the pump supplies the limits from its ingress.
+#[allow(clippy::too_many_arguments)]
+pub async fn decode_reply<B, F>(
+    edge: &mut LeafEdge<B>,
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
@@ -137,35 +150,23 @@ where
     // The reply's supplied runs group into nodes one level under the
     // scope's parent: the scope's own children height.
     let children_height = scope.parent().height() - 1;
-    // A full fan amortizes reader/assembler wakeups and lets parsing run ahead
-    // when assembly is slower. Progress needs only one slot: `join` polls both
-    // sides, and a blocked send wakes the assembler that drains it. The
-    // production fan is therefore a throughput choice whose maximum residency
-    // the window charges, not a liveness requirement.
-    let (tx, rx) = leaf_channel::<B>(LEAF_CAPACITY);
-    let read = ReadReply::read::<B, _>(version_bytes, &ledger, level, scope, frames, tx, codec);
-    let assemble = assemble_supplies::<B>(backend, children_height, rx);
-    let (read, assembled) = futures::future::join(read, assemble).await;
-    let Some(read) = read? else {
-        // `read` owns the channel's only sender until it has consumed the
-        // complete reply. `assemble_supplies` consumes until that sender is
-        // dropped, so it cannot return `Ok` early and close the receiver. A
-        // failed send therefore means that assembly stopped on a backend
-        // error. Propagate that error: treating the closed receiver as normal
-        // completion would discard the rejected leaf and could accept a reply
-        // whose decoded tree omits data that the peer supplied.
-        assembled?;
-        unreachable!("the assembler accepts leaves until it returns an error")
-    };
-    Ok(read.into_decoded(assembled?))
+    let LeafEdge { sender, receiver } = edge;
+    let read = ReadReply::read::<B, _>(version_bytes, &ledger, level, scope, frames, sender, codec);
+    let assemble = assemble_supplies::<B>(backend, children_height, receiver);
+    // The assembler returns `Ok` only after the reader's closing `None`, so
+    // the reader never waits on an assembler that has finished. An assembler
+    // that fails stops draining the edge, and `try_join` then drops the
+    // reader rather than leave it waiting on a full edge.
+    let (read, assembled) = try_join(read, assemble).await?;
+    Ok(read.into_decoded(assembled))
 }
 
-/// Fold the reply's one-slot leaf stream into complete nodes at the
-/// scope's children height.
+/// Fold one reply's leaves from the edge into complete nodes at the scope's
+/// children height, stopping at the reply's closing `None`.
 async fn assemble_supplies<B>(
     backend: B,
     height: usize,
-    leaves: Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    leaves: &mut Receiver<DecodedLeaf<B::Node<Z>, B::Error>>,
 ) -> Result<Vec<(ErasedPrefix, B::Erased)>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -178,24 +179,34 @@ where
     Ok(nodes)
 }
 
-/// Stream decoded leaves through the backend's node assembler.
+/// Stream one reply's decoded leaves through the backend's node assembler.
 ///
-/// The channel accounts for decoded leaves awaiting the backend. Any further
+/// The edge accounts for decoded leaves awaiting the backend. Any further
 /// buffering used to construct a node belongs to that backend; `Local`, for
 /// example, keeps one complete same-prefix run as replica storage.
-fn assembly<B>(
+///
+/// The stream ends at the reply's closing `None`, and is fused, so the
+/// assembler cannot read past it into the next reply's leaves.
+fn assembly<'a, B>(
     backend: B,
     height: usize,
-    leaves: Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
-) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send>>
+    leaves: &'a mut Receiver<DecodedLeaf<B::Node<Z>, B::Error>>,
+) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send + 'a>>
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    // A closed edge yields `None` too, but the edge's owner holds both
+    // halves, so only the reader's closing `None` ends a reply.
+    let reply = stream::poll_fn(move |cx| leaves.poll_next_unpin(cx).map(Option::flatten)).fuse();
     #[cfg(test)]
-    let leaves = leaves.inspect(|_| fan_probe::on_recv());
-    let leaves: BoxNodeStream<'static, B, Z> = Box::pin(leaves);
-    ops::assemble(backend, height, leaves)
+    let reply = reply.inspect(|_| fan_probe::on_recv());
+    let reply: BoxNodeStream<'a, B, Z> = Box::pin(reply);
+    ops::assemble(backend, height, reply)
 }
+
+/// Why a send on a [`LeafEdge`] cannot fail: the edge owns its receiver,
+/// and the reader sends only while the edge is borrowed for its reply.
+const EDGE_OPEN: &str = "the edge holds its receiver while the reader sends on it";
 
 /// A validated reply skeleton and the scopes its queries created.
 struct ReadReply {
@@ -208,22 +219,17 @@ struct ReadReply {
 }
 
 impl ReadReply {
-    /// Read and validate one reply while sending supplied leaves to assembly.
-    ///
-    /// Returns `None` when assembly drops the leaf receiver before the reply
-    /// is complete. [`decode`] keeps the sender alive for this entire future,
-    /// so a conforming assembler can close the channel early only by failing.
-    /// The joined assembler future then carries the backend error that caused
-    /// the rejected leaf.
+    /// Read and validate one reply while sending its supplied leaves to
+    /// assembly, then close the reply on the edge with `None`.
     async fn read<B, F>(
         version_bytes: u64,
         ledger: &SupplyLedger,
         level: ReplyLevel,
         scope: &Scope,
         frames: &mut F,
-        mut leaves: Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+        leaves: &mut Sender<DecodedLeaf<B::Node<Z>, B::Error>>,
         codec: PayloadCodec,
-    ) -> Result<Option<Self>, DecodeError<B::Error>>
+    ) -> Result<Self, DecodeError<B::Error>>
     where
         B: Backend<Node<Z>: Leaf>,
         F: Stream<Item = Frame> + Unpin,
@@ -285,9 +291,10 @@ impl ReadReply {
                             .map_err(DecodeError::Backend)?;
                         #[cfg(test)]
                         fan_probe::on_send();
-                        if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
-                            return Ok(None);
-                        }
+                        leaves
+                            .send(Some(Ok((leaf_prefix, leaf))))
+                            .await
+                            .expect(EDGE_OPEN);
                     }
                 }
             }
@@ -296,7 +303,8 @@ impl ReadReply {
                 break;
             }
         }
-        Ok(Some(read))
+        leaves.send(None).await.expect(EDGE_OPEN);
+        Ok(read)
     }
 
     /// Replace supply placeholders with assembled nodes and finish the reply.

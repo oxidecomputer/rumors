@@ -16,7 +16,7 @@ use crate::tree::{
 };
 
 use super::{
-    super::{DecodeError, EncodeError, ReplyLevel, Scope, decode_reply, encode_reply},
+    super::{DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, decode_reply, encode_reply},
     LeafCase, NodeAt, codec, hash, leaf_run, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::{
@@ -163,6 +163,7 @@ where
             ]);
             let error = runtime
                 .block_on(decode_reply::<Failing<Local>, _>(
+                    &mut LeafEdge::new(),
                     backend.clone(),
                     u64::MAX,
                     unbounded(),
