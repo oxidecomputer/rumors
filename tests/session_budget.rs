@@ -75,6 +75,11 @@
 //! larger, unless one supplied record alone outgrows it, and the wire pools
 //! below hold a couple of such frames each way.
 //!
+//! One test instead sends byte vectors larger than serde's preallocation
+//! cap at the default target ([`large_byte_vectors_keep_the_bound`]), so
+//! that decoding a payload outgrows a buffer and runs travel whole, within
+//! the run budget and past it, beside the pools.
+//!
 //! # Attribution
 //!
 //! The session marks the code that allocates for each place it keeps state
@@ -294,6 +299,8 @@ use rumors_testkit::common::property::divided_cases;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
 use rumors_testkit::divided_proptest;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::io::BufReader;
 
 /// Messages each side of the per-budget fixtures holds that the other
@@ -332,10 +339,11 @@ const EVENTS_PER_MESSAGE: usize = 128;
 /// Trace events reserved for a session's setup, whatever its size.
 const SETUP_EVENTS: usize = 1 << 16;
 
-/// What one fixture's construction allocated, and the peers it built.
-struct Fixture {
+/// What one fixture's construction allocated, and the peers it built, whose
+/// messages are `T`.
+struct Fixture<T: Send + Sync + 'static> {
     /// The two peers, `A` then `B`.
-    peers: [Rumors<u64>; 2],
+    peers: [Rumors<T>; 2],
     /// What each side's sends allocated, in [`Side::BOTH`] order: building
     /// its own messages into its replica.
     sends: [Stats; 2],
@@ -370,7 +378,7 @@ const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001)
 /// message's value names its side and its place among that side's sends.
 /// The seed makes the network reproducible, and with it every message's
 /// version, since forking and sending are deterministic.
-fn fixture(network: NetworkSeed, messages: [u64; 2], redacted: u64, budget: usize) -> Fixture {
+fn fixture(network: NetworkSeed, messages: [u64; 2], redacted: u64, budget: usize) -> Fixture<u64> {
     let configure = |peer: Peer<u64>| {
         rumors::testing::ledger_budget(peer, budget).target_message_size(COMPARISON_FRAME_BYTES)
     };
@@ -739,12 +747,15 @@ fn run_session(
 /// # Panics
 ///
 /// As [`run_session`].
-fn run_fixture(
-    build: impl FnOnce() -> Fixture,
+fn run_fixture<T>(
+    build: impl FnOnce() -> Fixture<T>,
     messages: [u64; 2],
     budget: usize,
     schedule: impl FnMut([usize; 2]) -> Release,
-) -> Run {
+) -> Run
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
     assert!(
         attribute_allocations(attribute),
         "this suite's hook is the process's attribution hook"
@@ -882,6 +893,12 @@ struct Measured {
     budget: usize,
     /// The bound on wire buffering.
     wire: u128,
+    /// The bound on the decode fans.
+    decoded: u128,
+    /// Bytes each side's replica may keep beyond what building the merged
+    /// replica directly allocates, for messages whose decoding keeps more
+    /// than their sender's sends built.
+    replica_slack: u128,
     /// The bound on assembly.
     assembly: u128,
     /// The bound on the unattributed blocks and admission's bookkeeping
@@ -934,6 +951,8 @@ impl Measured {
             messages,
             budget,
             wire: wire_allowance(COMPARISON_FRAME_BYTES) as u128,
+            decoded: DECODE_AHEAD_BYTES as u128,
+            replica_slack: 0,
             assembly: assembly_allowance() as u128,
             fixed,
             outgoing_floor: redacted == 0,
@@ -952,7 +971,7 @@ impl Measured {
     /// docs derive every bound.
     fn holding_bound(&self, holding: Holding) -> Option<u128> {
         match holding {
-            Holding::DecodedLeaves => Some(DECODE_AHEAD_BYTES as u128),
+            Holding::DecodedLeaves => Some(self.decoded),
             Holding::Wire => Some(self.wire),
             Holding::Assembly => Some(self.assembly),
             Holding::Hashing => Some(HASHING_SCRATCH_BYTES as u128),
@@ -984,11 +1003,11 @@ impl Measured {
     }
 
     /// The most bytes of survivors `side`'s replica may keep: the bytes the
-    /// peer's messages took when its own sends built them, and the interior
-    /// a join of the two replicas builds.
+    /// peer's messages took when its own sends built them, the interior a
+    /// join of the two replicas builds, and the replica slack.
     fn replica_bound(&self, side: Side) -> u128 {
         let built = |stats: Stats| u128::try_from(stats.net_bytes).unwrap_or(0);
-        built(self.run.sends[side.peer().index()]) + built(self.run.join)
+        built(self.run.sends[side.peer().index()]) + built(self.run.join) + self.replica_slack
     }
 
     /// A side's classified blocks.
@@ -1111,6 +1130,31 @@ fn attribute(holding: Holding, region: &mut dyn FnMut()) {
 /// Returns why a measured session falls outside a bound or fails to show
 /// that the budget constrained it, or `None` if it passes.
 fn violation(measured: &Measured) -> Option<String> {
+    if let Some(violation) = bound_violation(measured) {
+        return Some(violation);
+    }
+    let report = measured.report();
+    // Every divergent fixture's replies ask questions; a joining session's
+    // need not, so this floor lives here rather than with the ledger's.
+    if measured.run.fits.records == 0 {
+        return Some(format!(
+            "no reply's questions derived a record, so the records part's fit stopped \
+             counting: {report}"
+        ));
+    }
+    if Side::BOTH
+        .into_iter()
+        .all(|side| measured.run.ledgers[side.index()].waited == 0)
+    {
+        return Some(format!("no unit ever waited for admission: {report}"));
+    }
+    None
+}
+
+/// Returns why a measured session falls outside a bound, or `None` if it
+/// stays within every one: [`violation`]'s checks short of the two that
+/// show the budget constrained a divergent fixture.
+fn bound_violation(measured: &Measured) -> Option<String> {
     let report = measured.report();
     let unlabelled = measured.run.unlabelled;
     if unlabelled.transient_blocks + unlabelled.surviving_blocks > 0 {
@@ -1209,20 +1253,6 @@ fn violation(measured: &Measured) -> Option<String> {
     }
     if let Some(violation) = ledger_violation(&measured.run, measured.budget) {
         return Some(format!("{violation}: {report}"));
-    }
-    // Every divergent fixture's replies ask questions; a joining session's
-    // need not, so this floor lives here rather than with the ledger's.
-    if measured.run.fits.records == 0 {
-        return Some(format!(
-            "no reply's questions derived a record, so the records part's fit stopped \
-             counting: {report}"
-        ));
-    }
-    if Side::BOTH
-        .into_iter()
-        .all(|side| measured.run.ledgers[side.index()].waited == 0)
-    {
-        return Some(format!("no unit ever waited for admission: {report}"));
     }
     None
 }
@@ -1982,5 +2012,168 @@ divided_proptest! {
             "at {top} B the session must run as with no budget: {top_hops} hops against \
              {unlimited}, {top_waits} units waited"
         );
+    }
+}
+
+/// The byte-vector payloads [`large_byte_vectors_keep_the_bound`] sends, in
+/// bytes, each with the number of messages each side sends.
+///
+/// The first is past the preallocation cap serde's sequence decoding keeps
+/// to, 1 MiB, so decoding it outgrows a buffer, and within the default
+/// target's run budget, so it travels in a run of its own beside the wire
+/// pools. The second is a mebibyte past the largest budgeted message, so it
+/// travels alone, beyond the run budget, and holds its excess beside the
+/// pools as it crosses.
+const LARGE_PAYLOADS: [(usize, u64); 2] = [
+    ((1 << 20) + (1 << 16), 4),
+    (rumors::MAX_BUDGETED_MESSAGE_SIZE + (1 << 20), 2),
+];
+
+/// The most a lone record's message holds beyond its payload's encoding: its
+/// frame and run heads, at most nine bytes each, and its version, which
+/// encodes in under a hundred bytes in the two-party networks here.
+const RECORD_FRAMING: usize = 1 << 10;
+
+/// Two forks of the network `network` names, each holding `count`
+/// byte-vector messages of `payload` bytes that the other lacks, at the
+/// default target and on a memory budget whose ledger admits work against
+/// `budget`.
+///
+/// Each message's first eight bytes are its index among its side's sends,
+/// and the rest its side's number, so every message is distinct.
+fn payload_fixture(
+    network: NetworkSeed,
+    payload: usize,
+    count: u64,
+    budget: usize,
+) -> Fixture<Vec<u8>> {
+    let configure = |peer: Peer<Vec<u8>>| {
+        rumors::testing::ledger_budget(peer, budget)
+            .target_message_size(rumors::default::TARGET_MESSAGE_SIZE)
+    };
+    let (built, [a, b]) = measure(|| {
+        block_on(async {
+            let seed = network.peer::<Vec<u8>>().into_rumors();
+            [
+                bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
+                bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
+            ]
+        })
+    });
+    let payloads = move |side: u8| {
+        (0..count).map(move |index| {
+            let mut bytes = vec![side; payload];
+            bytes[..8].copy_from_slice(&index.to_le_bytes());
+            bytes
+        })
+    };
+    let (a_sends, ()) = measure(|| a.send_all(payloads(1)).expect("A's messages encode"));
+    let (b_sends, ()) = measure(|| b.send_all(payloads(2)).expect("B's messages encode"));
+    let (join, joined) = measure(|| join_snapshots(&a.snapshot(), &b.snapshot()));
+    drop(joined);
+    let allocations = [built, a_sends, b_sends, join]
+        .iter()
+        .map(|stats| stats.allocations + stats.reallocations)
+        .sum();
+    Fixture {
+        peers: [a, b],
+        sends: [a_sends, b_sends],
+        join,
+        allocations,
+    }
+}
+
+/// The allocator events reserved for tracing [`decoding`]: a vector's
+/// decoding makes one allocation and one reallocation per doubling of its
+/// buffer, a few dozen for any payload here.
+const DECODING_EVENTS: usize = 1 << 10;
+
+/// What decoding one `payload`-byte vector from its encoding allocates, as
+/// a session decodes a received message's payload: `ciborium` from the
+/// encoded bytes, through serde's sequence visitor.
+///
+/// Returns the encoding's length, the bytes the decoded vector keeps, and
+/// the transient peak of the blocks the decoding freed before returning,
+/// classified by the same trace the session's blocks are.
+fn decoding(payload: usize) -> (usize, usize, usize) {
+    let mut encoded = Vec::new();
+    ciborium::into_writer(&vec![1u8; payload], &mut encoded).expect("a byte vector encodes");
+    let (traced, decoded) = trace(DECODING_EVENTS, || {
+        ciborium::from_reader::<Vec<u8>, _>(encoded.as_slice()).expect("the encoding decodes")
+    });
+    assert_eq!(decoded.len(), payload, "the decoding restores the vector");
+    let blocks = traced
+        .lifetimes()
+        .unwrap_or_else(|incomplete| panic!("raise DECODING_EVENTS: {incomplete:?}"))
+        .label(Label::NONE);
+    (encoded.len(), blocks.surviving_bytes, blocks.transient_peak)
+}
+
+/// Byte-vector payloads larger than serde's preallocation cap, within the
+/// run budget and past it, keep each place within its bound, the decoding
+/// and the lone record's excess within what the budget documents as
+/// outside it.
+///
+/// The suite's other fixtures carry `u64` payloads at a run target of one
+/// comparison, so they never decode a payload past serde's cap or read a
+/// run over one payload granule. Here each side sends [`LARGE_PAYLOADS`] at
+/// the default target, and the session is held to the suite's bounds
+/// ([`bound_violation`]) with three of them widened, each by what
+/// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) names as
+/// held beyond the budget, computed independently of the session:
+///
+/// - Wire buffering may also hold, in each direction, a lone record's
+///   excess over the largest budgeted message
+///   ([`MAX_BUDGETED_MESSAGE_SIZE`](rumors::MAX_BUDGETED_MESSAGE_SIZE)),
+///   its message taken as its payload's encoding and [`RECORD_FRAMING`].
+/// - The decode fans may also hold one message's decoding transient, which
+///   [`decoding`] measures by decoding the same payload alone.
+/// - Each replica may keep, for each message it gains, what the decoded
+///   vector keeps beyond the payload's own length, since serde's decoding
+///   grows its buffer by doubling and keeps the capacity it reached, where
+///   the sender built the vector at its exact length.
+///
+/// So that the bounds judge the regions they name, each session must have
+/// decoded beyond the decode fans' own bound, and a payload past the run
+/// budget must have held more on the wire than one budgeted message.
+#[test]
+fn large_byte_vectors_keep_the_bound() {
+    reference();
+    for (payload, count) in LARGE_PAYLOADS {
+        let (encoded, kept, transient) = decoding(payload);
+        let run = run_fixture(
+            || payload_fixture(BUDGET_NETWORK_SEED, payload, count, 0),
+            [count; 2],
+            0,
+            release_everything,
+        );
+        let mut measured = Measured::of(count, 0, 0, run);
+        let excess = (encoded + RECORD_FRAMING).saturating_sub(rumors::MAX_BUDGETED_MESSAGE_SIZE);
+        measured.wire = (wire_allowance(rumors::default::TARGET_MESSAGE_SIZE) + 2 * excess) as u128;
+        measured.decoded = (DECODE_AHEAD_BYTES + transient) as u128;
+        measured.replica_slack = u128::from(count) * (kept - payload) as u128;
+        println!("{payload}-byte payloads: {}", measured.report());
+        if let Some(violation) = bound_violation(&measured) {
+            panic!("{payload}-byte payloads: {violation}");
+        }
+        for side in Side::BOTH {
+            let decoded = measured
+                .holding(side, Holding::DecodedLeaves)
+                .transient_peak;
+            assert!(
+                decoded > DECODE_AHEAD_BYTES,
+                "{side:?} decoded {payload}-byte payloads within the decode fans' own bound, \
+                 {decoded} B, so no decoding transient was judged",
+            );
+            if excess > 0 {
+                let wire = measured.holding(side, Holding::Wire).transient_peak;
+                assert!(
+                    wire > rumors::MAX_BUDGETED_MESSAGE_SIZE,
+                    "{side:?} held {wire} B on the wire for {payload}-byte payloads past the run \
+                     budget, no more than one budgeted message, so no lone record's excess was \
+                     judged",
+                );
+            }
+        }
     }
 }
