@@ -135,15 +135,19 @@ where
     where
         Self: 'a,
     {
-        Box::pin(async move {
-            let Handshaken {
-                client: local,
-                server: remote,
-                local_key,
-                remote_key,
-            } = self;
-            descend(local, remote, local_key, remote_key).await
-        })
+        Box::pin(self.descent())
+    }
+
+    /// The reconciliation [`reconcile`](Self::reconcile) boxes, unboxed, so
+    /// that a test can read its size from its type.
+    pub(crate) async fn descent(self) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>> {
+        let Handshaken {
+            client: local,
+            server: remote,
+            local_key,
+            remote_key,
+        } = self;
+        descend(local, remote, local_key, remote_key).await
     }
 }
 

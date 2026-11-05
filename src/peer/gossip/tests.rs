@@ -6,6 +6,9 @@
 //! completion failures happen after commit; bootstrap constructs no peer.
 
 mod notifications;
+// The session futures hold pointers; their baselines are 64-bit sizes.
+#[cfg(target_pointer_width = "64")]
+mod session_size;
 
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::run_to_quiescence;

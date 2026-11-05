@@ -64,6 +64,14 @@ type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 /// or completion.
 type Reconciled<'a> = (tree::Root, PipeRead<DynRead<'a>>, DynWrite<'a>);
 
+/// The in-process participant every reconciliation starts: the walk over
+/// the local replica's tree.
+type LocalParticipant = materialized::Handshaking<Local, materialized::Start>;
+
+/// The wire-bound participant every reconciliation starts: the proxy over
+/// the session's erased halves.
+type RemoteParticipant<'a> = streaming_remote::Handshaking<Local, DynRead<'a>, DynWrite<'a>>;
+
 /// The outcome of [`Peer::retire`].
 ///
 /// [`Retired`](Self::Retired) and [`Declined`](Self::Declined) completed the
@@ -860,35 +868,40 @@ impl<'a> Reconciliation<'a> {
     /// erasure back into downstream code.
     #[inline(never)]
     fn reconcile(self) -> BoxFuture<'a, Result<Reconciled<'a>, Error>> {
-        Box::pin(async move {
-            let Self {
-                root,
-                read,
-                write,
-                codec,
-                sync_memory_budget,
-                run_budget,
-                stats,
-                observe,
-                remote_role,
-            } = self;
-            let local =
-                materialized::Handshaking::start(Local, root.into(), run_budget.bytes() as u64)
-                    .sync_memory_budget(sync_memory_budget)
-                    .stats(stats.clone());
-            let proxy = streaming_remote::Handshaking::start(Local, read, write, codec)
+        Box::pin(self.session())
+    }
+
+    /// The reconciliation [`reconcile`](Self::reconcile) boxes, unboxed, so
+    /// that a test can read its size from its type.
+    async fn session(self) -> Result<Reconciled<'a>, Error> {
+        let Self {
+            root,
+            read,
+            write,
+            codec,
+            sync_memory_budget,
+            run_budget,
+            stats,
+            observe,
+            remote_role,
+        } = self;
+        let local: LocalParticipant =
+            materialized::Handshaking::start(Local, root.into(), run_budget.bytes() as u64)
+                .sync_memory_budget(sync_memory_budget)
+                .stats(stats.clone());
+        let proxy: RemoteParticipant<'a> =
+            streaming_remote::Handshaking::start(Local, read, write, codec)
                 .stats(stats)
                 .observe(observe);
-            let handshaken = streaming::handshake(local, proxy)
-                .await
-                .map_err(streaming_remote::streaming_error(Phase::Greeting))?;
-            remote_role.validate(handshaken.remote_version())?;
-            let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-            let (root, (read, write)) = descent
-                .await
-                .map_err(streaming_remote::streaming_error(Phase::Reconciliation))?;
-            Ok((root.into(), read, write))
-        })
+        let handshaken = streaming::handshake(local, proxy)
+            .await
+            .map_err(streaming_remote::streaming_error(Phase::Greeting))?;
+        remote_role.validate(handshaken.remote_version())?;
+        let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+        let (root, (read, write)) = descent
+            .await
+            .map_err(streaming_remote::streaming_error(Phase::Reconciliation))?;
+        Ok((root.into(), read, write))
     }
 }
 
