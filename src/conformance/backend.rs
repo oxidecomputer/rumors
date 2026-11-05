@@ -57,7 +57,7 @@ use crate::{
             byte_set::ByteSet, convert::Convert, materialized, ops,
         },
         typed::{
-            Hash, Path, Prefix,
+            ErasedPrefix, Hash, Path, Prefix,
             height::{self, Height, S, Z},
         },
     },
@@ -264,8 +264,8 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
         self.inner().span()
     }
 
-    fn hash(&self) -> Hash {
-        self.inner().hash()
+    fn hash(&self, at: &ErasedPrefix) -> Hash {
+        self.inner().hash(at)
     }
 
     fn len(&self) -> usize {
@@ -273,18 +273,18 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
     }
 
     /// Read the wrapped node's grandchild count.
-    fn grandchild_count(&self) -> usize {
-        self.inner().grandchild_count()
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize {
+        self.inner().grandchild_count(at)
     }
 
     /// Read the wrapped node's child count.
-    fn child_count(&self) -> usize {
-        self.inner().child_count()
+    fn child_count(&self, at: &ErasedPrefix) -> usize {
+        self.inner().child_count(at)
     }
 
     /// Read the wrapped node's child radices.
-    fn child_radices(&self) -> ByteSet {
-        self.inner().child_radices()
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet {
+        self.inner().child_radices(at)
     }
 }
 
@@ -320,8 +320,8 @@ where
     // total dips by one node's bytes between the two calls and never
     // rises, so the census peak is untouched exactly when the re-tag
     // leaves residency unchanged. That is the trait's re-tag clause (a
-    // tag forgotten and restored "without changing the value";
-    // `assume::<H>(erase::<H>(node)) == node`), checked here rather than
+    // tag forgotten and restored at its coordinate as the same node;
+    // `assume(&at, erase(node)) == node`), checked here rather than
     // relied on: a re-tag that changes residency is recorded by name and
     // charged at what it measures.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
@@ -336,9 +336,9 @@ where
         ChargedNode::wrap(erased, measured)
     }
 
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H> {
         let bytes = erased.bytes;
-        let node = B::assume::<H>(erased.into_inner());
+        let node = B::assume(at, erased.into_inner());
         let measured = B::measure::<H>(&node);
         if measured != bytes {
             ledger::violation(format!(
@@ -429,9 +429,10 @@ where
         let erased = B::erase(parent.into_inner());
         // The child-count contract: listing yields exactly the children the
         // parent reports, read as the walk reads it before listing.
-        let children_reported = erased.child_count();
-        let radices_reported = erased.child_radices();
-        let parent = B::assume::<S<H>>(erased);
+        let at = prefix.erase();
+        let children_reported = erased.child_count(&at);
+        let radices_reported = erased.child_radices(&at);
+        let parent = B::assume(&prefix, erased);
         let counter = self.inner.clone();
         stream! {
             let mut counted = 0_u64;
@@ -822,7 +823,11 @@ where
         (Some(left_root), Some(right_root)) => {
             let left_root = Charged::<B>::erase(left_root);
             let right_root = Charged::<B>::erase(right_root);
-            (left_root.hash() == right_root.hash(), left_root.len())
+            let root = Prefix::<height::Root>::new().erase();
+            (
+                left_root.hash(&root) == right_root.hash(&root),
+                left_root.len(),
+            )
         }
         _ => (false, 0),
     };

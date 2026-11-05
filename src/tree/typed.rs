@@ -30,4 +30,4 @@ pub use path::Path;
 pub(crate) use prefix::ErasedPrefix;
 pub use prefix::Prefix;
 pub use untyped::{Iter, Leaf, RangeOwned};
-pub use view::View;
+pub use view::{ErasedView, View};

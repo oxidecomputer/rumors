@@ -20,7 +20,7 @@ use crate::{
     tree::{
         mirror::streaming::{byte_set::ByteSet, convert::Convert},
         typed::{
-            Hash, Prefix,
+            ErasedPrefix, Hash, Prefix,
             height::{self, Height, S, Z},
         },
     },
@@ -52,17 +52,21 @@ where
     /// One runtime representation shared by every height's
     /// [`Node<H>`](Self::Node).
     ///
-    /// The height parameter on [`Node`](Self::Node) is a compile-time tag
-    /// over runtime data that already knows its place in the tree, so a
-    /// backend can forget the tag ([`erase`](Self::erase)) and restore it
-    /// ([`assume`](Self::assume)) without changing the value. The
-    /// session's internal plumbing — its channels, pumps, and walk workers
-    /// — carries this one type where a height-typed payload would
-    /// instantiate the whole machinery once per height.
+    /// The session's internal plumbing — its channels, pumps, and walk
+    /// workers — carries this one type where a height-typed payload would
+    /// instantiate the whole machinery once per height. It keeps every
+    /// erased node beside the prefix the node sits at, its *coordinate*, so
+    /// a backend can forget the height tag ([`erase`](Self::erase)) and
+    /// restore it from the coordinate ([`assume`](Self::assume)); reading
+    /// what depends on the height from an erased node takes the coordinate
+    /// too ([`ErasedNode`]).
     ///
-    /// A backend whose nodes share one representation across heights (as
-    /// [`Local`]'s do) uses that representation directly; otherwise it uses a
-    /// sum of its per-height representations.
+    /// A backend whose nodes share one representation across heights uses
+    /// that representation directly; otherwise it uses a sum of its
+    /// per-height representations. [`Local`]'s handle at a height is its
+    /// stored node alone, and the height decides how much of the node's
+    /// compressed path it hides, so its erased form is the stored node, and
+    /// its coordinate decides the same.
     type Erased: ErasedNode + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
@@ -71,18 +75,31 @@ where
     /// Forget a node's height tag.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased;
 
-    /// Re-tag an erased node at height `H`.
+    /// Re-tag an erased node at `at`, the coordinate it sits at.
     ///
-    /// `H` must be the height the node was erased at:
-    /// `assume::<H>(erase::<H>(node)) == node` is the whole contract, and
-    /// a cross-height re-tag is a programmer error whose behavior is
-    /// unspecified. The pairing discipline lives inside the session's
-    /// erased plumbing, witnessed by the prefixes that travel alongside
-    /// every node: an erased prefix's byte length is its height, and
-    /// re-tagging one debug-asserts that length. Peer input cannot reach
-    /// a mispairing — every wire node decodes through height-typed
-    /// readers before it is ever erased.
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H>;
+    /// `at` must be the prefix the node was erased at:
+    /// `assume(&at, erase(node)) == node` is the whole contract. The
+    /// session keeps every erased node beside its coordinate, and derives
+    /// each child's from its parent's and its radix, so it always has the
+    /// coordinate to pass. Peer input cannot reach a mispairing: a node
+    /// supplied over the wire is assembled at the prefix its own leaves'
+    /// paths decide.
+    ///
+    /// # Panics
+    ///
+    /// A mispairing is a programmer error, so a backend whose handles
+    /// derive anything from the height may trust the coordinate, or check
+    /// it and panic where it can tell the coordinate is not the node's.
+    /// [`Local`]'s handle hides as many path bytes as the coordinate's
+    /// height decides, so a wrong coordinate would select other prefix
+    /// bytes, and with them other children and hashes. In debug builds it
+    /// checks every re-tag, and panics unless the coordinate's height lies
+    /// between the node's body and its top and the path bytes the handle
+    /// hides are the coordinate's last bytes, a check of at most 32 bytes
+    /// that rejects every coordinate selecting other bytes
+    /// ([`typed::View::placed`](crate::tree::typed::View::placed) gives the
+    /// argument). Release builds trust the session's coordinates.
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H>;
 
     /// Assemble one parent node at `prefix` from one radix-keyed child group.
     ///
@@ -247,18 +264,26 @@ pub trait Node {
 /// The session compares hashes and classifies version spans before choosing
 /// whether to descend. Operations that need the height, such as reading
 /// children or a leaf's payload, require [`Backend::assume`] first.
+///
+/// What a node's children are can depend on its height: [`Local`]'s handle
+/// at a height hides as many of its stored node's path bytes as the height
+/// decides. So every query that describes the children or commits to them
+/// takes `at`, the node's coordinate, as [`Backend::assume`] does, and a
+/// backend may check it the same way; the version bounds and the leaf
+/// count describe the leaves alone, and take none.
 pub trait ErasedNode {
     /// The node's version bounds as one causal span ([`Node::span`]).
     fn span(&self) -> Span<'_>;
 
-    /// The subtree digest used to compare nodes at the same trie position.
-    fn hash(&self) -> Hash;
+    /// The subtree digest used to compare nodes at the same trie position,
+    /// the node's coordinate `at`.
+    fn hash(&self, at: &ErasedPrefix) -> Hash;
 
     /// The number of live leaves under this node, exact ([`Node::len`]).
     fn len(&self) -> usize;
 
-    /// The number of children [`Backend::children`] lists for this node,
-    /// exact: at most a fan, and none for a leaf.
+    /// The number of children [`Backend::children`] lists for this node at
+    /// `at`, exact: at most a fan, and none for a leaf.
     ///
     /// A session reads this before it lists the children of a node it
     /// asks about, to price the question's listing at exactly that many
@@ -267,15 +292,15 @@ pub trait ErasedNode {
     /// for every child it sums over. A count above a fan, or one the
     /// listing does not bear out, fails the session
     /// ([`CountError`](super::message::CountError)).
-    fn child_count(&self) -> usize;
+    fn child_count(&self, at: &ErasedPrefix) -> usize;
 
     /// The number of children this node's children have, exact
-    /// ([`Node::grandchild_count`]).
-    fn grandchild_count(&self) -> usize;
+    /// ([`Node::grandchild_count`]), for the node at `at`.
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize;
 
     /// The radices of the children [`Backend::children`] lists for this
-    /// node, exact: [`child_count`](Self::child_count) of them, and none
-    /// for a leaf.
+    /// node at `at`, exact: [`child_count`](Self::child_count) of them, and
+    /// none for a leaf.
     ///
     /// A session reads this before it explodes a node it answers about,
     /// and prices the answer at the children either side holds: these
@@ -284,7 +309,7 @@ pub trait ErasedNode {
     /// in-memory backend reads its fan's radices, or a compressed node's
     /// one. A radix missing from the answer leaves the answer's resolution
     /// and plan costing more than its grant.
-    fn child_radices(&self) -> ByteSet;
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

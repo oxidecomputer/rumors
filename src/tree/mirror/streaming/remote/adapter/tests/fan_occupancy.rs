@@ -19,11 +19,11 @@ use crate::{
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, FAN, Local,
+            Backend, ErasedNode, FAN, Local,
             erased::{Reaction, Reply},
             remote::codec::{Frame, LeafRun, Reaction as WireReaction},
         },
-        typed::Path,
+        typed::{Path, Prefix, height::Root},
     },
 };
 
@@ -166,13 +166,18 @@ fn paced_decode_stays_under_the_ceiling() {
     );
 }
 
-/// The radix and node hash of each supply in a pure-supply reply, in order.
+/// The radix and node hash of each supply in a pure-supply reply to the
+/// opening, in order: each supplied node sits at its radix beneath the
+/// root.
 fn supplies(reply: &Reply<<Local as Backend>::Erased>) -> Vec<Listed> {
     reply
         .reactions
         .iter()
         .map(|reaction| match reaction {
-            Reaction::Supply(radix, node) => listed(*radix, node.hash()),
+            Reaction::Supply(radix, node) => listed(
+                *radix,
+                node.hash(&Prefix::<Root>::new().push(*radix).erase()),
+            ),
             _ => panic!("a pure-supply reply decodes to supplies only"),
         })
         .collect()

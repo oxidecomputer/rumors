@@ -256,7 +256,7 @@ fn a_batched_run_round_trips_the_reply() {
         <Local as Backend>::leaves(
             Local,
             prefix,
-            <Local as Backend>::assume::<UnderRoot>(node.clone()),
+            <Local as Backend>::assume(&prefix, node.clone()),
         )
         .try_collect::<Vec<_>>()
         .await

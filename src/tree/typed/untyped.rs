@@ -181,6 +181,28 @@ fn spread(children: &Fan) -> u16 {
     u16::try_from(grandchildren - 1).expect("a branch has at most 65,536 grandchildren")
 }
 
+/// The height of a bare branch over `children` ([`Body::Branch`]'s
+/// `height`): one more than theirs.
+///
+/// Every child of a branch sits one level below it, so every child's height
+/// is the same; debug builds check that they agree.
+fn height_over(children: &Fan) -> u8 {
+    let mut heights = children.values().map(Node::height);
+    let child = heights.next().expect("a branch has at least two children");
+    debug_assert!(
+        heights.all(|other| other == child),
+        "every child of a branch sits at the same height",
+    );
+    u8::try_from(child + 1).expect("a branch sits at most at the root's height")
+}
+
+/// The height of a branch whose children diverge at the path byte
+/// `branch_at` ([`Body::Branch`]'s `height`): the levels from that byte to
+/// the leaves.
+fn height_at(branch_at: usize) -> u8 {
+    u8::try_from(PATH_LEN - branch_at).expect("a path byte lies within the path")
+}
+
 /// Shared node storage, copied only when a mutation cannot reuse it.
 #[derive(Clone)]
 struct NodeInner {
@@ -198,25 +220,26 @@ struct NodeInner {
     body: Body,
 }
 
-/// [`NodeInner`] as it would be without the grandchild count: the same
-/// fields, with [`BodyWithoutSpread`] for its body.
+/// [`NodeInner`] as it would be without the fields that ride in its
+/// padding: the same fields, with [`BodyBaseline`] for its body.
 ///
 /// Nothing builds one; it exists so the compiler lays out the node without
-/// `spread`, for the assertion below to compare against.
+/// those fields, for the assertion below to compare against.
 #[expect(dead_code, reason = "a layout reference, measured and never built")]
-struct NodeInnerWithoutSpread {
+struct NodeInnerBaseline {
     /// As [`NodeInner`]'s `prefix`.
     prefix: ArrayVec<[u8; PATH_LEN]>,
     /// As [`NodeInner`]'s `hash`.
     hash: OnceLock<Hash>,
-    /// As [`NodeInner`]'s `body`, without `spread`.
-    body: BodyWithoutSpread,
+    /// As [`NodeInner`]'s `body`, without the fields that ride in padding.
+    body: BodyBaseline,
 }
 
-/// [`Body`] as it would be without `spread`: every variant and field but
-/// the branch's grandchild count.
+/// [`Body`] as it would be without the fields that ride in the node's
+/// padding: every variant and field but the branch's grandchild count and
+/// its height.
 #[expect(dead_code, reason = "a layout reference, measured and never built")]
-enum BodyWithoutSpread {
+enum BodyBaseline {
     /// As [`Body::Leaf`].
     Leaf {
         /// As [`Body::Leaf`]'s `version`.
@@ -224,7 +247,7 @@ enum BodyWithoutSpread {
         /// As [`Body::Leaf`]'s `message`.
         message: Message,
     },
-    /// As [`Body::Branch`], without `spread`.
+    /// As [`Body::Branch`], without `spread` and `height`.
     Branch {
         /// As [`Body::Branch`]'s `bounds`.
         bounds: OnceLock<Span<'static>>,
@@ -237,15 +260,15 @@ enum BodyWithoutSpread {
     },
 }
 
-// Every node pays for the grandchild count, leaves included, unless it fits
-// in padding the node already has. It does on the platforms the crate is
-// measured on, and this keeps it so: a platform where the count grows the
-// node fails here, so the cost is a decision rather than an unnoticed
-// change. A field added to `NodeInner` or `Body` belongs in the twins above
-// as well, or this fails for that reason instead.
+// Every node pays for the branch's grandchild count and height, leaves
+// included, unless they fit in padding the node already has. They do on the
+// platforms the crate is measured on, and this keeps it so: a platform where
+// either grows the node fails here, so the cost is a decision rather than an
+// unnoticed change. A field added to `NodeInner` or `Body` belongs in the
+// twins above as well, or this fails for that reason instead.
 const _: () = assert!(
-    mem::size_of::<NodeInner>() == mem::size_of::<NodeInnerWithoutSpread>(),
-    "the branch's grandchild count must fit in the node's padding",
+    mem::size_of::<NodeInner>() == mem::size_of::<NodeInnerBaseline>(),
+    "the branch's grandchild count and height must fit in the node's padding",
 );
 
 /// Display node content without evaluating its cached summaries.
@@ -294,6 +317,14 @@ enum Body {
         /// on the fan, which never changes after construction; peeling or
         /// extending the prefix leaves it valid.
         spread: u16,
+        /// The height of the branch itself above the leaves, one more than
+        /// each child's ([`Node::height`]): 1..=32.
+        ///
+        /// A node's height is its body's plus one level per path byte, so
+        /// a stored node knows the height of its top, and a handle tagged
+        /// with the height it sits at derives how many path bytes it hides
+        /// ([`View::at_height`]). Like `spread`, it depends only on the fan.
+        height: u8,
         /// The largest encoded version size in this subtree: leaf versions
         /// and branch bounds, including this branch's own bounds. Computing
         /// it also fills `bounds`; later reads use the cached size.
@@ -418,6 +449,7 @@ impl Node {
         );
         memo_census::record(Work::Branch);
         children.fit();
+        let height = height_over(&children);
         Node::from_inner(Arc::new(NodeInner {
             prefix: ArrayVec::new(),
             hash: OnceLock::new(),
@@ -425,6 +457,7 @@ impl Node {
                 bounds,
                 leaves: children.values().map(Node::len).sum(),
                 spread: spread(&children),
+                height,
                 // Never seeded: once the bounds are known, the full
                 // computation reads one stored size per child and the
                 // bounds' own two encodings, at most 256 cached loads,
@@ -570,6 +603,7 @@ impl Node {
                 bounds: OnceLock::new(),
                 leaves: count,
                 spread: spread(&children),
+                height: height_at(branch_at),
                 version_bytes: OnceLock::new(),
                 children,
             },
@@ -630,6 +664,25 @@ impl Node {
         match self.inner.body {
             Body::Leaf { .. } => 1,
             Body::Branch { leaves, .. } => leaves,
+        }
+    }
+
+    /// The height of this node's top above the leaves: its body's height,
+    /// zero for a leaf, plus one level per byte of its compressed path.
+    ///
+    /// A typed handle at the same height views the node whole; one at a
+    /// lower height, down to the body's, views it from inside its path
+    /// ([`View::at_height`]).
+    pub fn height(&self) -> usize {
+        self.body_height() + self.inner.prefix.len()
+    }
+
+    /// The height of this node's body above the leaves: zero for a leaf,
+    /// and a branch's stored height.
+    fn body_height(&self) -> usize {
+        match self.inner.body {
+            Body::Leaf { .. } => 0,
+            Body::Branch { height, .. } => usize::from(height),
         }
     }
 
@@ -1314,6 +1367,7 @@ impl Closed {
                         bounds: OnceLock::new(),
                         leaves,
                         spread: spread(&children),
+                        height: height_at(branch_at),
                         version_bytes: OnceLock::new(),
                         children,
                     },

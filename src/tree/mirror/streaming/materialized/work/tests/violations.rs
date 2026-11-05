@@ -5,7 +5,7 @@
 //! tests separately check that these violations cross the public driver.
 
 use crate::tree::mirror::streaming::message::{Listed, listed};
-use std::{collections::BTreeSet, convert::Infallible};
+use std::{collections::BTreeSet, convert::Infallible, marker::PhantomData};
 
 use futures::stream::{self, StreamExt};
 use proptest::prelude::*;
@@ -144,9 +144,9 @@ where
         .iter()
         .map(|&radix| (radix, H::node(&mut version)))
         .collect::<Vec<_>>();
-    let supplied = H::node(&mut version);
+    let supplied = <Local as Backend>::erase(H::node(&mut version));
     let declared = version.clone();
-    let escaped = H::node(&mut version);
+    let escaped = <Local as Backend>::erase(H::node(&mut version));
     let mut path = [0; 32];
     path[0] = parent;
     let prefix = Prefix::<S<H>>::containing(&Path::from(path));
@@ -180,6 +180,7 @@ where
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
@@ -190,6 +191,7 @@ where
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::UnexpectedMatch => (
@@ -202,6 +204,7 @@ where
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::RepeatedMatch => {
@@ -214,6 +217,7 @@ where
                     charge: Default::default(),
                     last: true,
                     carried: Default::default(),
+                    height: PhantomData,
                 }],
             )
         }
@@ -226,6 +230,7 @@ where
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::UnexpectedQuery => {
@@ -238,6 +243,7 @@ where
                     charge: Default::default(),
                     last: true,
                     carried: Default::default(),
+                    height: PhantomData,
                 }],
             )
         }
@@ -251,6 +257,7 @@ where
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::InvalidSupply => {
@@ -272,6 +279,7 @@ where
                     charge: Default::default(),
                     last: true,
                     carried: Default::default(),
+                    height: PhantomData,
                 }],
             )
         }
@@ -289,6 +297,7 @@ where
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::UncontainedSupply => {
@@ -309,6 +318,7 @@ where
                     charge: Default::default(),
                     last: true,
                     carried: Default::default(),
+                    height: PhantomData,
                 }],
             )
         }
@@ -559,7 +569,7 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         .into_iter()
         .map(|(radix, node)| (radix, <Local as Backend>::erase(node)))
         .collect::<Vec<(u8, Erased)>>();
-    let supplied = UnderRoot::node(&mut version);
+    let supplied = <Local as Backend>::erase(UnderRoot::node(&mut version));
     let declared = version.clone();
 
     let held = *radixes.first().expect("the strategy produces a child");
@@ -567,12 +577,13 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         .find(|radix| !radixes.contains(radix))
         .expect("at most eight radices are held");
     let question = || Reaction::Query(theirs.clone());
-    let one = |reactions: Vec<Reaction<Local, UnderRoot>>| {
+    let one = |reactions: Vec<Reaction<Erased>>| {
         vec![Reply {
             reactions,
             charge: Default::default(),
             last: true,
             carried: Default::default(),
+            height: PhantomData,
         }]
     };
     let requests = match injection {
@@ -583,12 +594,14 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             },
             Reply {
                 reactions: Vec::new(),
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),

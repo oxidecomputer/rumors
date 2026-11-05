@@ -38,7 +38,7 @@ use crate::tree::{
     },
     typed::{
         ErasedPrefix, Prefix,
-        height::{self, Height, S, UnderRoot, Z},
+        height::{Height, S, UnderRoot, Z},
     },
 };
 
@@ -184,7 +184,7 @@ where
             progress.wire(root_scope);
             let bound = ReplyBound::of(root_scope.height(), fan.len(), responder);
             let listing = held_by(Holding::OutgoingReplies, || {
-                fan_listing(&fan).map(|listing| vec![Reaction::Query(listing)])
+                fan_listing(root_scope, &fan).map(|listing| vec![Reaction::Query(listing)])
             })
             .map_err(Error::Count)?;
             let record = charges::record(&mut grant, fan.len());
@@ -206,8 +206,8 @@ where
                 ceiling,
                 // The root return is this walk's one fixed-height re-tag:
                 // the initiator's single return channel carries exactly the
-                // reconciled root.
-                root: root.map(B::assume::<height::Root>),
+                // reconciled root, whose coordinate is the empty prefix.
+                root: root.map(|root| B::assume(&Prefix::new(), root)),
             })
         });
 
@@ -358,7 +358,7 @@ where
                 // The responder's root assembles at the top of the return
                 // chain: the same one fixed-height re-tag as the
                 // initiator's.
-                root: root?.map(B::assume::<height::Root>),
+                root: root?.map(|root| B::assume(&Prefix::new(), root)),
             })
         });
 
@@ -463,7 +463,7 @@ where
                         // that survive the deletion filter, at most all of
                         // them.
                         let bytes = charges::supply_bound::<B::Erased, B::Error>(
-                            node.child_count().min(FAN),
+                            node.child_count(&child_prefix).min(FAN),
                         );
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, children) = holding(
@@ -489,7 +489,7 @@ where
 
                     // The node is kept for its scope's assembly.
                     let original = node.clone();
-                    let held = node.child_radices();
+                    let held = node.child_radices(&child_prefix);
                     let children = charges::answer_children(held, &listing);
                     let shared = charges::shared_children(held, &listing);
                     let bytes =
@@ -653,7 +653,7 @@ where
                         // that survive the deletion filter, at most all of
                         // them.
                         let bytes = charges::supply_bound::<B::Erased, B::Error>(
-                            node.child_count().min(FAN),
+                            node.child_count(&child_prefix).min(FAN),
                         );
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
                         let (node, leaves) = holding(
@@ -679,7 +679,7 @@ where
 
                     // The node is kept for its scope's assembly.
                     let original = node.clone();
-                    let held = node.child_radices();
+                    let held = node.child_radices(&child_prefix);
                     let children = charges::answer_children(held, &listing);
                     let shared = charges::shared_children(held, &listing);
                     let bytes =

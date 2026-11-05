@@ -1,9 +1,17 @@
-//! `Local`'s bulk `leaves`/`assemble` overrides against the default chain.
+//! `Local`'s bulk `leaves`/`assemble` overrides against the default chain,
+//! and its check of the coordinates erased handles are re-tagged and read
+//! at.
 //!
 //! The overrides skip per-level work along compressed paths. Their required
 //! property is observational equivalence: for deep paths, dense branches, and
 //! multiple same-height runs, each override must produce the same stream as
 //! the level-by-level [`Convert`] default.
+//!
+//! A handle hides as many of its stored node's path bytes as its height
+//! decides, so the coordinate checks are what keep a wrong height from
+//! selecting other bytes; which coordinates they accept is a property of
+//! the untyped view's placement, tested there. These tests show the backend
+//! panics on one it rejects.
 
 use std::collections::BTreeSet;
 use std::convert::Infallible;
@@ -16,7 +24,7 @@ use crate::{
     message::Message,
     tree::{
         arb::{arb_leaf_paths, nth_party},
-        mirror::streaming::{Backend, backend::BoxNodeStream, convert::Convert},
+        mirror::streaming::{Backend, ErasedNode, backend::BoxNodeStream, convert::Convert},
         typed::{
             self, Path, Prefix,
             height::{self, S, Z},
@@ -173,4 +181,93 @@ proptest! {
         let ours = assemble_local::<Z>(run);
         prop_assert_eq!(content(&ours), expected);
     }
+}
+
+/// A leaf two levels below its top, under the path bytes `[TOP, NEXT]`,
+/// listed one level down: the handle at height one, which hides `TOP`,
+/// erased, with its coordinate.
+///
+/// The tree above it is all zero bytes, so its coordinate is zeros ending
+/// in `TOP`.
+fn erased_inside_its_path() -> (Prefix<S<Z>>, <Local as Backend>::Erased) {
+    let leaf = typed::Node::leaf(Version::new(), Message::new(()));
+    let node = typed::Node::beneath(typed::Node::beneath(leaf, NEXT), TOP);
+    let top = Prefix::<S<S<Z>>>::containing(&Path::from([0; 32]));
+    let mut children = typed::View::from(node).children();
+    let (radix, child) = children.next().expect("a compressed node lists one child");
+    assert_eq!(radix, TOP, "the child sits under the top path byte");
+    (top.push(radix), <Local as Backend>::erase(child))
+}
+
+/// The top path byte of [`erased_inside_its_path`]'s node.
+const TOP: u8 = 0x5a;
+
+/// The path byte beneath [`TOP`].
+const NEXT: u8 = 0x7c;
+
+/// Re-tagging an erased handle at its own coordinate restores the handle
+/// listing yielded, and at a wrong height panics, even a height within the
+/// node's own levels.
+///
+/// Height zero lies between the leaf's body and its top, so only the
+/// coordinate's bytes can tell it wrong: the handle there would hide
+/// `NEXT` as well, and the coordinate claims another byte in its place.
+///
+/// The check runs in debug builds alone, so builds without debug
+/// assertions ignore the test.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the coordinate check runs in debug builds only"
+)]
+#[should_panic(expected = "must sit on its own path")]
+fn re_tagging_at_a_wrong_height_inside_the_path_panics() {
+    let (at, erased) = erased_inside_its_path();
+    let restored = <Local as Backend>::assume(&at, erased.clone());
+    assert_eq!(
+        restored.grandchild_count(),
+        1,
+        "the restored handle sees NEXT"
+    );
+    let _wrong = <Local as Backend>::assume(&at.push(NEXT ^ 1), erased);
+}
+
+/// Re-tagging an erased handle at a height above its stored node's top
+/// panics: the node has no path byte to hide there.
+///
+/// The check runs in debug builds alone, so builds without debug
+/// assertions ignore the test.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the coordinate check runs in debug builds only"
+)]
+#[should_panic(expected = "must sit on its own path")]
+fn re_tagging_above_the_nodes_top_panics() {
+    let (at, erased) = erased_inside_its_path();
+    let (top, _) = at.pop();
+    let (above, _) = top.pop();
+    let _wrong = <Local as Backend>::assume(&above, erased);
+}
+
+/// Reading what an erased handle's children are at a coordinate off its
+/// stored node's path panics, as re-tagging there does.
+///
+/// The check runs in debug builds alone, so builds without debug
+/// assertions ignore the test.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the coordinate check runs in debug builds only"
+)]
+#[should_panic(expected = "must sit on its own path")]
+fn reading_at_a_coordinate_off_the_nodes_path_panics() {
+    let (at, erased) = erased_inside_its_path();
+    assert_eq!(
+        erased.child_count(&at.erase()),
+        1,
+        "one path byte is visible"
+    );
+    let (parent, _) = at.pop();
+    let _wrong = erased.hash(&parent.push(TOP ^ 1).erase());
 }

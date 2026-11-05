@@ -19,13 +19,14 @@
 //! set aside for its reply.
 
 use std::cmp::Ordering;
+use std::marker::PhantomData;
 
 use crate::{
     Version,
     tree::{
         mirror::streaming::{Backend, ErasedNode, Leaf, byte_set::ByteSet, ledger::Charge},
         typed::{
-            Hash,
+            ErasedPrefix, Hash,
             height::{Height, Z},
         },
     },
@@ -169,21 +170,27 @@ const _: () = assert!(
 );
 
 impl Listed {
-    /// The entry for `node`, listed by this side at `radix`.
+    /// The entry for `node`, listed by this side at `radix` beneath
+    /// `scope`, so at the coordinate `scope` extended by `radix`.
     ///
     /// # Errors
     ///
     /// Returns a [`CountError`] if the backend reports more children or
     /// grandchildren for `node` than any node can have, which no listing
     /// can carry.
-    pub(crate) fn of<E: ErasedNode>(radix: u8, node: &E) -> Result<Self, CountError> {
-        let children = node.child_count();
+    pub(crate) fn of<E: ErasedNode>(
+        scope: ErasedPrefix,
+        radix: u8,
+        node: &E,
+    ) -> Result<Self, CountError> {
+        let at = scope.push(radix);
+        let children = node.child_count(&at);
         let children_less_one =
             u8::try_from(children.saturating_sub(1)).map_err(|_| CountError::Children(children))?;
         Ok(Self {
             radix,
-            hash: node.hash(),
-            grandchildren: Grandchildren::of(node)?,
+            hash: node.hash(&at),
+            grandchildren: Grandchildren::of(node, &at)?,
             children_less_one,
         })
     }
@@ -243,14 +250,15 @@ impl Grandchildren {
     /// The largest count: a full fan of children, each with a full fan.
     pub const MAX: Self = Self(u16::MAX);
 
-    /// The count of `node`'s grandchildren, a leaf counting one.
+    /// The count of the grandchildren of `node`, at the coordinate `at`, a
+    /// leaf counting one.
     ///
     /// # Errors
     ///
     /// Returns [`CountError::Grandchildren`] if the backend reports more
     /// than 65,536, more than any node's children can have.
-    pub fn of(node: &impl ErasedNode) -> Result<Self, CountError> {
-        Self::counted(node.grandchild_count())
+    pub fn of(node: &impl ErasedNode, at: &ErasedPrefix) -> Result<Self, CountError> {
+        Self::counted(node.grandchild_count(at))
     }
 
     /// The grandchild count a backend reported for a node, `count`, a leaf
@@ -367,9 +375,14 @@ impl Greeting {
 /// has answered the questions sent so far. On the wire, chunk boundaries
 /// carry no frame of their own: the receiver's decoder chunks a reply as
 /// its frames arrive, and the reply's last reaction carries the end.
+///
+/// The height `H` is that of the children the reactions are about, one
+/// level below the scope the reply answers, and pairs the reply with the
+/// stage of the schedule at that level. The reactions hold their supplied
+/// nodes erased, as the walk keeps them ([`Reaction::Supply`]).
 pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The chunk's reactions, continuing the reply's earlier chunks.
-    pub reactions: Vec<Reaction<B, H>>,
+    pub reactions: Vec<Reaction<B::Erased>>,
     /// What the chunk holds, charged to the endpoint that built it and
     /// returned when its consumer has used it.
     pub(crate) charge: Charge,
@@ -377,6 +390,8 @@ pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     pub(crate) last: bool,
     /// What the chunk carries for its consumer beyond its own items.
     pub(crate) carried: Carried,
+    /// The height of the children the reactions are about.
+    pub(crate) height: PhantomData<fn() -> H>,
 }
 
 /// What an outgoing chunk carries for its encoder beyond its own items,
@@ -438,13 +453,20 @@ const _: () = assert!(
 /// children take no reaction of their own; a receiver pairing reactions
 /// with its listing passes over them as matched, so the next positional
 /// reaction pairs with the next listed child the match did not cover.
-pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
+///
+/// `E` is the backend's erased node handle ([`Backend::Erased`]), the same
+/// at every height, so a reply at any level carries the one reaction type.
+pub enum Reaction<E> {
     /// The sender supplies a node absent from the counterparty's listing, at
     /// this radix.
     ///
     /// The radix is explicit because the counterparty did not know the node
     /// existed and therefore could not ask about it positionally.
-    Supply(u8, B::Node<H>),
+    ///
+    /// The node stays erased: its coordinate is the reply's scope extended
+    /// by the radix, and only the reply's consumer knows the scope, so the
+    /// consumer re-tags the node there, checked ([`Backend::assume`]).
+    Supply(u8, E),
     /// Both sides hold the node with the same hash, and so they do every
     /// later listed child the reaction covers.
     Match(LaterMatches),

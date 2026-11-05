@@ -670,10 +670,14 @@ where
 {
     let prefix = Prefix::<H>::containing(&expected_leaf.path());
     let leaves = runtime.block_on(async {
-        <Local as Backend>::leaves(Local, prefix, <Local as Backend>::assume::<H>(node.clone()))
-            .try_collect::<Vec<_>>()
-            .await
-            .expect("the local backend is infallible")
+        <Local as Backend>::leaves(
+            Local,
+            prefix,
+            <Local as Backend>::assume(&prefix, node.clone()),
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("the local backend is infallible")
     });
     prop_assert_eq!(leaves.len(), 1, "height {}", H::HEIGHT);
     let (actual_prefix, actual_leaf) = &leaves[0];

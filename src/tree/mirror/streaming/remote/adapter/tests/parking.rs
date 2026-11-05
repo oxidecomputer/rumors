@@ -24,11 +24,14 @@ use crate::{
     tree::{
         Action, Tree,
         mirror::streaming::{
-            Backend, FAN, Local,
+            Backend, ErasedNode, FAN, Local,
             erased::{Reaction, Reply},
             remote::codec::{self, RunBudget, Speaker, Stream},
         },
-        typed::{self, Hash, height::UnderRoot},
+        typed::{
+            self, Hash, Prefix,
+            height::{Root, UnderRoot},
+        },
     },
 };
 
@@ -59,13 +62,14 @@ const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_910_000;
 #[test]
 fn parked_supply_reply_holds_handles_not_subtrees() {
     // The handle claim, compiler-checked: a backend node reference is one
-    // shared pointer (an `Arc` bump to clone) beside the count of path
-    // bytes it hides, so a parked reply holds one reference per supplied
-    // node plus its skeleton, and the subtree each names stays in backend
-    // custody behind the reference rather than being copied into the reply.
+    // shared pointer (an `Arc` bump to clone), and the height it sits at
+    // decides how many path bytes it hides, so a parked reply holds one
+    // reference per supplied node plus its skeleton, and the subtree each
+    // names stays in backend custody behind the reference rather than
+    // being copied into the reply.
     assert_eq!(
         mem::size_of::<typed::View<UnderRoot>>(),
-        2 * mem::size_of::<usize>(),
+        mem::size_of::<usize>(),
         "a parked supply must be a shared handle, not an owned subtree",
     );
 
@@ -155,7 +159,12 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
         match reaction {
             Reaction::Supply(actual, node) => {
                 assert_eq!(actual, radix);
-                assert_eq!(node.hash(), *hash, "assembled custody matches the source");
+                let at = Prefix::<Root>::new().push(*actual).erase();
+                assert_eq!(
+                    node.hash(&at),
+                    *hash,
+                    "assembled custody matches the source"
+                );
                 assert_eq!(node.len(), *len, "the handle covers the whole subtree");
             }
             _ => panic!("a supplied fan decodes to supply reactions only"),

@@ -305,7 +305,9 @@ where
         .merge_join_by(theirs, |(ours, _), theirs| ours.cmp(&theirs.radix))
     {
         match pair {
-            EitherOrBoth::Both((radix, node), theirs) if node.hash() == theirs.hash => {
+            EitherOrBoth::Both((radix, node), theirs)
+                if node.hash(&prefix.push(radix)) == theirs.hash =>
+            {
                 matches.plan(&mut planned, radix);
                 resolved.push((radix, Resolve::Ready(Some(node))));
             }
@@ -368,7 +370,11 @@ impl<E: ErasedNode + Clone> Question<E> {
     ///
     pub(super) fn bound<Err>(&self, prefix: ErasedPrefix, leading: Held) -> usize {
         let (theirs, listed) = match self {
-            Self::Dispute { node, theirs, .. } => (*theirs, node.child_count().min(FAN)),
+            Self::Dispute {
+                radix,
+                node,
+                theirs,
+            } => (*theirs, node.child_count(&prefix.push(*radix)).min(FAN)),
             Self::Request { theirs, .. } => (*theirs, 0),
         };
         charges::question_bound::<E, Err>(prefix.height() - 1, theirs, leading, listed)
@@ -392,7 +398,11 @@ impl<E: ErasedNode> Question<E> {
     pub(super) fn need<Err>(&self, prefix: ErasedPrefix) -> usize {
         let height = prefix.height() - 1;
         let (listed, theirs) = match self {
-            Self::Dispute { node, theirs, .. } => (node.child_count().min(FAN), *theirs),
+            Self::Dispute {
+                radix,
+                node,
+                theirs,
+            } => (node.child_count(&prefix.push(*radix)).min(FAN), *theirs),
             Self::Request { theirs, .. } => (0, *theirs),
         };
         charges::processing_need::<E, Err>(ReplyBound::of(height, listed, theirs))
@@ -438,7 +448,7 @@ where
         Question::Request { radix, theirs } => (prefix.push(radix), None, Vec::new(), theirs),
     };
     let reaction = held_by(Holding::OutgoingReplies, || {
-        fan_listing(&ours).map(Reaction::Query)
+        fan_listing(child, &ours).map(Reaction::Query)
     })
     .map_err(Error::Count)?;
     let record = charges::record(grant, ours.len());

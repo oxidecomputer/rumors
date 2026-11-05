@@ -25,7 +25,7 @@ use crate::{
     tree::{
         arb::nth_party,
         mirror::streaming::{
-            Backend, FAN, Failing, Failure, Local, Operation,
+            Backend, ErasedNode, FAN, Failing, Failure, Local, Operation,
             byte_set::ByteSet,
             erased::{Reaction, Reply},
             holding::Holding,
@@ -184,7 +184,10 @@ fn fills_pendings_in_order() {
     assert_eq!(
         output
             .into_iter()
-            .map(|item| item.expect("no errors were fed in").map(|node| node.hash()))
+            .map(|item| {
+                item.expect("no errors were fed in")
+                    .map(|node| node.hash(&parent_prefix(3).erase()))
+            })
             .collect::<Vec<_>>(),
         vec![expected.map(|node| node.hash())],
     );
@@ -212,7 +215,10 @@ fn ready_none_is_deletion() {
     assert_eq!(
         output
             .into_iter()
-            .map(|item| item.expect("no errors were fed in").map(|node| node.hash()))
+            .map(|item| {
+                item.expect("no errors were fed in")
+                    .map(|node| node.hash(&parent_prefix(3).erase()))
+            })
             .collect::<Vec<_>>(),
         vec![expected.map(|node| node.hash())],
     );
@@ -289,7 +295,7 @@ fn chains_two_instances() {
     assert_eq!(
         output
             .into_iter()
-            .map(|node| node.map(|node| node.hash()))
+            .map(|node| node.map(|node| node.hash(&parent_prefix(3).pop().0.erase())))
             .collect::<Vec<_>>(),
         vec![expected.map(|node| node.hash())],
     );
@@ -413,7 +419,7 @@ proptest! {
             .iter()
             .map(|&radix| Listed {
                 radix,
-                hash: erased(leaf(&mut version)).hash(),
+                hash: leaf(&mut version).hash(),
                 grandchildren: Grandchildren::ONE,
                 children_less_one: 0,
             })
@@ -439,10 +445,12 @@ proptest! {
         prop_assert!(priced <= FAN);
         prop_assert_eq!(resolved.capacity(), priced, "a leaf parent's slots");
 
+        // The scope sits one level above the leaves, where the drawn leaves
+        // sit as its children.
         let internal = pollster::block_on(answer::internal(
             &Local,
             &unknown,
-            Prefix::new().erase(),
+            parent_prefix(0).erase(),
             ours_nodes,
             theirs_listing,
             &stats,

@@ -227,6 +227,7 @@ divided_proptest! {
 /// after the handshake.
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized, message::Greeting};
+    use crate::tree::typed::Prefix;
 
     let root: streaming::Root<Local> = retiree.inner.borrow().tree.clone().root.into();
     let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root.clone()))
@@ -243,7 +244,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
         max_version_bytes: root.max_version_bytes(),
         payload_depth_limit: retiree.codec.limit().get(),
         target_message_size: retiree.run_budget.bytes() as u64,
-        listing: materialized::fan_listing(&fan)
+        listing: materialized::fan_listing(Prefix::new().erase(), &fan)
             .expect("the in-memory backend keeps every count in range"),
     };
     crate::tree::mirror::streaming::remote::codec::greeting::encode_greeting(&greeting).len()

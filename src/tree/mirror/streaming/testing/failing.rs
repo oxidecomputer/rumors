@@ -23,7 +23,7 @@ use crate::{
             Backend, ErasedNode, Leaf, Node, backend::NodeStream, byte_set::ByteSet,
         },
         typed::{
-            Hash, Path, Prefix,
+            ErasedPrefix, Hash, Path, Prefix,
             height::{Height, Root, S, Z},
         },
     },
@@ -277,8 +277,8 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
         self.0.span()
     }
 
-    fn hash(&self) -> Hash {
-        self.0.hash()
+    fn hash(&self, at: &ErasedPrefix) -> Hash {
+        self.0.hash(at)
     }
 
     fn len(&self) -> usize {
@@ -286,24 +286,24 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     }
 
     /// Read the wrapped node's grandchild count, or the misreported one.
-    fn grandchild_count(&self) -> usize {
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize {
         self.1
             .as_ref()
             .and_then(Miscounted::grandchild_count)
-            .unwrap_or_else(|| self.0.grandchild_count())
+            .unwrap_or_else(|| self.0.grandchild_count(at))
     }
 
     /// Read the wrapped node's child radices.
-    fn child_radices(&self) -> ByteSet {
-        self.0.child_radices()
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet {
+        self.0.child_radices(at)
     }
 
     /// Read the wrapped node's child count, or the misreported one.
-    fn child_count(&self) -> usize {
+    fn child_count(&self, at: &ErasedPrefix) -> usize {
         self.1
             .as_ref()
             .and_then(Miscounted::children)
-            .unwrap_or_else(|| self.0.child_count())
+            .unwrap_or_else(|| self.0.child_count(at))
     }
 }
 
@@ -350,8 +350,8 @@ where
         FailingNode(B::erase(node.0), node.1)
     }
 
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
-        FailingNode(B::assume(erased.0), erased.1)
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H> {
+        FailingNode(B::assume(at, erased.0), erased.1)
     }
     async fn parent<H>(
         self,

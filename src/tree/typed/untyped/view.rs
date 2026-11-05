@@ -3,16 +3,23 @@
 //! A node whose compressed path is `p` bytes long stands for `p` levels of
 //! the tree above its body, one per path byte: listing its children yields
 //! the same body one level down, under one byte less of path. A [`View`]
-//! represents such a level without building a node for it, as a shared
-//! handle to the stored node beside the number of top path bytes it hides.
-//! Listing a view's children therefore allocates nothing, whoever else
-//! holds the node, and the stored tree never holds a view: only a view
-//! reassembly keeps becomes a node ([`View::into_node`]).
+//! represents such a level without building a node for it, as a handle to
+//! the stored node beside the number of top path bytes it hides. Listing a
+//! view's children therefore allocates nothing, whoever else holds the node,
+//! and the stored tree never holds a view: only a view reassembly keeps
+//! becomes a node ([`View::into_node`]).
+//!
+//! A view is never stored either. The handles the streaming session keeps
+//! are stored nodes alone, each tagged with the height it sits at, or paired
+//! with the coordinate it sits at; a stored node knows the height of its own
+//! top ([`Node::height`]), so the number of bytes hidden follows from the
+//! height ([`View::at_height`]), and a coordinate's bytes can be checked
+//! against the path bytes hidden ([`View::placed`]).
 
+use std::borrow::Borrow;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
-use before::Span;
 use seq_macro::seq;
 
 use super::{
@@ -20,7 +27,7 @@ use super::{
     memo_census::{self, Work},
     seeded_bounds,
 };
-use crate::{causally, message::Message, tree::typed::Hash};
+use crate::{causally, tree::typed::Hash};
 
 #[cfg(test)]
 mod tests;
@@ -29,13 +36,11 @@ seq!(N in 0..=32 {
     /// How many top bytes of a stored node's compressed path a [`View`]
     /// hides: none, through all [`PATH_LEN`] bytes of a whole path.
     ///
-    /// A fieldless enum rather than a `u8`, so the byte it occupies has
-    /// spare values: an enum with a view in one variant keeps its
-    /// discriminant there, and stays the size of the view. The streaming
-    /// walk keeps its handles in such enums.
+    /// A fieldless enum rather than an integer, so a peel beyond a whole
+    /// path cannot be constructed.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     #[repr(u8)]
-    enum Peel {
+    pub(super) enum Peel {
         #(
             #[doc = concat!("Hides ", N, " path bytes.")]
             P~N,
@@ -67,18 +72,17 @@ impl Peel {
 /// and answers every query as that copy would, from the shared node: the
 /// visible path decides the children listed, their count and radices, and
 /// the hash; the body decides everything else.
+///
+/// `N` is how the view holds the node: a handle of its own (the default),
+/// which listing and reassembly consume, or a borrowed one, which answers
+/// queries about a handle stored elsewhere without cloning it.
 #[derive(Clone)]
-pub struct View {
+pub struct View<N: Borrow<Node> = Node> {
     /// The stored node.
-    node: Node,
+    node: N,
     /// How many of its top path bytes are hidden: at most its path's length.
     peeled: Peel,
 }
-
-// The peel's spare values hold the discriminants of enums around a view:
-// two levels of `Option` cost no space, where a `u8` peel leaves room for
-// only the one the handle's non-null pointer provides.
-const _: () = assert!(size_of::<Option<Option<View>>>() == size_of::<View>());
 
 /// View a whole stored node, hiding none of its path.
 impl From<Node> for View {
@@ -92,66 +96,114 @@ impl From<Node> for View {
 }
 
 /// Display the stored node and how much of its path is hidden.
-impl fmt::Debug for View {
+impl<N: Borrow<Node>> fmt::Debug for View<N> {
     /// Format the peel, then the stored node.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("View")
             .field("peeled", &self.peeled.bytes())
-            .field("node", &self.node)
+            .field("node", self.node.borrow())
             .finish()
     }
 }
 
-impl View {
-    /// View a stored node from below its whole compressed path: its body
-    /// alone, at the height of the body itself.
-    pub(super) fn body(node: Node) -> View {
-        let peeled = Peel::ALL[node.inner.prefix.len()];
-        View { node, peeled }
+/// Place a stored node at a height or a coordinate, and read the view.
+impl<N: Borrow<Node>> View<N> {
+    /// View `node` from the level at `height`: hiding as many top path
+    /// bytes as its top lies above that height.
+    ///
+    /// Returns `None` unless `height` is one of the node's levels: at or
+    /// below its top ([`Node::height`]), and at or above its body, below
+    /// which it has no path to hide.
+    ///
+    /// The height alone decides the view, so it trusts the caller for the
+    /// coordinate: a handle tagged with a height its traversal established
+    /// uses this; one placed by a coordinate the program computed at runtime
+    /// uses [`placed`](Self::placed), which checks it.
+    pub fn at_height(node: N, height: usize) -> Option<Self> {
+        let stored = node.borrow();
+        let hidden = stored.height().checked_sub(height)?;
+        if hidden > stored.inner.prefix.len() {
+            return None;
+        }
+        let peeled = Peel::ALL[hidden];
+        Some(View { node, peeled })
+    }
+
+    /// View `node` at the coordinate `at`, the path bytes from the root to
+    /// the level it sits at, shallowest first, checking the coordinate
+    /// against the node's own path.
+    ///
+    /// The coordinate's length decides the height, `PATH_LEN - at.len()`,
+    /// and so the view ([`at_height`](Self::at_height)). Returns `None`
+    /// unless that height is one of the node's levels and the bytes the
+    /// view hides are exactly the coordinate's last bytes.
+    ///
+    /// # What the check proves
+    ///
+    /// Call the node's top height `T` and the coordinate's height `H`. The
+    /// view hides the top `T − H` path bytes, which name the levels from
+    /// `T` down to `H`: in a key beneath the node, the bytes at positions
+    /// `PATH_LEN − T` up to `PATH_LEN − H`. The coordinate names the same
+    /// positions with its last `T − H` bytes. Those are the only positions
+    /// both name, and the check requires them equal, so a view this
+    /// returns yields, for every key beneath it, the coordinate followed by
+    /// the key's bytes below `H`, which is a key the stored node holds
+    /// under its own path. Selecting other prefix bytes, and so other
+    /// children or hashes, takes a coordinate that disagrees with the node
+    /// at one of those positions, or a height outside the node's levels,
+    /// and either returns `None`.
+    ///
+    /// The bytes above the node's top, positions before `PATH_LEN − T`,
+    /// the node does not store, so no check can judge them; the view they
+    /// select is the same whatever they are.
+    pub fn placed(node: N, at: &[u8]) -> Option<Self> {
+        let height = PATH_LEN.checked_sub(at.len())?;
+        let view = Self::at_height(node, height)?;
+        let hidden = view.peeled.bytes();
+        let prefix = &view.node.borrow().inner.prefix;
+        // The path is stored deepest byte first, so its top `hidden` bytes,
+        // read in path order, run backwards from its end.
+        let agrees = at[at.len() - hidden..]
+            .iter()
+            .eq(prefix[prefix.len() - hidden..].iter().rev());
+        agrees.then_some(view)
+    }
+
+    /// The height of the level the view sits at: the stored node's top,
+    /// less the bytes hidden.
+    pub fn height(&self) -> usize {
+        self.node.borrow().height() - self.peeled.bytes()
     }
 
     /// The visible part of the stored node's path over its body.
     fn shape(&self) -> Shape<'_> {
-        let prefix = &self.node.inner.prefix;
+        let prefix = &self.node.borrow().inner.prefix;
         Shape {
             prefix: &prefix[..prefix.len() - self.peeled.bytes()],
-            body: &self.node.inner.body,
+            body: &self.node.borrow().inner.body,
         }
     }
 
-    /// The stored node, whose body, and so whose bounds, leaf count and
-    /// encoded version size, the view shares.
+    /// The stored node, whose body, and so whose bounds, leaf count,
+    /// encoded version size and message, the view shares: those describe
+    /// the leaves alone, so the stored node answers them for every view of
+    /// it.
     pub(super) fn stored(&self) -> &Node {
-        &self.node
+        self.node.borrow()
+    }
+
+    /// Release the stored node, forgetting how much of its path the view
+    /// hides: [`at_height`](Self::at_height) recovers the view from the
+    /// height it sits at ([`height`](Self::height)).
+    pub fn into_stored(self) -> N {
+        self.node
     }
 
     /// Whether `self` and `other` are the same view of the same stored
     /// node: the same allocation, hiding the same number of bytes.
     #[cfg(test)]
-    pub fn same(&self, other: &View) -> bool {
-        self.peeled == other.peeled && self.node.ptr_eq(&other.node)
-    }
-
-    /// The subtree's version bounds ([`Node::span`]): the body's.
-    pub fn span(&self) -> Span<'_> {
-        self.node.span()
-    }
-
-    /// The number of leaves in the subtree.
-    pub fn len(&self) -> usize {
-        self.node.len()
-    }
-
-    /// The largest encoded version bound in the subtree
-    /// ([`Node::version_bytes`]).
-    pub fn version_bytes(&self) -> usize {
-        self.node.version_bytes()
-    }
-
-    /// The leaf's message, if the body is a leaf, whatever path is visible
-    /// above it.
-    pub fn as_leaf(&self) -> Option<&Message> {
-        self.node.as_leaf()
+    pub fn same<M: Borrow<Node>>(&self, other: &View<M>) -> bool {
+        self.peeled == other.peeled && self.stored().ptr_eq(other.stored())
     }
 
     /// The subtree's hash, as observed from the top of the visible path.
@@ -162,7 +214,7 @@ impl View {
     /// keeps no memo of its own.
     pub fn hash(&self) -> Hash {
         match self.peeled {
-            Peel::P0 => self.node.hash(),
+            Peel::P0 => self.stored().hash(),
             _ => self.shape().hash(),
         }
     }
@@ -191,6 +243,41 @@ impl View {
     /// stores its count.
     pub fn grandchild_count(&self) -> usize {
         self.shape().grandchild_count()
+    }
+
+    /// The children [`children`](View::children) lists for this view, read
+    /// in place, in radix order: a visible path's one peeled view, a bare
+    /// branch's fan, and none for a bare leaf.
+    pub(super) fn listed(&self) -> impl Iterator<Item = (u8, Listed<'_>)> {
+        let shape = self.shape();
+        let peeled = shape.prefix.last().map(|&top| {
+            (
+                top,
+                Listed::Peeled {
+                    node: self.stored(),
+                    peeled: self.peeled,
+                },
+            )
+        });
+        let fan = match (peeled, shape.body) {
+            (None, Body::Branch { children, .. }) => Some(
+                children
+                    .iter()
+                    .map(|(radix, child)| (radix, Listed::Stored(child))),
+            ),
+            _ => None,
+        };
+        peeled.into_iter().chain(fan.into_iter().flatten())
+    }
+}
+
+/// List, build, and walk a view that holds its own handle.
+impl View {
+    /// View a stored node from below its whole compressed path: its body
+    /// alone, at the height of the body itself.
+    pub(super) fn body(node: Node) -> View {
+        let peeled = Peel::ALL[node.inner.prefix.len()];
+        View { node, peeled }
     }
 
     /// List the immediate children, or return the view if it is a bare
@@ -311,23 +398,6 @@ impl View {
         }) && listed.next().is_none()
     }
 
-    /// The children [`children`](Self::children) lists for this view, read
-    /// in place, in radix order: a visible path's one peeled view, a bare
-    /// branch's fan, and none for a bare leaf.
-    pub(super) fn listed(&self) -> impl Iterator<Item = (u8, Listed<'_>)> {
-        let shape = self.shape();
-        let peeled = shape.prefix.last().map(|&top| (top, Listed::Peeled(self)));
-        let fan = match (peeled, shape.body) {
-            (None, Body::Branch { children, .. }) => Some(
-                children
-                    .iter()
-                    .map(|(radix, child)| (radix, Listed::Stored(child))),
-            ),
-            _ => None,
-        };
-        peeled.into_iter().chain(fan.into_iter().flatten())
-    }
-
     /// Walk every leaf beneath this view, in ascending path order, as the
     /// stored tree holds it.
     ///
@@ -347,9 +417,15 @@ impl View {
 pub(super) enum Listed<'a> {
     /// A bare branch's child, stored in its fan.
     Stored(&'a Node),
-    /// The one child of a view with a visible path: the view it is listed
-    /// from, with one more byte hidden.
-    Peeled(&'a View),
+    /// The one child of a view with a visible path: the stored node of the
+    /// view it is listed from, which hides `peeled` bytes, with one more
+    /// byte hidden.
+    Peeled {
+        /// The parent view's stored node.
+        node: &'a Node,
+        /// The bytes the parent view hides.
+        peeled: Peel,
+    },
 }
 
 impl<'a> Listed<'a> {
@@ -358,8 +434,7 @@ impl<'a> Listed<'a> {
     /// body with.
     pub(super) fn memos(self) -> &'a Node {
         match self {
-            Listed::Stored(node) => node,
-            Listed::Peeled(view) => &view.node,
+            Listed::Stored(node) | Listed::Peeled { node, .. } => node,
         }
     }
 
@@ -369,9 +444,8 @@ impl<'a> Listed<'a> {
     pub(super) fn is(self, candidate: &View) -> bool {
         match self {
             Listed::Stored(node) => candidate.peeled == Peel::P0 && node.ptr_eq(&candidate.node),
-            Listed::Peeled(parent) => {
-                parent.peeled.deeper() == Some(candidate.peeled)
-                    && parent.node.ptr_eq(&candidate.node)
+            Listed::Peeled { node, peeled } => {
+                peeled.deeper() == Some(candidate.peeled) && node.ptr_eq(&candidate.node)
             }
         }
     }

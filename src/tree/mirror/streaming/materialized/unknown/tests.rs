@@ -84,7 +84,7 @@ fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<type
             &Recorder::default(),
         ))
         .expect("the in-memory backend lists exactly the children it reports")
-        .map(|pruned| <Local as Backend>::assume::<Root>(pruned).into_node())
+        .map(|pruned| <Local as Backend>::assume(&Prefix::<Root>::new(), pruned).into_node())
     })
 }
 

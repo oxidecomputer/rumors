@@ -196,12 +196,13 @@ impl<H: Height> Node<H> {
         self.inner.ptr_eq(&other.inner)
     }
 
-    /// Tag an untyped node at height `H`: the caller asserts the height.
+    /// Tag an untyped node at height `H`: the caller asserts the height, the
+    /// node's own top ([`untyped::Node::height`]).
     ///
-    /// The streaming mirror's erasure seam
-    /// ([`Backend::assume`](crate::tree::mirror::streaming::Backend::assume))
-    /// re-tags nodes it erased at the same height; internal tree code tags
-    /// nodes whose height its own traversal establishes.
+    /// Internal tree code tags nodes whose height its own traversal
+    /// establishes. The streaming mirror's erasure seam re-tags views
+    /// instead, and checks them in debug builds
+    /// ([`View::placed`](super::View::placed)).
     pub(crate) fn from_untyped(inner: untyped::Node) -> Self {
         Self {
             height: PhantomData,

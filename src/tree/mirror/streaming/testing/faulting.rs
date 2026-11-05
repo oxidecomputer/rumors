@@ -1,6 +1,7 @@
 //! A composable protocol decorator which injects one semantic violation.
 
 use std::future::Future;
+use std::marker::PhantomData;
 
 use crate::{
     Version,
@@ -267,6 +268,7 @@ where
                 charge: Default::default(),
                 last: true,
                 carried: Default::default(),
+                height: PhantomData,
             });
             return;
         }
@@ -331,7 +333,9 @@ where
                 // At a fan whose first child is higher, a radix-0 supply
                 // is a legal sibling mid-walk, and at the opening it is
                 // out of order (`InvalidSupply`) rather than held.
-                reply.reactions.insert(0, message::Reaction::Supply(0, B::node::<H>()));
+                reply
+                    .reactions
+                    .insert(0, message::Reaction::Supply(0, B::erase(B::node::<H>())));
             }
             ReplyCorruption::InvalidSupply => {
                 // A duplicated radix, past the honest reply. Radix 0xff
@@ -344,7 +348,7 @@ where
                 // the corrupting side's declared set length: every fixture
                 // declares its true length, and the receiver absorbs at
                 // most that side's exclusive leaves ahead of this one.
-                let node = B::node::<H>();
+                let node = B::erase(B::node::<H>());
                 reply.reactions.push(message::Reaction::Supply(0xff, node.clone()));
                 reply.reactions.push(message::Reaction::Supply(0xff, node));
             }
@@ -359,7 +363,7 @@ where
                 // premise attached to the injection.
                 reply
                     .reactions
-                    .push(message::Reaction::Supply(0xff, B::escaped::<H>()));
+                    .push(message::Reaction::Supply(0xff, B::erase(B::escaped::<H>())));
             }
             ReplyCorruption::UnaskedReply | ReplyCorruption::UnansweredQuery => {
                 unreachable!("stream-wide corruptions return before editing the first reply")

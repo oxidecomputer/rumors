@@ -682,7 +682,7 @@ where
             // A supplied node has at most a fan of children, so the clamp
             // changes nothing a conforming backend reports, and keeps a
             // miscounting one from overflowing the sum.
-            self.supplied_children += node.child_count().min(FAN);
+            self.supplied_children += node.child_count(&actual).min(FAN);
             self.ready.push(ProtocolReaction::Supply(radix, node));
         }
     }

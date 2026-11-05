@@ -96,7 +96,7 @@ fn absorb_scripted(
         Recorder::default(),
     ));
     let returned = pollster::block_on(async move { returns_rx.recv().await })
-        .map(|leaf| leaf.map(<Local as Backend>::assume::<Z>));
+        .map(|leaf| leaf.map(|leaf| <Local as Backend>::assume(&Prefix::containing(&path), leaf)));
     (result, returned)
 }
 

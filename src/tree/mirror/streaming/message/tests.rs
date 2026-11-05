@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use super::{CountError, Listed};
 use crate::Version;
 use crate::tree::mirror::streaming::{ErasedNode, byte_set::ByteSet};
-use crate::tree::typed::Hash;
+use crate::tree::typed::{ErasedPrefix, Hash, Prefix};
 
 /// A node whose child and grandchild counts the test chooses, as a backend
 /// reading corrupted storage could report them.
@@ -25,7 +25,7 @@ impl ErasedNode for Counted {
     }
 
     /// The default digest: listing copies it unread.
-    fn hash(&self) -> Hash {
+    fn hash(&self, _: &ErasedPrefix) -> Hash {
         Hash::default()
     }
 
@@ -34,18 +34,18 @@ impl ErasedNode for Counted {
         1
     }
 
-    /// The chosen grandchild count.
-    fn grandchild_count(&self) -> usize {
+    /// The chosen grandchild count, wherever the node sits.
+    fn grandchild_count(&self, _: &ErasedPrefix) -> usize {
         self.grandchildren
     }
 
-    /// The chosen child count.
-    fn child_count(&self) -> usize {
+    /// The chosen child count, wherever the node sits.
+    fn child_count(&self, _: &ErasedPrefix) -> usize {
         self.children
     }
 
     /// None: listing reads no radix.
-    fn child_radices(&self) -> ByteSet {
+    fn child_radices(&self, _: &ErasedPrefix) -> ByteSet {
         ByteSet::EMPTY
     }
 }
@@ -69,7 +69,7 @@ proptest! {
         grandchildren in arb_count(65_536),
         radix in any::<u8>(),
     ) {
-        let listed = Listed::of(radix, &Counted { children, grandchildren });
+        let listed = Listed::of(Prefix::new().erase(), radix, &Counted { children, grandchildren });
         if children > 256 {
             prop_assert_eq!(listed, Err(CountError::Children(children)));
         } else if grandchildren > 65_536 {

@@ -52,12 +52,25 @@ fn hash_of(view: Option<&View>) -> Option<crate::tree::typed::Hash> {
     view.map(View::hash)
 }
 
-/// A leaf whose version no generated tree holds: the generators tick the
-/// first few parties of the fork chain, and this one ticks a later one.
-fn foreign_leaf() -> Node {
+/// A leaf at `version`, under a path of zero bytes reaching `height`: a
+/// node that can stand among children at that height.
+fn leaf_at(version: Version, height: usize) -> Node {
+    let leaf = Node::leaf(version, Message::new(()));
+    (0..height).fold(leaf, |node, _| node.beneath(0))
+}
+
+/// A leaf whose version no generated tree holds, reaching `height`
+/// ([`leaf_at`]): the generators tick the first few parties of the fork
+/// chain, and this one ticks a later one.
+fn foreign_leaf(height: usize) -> Node {
     let mut version = Version::new();
     version.tick(&nth_party(64));
-    Node::leaf(version, Message::new(()))
+    leaf_at(version, height)
+}
+
+/// The height of the children `view` lists: one level below it.
+fn child_height(view: &View) -> usize {
+    view.height() - 1
 }
 
 /// One change to a listing that changes the subtree it describes.
@@ -120,8 +133,9 @@ fn copy_of(view: &View) -> View {
     View::from(copy)
 }
 
-/// `listing`, which is never empty, with `change` applied.
-fn changed(listing: &Listing, change: Change) -> Listing {
+/// `listing`, which is never empty and holds children at `height`, with
+/// `change` applied.
+fn changed(listing: &Listing, height: usize, change: Change) -> Listing {
     let mut entries = listing.clone();
     match change {
         Change::Remove(at) => {
@@ -129,11 +143,11 @@ fn changed(listing: &Listing, change: Change) -> Listing {
         }
         Change::Replace(at) => {
             let at = at.index(entries.len());
-            entries[at].1 = View::from(foreign_leaf());
+            entries[at].1 = View::from(foreign_leaf(height));
         }
         Change::Add(radix) => {
             entries.retain(|(at, _)| *at != radix);
-            entries.push((radix, View::from(foreign_leaf())));
+            entries.push((radix, View::from(foreign_leaf(height))));
             entries.sort_by_key(|(at, _)| *at);
         }
         Change::Move(at, radix) => moved(&mut entries, at, radix),
@@ -176,7 +190,7 @@ proptest! {
     ) {
         let listings = listings(tree);
         let (view, listing) = &listings[pick.index(listings.len())];
-        let listing = changed(listing, change);
+        let listing = changed(listing, child_height(view), change);
         let built = Node::branch(nodes(&listing));
         let rebuilt = View::rebuild(Some(view.clone()), listing);
         prop_assert_eq!(hash_of(rebuilt.as_ref()), built.as_ref().map(Node::hash));
@@ -186,9 +200,10 @@ proptest! {
 
 /// One edit to a listing for the seeding properties.
 ///
-/// That is a removal, a leaf at a drawn version replacing the child at a
-/// drawn position or placed at a drawn radix, a child moved to another
-/// radix, or a child replaced by an equal copy.
+/// That is a removal, a leaf at a drawn version, reaching the listing's
+/// height ([`leaf_at`]), replacing the child at a drawn position or placed
+/// at a drawn radix, a child moved to another radix, or a child replaced
+/// by an equal copy.
 #[derive(Clone, Debug)]
 enum Edit {
     /// Remove the child at the drawn position, if any child is left.
@@ -217,11 +232,11 @@ fn arb_edit() -> impl Strategy<Value = Edit> {
     ]
 }
 
-/// `listing` with `edits` applied in turn; a removal from an empty listing
-/// does nothing.
-fn edited(listing: &Listing, edits: &[Edit]) -> Listing {
+/// `listing`, which holds children at `height`, with `edits` applied in
+/// turn; a removal from an empty listing does nothing.
+fn edited(listing: &Listing, height: usize, edits: &[Edit]) -> Listing {
     let mut entries = listing.clone();
-    let leaf = |version: &Version| View::from(Node::leaf(version.clone(), Message::new(())));
+    let leaf = |version: &Version| View::from(leaf_at(version.clone(), height));
     for edit in edits {
         match edit {
             Edit::Remove(at) if !entries.is_empty() => {
@@ -275,7 +290,7 @@ proptest! {
         tree.version_bytes();
         let listings = listings(tree);
         let (view, listing) = &listings[pick.index(listings.len())];
-        let listing = edited(listing, &edits);
+        let listing = edited(listing, child_height(view), &edits);
         let built = Node::branch(nodes(&listing));
         let rebuilt = View::rebuild(Some(view.clone()), listing).map(View::into_node);
         prop_assert_eq!(rebuilt.as_ref().map(Node::hash), built.as_ref().map(Node::hash));

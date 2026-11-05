@@ -22,7 +22,7 @@ use crate::{
             byte_set::ByteSet, convert::Convert, with_kind_capacity,
         },
         typed::{
-            self, Hash, Path, Prefix,
+            self, ErasedPrefix, Hash, Path, Prefix,
             height::{Height, S, Z},
         },
     },
@@ -326,8 +326,8 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
         self.inner.span()
     }
 
-    fn hash(&self) -> Hash {
-        self.inner.hash()
+    fn hash(&self, at: &ErasedPrefix) -> Hash {
+        self.inner.hash(at)
     }
 
     fn len(&self) -> usize {
@@ -335,29 +335,29 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     }
 
     /// Read the wrapped node's grandchild count.
-    fn grandchild_count(&self) -> usize {
-        self.inner.grandchild_count()
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize {
+        self.inner.grandchild_count(at)
     }
 
     /// Read the wrapped node's child count, skewed to exercise a backend
     /// whose count disagrees with its listing.
-    fn child_count(&self) -> usize {
-        self.inner.child_count() + CHILDREN_SKEW.get()
+    fn child_count(&self, at: &ErasedPrefix) -> usize {
+        self.inner.child_count(at) + CHILDREN_SKEW.get()
     }
 
     /// Read the wrapped node's child radices, dropped to exercise a backend
     /// whose radices disagree with its listing.
-    fn child_radices(&self) -> ByteSet {
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet {
         if RADICES_DROP.get() > 0 {
             return ByteSet::EMPTY;
         }
-        self.inner.child_radices()
+        self.inner.child_radices(at)
     }
 }
 
 impl Backend for Materializing {
     type Node<H: Height> = MaterializedNode<typed::View<H>>;
-    type Erased = MaterializedNode<typed::untyped::View>;
+    type Erased = MaterializedNode<typed::ErasedView>;
     type Error = Infallible;
 
     // Erasure re-tags the store's handle; the resident row rides along
@@ -368,16 +368,16 @@ impl Backend for Materializing {
         let MaterializedNode { inner, mut row } = node;
         row.resize(row.len() + ERASE_SLACK.get(), 0);
         MaterializedNode {
-            inner: inner.into_untyped(),
+            inner: <Local as Backend>::erase(inner),
             row,
         }
     }
 
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H> {
         let MaterializedNode { inner, mut row } = erased;
         row.resize(row.len() + ASSUME_SLACK.get(), 0);
         MaterializedNode {
-            inner: typed::View::from_untyped(inner),
+            inner: <Local as Backend>::assume(at, inner),
             row,
         }
     }
@@ -399,13 +399,13 @@ impl Backend for Materializing {
             return Ok(None);
         }
         // The other direction of the presence lie: a group with no real
-        // child answered with a node conjured from nothing (a leaf
-        // re-tagged at the parent's height; the tag is phantom, and the
-        // check on trial reads only the answer's presence).
+        // child answered with a node conjured from nothing (a leaf under a
+        // path reaching the parent's height; the check on trial reads only
+        // the answer's presence).
         if fan == 0 && PARENT_CONJURES.get() != 0 {
-            let conjured = typed::View::from_untyped(typed::untyped::View::from(
-                typed::untyped::Node::leaf(Version::new(), Message::new(0)),
-            ));
+            let leaf = typed::untyped::Node::leaf(Version::new(), Message::new(0));
+            let lifted = (0..S::<H>::HEIGHT).fold(leaf, |node, _| node.beneath(0));
+            let conjured = typed::View::from(typed::Node::<S<H>>::from_untyped(lifted));
             return Ok(Some(MaterializedNode::wrap(conjured, ROW_HEADER)));
         }
         let children = children

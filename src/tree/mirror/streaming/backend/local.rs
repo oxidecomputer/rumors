@@ -19,7 +19,7 @@ use crate::{
             holding::{Holding, held_by},
         },
         typed::{
-            self, Path, Prefix, SortedRun,
+            self, ErasedPrefix, Path, Prefix, SortedRun,
             height::{Height, S, Z},
         },
     },
@@ -58,20 +58,21 @@ impl<H: Height> Node for typed::View<H> {
     }
 }
 
-/// Read comparison metadata without a height marker.
-impl ErasedNode for typed::untyped::View {
+/// Read comparison metadata without a height marker, viewing the stored
+/// node from the coordinate each query names.
+impl ErasedNode for typed::ErasedView {
     /// Borrow the subtree's ordered version bounds.
     fn span(&self) -> Span<'_> {
         self.span()
     }
 
-    /// Read the subtree digest: a whole node's memo, computed on first
-    /// read, or a peeled view's, computed on each read.
+    /// Read the subtree digest at `at`: a whole node's memo, computed on
+    /// first read, or a peeled view's, computed on each read.
     ///
     /// For the session-budget meter, computing it is hashing's own work
     /// ([`Holding::Hashing`]), whichever place's code read it.
-    fn hash(&self) -> typed::Hash {
-        held_by(Holding::Hashing, || self.hash())
+    fn hash(&self, at: &ErasedPrefix) -> typed::Hash {
+        held_by(Holding::Hashing, || self.at(at).hash())
     }
 
     /// Return the stored leaf count.
@@ -79,20 +80,22 @@ impl ErasedNode for typed::untyped::View {
         self.len()
     }
 
-    /// Derive the grandchild count from the stored aggregate and the path.
-    fn grandchild_count(&self) -> usize {
-        self.grandchild_count()
+    /// Derive the grandchild count at `at` from the stored aggregate and
+    /// the visible path.
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize {
+        self.at(at).grandchild_count()
     }
 
-    /// Count the children listing this node yields, from its shape.
-    fn child_count(&self) -> usize {
-        self.child_count()
+    /// Count the children listing this node at `at` yields, from its
+    /// shape.
+    fn child_count(&self, at: &ErasedPrefix) -> usize {
+        self.at(at).child_count()
     }
 
-    /// Collect the radices listing this node yields, from its fan or its
-    /// compressed path, in one pass with no handle cloned.
-    fn child_radices(&self) -> ByteSet {
-        self.child_radices().collect()
+    /// Collect the radices listing this node at `at` yields, from its fan
+    /// or its visible path, in one pass with no handle cloned.
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet {
+        self.at(at).child_radices().collect()
     }
 }
 
@@ -113,7 +116,7 @@ impl Leaf for typed::View<Z> {
 }
 
 /// The in-memory backend: [`typed::View`] handles over the crate's own
-/// tree.
+/// tree, each the size of a stored node's handle.
 ///
 /// Zero-sized — the handles carry all the state — so the cloneable-handle
 /// contract of [`Backend`] is satisfied by `Copy`. Its nodes are immutable
@@ -124,7 +127,9 @@ impl Leaf for typed::View<Z> {
 /// path, so listing a compressed node's one child shares the node rather
 /// than copying it, and listing allocates nothing beyond the handles it
 /// yields. Reassembly builds a node from a view only where the view joins a
-/// new branch.
+/// new branch. A handle holds the stored node alone: the level it views
+/// the node from is its height, a type at [`Node`](Backend::Node), and the
+/// coordinate the session keeps beside it at [`Erased`](Backend::Erased).
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Local;
 
@@ -132,22 +137,25 @@ pub struct Local;
 impl Backend for Local {
     /// Use the typed in-memory view at every height.
     type Node<H: Height> = typed::View<H>;
-    /// Use the untyped view shared by every height.
+    /// Use the erased view: the stored node, shared by every height.
     ///
-    /// The typed view is a phantom tag over this value, so erasure and
-    /// restoration are field moves.
-    type Erased = typed::untyped::View;
+    /// The typed view is a phantom tag over the same stored node, so
+    /// erasure is a field move, and restoration a move, after checking the
+    /// coordinate in debug builds.
+    type Erased = typed::ErasedView;
     /// In-memory tree operations cannot fail.
     type Error = Infallible;
 
     /// Remove a node's phantom height tag.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
-        node.into_untyped()
+        node.erase()
     }
 
-    /// Restore a node's phantom height tag.
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
-        typed::View::from_untyped(erased)
+    /// Restore a node's phantom height tag from its coordinate, checking
+    /// the coordinate against the stored node's path bytes in debug builds
+    /// ([`typed::View::placed`]).
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H> {
+        typed::View::placed(at, erased)
     }
 
     /// Stream one branch's children in radix order.
