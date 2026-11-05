@@ -28,7 +28,7 @@ use crate::{
     },
 };
 
-use super::super::{LeafEdge, ReplyLevel, Scope, decode::fan_probe, decode_reply};
+use super::super::{LeafEdge, ReplyLevel, Scope, decode::fan_probe, decode_whole_reply};
 use super::{codec, reply_frames, unbounded, uniform_version};
 
 /// Leaf records per supply frame.
@@ -67,7 +67,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -87,7 +87,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
 fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
     fan_probe::reset();
     run_to_quiescence(async {
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::one_slot(),
             Local,
             u64::MAX,
@@ -181,7 +181,7 @@ fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec
         let mut decoded = Vec::new();
         for _ in counts {
             let mut fresh = LeafEdge::new();
-            let reply = decode_reply::<Local, _>(
+            let reply = decode_whole_reply::<Local, _>(
                 edge.as_mut().unwrap_or(&mut fresh),
                 Local,
                 u64::MAX,

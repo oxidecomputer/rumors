@@ -58,9 +58,10 @@ fn opening_listing_agrees_with_greeting_replay() {
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: vec![Reaction::Query(listing.clone())],
         charge: Default::default(),
+        last: true,
     };
 
-    let local = opening_listing(reply).expect("canonical opening");
+    let local = opening_listing(reply.reactions).expect("canonical opening");
     assert_eq!(local, listing);
     let scope = Scope::opening_unbounded(&local);
 
@@ -116,6 +117,7 @@ fn opening_accepts_exactly_one_query() {
                 })
                 .collect(),
             charge: Default::default(),
+            last: true,
         }
     }
 
@@ -144,7 +146,7 @@ fn opening_accepts_exactly_one_query() {
             [Symbol::Query, ..] => Err(OpeningError::Trailing),
             [_, ..] => Err(OpeningError::NotQuery),
         };
-        let actual = opening_listing(reply(&word)).map(|_| ());
+        let actual = opening_listing(reply(&word).reactions).map(|_| ());
         assert_eq!(actual, expected, "word: {word:?}");
     }
 }

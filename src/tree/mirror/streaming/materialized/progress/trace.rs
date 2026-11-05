@@ -94,7 +94,7 @@ impl Trace {
     /// Sibling and wire contiguity keep a stage from handing on one scope's
     /// work while it withholds work a resolved sibling still owes; wire
     /// contiguity is also the premise of the in-flight count
-    /// ([`Self::assert_outstanding_within_count`]) that parking is sized by.
+    /// ([`Self::assert_outstanding_within_count`]).
     /// Radix order preserves positional pairing because protocol items do not
     /// carry their scope keys. Parent-last placement keeps a parent summary
     /// behind everything its scope publishes.

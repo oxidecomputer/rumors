@@ -1,4 +1,4 @@
-//! Outbound protocol replies rendered as complete wire replies.
+//! Outbound protocol replies rendered as wire replies, chunk by chunk.
 //!
 //! Questions are retained until every frame of their containing reply is in
 //! the multiplexer's channel. Publishing them any earlier could block the
@@ -21,11 +21,11 @@ use crate::tree::{
         Backend, Leaf,
         channel::{Receiver, WindowSender},
         holding::{Holding, held_by},
-        ledger::{Charge, Ledger, queued},
+        ledger::{Charge, Ledger, queued, shared},
         message::Grandchildren,
         protocol::BoxRequests,
         remote::{
-            adapter::{self, Encoded, Scope, encode_reply, opening_listing},
+            adapter::{Encoded, ReplyEncoder, Scope, opening_listing},
             codec::{ReplyFrame, RunBudget},
             pipe::Outgoing,
             proxy::Error,
@@ -55,9 +55,8 @@ where
     // admits K truly in-flight scopes (the walk's stage loops make the
     // same choice; see the materialized module docs).
     while let Some(scope) = scopes.recv().await {
-        let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
-        let mut encoded = adapter::encode_leaf_reply(backend.clone(), budget, scope, request);
-        let batch = write_reply(&mut outgoing, &mut encoded).await?;
+        let encoder = ReplyEncoder::leaf(backend.clone(), budget, scope);
+        let batch = write_reply(&mut outgoing, &mut requests, encoder).await?;
         if let Some(questions) = &mut questions {
             // Only replies which can ask questions participate in this trace.
             // The initiator's final answers have no publication dependency.
@@ -91,9 +90,8 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     while let Some(scope) = scopes.recv().await {
-        let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
-        let mut encoded = encode_reply(backend.clone(), budget, scope, request);
-        let batch = write_reply(&mut outgoing, &mut encoded).await?;
+        let encoder = ReplyEncoder::branch(backend.clone(), budget, scope);
+        let batch = write_reply(&mut outgoing, &mut requests, encoder).await?;
         progress.wire_reply(question_height, batch.len());
         publish(&mut questions, batch, progress, question_height).await;
     }
@@ -116,8 +114,15 @@ pub async fn opening<B>(
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let request = requests.next().await.ok_or(Error::MissingOpening)?;
-    let listing = opening_listing(request).map_err(Error::OpeningEncode)?;
+    let mut reactions = Vec::new();
+    loop {
+        let chunk = requests.next().await.ok_or(Error::MissingOpening)?;
+        reactions.extend(chunk.reactions);
+        if chunk.last {
+            break;
+        }
+    }
+    let listing = opening_listing(reactions).map_err(Error::OpeningEncode)?;
     progress.wire_reply(UnderRoot::HEIGHT, 1);
     progress.local_question(UnderRoot::HEIGHT);
     questions.publish(Scope::opening(&listing, responder)).await;
@@ -127,19 +132,31 @@ where
     Ok(())
 }
 
-/// Hand every frame in one reply to the multiplexer and retain the reply's
+/// Hand every frame of one reply, its chunks taken from `requests` up to
+/// the last, to the multiplexer through `encoder`, and retain the reply's
 /// questions.
-async fn write_reply<E>(
+async fn write_reply<B>(
     outgoing: &mut Outgoing,
-    encoded: &mut (impl Stream<Item = Result<Encoded, adapter::EncodeError<E>>> + Unpin),
-) -> Result<Vec<Scope>, Error<E>> {
+    requests: &mut BoxRequests<B::Erased>,
+    mut encoder: ReplyEncoder<B>,
+) -> Result<Vec<Scope>, Error<B::Error>>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
     let mut batch = Vec::new();
-    while let Some(frame) = encoded.next().await {
-        if let Some(question) = write_encoded(outgoing, frame?).await? {
-            held_by(Holding::QuestionRecords, || batch.push(question));
+    loop {
+        let chunk = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
+        let last = chunk.last;
+        let mut frames = encoder.chunk(chunk);
+        while let Some(frame) = frames.next().await {
+            if let Some(question) = write_encoded(outgoing, frame?).await? {
+                held_by(Holding::QuestionRecords, || batch.push(question));
+            }
+        }
+        if last {
+            return Ok(batch);
         }
     }
-    Ok(batch)
 }
 
 /// Publish one complete reply's questions in their wire order.
@@ -168,8 +185,13 @@ impl Records {
 
     /// Publish one question's record, or await cancellation if its consumer
     /// has gone.
+    ///
+    /// The record waits in the decoder's queue, then in the allocation the
+    /// decoder shares with the take until the take reads its reply's last
+    /// chunk, so its charge covers the larger of the two.
     async fn publish(&mut self, question: Scope) {
-        let bytes = queued::<(Scope, Charge)>() + question.children_bytes();
+        let record = queued::<(Scope, Charge)>().max(shared::<Scope>());
+        let bytes = record + question.children_bytes();
         let charge = self.ledger.charge(Holding::QuestionRecords, bytes);
         if self.sender.send((question, charge)).await.is_err() {
             cancelled().await;

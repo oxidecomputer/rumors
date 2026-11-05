@@ -114,6 +114,12 @@ pub(crate) const fn queued<T>() -> usize {
     size_of::<Option<T>>().next_multiple_of(size_of::<usize>()) + size_of::<usize>()
 }
 
+/// Bytes one item of type `T` takes in an [`Arc`]'s allocation: the item
+/// beside its two reference counts, padded to the item's alignment.
+pub(crate) const fn shared<T>() -> usize {
+    (2 * size_of::<usize>()).next_multiple_of(align_of::<T>()) + size_of::<T>()
+}
+
 /// Bytes a vector's buffer holds: its capacity, in elements.
 pub(crate) fn buffer<T>(items: &Vec<T>) -> usize {
     items.capacity() * size_of::<T>()

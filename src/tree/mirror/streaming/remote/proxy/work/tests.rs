@@ -12,16 +12,17 @@ use proptest::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::sync::oneshot;
 
-use super::{Ingress, Parked, Physical, Work, progress::Progress};
+use super::{Ingress, Physical, Work, progress::Progress};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::{MemoryEnd, memory_connection, run_to_quiescence};
 use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::Window;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
-    erased::Reply,
+    channel::{QueueKind, QueueRole, channel},
+    message::listed,
     remote::{
-        adapter::{DecodeError, EncodeError, Scope},
+        adapter::{DecodeError, EncodeError, Scope, ScopeError},
         codec::{
             self, DecodeErrorKind, EncodeErrorKind, End, Flow, Frame, FramePart, Origin, Reaction,
             RunBudget, Speaker, Stream,
@@ -31,7 +32,10 @@ use crate::tree::mirror::streaming::{
     },
     stats::Recorder,
 };
-use crate::tree::typed::height::Z;
+use crate::tree::typed::{
+    Hash,
+    height::{Height, UnderRoot},
+};
 
 /// Pending tasks placed before the injected failure to exercise aggregation.
 const PARKED_PUMPS: usize = 3;
@@ -207,40 +211,48 @@ fn a_write_failure_stands_beside_departure() {
 }
 
 proptest! {
-    /// A decoded declaration error reaches the executor without waiting for
-    /// an unread or dropped response consumer, ahead of a terminal write error.
+    /// A decode failure reaches the executor without waiting for an unread
+    /// or dropped response consumer, whether or not an earlier reply waits
+    /// parked.
+    ///
+    /// Each reply answers a record with one position, and the failing reply
+    /// matches twice, so its second match has no position to take. The
+    /// terminal step never finishes, so only the failure can end the
+    /// session.
     #[test]
     fn response_failure_does_not_wait_for_its_consumer(
         buffered in any::<bool>(),
         dropped in any::<bool>(),
-        terminal_ready in any::<bool>(),
-        declared in 0u64..1024,
-        excess in 1usize..1024,
     ) {
-        let ParkedSession { mut work, peer: _peer } = parked_session();
-        let actual = declared as usize + excess;
+        let ParkedSession { mut work, mut peer } = parked_session();
         // A closed consumer may stop a pump before later items are read.
         let buffered = buffered && !dropped;
-        let messages = futures::stream::iter(
-            buffered.then_some(Ok(Parked {
-                reply: Reply { reactions: Vec::new(), charge: Default::default() },
-                answered: Scope::opening_unbounded(&[]), record: Default::default(),
-            })).into_iter().chain([Err(Error::Decode(DecodeError::OversizedVersion { declared, actual }))]),
-        );
-        let responses = work.park_and_take::<Z>(messages, None, Progress::new());
+        let record = Scope::opening_unbounded(&[listed(0, Hash::default())]);
+        let (mut records, questions) =
+            channel(QueueRole::new(QueueKind::ProxyLocalQuestions, UnderRoot::HEIGHT), 2);
+        let stream = Stream::at_height(REMOTE, UnderRoot::HEIGHT)
+            .expect("the responder replies to the opening");
+        let mut frames = Vec::new();
+        if buffered {
+            records.try_send((record.clone(), Default::default())).expect("room for two records");
+            frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::End)));
+        }
+        records.try_send((record, Default::default())).expect("room for two records");
+        frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::Continue)));
+        frames.extend(remote_frame(stream, Frame::Reaction(Reaction::Match, Flow::End)));
+        let responses = work.respond::<UnderRoot>(questions, None, Progress::new());
         let _responses = (!dropped).then_some(responses);
-        let finish = async move {
-            if terminal_ready {
-                Err(failed_write())
-            } else {
-                future::pending::<Result<(), _>>().await
-            }
-        };
-        let result = run_to_quiescence(work.execute(finish));
-        prop_assert!(matches!(result, Ok(Err(Error::Decode(DecodeError::OversizedVersion {
-            declared: found_declared, actual: found_actual,
-        }))) if found_declared == declared && found_actual == actual),
-            "response error was lost: {:?}", result);
+        let result = run_to_quiescence(async {
+            peer.write.write_all(&frames).await.unwrap();
+            work.execute(future::pending::<Result<(), _>>()).await
+        });
+        prop_assert!(
+            matches!(
+                result,
+                Ok(Err(Error::Decode(DecodeError::Scope(ScopeError::UnpositionedMatch))))
+            ),
+            "response error was lost: {:?}", result
+        );
     }
 
     /// The peer's closing items, arriving before or after the protocol
@@ -350,47 +362,4 @@ fn a_partial_frame_after_completion_is_unasked() {
         matches!(error, Error::Pipe(PipeError::Unasked { origin }) if origin == Origin::direction(REMOTE)),
         "{error:?}"
     );
-}
-
-/// Parking accepts exactly its capacity of replies without waiting, and
-/// fails with `ParkingOverflow` instead of waiting when one more arrives.
-///
-/// Nothing takes from parking, so the extra reply finds the channel full.
-#[test]
-fn parking_past_its_capacity_fails_instead_of_waiting() {
-    const CAPACITY: usize = 3;
-    const HEIGHT: usize = 29;
-    let parked = |count: usize| {
-        let (parking, _unread) = crate::tree::mirror::streaming::channel::channel::<Parked<()>>(
-            crate::tree::mirror::streaming::channel::QueueRole::new(
-                crate::tree::mirror::streaming::channel::QueueKind::ProxyResponses,
-                HEIGHT,
-            ),
-            CAPACITY,
-        );
-        let decoded = futures::stream::iter((0..count).map(|_| {
-            Ok::<_, Error<()>>(Parked {
-                reply: Reply {
-                    reactions: Vec::new(),
-                    charge: Default::default(),
-                },
-                answered: Scope::opening_unbounded(&[]),
-                record: Default::default(),
-            })
-        }));
-        let lane = super::Lane::new(HEIGHT, CAPACITY, Speaker::Initiator);
-        run_to_quiescence(super::park(Box::pin(decoded), parking, lane))
-            .expect("parking never waits")
-    };
-    assert!(
-        parked(CAPACITY).is_ok(),
-        "the derived capacity itself parks"
-    );
-    assert!(matches!(
-        parked(CAPACITY + 1),
-        Err(Error::ParkingOverflow {
-            height: HEIGHT,
-            capacity: CAPACITY
-        })
-    ));
 }

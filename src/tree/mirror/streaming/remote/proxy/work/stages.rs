@@ -15,27 +15,29 @@
 //! - local questions, published once their reply's last frame is in the
 //!   multiplexer's channel, flow into decoding, sized by the session
 //!   [`Window`](crate::tree::mirror::streaming::window::Window);
-//! - decoded replies park until their stage takes them, with room for every
-//!   reply this side can have invited, so decoding never waits on the walk;
-//! - at each take, the scopes the reply's questions create flow into the
-//!   next phase, before the stage receives the reply.
+//! - decoded replies park, chunk by chunk as their reactions decode, until
+//!   their stage takes them, and parking never waits, so decoding never
+//!   waits on the walk;
+//! - at each take, the scopes the chunk's questions create flow into the
+//!   next phase, before the stage receives the chunk.
 //!
 //! A complete reply reaches the multiplexer before its local questions
 //! publish. Each edge's capacity rationale lives at its constructor in
 //! [`queues`].
 
-use crate::tree::mirror::streaming::ledger::Charge;
-use async_stream::try_stream;
-use futures::{Stream, StreamExt};
+use std::sync::Arc;
+
+use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::{Ingress, Parked, Work, encode, queues};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        channel::Receiver,
+        channel::{Receiver, Sender, TrySendError},
         erased,
         holding::{Holding, holding},
+        ledger::Charge,
         protocol::{BoxResponses, Requests},
         remote::{
             adapter::{LeafEdge, ReplyLevel, Scope, decode_reply, opening_reply},
@@ -43,6 +45,7 @@ use crate::tree::{
             pipe::PipeRead,
             proxy::{Error, send_or_cancel},
         },
+        tasks::cancelled,
     },
     typed::height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
 };
@@ -52,39 +55,64 @@ impl<B> Ingress<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Pair each published local question with its decoded wire reply at
-    /// `level`, and yield the reply with the question's record for parking.
+    /// Pair each published local question with its wire reply at `level`,
+    /// and park the reply's chunks in `parking` as they decode, the first
+    /// carrying the question's record.
     ///
     /// The decoder reads the record in place, and the record then travels
     /// with its reply, so the take derives the reply's questions from the
     /// very record the decoder validated it against. Every reply crosses one
     /// [`LeafEdge`], which the pump owns for its whole run.
-    pub(super) fn decode_pump(
+    ///
+    /// Parking never waits, so decoding never waits on the walk: its queue
+    /// holds whatever arrives, all of it within the room the questions it
+    /// answers set aside. A closed queue means the stage is gone, and the
+    /// pump awaits cancellation as [`send_or_cancel`] does. Decode errors
+    /// return to the executor without waiting for the stage.
+    pub(super) async fn decode_and_park(
         self,
         level: ReplyLevel,
         mut questions: Receiver<(Scope, Charge)>,
         mut incoming: Receiver<Frame>,
-    ) -> impl Stream<Item = Result<Parked<B::Erased>, Error<B::Error>>> + Send + 'static {
-        try_stream! {
-            let mut asked = false;
-            let mut edge = LeafEdge::new();
-            while let Some((answered, record)) = questions.recv().await {
-                asked = true;
-                let reply = decode_reply(
-                    &mut edge,
-                    self.backend.clone(),
-                    self.version_bytes,
-                    self.ledger.clone(),
-                    level,
-                    &answered,
-                    &mut incoming,
-                    self.codec,
-                )
-                .await?;
-                yield Parked { reply, answered, record };
+        mut parking: Sender<Parked<B::Erased>>,
+    ) -> Result<(), Error<B::Error>> {
+        let mut asked = false;
+        let mut edge = LeafEdge::new();
+        while let Some((answered, record)) = questions.recv().await {
+            asked = true;
+            let answered = Arc::new(answered);
+            let mut opens = Some((answered.clone(), record));
+            let mut gone = false;
+            let mut deliver = |chunk| {
+                let parked = Parked {
+                    chunk,
+                    opens: opens.take(),
+                };
+                match parking.try_send(parked) {
+                    Ok(()) => {}
+                    Err(TrySendError::Closed(_)) => gone = true,
+                    Err(TrySendError::Full(_)) => {
+                        unreachable!("parking holds `UNBOUNDED` chunks, more than a session makes")
+                    }
+                }
+            };
+            decode_reply(
+                &mut edge,
+                self.backend.clone(),
+                self.version_bytes,
+                self.ledger.clone(),
+                level,
+                &answered,
+                &mut incoming,
+                self.codec,
+                &mut deliver,
+            )
+            .await?;
+            if gone {
+                cancelled().await;
             }
-            reject_extra(asked, &mut incoming).await?;
         }
+        reject_extra(asked, &mut incoming).await
     }
 }
 
@@ -110,7 +138,7 @@ where
         let listing = std::mem::take(&mut self.remote_listing);
         let responses = async_stream::stream! {
             let (reply, scope) = opening_reply::<B::Erased>(listing);
-            progress.taken_reply(RootHeight::HEIGHT, 1);
+            progress.taken(RootHeight::HEIGHT, true, 1);
             progress.next_scope(RootHeight::HEIGHT);
             send_or_cancel(&mut next_scopes, scope).await;
             yield Ok(erased::assume_reply::<B, UnderRoot>(reply));

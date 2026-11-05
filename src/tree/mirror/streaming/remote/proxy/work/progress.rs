@@ -1,8 +1,9 @@
 //! Ordering trace for the proxy's progress-critical publications.
 //!
 //! Every event identifies its endpoint, session stage, and question height. An
-//! encoder publishes that question; when the walk takes the reply answering
-//! it, the take publishes the scopes the reply's questions create. The stage
+//! encoder publishes that question; as the walk takes each chunk of the
+//! reply answering it, the take publishes the scopes the chunk's questions
+//! create. The stage
 //! keeps overlapping walk and terminal activity on separate ledgers at leaf
 //! height.
 
@@ -62,14 +63,19 @@ impl Progress {
         trace::record_stage(self.work, self.stage, trace::Kind::LocalQuestion, _height);
     }
 
-    /// Record a taken answer at its question's height, with the count of
-    /// scopes the take publishes.
-    pub fn taken_reply(self, _height: usize, _scopes: usize) {
+    /// Record a taken chunk of an answer at its question's height, with the
+    /// count of scopes the take publishes; `opening` marks an answer's
+    /// first chunk.
+    pub fn taken(self, _height: usize, _opening: bool, _scopes: usize) {
         #[cfg(test)]
         trace::record_stage(
             self.work,
             self.stage,
-            trace::Kind::TakenReply { scopes: _scopes },
+            if _opening {
+                trace::Kind::TakenReply { scopes: _scopes }
+            } else {
+                trace::Kind::TakenChunk { scopes: _scopes }
+            },
             _height,
         );
     }

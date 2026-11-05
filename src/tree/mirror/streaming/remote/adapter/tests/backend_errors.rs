@@ -17,7 +17,9 @@ use crate::tree::{
 };
 
 use super::{
-    super::{DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, decode_reply, encode_reply},
+    super::{
+        DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, decode_whole_reply, encode_reply,
+    },
     LeafCase, NodeAt, codec, hash, leaf_run, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::{
@@ -78,6 +80,7 @@ where
                     Reply {
                         reactions,
                         charge: Default::default(),
+                        last: true,
                     },
                 );
                 let (yielded, error, ended) = runtime.block_on(async {
@@ -128,6 +131,7 @@ where
                         ),
                     ],
                     charge: Default::default(),
+                    last: true,
                 },
             );
             let (yielded, error) = runtime.block_on(async {
@@ -170,7 +174,7 @@ where
                 sentinel.clone(),
             ]);
             let error = runtime
-                .block_on(decode_reply::<Failing<Local>, _>(
+                .block_on(decode_whole_reply::<Failing<Local>, _>(
                     &mut LeafEdge::new(),
                     backend.clone(),
                     u64::MAX,

@@ -18,6 +18,8 @@ use crate::tree::{
 
 /// Compile-time bounds for each participant's complete phase chain.
 mod peer;
+#[cfg(test)]
+pub(crate) mod split;
 pub use peer::{Client, Peer, Server};
 
 /// Common metadata for a state in the height-typed session schedule.
@@ -39,7 +41,10 @@ pub trait Requests<B: Backend<Node<Z>: Leaf>, H: Height>:
     where
         Self: Sized,
     {
-        Box::pin(self.map(erased::erase_reply::<B, H>))
+        let erased = self.map(erased::erase_reply::<B, H>);
+        #[cfg(test)]
+        let erased = split::requests(erased);
+        Box::pin(erased)
     }
 }
 /// Any stream with the required item and lifetime bounds is a request stream.
@@ -123,14 +128,10 @@ pub trait CompleteEqual<B: Backend<Node<Z>: Leaf>>: Phase<Height = Root> + Sized
 /// Give both participants of an endpoint one window before the descent
 /// opens.
 ///
-/// An endpoint's walk and its proxy size their queues from one [`Window`],
-/// and the proxy sizes parking from it on the premise that it is exactly the
-/// walk's: parking holds every reply the walk's questions can invite. So one
-/// participant resolves the window and the other adopts it. The participant
-/// holding the endpoint's window configuration, the walk, resolves it from
-/// both greetings; one holding none, the proxy, adopts what its counterpart
-/// resolved. Two walks, as in an in-process session, are two endpoints: each
-/// resolves its own and ignores the other's.
+/// The participant holding the endpoint's window configuration, the walk,
+/// resolves it from both greetings; one holding none, the proxy, is handed
+/// what its counterpart resolved. Two walks, as in an in-process session,
+/// are two endpoints: each resolves its own and ignores the other's.
 ///
 /// Once the greetings' versions differ, the driver calls
 /// [`resolve_window`](Self::resolve_window) on each participant and hands

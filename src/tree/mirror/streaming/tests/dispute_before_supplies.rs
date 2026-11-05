@@ -6,8 +6,8 @@
 //! the disputed chain resolves, every level down to the leaf, while the
 //! supplier writes the supplies as soon as it encodes them, long before the
 //! chain's deeper replies, each of which waits on a round trip. So the
-//! receiving side must hold supplies its stage has not taken: the `pipe`
-//! tests show parking capped at one slot overflowing on this shape. A reader
+//! receiving side must hold supplies its stage has not taken, which its
+//! parking, unbounded, does. A reader
 //! that waited for each frame's stage to accept it would stop reading at
 //! those supplies, ahead of the replies the chain needs; the `remote::pipe`
 //! module docs explain that hazard and why this design's reader never waits

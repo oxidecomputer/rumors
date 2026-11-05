@@ -17,7 +17,7 @@ use crate::tree::{
 
 use super::{
     super::{
-        DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_reply,
+        DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, ScopeError, decode_whole_reply,
         derive_questions, encode_leaf_reply, encode_reply,
     },
     LeafCase, ascending_leaves, codec, colliding_leaves, hash, leaf_run, runtime, unbounded,
@@ -39,7 +39,7 @@ fn bare_end_cannot_follow_reactions() {
 
     let error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_reply(
+        decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -67,7 +67,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
     let mut frames = stream::iter([Frame::Reaction(WireReaction::Match, Flow::Continue)]);
 
     let error = runtime().block_on(async {
-        decode_reply(
+        decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -106,7 +106,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
 
     let decode_error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -128,6 +128,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: vec![Reaction::Match, Reaction::Match],
         charge: Default::default(),
+        last: true,
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -160,7 +161,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
 
     let decode_error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -182,6 +183,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: vec![Reaction::Query(listing)],
         charge: Default::default(),
+        last: true,
     };
     let encode_error = runtime().block_on(async {
         encode_reply(
@@ -234,6 +236,7 @@ fn leaf_query_matrix_is_exhaustive() {
             let reply = Reply::<<Local as Backend>::Erased> {
                 reactions: vec![Reaction::Query(query_listing.clone())],
                 charge: Default::default(),
+                last: true,
             };
             let encoded = runtime().block_on(async {
                 encode_leaf_reply(
@@ -264,7 +267,7 @@ fn leaf_query_matrix_is_exhaustive() {
 
             let decoded = runtime().block_on(async {
                 let mut frames = stream::iter([expected_frame]);
-                decode_reply(
+                decode_whole_reply(
                     &mut LeafEdge::new(),
                     Local,
                     u64::MAX,
@@ -286,7 +289,8 @@ fn leaf_query_matrix_is_exhaustive() {
                     let questions = derive_questions(
                         ReplyLevel::Leaf,
                         &Scope::unbounded(parent.erase(), &scope_listing),
-                        &reply,
+                        &mut 0,
+                        &reply.reactions,
                     )
                     .expect("decoding validated positions");
                     assert_eq!(questions, vec![Scope::leaf(parent.push(radix).erase())]);
@@ -310,7 +314,7 @@ fn stream_end_is_not_a_protocol_reply() {
     let mut frames = stream::iter([Frame::End(End::Stream)]);
 
     let error = runtime()
-        .block_on(decode_reply(
+        .block_on(decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -364,7 +368,7 @@ fn leaf_order_is_enforced_within_one_run() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -408,7 +412,7 @@ fn leaf_scope_is_enforced_within_one_run() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply(
+        decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -449,7 +453,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -497,7 +501,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
 
     runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_reply(
+        decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             declared,
@@ -513,7 +517,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_reply(
+        decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             declared - 1,
@@ -558,7 +562,7 @@ fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<I
     let frames = whole_root_supply_reply(&ascending_leaves(0..count, 0));
     runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -613,7 +617,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,

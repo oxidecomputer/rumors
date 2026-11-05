@@ -14,7 +14,8 @@
 //!
 //! - **queries** flow down: one queue item per question asked, in question
 //!   order (message order, then radix order);
-//! - **replies** are the incoming stream: exactly one message per query;
+//! - **replies** are the incoming stream: exactly one reply per query, in
+//!   chunks the stage acts on as they arrive, the last marked;
 //! - **returns** flow up: exactly one `Option<Node>` per query, in query
 //!   order — the reconciled scope, `None` meaning it resolved to nothing
 //!   (recursive deletion, the same reading as [`Backend::parent`]'s `None`
@@ -85,8 +86,8 @@
 //! local batch may hold a fan of queries containing a fan of node handles
 //! apiece, at most fan² handles per recursive stage at full fan-out. Bounded
 //! query and resolution channels retain only one item; the exceptional fan
-//! queue retains completed node handles. On the wire, the memory unit is one
-//! reply message.
+//! queue retains completed node handles. On the wire, a decoded reply waits
+//! for its stage chunk by chunk, within the room its question set aside.
 
 use std::marker::PhantomData;
 use std::pin::pin;
@@ -828,9 +829,9 @@ where
     }
 }
 
-/// The initiator's terminal loop: pair each pending leaf request with its
-/// final [`Reply`] and pass its provision up, prefix-less, like every
-/// return.
+/// The initiator's terminal loop: pair each pending leaf request with the
+/// chunks of its final [`Reply`] and pass its provision up, prefix-less,
+/// like every return.
 ///
 /// The reply is classified by the [`Resolver`] every descending stage
 /// uses, over a request that holds nothing. One rule is the terminal
@@ -854,11 +855,7 @@ where
 {
     let mut requests = pin!(requests);
     while let Some((prefix, reservation)) = queries.recv().await {
-        let Some(Reply {
-            reactions,
-            charge: _received,
-        }) = requests.next().await
-        else {
+        let Some(mut chunk) = requests.next().await else {
             return violation(Violation::UnansweredQuery);
         };
         progress.take(Z::HEIGHT, &prefix);
@@ -874,17 +871,31 @@ where
             reservation,
         };
         let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, &stats);
-        for reaction in reactions {
-            if let Reaction::Supply(radix, _) = &reaction
-                && *radix != expected
-            {
-                return violation(Violation::InvalidSupply);
+        loop {
+            let Reply {
+                reactions,
+                charge: _received,
+                last,
+            } = chunk;
+            for reaction in reactions {
+                if let Reaction::Supply(radix, _) = &reaction
+                    && *radix != expected
+                {
+                    return violation(Violation::InvalidSupply);
+                }
+                let routed = resolver.react(reaction)?;
+                debug_assert!(
+                    routed.is_none(),
+                    "a request that holds nothing routes no query"
+                );
             }
-            let routed = resolver.react(reaction)?;
-            debug_assert!(
-                routed.is_none(),
-                "a request that holds nothing routes no query"
-            );
+            if last {
+                break;
+            }
+            let Some(next) = requests.next().await else {
+                return violation(Violation::UnansweredQuery);
+            };
+            chunk = next;
         }
         let Resolution { mut resolved, .. } = resolver.finish()?;
         let supply = match resolved.pop() {

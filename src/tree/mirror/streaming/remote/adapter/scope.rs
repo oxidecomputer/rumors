@@ -3,7 +3,7 @@ use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::slice;
 
 use crate::tree::{
-    mirror::streaming::erased::{Reaction, Reply},
+    mirror::streaming::erased::Reaction,
     typed::{
         ErasedPrefix, Prefix,
         height::{Height, Z},
@@ -12,27 +12,34 @@ use crate::tree::{
 
 use super::error::ScopeError;
 
-/// Derive the scopes a reply's queries create, in wire order.
+/// Derive the scopes a chunk of a reply's queries create, in wire order.
 ///
-/// `answered` is the record of the question the reply answers. Matches and
-/// queries advance its position; supplies name their own radix and do not.
-/// At [`ReplyLevel::Branch`] a query opens a scope one level down; at
-/// [`ReplyLevel::Leaf`] every query must be empty and requests its leaf.
-/// The decoder validated the same positions when the reply arrived, so a
-/// failure here means the reply or the record changed in between.
+/// `answered` is the record of the question the reply answers, and `taken`
+/// counts the record's positions the reply's earlier chunks took, which
+/// this chunk's continue from; it returns counting this chunk's too.
+/// Matches and queries take a position; supplies name their own radix and
+/// take none. At [`ReplyLevel::Branch`] a query opens a scope one level
+/// down; at [`ReplyLevel::Leaf`] every query must be empty and requests its
+/// leaf. The decoder validated the same positions when the reply arrived,
+/// so a failure here means the reply or the record changed in between.
 pub fn derive_questions<E>(
     level: ReplyLevel,
     answered: &Scope,
-    reply: &Reply<E>,
+    taken: &mut usize,
+    reactions: &[Reaction<E>],
 ) -> Result<Vec<Scope>, ScopeError> {
-    let mut positions = answered.positions();
+    let mut positions = answered.positions_from(*taken);
     let mut questions = Vec::new();
-    for reaction in &reply.reactions {
+    for reaction in reactions {
         match reaction {
             Reaction::Match => {
                 positions.next().ok_or(ScopeError::UnpositionedMatch)?;
+                *taken += 1;
             }
-            Reaction::Query(listing) => questions.push(level.derive(&mut positions, listing)?),
+            Reaction::Query(listing) => {
+                questions.push(level.derive(&mut positions, listing)?);
+                *taken += 1;
+            }
             Reaction::Supply(_, _) => {}
         }
     }
@@ -168,9 +175,16 @@ impl Scope {
     /// Begin replaying a reply's positional reactions against this
     /// question, from its first listed child.
     pub fn positions(&self) -> Positions<'_> {
+        self.positions_from(0)
+    }
+
+    /// Resume replaying a reply's positional reactions against this
+    /// question after the first `taken` positions, which earlier reactions
+    /// took; past the last position, the cursor is exhausted.
+    pub fn positions_from(&self, taken: usize) -> Positions<'_> {
         Positions {
             parent: self.parent,
-            children: self.children.iter(),
+            children: self.children.get(taken..).unwrap_or_default().iter(),
         }
     }
 

@@ -27,9 +27,16 @@ pub enum Kind {
     /// One question is published after its reply's last frame reaches the
     /// multiplexer.
     LocalQuestion,
-    /// The walk takes an incoming answer; its derived scopes publish next,
-    /// before the stage receives it.
+    /// The walk takes an incoming answer's first chunk; its derived scopes
+    /// publish next, before the stage receives it.
     TakenReply {
+        /// Scopes the take publishes.
+        scopes: usize,
+    },
+    /// The walk takes a later chunk of the answer it took last at this
+    /// height; its derived scopes publish next, before the stage receives
+    /// it.
+    TakenChunk {
         /// Scopes the take publishes.
         scopes: usize,
     },
@@ -67,7 +74,7 @@ impl Trace {
                     questions.insert((event.work, event.stage, event.height), count);
                 }
                 Kind::LocalQuestion => consume(&mut questions, event, index, "wire reply"),
-                Kind::TakenReply { scopes: count } => {
+                Kind::TakenReply { scopes: count } | Kind::TakenChunk { scopes: count } => {
                     assert_drained(&scopes, event, index, "scopes");
                     scopes.insert((event.work, event.stage, event.height), count);
                 }
@@ -118,7 +125,8 @@ impl Trace {
     }
 
     /// Assert that each endpoint takes one answer per question it
-    /// published, under the same stage and height labels.
+    /// published, under the same stage and height labels, counting each
+    /// answer at its first chunk.
     ///
     /// The encoder labels each question it publishes with a runtime height,
     /// and the take labels each answer with its stage's typed height. This
@@ -154,7 +162,7 @@ impl Trace {
                          published question to answer ({published} published)",
                     );
                 }
-                Kind::WireReply { .. } | Kind::NextScope => {}
+                Kind::WireReply { .. } | Kind::TakenChunk { .. } | Kind::NextScope => {}
             }
         }
         for (key, published) in questions {

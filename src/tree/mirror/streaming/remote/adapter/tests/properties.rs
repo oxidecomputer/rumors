@@ -23,8 +23,8 @@ type Erased = <Local as Backend>::Erased;
 
 use super::{
     super::{
-        DecodeError, LeafEdge, ReplyLevel, Scope, decode_reply, derive_questions,
-        encode_leaf_reply, encode_reply,
+        DecodeError, LeafEdge, ReplyEncoder, ReplyLevel, Scope, decode_whole_reply,
+        derive_questions, encode_leaf_reply, encode_reply,
     },
     LeafCase, NodeAt, codec, hash, leaf_run, reply_frames, runtime, unbounded,
 };
@@ -86,7 +86,13 @@ where
         F: futures::Stream<Item = Frame> + Unpin;
 
     /// Encode through the entry point for this height.
-    fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible>;
+    fn encode(
+        scope: Scope,
+        reply: Reply<Erased>,
+    ) -> super::super::encode::Frames<'static, Infallible>;
+
+    /// Begin a chunked encoding of a reply at this height.
+    fn encoder(scope: Scope) -> ReplyEncoder<Local>;
 
     /// Return the query listing valid at this height.
     fn nested(case: &PositionalCase) -> &[Listed];
@@ -118,6 +124,7 @@ where
                 })
                 .collect(),
             charge: Default::default(),
+            last: true,
         };
         let expected_questions = case
             .radixes
@@ -257,6 +264,43 @@ where
         Ok(())
     }
 
+    /// Check that a mixed reply encoded in the chunks `cuts` selects
+    /// yields exactly the frames and publications of its whole encoding.
+    fn chunked_encoding_is_whole(
+        leaf: &LeafCase,
+        case: &PositionalCase,
+        cuts: u64,
+        runtime: &tokio::runtime::Runtime,
+    ) -> TestCaseResult {
+        let (parent, supply_radix) = Prefix::<Self>::containing(&leaf.path()).pop();
+        let (case, supply_at) = case.with_supply(supply_radix);
+        let scope = Scope::unbounded(parent.erase(), &case.listing());
+        let nested = Self::nested(&case);
+        let reply = || mixed_reply(&case, nested, supply_at, supply_radix, Self::node(leaf));
+        let (whole, chunked) = runtime.block_on(async {
+            let whole = Self::encode(scope.clone(), reply())
+                .map_ok(|encoded| encoded.into_parts())
+                .try_collect::<Vec<_>>()
+                .await
+                .expect("canonical mixed reactions encode");
+            let mut encoder = Self::encoder(scope.clone());
+            let mut chunked = Vec::new();
+            for chunk in chunks(reply(), cuts) {
+                let mut frames = encoder.chunk(chunk);
+                while let Some(frame) = frames.next().await {
+                    chunked.push(
+                        frame
+                            .expect("canonical mixed reactions encode")
+                            .into_parts(),
+                    );
+                }
+            }
+            (whole, chunked)
+        });
+        prop_assert_eq!(chunked, whole, "height {}", Self::HEIGHT);
+        Ok(())
+    }
+
     /// Check that duplicate supplied paths fail with their exact order error.
     fn duplicate_leaf_is_rejected(
         leaf: &LeafCase,
@@ -306,7 +350,7 @@ impl AdapterHeight for Z {
         F: futures::Stream<Item = Frame> + Unpin,
     {
         let level = ReplyLevel::Leaf;
-        let reply = decode_reply(
+        let reply = decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -317,13 +361,20 @@ impl AdapterHeight for Z {
             codec(),
         )
         .await?;
-        let questions =
-            derive_questions(level, &scope, &reply).expect("decoding validated positions");
+        let questions = derive_questions(level, &scope, &mut 0, &reply.reactions)
+            .expect("decoding validated positions");
         Ok(Decoded { reply, questions })
     }
 
-    fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible> {
+    fn encode(
+        scope: Scope,
+        reply: Reply<Erased>,
+    ) -> super::super::encode::Frames<'static, Infallible> {
         encode_leaf_reply(Local, RunBudget::default(), scope, reply)
+    }
+
+    fn encoder(scope: Scope) -> ReplyEncoder<Local> {
+        ReplyEncoder::leaf(Local, RunBudget::default(), scope)
     }
 
     fn nested(_case: &PositionalCase) -> &[Listed] {
@@ -351,7 +402,7 @@ where
         F: futures::Stream<Item = Frame> + Unpin,
     {
         let level = ReplyLevel::Branch;
-        let reply = decode_reply(
+        let reply = decode_whole_reply(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -362,13 +413,20 @@ where
             codec(),
         )
         .await?;
-        let questions =
-            derive_questions(level, &scope, &reply).expect("decoding validated positions");
+        let questions = derive_questions(level, &scope, &mut 0, &reply.reactions)
+            .expect("decoding validated positions");
         Ok(Decoded { reply, questions })
     }
 
-    fn encode(scope: Scope, reply: Reply<Erased>) -> super::super::encode::Frames<Infallible> {
+    fn encode(
+        scope: Scope,
+        reply: Reply<Erased>,
+    ) -> super::super::encode::Frames<'static, Infallible> {
         encode_reply(Local, RunBudget::default(), scope, reply)
+    }
+
+    fn encoder(scope: Scope) -> ReplyEncoder<Local> {
+        ReplyEncoder::branch(Local, RunBudget::default(), scope)
     }
 
     fn nested(case: &PositionalCase) -> &[Listed] {
@@ -435,7 +493,33 @@ fn mixed_reply<H: Height>(
     Reply {
         reactions,
         charge: Default::default(),
+        last: true,
     }
+}
+
+/// `reply`'s reactions as chunks, cut after reaction `i` wherever bit `i`
+/// of `cuts` is set but after the last, which the last chunk holds as a
+/// reply's last chunk must.
+fn chunks(reply: Reply<Erased>, cuts: u64) -> Vec<Reply<Erased>> {
+    let count = reply.reactions.len();
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    for (index, reaction) in reply.reactions.into_iter().enumerate() {
+        current.push(reaction);
+        if index + 1 < count && index < 64 && (cuts >> index) & 1 == 1 {
+            chunks.push(Reply {
+                reactions: std::mem::take(&mut current),
+                charge: Default::default(),
+                last: false,
+            });
+        }
+    }
+    chunks.push(Reply {
+        reactions: current,
+        charge: reply.charge,
+        last: true,
+    });
+    chunks
 }
 
 /// Build the canonical frames for a mixed reply independently of the encoder.
@@ -724,6 +808,35 @@ proptest! {
         for height in 0..32 {
             at_height!(height, AdapterHeight::mixed_reactions_are_lossless(
                 &leaf, &case, &runtime
+            ); 0..32)?;
+        }
+    }
+
+    /// At every height, a mixed reply encoded chunk by chunk, cut at any
+    /// reaction boundaries, writes exactly its whole encoding's frames and
+    /// questions.
+    ///
+    /// Every chunk's last frame continues the reply, and only the reply's
+    /// last reaction ends it.
+    #[test]
+    fn chunked_replies_encode_as_whole_replies_at_every_height(
+        value in any::<u64>(),
+        ticks in any::<u8>(),
+        radixes in vec(any::<u8>(), 0..=8).prop_map(BTreeSet::from_iter),
+        queries in any::<u64>(),
+        nested in vec(any::<u8>(), 0..=8).prop_map(BTreeSet::from_iter),
+        cuts in any::<u64>(),
+    ) {
+        let leaf = LeafCase::new(value, ticks);
+        let case = PositionalCase {
+            radixes: radixes.into_iter().collect(),
+            queries,
+            nested: nested.into_iter().map(|radix| listed(radix, hash(radix))).collect(),
+        };
+        let runtime = runtime();
+        for height in 0..32 {
+            at_height!(height, AdapterHeight::chunked_encoding_is_whole(
+                &leaf, &case, cuts, &runtime
             ); 0..32)?;
         }
     }

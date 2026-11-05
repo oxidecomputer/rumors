@@ -29,7 +29,7 @@ use crate::{
 };
 
 use super::{
-    super::{LeafEdge, ReplyLevel, Scope, decode_reply, encode_reply},
+    super::{LeafEdge, ReplyLevel, Scope, decode_whole_reply, encode_reply},
     LeafCase, codec, colliding_leaves, leaf_run, reply_frames, runtime, separated_leaves,
     unbounded,
 };
@@ -65,7 +65,7 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
     let runtime = runtime();
     runtime.block_on(async {
         let mut input = stream::iter(frames);
-        let decoded = decode_reply::<Local, _>(
+        let decoded = decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -233,7 +233,7 @@ fn a_batched_run_round_trips_the_reply() {
     let runtime = runtime();
     let reply = runtime.block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,

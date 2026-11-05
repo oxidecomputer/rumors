@@ -32,15 +32,17 @@
 //! | Demultiplexer | its stream's decoder to accept a frame | The decoder is only finishing its current frame. |
 //! | Decoder | the local record of the question its next reply answers | The encoder publishes it right after handing the carrying reply's last frame to the multiplexer, without waiting for the write. |
 //! | Decoder | the storage backend, absorbing supplied leaves | Backend operations complete without waiting on other session work. |
-//! | Decoder | room in parking | Never: parking holds every reply this side can have invited, and a full queue fails the session instead of waiting. |
+//! | Decoder | its assembler, finishing a group of supplies | The assembler waits only on the decoder's leaves and the backend, and the decoder takes the group's nodes back at the group's end, with room for a fan of them. |
+//! | Decoder | room in parking | Never: parking is unbounded, and every parked chunk lies within the room its question set aside. |
 //!
 //! A decoder waits for a local record only when that queue is empty. If a
 //! reply to one of those questions has arrived, the encoder is already past
 //! the carrying reply's last frame, and with the queue empty its
 //! publication cannot block, so the decoder waits only for its own side's
-//! encoder to be scheduled. Parking's capacity is derived, in the proxy's
-//! `queues` module, from the count of replies a side can have invited at
-//! each height.
+//! encoder to be scheduled. A decoder hands on every complete question
+//! before it waits for the next frame, so a peer that sends the rest of a
+//! reply only once those questions are answered is never kept waiting by
+//! this side's receive path.
 //!
 //! On the sending side, encoders wait for the multiplexer and the
 //! multiplexer waits for the pipe, but no receiving stage's consumption

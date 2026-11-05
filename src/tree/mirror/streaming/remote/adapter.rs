@@ -1,4 +1,5 @@
-//! Conversion between scoped protocol replies and prefix-free wire frames.
+//! Conversion between scoped protocol replies and prefix-free wire frames,
+//! chunk by chunk.
 //!
 //! The materialized protocol and the wire deliberately speak at different
 //! levels. In memory, one [`Reply`](super::super::erased::Reply) contains
@@ -55,13 +56,16 @@
 //! channel into [`Backend::assemble`](super::super::Backend::assemble),
 //! passing custody of the payload to the backend at construction
 //! ([`Leaf::leaf`](super::super::Leaf::leaf)) before the leaf enters the
-//! channel. While that fold rebuilds backend nodes, the reader retains only
-//! the reply skeleton (`Match`, `Query`, or a supplied-prefix placeholder).
-//! Completed nodes fill those placeholders after the reply end arrives. Thus
-//! memory remains one finite reply, its completed node handles, one encoded
-//! run, and the buffered fan of backend-priced leaves — the session budget's
-//! supply-decode charge; no subtree payload is accumulated merely to cross
-//! the backend boundary.
+//! channel. A group of consecutive supplies ends at the next positional
+//! reaction or at the reply's end, and the assembler then finishes the
+//! group's last node and sends the group's nodes back. Meanwhile the reader
+//! retains only the reactions it has read and not yet delivered, and one
+//! placeholder per run of the open group; it delivers the complete
+//! reactions in a chunk whenever the next frame has not arrived. Thus
+//! memory remains those reactions, their completed node handles, one
+//! encoded run, and the buffered fan of backend-priced leaves — the
+//! session budget's supply-decode charge; no subtree payload is
+//! accumulated merely to cross the backend boundary.
 //!
 //! # Why this is sufficient
 //!
@@ -75,8 +79,12 @@ mod encode;
 mod error;
 mod scope;
 
+#[cfg(test)]
+pub use decode::decode_whole_reply;
 pub use decode::{LeafEdge, decode_reply, opening_reply};
-pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_listing};
+pub use encode::{Encoded, ReplyEncoder, opening_listing};
+#[cfg(test)]
+pub use encode::{encode_leaf_reply, encode_reply};
 #[cfg(test)]
 pub use error::BoundedPart;
 pub use error::{DecodeError, EncodeError, OpeningError, ScopeError};

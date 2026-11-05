@@ -14,7 +14,7 @@ use crate::testing::{
 };
 use crate::tree::mirror::preamble::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
-    ChannelReport, QueueKind, with_observation, with_schedule,
+    ChannelReport, QueueKind, UNBOUNDED, with_observation, with_schedule,
 };
 use crate::tree::mirror::streaming::window::{FAN, WindowConfig};
 use crate::tree::{
@@ -635,10 +635,8 @@ fn instrumented_reconcile(
 /// (`try_send_is_full_exactly_at_capacity`), so it is not repeated here.
 ///
 /// The question queue takes the window's one slot, the scope queue a fan
-/// plus one, parking every reply the floor window can invite at its
-/// height: `1 + FAN + 1`, or the height's whole question population,
-/// `256^(31 − h)`, where that is smaller, and each logical stream's lane to
-/// or from the pipe one slot.
+/// plus one, parking [`UNBOUNDED`], and each logical stream's lane to or
+/// from the pipe one slot.
 fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     for (role, stats) in report
         .roles()
@@ -648,13 +646,7 @@ fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
             QueueKind::ProxyLocalQuestions => 1,
             QueueKind::PipeOutgoing | QueueKind::PipeIncoming => 1,
             QueueKind::ProxyNextScopes => FAN + 1,
-            QueueKind::ProxyResponses => {
-                let invited = 1 + FAN + 1;
-                match 256_usize.checked_pow(31 - role.height as u32) {
-                    Some(population) => population.min(invited),
-                    None => invited,
-                }
-            }
+            QueueKind::ProxyResponses => UNBOUNDED,
             _ => unreachable!("only proxy roles are selected"),
         };
         assert_eq!(

@@ -240,15 +240,27 @@ impl<T> Stream for Receiver<T> {
     }
 }
 
+/// The capacity of an edge whose sends never wait: the largest the
+/// `futures-channel` buffer accepts, a count of items no session can hold.
+///
+/// An edge built with it is bounded only by what its items' producers
+/// can create, which an edge chooses when another account (the ledger, for
+/// the protocol's edges) already limits those items.
+pub const UNBOUNDED: usize = usize::MAX >> 2;
+
 /// Create a protocol edge that holds at most `capacity` items.
 ///
 /// # Panics
 ///
-/// Panics if `capacity` is zero. A protocol edge needs at least one slot to
+/// Panics if `capacity` is zero or exceeds [`UNBOUNDED`]. A protocol edge needs at least one slot to
 /// make progress, so a zero capacity is a programmer error, as it is for
 /// Tokio's bounded channel.
 pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     assert!(capacity > 0, "a protocol channel needs at least one slot");
+    assert!(
+        capacity <= UNBOUNDED,
+        "a protocol channel holds at most `UNBOUNDED` items"
+    );
     // The single sender adds its own slot to the buffer (see the module docs).
     let (sender, receiver) = mpsc::channel(capacity - 1);
     let sender = Sender {

@@ -1,21 +1,22 @@
-//! The streaming mirror's wire vocabulary: one reply per question.
+//! The streaming mirror's wire vocabulary: one reply per question, in
+//! chunks.
 //!
-//! After the handshake, every stream message is the complete reply to a
-//! single earlier question. The first [`Reply`] asks the implicit root
-//! question, and every subsequent `Reply` answers the k-th
-//! question its receiver asked, in order. No message carries a prefix —
-//! scope is determined by pairing against the receiver's own query queue —
-//! and a reply is a finite value, so completeness is structural: having
-//! read the k-th message, the receiver holds *everything* the counterparty
-//! will ever say about the k-th scope. That structural completeness is
-//! what lets the session resolve a scope the moment its reply arrives (see
-//! [`materialized`](crate::tree::mirror::streaming::materialized) for the ordering argument).
+//! After the handshake, every stream message is one chunk of the reply to
+//! a single earlier question. The first [`Reply`] asks the implicit root
+//! question, and every later reply answers the k-th question its receiver
+//! asked, in order. No message carries a prefix — scope is determined by
+//! pairing against the receiver's own query queue — and a reply's last
+//! chunk is marked, so completeness is structural: having read the k-th
+//! reply's last chunk, the receiver holds *everything* the counterparty
+//! will ever say about the k-th scope. That structural completeness is what
+//! lets the session resolve a scope the moment its reply ends (see
+//! [`materialized`](crate::tree::mirror::streaming::materialized) for the
+//! ordering argument).
 //!
-//! The memory unit is one reply: a maximally disputed reply carries one
-//! full listing per root radix, or fan² hashes. An encoded reply and its
-//! decoded skeleton may coexist transiently; the adapter's occupancy tests
-//! pin that charge. Decoded replies then park until their stage takes them,
-//! as many per level as that level can have invited.
+//! The receiver acts on each chunk as it arrives, answering the questions a
+//! reply asks before the rest of the reply arrives. Decoded chunks park
+//! until their stage takes them, within the room the question they answer
+//! set aside for its reply.
 
 use std::cmp::Ordering;
 
@@ -265,13 +266,23 @@ impl Greeting {
     }
 }
 
-/// The sole stream message.
+/// The sole stream message: one chunk of the reply to a single previous
+/// query.
+///
+/// A reply is a run of chunks, its reactions in prefix order, ending at the
+/// first chunk marked [`last`](Self::last). Its receiver acts on each chunk
+/// as it arrives, so a sender may pause between chunks until the receiver
+/// has answered the questions sent so far. On the wire, chunk boundaries
+/// carry no frame of their own: the receiver's decoder chunks a reply as
+/// its frames arrive, and the reply's last reaction carries the end.
 pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
-    /// The reactions to a single previous query.
+    /// The chunk's reactions, continuing the reply's earlier chunks.
     pub reactions: Vec<Reaction<B, H>>,
-    /// What the reply holds, charged to the endpoint that built it and
+    /// What the chunk holds, charged to the endpoint that built it and
     /// returned when its consumer has used it.
     pub(crate) charge: Charge,
+    /// Whether this chunk ends the reply.
+    pub(crate) last: bool,
 }
 
 /// Reactions are positionally keyed against the corresponding

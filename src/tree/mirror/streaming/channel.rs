@@ -7,7 +7,7 @@
 //! per-kind capacity limits, and shrinkable delays at every send and receive
 //! poll.
 
-pub use bounded::{SendError, TrySendError};
+pub use bounded::{SendError, TrySendError, UNBOUNDED};
 
 use super::holding::Holding;
 
@@ -44,6 +44,8 @@ pub enum QueueKind {
     TerminalLeafResolutions,
     /// Decoded wire leaves awaiting backend assembly.
     DecodedLeaves,
+    /// Supplied nodes the backend assembled, awaiting their reply's reader.
+    AssembledSupplies,
     /// Decoded remote replies parked until their stage takes them.
     ProxyResponses,
     /// Questions issued by the local proxy walk.
@@ -108,8 +110,8 @@ impl QueueKind {
     /// session-budget meter's attribution ([`super::holding`]).
     ///
     /// Each edge belongs to the place whose items it carries. The edges of
-    /// fixed capacity, the assembly returns and the terminal leaf
-    /// resolutions, belong to assembly.
+    /// fixed capacity, the assembly returns, the terminal leaf resolutions,
+    /// and the assembled supplies, belong to assembly.
     #[cfg_attr(not(any(test, feature = "test-internals")), expect(dead_code))]
     pub(crate) const fn holding(self) -> Holding {
         match self {
@@ -129,7 +131,8 @@ impl QueueKind {
             Self::AssemblyLevelReturns
             | Self::InitiatorRootReturn
             | Self::ResponderRootReturns
-            | Self::TerminalLeafResolutions => Holding::Assembly,
+            | Self::TerminalLeafResolutions
+            | Self::AssembledSupplies => Holding::Assembly,
             Self::PipeOutgoing | Self::PipeIncoming => Holding::Wire,
         }
     }

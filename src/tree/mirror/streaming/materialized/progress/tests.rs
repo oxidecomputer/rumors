@@ -75,8 +75,7 @@ fn rejects_sibling_resolution_before_dependent_work() {
 ///
 /// Such a wire hands on another reply before the stage has recorded every
 /// question its sibling's reply carries, which voids the premise of the
-/// in-flight count that parking is sized by
-/// ([`Trace::assert_outstanding_within_count`]).
+/// in-flight count ([`Trace::assert_outstanding_within_count`]).
 #[test]
 #[should_panic(expected = "departed while resolved sibling")]
 fn rejects_wire_while_sibling_owes_dependent_work() {

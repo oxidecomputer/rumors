@@ -39,7 +39,8 @@ where
     queued::<Result<Reply<B::Erased>, Error<B::Error>>>() + buffer(&reply.reactions) + listings
 }
 
-/// `reactions` as an outgoing reply, charged to `ledger` for what it holds.
+/// `reactions` as a whole outgoing reply, one last chunk, charged to
+/// `ledger` for what it holds.
 pub(super) fn reply<B>(ledger: &Ledger, reactions: Vec<Reaction<B::Erased>>) -> Reply<B::Erased>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -47,6 +48,7 @@ where
     let mut reply = Reply {
         reactions,
         charge: Charge::default(),
+        last: true,
     };
     reply.charge = ledger.charge(Holding::OutgoingReplies, reply_bytes::<B>(&reply));
     reply
@@ -77,18 +79,19 @@ pub(crate) fn parent_resolution<E>(bound: ReplyBound) -> usize {
 }
 
 /// The room a question listing `listed` children sets aside for the peer's
-/// reply bounded by `bound`: the reply parked whole, the records its take
+/// reply bounded by `bound`: the reply's chunks parked, the records its take
 /// derives from its queries, and the parent resolution the stage builds.
 ///
-/// A query sits only at a position the asker listed, so the records are
-/// at most `listed`, and together they hold at most the reply's listing
-/// entries.
+/// A query sits only at a position the asker listed, so the reply asks at
+/// most `listed.min(bound.reactions)` questions; the decoder parks at most
+/// one more chunk than that, and the records together hold at most the
+/// reply's listing entries.
 pub(crate) fn reservation<E>(bound: ReplyBound, listed: usize) -> usize {
-    let parked = queued::<Parked<E>>()
+    let questions = listed.min(bound.reactions);
+    let parked = (questions + 1) * queued::<Parked<E>>()
         + bound.reactions * size_of::<Reaction<E>>()
         + bound.listing * size_of::<Listed>();
-    let records = listed.min(bound.reactions) * queued::<Scope>()
-        + bound.listing * size_of::<(u8, Grandchildren)>();
+    let records = questions * queued::<Scope>() + bound.listing * size_of::<(u8, Grandchildren)>();
     parked + records + parent_resolution::<E>(bound)
 }
 

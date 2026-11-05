@@ -263,7 +263,7 @@ where
             while let Some(item) = responses.next().await {
                 yield item;
             }
-            yield Ok(message::Reply { reactions: Vec::new(), charge: Default::default() });
+            yield Ok(message::Reply { reactions: Vec::new(), charge: Default::default(), last: true });
             return;
         }
 

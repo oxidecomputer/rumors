@@ -77,5 +77,3 @@ pub use pipe::PipeRead;
 pub use proxy::Error;
 pub use proxy::Handshaking;
 pub(crate) use proxy::Parked;
-#[cfg(test)]
-pub(crate) use proxy::parking_census;

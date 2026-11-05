@@ -51,6 +51,7 @@ use crate::tree::mirror::contained;
 use crate::tree::mirror::streaming::materialized::transcript::{
     Label, Transcript, with_transcript,
 };
+use crate::tree::mirror::streaming::protocol::split::with_split_replies;
 use crate::tree::mirror::streaming::testing::session::{AMPLE, completed, over_pipe};
 use crate::tree::mirror::streaming::window::{Window, WindowConfig};
 use crate::tree::typed::{Node as TreeNode, Path};
@@ -377,11 +378,23 @@ fn local_transcript(left: Root, right: Root, window: WindowConfig) -> Transcript
 /// endpoints at `window`, with leaf-path derivation following the pair's
 /// placement when `placed`.
 fn wire_transcript(left: Root, right: Root, window: WindowConfig, placed: bool) -> Transcript {
+    piped_transcript(left, right, window, placed, AMPLE)
+}
+
+/// The transcript of the session [`wire_transcript`] runs, over a pipe
+/// buffering `pipe` bytes each way.
+fn piped_transcript(
+    left: Root,
+    right: Root,
+    window: WindowConfig,
+    placed: bool,
+    pipe: usize,
+) -> Transcript {
     let (outcome, transcript) = with_transcript(|| {
         if placed {
-            placed_over_pipe((left, right), [window; 2], AMPLE)
+            placed_over_pipe((left, right), [window; 2], pipe)
         } else {
-            over_pipe::<()>((left, right), [window; 2], AMPLE)
+            over_pipe::<()>((left, right), [window; 2], pipe)
         }
     });
     completed(outcome.expect("the session completes under the closed-world poller"));
@@ -428,6 +441,33 @@ proptest! {
         assert_matches(&left, &right, &wire)?;
     }
 }
+
+proptest! {
+    /// With every reply split at every reaction boundary, the model still
+    /// predicts every reply both walks build, in process and over a
+    /// one-byte pipe, and both sessions converge.
+    ///
+    /// Each stage then reads every reply one reaction at a time, and over
+    /// the pipe each encoder releases a reply's frames chunk by chunk while
+    /// each decoder, finding every next frame missing, delivers each
+    /// question as its frame arrives.
+    #[test]
+    fn model_predicts_every_split_reply(
+        (left, right) in arb_divergent_pair(),
+        window in arb_window(),
+    ) {
+        with_split_replies(|| {
+            let local = local_transcript(left.clone(), right.clone(), window);
+            assert_matches(&left, &right, &local)?;
+            let wire = piped_transcript(left.clone(), right.clone(), window, false, ONE_BYTE);
+            assert_matches(&left, &right, &wire)
+        })?;
+    }
+}
+
+/// Bytes each direction of the split-reply sessions' pipe buffers: one, so
+/// every frame arrives after the decoder has looked for it.
+const ONE_BYTE: usize = 1;
 
 /// Messages both forks of [`model_predicts_forked_replicas`] share.
 const FORK_SHARED: usize = 2_000;

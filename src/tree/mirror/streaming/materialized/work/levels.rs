@@ -86,6 +86,16 @@ macro_rules! yield_resolve_query {
     }};
 }
 
+/// The next chunk of the reply a stage is reading, or the violation of a
+/// request stream that ends first: the question the reply answers is still
+/// outstanding.
+async fn next_chunk<E, Err>(requests: &mut BoxRequests<E>) -> Result<Reply<E>, Error<Err>> {
+    match requests.next().await {
+        Some(chunk) => Ok(chunk),
+        None => violation(Violation::UnansweredQuery),
+    }
+}
+
 impl<B> Work<B>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -185,15 +195,14 @@ where
         let responses = try_stream! {
             let mut requests = requests;
             let root_scope = Prefix::new().erase();
-            let Some(Reply { reactions, charge: received }) = requests.next().await else {
-                return violation(Violation::UnansweredQuery)?;
-            };
             // The opening reply is not paired positionally against the
             // held fan, so the resolver cannot classify it; its arms are
             // its own, and the first offending reaction names the fault.
             // It carries exactly one query. A supply at a radix this side
             // holds is already known; any other supply is out of place.
             let mut theirs = None;
+            loop {
+            let Reply { reactions, charge: received, last } = next_chunk(&mut requests).await?;
             for reaction in reactions {
                 match reaction {
                     Reaction::Query(listing) => {
@@ -211,10 +220,14 @@ where
                     }
                 }
             }
+            drop(received);
+            if last {
+                break;
+            }
+            }
             let Some(theirs) = theirs else {
                 return violation(Violation::UnfinishedReply)?;
             };
-            drop(received);
             let ours = fan;
             let (reactions, next_queries, resolved) = answer::internal(
                 &backend,
@@ -339,12 +352,12 @@ where
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { reactions, charge: received }) = requests.next().await else {
-                    return violation(Violation::UnansweredQuery)?;
-                };
+                let mut chunk = next_chunk(&mut requests).await?;
                 progress.take(asked_height + 2, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
+                loop {
+                let Reply { reactions, charge: received, last } = chunk;
                 for reaction in reactions {
                     let Some(Dispute {
                         child_prefix,
@@ -405,8 +418,13 @@ where
                     resolver.pending(radix);
                 }
 
-                // The reply's reactions are used up, so its charge returns.
+                // The chunk's reactions are used up, so its charge returns.
                 drop(received);
+                if last {
+                    break;
+                }
+                chunk = next_chunk(&mut requests).await?;
+                }
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
@@ -469,12 +487,12 @@ where
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { reactions, charge: received }) = requests.next().await else {
-                    return violation(Violation::UnansweredQuery)?;
-                };
+                let mut chunk = next_chunk(&mut requests).await?;
                 progress.take(<S<Z>>::HEIGHT, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
+                loop {
+                let Reply { reactions, charge: received, last } = chunk;
                 for reaction in reactions {
                     let Some(Dispute {
                         child_prefix,
@@ -533,8 +551,13 @@ where
                     resolver.pending(radix);
                 }
 
-                // The reply's reactions are used up, so its charge returns.
+                // The chunk's reactions are used up, so its charge returns.
                 drop(received);
+                if last {
+                    break;
+                }
+                chunk = next_chunk(&mut requests).await?;
+                }
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
@@ -587,12 +610,12 @@ where
         let responses = try_stream! {
             let mut requests = requests;
             while let Some(query) = queries.recv().await {
-                let Some(Reply { reactions, charge: received }) = requests.next().await else {
-                    return violation(Violation::UnansweredQuery)?;
-                };
+                let mut chunk = next_chunk(&mut requests).await?;
                 progress.take(Z::HEIGHT, &query);
 
                 let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
+                loop {
+                let Reply { reactions, charge: received, last } = chunk;
                 for reaction in reactions {
                     let Some(Dispute {
                         child_prefix,
@@ -614,7 +637,13 @@ where
                     );
                 }
 
+                // The chunk's reactions are used up, so its charge returns.
                 drop(received);
+                if last {
+                    break;
+                }
+                chunk = next_chunk(&mut requests).await?;
+                }
                 let resolution = resolver.finish()?;
                 progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {

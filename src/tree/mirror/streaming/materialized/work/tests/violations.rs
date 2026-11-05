@@ -164,6 +164,7 @@ where
             vec![Reply {
                 reactions: Vec::new(),
                 charge: Default::default(),
+                last: true,
             }],
         ),
         ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
@@ -174,6 +175,7 @@ where
                     .take(ours.len() - 1)
                     .collect(),
                 charge: Default::default(),
+                last: true,
             }],
         ),
         ScriptedViolation::UnexpectedMatch => {
@@ -184,6 +186,7 @@ where
                 vec![Reply {
                     reactions,
                     charge: Default::default(),
+                    last: true,
                 }],
             )
         }
@@ -195,6 +198,7 @@ where
                 vec![Reply {
                     reactions,
                     charge: Default::default(),
+                    last: true,
                 }],
             )
         }
@@ -206,6 +210,7 @@ where
                     supplied,
                 )],
                 charge: Default::default(),
+                last: true,
             }],
         ),
         ScriptedViolation::InvalidSupply => {
@@ -224,6 +229,7 @@ where
                         Reaction::Supply(radix, supplied),
                     ],
                     charge: Default::default(),
+                    last: true,
                 }],
             )
         }
@@ -238,6 +244,7 @@ where
             vec![Reply {
                 reactions: vec![Reaction::Supply(7, supplied)],
                 charge: Default::default(),
+                last: true,
             }],
         ),
         ScriptedViolation::UncontainedSupply => {
@@ -255,6 +262,7 @@ where
                 vec![Reply {
                     reactions: vec![Reaction::Supply(radix, escaped)],
                     charge: Default::default(),
+                    last: true,
                 }],
             )
         }
@@ -532,6 +540,7 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         vec![Reply {
             reactions,
             charge: Default::default(),
+            last: true,
         }]
     };
     let requests = match injection {
@@ -540,10 +549,12 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
             Reply {
                 reactions: vec![question()],
                 charge: Default::default(),
+                last: true,
             },
             Reply {
                 reactions: Vec::new(),
                 charge: Default::default(),
+                last: true,
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),

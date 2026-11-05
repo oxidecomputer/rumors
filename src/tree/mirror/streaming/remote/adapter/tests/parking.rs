@@ -1,10 +1,9 @@
 //! What a parked decoded reply holds.
 //!
-//! The proxy parks every decoded reply this side can have invited at a
-//! level, up to the in-flight count, until its stage takes it, and the
-//! window prices each parked reply by its counts: reactions, listing
-//! entries, and supplies. That pricing holds only if a decoded reply's size
-//! does not scale with the subtrees it names.
+//! The proxy parks every decoded reply until its stage takes it, and each
+//! question's reservation prices the reply it invites by its counts:
+//! reactions, listing entries, and supplies. That pricing holds only if a
+//! decoded reply's size does not scale with the subtrees it names.
 //!
 //! Supplied payloads stream through `Convert::assemble` into backend
 //! custody while the reply retains one node handle per supplied node, and
@@ -35,7 +34,7 @@ use crate::{
 };
 
 use super::{
-    super::{LeafEdge, ReplyLevel, Scope, decode_reply, derive_questions, encode_reply},
+    super::{LeafEdge, ReplyLevel, Scope, decode_whole_reply, derive_questions, encode_reply},
     codec, hash, runtime, unbounded,
 };
 
@@ -105,6 +104,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend>::erase(node)))
             .collect(),
         charge: Default::default(),
+        last: true,
     };
     let runtime = runtime();
     let scope = Scope::opening_unbounded(&[]);
@@ -118,7 +118,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, _>(
+        .block_on(decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -132,7 +132,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     // Pure supplies ask nothing: the parked form is the handle vector alone.
     assert!(
-        derive_questions(ReplyLevel::Branch, &scope, &decoded)
+        derive_questions(ReplyLevel::Branch, &scope, &mut 0, &decoded.reactions)
             .expect("decoding validated positions")
             .is_empty()
     );
@@ -170,6 +170,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let reply = Reply::<<Local as Backend>::Erased> {
         reactions: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
         charge: Default::default(),
+        last: true,
     };
 
     let runtime = runtime();
@@ -213,7 +214,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, _>(
+        .block_on(decode_whole_reply::<Local, _>(
             &mut LeafEdge::new(),
             Local,
             u64::MAX,
@@ -230,7 +231,8 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let questions = derive_questions(
         ReplyLevel::Branch,
         &Scope::opening_unbounded(&listing),
-        &decoded,
+        &mut 0,
+        &decoded.reactions,
     )
     .expect("decoding validated positions");
     assert_eq!(questions.len(), FAN);

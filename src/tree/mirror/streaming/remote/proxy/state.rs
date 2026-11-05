@@ -109,7 +109,7 @@ where
 }
 
 /// The proxy holds no window configuration of its own: it adopts the window
-/// its local walk resolved, which parking's capacity rests on.
+/// its local walk resolved, which sizes the proxy's question queues.
 impl<B, R, W> protocol::ShareWindow for Connected<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -121,7 +121,7 @@ where
         None
     }
 
-    /// Adopt the walk's window for every queue and parking lane.
+    /// Adopt the walk's window, which sizes the proxy's question queues.
     fn adopt_window(&mut self, window: Window) {
         self.window = Some(window);
     }

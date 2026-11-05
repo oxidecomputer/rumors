@@ -55,11 +55,13 @@ use crate::tree::{
 /// [`message::Reply`] with its height forgotten: what the walk's workers
 /// produce and consume.
 pub(crate) struct Reply<E> {
-    /// The ordered reactions to one earlier query.
+    /// The next reactions to one earlier query, in prefix order.
     pub reactions: Vec<Reaction<E>>,
     /// What the reply holds, charged to the endpoint that built it and
     /// returned when its consumer has used it.
     pub charge: Charge,
+    /// Whether these reactions end the reply.
+    pub last: bool,
 }
 
 /// [`message::Reaction`] with its height forgotten.
@@ -90,6 +92,7 @@ where
             })
             .collect(),
         charge: reply.charge,
+        last: reply.last,
     }
 }
 
@@ -110,6 +113,7 @@ where
             })
             .collect(),
         charge: reply.charge,
+        last: reply.last,
     }
 }
 

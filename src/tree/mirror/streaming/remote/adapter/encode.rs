@@ -47,8 +47,9 @@ impl Encoded {
     }
 }
 
-/// A fallible stream containing the wire frames of one protocol reply.
-pub type Frames<E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> + Send>>;
+/// A fallible stream of the wire frames of one chunk of a protocol reply,
+/// borrowing the reply's [`ReplyEncoder`] for `'a`.
+pub type Frames<'a, E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> + Send + 'a>>;
 
 /// Validate the initiator's distinguished opening reply and return its
 /// question's listing.
@@ -58,8 +59,10 @@ pub type Frames<E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> 
 /// reduces to checking the canonical shape, exactly one query, and
 /// returning the listing whose scope will interpret the responder's
 /// top-level reply.
-pub fn opening_listing<E>(reply: Reply<E>) -> Result<Vec<Listed>, OpeningError> {
-    let mut reactions = reply.reactions.into_iter();
+pub fn opening_listing<E>(
+    reactions: impl IntoIterator<Item = ProtocolReaction<E>>,
+) -> Result<Vec<Listed>, OpeningError> {
+    let mut reactions = reactions.into_iter();
     let Some(first) = reactions.next() else {
         return Err(OpeningError::Empty);
     };
@@ -72,60 +75,95 @@ pub fn opening_listing<E>(reply: Reply<E>) -> Result<Vec<Listed>, OpeningError> 
     Ok(listing)
 }
 
-/// Encode one non-leaf reply and derive the lower questions it asks.
-pub fn encode_reply<B>(
+/// One outgoing reply's encoding, carried across its chunks: the record of
+/// the question it answers, how many of that record's positions its
+/// reactions have taken, and whether any of its frames has been written.
+///
+/// Every frame but the reply's last is flagged [`Flow::Continue`], and a
+/// chunk's frames are all released by the time its stream ends, so a chunk
+/// that does not end its reply reaches the peer whole before the next
+/// chunk exists. The reply's last reaction carries [`Flow::End`], which
+/// requires the sender to put that reaction in the reply's last chunk; an
+/// empty reply is one empty last chunk, encoded as a bare end.
+pub struct ReplyEncoder<B> {
+    /// The store whose supplied nodes are flattened into leaf runs.
     backend: B,
+    /// The byte budget of each supplied run's frame.
     budget: RunBudget,
+    /// The record of the question the reply answers.
     scope: Scope,
-    reply: Reply<B::Erased>,
-) -> Frames<B::Error>
+    /// How the reply's queries pair with positions.
+    level: ReplyLevel,
+    /// The record's positions the reply's reactions have taken so far.
+    taken: usize,
+    /// Whether the reply has yielded any frame.
+    written: bool,
+}
+
+impl<B> ReplyEncoder<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    Encoded::render(backend, budget, scope, reply, ReplyLevel::Branch)
-}
+    /// Begin encoding a non-leaf reply to the question `scope` records.
+    pub fn branch(backend: B, budget: RunBudget, scope: Scope) -> Self {
+        Self::new(backend, budget, scope, ReplyLevel::Branch)
+    }
 
-/// Encode one leaf-height reply, where only an empty request for the leaf is valid.
-pub fn encode_leaf_reply<B>(
-    backend: B,
-    budget: RunBudget,
-    scope: Scope,
-    reply: Reply<B::Erased>,
-) -> Frames<B::Error>
-where
-    B: Backend<Node<Z>: Leaf>,
-{
-    Encoded::render(backend, budget, scope, reply, ReplyLevel::Leaf)
-}
+    /// Begin encoding a leaf-height reply to the question `scope` records,
+    /// where only an empty request for the leaf is a valid query.
+    pub fn leaf(backend: B, budget: RunBudget, scope: Scope) -> Self {
+        Self::new(backend, budget, scope, ReplyLevel::Leaf)
+    }
 
-impl Encoded {
-    /// Render one reply at the given protocol level.
-    fn render<B>(
-        backend: B,
-        budget: RunBudget,
-        scope: Scope,
-        reply: Reply<B::Erased>,
-        level: ReplyLevel,
-    ) -> Frames<B::Error>
-    where
-        B: Backend<Node<Z>: Leaf>,
-    {
+    /// Begin encoding a reply at `level`.
+    fn new(backend: B, budget: RunBudget, scope: Scope, level: ReplyLevel) -> Self {
+        Self {
+            backend,
+            budget,
+            scope,
+            level,
+            taken: 0,
+            written: false,
+        }
+    }
+
+    /// Encode the reply's next `chunk`, deriving the lower questions it
+    /// asks.
+    ///
+    /// # Panics
+    ///
+    /// The stream panics on an empty last chunk after frames of the same
+    /// reply: those frames left flagged to continue, so nothing can end the
+    /// reply, and the sender broke the rule that its last chunk holds its
+    /// last reaction.
+    pub fn chunk(&mut self, chunk: Reply<B::Erased>) -> Frames<'_, B::Error> {
+        let Self {
+            backend,
+            budget,
+            scope,
+            level,
+            taken,
+            written,
+        } = self;
+        let (backend, budget, level) = (backend.clone(), *budget, *level);
         Box::pin(try_stream! {
-            let mut positions = scope.positions();
+            let mut positions = scope.positions_from(*taken);
             let mut pending = None;
-            // The reply's charge returns once every frame is out, when the
+            // The chunk's charge returns once every frame is out, when the
             // stream ends; its reactions are consumed as they are encoded.
-            let Reply { reactions, charge: _charge } = reply;
+            let Reply { reactions, charge: _charge, last } = chunk;
             for reaction in reactions {
                 let (wire, question) = match reaction {
                     ProtocolReaction::Match => {
                         positions.next().ok_or(ScopeError::UnpositionedMatch)?;
+                        *taken += 1;
                         (WireReaction::Match, None)
                     }
                     ProtocolReaction::Query(listing) => {
                         let question = held_by(Holding::QuestionRecords, || {
                             level.derive(&mut positions, &listing)
                         })?;
+                        *taken += 1;
                         (WireReaction::Query(listing), Some(question))
                     }
                     ProtocolReaction::Supply(radix, node) => {
@@ -162,6 +200,7 @@ impl Encoded {
                                 if let Some((ready, question)) =
                                     pending.replace((WireReaction::Supply(full), None))
                                 {
+                                    *written = true;
                                     yield Encoded {
                                         frame: ReplyFrame::reaction(ready, Flow::Continue),
                                         question,
@@ -175,6 +214,7 @@ impl Encoded {
                     }
                 };
                 if let Some((previous, question)) = pending.replace((wire, question)) {
+                    *written = true;
                     yield Encoded {
                         frame: ReplyFrame::reaction(previous, Flow::Continue),
                         question,
@@ -183,17 +223,73 @@ impl Encoded {
             }
 
             match pending {
-                Some((reaction, question)) => yield Encoded {
-                    frame: ReplyFrame::reaction(reaction, Flow::End),
-                    question,
-                },
-                None => yield Encoded {
-                    frame: ReplyFrame::reply_end(),
-                    question: None,
-                },
+                Some((reaction, question)) => {
+                    *written = true;
+                    let flow = if last { Flow::End } else { Flow::Continue };
+                    yield Encoded {
+                        frame: ReplyFrame::reaction(reaction, flow),
+                        question,
+                    }
+                }
+                None if last => {
+                    assert!(
+                        !*written,
+                        "a reply's last chunk holds its last reaction, so frames left \
+                         flagged to continue are never followed by an empty last chunk",
+                    );
+                    yield Encoded {
+                        frame: ReplyFrame::reply_end(),
+                        question: None,
+                    }
+                }
+                None => {}
             }
         })
     }
+}
+
+/// Encode one whole non-leaf `reply`, given as one last chunk, deriving the
+/// lower questions it asks.
+#[cfg(test)]
+pub fn encode_reply<B>(
+    backend: B,
+    budget: RunBudget,
+    scope: Scope,
+    reply: Reply<B::Erased>,
+) -> Frames<'static, B::Error>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    whole(ReplyEncoder::branch(backend, budget, scope), reply)
+}
+
+/// Encode one whole leaf-height `reply`, given as one last chunk, where
+/// only an empty request for the leaf is valid.
+#[cfg(test)]
+pub fn encode_leaf_reply<B>(
+    backend: B,
+    budget: RunBudget,
+    scope: Scope,
+    reply: Reply<B::Erased>,
+) -> Frames<'static, B::Error>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    whole(ReplyEncoder::leaf(backend, budget, scope), reply)
+}
+
+/// Encode `reply` as the one chunk of `encoder`'s reply.
+#[cfg(test)]
+fn whole<B>(mut encoder: ReplyEncoder<B>, reply: Reply<B::Erased>) -> Frames<'static, B::Error>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    Box::pin(try_stream! {
+        let mut frames = encoder.chunk(reply);
+        while let Some(frame) = frames.next().await {
+            yield frame?;
+        }
+    })
 }
 
 /// Enforce the backend's containment and ordering contract for one leaf.

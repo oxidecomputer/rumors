@@ -8,10 +8,11 @@
 
 use crate::tree::mirror::streaming::ledger::{Charge, Ledger};
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
-use std::pin::{Pin, pin};
+use std::pin::pin;
+use std::sync::Arc;
 use std::task::Poll;
 
-use futures::{Stream, StreamExt, future::BoxFuture};
+use futures::future::BoxFuture;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, Leaf,
-            channel::{Receiver, Sender, TrySendError},
+            channel::{Receiver, Sender},
             erased,
             holding::{Holding, holding, holding_stream},
             materialized::SupplyLedger,
@@ -32,7 +33,7 @@ use crate::{
                 proxy::{Error, send_or_cancel},
             },
             stats::Recorder,
-            tasks::{cancelled, complete},
+            tasks::complete,
             window::Window,
         },
         typed::height::{Height, Z},
@@ -42,8 +43,6 @@ use crate::{
 use self::progress::Progress;
 
 mod encode;
-#[cfg(test)]
-pub(crate) mod parking_census;
 pub(super) mod progress;
 mod queues;
 mod stages;
@@ -96,9 +95,9 @@ where
 {
     /// Backend and validation state for incoming replies.
     ingress: Ingress<B>,
-    /// The session window, which sizes the proxy's question queues and,
-    /// through the in-flight count, its parking queues; the scope queues
-    /// hold a fan plus one whatever the window.
+    /// The session window, which sizes the proxy's question queues;
+    /// parking holds whatever arrives and the scope queues a fan plus one,
+    /// whatever the window.
     window: Window,
     /// Byte budget for each outgoing supply run, also enforced on every
     /// incoming one.
@@ -208,38 +207,18 @@ where
     /// to the stage that takes them.
     ///
     /// Each reply is decoded against the record of the local question it
-    /// answers, taken from `questions` in order, and then parked as
-    /// [`park_and_take`](Self::park_and_take) describes. The typed height
-    /// alone chooses the [`ReplyLevel`], here and in the take, so decoding
-    /// and the take's derivation cannot disagree on it.
+    /// answers, taken from `questions` in order, by an independent task
+    /// that parks each chunk of it as its reactions decode
+    /// ([`Ingress::decode_and_park`]), so decoding never waits on the walk.
+    /// When the stage takes a parked chunk, the returned stream derives the
+    /// scopes the chunk's questions create, at the level of height `H`, and
+    /// publishes them through `publish`, then hands the chunk over. The
+    /// responder's terminal replies ask nothing and publish nothing. The
+    /// typed height alone chooses the [`ReplyLevel`], in decoding and in the
+    /// take, so the two cannot disagree on it.
     fn respond<H>(
         &mut self,
         questions: Receiver<(Scope, Charge)>,
-        publish: Option<Sender<Scope>>,
-        progress: Progress,
-    ) -> BoxResponses<B, H, Error<B::Error>>
-    where
-        H: Height,
-    {
-        let incoming = self.incoming::<H>();
-        let decoded = self
-            .ingress()
-            .decode_pump(ReplyLevel::at::<H>(), questions, incoming);
-        self.park_and_take::<H>(decoded, publish, progress)
-    }
-
-    /// Park a decode stream's replies at height `H` and expose them to the
-    /// stage that takes them.
-    ///
-    /// An independent task parks each decoded reply, so decoding never waits
-    /// on the walk. When the stage takes a parked reply, the returned stream
-    /// derives the scopes the reply's questions create, at the level of
-    /// height `H`, and publishes them through `publish`, then hands the
-    /// reply over. The responder's terminal replies ask nothing and publish
-    /// nothing.
-    fn park_and_take<H>(
-        &mut self,
-        decoded: impl Stream<Item = Result<Parked<B::Erased>, Error<B::Error>>> + Send + 'static,
         mut publish: Option<Sender<Scope>>,
         progress: Progress,
     ) -> BoxResponses<B, H, Error<B::Error>>
@@ -247,43 +226,55 @@ where
         H: Height,
     {
         let level = ReplyLevel::at::<H>();
-        let (parking, mut parked, capacity) =
-            queues::parked_replies(H::HEIGHT, self.window.capacity(H::HEIGHT));
-        let lane = Lane::new(H::HEIGHT, capacity, self.physical.remote.other());
-        // The park task polls the decoder, so for the session-budget meter
-        // the decoder's work is the parked replies' unless it marks
-        // otherwise; the take derives question records.
+        let incoming = self.incoming::<H>();
+        let (parking, mut parked) = queues::parked_replies(H::HEIGHT);
+        // The pump decodes into parking, so for the session-budget meter
+        // its work is the parked replies' unless it marks otherwise; the
+        // take derives question records.
         self.spawn(holding(
             Holding::ParkedReplies,
-            park(Box::pin(decoded), parking, lane),
+            self.ingress()
+                .decode_and_park(level, questions, incoming, parking),
         ));
         Box::pin(holding_stream(
             Holding::QuestionRecords,
             async_stream::stream! {
-                while let Some(Parked {
-                    reply,
-                    answered,
-                    record: _record,
-                }) = parked.recv().await
-                {
-                    let Some(scopes) = &mut publish else {
-                        progress.taken_reply(H::HEIGHT, 0);
-                        yield Ok(erased::assume_reply::<B, H>(reply));
-                        continue;
-                    };
-                    let questions = match derive_questions(level, &answered, &reply) {
-                        Ok(questions) => questions,
-                        Err(error) => {
-                            yield Err(Error::TakeDerivation(error));
-                            return;
-                        }
-                    };
-                    progress.taken_reply(H::HEIGHT, questions.len());
-                    for question in questions {
-                        progress.next_scope(H::HEIGHT);
-                        send_or_cancel(scopes, question).await;
+                let mut taking = None;
+                while let Some(Parked { chunk, opens }) = parked.recv().await {
+                    let opening = opens.is_some();
+                    if let Some((answered, record)) = opens {
+                        taking = Some(Taking { answered, taken: 0, _record: record });
                     }
-                    yield Ok(erased::assume_reply::<B, H>(reply));
+                    let Some(open) = &mut taking else {
+                        unreachable!("the pump parks the record with each reply's first chunk");
+                    };
+                    let mut scopes = 0;
+                    if let Some(next_scopes) = &mut publish {
+                        let questions = match derive_questions(
+                            level,
+                            &open.answered,
+                            &mut open.taken,
+                            &chunk.reactions,
+                        ) {
+                            Ok(questions) => questions,
+                            Err(error) => {
+                                yield Err(Error::TakeDerivation(error));
+                                return;
+                            }
+                        };
+                        scopes = questions.len();
+                        progress.taken(H::HEIGHT, opening, scopes);
+                        for question in questions {
+                            progress.next_scope(H::HEIGHT);
+                            send_or_cancel(next_scopes, question).await;
+                        }
+                    } else {
+                        progress.taken(H::HEIGHT, opening, scopes);
+                    }
+                    if chunk.last {
+                        taking = None;
+                    }
+                    yield Ok(erased::assume_reply::<B, H>(chunk));
                 }
             },
         ))
@@ -391,98 +382,26 @@ fn stream_at<H: Height>(speaker: Speaker) -> LogicalStream {
         .expect("the typestate binds each speaker only at heights on its parity")
 }
 
-/// A decoded reply parked until its stage takes it.
+/// A decoded chunk of a reply, parked until its stage takes it.
 pub(crate) struct Parked<E> {
-    /// The decoded reply.
-    reply: erased::Reply<E>,
-    /// The record of the local question the reply answers, from which the
-    /// take derives the scopes the reply's own questions create.
-    answered: Scope,
-    /// The record's charge, which returns once the take has read it.
-    record: Charge,
+    /// The chunk.
+    chunk: erased::Reply<E>,
+    /// On a reply's first chunk, the record of the local question the reply
+    /// answers, from which the take derives the scopes the reply's own
+    /// questions create, and the record's charge.
+    opens: Option<(Arc<Scope>, Charge)>,
 }
 
-/// One parking queue: its height and derived capacity, and in test builds
-/// the local speaker of the side that parks there, which the parking census
-/// keys by (both sides park leaf replies).
-///
-/// Every parking event passes through a `Lane` method, which is where the
-/// test-only census hooks live; the parking path itself carries none.
-#[derive(Clone, Copy)]
-pub(super) struct Lane {
-    /// The typed height of the replies parked here.
-    height: usize,
-    /// The derived parking capacity ([`queues::parking_capacity`]), which an
-    /// overflow reports also when a test caps the channel below it.
-    capacity: usize,
-    /// The local speaker of the side that parks here.
-    #[cfg(test)]
-    local: Speaker,
-}
-
-/// Name a parking queue and record its traffic in test builds.
-impl Lane {
-    /// Name the parking queue of derived `capacity` at `height`, on the side
-    /// whose local speaker is `local`.
-    fn new(
-        height: usize,
-        capacity: usize,
-        #[cfg_attr(not(test), expect(unused_variables))] local: Speaker,
-    ) -> Self {
-        Self {
-            height,
-            capacity,
-            #[cfg(test)]
-            local,
-        }
-    }
-
-    /// Send `parked` into `parking` without waiting, and in test builds
-    /// record the queue in the parking census once a reply is parked.
-    // The error hands the parked reply back, as every channel's does; the
-    // caller only reads which arm it took, so nothing copies it far.
-    #[allow(clippy::result_large_err)]
-    fn try_park<E>(
-        self,
-        parking: &mut Sender<Parked<E>>,
-        parked: Parked<E>,
-    ) -> Result<(), TrySendError<Parked<E>>> {
-        parking.try_send(parked)?;
-        #[cfg(test)]
-        parking_census::parked(self);
-        Ok(())
-    }
-}
-
-/// Park decoded replies until their stage takes them.
-///
-/// Parking holds every reply this side can have invited at its height
-/// ([`queues::parking_capacity`]), and each reply is decoded against the
-/// record of the local question it answers, so no reply finds it full while
-/// the count's premises hold. Parking therefore never waits: a full channel
-/// means a premise has failed, and the reply fails with
-/// [`Error::ParkingOverflow`] instead, reporting the lane's derived
-/// capacity. A closed channel means the stage is gone, and the task awaits
-/// cancellation as [`send_or_cancel`] does. Decode errors return to the
-/// executor without waiting for the stage.
-async fn park<E: Send, Err: Send + 'static>(
-    mut decoded: Pin<Box<dyn Stream<Item = Result<Parked<E>, Error<Err>>> + Send>>,
-    mut parking: Sender<Parked<E>>,
-    lane: Lane,
-) -> Result<(), Error<Err>> {
-    while let Some(parked) = decoded.next().await {
-        match lane.try_park(&mut parking, parked?) {
-            Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
-                return Err(Error::ParkingOverflow {
-                    height: lane.height,
-                    capacity: lane.capacity,
-                });
-            }
-            Err(TrySendError::Closed(_)) => cancelled().await,
-        }
-    }
-    Ok(())
+/// The reply the take is part way through: the record it answers, the
+/// record's positions its chunks have taken, and the record's charge,
+/// which returns once the take has read the reply's last chunk.
+struct Taking {
+    /// The record of the question the reply answers.
+    answered: Arc<Scope>,
+    /// The positions the reply's taken chunks took.
+    taken: usize,
+    /// The record's charge.
+    _record: Charge,
 }
 
 #[cfg(test)]
