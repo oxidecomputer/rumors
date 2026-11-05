@@ -37,8 +37,9 @@
 
 use rumors_testkit::bench::link::LinkConfig;
 use rumors_testkit::bench::session::{
-    self as fixture, Case, LAN_BDP, LedgerReading, Session, Shape, admitting,
+    self as fixture, Case, LAN_BDP, LedgerReading, Session, Shape,
 };
+use rumors_testkit::common::budget::BudgetChoice;
 
 /// One cell: a disjoint pair of `messages` per side, at two ledger budgets,
 /// the smaller first.
@@ -68,10 +69,14 @@ const CELLS: [Cell; 2] = [
 ];
 
 /// The case of `cell` at its budget `which`, over a LAN.
+///
+/// The cells' ledger budgets lie below the largest grant, which the public
+/// setter's minimum keeps every session above, so they are set through the
+/// test path.
 fn case(cell: Cell, which: usize) -> Case {
     Case {
         shape: Shape::symmetric(cell.messages),
-        budget: admitting(cell.budgets[which]),
+        budget: BudgetChoice::Ledger(cell.budgets[which]),
         link: LinkConfig::with_bdp(LAN_BDP),
     }
 }
@@ -96,7 +101,7 @@ fn check(cell: Cell, session: &Session) -> (Vec<usize>, usize) {
     assert_eq!(
         asked.floor, asked.units,
         "the responder's depth-1 questions all take their slot, which serializes the \
-         subtrees: {cell:?} at {}",
+         subtrees: {cell:?} at {:?}",
         session.case.budget,
     );
     let answers = || {
@@ -119,7 +124,7 @@ fn check(cell: Cell, session: &Session) -> (Vec<usize>, usize) {
         assert!(
             carried.contains(at),
             "a depth-1 answer admitted against the budget at {at} was not carried then: \
-             {cell:?} at {}",
+             {cell:?} at {:?}",
             session.case.budget,
         );
     }

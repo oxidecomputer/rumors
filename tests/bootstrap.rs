@@ -208,9 +208,11 @@ divided_proptest! {
     /// A zero sync memory budget selected at bootstrap can add latency, never
     /// break the session.
     ///
-    /// The join completes, delivers the provider's whole
-    /// set, and the joined peer — retaining the zero budget for its own
-    /// sessions — still reconciles a fresh origination back into the provider.
+    /// The join completes, delivers the provider's whole set, and the joined
+    /// peer, retaining the budget its builder raised to
+    /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) for its
+    /// own sessions, still reconciles a fresh origination back into the
+    /// provider.
     ///
     /// The budget's any-value safety therefore holds at the one entry point
     /// that runs before the peer exists, and the retained setting survives
@@ -247,8 +249,13 @@ divided_proptest! {
             "the zero-budget join must still deliver the provider's whole set",
         );
 
-        // The joined peer gossips under its retained zero budget, asking one
-        // question at a time, and the session still converges.
+        assert_eq!(
+            bootstrapped.synchronization_settings().sync_memory_budget,
+            rumors::MIN_SYNC_MEMORY_BUDGET,
+            "the joined peer retains the zero budget as its builder raised it",
+        );
+        // The joined peer gossips under its retained minimum budget, and the
+        // session still converges.
         bootstrapped.send(u64::MAX).unwrap();
         wire_gossip(&provider, &bootstrapped);
         assert!(

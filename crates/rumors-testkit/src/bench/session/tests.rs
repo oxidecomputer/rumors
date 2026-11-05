@@ -5,6 +5,7 @@ use proptest::prelude::*;
 
 use super::{Case, LAN_BDP, LedgerReading, Shape, message, pair, run, text_chars};
 use crate::bench::link::{LinkConfig, Side};
+use crate::common::budget::BudgetChoice;
 
 /// The bytes `text` takes encoded as a CBOR text string.
 fn encoded(text: &str) -> usize {
@@ -60,21 +61,19 @@ fn profile_area(ledger: &LedgerReading) -> u128 {
 /// admitted no earlier than it was queued and no wait longer than the time
 /// some unit waited. The check it dates as its share peak weighed exactly
 /// the peak the ledger kept, its terms add up to that sum as the share's
-/// rule computes it, and it falls within the session; a side makes such a
-/// check in every session with no budget, and one that makes none keeps a
-/// share peak of zero. What the holders outside floor slots held at the
-/// budget peak adds up to that peak and what floor slots carried then, at a
-/// moment within the session. The two ledgers are read as the two sides'.
+/// rule computes it, and it falls within the session. What the holders
+/// outside floor slots held at the budget peak adds up to that peak and
+/// what floor slots carried then, at a moment within the session. The two ledgers are read as the two sides'.
 #[test]
 fn records_over_time_agree_with_the_ledger_totals() {
     let shape = Shape::overlapping(3_000, 0);
     let link = LinkConfig::with_bdp(LAN_BDP);
     let unlimited = run(Case {
         shape,
-        budget: usize::MAX,
+        budget: BudgetChoice::Bytes(usize::MAX),
         link,
     });
-    let budget = unlimited.admitted.budget_peak() / 4;
+    let budget = BudgetChoice::Ledger(unlimited.admitted.budget_peak() / 4);
     let budgeted = run(Case {
         shape,
         budget,
@@ -94,25 +93,18 @@ fn records_over_time_agree_with_the_ledger_totals() {
         sides.sort_by_key(|side| side.map(Side::index));
         assert_eq!(sides, [Some(Side::A), Some(Side::B)]);
         for ledger in &session.admitted.ledgers {
-            if let Some(dated) = ledger.share_peak_check {
-                let check = dated.check;
-                assert_eq!(check.sum, ledger.share_peak);
-                let scaled = u128::from(check.pace_actual) * (check.claimed + check.need) as u128
-                    / u128::from(check.pace_predicted);
-                assert_eq!(
-                    (check.invited + check.grant) as u128 + scaled,
-                    check.sum as u128,
-                );
-                assert!(dated.at <= session.duration());
-            } else {
-                // Under a budget, a side whose questions all take floor
-                // slots or wait for room never reaches the share's check.
-                assert!(
-                    !std::ptr::eq(session, &unlimited),
-                    "with no budget, every side asks some question the share checks"
-                );
-                assert_eq!(ledger.share_peak, 0);
-            }
+            let dated = ledger
+                .share_peak_check
+                .expect("every side asks some question the share checks");
+            let check = dated.check;
+            assert_eq!(check.sum, ledger.share_peak);
+            let scaled = u128::from(check.pace_actual) * (check.claimed + check.need) as u128
+                / u128::from(check.pace_predicted);
+            assert_eq!(
+                (check.invited + check.grant) as u128 + scaled,
+                check.sum as u128,
+            );
+            assert!(dated.at <= session.duration());
             let at_peak: usize = ledger
                 .budget_peak_holders
                 .iter()
@@ -165,7 +157,7 @@ fn redactions_hold_on_the_redacting_side_alone() {
     drop((a, b));
     run(Case {
         shape,
-        budget: usize::MAX,
+        budget: BudgetChoice::Bytes(usize::MAX),
         link: LinkConfig::with_bdp(LAN_BDP),
     });
 }

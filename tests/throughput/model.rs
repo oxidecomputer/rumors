@@ -18,6 +18,7 @@ use rumors_testkit::bench::link::{End, Link, LinkConfig, SEGMENT_BYTES, Side, dr
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use rumors_testkit::bench::session::{self as fixture, Case, Shape};
+use rumors_testkit::common::budget::BudgetChoice;
 
 /// Writes `data` in chunks of at most `chunk` bytes, then shuts down.
 async fn write_in_chunks(mut write: impl AsyncWrite + Unpin, data: &[u8], chunk: usize) {
@@ -258,7 +259,7 @@ fn latency_only_hops_match_the_paused_clock() {
     let shape = Shape::symmetric(MESSAGES);
     let modelled = fixture::run(Case {
         shape,
-        budget: usize::MAX,
+        budget: BudgetChoice::Bytes(usize::MAX),
         link: LinkConfig::with_bdp(2_000).latency_only(),
     });
     let paused = latency::session_hops(CAPACITY, DELAY, fixture::pair(shape, usize::MAX));

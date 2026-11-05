@@ -1,13 +1,17 @@
 //! The sync budget's boundary cases.
 //!
 //! `sync_memory_budget` promises that a smaller budget costs a session
-//! time, never completion: at a budget of zero a session asks one question
-//! at a time, by declaration, and still finishes and converges. These
-//! tests probe the corners where that promise is easiest to break:
-//! asymmetric catch-up and wide mutual divergence at budget zero,
-//! compounded backpressure (one-byte pipe buffers at budget zero), sets
-//! that grow while a session runs, and sessions timed on a real clock
-//! rather than the paused one.
+//! time, never completion. The liveness argument behind that promise rests
+//! on the floor slots alone: at a ledger budget of zero a session asks one
+//! question at a time, by declaration, and still finishes and converges.
+//! The public setter keeps every session above that, at
+//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so these
+//! tests set a ledger budget of zero through the test path
+//! ([`BudgetChoice::Zero`]) and probe the corners where the argument is
+//! easiest to break: asymmetric catch-up and wide mutual divergence at
+//! budget zero, compounded backpressure (one-byte pipe buffers at budget
+//! zero), sets that grow while a session runs, and sessions timed on a
+//! real clock rather than the paused one.
 //!
 //! A test at budget zero asserts that its session completes and converges,
 //! and prints its hop count; it asserts nothing about speed.
@@ -19,6 +23,7 @@ use rand_chacha::ChaChaRng;
 use rumors::testing::run_to_quiescence;
 use rumors::{Peer, Rumors};
 use rumors_testkit::bench::latency;
+use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::FLEET_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -45,12 +50,12 @@ const CORNER_DIVISOR: u32 = 256;
 /// under `budget`.
 fn pair(
     network: NetworkSeed,
-    budget: usize,
+    budget: BudgetChoice,
     common: usize,
     left_extra: usize,
     right_extra: usize,
 ) -> (Rumors<u64>, Rumors<u64>) {
-    let left = network.peer().sync_memory_budget(budget).into_rumors();
+    let left = budget.apply(network.peer()).into_rumors();
     // Fixed, so every run reconciles the same corpus.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0003);
     send_random(&left, common.max(1), &mut rng);
@@ -62,12 +67,12 @@ fn pair(
             Peer::<u64>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("serve bootstrap");
-        (match joined {
-            rumors::Joined::Joined { peer, .. } => peer,
-            _ => panic!("provider is established"),
-        })
-        .sync_memory_budget(budget)
-        .into_rumors()
+        budget
+            .apply(match joined {
+                rumors::Joined::Joined { peer, .. } => peer,
+                _ => panic!("provider is established"),
+            })
+            .into_rumors()
     });
 
     send_random(&left, left_extra, &mut rng);
@@ -112,7 +117,10 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn asymmetric_catch_up_converges_at_budget_zero(network in network_seed()) {
-        assert_converges("asymmetric catch-up at budget 0", pair(network, 0, 1, 20_000, 0));
+        assert_converges(
+            "asymmetric catch-up at budget 0",
+            pair(network, BudgetChoice::Zero, 1, 20_000, 0),
+        );
     }
 
     /// The same catch-up converges when the large side is the initiator.
@@ -122,7 +130,7 @@ divided_proptest! {
     fn reverse_asymmetric_catch_up_converges_at_budget_zero(network in network_seed()) {
         assert_converges(
             "reverse asymmetric catch-up at budget 0",
-            pair(network, 0, 1, 0, 20_000),
+            pair(network, BudgetChoice::Zero, 1, 0, 20_000),
         );
     }
 
@@ -134,7 +142,7 @@ divided_proptest! {
     fn wide_divergence_converges_at_budget_zero(network in network_seed()) {
         assert_converges(
             "2,000 messages a side of divergence at budget 0",
-            pair(network, 0, 2_048, 2_000, 2_000),
+            pair(network, BudgetChoice::Zero, 2_048, 2_000, 2_000),
         );
     }
 }
@@ -152,7 +160,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn one_byte_pipes_at_budget_zero_stay_live(network in network_seed()) {
-        let (left, right) = pair(network, 0, 64, 64, 64);
+        let (left, right) = pair(network, BudgetChoice::Zero, 64, 64, 64);
         run_to_quiescence(async {
             let (mut a, mut b) = rumors::testing::memory_connection(1);
             let (left_result, right_result) = tokio::join!(
@@ -180,7 +188,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn growth_during_a_session_completes_and_the_next_converges(network in network_seed()) {
-        let (left, right) = pair(network, rumors::DEFAULT_SYNC_MEMORY_BUDGET, COMMON, EXTRA, EXTRA);
+        let (left, right) = pair(network, BudgetChoice::Default, COMMON, EXTRA, EXTRA);
         let racer = left.clone();
         pollster::block_on(async {
             let (mut a, mut b) = rumors::testing::memory_connection(LINK_CAPACITY);
@@ -240,7 +248,7 @@ divided_proptest! {
     fn real_clock_sessions_pay_real_delay_and_stay_live(network in network_seed()) {
         let delay = Duration::from_millis(2);
 
-        let (left, right) = pair(network, 0, 1, 10_000, 0);
+        let (left, right) = pair(network, BudgetChoice::Zero, 1, 10_000, 0);
         let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
         let start = std::time::Instant::now();
         let _ = wire.round_trip(left, right);
@@ -252,7 +260,7 @@ divided_proptest! {
         );
 
         let divergence = 512;
-        let (left, right) = pair(network, 0, 2_048, divergence, divergence);
+        let (left, right) = pair(network, BudgetChoice::Zero, 2_048, divergence, divergence);
         let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
         let ((left, right), elapsed) = wire.round_trip(left, right);
         eprintln!("real-clock session at budget 0 over {divergence} messages a side: {elapsed:?}");

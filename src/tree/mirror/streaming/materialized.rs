@@ -140,8 +140,6 @@ use super::channel::{Receiver, Sender};
 #[cfg(doc)]
 pub(crate) use work::covered_set_price;
 pub(crate) use work::floor_allowance;
-/// Named for the ledger's documentation, which bounds a charge by it.
-#[cfg(doc)]
 pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
@@ -165,6 +163,21 @@ fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
 /// no more than that allowance.
 fn admission_budget<B: Backend<Node<Z>: Leaf>>(budget: usize) -> usize {
     budget.saturating_sub(floor_allowance::<B::Erased, B::Error>())
+}
+
+/// The least memory budget a session over `B`'s nodes runs on through the
+/// public budget setters: the floor allowance ([`floor_allowance`]) and the
+/// largest grant beside it ([`largest_grant`]).
+///
+/// A memory budget of at least this gives its ledger a budget of at least
+/// the largest grant ([`admission_budget`]), so the ledger can always admit
+/// any one unit beside the floor slots. Below it, a session runs in a
+/// starved regime where units race for room, and a larger budget can slow
+/// a session by more than a round trip. Every budget the public API sets is
+/// at least this; a ledger budget below the largest grant is reachable
+/// only by setting it directly ([`Handshaking::budget`]).
+pub(crate) const fn min_memory_budget<B: Backend<Node<Z>: Leaf>>() -> usize {
+    floor_allowance::<B::Erased, B::Error>() + largest_grant::<B::Erased, B::Error>()
 }
 
 /// Tracks supplied leaves against the peer's declared set length.
@@ -487,9 +500,11 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     /// ([`floor_allowance`]), so that what it holds outside its floor slots
     /// and what they hold come to at most `budget` together.
     ///
-    /// A budget at or below the floor allowance admits work through the
-    /// floor slots alone, as a budget of zero does ([`budget`](Self::budget)),
-    /// and holds at most the floor allowance.
+    /// This applies `budget` as given: the public setters raise a budget
+    /// to [`min_memory_budget`] before it reaches here. A budget at or
+    /// below the floor allowance admits work through the floor slots
+    /// alone, as a budget of zero does ([`budget`](Self::budget)), and
+    /// holds at most the floor allowance.
     pub fn sync_memory_budget(self, budget: usize) -> Self {
         self.budget(admission_budget::<B>(budget))
     }

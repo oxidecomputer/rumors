@@ -23,8 +23,9 @@ use rumors_testkit::divided_proptest;
 /// debug build, so the default count runs one case.
 const SWEEP_DIVISOR: u32 = 256;
 
-/// Build three replicas of the network `network` names at a budget of zero,
-/// then redact `target` only at B.
+/// Build three replicas of the network `network` names at a ledger budget of
+/// zero ([`ledger_budget`](rumors::testing::ledger_budget)), then redact
+/// `target` only at B.
 ///
 /// The seed makes the trio reproducible: two calls with one seed build
 /// trios whose sessions take the same rounds.
@@ -33,7 +34,7 @@ fn redacted_trio(
     n: u64,
     target: u64,
 ) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
-    let a = network.peer().sync_memory_budget(0).into_rumors();
+    let a = rumors::testing::ledger_budget(network.peer(), 0).into_rumors();
     a.send_all(0..n).unwrap();
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);

@@ -1,18 +1,22 @@
 //! The budget sweep dimension: a generated per-peer memory budget, so
 //! behavioral suites exercise the production default and explicit budgets
-//! alongside a budget of zero.
+//! alongside a ledger budget of zero.
 //!
-//! A budget of zero stays in the population deliberately: each walk then
-//! asks one question at a time, every unit taking its depth's floor slot,
-//! the configuration the liveness argument rests on, and suites must keep
-//! it exercised. The sweep adds explicit byte budgets and the production
-//! default on top. Every budget sets aside the floor allowance
+//! A ledger budget of zero stays in the population deliberately: each walk
+//! then asks one question at a time, every unit taking its depth's floor
+//! slot, the configuration the liveness argument rests on, and suites must
+//! keep it exercised. The public setter raises every budget to
+//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so this
+//! choice sets the ledger budget through the test path
+//! ([`ledger_budget`](rumors::testing::ledger_budget)). The sweep adds
+//! explicit byte budgets and the production default on top. Every budget
+//! sets aside the floor allowance
 //! ([`floor_allowance`](rumors::testing::floor_allowance)) for the floor
 //! slots and admits work beyond them against the rest, so the explicit
 //! budgets are drawn beyond it. Peers draw choices independently, so
 //! sessions between differently-configured endpoints arise throughout the
-//! population; each side of such a session admits its work against its own
-//! budget.
+//! population; each side of such a session admits its work against its
+//! own budget.
 
 use crate::bench::session::admitting;
 use proptest::prelude::*;
@@ -20,12 +24,19 @@ use proptest::prelude::*;
 /// One peer's memory budget in the sweep population.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BudgetChoice {
-    /// A budget of zero: each walk asks one question at a time. First
-    /// variant, so failures shrink toward the zero-everywhere baseline.
+    /// A ledger budget of zero, set through the test path: each walk asks
+    /// one question at a time. First variant, so failures shrink toward
+    /// the zero-everywhere baseline.
     Zero,
-    /// An explicit memory budget in bytes: the floor allowance and the
-    /// bytes the ledgers admit work against beside it.
+    /// An explicit memory budget in bytes, through the public setter: the
+    /// floor allowance and the bytes the ledgers admit work against beside
+    /// it, raised to
+    /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET).
     Bytes(usize),
+    /// An explicit ledger budget in bytes, set through the test path
+    /// ([`ledger_budget`](rumors::testing::ledger_budget)), below the
+    /// public minimum included.
+    Ledger(usize),
     /// The production default: no configuration call at all.
     Default,
 }
@@ -34,8 +45,9 @@ impl BudgetChoice {
     /// Apply this choice to a peer under construction.
     pub fn apply<T: Send + Sync + 'static>(self, peer: rumors::Peer<T>) -> rumors::Peer<T> {
         match self {
-            Self::Zero => peer.sync_memory_budget(0),
+            Self::Zero => rumors::testing::ledger_budget(peer, 0),
             Self::Bytes(bytes) => peer.sync_memory_budget(bytes),
+            Self::Ledger(bytes) => rumors::testing::ledger_budget(peer, bytes),
             Self::Default => peer,
         }
     }
@@ -65,7 +77,7 @@ impl BudgetAssignment {
         Self(choices)
     }
 
-    /// The all-zero assignment: every peer at a budget of zero.
+    /// The all-zero assignment: every peer at a ledger budget of zero.
     ///
     /// The constructor for the suites' deterministic baseline legs: each
     /// swept engine keeps one leg pinned here so the one-question-at-a-time
@@ -92,12 +104,13 @@ pub const MAX_BUDGET_EXPONENT: u32 = 24;
 
 /// Strategy for one peer's budget choice.
 ///
-/// The budget arm draws the floor allowance and `2^e + jitter` beside it
-/// ([`admitting`]), for `e` across
-/// [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`], from budgets that
-/// admit only a few units beside the floor slots to budgets that
-/// suite-scale sessions do not fill. Shrinking heads toward
-/// [`BudgetChoice::Zero`], the baseline the liveness argument rests on.
+/// The budget arm draws the floor allowance and `2^e + jitter` beside it,
+/// for `e` across [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`]
+/// ([`admitting`]), through the public setter: the draws below
+/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) exercise its
+/// raise, and the rest reach budgets that suite-scale sessions do not
+/// fill. Shrinking heads toward [`BudgetChoice::Zero`], the baseline the
+/// liveness argument rests on.
 pub fn arb_budget_choice() -> impl Strategy<Value = BudgetChoice> {
     prop_oneof![
         2 => Just(BudgetChoice::Zero),

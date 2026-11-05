@@ -52,9 +52,8 @@
 //! Each session then runs at the no-cost point, where no unit waits, and at
 //! half of `Λ`, where units wait for admission, once with an unsent limit
 //! of zero and once with one bandwidth-delay product.
-//! Each such budget is what the ledgers admit against, configured beside
-//! the floor allowance
-//! ([`admitting`](rumors_testkit::bench::session::admitting)).
+//! Each such budget is what the ledgers admit against, set directly
+//! ([`BudgetChoice::Ledger`]).
 //!
 //! # Thresholds
 //!
@@ -71,12 +70,13 @@ use rumors::DEFAULT_SYNC_MEMORY_BUDGET;
 use rumors_testkit::bench::link::{LinkConfig, Side};
 
 use rumors_testkit::bench::session::{self as fixture, Case, LAN_BDP, Session, Shape, resolution};
+use rumors_testkit::common::budget::BudgetChoice;
 
 /// Messages each side holds that the other lacks.
 const MESSAGES: u64 = 10_000;
 
 /// The budget of the run that reads `Λ`: unlimited.
-const ORACLE_BUDGET: usize = usize::MAX;
+const ORACLE_BUDGET: BudgetChoice = BudgetChoice::Bytes(usize::MAX);
 
 /// The LAN with an unsent limit of zero and of one product.
 fn links() -> [LinkConfig; 2] {
@@ -88,7 +88,7 @@ fn links() -> [LinkConfig; 2] {
 fn report(label: &str, session: &Session) {
     let duration = session.duration();
     let mut line = format!(
-        "{label}: unsent limit {} B, budget {} B, {duration} byte-times, {} units waited",
+        "{label}: unsent limit {} B, budget {:?}, {duration} byte-times, {} units waited",
         session.case.link.unsent_limit(),
         session.case.budget,
         session.admitted.waited(),
@@ -148,7 +148,8 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
     };
     let [oracle] = fixture::run_all([case(ORACLE_BUDGET, bare)]);
     let peak = oracle.admitted.budget_peak();
-    let no_cost = oracle.admitted.no_cost_budget();
+    let no_cost = BudgetChoice::Ledger(oracle.admitted.no_cost_budget());
+    let half = BudgetChoice::Ledger(peak / 2);
     let [
         critical_path,
         full_bare,
@@ -157,10 +158,10 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
         half_buffered,
     ] = fixture::run_all([
         case(ORACLE_BUDGET, bare.latency_only()),
-        case(fixture::admitting(no_cost), bare),
-        case(fixture::admitting(no_cost), buffered),
-        case(fixture::admitting(peak / 2), bare),
-        case(fixture::admitting(peak / 2), buffered),
+        case(no_cost, bare),
+        case(no_cost, buffered),
+        case(half, bare),
+        case(half, buffered),
     ]);
     let allowance = resolution(&critical_path);
     for (label, session) in [
@@ -203,7 +204,7 @@ fn unsent_bytes_leave_a_catch_up_unchanged() {
     let [bare, buffered] = links();
     let case = |link| Case {
         shape,
-        budget: DEFAULT_SYNC_MEMORY_BUDGET,
+        budget: BudgetChoice::Bytes(DEFAULT_SYNC_MEMORY_BUDGET),
         link,
     };
     let [critical_path, without, with] = fixture::run_all([

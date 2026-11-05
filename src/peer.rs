@@ -25,12 +25,26 @@ use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::remote::{
     DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
 };
+use crate::tree::mirror::streaming::{Local, materialized};
 use crate::{
     Batch, Bookmark, CausalMessages, Changes, Committed, Network, Rumors, Snapshot,
     UnorderedMessages, Version,
 };
 
 use serde::{Serialize, de::DeserializeOwned};
+
+/// The smallest memory budget a synchronization session runs on: about
+/// 27 MiB on 64-bit targets.
+///
+/// A smaller budget, zero included, is raised to this, so a session holds
+/// at most the larger of its budget and this minimum. It covers the room
+/// every session keeps for one piece of work in flight at each level of
+/// its comparison, which is how a session always makes progress, and room
+/// beside it for the largest single piece of work. Below it, pieces of
+/// work would race for that room, and a larger budget could make a
+/// session markedly slower; the minimum keeps every session out of that
+/// regime.
+pub const MIN_SYNC_MEMORY_BUDGET: usize = materialized::min_memory_budget::<Local>();
 
 mod bookmark;
 mod bootstrap;
@@ -196,7 +210,7 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SynchronizationSettings {
     /// The memory budget each session admits its work against
-    /// ([`Peer::sync_memory_budget`]).
+    /// ([`Peer::sync_memory_budget`]): at least [`MIN_SYNC_MEMORY_BUDGET`].
     pub sync_memory_budget: usize,
     /// The saturated wire-message target this peer advertises.
     pub target_message_size: usize,
@@ -705,10 +719,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// replies cross the link, and that work costs memory: what the session
     /// has built, and room set aside for the replies on their way. The
     /// budget caps that memory. Within it, a session keeps in flight as much
-    /// as it can put to use. A smaller budget therefore makes a session
-    /// slower, never failed: at a budget of zero it keeps one piece of work
-    /// in flight at each level of its comparison, the declared behavior of
-    /// a zero budget, and still completes.
+    /// as it can put to use. This method raises a budget below
+    /// [`MIN_SYNC_MEMORY_BUDGET`], zero included, to that minimum, so a
+    /// session holds at most the larger of `budget_bytes` and
+    /// [`MIN_SYNC_MEMORY_BUDGET`];
+    /// [`synchronization_settings`](Self::synchronization_settings) reports
+    /// the raised budget. A smaller budget therefore makes a session slower,
+    /// never failed: at the minimum it keeps little in flight beyond one
+    /// piece of work at each level of its comparison, and still completes.
     ///
     /// More budget keeps more in flight, up to the point where nothing
     /// waits; beyond it, more budget changes nothing. That point can lie
@@ -737,7 +755,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// sessions running at once, to one peer or to several, can each use up
     /// to it.
     ///
-    /// The default is [`DEFAULT_SYNC_MEMORY_BUDGET`] (512 MiB). All
+    /// The default is [`DEFAULT_SYNC_MEMORY_BUDGET`] (512 MiB), and the
+    /// least is [`MIN_SYNC_MEMORY_BUDGET`]. All
     /// [`Rumors`] clones inherit this setting, and it is preserved when
     /// returning to a `Peer`, attaching a bookmark, or retiring.
     /// [Choosing a synchronization budget](crate::sizing) explains how to
@@ -762,11 +781,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   sets' sizes.
     ///
     /// A session admits the rest of its work against the budget less the
-    /// floor allowance, so that the two together stay within the budget. A
-    /// budget at or below the allowance admits work through the floor
-    /// alone, as a budget of zero does, and a session on it holds at most
-    /// the allowance. [`target_message_size`](Self::target_message_size)
-    /// bounds the wire messages a session buffers.
+    /// floor allowance, so that the two together stay within the budget.
+    /// [`MIN_SYNC_MEMORY_BUDGET`] is the allowance and room beside it for
+    /// the largest single question or answer, so the rest always has room
+    /// for any one piece of work.
+    /// [`target_message_size`](Self::target_message_size) bounds the wire
+    /// messages a session buffers.
     ///
     /// # What the budget does not cover
     ///
@@ -792,7 +812,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// outside the count.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
-        self.sync_memory_budget = budget_bytes;
+        self.sync_memory_budget = budget_bytes.max(MIN_SYNC_MEMORY_BUDGET);
         self
     }
 

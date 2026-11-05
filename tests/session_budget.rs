@@ -168,7 +168,11 @@
 //! rest, what the ledgers admit against: each peer's memory budget is the
 //! named budget beside the floor allowance
 //! ([`admitting`]), so that the suite's fixtures admit work as their
-//! names say.
+//! names say. Some of those budgets lie below the largest grant, which the
+//! public setter's minimum
+//! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET)) keeps
+//! every application's session above, so the suite sets each ledger budget
+//! directly ([`ledger_budget`](rumors::testing::ledger_budget)).
 //!
 //! Each side keeps a ledger of what its session holds and of the room it
 //! sets aside for the replies its questions invite, and admits its walk's
@@ -363,7 +367,8 @@ const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001)
 /// messages, in [`Side::BOTH`] order, that the other lacks.
 ///
 /// Each fork runs on the suite's run target and on a memory budget whose
-/// ledger admits work against `budget` ([`admitting`]).
+/// ledger admits work against `budget` ([`admitting`]), set through the
+/// test path so that it reaches below the public minimum.
 ///
 /// The network first holds `redacted` messages both forks receive, which
 /// side `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with
@@ -375,8 +380,7 @@ const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001)
 /// version, since forking and sending are deterministic.
 fn fixture(network: NetworkSeed, messages: [u64; 2], redacted: u64, budget: usize) -> Fixture {
     let configure = |peer: Peer<u64>| {
-        peer.sync_memory_budget(admitting(budget))
-            .target_message_size(COMPARISON_FRAME_BYTES)
+        rumors::testing::ledger_budget(peer, budget).target_message_size(COMPARISON_FRAME_BYTES)
     };
     let (built, [a, b]) = measure(|| {
         block_on(async {

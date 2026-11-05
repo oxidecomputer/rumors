@@ -248,10 +248,11 @@
 //! budget ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)),
 //! counting what it holds and what it has set aside; work that does not fit
 //! waits for earlier work to finish. Each level always has room for one
-//! question and one answer, which the budget sets aside before it admits
-//! anything else, so a smaller budget adds latency and never stops a
-//! session: a zero budget asks one question at a time per level and remains
-//! deadlock-free.
+//! question and one answer, out of a part of the budget set aside for them,
+//! so a smaller budget adds latency and never stops a session. Every
+//! session's budget is at least
+//! [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET): that part,
+//! and room beside it for the largest single question or answer.
 //! Message bodies are governed separately: supplies stream as
 //! size-targeted runs, with at most four runs buffered per level sending,
 //! and three per level receiving plus one more for the whole receiving

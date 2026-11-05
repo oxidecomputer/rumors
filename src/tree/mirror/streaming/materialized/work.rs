@@ -27,14 +27,13 @@ mod resolver;
 pub(crate) use allowance::{Allowance, Overdraft};
 #[cfg(test)]
 pub(crate) use allowance::{Left, Ready, parked_price, parked_room};
+/// Named for the documentation of `LaterMatches`, which links the covered
+/// set's net price.
+#[cfg(doc)]
+pub(crate) use charges::covered_set_price;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use charges::scratch;
-/// Named for the documentation of the ledger, which bounds a charge by the
-/// largest grant, and of `LaterMatches`, which links the covered set's net
-/// price.
-#[cfg(doc)]
-pub(crate) use charges::{covered_set_price, largest_grant};
-pub(crate) use charges::{floor_allowance, parked_bytes};
+pub(crate) use charges::{floor_allowance, largest_grant, parked_bytes};
 pub(crate) use queues::OUTGOING_REPLY_CHUNKS;
 pub(super) use resolver::Resolver;
 

@@ -28,8 +28,9 @@
 //! no-cost point.
 //!
 //! The budget here is the ledger's: a peer's memory budget less the floor
-//! allowance it sets aside for the floor slots, so the suite configures
-//! each budget it states beside that allowance ([`fixture::admitting`]).
+//! allowance it sets aside for the floor slots, so the suite sets each
+//! budget it states as the ledger's directly ([`BudgetChoice::Ledger`]),
+//! reaching budgets below those the public setter allows.
 //!
 //! # The measurement
 //!
@@ -57,6 +58,7 @@ use rumors_testkit::bench::link::LinkConfig;
 use rumors_testkit::bench::session::{
     self as fixture, Case, LAN_BDP, LONG_HAUL_BDP, Session, Shape,
 };
+use rumors_testkit::common::budget::BudgetChoice;
 
 /// The oracle's budget: unlimited.
 const ORACLE_BUDGET: usize = usize::MAX;
@@ -72,7 +74,9 @@ const LINKS: [u64; 2] = [LAN_BDP, LONG_HAUL_BDP];
 
 /// Every pair and link the suite runs, the pair at `index` on a budget of
 /// `budget(index)`.
-fn cases(budget: impl Fn(usize) -> usize) -> [Case; SIZES.len() * OVERLAPS.len() * LINKS.len()] {
+fn cases(
+    budget: impl Fn(usize) -> BudgetChoice,
+) -> [Case; SIZES.len() * OVERLAPS.len() * LINKS.len()] {
     array::from_fn(|index| {
         let size = SIZES[index / (OVERLAPS.len() * LINKS.len())];
         let overlap = OVERLAPS[index / LINKS.len() % OVERLAPS.len()];
@@ -118,11 +122,11 @@ fn report(oracle: &Session, at_peak: &Session) {
 /// counter stopped counting.
 #[test]
 fn a_budget_of_the_no_cost_point_is_identical_to_no_budget() {
-    let oracles = fixture::run_all(cases(|_| ORACLE_BUDGET));
+    let oracles = fixture::run_all(cases(|_| BudgetChoice::Bytes(ORACLE_BUDGET)));
     let peaks = oracles
         .each_ref()
         .map(|oracle| oracle.admitted.no_cost_budget());
-    let at_peaks = fixture::run_all(cases(|index| fixture::admitting(peaks[index])));
+    let at_peaks = fixture::run_all(cases(|index| BudgetChoice::Ledger(peaks[index])));
     for (oracle, at_peak) in oracles.iter().zip(&at_peaks) {
         report(oracle, at_peak);
     }

@@ -237,19 +237,29 @@ fn letter(side: Side) -> char {
 /// `bytes` beside the floor allowance every budget sets aside
 /// ([`floor_allowance`]).
 ///
-/// A suite that states its budgets by what the ledgers admit, such as
-/// fractions of `Λ`, configures peers with this.
+/// The public setter raises this to
+/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) when `bytes`
+/// is below the largest grant. A suite that states its budgets by what the
+/// ledgers admit, such as fractions of `Λ` or of the no-cost point, and
+/// must reach below that, sets the ledger budget directly instead
+/// ([`BudgetChoice::Ledger`]).
 pub fn admitting(bytes: usize) -> usize {
     floor_allowance().saturating_add(bytes)
 }
 
 /// Builds a pair of the given shape, both peers on a memory budget of
-/// `budget` bytes.
+/// `budget` bytes, set through the public setter ([`pair_at`]).
+pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
+    pair_at(shape, BudgetChoice::Bytes(budget))
+}
+
+/// Builds a pair of the given shape, both peers on the budget `budget`
+/// chooses.
 ///
 /// The shared messages, and those either side goes on to redact, are sent
 /// before either side joins, so both receive them while joining; each side
 /// then redacts its own, numbered after the shared ones.
-pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
+pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<String>) {
     block_on(async {
         let root = NETWORK_SEED.peer::<String>().into_rumors();
         if shape.draw > 0 {
@@ -265,8 +275,8 @@ pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
         let received = shape.shared + shape.redacted_a + shape.redacted_b;
         root.send_all((0..received).map(|index| message('s', index, shape.message_bytes)))
             .expect("fixture messages encode");
-        let a = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
-        let b = bootstrap_fork_with_budget_async(&root, BudgetChoice::Bytes(budget)).await;
+        let a = bootstrap_fork_with_budget_async(&root, budget).await;
+        let b = bootstrap_fork_with_budget_async(&root, budget).await;
         let redacted_by_a = shape.shared..shape.shared + shape.redacted_a;
         let redacted_by_b = redacted_by_a.end..received;
         redact(&a, redacted_by_b.clone(), redacted_by_a.clone(), shape);
@@ -321,8 +331,10 @@ fn redact(replica: &Rumors<String>, kept: Range<u64>, redacted: Range<u64>, shap
 pub struct Case {
     /// The pair's shape.
     pub shape: Shape,
-    /// Both peers' memory budget, in bytes.
-    pub budget: usize,
+    /// Both peers' budget: a memory budget through the public setter, or
+    /// a ledger budget through the test path, which reaches below the
+    /// public minimum.
+    pub budget: BudgetChoice,
     /// The link between them.
     pub link: LinkConfig,
 }
@@ -1079,7 +1091,7 @@ async fn sided<F: Future>(side: Side, session: F) -> F::Output {
 ///
 /// As [`run`], and if `within` does not run the session.
 pub fn run_within<T>(case: Case, within: impl FnOnce(&mut dyn FnMut()) -> T) -> (Session, T) {
-    let (a, b) = pair(case.shape, case.budget);
+    let (a, b) = pair_at(case.shape, case.budget);
     let link = Link::new(case.link);
     let (mut a_end, mut b_end) = (link.end(Side::A), link.end(Side::B));
     start_reading(&link);

@@ -6,13 +6,14 @@
 //!
 //! Admission's liveness argument uses no budget above zero and never
 //! relates the two sides' budgets, so the grid crosses zero, tiny,
-//! mismatched, and unlimited budgets with every pipe width, from a pipe that
-//! hands over one byte at a time to one that holds whole frames. Every
-//! session must complete with both sides holding the join.
+//! mismatched, minimum, and unlimited budgets with every pipe width, from a
+//! pipe that hands over one byte at a time to one that holds whole frames.
+//! Every session must complete with both sides holding the join.
 
 use super::join_oracle;
 use super::pipe::placed_over_pipe;
 use crate::message::Message;
+use crate::testing::LARGEST_GRANT;
 use crate::tree::arb::{nth_party, roots_at_depth};
 use crate::tree::mirror::streaming::testing::session::{completed, over_pipe};
 use crate::tree::{Action, Root, Tree};
@@ -24,13 +25,16 @@ const UNLIMITED: usize = usize::MAX;
 ///
 /// Both sides at zero, where every unit takes a floor slot; one side at
 /// zero against an unlimited peer, in both orders; tiny and mismatched
-/// budgets, which admit a few units beside the floor; and both unlimited.
-const BUDGETS: [[usize; 2]; 6] = [
+/// budgets, which admit a few units beside the floor; both at the largest
+/// grant, the least ledger budget the public API leaves a session, which
+/// disjoint forks of 30,000 messages a side outgrow; and both unlimited.
+const BUDGETS: [[usize; 2]; 7] = [
     [0, 0],
     [0, UNLIMITED],
     [UNLIMITED, 0],
     [1 << 10, 1 << 10],
     [256 << 10, 64 << 10],
+    [LARGEST_GRANT, LARGEST_GRANT],
     [UNLIMITED, UNLIMITED],
 ];
 

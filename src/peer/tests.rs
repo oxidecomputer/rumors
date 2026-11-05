@@ -11,7 +11,7 @@ use before::Party;
 use proptest::prelude::*;
 use tokio::sync::watch;
 
-use super::{Inner, MAX_RUN_BUDGET_BYTES, OPTIMISTIC_ATTEMPTS};
+use super::{Inner, MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET, OPTIMISTIC_ATTEMPTS, Peer};
 use crate::message::Message;
 use crate::testing::property::{LOCAL_DIVISOR, divided_proptest, network_seed};
 use crate::tree::mirror::streaming::remote::WRITE_BUFFER_BYTES;
@@ -77,29 +77,67 @@ divided_proptest! {
     #[test]
     fn synchronization_settings_report_effective_values(network in network_seed()) {
         let depth = 17;
+        let budget = MIN_SYNC_MEMORY_BUDGET + 1_234;
         let peer = network.peer::<u64>()
-            .sync_memory_budget(1_234)
+            .sync_memory_budget(budget)
             .target_message_size(usize::MAX)
             .payload_depth_limit(depth);
         let expected = super::SynchronizationSettings {
-            sync_memory_budget: 1_234,
+            sync_memory_budget: budget,
             target_message_size: MAX_RUN_BUDGET_BYTES,
             payload_depth_limit: depth,
         };
 
         assert_eq!(peer.synchronization_settings(), expected);
         let peer_debug = format!("{peer:?}");
-        assert!(peer_debug.contains("sync_memory_budget: 1234"));
+        assert!(peer_debug.contains(&format!("sync_memory_budget: {budget}")));
         assert!(peer_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
         assert!(peer_debug.contains("payload_depth_limit: 17"));
 
         let rumors = peer.into_rumors();
         assert_eq!(rumors.synchronization_settings(), expected);
         let rumors_debug = format!("{rumors:?}");
-        assert!(rumors_debug.contains("sync_memory_budget: 1234"));
+        assert!(rumors_debug.contains(&format!("sync_memory_budget: {budget}")));
         assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
         assert!(rumors_debug.contains("payload_depth_limit: 17"));
     }
+}
+
+proptest! {
+    /// Both public budget setters raise a budget below
+    /// [`MIN_SYNC_MEMORY_BUDGET`] to it and keep every larger budget as
+    /// given, so a session's budget is `max(budget, MIN_SYNC_MEMORY_BUDGET)`.
+    ///
+    /// Budgets are drawn on both sides of the minimum, its neighbours and
+    /// the extremes included.
+    #[test]
+    fn budget_setters_raise_budgets_to_the_minimum(
+        budget in prop_oneof![
+            0..=2 * MIN_SYNC_MEMORY_BUDGET,
+            MIN_SYNC_MEMORY_BUDGET - 1..=MIN_SYNC_MEMORY_BUDGET + 1,
+            any::<usize>(),
+        ],
+        network in network_seed(),
+    ) {
+        let raised = budget.max(MIN_SYNC_MEMORY_BUDGET);
+        let peer = network.peer::<u64>().sync_memory_budget(budget);
+        prop_assert_eq!(peer.synchronization_settings().sync_memory_budget, raised);
+        let bootstrap = Peer::<u64>::bootstrap().sync_memory_budget(budget);
+        prop_assert_eq!(bootstrap.sync_memory_budget, raised);
+    }
+}
+
+/// The minimum memory budget on the in-memory backend is the "about
+/// 27 MiB" its documentation states, on the 64-bit targets the
+/// documentation's figures are measured on.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn the_minimum_budget_is_the_documented_figure() {
+    const MIB: usize = 1 << 20;
+    assert!(
+        (26 * MIB + MIB / 2..27 * MIB + MIB / 2).contains(&MIN_SYNC_MEMORY_BUDGET),
+        "the minimum budget is {MIN_SYNC_MEMORY_BUDGET} B, not about 27 MiB",
+    );
 }
 
 /// The session's write buffer is the "about 63 KiB" the crate and peer

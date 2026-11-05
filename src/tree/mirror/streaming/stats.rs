@@ -85,10 +85,8 @@ pub struct SessionStats {
     /// zero, the session kept in flight everything it was ready to send,
     /// and ran as it would have with an unlimited budget. Above zero, each
     /// count is a question or answer that waited for earlier work to free
-    /// memory before the session built it. At a budget of zero, a session
-    /// that compares more than one part of the sets at a level reports
-    /// waits by declaration. Each peer counts against its own budget, so
-    /// the two sides of a session report their own numbers.
+    /// memory before the session built it. Each peer counts against its
+    /// own budget, so the two sides of a session report their own numbers.
     pub budget_waits: u64,
 }
 

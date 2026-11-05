@@ -164,9 +164,13 @@ fn retry_then_join<B: Bookmark>(
 
 proptest! {
     /// Both forms retain every setting, observer and storage across mixed retry sequences.
+    ///
+    /// Budgets are drawn on both sides of the minimum, so the retained
+    /// budget is the given one raised to
+    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET).
     #[test]
     fn retries_preserve_configuration_and_storage(
-        budget in 0usize..1024 * 1024,
+        budget in 0usize..2 * crate::MIN_SYNC_MEMORY_BUDGET,
         target in 0usize..512,
         depth in 1u64..32,
         attempts in prop::collection::vec(any::<bool>(), 0..6),
@@ -174,7 +178,7 @@ proptest! {
         network in network_seed(),
     ) {
         let expected = (
-            budget,
+            budget.max(crate::MIN_SYNC_MEMORY_BUDGET),
             RunBudget::from_bytes(target),
             crate::message::PayloadDepthLimit::new(depth),
         );

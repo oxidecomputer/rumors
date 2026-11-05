@@ -22,12 +22,16 @@
 //!   about 26 MiB on the in-memory replica on 64-bit targets, whatever the
 //!   sets' sizes. A session admits the rest of its work against what
 //!   remains of the budget.
-//! - **A budget of zero,** or any budget no larger than the floor
-//!   allowance, means no pipelining: a session asks one question at a time
-//!   at each level of its comparison, waiting for each answer before it
-//!   asks the next. This is the declared behavior of such a budget, not a
-//!   failure; the session completes, holding at most the floor allowance,
-//!   and takes as many round trips as it has questions.
+//! - **The smallest budget,**
+//!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), adds room
+//!   for the largest single question or answer beside the floor
+//!   allowance. The setter raises any smaller budget, zero included, to
+//!   it. At the smallest budget a session pipelines little: beyond one
+//!   question and one answer at each level of its comparison, it keeps in
+//!   flight only what the added room holds, and otherwise waits for
+//!   answers before it asks its next questions. This is the declared
+//!   behavior of such a budget, not a failure; the session completes,
+//!   holding at most the smallest budget.
 //! - **A larger budget** keeps more questions in flight at once, up to the
 //!   point where nothing waits for memory. Beyond that point more budget
 //!   changes nothing: a session that never needs more runs exactly as it

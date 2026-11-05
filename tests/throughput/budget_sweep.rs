@@ -6,16 +6,18 @@
 //! For one pair on one link, write `T∞` for the session's duration with an
 //! unlimited budget, `F` for the floor allowance every budget sets aside
 //! for the floor slots, which a ledger admits work beyond against the
-//! rest, `N*` for the session's no-cost point, the ledger budget defined
+//! rest, `M` for [`MIN_SYNC_MEMORY_BUDGET`], the least budget the public
+//! setter lets a session run on, `N*` for the session's no-cost point, the ledger budget defined
 //! in [`no_slowdown`](super::no_slowdown), `W` for the bytes the busier
 //! direction carries, `δ` for the link's one-way delay, and `h` for the
 //! unlimited session's critical path in one-way delays: its duration over
 //! the same delay with no serialization time, the longest chain of messages
-//! each of which waits for the one before. At every budget `B`:
+//! each of which waits for the one before. At every budget `B` the setter
+//! is given, the session runs on `B' = max(B, M)`, and:
 //!
-//! 1. If `B ≥ F + N*`, the session is the unlimited session, event for
+//! 1. If `B' ≥ F + N*`, the session is the unlimited session, event for
 //!    event: every admission and share check the unlimited session makes
-//!    passes against `B − F`, by the induction along its schedule that
+//!    passes against `B' − F`, by the induction along its schedule that
 //!    [`no_slowdown`](super::no_slowdown) gives for a ledger budget of
 //!    `N*`. So no unit waits, as none waits in the unlimited session.
 //! 2. Each direction carries exactly the unlimited session's bytes: the
@@ -32,14 +34,14 @@
 //!    admission only lengthens.
 //! 4. Each side's ledger is exact: no item needs more than its unit's
 //!    grant, which a reply's parked chunks would if their room were priced
-//!    below what the reply delivers; the ledger holds at most `B − F`
+//!    below what the reply delivers; the ledger holds at most `B' − F`
 //!    outside its floor slots, and its floor slots at most `F`, so it holds
-//!    at most the larger of `B` and `F` in all; and it asks questions only
-//!    about scopes at depths of one parity and answers only at the other,
-//!    the premise `F` is derived on.
-//! 5. A budget at or below `F` runs the session on its floor slots alone,
-//!    as a budget of zero does: the session at `F / 2` is the session at
-//!    `F`, event for event.
+//!    at most `B'` in all; and it asks questions only about scopes at
+//!    depths of one parity and answers only at the other, the premise `F`
+//!    is derived on.
+//! 5. A budget below `M` runs the session as `M` does, event for event:
+//!    the sessions at `F / 2`, at `F`, and at every rung below `M` are the
+//!    session at `M`.
 //!
 //! # What it does not claim
 //!
@@ -61,16 +63,19 @@
 //! session's timeline is an exact function of its pair, link, and budget.
 //! For each pair and link, the test runs the unlimited session on the link,
 //! which reads `N*`, `W` and `T∞`, and on its latency-only form, which
-//! reads `h`. Then it runs the session at each budget of a fixed ladder:
-//! `F` beside fractions of `N*`, below and above it, and half of `F`; and
-//! it checks the claims at each.
+//! reads `h`. Then it runs the session at each budget of a fixed ladder,
+//! every one through the public setter: `F` beside fractions of `N*`,
+//! below and above it, `M`, and half of `F`; and it checks the claims at
+//! each.
 
+use rumors::MIN_SYNC_MEMORY_BUDGET;
 use rumors::testing::floor_allowance;
 use rumors_testkit::bench::link::{LinkConfig, Side};
 use rumors_testkit::bench::session::{
     self as fixture, Case, DEPTHS, Grants, LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Session, Shape,
     admitting,
 };
+use rumors_testkit::common::budget::BudgetChoice;
 
 /// The unlimited budget the reference sessions run at.
 const UNLIMITED: usize = usize::MAX;
@@ -78,6 +83,11 @@ const UNLIMITED: usize = usize::MAX;
 /// The pairs the sweep runs, each with the bandwidth-delay product of its
 /// link: a disjoint pair on each link, a mostly shared pair, and a small
 /// replica against a large one.
+///
+/// Each pair's no-cost point exceeds the largest grant, so the ladder's
+/// rungs above [`MIN_SYNC_MEMORY_BUDGET`] constrain it: a pair whose
+/// no-cost point fits beside the minimum runs unconstrained at every
+/// budget the public setter allows.
 ///
 /// Beneath a child of the root, the small replica holds about one child,
 /// where the large one holds about 100,000 / 256 ≈ 390 leaves, nearly all
@@ -88,7 +98,7 @@ const UNLIMITED: usize = usize::MAX;
 const PAIRS: [(Shape, u64); 5] = [
     (Shape::overlapping(10_000, 0), LAN_BDP),
     (Shape::overlapping(10_000, 0), METRO_BDP),
-    (Shape::overlapping(1_000, 0), LONG_HAUL_BDP),
+    (Shape::overlapping(10_000, 0), LONG_HAUL_BDP),
     (Shape::overlapping(10_000, 90), LAN_BDP),
     (
         Shape {
@@ -108,7 +118,7 @@ const SIXTEENTHS: usize = 16;
 const LADDER: [usize; 9] = [0, 1, 4, 8, 12, 15, 16, 20, 32];
 
 /// The rung below the ladder, half the floor allowance: a budget the
-/// allowance exceeds, which admits work through the floor slots alone.
+/// setter raises to the minimum.
 fn below_floor() -> usize {
     floor_allowance() / 2
 }
@@ -133,29 +143,49 @@ fn link(index: usize) -> LinkConfig {
 fn unlimited(on: impl Fn(LinkConfig) -> LinkConfig) -> [Case; PAIRS.len()] {
     std::array::from_fn(|index| Case {
         shape: PAIRS[index].0,
-        budget: UNLIMITED,
+        budget: BudgetChoice::Bytes(UNLIMITED),
         link: on(link(index)),
     })
 }
 
-/// The rungs each pair runs at: the ladder's, then the one below it.
-const RUNGS: usize = LADDER.len() + 1;
+/// The rungs each pair runs at: the ladder's, then the minimum, then the
+/// one below the ladder.
+const RUNGS: usize = LADDER.len() + 2;
+
+/// The index among a pair's rungs of the minimum's rung.
+const MINIMUM_RUNG: usize = LADDER.len();
 
 /// Every pair at every rung, pair-major: the ladder's, each a fraction of
 /// the pair's no-cost point in `no_cost` beside the floor allowance, then
-/// [`below_floor`].
+/// [`MIN_SYNC_MEMORY_BUDGET`], then [`below_floor`].
 fn ladder(no_cost: &[usize; PAIRS.len()]) -> [Case; PAIRS.len() * RUNGS] {
     std::array::from_fn(|index| {
         let pair = index / RUNGS;
-        let budget = LADDER
-            .get(index % RUNGS)
-            .map_or_else(below_floor, |&sixteenths| budget(no_cost[pair], sixteenths));
+        let rung = index % RUNGS;
+        let budget = match LADDER.get(rung) {
+            Some(&sixteenths) => budget(no_cost[pair], sixteenths),
+            None if rung == MINIMUM_RUNG => MIN_SYNC_MEMORY_BUDGET,
+            None => below_floor(),
+        };
         Case {
             shape: PAIRS[pair].0,
-            budget,
+            budget: BudgetChoice::Bytes(budget),
             link: link(pair),
         }
     })
+}
+
+/// The memory budget `case` gives the public setter.
+///
+/// # Panics
+///
+/// If `case` sets its budget otherwise: every session here runs through
+/// the setter.
+fn requested(case: &Case) -> usize {
+    match case.budget {
+        BudgetChoice::Bytes(budget) => budget,
+        other => panic!("the sweep sets every budget through the public setter, not {other:?}"),
+    }
 }
 
 /// The bytes each direction of `session` carried, in [`Side::BOTH`] order.
@@ -184,19 +214,20 @@ fn parity(grants: &[Grants; DEPTHS]) -> Option<Option<usize>> {
 fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64) {
     let case = &session.case;
     let allowance = floor_allowance();
-    let admitted = case.budget.saturating_sub(allowance);
+    let runs_on = requested(case).max(MIN_SYNC_MEMORY_BUDGET);
+    let admitted = runs_on - allowance;
     println!(
-        "{:?} on BDP {}: B = {} (F = {allowance} + {:.4} N*), {} waited, T = {} \
-         byte-times, T∞ = {}, floor {floor}",
+        "{:?} on BDP {}: B = {}, B' = {runs_on} (F = {allowance} + {:.4} N*), {} waited, \
+         T = {} byte-times, T∞ = {}, floor {floor}",
         case.shape,
         case.link.bdp(),
-        case.budget,
+        requested(case),
         admitted as f64 / no_cost as f64,
         session.admitted.waited(),
         session.duration(),
         reference.duration(),
     );
-    if case.budget >= admitting(no_cost) {
+    if runs_on >= admitting(no_cost) {
         assert_eq!(
             session.admitted.waited(),
             0,
@@ -238,8 +269,8 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
             ledger.floor_peak,
         );
         assert!(
-            ledger.held_peak <= case.budget.max(allowance),
-            "a ledger held {} B, over its budget and the floor allowance: {case:?}",
+            ledger.held_peak <= runs_on,
+            "a ledger held {} B, over the {runs_on} B the session runs on: {case:?}",
             ledger.held_peak,
         );
         let (questions, answers) = (parity(&ledger.questions), parity(&ledger.answers));
@@ -254,19 +285,19 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// Across a ladder of budgets, every session keeps the exact properties.
 ///
 /// They are identity with the unlimited session at or above the no-cost
-/// point beside the floor allowance, identity with the floor-only session
-/// below the allowance, and the bytes, the lower bound on duration, and
-/// ledger exactness at every budget.
+/// point beside the floor allowance, identity with the session at
+/// [`MIN_SYNC_MEMORY_BUDGET`] below it, and the bytes, the lower bound on
+/// duration, and ledger exactness at every budget.
 ///
-/// Every session whose budget admits at least its pair's no-cost point
-/// beside the floor allowance is the unlimited session, event for event,
-/// with no unit waiting; the session at half the allowance is the session
-/// at the allowance; every session carries the unlimited session's bytes
-/// in each direction, lasts at least its busier direction's bytes and two
-/// delays, and at least the unlimited session's critical path; and every
-/// ledger is exact, holds
-/// at most its budget (or the allowance, below it), and asks and answers
-/// at depths of opposite parities.
+/// Every session whose budget, as the setter raises it to the minimum,
+/// admits at least its pair's no-cost point beside the floor allowance is
+/// the unlimited session, event for event, with no unit waiting; every
+/// session below the minimum, at the allowance and at half of it included,
+/// is the session at the minimum; every session carries the unlimited
+/// session's bytes in each direction, lasts at least its busier
+/// direction's bytes and two delays, and at least the unlimited session's
+/// critical path; and every ledger is exact, holds at most its raised
+/// budget, and asks and answers at depths of opposite parities.
 ///
 /// Below the no-cost point the duration is held to the lower bound alone:
 /// greedy admission makes it non-monotone there, with no derivable bound on
@@ -304,12 +335,23 @@ fn every_budget_keeps_the_exact_properties() {
         for session in sessions {
             check_rung(session, reference, no_cost[pair], floor);
         }
-        let (at_floor, below_floor) = (&sessions[0], &sessions[LADDER.len()]);
-        assert_eq!(
-            below_floor.report, at_floor.report,
-            "a budget below the floor allowance runs otherwise than one at it: {:?}",
-            below_floor.case,
+        let at_minimum = &sessions[MINIMUM_RUNG];
+        let below_minimum: Vec<_> = sessions
+            .iter()
+            .filter(|session| requested(&session.case) < MIN_SYNC_MEMORY_BUDGET)
+            .collect();
+        assert!(
+            below_minimum.len() >= 2,
+            "the rungs at F and at F / 2 lie below the minimum: {:?}",
+            reference.case,
         );
+        for session in below_minimum {
+            assert_eq!(
+                session.report, at_minimum.report,
+                "a budget below the minimum runs otherwise than the minimum: {:?}",
+                session.case,
+            );
+        }
         assert!(
             sessions.iter().any(|session| session.admitted.waited() > 0),
             "some rung must constrain the session, or the ladder judges only \

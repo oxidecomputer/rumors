@@ -702,16 +702,45 @@ impl AssembledSubtree {
     }
 }
 
+/// The largest grant any unit of work can take in a session over the
+/// in-memory replica: a bound on every charge its ledger holds.
+///
+/// It is a type maximum, computed from sizes and capacities, and a session's
+/// own grants are usually far smaller.
+pub const LARGEST_GRANT: usize = crate::tree::mirror::streaming::materialized::largest_grant::<
+    <Local as Backend>::Erased,
+    <Local as Backend>::Error,
+>();
+
 /// The floor allowance of a session over the in-memory replica: the most
 /// its floor slots can hold at once, which its memory budget sets aside
 /// for them, so its ledger admits work against the budget less this.
 ///
-/// A budget at or below it admits work through the floor slots alone.
+/// A memory budget at or below it, which only [`ledger_budget`] reaches,
+/// admits work through the floor slots alone.
 pub fn floor_allowance() -> usize {
     crate::tree::mirror::streaming::materialized::floor_allowance::<
         <Local as Backend>::Erased,
         <Local as Backend>::Error,
     >()
+}
+
+/// Set the budget `peer`'s sessions' ledgers admit work against to exactly
+/// `bytes`, beside the floor allowance ([`floor_allowance`]), saturating
+/// at `usize::MAX` in all.
+///
+/// Unlike [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget),
+/// which raises a budget to
+/// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), this reaches
+/// ledger budgets below the largest grant, zero included: the floor-only
+/// configuration the liveness argument rests on, and the starved regime
+/// the budget analyses probe.
+pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
+    mut peer: crate::Peer<T, B>,
+    bytes: usize,
+) -> crate::Peer<T, B> {
+    peer.sync_memory_budget = floor_allowance().saturating_add(bytes);
+    peer
 }
 
 /// Unit tests for this support module.

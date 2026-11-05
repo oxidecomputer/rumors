@@ -179,8 +179,9 @@ pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
 
 /// Join the parent's network with an independent peer holding its messages.
 ///
-/// The new peer runs a budget of zero to exercise backpressure. The
-/// shared driver checks that bootstrap completes and drains the connection.
+/// The new peer runs a ledger budget of zero ([`BudgetChoice::Zero`]) to
+/// exercise backpressure. The shared driver checks that bootstrap completes
+/// and drains the connection.
 #[track_caller]
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
