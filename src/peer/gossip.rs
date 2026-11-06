@@ -626,7 +626,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         // the consumed Peer keeps its whole party.
         let mut guarded = ForkGuard {
             fork: None,
-            recover: self.inner.clone(),
+            recover: &self.inner,
         };
         let mut prior_tree = None;
         {
@@ -1139,20 +1139,25 @@ struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
 ///
 /// A fork restored after its removal reached storage stays unrecorded until
 /// the peer's next checkpoint, so a crash before then would drop it forever.
-struct ForkGuard<T: Send + Sync + 'static> {
+struct ForkGuard<'a, T: Send + Sync + 'static> {
     /// The unsent fork and its hold on reclamation.
     fork: Option<(Party, Reservation)>,
     /// The replica from which the fork was split.
-    recover: watch::Sender<Inner<T>>,
+    ///
+    /// Borrowed rather than a sender of its own: every session builds this
+    /// guard, and a session future leaked instead of dropped never drops
+    /// it, so an owned sender would keep the replica's observers waiting
+    /// after every handle is gone.
+    recover: &'a watch::Sender<Inner<T>>,
 }
 
 /// Return an abandoned fork without waking content observers.
-impl<T: Send + Sync + 'static> Drop for ForkGuard<T> {
+impl<T: Send + Sync + 'static> Drop for ForkGuard<'_, T> {
     /// Rejoin the disjoint fork on cancellation, failure, or unwind.
     fn drop(&mut self) {
         if let Some((party, _reservation)) = self.fork.take() {
             // Hold the reservation until the fork is back in the writable party.
-            Inner::update_party(&self.recover, |inner| {
+            Inner::update_party(self.recover, |inner| {
                 // This fork came from the resident party. Overlap indicates a
                 // custody bug; it must not silently discard identity space.
                 assert!(

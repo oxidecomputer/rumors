@@ -70,7 +70,7 @@ proptest! {
         Inner::update_party(&provider.inner, |inner| {
             donation = Some(inner.reserve());
         });
-        drop(ForkGuard { fork: donation, recover: provider.inner.clone() });
+        drop(ForkGuard { fork: donation, recover: &provider.inner });
         prop_assert_eq!(party_of(&provider), original_party);
         prop_assert!(provider.snapshot() == before);
         prop_assert!(!changes.has_changed().unwrap());
