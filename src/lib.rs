@@ -17,11 +17,26 @@
 //! **If bandwidth is abundant and latency matters.**
 //!
 //! Most gossip protocols are designed to be thrifty with bandwidth, trading
-//! increased rounds of communication for smaller metadata overhead. However,
-//! bandwidth is only getting cheaper and more plentiful, whereas *latency* is
-//! capped by the laws of physics. `rumors` is designed for today and tomorrow;
-//! it optimizes for extremely fast convergence when bandwidth is not a primary
-//! constraint.
+//! more rounds of communication for less metadata. But bandwidth keeps getting
+//! cheaper and more plentiful, while *latency* is capped by the laws of physics.
+//! `rumors` makes the opposite trade: it spends bandwidth to save round trips.
+//! In practice, that means:
+//!
+//! - **A sync costs what differs, not what you hold.** Two peers that already
+//!   agree confirm it in two round trips and a few kilobytes, whether they hold
+//!   a hundred messages or a million. When they differ, the work grows with the
+//!   differences, so frequent syncs between mostly-converged peers stay cheap.
+//! - **Distance adds a few round trips, not a multiple.** Neither peer waits
+//!   for the other to finish a turn: both keep questions and answers in flight
+//!   at once. A long link therefore adds a small, roughly fixed number of round
+//!   trips to a sync, rather than slowing every step of it.
+//! - **Large catch-ups run as fast as the hardware allows.** A peer that is far
+//!   behind receives what it lacks at the speed of the link, or of its CPU on
+//!   fast links, not at the pace of a conversation.
+//! - **Memory stays bounded without costing speed.** Each sync works within a
+//!   memory budget ([`Peer::sync_memory_budget`]), and at the default budget a
+//!   sync runs as fast as it would with no limit. The [sizing guide](sizing)
+//!   says how small a budget can go before syncs slow down.
 //!
 //! # When *shouldn't* you use it?
 //!
