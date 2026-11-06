@@ -16,7 +16,7 @@ use crate::{
             backend::{BoxNodeStream, NodeStream},
             byte_set::ByteSet,
             convert::Convert,
-            holding::{Holding, held_by},
+            holding::Holding,
         },
         typed::{
             self, ErasedPrefix, Path, Prefix, SortedRun,
@@ -72,7 +72,7 @@ impl ErasedNode for typed::ErasedView {
     /// For the session-budget meter, computing it is hashing's own work
     /// ([`Holding::Hashing`]), whichever place's code read it.
     fn hash(&self, at: &ErasedPrefix, key: &typed::HashKey) -> typed::Hash {
-        held_by(Holding::Hashing, || self.at(at).hash(key))
+        Holding::Hashing.create(|| self.at(at).hash(key))
     }
 
     /// Return the stored leaf count.
@@ -99,7 +99,7 @@ impl ErasedNode for typed::ErasedView {
     /// ([`Holding::Hashing`]), as [`hash`](ErasedNode::hash) is: the counts
     /// beside the digest allocate nothing.
     fn summary(&self, at: &ErasedPrefix, key: &typed::HashKey) -> Summary {
-        held_by(Holding::Hashing, || {
+        Holding::Hashing.create(|| {
             let view = self.at(at);
             Summary {
                 hash: view.hash(key),

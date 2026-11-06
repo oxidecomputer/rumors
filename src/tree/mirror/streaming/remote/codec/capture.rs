@@ -161,7 +161,7 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
         assert!(previous.is_none(), "duplicate captured stream index");
     }
     for stream in streams.values() {
-        let speaker = speaker(stream.speaker);
+        let speaker = Speaker::from(stream.speaker);
         let wire_stream = Stream::new(stream.index).expect("hook stream index names a stream");
         writeln!(
             out,
@@ -175,14 +175,6 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
         for (index, item) in stream.items.iter().enumerate() {
             render_frame(speaker, wire_stream, index, item, out);
         }
-    }
-}
-
-/// The elected role, in the codec's speaker vocabulary.
-fn speaker(role: Role) -> Speaker {
-    match role {
-        Role::Initiator => Speaker::Initiator,
-        Role::Responder => Speaker::Responder,
     }
 }
 

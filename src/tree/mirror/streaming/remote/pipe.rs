@@ -176,7 +176,7 @@ use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
     FAN,
     channel::{QueueKind, QueueRole, Receiver, Sender, channel},
-    holding::{Holding, holding},
+    holding::Holding,
     ledger::{Charge, queued, shared},
     stats::{CountedRead, CountedWrite, Recorder},
     tasks::cancelled,
@@ -437,7 +437,7 @@ impl Outgoing {
             charge,
             permit,
         };
-        holding(place, send_or_cancel(&mut self.frames, item)).await;
+        place.creating(send_or_cancel(&mut self.frames, item)).await;
     }
 
     /// End this logical stream after its last reply, if it carried any.
@@ -451,7 +451,9 @@ impl Outgoing {
                 charge: Charge::default(),
                 permit: WirePermit::default(),
             };
-            holding(Holding::Wire, send_or_cancel(&mut self.frames, item)).await;
+            Holding::Wire
+                .creating(send_or_cancel(&mut self.frames, item))
+                .await;
         }
     }
 }
@@ -1307,7 +1309,8 @@ impl Demultiplexer {
         }
         *started = true;
         let place = node_place(&inbound.frame, Holding::ParkedReplies);
-        holding(place, frames.send(inbound))
+        place
+            .creating(frames.send(inbound))
             .await
             .map_err(|_| unasked())
     }

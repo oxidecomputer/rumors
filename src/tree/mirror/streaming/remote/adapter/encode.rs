@@ -10,7 +10,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf, Node,
         erased::{Reaction as ProtocolReaction, Reply, ops},
-        holding::{Holding, held_by},
+        holding::Holding,
         ledger::Charge,
     },
     typed::{ErasedPrefix, Path, Prefix, height::Z},
@@ -258,7 +258,7 @@ where
                         (WireReaction::Match(later), None, WirePermit::default())
                     }
                     ProtocolReaction::Query(listing) => {
-                        let question = held_by(Holding::QuestionRecords, || {
+                        let question = Holding::QuestionRecords.create(|| {
                             level.derive(&mut positions, &listing)
                         })?;
                         (WireReaction::Query(listing), Some(question), WirePermit::default())

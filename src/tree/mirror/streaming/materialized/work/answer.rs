@@ -13,7 +13,7 @@ use crate::{
             Backend, ErasedNode, FAN, Leaf,
             byte_set::ByteSet,
             erased::{Reaction, ops},
-            holding::{Holding, held_by, holding},
+            holding::Holding,
             ledger::{Charge, ReplyBound, buffer},
             materialized::{
                 Error, Query, Resolve, Violation, fan_listing, hash_key,
@@ -199,7 +199,7 @@ impl<E, Q> Chunks<E, Q> {
             .iter()
             .take_while(|planned| matches!(planned, Planned::Ready(_)))
             .count();
-        let mut leading = held_by(Holding::OutgoingReplies, || Vec::with_capacity(ready + 1));
+        let mut leading = Holding::OutgoingReplies.create(|| Vec::with_capacity(ready + 1));
         for planned in self.planned.by_ref() {
             match planned {
                 // The plan's one match carries the children it covers, set
@@ -207,12 +207,12 @@ impl<E, Q> Chunks<E, Q> {
                 // them.
                 Planned::Ready(Reaction::Match(_)) => {
                     let later = std::mem::take(&mut self.later);
-                    held_by(Holding::OutgoingReplies, || {
+                    Holding::OutgoingReplies.create(|| {
                         leading.push(Reaction::Match(LaterMatches::new(later)));
                     });
                 }
                 Planned::Ready(reaction) => {
-                    held_by(Holding::OutgoingReplies, || leading.push(reaction));
+                    Holding::OutgoingReplies.create(|| leading.push(reaction));
                 }
                 Planned::Ask(ask) => {
                     self.done = self.planned.len() == 0;
@@ -365,11 +365,9 @@ where
             EitherOrBoth::Left((radix, node)) => {
                 differed = true;
                 let child = prefix.push(radix);
-                let survivor = holding(
-                    Holding::OutgoingReplies,
-                    unknown(backend, their_version, child, node, stats),
-                )
-                .await?;
+                let survivor = Holding::OutgoingReplies
+                    .creating(unknown(backend, their_version, child, node, stats))
+                    .await?;
                 if let Some(survivor) = &survivor {
                     planned.push(Planned::Ready(Reaction::Supply(radix, survivor.clone())));
                 }
@@ -485,21 +483,20 @@ where
             let child = prefix.push(radix);
             // The node is kept for the child scope's assembly.
             let original = node.clone();
-            let ours = holding(Holding::Questions, ops::children_of(backend, child, node)).await?;
+            let ours = Holding::Questions
+                .creating(ops::children_of(backend, child, node))
+                .await?;
             (child, Some(original), ours, theirs)
         }
         Question::Request { radix, theirs } => (prefix.push(radix), None, Vec::new(), theirs),
     };
-    let reaction = held_by(Holding::OutgoingReplies, || {
-        fan_listing(child, &ours, keys).map(Reaction::Query)
-    })
-    .map_err(Error::Count)?;
+    let reaction = Holding::OutgoingReplies
+        .create(|| fan_listing(child, &ours, keys).map(Reaction::Query))
+        .map_err(Error::Count)?;
     let bound = ReplyBound::of(child.height(), ours.len(), theirs);
     let record = charges::record(grant, child.height(), bound, ours.len());
     let room = charges::room::<B::Erased>(grant, bound, ours.len());
-    let query = held_by(Holding::Questions, || {
-        charges::query(grant, child, original, ours, bound)
-    });
+    let query = Holding::Questions.create(|| charges::query(grant, child, original, ours, bound));
     Ok((reaction, query, Carried::Question { record, room }))
 }
 
@@ -578,11 +575,11 @@ pub(super) fn leaf_question<E>(
     prefix: ErasedPrefix,
     radix: u8,
 ) -> Built<E, LeafRequest> {
-    let reaction = held_by(Holding::OutgoingReplies, || Reaction::Query(Vec::new()));
+    let reaction = Holding::OutgoingReplies.create(|| Reaction::Query(Vec::new()));
     let record = charges::record(grant, 0, ReplyBound::LEAF, 0);
     // A leaf-parent scope's child prefix is a full 32-byte path: the length
     // witness makes the leaf-height re-tag exact.
-    let (request, room) = held_by(Holding::Questions, || {
+    let (request, room) = Holding::Questions.create(|| {
         let (slot, reservation, room) = charges::leaf_request::<E>(grant);
         ((prefix.push(radix).assume::<Z>(), slot, reservation), room)
     });
@@ -610,7 +607,7 @@ pub(super) fn leaf<E: ErasedNode + Clone>(
     if node.is_none() {
         stats.shed(1);
     }
-    let reactions = held_by(Holding::OutgoingReplies, || {
+    let reactions = Holding::OutgoingReplies.create(|| {
         node.clone()
             .into_iter()
             .map(|leaf| Reaction::Supply(radix, leaf))

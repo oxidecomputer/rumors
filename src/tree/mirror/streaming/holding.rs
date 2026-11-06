@@ -4,9 +4,9 @@
 //! Each endpoint's ledger charges each place a session keeps in-flight state
 //! separately ([`ledger`](super::ledger)). A meter that checks those charges
 //! against the heap must know which place each allocation serves. The session marks the code that allocates for each place with a
-//! [`Holding`]: synchronous work through [`held_by`], and a task or a stream
-//! that allocates for one place throughout through [`holding`] and
-//! [`holding_stream`]. A test installs one hook for its whole process with
+//! [`Holding`]: synchronous work through [`Holding::create`], and a task or a stream
+//! that allocates for one place throughout through [`Holding::creating`] and
+//! [`Holding::creating_stream`]. A test installs one hook for its whole process with
 //! [`attribute_allocations`], and the session calls it around each marked
 //! region, inside which the test labels the allocator's records; the
 //! innermost mark applies.
@@ -144,62 +144,63 @@ pub fn attribute_allocations(hook: Hook) -> bool {
     std::ptr::fn_addr_eq(*HOOK.get_or_init(|| hook), hook)
 }
 
-/// Run `region` as work for `holding`.
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) fn held_by<T>(holding: Holding, region: impl FnOnce() -> T) -> T {
-    let Some(hook) = HOOK.get() else {
-        return region();
-    };
-    let mut region = Some(region);
-    let mut output = None;
-    hook(holding, &mut || {
-        if let Some(region) = region.take() {
-            output = Some(region());
-        }
-    });
-    output.expect("the attribution hook runs its region exactly once")
-}
+impl Holding {
+    /// Run `region` as work for this place: what it allocates counts toward
+    /// this place.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn create<T>(self, region: impl FnOnce() -> T) -> T {
+        let Some(hook) = HOOK.get() else {
+            return region();
+        };
+        let mut region = Some(region);
+        let mut output = None;
+        hook(self, &mut || {
+            if let Some(region) = region.take() {
+                output = Some(region());
+            }
+        });
+        output.expect("the attribution hook runs its region exactly once")
+    }
 
-/// Run `region` as work for `holding`.
-#[cfg(not(any(test, feature = "test-internals")))]
-#[inline(always)]
-pub(crate) fn held_by<T>(_: Holding, region: impl FnOnce() -> T) -> T {
-    region()
-}
+    /// Run `region` as work for this place: what it allocates counts toward
+    /// this place.
+    #[cfg(not(any(test, feature = "test-internals")))]
+    #[inline(always)]
+    pub(crate) fn create<T>(self, region: impl FnOnce() -> T) -> T {
+        region()
+    }
 
-/// Poll `future` as work for `holding`, every poll.
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) async fn holding<F: Future>(holding: Holding, future: F) -> F::Output {
-    let mut future = pin!(future);
-    poll_fn(|cx| held_by(holding, || future.as_mut().poll(cx))).await
-}
+    /// Poll `future` as work for this place, every poll.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) async fn creating<F: Future>(self, future: F) -> F::Output {
+        let mut future = pin!(future);
+        poll_fn(|cx| self.create(|| future.as_mut().poll(cx))).await
+    }
 
-/// Poll `future` as work for `holding`, every poll.
-#[cfg(not(any(test, feature = "test-internals")))]
-#[inline(always)]
-pub(crate) fn holding<F: Future>(_: Holding, future: F) -> F {
-    future
-}
+    /// Poll `future` as work for this place, every poll.
+    #[cfg(not(any(test, feature = "test-internals")))]
+    #[inline(always)]
+    pub(crate) fn creating<F: Future>(self, future: F) -> F {
+        future
+    }
 
-/// Poll `stream` as work for `holding`, every poll.
-#[cfg(any(test, feature = "test-internals"))]
-pub(crate) fn holding_stream<S: Stream>(
-    holding: Holding,
-    stream: S,
-) -> impl Stream<Item = S::Item> {
-    async_stream::stream! {
-        let mut stream = pin!(stream);
-        while let Some(item) =
-            poll_fn(|cx| held_by(holding, || stream.as_mut().poll_next(cx))).await
-        {
-            yield item;
+    /// Poll `stream` as work for this place, every poll.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn creating_stream<S: Stream>(self, stream: S) -> impl Stream<Item = S::Item> {
+        async_stream::stream! {
+            let mut stream = pin!(stream);
+            while let Some(item) =
+                poll_fn(|cx| self.create(|| stream.as_mut().poll_next(cx))).await
+            {
+                yield item;
+            }
         }
     }
-}
 
-/// Poll `stream` as work for `holding`, every poll.
-#[cfg(not(any(test, feature = "test-internals")))]
-#[inline(always)]
-pub(crate) fn holding_stream<S: Stream>(_: Holding, stream: S) -> S {
-    stream
+    /// Poll `stream` as work for this place, every poll.
+    #[cfg(not(any(test, feature = "test-internals")))]
+    #[inline(always)]
+    pub(crate) fn creating_stream<S: Stream>(self, stream: S) -> S {
+        stream
+    }
 }

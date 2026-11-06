@@ -39,7 +39,6 @@ use std::task::{Context, Poll};
 use futures::{Stream, StreamExt as _, channel::mpsc, future::poll_fn};
 
 #[cfg(any(test, feature = "test-internals"))]
-use super::super::holding::held_by;
 #[cfg(any(test, feature = "test-internals"))]
 use super::QueueKind;
 
@@ -148,7 +147,7 @@ impl<T> Sender<T> {
     fn queue(&mut self, item: T) -> Result<(), mpsc::TrySendError<T>> {
         #[cfg(any(test, feature = "test-internals"))]
         if let Some(holding) = self.kind.and_then(QueueKind::holding) {
-            return held_by(holding, || self.inner.try_send(item));
+            return holding.create(|| self.inner.try_send(item));
         }
         self.inner.try_send(item)
     }

@@ -148,11 +148,24 @@ impl Speaker {
         }
     }
 
-    /// This role in the observation hook's public vocabulary.
+    /// This role in the observation hook's public vocabulary. Inverse to
+    /// `Speaker::from`.
     pub(crate) fn role(self) -> Role {
         match self {
             Speaker::Initiator => Role::Initiator,
             Speaker::Responder => Role::Responder,
+        }
+    }
+}
+
+/// Name an elected role by its speaker, as the codec does. Inverse to
+/// [`Speaker::role`].
+impl From<Role> for Speaker {
+    /// The speaker that `role` sends as.
+    fn from(role: Role) -> Self {
+        match role {
+            Role::Initiator => Speaker::Initiator,
+            Role::Responder => Speaker::Responder,
         }
     }
 }

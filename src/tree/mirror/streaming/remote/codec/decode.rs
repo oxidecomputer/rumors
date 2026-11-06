@@ -23,7 +23,7 @@ use super::{
 };
 use crate::tree::mirror::streaming::{
     byte_set::{ByteSet, ByteSetError, MAX_ENCODED_LEN},
-    holding::{Holding, held_by},
+    holding::Holding,
     message::LaterMatches,
 };
 #[cfg(test)]
@@ -323,7 +323,7 @@ pub(super) fn match_set_len(head: cbor::Head) -> Result<usize, DecodeErrorKind> 
 pub(super) fn later_matches(bytes: &[u8]) -> Result<LaterMatches, DecodeErrorKind> {
     let set = ByteSet::decode(bytes).map_err(DecodeErrorKind::InvalidMatchSet)?;
     debug_assert!(!set.is_empty(), "the body's length was checked nonzero");
-    Ok(held_by(Holding::ParkedReplies, || LaterMatches::new(set)))
+    Ok(Holding::ParkedReplies.create(|| LaterMatches::new(set)))
 }
 
 /// Open a query body: its head must be a nonempty listing map (an empty
@@ -339,10 +339,9 @@ pub(super) fn query_listing(
     }
     // An incoming query's listing parks with its reply, so the
     // session-budget meter counts it there.
-    held_by(Holding::ParkedReplies, || {
-        super::frame::ListingBuilder::new(head.value)
-    })
-    .map_err(listing_issue)
+    Holding::ParkedReplies
+        .create(|| super::frame::ListingBuilder::new(head.value))
+        .map_err(listing_issue)
 }
 
 /// Open a supply body: the run's embedded-sequence tag and byte-string

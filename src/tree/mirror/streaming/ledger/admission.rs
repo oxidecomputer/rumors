@@ -582,7 +582,7 @@ use std::task::{Context, Poll, Waker};
 
 use super::{Account, Charge, widen};
 use crate::counter;
-use crate::tree::mirror::streaming::holding::{Holding, held_by};
+use crate::tree::mirror::streaming::holding::Holding;
 
 /// The depths a scope can sit at, the root's 0 through the leaves' 32.
 pub(super) const DEPTHS: usize = 33;
@@ -1025,7 +1025,7 @@ fn decide(
 /// own ([`Holding::Admission`]), whichever place's release called it.
 fn reconsider(account: &Arc<Account>) {
     let queue = lock(&account.admission);
-    held_by(Holding::Admission, || admit_waiting(account, queue));
+    Holding::Admission.create(|| admit_waiting(account, queue));
 }
 
 /// Return the `bytes` a dropped charge for `place` holds, then admit every
@@ -1046,7 +1046,7 @@ pub(super) fn release(
 ) {
     let mut queue = lock(&account.admission);
     account.sub(&mut queue.counts, place, bytes, unit);
-    held_by(Holding::Admission, || admit_waiting(account, queue));
+    Holding::Admission.create(|| admit_waiting(account, queue));
 }
 
 /// Note that this side's stage has finished a reply to a question about a
@@ -1063,7 +1063,7 @@ pub(super) fn processed(account: &Arc<Account>, depth: usize, need: usize, claim
         .get(depth + 1)
         .map_or(0, |kept| kept.load(Ordering::Relaxed));
     queue.share.finish(depth, need, claimed, answers);
-    held_by(Holding::Admission, || admit_waiting(account, queue));
+    Holding::Admission.create(|| admit_waiting(account, queue));
 }
 
 /// Add the `bytes` an item for `place` needed beyond the grant it was built
@@ -1345,7 +1345,7 @@ impl Admit {
             bytes,
             need,
         };
-        held_by(Holding::Admission, || Self::queue(account, request))
+        Holding::Admission.create(|| Self::queue(account, request))
     }
 
     /// Admit a unit at once or queue it ([`Admit::new`]).
@@ -1411,7 +1411,7 @@ impl Future for Admit {
             Admitting::Queued(waiter) => {
                 let mut state = lock(&waiter.state);
                 let Some(grant) = state.grant.take() else {
-                    state.waker = Some(held_by(Holding::Admission, || cx.waker().clone()));
+                    state.waker = Some(Holding::Admission.create(|| cx.waker().clone()));
                     drop(state);
                     self.state = Some(Admitting::Queued(waiter));
                     return Poll::Pending;

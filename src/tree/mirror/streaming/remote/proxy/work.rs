@@ -23,7 +23,7 @@ use crate::{
             Backend, Leaf,
             channel::{Receiver, Sender},
             erased,
-            holding::{Holding, holding, holding_stream},
+            holding::Holding,
             materialized::{SupplyLedger, derived_bytes},
             protocol::BoxResponses,
             remote::{
@@ -233,15 +233,15 @@ where
         // its work is the parked replies' unless it marks otherwise; the
         // take derives question records.
         self.spawn(
-            TaskRole::Decoder { height: H::HEIGHT }.paced(holding(
-                Holding::ParkedReplies,
-                self.ingress()
-                    .decode_and_park(level, questions, incoming, parking),
-            )),
+            TaskRole::Decoder { height: H::HEIGHT }.paced(
+                Holding::ParkedReplies.creating(
+                    self.ingress()
+                        .decode_and_park(level, questions, incoming, parking),
+                ),
+            ),
         );
-        Box::pin(holding_stream(
-            Holding::QuestionRecords,
-            async_stream::stream! {
+        Box::pin(
+            Holding::QuestionRecords.creating_stream(async_stream::stream! {
                 let mut taking = None;
                 while let Some(Parked { chunk, opens }) = parked.recv().await {
                     let opening = opens.is_some();
@@ -285,8 +285,8 @@ where
                     }
                     yield Ok(erased::assume_reply::<B, H>(chunk));
                 }
-            },
-        ))
+            }),
+        )
     }
 
     /// Drive the protocol and the pipe together, as members of one task set
@@ -333,15 +333,17 @@ where
         } = physical;
         let mut read = PipeRead::new(read);
         async move {
-            let send = holding(
-                Holding::Wire,
-                multiplexer.run(&mut write, remote.other(), stats.clone(), &observe),
-            )
-            .map_err(|error| Error::Pipe(error.into()));
-            let receive = holding(
-                Holding::Wire,
-                demultiplexer.run(&mut read, remote, budget, &pools.receiving, stats, &observe),
-            );
+            let send = Holding::Wire
+                .creating(multiplexer.run(&mut write, remote.other(), stats.clone(), &observe))
+                .map_err(|error| Error::Pipe(error.into()));
+            let receive = Holding::Wire.creating(demultiplexer.run(
+                &mut read,
+                remote,
+                budget,
+                &pools.receiving,
+                stats,
+                &observe,
+            ));
             let output = drive::drive(tasks, finish, Box::pin(send), Box::pin(receive)).await?;
             pipe::check_drained(&read, remote).map_err(Error::Pipe)?;
             Ok((output, read, write))

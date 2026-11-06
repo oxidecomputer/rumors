@@ -52,7 +52,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::Sender,
         erased,
-        holding::{Holding, holding_stream},
+        holding::Holding,
         ledger::{Charge, Ledger},
         materialized::{Error, Reserved},
         protocol::BoxResponses,
@@ -148,7 +148,7 @@ where
         let (send, responses) = outgoing_responses::<B, H>();
         self.tasks
             .push(Box::pin(TaskRole::Walk { height: H::HEIGHT }.paced(pump(
-                Box::pin(holding_stream(Holding::Resolutions, messages)),
+                Box::pin(Holding::Resolutions.creating_stream(messages)),
                 send,
                 self.progress,
                 H::HEIGHT,
@@ -166,7 +166,7 @@ where
     ) {
         self.tasks
             .push(Box::pin(TaskRole::Assembly { height }.paced(async move {
-                let mut stream = pin!(holding_stream(Holding::Assembly, stream));
+                let mut stream = pin!(Holding::Assembly.creating_stream(stream));
                 while let Some(item) = stream.next().await {
                     if returns.send(item?).await.is_err() {
                         return Ok(());

@@ -27,7 +27,7 @@ use crate::tree::{
         Backend, ErasedNode, FAN, Leaf, Root,
         channel::{Receiver, Sender},
         erased::{self, Reaction, Reply},
-        holding::{Holding, held_by, holding, holding_stream},
+        holding::Holding,
         ledger::{Charge, Ledger, ReplyBound, Unit},
         materialized::{
             Error, Query, Resolution, SupplyLedger, Violation, fan_listing, progress::Scoped,
@@ -73,7 +73,7 @@ macro_rules! yield_chunk {
         let mut leading = $leading;
         let (question, carried) = match $question {
             Some((reaction, question, carried)) => {
-                held_by(Holding::OutgoingReplies, || leading.push(reaction));
+                Holding::OutgoingReplies.create(|| leading.push(reaction));
                 (Some(question), carried)
             }
             None => (None, Carried::Nothing),
@@ -388,13 +388,13 @@ where
             let OpeningAdvance { mut grant, room } = advance;
             progress.wire(root_scope);
             let bound = ReplyBound::of(root_scope.height(), fan.len(), responder);
-            let listing = held_by(Holding::OutgoingReplies, || {
+            let listing = Holding::OutgoingReplies.create(|| {
                 fan_listing(root_scope, &fan, keys.as_deref()).map(|listing| vec![Reaction::Query(listing)])
             })
             .map_err(Error::Count)?;
             let record = charges::record(&mut grant, root_scope.height(), bound, fan.len());
             let query = charges::query(&mut grant, root_scope, root, fan, bound);
-            yield held_by(Holding::OutgoingReplies, || {
+            yield Holding::OutgoingReplies.create(|| {
                 charges::chunk::<B>(&mut grant, listing, true, Carried::Question { record, room })
             });
             drop(grant);
@@ -558,10 +558,8 @@ where
         };
 
         let (returns, returns_rx) = responder_root_returns::<B>();
-        let assembled = holding_stream(
-            Holding::Assembly,
-            assemble(assembling, resolution_rx, returns_rx),
-        );
+        let assembled =
+            Holding::Assembly.creating_stream(assemble(assembling, resolution_rx, returns_rx));
         let finish = Box::pin(async move {
             let mut assembled = pin!(assembled);
             let root = next_or_cancelled(assembled.next()).await;
@@ -718,12 +716,9 @@ where
                             node.child_count(&child_prefix).min(FAN),
                         );
                         let mut grant = account.admit(Unit::Answer, depth, bytes).await;
-                        let (node, children) = holding(
-                            Holding::OutgoingReplies,
-                            unknown_providing(&backend, &their_version, child_prefix, node, &stats),
-                        )
+                        let (node, children) = Holding::OutgoingReplies.creating(unknown_providing(&backend, &their_version, child_prefix, node, &stats))
                         .await?;
-                        let reactions = held_by(Holding::OutgoingReplies, || {
+                        let reactions = Holding::OutgoingReplies.create(|| {
                             children
                                 .into_iter()
                                 .map(|(radix, child)| Reaction::Supply(radix, child))

@@ -377,7 +377,7 @@ impl SentFrames {
         else {
             unreachable!("only sent data frames are recorded")
         };
-        let speaker = speaker(role);
+        let speaker = Speaker::from(role);
         let branch_height = RootHeight::HEIGHT - usize::from(width);
         for index in 0..Stream::COUNT {
             let height = Stream::new(index).unwrap().height(speaker);
@@ -440,20 +440,13 @@ impl StreamObserver for SentStream {
         else {
             unreachable!("only sent data streams are observed")
         };
-        let (stream, frame) = decode_exact(speaker(role), RunBudget::default(), bytes).unwrap();
+        let (stream, frame) =
+            decode_exact(Speaker::from(role), RunBudget::default(), bytes).unwrap();
         assert_eq!(stream.index(), index);
         self.frames.frames.fetch_add(1, Ordering::Relaxed);
         if matches!(frame, Frame::Reaction(..)) {
             self.frames.reactions.lock().unwrap().push(self.id);
         }
-    }
-}
-
-/// Convert an observer role to the codec's corresponding speaker.
-fn speaker(role: Role) -> Speaker {
-    match role {
-        Role::Initiator => Speaker::Initiator,
-        Role::Responder => Speaker::Responder,
     }
 }
 
