@@ -171,12 +171,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         // Concurrent reuniters observe closure together. Only one `take`
         // finds the parked view, so exactly one restores the Peer/Rumors XOR.
         let mut peer = parked.claim()?;
-        // No live future can hold the bookmark lock now: every future that
-        // borrowed a handle of this generation has ended, since the handle
-        // could not otherwise have been consumed or dropped, and a future
-        // owning a handle would have kept the channel open. A held lock
-        // belongs to a leaked future that can never run again.
+        // No session future of this generation can run or be dropped again
+        // now: every future that borrowed a handle has ended, since the
+        // handle could not otherwise have been consumed or dropped, and a
+        // future owning a handle would have kept the channel open. So a held
+        // bookmark lock, or an outstanding fork reservation, belongs to a
+        // leaked future that can never run again, and we release both.
         peer.bookmark = peer.bookmark.release_abandoned_lock();
+        peer.release_abandoned_reservations();
         Some(peer)
     }
 
@@ -484,8 +486,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// inside the storage: a session leaked while a `FileBookmark` load or
     /// store waits behind an earlier one, whose session was cancelled,
     /// leaves every later operation on that bookmark waiting forever. A
-    /// session leaked while serving a joining peer also keeps this replica
-    /// from reclaiming old identity space until it restarts.
+    /// session leaked while serving a joining peer also pauses this
+    /// replica's reclamation of old identity space, and reclaiming the
+    /// `Peer` resumes it.
     pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
         self.try_into_peer_inner().await
     }

@@ -716,7 +716,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             } else {
                 // The removal of the party is now durable, so releasing the
                 // reservation can no longer permit any checkpoint offer this
-                // fork across a restart.
+                // fork across a restart. It is released here, before the
+                // fork's first byte is written, so an outstanding reservation
+                // always belongs to a fork never sent, which is what lets
+                // reunion forget a leaked session's reservation.
                 let (donated, _reservation) = guarded.fork.take().expect("bootstrap fork");
                 party::send(&donated, write, &observe)
             };

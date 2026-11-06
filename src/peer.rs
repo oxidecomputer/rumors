@@ -558,7 +558,8 @@ impl<T: Send + Sync + 'static> Inner<T> {
     }
 
     /// Split off a fork to donate to a bootstrapping counterparty; reclamation
-    /// pauses until the returned reservation drops.
+    /// pauses until the returned reservation drops, or until reunion forgets
+    /// it ([`Reservations::release_abandoned`]).
     fn reserve(&mut self) -> (Party, Reservation) {
         (self.party.fork(), self.reservations.reserve())
     }
@@ -749,7 +750,8 @@ impl<T: Send + Sync + 'static> Peer<T> {
     }
 }
 
-/// Share peer internals when cloning a [`Rumors`] handle.
+/// Share peer internals when cloning a [`Rumors`] handle, and repair what
+/// leaked sessions left behind when reclaiming the peer.
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Share this peer's replica, configuration, and bookmark with a new handle.
     ///
@@ -763,6 +765,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             bookmark: self.bookmark.share(),
             codec: self.codec,
         }
+    }
+
+    /// Forget the fork reservations of session futures that can never run
+    /// again, so that bookmark reclamation resumes.
+    ///
+    /// Call this only on a peer just reclaimed from its handles; see
+    /// [`Reservations::release_abandoned`] for why that is the condition.
+    pub(crate) fn release_abandoned_reservations(&self) {
+        Inner::update_party(&self.inner, |inner| inner.reservations.release_abandoned());
     }
 }
 

@@ -249,6 +249,11 @@ impl Bookmark for NoBookmark {
 /// happens only after the speculative fork rejoins the live party or is
 /// permanently gone from the record. A release that races a checkpoint just
 /// defers reclamation to the next one.
+///
+/// A session future leaked instead of dropped never releases its
+/// reservation, which would pause reclamation for the replica's lifetime.
+/// Reclaiming the peer from its handles forgets such reservations
+/// ([`release_abandoned`](Self::release_abandoned)).
 #[derive(Default)]
 pub(crate) struct Reservations(Arc<()>);
 
@@ -270,6 +275,21 @@ impl Reservations {
         Reservation {
             _hold: Arc::clone(&self.0),
         }
+    }
+
+    /// Forget every outstanding reservation, so that reclamation resumes.
+    ///
+    /// Call this only where no session future that reserved a fork can run or
+    /// be dropped again, such as on a peer just reclaimed from its handles. A
+    /// reservation still outstanding there belongs to a leaked future, and
+    /// forgetting it cannot hand a party out twice. That future's fork was
+    /// never sent, because a session releases its reservation before it
+    /// writes the first byte of the fork, and the future can never send the
+    /// fork or rejoin it now. So no live peer holds that region or ever will,
+    /// and a checkpoint that reclaims it from an identity still recording it
+    /// gives it to the live party alone.
+    pub(crate) fn release_abandoned(&mut self) {
+        *self = Self::default();
     }
 
     /// Whether no fork is currently reserved, so that reclamation may proceed.
