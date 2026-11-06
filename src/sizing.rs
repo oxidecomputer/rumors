@@ -101,12 +101,14 @@
 //!
 //! The link sets how much a session loses when its budget falls short of
 //! what it can use. On a LAN (1 Gb/s with a 1 ms round trip) a session
-//! loses at most a few percent: its questions' answers return quickly, and
-//! the link stays busy. On a link with a long round trip, each question
-//! that waits for budget waits a whole round trip, and a session of a few
-//! round trips feels each one: at a million messages and a 12.5 MB BDP, a
-//! session can take up to about three times as long until its budget nears
-//! the point where nothing waits.
+//! loses little: its questions' answers return quickly, and the link stays
+//! busy. Two replicas of a million messages that differ throughout took as
+//! long at the smallest budget as with no limit, to within a hundredth of
+//! a percent. On a link with a long round trip, each question that waits
+//! for budget waits a whole round trip, and a session of a few round trips
+//! feels each one: the same replicas on a 12.5 MB BDP took about 14.5
+//! times as long at the smallest budget as with no limit, and less as the
+//! budget nears the point where nothing waits.
 //!
 //! How much budget a session can use grows with how much of the two sets
 //! differs. Replicas that agree, or a peer joining with an empty replica,
@@ -114,8 +116,5 @@
 //! replicas that differ throughout, as when a peer has fallen far behind or
 //! two peers accumulated many messages apart, can use a few hundred bytes
 //! of budget for every message the larger replica holds before nothing
-//! waits: about 400 at a million messages, a little more on links with a
-//! long round trip. Replicas that share most of their messages use less:
-//! about 200 to 300 bytes a message when they share 90%, and 50 to 120
-//! when they share 99%. Measure your workload rather than relying on these
-//! figures.
+//! waits, and replicas that share most of their messages use less. Measure
+//! your workload rather than relying on this guide's figures.
