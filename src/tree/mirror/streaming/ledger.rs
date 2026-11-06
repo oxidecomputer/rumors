@@ -33,9 +33,12 @@
 //!   derives its part, returned once this side's encoder has answered that
 //!   record's question, and the parent resolution's part moves into that
 //!   resolution and returns at assembly.
-//! - **Fixed state**, which every session sets up whatever it compares:
-//!   wire buffering, decode fans, assembly's queues and spines, and tasks.
-//!   The ledger charges none of it; it is a constant beside the ledger.
+//! - **The session allowance**, beside the ledger: the fixed state every
+//!   session sets up whatever it compares (the pipe's buffers and lanes,
+//!   decode fans, assembly's queues and spines, hashing, and the stages'
+//!   scratch) and the wire pools, which bound the supply runs on their way
+//!   through the pipe. The ledger charges none of it. The session's tasks
+//!   are outside both.
 //!
 //! The ledger's account therefore covers the session's transient heap,
 //! less the fixed state and the scratch each stage fills for the one scope

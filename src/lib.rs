@@ -425,8 +425,8 @@ pub use message::EncodeError;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    Bootstrap, Gossip, Gossiped, Joined, Led, MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET, Peer,
-    Retire, SynchronizationSettings, Unbookmarked,
+    Bootstrap, Gossip, Gossiped, Joined, Led, MAX_BUDGETED_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
+    MIN_SYNC_MEMORY_BUDGET, Peer, Retire, SynchronizationSettings, Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

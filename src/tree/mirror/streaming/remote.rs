@@ -86,7 +86,9 @@ pub(crate) use error::streaming_error;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use pipe::LANE_CAPACITY;
 pub(crate) use pipe::WRITE_BUFFER_BYTES;
-pub(crate) use pipe::{Inbound, Outbound, fixed_wire_bytes, wire_pools_bytes};
+pub(crate) use pipe::{
+    Inbound, Outbound, budgeted_message_bytes, fixed_wire_bytes, wire_pools_bytes,
+};
 #[cfg(any(test, feature = "test-internals"))]
 pub use pipe::{MultiplexerHook, MultiplexerPoll, observe_multiplexers};
 pub use pipe::{PipeRead, WriteBatch};

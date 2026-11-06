@@ -15,11 +15,12 @@
 //! Choosing a synchronization memory budget.
 //!
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets the
-//! memory you are willing to spend on pipelining: on keeping questions in
+//! most memory a session holds, its messages on their way included. Beyond
+//! what every budget sets aside, it buys room for keeping questions in
 //! flight while their answers cross the link, so that a session overlaps
-//! its round trips instead of waiting out each one. The setter documents
-//! what the budget covers, what it does not, and how closely a session
-//! keeps to it.
+//! its round trips instead of waiting out each one. The
+//! setter documents what the budget covers, what it does not, and how
+//! closely a session keeps to it.
 //!
 //! # What the budget buys
 //!
@@ -31,15 +32,14 @@
 //! answer it invites.
 //!
 //! - **Every budget sets aside** room for one question and one answer at
-//!   each level of the session's comparison, so that the session always
-//!   makes progress: the *floor allowance*, the most that work can hold,
-//!   about 26.5 MiB on the in-memory replica on 64-bit targets, whatever the
-//!   sets' sizes. Every budget also sets aside room for the session's fixed
-//!   state, which it holds whatever the budget: the *fixed allowance*,
-//!   about 7 MiB; and for the messages on their way through the
+//!   each level of the session's comparison, so that it always makes
+//!   progress: about 26.5 MiB, the most that work can hold, though it
+//!   realistically holds a megabyte or two. Every budget also sets aside
+//!   room for the session's fixed state, which it holds whatever the
+//!   budget, about 7 MiB, and for the messages on their way through the
 //!   connection, about two messages' worth at the message-size target in
-//!   each direction, about 5.7 MiB at the default target. A session admits
-//!   the rest of its work against what remains of the budget.
+//!   each direction, about 5.7 MiB at the default target. The setter's
+//!   documentation says more.
 //! - **The smallest budget,**
 //!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), adds room
 //!   for the largest single question or answer beside what every budget
@@ -62,11 +62,12 @@
 //!
 //! # Choosing a budget
 //!
-//! Choose the budget as the memory you are willing to let one session spend
-//! on pipelining, and multiply it by the sessions you run at once. Leave
-//! room besides for the replica, its growth from what sessions receive,
-//! observers, and your transport's buffers; the setter's documentation
-//! lists what the budget covers.
+//! Choose the budget as the memory you are willing to let one session hold
+//! for its work in flight, and multiply it by the sessions you run at once.
+//! Leave room besides for the replica, its growth from what sessions
+//! receive, observers, what each session holds beyond its budget, such as
+//! its tasks and any message larger than the budget covers (the setter's
+//! documentation lists each), and your transport's buffers.
 //!
 //! Start from the default of 512 MiB if you can afford it. Lower it when
 //! memory is scarce: a smaller budget is still correct, and only limits how

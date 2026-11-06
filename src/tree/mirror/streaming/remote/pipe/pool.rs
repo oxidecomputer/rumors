@@ -108,6 +108,24 @@ const fn pool_bytes(target: usize, runs: usize, node: usize) -> usize {
     (permits(run.saturating_mul(runs)) as usize).saturating_mul(PERMIT_BYTES)
 }
 
+/// The largest message of supplied records, framing included, that both
+/// wire pools at the message-size target `target` cover: the bytes of each
+/// pool less its run's node, the smaller of the two.
+///
+/// A run holds a permit for its buffer and its node, and its buffer is no
+/// larger than its message, so a run in a message of at most this many
+/// bytes takes at most its pool, in either direction; a larger one, which
+/// only a lone record makes, takes the whole pool and holds its excess
+/// beside it.
+pub(crate) const fn budgeted_message_bytes(target: usize) -> usize {
+    let sending = pool_bytes(target, WIRE_POOL_RUNS, queued::<Outbound>());
+    let receiving = pool_bytes(target, WIRE_POOL_RUNS, queued::<Inbound>());
+    min(
+        sending.saturating_sub(queued::<Outbound>()),
+        receiving.saturating_sub(queued::<Inbound>()),
+    )
+}
+
 /// The bytes the two wire pools of a session at the peer's own
 /// message-size target `target` stand for together: the send pool's and
 /// the receive pool's.

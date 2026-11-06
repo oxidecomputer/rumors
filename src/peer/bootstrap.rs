@@ -175,7 +175,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Set the joined peer's pipelining memory budget.
     ///
     /// Bootstrap receives into an empty replica and has no disputed subtrees
-    /// to pipeline. This budget takes effect on its later synchronizations;
+    /// to pipeline, so the join's own session holds little beyond what every
+    /// budget sets aside, its room for messages on their way included; the
+    /// budget matters most to its later synchronizations.
     /// [`target_message_size`](Self::target_message_size) bounds bootstrap's
     /// supply runs. As with [`Peer::sync_memory_budget`], a session raises
     /// a budget below the minimum for the

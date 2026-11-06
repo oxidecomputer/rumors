@@ -186,7 +186,9 @@ mod pool;
 
 #[cfg(test)]
 pub(crate) use pool::{PERMIT_BYTES, receive_waits};
-pub(crate) use pool::{WIRE_POOL_RUNS, WirePermit, WirePool, WirePools, wire_pools_bytes};
+pub(crate) use pool::{
+    WIRE_POOL_RUNS, WirePermit, WirePool, WirePools, budgeted_message_bytes, wire_pools_bytes,
+};
 
 use super::codec::{
     DecodeError, DecodeErrorKind, EncodeError, End, FULL_FAN_QUERY_FRAME_LEN, Frame, FrameRead,

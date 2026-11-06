@@ -12,7 +12,10 @@ use before::Party;
 use proptest::prelude::*;
 use tokio::sync::watch;
 
-use super::{Inner, MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET, OPTIMISTIC_ATTEMPTS, Peer};
+use super::{
+    Inner, MAX_BUDGETED_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET,
+    OPTIMISTIC_ATTEMPTS, Peer,
+};
 use crate::default;
 use crate::message::Message;
 use crate::testing::property::{LOCAL_DIVISOR, divided_proptest, network_seed};
@@ -331,6 +334,27 @@ fn the_minimum_budget_is_the_documented_figure() {
     assert!(
         (40 * MIB + MIB / 2..41 * MIB + MIB / 2).contains(&MIN_SYNC_MEMORY_BUDGET),
         "the minimum budget is {MIN_SYNC_MEMORY_BUDGET} B, not about 41 MiB",
+    );
+}
+
+/// The largest budgeted message and the room for messages on their way, at
+/// the default target, are the figures their documentation states.
+///
+/// Those are "about 2.9 MiB" and "about 5.7 MiB", on the 64-bit targets the
+/// documentation's figures are measured on.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn the_message_room_is_the_documented_figure() {
+    const MIB: usize = 1 << 20;
+    assert!(
+        (2 * MIB + 4 * MIB / 5..3 * MIB).contains(&MAX_BUDGETED_MESSAGE_SIZE),
+        "the largest budgeted message is {MAX_BUDGETED_MESSAGE_SIZE} B, not about 2.9 MiB",
+    );
+    let pools =
+        crate::tree::mirror::streaming::remote::wire_pools_bytes(default::TARGET_MESSAGE_SIZE);
+    assert!(
+        (5 * MIB + 3 * MIB / 5..5 * MIB + 4 * MIB / 5).contains(&pools),
+        "the room for messages on their way is {pools} B, not about 5.7 MiB",
     );
 }
 

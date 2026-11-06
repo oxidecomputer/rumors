@@ -129,6 +129,10 @@ pub(crate) const fn fixed_allowance<B: Backend<Node<Z>: Leaf>>() -> usize {
 /// The tasks a session runs and what the executor allocates to run them are
 /// outside every allowance: no constant can name an async future's size,
 /// and the task set's and the executor's allocations are theirs to size.
+/// So is what the payload type's deserialization allocates and frees while
+/// a decoder checks a received record, beyond the value it keeps in the
+/// replica: only the payload type sizes it, though a session decodes one
+/// record at a time, since decoding never yields.
 pub(crate) const fn session_allowance<B: Backend<Node<Z>: Leaf>>(target: usize) -> usize {
     fixed_allowance::<B>().saturating_add(wire_pools_bytes(target))
 }
